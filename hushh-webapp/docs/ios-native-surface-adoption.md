@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-04.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-05.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -28,6 +28,12 @@ another navigation stack, WebView, session, or information store.
 - [ProfileAvatarEditor](../components/profile/profile-avatar-editor.tsx) opens an
   in-place DOM photo preview with close and existing Photo options. The preview
   itself neither writes a photo nor opens a picker.
+  Both Chat and the ordinary top-shell Profile action use the shared
+  `ShellActionSurface` avatar variant: a 32-point photo inside a 44-point touch
+  target. Increasing its hit area does not enlarge the image or replace Profile
+  with another native content container. Physical acceptance checks both entry
+  points; source-derived Chromium/WebKit fixtures independently measure the
+  target and photo across 360–1280px widths.
 - [The global Search host](../components/kai/kai-command-bar-global.tsx) is mounted
   on Chat by [Providers](../app/providers.tsx). Native Search opens that existing
   palette; it is not an independent search route or native result engine.
@@ -37,6 +43,44 @@ another navigation stack, WebView, session, or information store.
   retains the shared 44px layout slot and invokes the existing Back handler.
   Release builds, iPad, older wrappers, web and Android keep the web control.
   Capability admission—not installation of a plugin—is the enablement boundary.
+- [NativeChatChrome](../components/app-ui/native-chat-chrome.tsx) adds independent
+  History and Cloud/Puppy presentation leases. The History button uses SwiftUI's
+  standard glass button; the two-value selector uses a standard segmented
+  `Picker`, not a custom imitation. They require the explicit
+  `--hushh-native-chat-chrome` Debug iPhone rehearsal argument. Release and iPad
+  remain on the accepted DOM controls until physical acceptance is complete.
+  Pending History review badges retain DOM presentation. Choices invoke the
+  existing drawer and agent-surface handlers, never a native router.
+  History is currently **not admitted by Chat**, including the Debug pilot:
+  opening the modal retired its native trigger and exposed a different DOM
+  Close. Chat now keeps one shared History/Close presentation for the full
+  lifecycle. The native implementation remains available for bounded testing;
+  re-admission requires an owned, verified Close handoff, not an overlay bypass.
+- [AgentDock](../components/agent/agent-dock.tsx) retains one material Agent Bar
+  across route changes. Canonical Chat projects its existing form into that bar;
+  microphone providers and the voice control remain mounted. Drafts and sends
+  stay in Chat, with no duplicate shell draft store. Switching to active voice
+  hides, rather than remounts, the same text field. Keyboard clearance separates
+  navigation from the shared composer. Embedded workspaces retain their local
+  form. Transcript reservation and reveal use the full retained dock, including
+  the visible voice panel, never the hidden form's zero rectangle. The voice
+  adapter's alternate text field is not presented alongside canonical Chat;
+  its own unsent draft remains with that adapter. Reduced motion removes the
+  short content transition.
+  The portalled field carries its own bounded corners and six-line ceiling,
+  with internal scrolling and 44-point Send/microphone targets; these styles
+  do not depend on a Chat-route ancestor. Chromium/WebKit checks cover narrow
+  widths, long unbroken drafts, multiline growth, shrink-back and input identity.
+  Physical appearance acceptance remains separate from those layout contracts.
+  Voice and the empty composer share a 52px resting frame and the same material
+  and corner radius. Route handoff changes content opacity only; multiline
+  writing still grows within its existing ceiling.
+- [ProfilePaneDrag](../components/app-ui/profile-pane-drag.tsx) tracks a rightward
+  pull of the open Profile sheet and its scrim without moving the app body.
+  The controlled Sheet remains the dismissal, focus and modal authority. Short
+  pulls restore the open pane; fields, controls, vertical scroll, horizontal
+  rails, nested overlays and the keyboard retain their interaction ownership.
+  This is a React presentation adapter, not native Liquid Glass.
 
 Apple recommends standard system controls and reserves Liquid Glass primarily for
 the interactive layer above content. Native material is not equivalent to adding
@@ -77,7 +121,20 @@ also reads committed CSS, closing the interval before React publishes a changed
 projection. Theme-only tab updates do not invalidate intentional tab selections.
 Wrappers lacking version 2 retain DOM controls rather than ignore appearance.
 
-This family owns **no popup**. SwiftUI Menu/pickers and UIKit action sheets remain
+Color roles are projected from the existing CSS authority, not chosen per feature:
+
+| Eligible control | Glass/accent treatment | Enablement |
+| --- | --- | --- |
+| Stationary Back | Standard glass, app accent tint and readable accent-deep glyph | Existing Debug iPhone pilot; release acceptance remains incomplete. |
+| History utility trigger | Standard glass with the shared secondary-label glyph, preserving light OKLCH and dark RGBA opacity | Projection implemented; Chat admission remains off until the Close handoff is verified. |
+| Cloud/Puppy selector and destination tabs | Standard segmented Picker / UIKit tab bar, app accent tint and system labels | Existing selector rehearsal / admitted tab bar; no invented foreground palette. |
+| Future primary toolbar action | Standard prominent glass with app accent; retain authored disabled/busy behavior | Not implemented or admitted. Ordinary form, Connect and Send controls remain React. |
+| Destructive or moving/keyboard-coupled actions | Retain semantic role and existing owner; never recolor destructive actions as brand accents | No global native replacement. |
+
+Unresolved utility colors retain DOM presentation. A changed color invalidates an
+old native choice before observer publication, as do existing theme/owner checks.
+
+These families own **no popup**. SwiftUI menus, presented pickers and UIKit action sheets remain
 unimplemented: removing a hosting view does not prove that a presented popup is
 covered or dismissed. Their popup retirement and interaction-layer ownership must
 be proved before adding them to the capability list.
@@ -94,8 +151,8 @@ than acquire separate native implementations.
 | --- | --- | --- |
 | Bottom navigation — [Navbar](../components/navbar.tsx), [native plugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift) | UIKit on supported iOS; DOM fallback | Implemented. Keep standard appearance and React selection authority. |
 | Top bar, back, Profile — [TopAppBar](../components/app-ui/top-app-bar.tsx), [ShellActionSurface](../components/app-ui/shell-action-surface.tsx) | SwiftUI Back Debug pilot; otherwise DOM | Back interaction verified on iPhone; visual/accessibility promotion remains incomplete. Close/More/utility buttons follow only after full Back acceptance. Retain Profile photos and rich labels. No whole native bar. |
-| Shell option menus — [TopShellDropdown](../components/app-ui/top-shell-dropdown.tsx) | DOM anchored menu/popover | Next: SwiftUI Menu for an admitted stationary native trigger; controlled UIKit action sheet for a DOM trigger. Neither is admitted yet. Preserve selection and focus return. |
-| Section action menus — [ActionMenu](../components/app-ui/action-menu.tsx) | Mobile Sheet; desktop dropdown | Next: native menu/action-sheet adapter for serializable item IDs and labels. Arbitrary React labels stay DOM. Preserve disabled/busy state and separate destructive confirmation. |
+| Shell option menus — [TopShellDropdown](../components/app-ui/top-shell-dropdown.tsx) | DOM anchored menu/popover | Unused candidate, not shipped reuse: the dropdown has no production caller, and the popover's AgentSectionDropdown caller is itself unreferenced. Do not add a native family solely for this abstraction. |
+| Section action menus — [ActionMenu](../components/app-ui/action-menu.tsx) | Mobile Sheet; desktop dropdown | Next menu candidate: the reachable People actions in LocationRedesignHub. Use serializable item IDs and labels; arbitrary React labels stay DOM. Preserve disabled/busy state and separate destructive confirmation. The named-circle-flows instance is not current adoption evidence because its enclosing CirclesSection has no production caller. |
 | Agent/voice controls — [AgentBar](../components/agent/agent-bar.tsx), [OneVoiceControl](../components/one-voice/one-voice-control.tsx) | DOM controls over existing runtime providers | Conditional: launcher/cancel chrome only. Keep tap/hold, slide-to-cancel, recording, readiness and task state with existing owners; retain transcript/waveform content. |
 | Search field and close — [KaiCommandPalette](../components/kai/kai-command-palette.tsx), [SearchClearButton](../components/app-ui/search-clear-button.tsx) | DOM controlled palette | Conditional: native search chrome. Existing query, results and action runtime remain authoritative; prove IME, keyboard and dismissal before replacing the field. |
 | Chat history and connectors — [AgentHistorySidebar](../components/agent/agent-history-sidebar.tsx), [AgentConnectionsDrawer](../components/agent/agent-connections-drawer.tsx) | DOM panels and shared overlays | Conditional: header/close/action controls first. Keep chat list, connector forms, tools and credential handling in existing owners. Do not remount the conversation. |
@@ -110,6 +167,85 @@ than acquire separate native implementations.
 | Cards, tables, charts, avatars, badges, breadcrumbs, separators and typography | [Shared UI primitives](../components/ui/) and feature bodies | Retain content-first surfaces. Chat responses, holdings, Memory and consent records are not glass panels. |
 | Accordion, collapsible, carousel, pagination, sidebar and scroll area | [Shared UI primitives](../components/ui/) | Retain content/navigation semantics unless an individually justified native container is adopted. Do not change scroll ownership with a cosmetic primitive swap. |
 | Command, tooltip, keyboard hints, empty/loading/progress/status | [Shared UI primitives](../components/ui/) | Retain existing semantic feedback and keyboard/accessibility behavior; do not add independent native overlays for every state. |
+
+### Next Stationary Family: Close
+
+The source audit identifies two concrete consumers, not a global button rewrite:
+
+- [ProfilePane](../components/app-ui/profile-pane.tsx): its fixed 44-point header
+  Close is separate from the scrolling body. Admit only settled, nonsecret
+  panels after extending overlay ownership; the current Back adapter correctly
+  rejects all overlays, including Profile. Keep the existing controlled
+  `onOpenChange` and focus-return contract. Credential/security panels stay DOM.
+- [LocationImmersiveMap](../components/one-location/location-immersive-map.tsx):
+  its stationary 56-point exit invokes the existing `closeMap` owner. It is used
+  by Location, its map route and check-in. Verify its navigation fallback does
+  not discard the warm vault before native admission. Do not bundle Locate:
+  that callback can update an already-consented location share.
+
+These controls are **not implemented or enabled natively**. The bridge now has
+independent, allowlisted control identities and scoped retirement. Close still
+requires its own explicit control identity and owning-overlay admission,
+and settlement-aware geometry. A ResizeObserver alone cannot detect translation
+of a sliding Profile pane. Retire before motion or a newer interaction layer;
+restore DOM interaction only after confirmed native removal. The drawer's
+moving Close stays React. Back's outstanding physical accessibility acceptance
+still precedes admission of this family.
+
+### Density And Selection Boundaries
+
+Compact Settings rows reserve at least 48px, with 16px heading spacing and 8px
+toolbar spacing; comfortable and person rows retain their existing measures.
+Inset icon separators derive their start from the actual row inset and icon
+track. Starter suggestions keep equal tracks and 44px targets, with a 4px phone
+row gap and 16px desktop column gap, rather than artificial 72/128px heights.
+Multi-select option rails remain React: a native toolbar control does not justify
+moving a searchable list, protected form or scrolling selection into SwiftUI.
+Retain 44px checkbox-label targets and keep search/confirmation outside the
+scrolling rail. Refer to Apple's
+[Liquid Glass adoption guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass)
+and [segmented controls guidance](https://developer.apple.com/design/human-interface-guidelines/segmented-controls)
+for the interactive/content distinction and bounded selection pattern.
+
+### Stock Apple Pattern Mapping
+
+Compare **interaction contracts**, not just pixels or translucency. A stock app's
+appearance does not establish whether its implementation uses SwiftUI or UIKit.
+Apple's documented patterns inform our adapters; React still owns routes, values
+and operation authority. Reference apps below are comparison targets, not a claim
+that each one has been inspected on the physical device.
+
+| Our shared family | Apple reference and eligible control | Behavior to preserve |
+| --- | --- | --- |
+| Shell Back / Close / Done | Hierarchical navigation and sheet dismissal; SwiftUI `Button` with a standard symbol and accessible name | Back returns one step; Close/Cancel dismisses without saving; Done completes the authored task. Do not map all three to the same handler. Retain the expanded-header slot and focus return. |
+| More and short action lists | Toolbar menus; Calculator's mode menu is a physical comparison target. SwiftUI `Menu`, or controlled UIKit action sheet for a DOM trigger | Anchor to the trigger; show concise, contextual actions and unavailable state. Dismissal performs no action; destructive choices require the owning confirmation. A popup must retire under privacy/owner changes. |
+| Destination tabs | Stock Clock tab bar; retain our standard UIKit `UITabBar` | Selection reflects the settled destination, not a tap promise. Sidebar state does not change the selected tab. Do not introduce `TabView` content containment or assume controller-only Search/minimization behavior exists. |
+| Local bounded choices | Apple's segmented-control pattern; SwiftUI `Picker` with segmented style | Closely related, short choices with a visible selected value and consistent segment widths. Do not mix navigation/actions with selection or bypass the existing swipe-settlement owner. Scrolling/collapsing rails remain React. |
+| Dates and duration | Standard picker pattern; Calendar date selection and Clock duration selection are comparison targets | Date/calendar values and elapsed duration have different semantics. Preserve bounds, units, cancellation and open-ended duration; use an explicit choice ID, not a formatted display string as authority. |
+| Share / photo / bounded sheets | System Share, existing Camera adapter, and Apple's sheet pattern | Keep existing permission/export owners. Do not stack a second competing presentation. Preserve modal isolation, unsaved-change policy and return to the original content; rich content remains React. |
+| Prominent and secondary buttons | Apple's standard button styles, roles and press states | Keep at least a 44×44-point hit region on iPhone without making every visible button large. Distinguish priority with style, not inconsistent dimensions. Project app accent/theme; preserve destructive role and disabled/busy state. No added idle bounce. |
+
+Sources: [buttons](https://developer.apple.com/design/human-interface-guidelines/buttons),
+[menus](https://developer.apple.com/design/human-interface-guidelines/menus),
+[toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars),
+[tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars),
+[segmented controls](https://developer.apple.com/design/human-interface-guidelines/segmented-controls),
+[pickers](https://developer.apple.com/design/human-interface-guidelines/pickers),
+and [sheets](https://developer.apple.com/design/human-interface-guidelines/sheets).
+Apple's [SwiftUI design session](https://developer.apple.com/videos/play/wwdc2025/323/)
+also demonstrates toolbar/menu grouping and Calendar, Mail and Health patterns.
+Those examples are not permission to add another navigation stack to Capacitor.
+
+Use content-free physical observations: whitelisted control names, geometry and
+selection/dismissal only. Do not collect stock-app histories, notes, photos,
+alarms or account details. Keep One running and prove return to its warm session.
+Visual similarity never substitutes for VoiceOver, Dynamic Type, theme,
+privacy, reduced-motion/transparency, rotation or frame-pacing acceptance.
+The 2026-10-04 iPhone reference probe observed Clock's four available tabs and
+their selected state, then returned to interactive, unlocked Chat. It did not
+inspect timers/alarms, establish Apple's implementation framework, or prove
+picker/menu parity. Unobserved reference families remain documentation-backed
+comparison targets.
 
 ### Pickers and OS Presentations
 
@@ -191,6 +327,34 @@ iPad is not admitted.
 This is not release-readiness proof.
 The subsequent families are deliberately not enabled or described as delivered.
 
+### Reviewer and Attach-Only Unlock
+
+Use the existing canonical `REVIEWER_UID` resolver in
+[reviewer-test-identity](../scripts/testing/reviewer-test-identity.mjs), not a
+second account fixture. The UID can remain in the ignored backend environment
+overlay; the passphrase must remain process-only. For an already-running locked
+app, forward the resolved identity, expected account email and passphrase through
+`TEST_RUNNER_` environment variables. The Chat-drawer test checks the visible
+account before entering anything, targets the authored passphrase field, clears
+any previous entry and submits normal Unlock once. Accessibility mask length is
+diagnostic, not authentication. Acceptance requires the vault gate to disappear
+and the Chat composer to be interactive; rejection does not trigger a retry,
+reset or reviewer bootstrap.
+
+An attach-only `.xctestrun` using `UseDestinationArtifacts` must provide
+`TestBundleDestinationRelativePath` (for the installed runner's test bundle),
+not `TestBundlePath`. Install only the updated test runner after compilation;
+do not reinstall the product app to manufacture continuity. Keep test attachments
+disabled and destroy credential-run diagnostics. On 2026-10-04, the current
+candidate passed the identity-bound normal unlock/Chat-drawer check, followed by
+all three existing warm navigation, Back and photo-preview checks without a
+session reset. The latest run also exercised a real transcript body pan: the
+drawer opened without moving the host/composer or losing vault admission.
+A separate in-memory pixel comparison found the Chat status canvas matching its
+header; this is not all-route or dark-theme acceptance. This proves those
+interactions, not the outstanding visual,
+accessibility or release-promotion gates above.
+
 The focused Back device contract in [AppUITests](../ios/App/AppUITests/AppUITests.swift)
 checks the 44-point slot, duplicate-control exclusion, complete accessibility
 retirement beneath Profile, normal background/resume and the existing return-to-One
@@ -224,3 +388,77 @@ The current [ambient chrome mask](../components/app-ui/ambient-chrome-mask.tsx)
 and scroll-edge behavior have existing design contracts. Changing them alongside
 a native top bar requires an explicit, independently verified design change, not
 an automatic material substitution.
+
+## Native Canvas Appearance
+
+The native backing canvas follows the committed CSS `--background` independently
+of Back admission or status-icon contrast. The additive `canvasAppearance`
+capability is optional for older wrappers. Strict colors, monotonic revisions and
+retired-document fencing reject delayed projections; no window-wide appearance,
+WebView opacity or privacy-cover change is made. The cold backing canvas uses
+Apple's system background until the document projects its app preference.
+Physical all-route/theme acceptance is separate from compilation or a single
+Chat-band comparison. Keyboard and privacy-cover theme parity remain separate
+verification items.
+
+The 2026-10-04 warm iPhone appearance rehearsal selected Light and Dark through
+Profile, verified native tab selection and status/header canvas matching on
+Chat, One, Connect and Feed, and exercised the 44-point native Back on Wallet in
+each theme. XCTest restored the original known app preference and returned to
+unlocked Chat. Pixel samples remained in memory, with no screenshots retained.
+This covers those routes and transitions, not every screen, accent, accessibility
+setting, keyboard or OS privacy presentation.
+
+Apple's [automated accessibility audit](https://developer.apple.com/documentation/xcuiautomation/xcuiapplication/performaccessibilityaudit(for:_:))
+covers contrast, hit region, sufficient description and traits in the bounded
+Back rehearsal. Review found that its initial filter silently ignored unnamed
+elements, so that earlier pass is not admission evidence. The tightened filter
+retains unidentified and Back-overlapping issues. It reported a hit-region issue
+outside Back on an unnamed element; that finding remains under investigation.
+This is not an app-wide audit, VoiceOver focus/reading-order proof, or Dynamic
+Type/reduced-transparency acceptance. Those release-admission gates remain open.
+
+### Chat Body Gesture
+
+The existing history drawer owns opening and closing. The transcript supplies
+the rightward opening gesture; the open panel and scrim supply the leftward
+closing gesture. No window-wide touch handler or inferred button invokes
+navigation. Only panel transform and scrim opacity track the finger. Resting CSS
+translation is suppressed during the pull so it cannot add a second offset.
+The conversation, document and bottom shell do not move or remount. Preview stays
+inert; committed open uses existing focus/overlay authority. Native chrome is
+isolated while dragging. Vertical scroll, horizontal tables, text selection,
+inputs, overlays, keyboard and the 28px edge-back lane keep their own gestures.
+Short or cancelled gestures settle to the controlled state; completed drags call
+its existing owner once. A horizontal row drag suppresses the trailing pointer
+click without suppressing keyboard activation or a subsequent deliberate tap.
+Cancelled/unmounted gestures remove temporary compositor hints and inline styles.
+Settlement uses the shared sheet tokens and reduced-motion preference. Chromium
+and WebKit checks cover finger-position samples and stationary body/bottom-bar
+geometry at 390px and 1440px. The latest signed iPhone build also passed a real
+opening and closing pan in one unlocked Chat session on 2026-10-04. This is
+interaction evidence, not measured frame-pacing or accessibility acceptance.
+
+### Shared Dock, Profile and Connect
+
+The canonical Chat composer is projected into the retained Agent Dock on web,
+iOS and Android. Its inner field stays square; the outer material owns rounding.
+Growth is bounded, excess lines scroll inside the field, and action targets retain
+their own 44px tracks. Profile uses one outer reading-width gutter through its
+stack. Connect tab taps and swipes share the existing pager; Circles owns the
+Circle discovery card.
+
+The 2026-10-05 production-targeted Debug candidates passed warm iPhone tabs,
+Back, photo preview, bidirectional drawer and voice-body cancellation checks.
+S24 checks covered root/Account alignment, Circles placement and tab selection,
+background/resume, and a 30-line unsent composer probe with an unbroken string:
+44px to the 160px ceiling and back, internal scroll, no horizontal clipping or
+action overlap, and the original draft restored. Android roster-body Profile
+swipe now admits normalized static-export routes (`/one/` and `/one/index.html`)
+without admitting Finance's own gestures. Trusted WebView touch verified this
+on S24; OS-injected touch-coordinate equivalence is still unverified.
+
+Native Chat History admission was observed after keyboard dismissal; the
+SwiftUI agent selector remains unaccepted pending its accessible-control proof.
+Voice cancellation is not Live speech-completion or echo-loop acceptance.
+Keep those separate from the working shared dock and retained DOM fallback.

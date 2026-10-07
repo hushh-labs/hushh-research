@@ -303,6 +303,11 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     changes may do so. Every shared tab strip uses the Location-proven Morphy
     rail and one moving solid selection surface attached to the same live swipe
     position; route-specific underline variants are not allowed.
+    Normalize terminal snap geometry before releasing pager ownership; never
+    reposition a live drag to repair a settled pixel residual. Mail's Overview,
+    KYC, and Receipts share this pager, including disconnected/loading content.
+    Inactive panes stay mounted for draft continuity but remain inert and cannot
+    publish voice actions. Onboarding remains a separate receipts-only flow.
 
 ## Pixel Grid And Symmetry Contract
 
@@ -637,6 +642,14 @@ Rules:
 4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`. Sheets (`sheet-content`, `sheet-overlay`) use the shared `--motion-sheet-*` tier instead (300ms enter on the iOS sheet curve, 200ms exit), because they travel most of the screen; that tier is also app-wide, never per surface. The sheet surface slides on its own `sheet-surface-enter` / `sheet-surface-exit` keyframes, which animate only `transform` and `opacity`; the shared tw-animate `enter` / `exit` keyframes also animate `filter`, so sheets do not use them.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
    The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation.
+   `AppChatHistoryEdgeGesture` owns both directions: pull right on the Chat
+   body to open, or left on the drawer/list or backdrop to close. The panel
+   transform and scrim opacity follow the finger; release settles through the
+   existing controlled open state. Incomplete/cancelled pulls return to their
+   starting state. Vertical list scrolling, editable controls, horizontal
+   content and nested overlays retain their gestures. A dragged chat row must
+   not receive a synthetic release click. Gesture frames do not update React
+   state or move the conversation/bottom chrome.
 6. The shared `SheetContent` owns bottom-sheet physics: the mobile drag handle,
    4px engagement threshold, scroll-top handoff, distance/velocity dismissal,
    and non-flashing spring-back. Bottom sheets inherit this behavior by default;

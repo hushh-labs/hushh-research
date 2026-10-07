@@ -22,6 +22,17 @@ def _module():
     return module
 
 
+def _unset_for_this_test(monkeypatch, name: str) -> None:
+    """Unset ``name`` and restore its prior state after the test.
+
+    ``delenv`` of an absent variable registers no undo, and hydration writes
+    with ``os.environ.setdefault``, so a bare delete lets the hydrated value
+    leak into every later test in the session.
+    """
+    monkeypatch.setenv(name, "x")
+    monkeypatch.delenv(name)
+
+
 def test_passkey_rp_ids_are_derived_from_the_active_frontend_origin():
     module = _module()
 
@@ -102,7 +113,7 @@ def test_generator_and_runtime_hydrate_every_hushh_tech_policy_key(monkeypatch):
 
     for env_name in runtime_settings._BACKEND_RUNTIME_ENV_MAP.values():
         if env_name.startswith("HUSSH_TECH_"):
-            monkeypatch.delenv(env_name, raising=False)
+            _unset_for_this_test(monkeypatch, env_name)
     monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(expected))
     runtime_settings.hydrate_runtime_environment()
 
@@ -162,3 +173,106 @@ def test_uat_cloud_run_binds_launch_pepper_only_as_optional_secret():
         "RATE_LIMIT_STORAGE_URI=${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
         in (Path(__file__).resolve().parents[2] / "deploy/frontend.cloudbuild.yaml").read_text()
     )
+
+
+def _uat_lane_args() -> argparse.Namespace:
+    args = argparse.Namespace(
+        **{
+            key: ""
+            for key in (
+                "environment project db_host db_port db_name db_unix_socket "
+                "cloudsql_instance_connection_name consent_sse_enabled sync_remote_enabled "
+                "developer_api_enabled remote_mcp_enabled cors_allowed_origins "
+                "obs_data_stale_ratio_threshold passkey_allowed_rp_ids plaid_env "
+                "plaid_client_name plaid_country_codes plaid_webhook_url plaid_redirect_path "
+                "plaid_redirect_uri plaid_tx_history_days one_location_read_only_state_enabled "
+                "one_location_nearby_presence_mode one_location_nearby_presence_cohort "
+                "consent_center_summary_v2_enabled db_bulk_batching_enabled "
+                "hushh_trusted_device_enabled hushh_trusted_device_uat_allowlist "
+                "advisors_api_base_url insurance_agents_api_base_url nws_nearby_api_base_url "
+                "nws_nearby_v4_api_base_url one_places_directory_enabled"
+            ).split()
+        }
+    )
+    args.environment = "uat"
+    args.project = "hushh-pda-uat"
+    return args
+
+
+def test_voice_mail_reply_switch_is_generated_off_unless_a_lane_turns_it_on(monkeypatch):
+    """The reply switch must survive the deploy hop, and only where it is asked for.
+
+    Hosted lanes set only BACKEND_RUNTIME_CONFIG_JSON, regenerated on every
+    deploy. A key the generator emits but the runtime map forgets would leave
+    reply dark in UAT while the deploy said it was on; a generator default of
+    on would ship it to every lane that never asked.
+    """
+    from hushh_mcp.one_voice.config import voice_mail_reply_enabled
+
+    module = _module()
+    args = _uat_lane_args()
+    assert module._build_backend_runtime_config(args)["one_voice_mail_reply_enabled"] == "false"
+
+    args.one_voice_mail_reply_enabled = "true"
+    generated = module._build_backend_runtime_config(args)["one_voice_mail_reply_enabled"]
+    assert generated == "true"
+
+    _unset_for_this_test(monkeypatch, "ONE_VOICE_MAIL_REPLY_ENABLED")
+    assert voice_mail_reply_enabled() is False
+    monkeypatch.setenv(
+        "BACKEND_RUNTIME_CONFIG_JSON", json.dumps({"one_voice_mail_reply_enabled": generated})
+    )
+    runtime_settings.hydrate_runtime_environment()
+    assert voice_mail_reply_enabled() is True
+
+
+def test_production_workflow_pins_voice_mail_reply_off():
+    root = Path(__file__).resolve().parents[2]
+    production = (root / ".github/workflows/deploy-production.yml").read_text()
+    uat = (root / ".github/workflows/deploy-uat.yml").read_text()
+    assert '--one-voice-mail-reply-enabled "false"' in production
+    assert (
+        "--one-voice-mail-reply-enabled \"${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}\""
+        in uat
+    )
+
+
+_MAIL_PART_TWO_SWITCHES = (
+    ("one_voice_mail_schedule_send_enabled", "ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED"),
+    ("one_voice_mail_drafts_enabled", "ONE_VOICE_MAIL_DRAFTS_ENABLED"),
+    ("mail_scheduled_drain_enabled", "MAIL_SCHEDULED_DRAIN_ENABLED"),
+)
+
+
+@pytest.mark.parametrize(("key", "env_name"), _MAIL_PART_TWO_SWITCHES)
+def test_mail_part_two_switches_are_generated_off_unless_a_lane_turns_them_on(
+    monkeypatch, key, env_name
+):
+    """Scheduled send, drafts and the drain survive the deploy hop, only where asked.
+
+    A key the generator emits but the runtime map forgets leaves the capability
+    dark in UAT while the deploy said it was on; a generator default of on ships
+    a server-side send to every lane that never asked.
+    """
+    module = _module()
+    args = _uat_lane_args()
+    assert module._build_backend_runtime_config(args)[key] == "false"
+
+    setattr(args, key, "true")
+    generated = module._build_backend_runtime_config(args)[key]
+    assert generated == "true"
+
+    _unset_for_this_test(monkeypatch, env_name)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: generated}))
+    runtime_settings.hydrate_runtime_environment()
+    assert os.environ.get(env_name) == "true"
+
+
+@pytest.mark.parametrize(("key", "_env_name"), _MAIL_PART_TWO_SWITCHES)
+def test_production_pins_mail_part_two_switches_off_and_uat_turns_them_on(key, _env_name):
+    root = Path(__file__).resolve().parents[2]
+    production = (root / ".github/workflows/deploy-production.yml").read_text()
+    uat = (root / ".github/workflows/deploy-uat.yml").read_text()
+    flag = "--" + key.replace("_", "-")
+    assert f'{flag} "false"' in production
+    assert f"{flag} \"${{{{ vars.{key.upper()}_UAT || 'true' }}}}\"" in uat

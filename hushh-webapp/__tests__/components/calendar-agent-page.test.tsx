@@ -17,9 +17,13 @@ const mocks = vi.hoisted(() => ({
   popupAttempt: "",
 }));
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => mocks.native },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, isNativePlatform: () => mocks.native },
+  };
+});
 vi.mock("@/lib/capacitor", () => ({
   HushhAuth: { connectCalendar: mocks.connectCalendar },
 }));

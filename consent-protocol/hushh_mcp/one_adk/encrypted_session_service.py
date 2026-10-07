@@ -33,6 +33,7 @@ from hushh_mcp.one_adk.adk_session_repository import (
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
 from hushh_mcp.one_adk.message_reactions import without_message_reactions
+from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.chat_key import (
     CHAT_CIPHERTEXT_LIKE,
     ChatCipher,
@@ -149,6 +150,8 @@ class EncryptedAdkSessionService(BaseSessionService):
         *,
         repository: AdkSessionRepository | None = None,
     ) -> None:
+        if repository is None and pod_mode():
+            raise RuntimeError("Private sessions require the injected owner repository.")
         self._cipher = cipher or ChatCipher()
         # An explicit runtime may supply its repository. Shared defaults retain the
         # existing SQL adapter and value-free database error boundary.
@@ -182,7 +185,7 @@ class EncryptedAdkSessionService(BaseSessionService):
             # errors, so only stable metadata may cross this boundary.
             logger.error(
                 "one_adk_session.storage_failed code=%s operation=%s",
-                getattr(exc, "code", "DATABASE_EXECUTION_ERROR"),
+                str(getattr(exc, "code", "DATABASE_EXECUTION_ERROR")).lower().replace("_", "."),
                 getattr(exc, "operation", "unknown"),
             )
             raise EncryptedAdkSessionUnavailableError(
@@ -301,7 +304,7 @@ class EncryptedAdkSessionService(BaseSessionService):
         session = self._decode(row, app_name=app_name, user_id=user_id, session_id=session_id)
         from hushh_mcp.one_adk.mcp_pending_call import restore_current_pending_call
 
-        session = restore_current_pending_call(session)
+        session = await restore_current_pending_call(session)
         full_event_count = len(session.events)
         if config:
             if config.num_recent_events is not None:

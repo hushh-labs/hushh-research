@@ -411,7 +411,9 @@ describe("OneKycClientZkService", () => {
     expect(draft.body).not.toContain("domain intent");
     expect(draft.body).not.toContain("financial profile\nPortfolio summary");
     expect(draft.htmlBody).toContain("hussh One");
-    expect(draft.htmlBody).toContain("🤫");
+    expect(draft.htmlBody).toContain(
+      'src="https://one.hushh.ai/brand/hushh-mark.png"',
+    );
     expect(draft.htmlBody).toContain("#D4A847");
     expect(draft.htmlBody).toContain("#18181b");
     expect(draft.htmlBody).toContain("<table");

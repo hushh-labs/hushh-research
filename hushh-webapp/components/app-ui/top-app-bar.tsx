@@ -42,6 +42,7 @@ import {
   APP_SHELL_FRAME_CLASSNAME,
   APP_SHELL_FRAME_STYLE,
 } from "@/components/app-ui/app-page-shell";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -1093,12 +1094,11 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       aria-label="One."
                       className="top-shell-ambient-ink pointer-events-none flex h-11 min-w-[92px] items-center justify-start gap-2 overflow-visible text-current"
                     >
-                      <span
+                      <HushhMark
                         aria-hidden
-                        className="hushh-brand-mark flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[23px] leading-none"
-                      >
-                        🤫
-                      </span>
+                        className="h-7 w-7 items-center justify-center overflow-visible"
+                        imageClassName="!h-[23px] !w-[23px]"
+                      />
                       <span
                         aria-hidden
                         className="whitespace-nowrap text-[20px] font-semibold leading-none tracking-[-0.035em] text-current"
@@ -1269,10 +1269,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         ) : null}
 
                         <ShellActionSurface
-                          variant="icon"
+                          variant="avatar"
                           aria-label="Open Profile"
                           onClick={() => requestProfilePaneOpen("tap")}
-                          className="!h-8 !w-8 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
                         >
                           <Avatar className="h-8 w-8">
                             {effectiveAvatarUrl ? (

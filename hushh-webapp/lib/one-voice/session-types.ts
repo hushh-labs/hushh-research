@@ -6,7 +6,7 @@
  * chips come from `tool.result ok:true` / `pending_action.resolved executed`.
  */
 
-import type { OpenedMailMessage } from "@/lib/one-voice/mail-open";
+import type { OpenedDraft, OpenedMailMessage } from "@/lib/one-voice/mail-open";
 import type {
   CandidatePublic,
   EntityCardPayload,
@@ -34,6 +34,10 @@ export type TranscriptItem = {
   text: string;
   final: boolean;
   turnId: string;
+  /** Relay-owned segment of a contracted row (row id `role:segmentId`). */
+  segmentId?: string;
+  /** Highest frame seq applied to a contracted row; older frames are ignored. */
+  lastSeq?: number;
 };
 
 export type ToolTimelineItem = {
@@ -52,6 +56,8 @@ export type PendingActionView = PendingActionPublic & {
   requiresTap: boolean;
   entities: EntityCardPayload[];
   receiptToken: string | null;
+  /** Transient display association only; never action or send authority. */
+  offeredResult?: ToolResultPublic;
   resolvedStatus: "executed" | "failed" | "cancelled" | "expired" | "not_pending" | null;
   resolvedResult: ToolResultPublic | null;
 };
@@ -95,6 +101,11 @@ export type VoiceSessionState = {
   level: number;
   transcript: TranscriptItem[];
   /**
+   * Monotonic counter behind transcript row ids. It only grows within a
+   * conversation, so ids stay unique after the row cap or a view clear.
+   */
+  transcriptSeq: number;
+  /**
    * Turns that were still streaming when the view was cleared. Their later
    * chunks and their finalization stay out of the displayed history; a turn
    * drops off this list once it ends, so it cannot grow without bound.
@@ -112,6 +123,21 @@ export type VoiceSessionState = {
   idleTimeoutMs: number | null;
   idleDeadlineAt: number | null;
   reconnectReason: "go_away" | "max_duration" | null;
+  /**
+   * What the connected relay advertised in session.ready (`features`). Empty
+   * until it does and after the socket closes, so a surface never offers a
+   * frame an older relay would refuse.
+   */
+  relayFeatures: string[];
+};
+
+/** The relay's answer to a typed name edit, or the client's own refusal. */
+export type NameEditOutcome = {
+  status: "accepted" | "rejected";
+  reasonCode: string | null;
+  message: string | null;
+  /** The new card on `accepted`. */
+  pendingActionId: string | null;
 };
 
 export type VoiceSessionEvent =
@@ -150,6 +176,7 @@ export const INITIAL_VOICE_SESSION_STATE: VoiceSessionState = {
   halfDuplex: false,
   level: 0,
   transcript: [],
+  transcriptSeq: 0,
   clearedTurnIds: [],
   historyCleared: false,
   entities: [],
@@ -162,6 +189,7 @@ export const INITIAL_VOICE_SESSION_STATE: VoiceSessionState = {
   idleTimeoutMs: null,
   idleDeadlineAt: null,
   reconnectReason: null,
+  relayFeatures: [],
 };
 
 /** What the provider exposes to the control, the panel, and the screens. */
@@ -193,6 +221,16 @@ export type VoiceSessionController = {
     offerRevision: number;
     conversationId: string;
   }) => Promise<OpenedMailMessage>;
+  /**
+   * Open the owner's draft at a position in a drafts list One offered. The same
+   * binding and resolver shape as `openMail`, against `/draft/open`; optional so
+   * a surface without drafts keeps its rows plain.
+   */
+  openDraft?: (input: {
+    ordinal: number;
+    offerRevision: number;
+    conversationId: string;
+  }) => Promise<OpenedDraft>;
   cancelPending: () => void;
   chooseCandidate: (id: string | null) => void;
   /**
@@ -202,6 +240,27 @@ export type VoiceSessionController = {
   clearView: () => void;
   /** Report a client step outcome (publish, permission, share sheet). */
   reportClientStep: (stepId: string, status: "ok" | "failed", payload?: Record<string, unknown>) => void;
+  /**
+   * Tell the relay which mail row is open on screen, or that none is. The
+   * position and the offer revision only, never a message id: it is a hint for
+   * "reply to this" that the relay honors only while that offer is current.
+   * It rides on every app_context until cleared.
+   */
+  setActiveMail?: (
+    hint: { ordinal: number; offerRevision: number; conversationId: string } | null,
+  ) => void;
+  /**
+   * A review card's Send finished: its delivery ref and the send action it
+   * used. Carries no outcome on purpose; the relay re-reads the send action.
+   */
+  reportMailDelivery?: (deliveryRef: string, actionId: string) => void;
+  /**
+   * Replace an open create_circle card with a name the person typed. Resolves
+   * with the relay's `name_edit.result` for this submission, or a local
+   * refusal when no relay that accepts it is live. Never routes through the
+   * model.
+   */
+  submitNameEdit?: (pendingActionId: string, name: string) => Promise<NameEditOutcome>;
 };
 
 /** Screen hooks subscribe to tool results and directives by tool name/kind. */

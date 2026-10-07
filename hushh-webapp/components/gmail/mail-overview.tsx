@@ -31,9 +31,12 @@ function ReceiptSyncSpinner() {
 /** The existing Mail identity, reused in the connected-account card. */
 function MailOverviewIcon() {
   return (
-    <span aria-hidden="true" className="relative flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+    <span
+      aria-hidden="true"
+      data-testid="mail-connected-account-icon"
+      className="relative flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
+    >
       <Mail className="size-7" />
-      <PenLine className="absolute bottom-2 right-1.5 size-3.5 rounded bg-[color:var(--app-accent-surface)]" />
     </span>
   );
 }

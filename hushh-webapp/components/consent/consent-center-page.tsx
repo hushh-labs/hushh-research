@@ -3716,6 +3716,7 @@ export function ConsentCenterPage() {
                     panelInset="none"
                     viewportMinHeight="none"
                     heightMode="active"
+                    holdHeightDuringTransition={false}
                   >
                     <div>
                     {!riaOutgoingCompatibilityRoute ? <div role="group" aria-label="Request direction" className="mb-3 flex flex-wrap gap-2 px-3">

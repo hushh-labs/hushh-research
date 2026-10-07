@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentFollowUpSuggestions,
+  AgentSuggestionList,
   visibleFollowUps,
 } from "@/components/agent/agent-follow-up-suggestions";
 
@@ -39,6 +40,27 @@ const answered: Message[] = [
 ];
 
 describe("smart follow-ups", () => {
+  it("does not accept a starter while disabled and resumes after the owner enables it", () => {
+    const select = vi.fn();
+    const props = {
+      suggestions: FOLLOW_UPS,
+      label: "Suggestions",
+      testId: "agent-chat-suggestions",
+      layout: "starter-grid" as const,
+      onSelect: select,
+    };
+    const { rerender } = render(<AgentSuggestionList {...props} disabled />);
+    const button = screen.getByRole("button", { name: FOLLOW_UPS[0] });
+    expect(screen.getByRole("group", { name: "Suggestions" })).toBeInTheDocument();
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(select).not.toHaveBeenCalled();
+
+    rerender(<AgentSuggestionList {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: FOLLOW_UPS[0] }));
+    expect(select).toHaveBeenCalledExactlyOnceWith(FOLLOW_UPS[0]);
+  });
+
   it("renders the latest answer's chips and a tap fills the composer", () => {
     render(<Transcript messages={answered} />);
     const group = screen.getByRole("group", { name: "Suggested follow-ups" });

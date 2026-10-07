@@ -12,7 +12,10 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import os
+import re
+import warnings
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -27,8 +30,8 @@ from google.adk.tools.mcp_tool.mcp_session_manager import (
 )
 from google.adk.tools.mcp_tool.mcp_tool import _RESERVED_TOOL_NAMES, McpTool
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
-from jsonschema import Draft202012Validator
 from mcp.types import Tool
+from referencing.exceptions import Unresolvable
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.consent.audit_logger import get_audit_logger
@@ -45,12 +48,14 @@ from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.curated_connector_manifest import get_manifest
 from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
     get_external_connector_credentials_service,
 )
 from hushh_mcp.services.external_connector_curated_oauth import (
     CuratedConnectorOAuthError,
+    CuratedNotConnectedError,
     curated_free_read_tools,
     curated_policy_hash,
     is_curated_oauth_connector,
@@ -64,8 +69,27 @@ from hushh_mcp.services.external_mcp_client import (
     ExternalMcpError,
     _http_status_from_error,
     _list_session_tools,
+    model_facing_schema,
+    schema_is_valid,
 )
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
+
+logger = logging.getLogger(__name__)
+
+# ADK announces this flag on every connector discovery. We rely on it knowingly:
+# it is what turns a provider error into a tool result instead of a failed turn.
+# One line per discovery buried real warnings in the UAT logs.
+warnings.filterwarnings(
+    "ignore",
+    message=r"\[EXPERIMENTAL\] feature FeatureName\._MCP_GRACEFUL_ERROR_HANDLING",
+    category=UserWarning,
+)
+
+# Provider tools the reviewed allowlist dropped, last logged per connector, so a
+# provider that renames, adds or removes a tool is noticed once instead of every
+# turn. Process memory only; bounded.
+_LOGGED_DROPPED_TOOLS: dict[str, tuple[str, ...]] = {}
+_LOGGED_DROPPED_TOOLS_LIMIT = 256
 
 
 def mcp_call_timeout_seconds() -> float:
@@ -81,6 +105,21 @@ def mcp_call_timeout_seconds() -> float:
     except ValueError:
         return 20.0
     return value if 0 < value <= 60 else 20.0
+
+
+def mcp_discovery_timeout_seconds() -> float:
+    """Budget for one connector's discovery within a turn.
+
+    One slow provider must not hold up every other connector, or the turn. The
+    value never exceeds the per-step call budget; a malformed value falls back
+    to the default rather than disabling the bound.
+    """
+    ceiling = mcp_call_timeout_seconds()
+    try:
+        value = float(os.getenv("MCP_DISCOVERY_TIMEOUT_SECONDS", ""))
+    except ValueError:
+        return min(8.0, ceiling)
+    return value if 0 < value <= ceiling else min(8.0, ceiling)
 
 
 @dataclass(frozen=True)
@@ -204,20 +243,51 @@ def native_registration_admitted(connector: Any, owner: str) -> bool:
 
 
 def _curated_tool_allowlist(connector: Any) -> CatalogPolicy | None:
-    """The registry row's tool allowlist, if it declares one.
+    """The exact set of tools chat may offer for this connector.
 
-    A declared list is exact (an empty list admits no tools). No list means the
-    operator did not restrict the server's catalog; review still applies.
+    The reviewed manifest decides, never the operator-writable registry row: an
+    edited row can neither widen the list nor free a tool. A connector without a
+    manifest falls back to the row's own list (narrowing only, review still applies).
     """
-    allowed = (getattr(connector, "capability_policy", None) or {}).get("tools")
-    if not isinstance(allowed, list):
-        return None
-    names = frozenset(item for item in allowed if isinstance(item, str))
+    manifest = get_manifest(getattr(connector, "connector_id", ""))
+    if manifest is not None:
+        names = frozenset(manifest.tool_allowlist)
+    else:
+        allowed = (getattr(connector, "capability_policy", None) or {}).get("tools")
+        if not isinstance(allowed, list):
+            return None
+        names = frozenset(item for item in allowed if isinstance(item, str))
+
+    connector_id = str(getattr(connector, "connector_id", ""))
 
     def admitted(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [item for item in catalog if item.get("name") in names]
+        offered = [item for item in catalog if item.get("name") in names]
+        dropped = tuple(
+            sorted(str(item.get("name"))[:80] for item in catalog if item.get("name") not in names)
+        )
+        if _LOGGED_DROPPED_TOOLS.get(connector_id) != dropped:
+            if len(_LOGGED_DROPPED_TOOLS) >= _LOGGED_DROPPED_TOOLS_LIMIT:
+                _LOGGED_DROPPED_TOOLS.pop(next(iter(_LOGGED_DROPPED_TOOLS)))
+            _LOGGED_DROPPED_TOOLS[connector_id] = dropped
+            # Tool names are the provider's public identifiers, never user data.
+            logger.info(
+                "mcp_catalog_filtered connector=%s offered=%d dropped=%d missing=%s dropped_names=%s",
+                connector_id,
+                len(offered),
+                len(dropped),
+                # One joined string: the redactor masks a long snake_case token passed alone.
+                ", ".join(sorted(names - {str(item.get("name")) for item in catalog})[:40]),
+                ", ".join(dropped[:60]),
+            )
+        return offered
 
     return admitted
+
+
+def _consume_outcome(task: "asyncio.Future[Any]") -> None:
+    """Retrieve a detached task's result so a late failure is never an unhandled one."""
+    if not task.cancelled():
+        task.exception()
 
 
 async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcpConnection:
@@ -233,13 +303,47 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
     )
 
     adapter = get_external_connector_oauth_service().curated()
-    try:
-        row, secret = await adapter.current_credential(
+    # A token refresh can rotate a single-use refresh token at the provider. If the
+    # caller's budget lapsed (or the turn was cancelled) between the provider answering
+    # and the new token being stored, the person would have to sign in again. Run it as
+    # its own task so cancelling the caller never abandons it half-done; it is bounded
+    # by its own provider timeout, and its outcome is always consumed.
+    refresh = asyncio.ensure_future(
+        adapter.current_credential(
             connector_id=connector.connector_id, user_id=owner, connector=connector
         )
+    )
+    try:
+        row, secret = await asyncio.shield(refresh)
+    except asyncio.CancelledError:
+        refresh.add_done_callback(_consume_outcome)
+        raise
+    except CuratedNotConnectedError:
+        raise ExternalMcpError("Connect this service first.", code="MCP_NOT_CONNECTED") from None
     except CuratedConnectorOAuthError as error:
-        code = "MCP_CREDENTIAL_EXPIRED" if error.status_code == 401 else "MCP_CONNECTION_CHANGED"
-        raise ExternalMcpError("Reconnect this service.", code=code) from None
+        # The adapter's own code is the only place the real cause survives (secret not
+        # mounted, registry drift, provider down); the chat error below stays generic.
+        logger.warning(
+            "mcp_curated_resolve connector=%s cause=%s status=%s",
+            connector.connector_id,
+            str(error).replace("_", "."),
+            error.status_code,
+        )
+        if error.status_code == 401:
+            # reconnect_required / grant_rejected: sign in again.
+            raise ExternalMcpError(
+                "Reconnect this service.", code="MCP_CREDENTIAL_EXPIRED"
+            ) from None
+        if str(error) == "connection_changed":
+            raise ExternalMcpError(
+                "Reconnect this service.", code="MCP_CONNECTION_CHANGED"
+            ) from None
+        # The provider is down or slow, or the operator side is misconfigured (registry
+        # drift, missing client): the person's connection is fine, so never ask them to
+        # reconnect for it.
+        raise ExternalMcpError(
+            "Connector temporarily unavailable.", code="MCP_CONNECTOR_UNAVAILABLE"
+        ) from None
     except ExternalConnectorCredentialError:
         raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID") from None
     if row.get("status") != "connected" or row.get("verified_policy_hash") != curated_policy_hash(
@@ -428,6 +532,10 @@ def _digest(value: Any) -> str:
 
 def validated_mcp_arguments(schema: dict, args: Any) -> dict[str, Any]:
     """One argument contract for model calls and the authenticated review UI."""
+    if not isinstance(args, dict):
+        raise ExternalMcpError(
+            "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
+        )
     arguments = deepcopy(args)
     try:
         if len(json.dumps(arguments, allow_nan=False).encode()) > 32_000:
@@ -438,7 +546,14 @@ def validated_mcp_arguments(schema: dict, args: Any) -> dict[str, Any]:
         raise ExternalMcpError(
             "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
         ) from None
-    if not isinstance(arguments, dict) or not Draft202012Validator(schema).is_valid(arguments):
+    # Never validates under a guessed dialect, and never fetches a reference.
+    try:
+        valid = schema_is_valid(schema, arguments)
+    except (RecursionError, Unresolvable, ArithmeticError, re.error):
+        # A reference that does not resolve inside the schema, or a schema that
+        # recurses without end: refused as a schema problem, not a crash.
+        raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID") from None
+    if not valid:
         raise ExternalMcpError(
             "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
         )
@@ -643,8 +758,13 @@ class GovernedMcpToolset(McpToolset):
 
 class _GovernedMcpTool(McpTool):
     def __init__(self, *, toolset, descriptor, revision, epoch, provider_schema=None):
+        # The model sees a conservative copy of the schema; this object's own
+        # `descriptor` and `provider_schema` keep the provider's exact schema,
+        # which is what every argument is validated against.
+        declared = deepcopy(descriptor)
+        declared["inputSchema"] = model_facing_schema(descriptor["inputSchema"])
         super().__init__(
-            mcp_tool=Tool.model_validate(descriptor),
+            mcp_tool=Tool.model_validate(declared),
             mcp_session_manager=toolset._mcp_session_manager,
             header_provider=toolset._current_headers,
         )

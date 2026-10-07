@@ -20,18 +20,31 @@ Rules encoded here, not in prose:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import math
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from hushh_mcp.one_voice.tools.spelling import clean_spelled_word, spelling_key
 
 ENTITY_CONTEXT_TTL_SECONDS = 2 * 60 * 60
 # How long a resolve_* candidate list stays selectable. Minutes, not the
 # entity TTL: "the second one" must refer to a list the person can still see.
 OFFER_TTL_SECONDS = 10 * 60
+# How many spelled name words a conversation keeps (see EntityContext).
+MAX_SPELLED_NAME_WORDS = 8
+# How long a spelled name word is kept after the last proposal that declared
+# or needed it. Long enough to survive a cancel and a re-proposal of the same
+# name, short enough that a different circle later on is not held to it. The
+# circle name the person is reviewing (EntityContext.circle_name_baseline) is
+# kept for the same window, for the same reason.
+SPELLED_WORD_TTL_SECONDS = 3 * 60
+# A stored baseline name longer than create_circle accepts is not trusted.
+MAX_BASELINE_NAME_LENGTH = 80
 # Interim status of a device-executed Location updates step. Never success:
 # the settled result arrives later as its own tool.result once the device
 # reports back.
@@ -141,6 +154,12 @@ class ToolResult(BaseModel):
 
 class Rejected(ToolResult):
     status: Literal["rejected"] = "rejected"
+    # Server-only instruction to the executor, never part of any payload: when a
+    # ``prepare`` hook refuses a proposal with this set, the open card that
+    # proposal was correcting is retired too, so a yes cannot reach what the
+    # person just corrected. Excluded from every dump, so neither the client nor
+    # the model ever sees it.
+    retire_open_proposal: bool = Field(default=False, exclude=True)
 
 
 class Unsupported(ToolResult):
@@ -164,6 +183,20 @@ class ConfirmationWaiting(ToolResult):
     needs: Needs | None = "confirmation"
     pending_action_id: str
     tier: Literal["voice"] = "voice"
+    summary: str
+    card_shown: bool
+
+
+class PendingActionExists(ToolResult):
+    """A different action is still waiting for an answer. Never success, never a
+    new row: a card the person may be answering is not replaced by an unrelated
+    proposal. It is confirmed or cancelled first, and the model is handed its id."""
+
+    status: Literal["pending_action_exists"] = "pending_action_exists"
+    needs: Needs | None = "confirmation"
+    pending_action_id: str
+    tool: str
+    tier: Literal["voice", "tap"]
     summary: str
     card_shown: bool
 
@@ -259,6 +292,83 @@ class OfferedMail(BaseModel):
     revision: int = 0
 
 
+class OfferedScheduledMail(BaseModel):
+    """The scheduled sends One last listed, in the order the person saw them.
+
+    Ordinal 1 is ``action_ids[0]``, soonest first. Action ids and nothing else:
+    no recipient, subject or time, because this row is persisted and is a
+    pointer into the owner's send ledger, not a copy of it. "Cancel the second
+    one" resolves here, never by the model naming an id it was never given.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    action_ids: list[str] = Field(default_factory=list, max_length=25)
+    offered_at: str | None = None
+    revision: int = 0
+
+
+class SpelledNameWord(BaseModel):
+    """One word the person spelled letter by letter for a name, and when.
+
+    ``at`` is epoch seconds from :meth:`EntityContext._now`, the clock ``prune``
+    uses, so the retention window and pruning always agree.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    word: str
+    at: float
+
+
+def _wellformed_spelled_words(value: Any) -> list[dict[str, Any]]:
+    """Keep the stored entries this version can trust, one by one.
+
+    A malformed entry is dropped on its own. Failing validation would fail the
+    whole context, and every confirmed person and circle with it.
+    """
+    if not isinstance(value, list):
+        return []
+    kept: list[dict[str, Any]] = []
+    for item in value:
+        raw = item.model_dump() if isinstance(item, SpelledNameWord) else item
+        if not isinstance(raw, dict):
+            continue
+        word, at = raw.get("word"), raw.get("at")
+        if not isinstance(word, str) or clean_spelled_word(word) != word:
+            continue
+        if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+            continue
+        kept.append({"word": word, "at": float(at)})
+    return kept[-MAX_SPELLED_NAME_WORDS:]
+
+
+class CircleNameBaseline(BaseModel):
+    """The circle name the person was last shown on a create_circle card, and when.
+
+    ``at`` is epoch seconds from :meth:`EntityContext._now`, like
+    :class:`SpelledNameWord`, so expiry and pruning use one clock.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    at: float
+
+
+def _wellformed_circle_name_baseline(value: Any) -> dict[str, Any] | None:
+    """The stored baseline when this version can trust it, else none.
+
+    Malformed is dropped on its own, never failing the whole context.
+    """
+    raw = value.model_dump() if isinstance(value, CircleNameBaseline) else value
+    if not isinstance(raw, dict):
+        return None
+    name, at = raw.get("name"), raw.get("at")
+    if not isinstance(name, str) or not name.strip() or len(name) > MAX_BASELINE_NAME_LENGTH:
+        return None
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+        return None
+    return {"name": name, "at": float(at)}
+
+
 class EntityContext(BaseModel):
     """Per-conversation confirmed entities, keyed by canonical id.
 
@@ -293,10 +403,94 @@ class EntityContext(BaseModel):
     # The messages the last mail read showed, so a spoken position resolves to
     # the message it named rather than to whatever a fresh search returns now.
     offered_mail: OfferedMail | None = None
+    # When that offer is the one message read by its position, the position it
+    # had in the list it was read from. Top level, not inside OfferedMail, so a
+    # server that predates it drops the key instead of the whole context.
+    offered_mail_selected_ordinal: int | None = None
+    # The scheduled sends the last list_scheduled_mail showed. Top level and
+    # separate from ``offered_mail``: a position in the scheduled list must
+    # never resolve against an inbox list, or the reverse.
+    offered_scheduled_mail: OfferedScheduledMail | None = None
+    # Words the person spelled letter by letter for a name One is proposing
+    # ("h u s s h"), as the model declared them. Kept across a cancel and a
+    # reconnect for SPELLED_WORD_TTL_SECONDS after the last proposal that
+    # declared or needed them, so a re-proposal cannot silently drop one.
+    # Words only: never the name, never who it was for.
+    spelled_name_words: list[SpelledNameWord] = Field(default_factory=list)
+    # The circle name the last passing create_circle proposal showed the person:
+    # what a correction is compared with, word by word, so it changes only the
+    # words it declares. Kept across a cancel and a reconnect for
+    # SPELLED_WORD_TTL_SECONDS after that proposal; cleared once the circle is
+    # created or already exists.
+    circle_name_baseline: CircleNameBaseline | None = None
+
+    @field_validator("spelled_name_words", mode="before")
+    @classmethod
+    def _restore_spelled_name_words(cls, value: Any) -> list[dict[str, Any]]:
+        return _wellformed_spelled_words(value)
+
+    @field_validator("circle_name_baseline", mode="before")
+    @classmethod
+    def _restore_circle_name_baseline(cls, value: Any) -> dict[str, Any] | None:
+        return _wellformed_circle_name_baseline(value)
 
     @staticmethod
     def _now() -> datetime:
         return datetime.now(timezone.utc)
+
+    def _live_spelled_words(self, now: float) -> list[SpelledNameWord]:
+        return [
+            entry for entry in self.spelled_name_words if now - entry.at <= SPELLED_WORD_TTL_SECONDS
+        ]
+
+    def retained_spelled_words(self, now: float) -> list[str]:
+        """The spelled words still inside their retention window, first seen first."""
+        return [entry.word for entry in self._live_spelled_words(now)]
+
+    def remember_spelled_words(self, words: Sequence[str], now: float) -> None:
+        """Keep each word; one entry per word compared without case.
+
+        The first spelling seen is kept and its time refreshed when the word is
+        declared or needed again. Expired entries go first, then the oldest past
+        the cap.
+        """
+        self.spelled_name_words = self._live_spelled_words(now)
+        for word in words:
+            if clean_spelled_word(word) != word:
+                continue
+            key = spelling_key(word)
+            existing = next(
+                (e for e in self.spelled_name_words if spelling_key(e.word) == key), None
+            )
+            if existing is not None:
+                existing.at = now
+            else:
+                self.spelled_name_words.append(SpelledNameWord(word=word, at=now))
+        while len(self.spelled_name_words) > MAX_SPELLED_NAME_WORDS:
+            self.spelled_name_words.remove(min(self.spelled_name_words, key=lambda e: e.at))
+
+    def release_spelled_words(self, words: Sequence[str]) -> None:
+        """Forget words the person changed or dropped, compared without case."""
+        released = {spelling_key(word) for word in words}
+        self.spelled_name_words = [
+            entry for entry in self.spelled_name_words if spelling_key(entry.word) not in released
+        ]
+
+    def clear_spelled_words(self) -> None:
+        self.spelled_name_words = []
+
+    def live_circle_name_baseline(self, now: float) -> str | None:
+        """The name a create_circle correction is held to, while it is still live."""
+        baseline = self.circle_name_baseline
+        if baseline is None or now - baseline.at > SPELLED_WORD_TTL_SECONDS:
+            return None
+        return baseline.name
+
+    def set_circle_name_baseline(self, name: str, now: float) -> None:
+        self.circle_name_baseline = CircleNameBaseline(name=name, at=now)
+
+    def clear_circle_name_baseline(self) -> None:
+        self.circle_name_baseline = None
 
     def offer_is_fresh(self) -> bool:
         if not self.offered_person_ids:
@@ -323,16 +517,31 @@ class EntityContext(BaseModel):
             self.offered_person_circle_id = None
         if self.offered_mail is not None and not self.offered_mail_is_fresh():
             self.offered_mail = None
+            self.offered_mail_selected_ordinal = None
+        if self.offered_scheduled_mail is not None and not self.offered_scheduled_mail_is_fresh():
+            self.offered_scheduled_mail = None
+        now = self._now().timestamp()
+        self.spelled_name_words = self._live_spelled_words(now)
+        if self.live_circle_name_baseline(now) is None:
+            self.circle_name_baseline = None
 
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
         self.last_person_user_id = person.user_id
 
-    def offer_mail(self, message_ids: list[str], *, account: str, mailbox: str) -> int:
+    def offer_mail(
+        self,
+        message_ids: list[str],
+        *,
+        account: str,
+        mailbox: str,
+        selected_ordinal: int | None = None,
+    ) -> int:
         """Replace the offered messages, and say when they were offered.
 
         Replaced on every read, like ``offer_requests``: the person is looking at
         the newest list, so that is the only one a position can mean.
+        ``selected_ordinal`` is the position a single message was read by.
         """
         self.offer_revision += 1
         self.offered_mail = OfferedMail(
@@ -341,6 +550,9 @@ class EntityContext(BaseModel):
             mailbox=mailbox,
             offered_at=self._now().isoformat(),
             revision=self.offer_revision,
+        )
+        self.offered_mail_selected_ordinal = (
+            selected_ordinal if len(self.offered_mail.message_ids) == 1 else None
         )
         return self.offer_revision
 
@@ -356,15 +568,65 @@ class EntityContext(BaseModel):
         age = self._now().timestamp() - datetime.fromisoformat(offer.offered_at).timestamp()
         return age <= OFFER_TTL_SECONDS
 
+    def offered_mail_position(self, ordinal: int) -> int | None:
+        """The position in the current offer that a spoken position names, or None.
+
+        Ordinarily the same number. After a read by position the offer is that
+        one message, and the position it was read from still names it: "reply to
+        the second one" right after reading the second one means that message,
+        not a refusal that the list now has one entry. Any other position is
+        still refused: the longer list is no longer what the person sees.
+        """
+        if not self.offered_mail_is_fresh() or self.offered_mail is None:
+            return None
+        ids = self.offered_mail.message_ids
+        if 1 <= ordinal <= len(ids):
+            return ordinal
+        if len(ids) == 1 and ordinal == self.offered_mail_selected_ordinal:
+            return 1
+        return None
+
     def offered_mail_message_id(self, ordinal: int) -> str | None:
         """The message at a spoken position, or None when it cannot be trusted.
 
         None is a refusal to guess, not an invitation to search again.
         """
-        if not self.offered_mail_is_fresh() or self.offered_mail is None:
+        position = self.offered_mail_position(ordinal)
+        if position is None or self.offered_mail is None:
             return None
-        ids = self.offered_mail.message_ids
-        return ids[ordinal - 1] if 1 <= ordinal <= len(ids) else None
+        return self.offered_mail.message_ids[position - 1]
+
+    def offer_scheduled_mail(self, action_ids: list[str]) -> int:
+        """Replace the listed scheduled sends; share the one offer counter.
+
+        Replaced on every list, never merged: the newest list is the only one a
+        position can mean. The shared revision lets a card prepared from an
+        older list notice that the list it named has been replaced.
+        """
+        self.offer_revision += 1
+        self.offered_scheduled_mail = OfferedScheduledMail(
+            action_ids=list(action_ids)[:25],
+            offered_at=self._now().isoformat(),
+            revision=self.offer_revision,
+        )
+        return self.offer_revision
+
+    def offered_scheduled_mail_is_fresh(self) -> bool:
+        """Like ``offered_mail_is_fresh``: an unstamped offer is never trusted."""
+        offer = self.offered_scheduled_mail
+        if offer is None or not offer.action_ids or not offer.offered_at:
+            return False
+        age = self._now().timestamp() - datetime.fromisoformat(offer.offered_at).timestamp()
+        return age <= OFFER_TTL_SECONDS
+
+    def offered_scheduled_mail_action_id(self, ordinal: int) -> str | None:
+        """The scheduled send at a spoken position, or None when it cannot be trusted."""
+        offer = self.offered_scheduled_mail
+        if offer is None or not self.offered_scheduled_mail_is_fresh():
+            return None
+        if not 1 <= ordinal <= len(offer.action_ids):
+            return None
+        return offer.action_ids[ordinal - 1]
 
     def offer_requests(self, requests: list[OfferedRequest]) -> None:
         self.offered_requests = {item.request_id: item for item in requests}
@@ -407,6 +669,11 @@ class ScreenContext(BaseModel):
     # circle", never authority: every read of it goes through the authorized
     # circle service, and every mutation still needs the id confirmed.
     active_circle_id: str | None = None
+    # The mail row open on screen: its position and the offer it was drawn
+    # from. A hint for "this email", never authority: it names a position in a
+    # server offer, and it is honored only while that offer is the current one.
+    active_mail_ordinal: int | None = None
+    active_mail_offer_revision: int | None = None
 
 
 @dataclass
@@ -434,6 +701,10 @@ class ToolContext:
     # delivery report is bound to. Server state stays the authority; this is
     # the correlation, never a "sent" flag.
     sos_incident: dict[str, Any] | None = None
+    # The name argument was typed by the person (the card's Edit-name path),
+    # not heard by the model: it is theirs as written, so no spelled word or
+    # earlier name holds it, and it becomes the name later corrections keep.
+    typed_name: bool = False
 
     def service(self, name: str, factory: Callable[[], Any]) -> Any:
         if name not in self.services:
@@ -502,6 +773,48 @@ class ToolSpec:
     # run and settle; confirming it over plain HTTP would arm an effect with
     # no publisher, so that route refuses it.
     device_step: bool = False
+    # Which kind of lookup (``resolve_person`` -> "person", ``resolve_circle``
+    # -> "circle") makes an open card for this tool stale. ``None`` derives it
+    # from ``person_args``/``circle_args``; a tool with neither stays stale on
+    # every lookup, because its counterpart can ride an opaque id (a request, a
+    # share, an invite). A tool whose effect names no counterpart at all
+    # declares ``()`` so an unrelated lookup cannot cancel its card.
+    lookup_targets: tuple[Literal["person", "circle"], ...] | None = None
+    # May replace an open card of a different action without it being answered
+    # first. Only for an effect that must never wait behind another card.
+    preempts_pending: bool = False
+    # Tools whose proposals correct one another's open card: the same effect
+    # re-aimed ("not Roopman", "turn it off instead"). ``None`` means only the
+    # tool itself. A shared gateway action is NOT enough on its own:
+    # request_location and withdraw_request share one and do opposite things.
+    correction_group: str | None = None
+    # For confirm_* tools: the refusal for a proposal that could not be read
+    # (its arguments failed validation) or prepared (its ``prepare`` hook
+    # raised). Either way the executor retires the open card of the same
+    # correction key first. Given the raw arguments, never logged, and the
+    # names of the top-level arguments that failed validation (empty when the
+    # prepare hook raised); returning a ``Rejected`` replaces the generic
+    # invalid_arguments / prepare_failed answer, and ``None`` keeps it.
+    on_invalid_correction: Callable[[dict[str, Any], frozenset[str]], Rejected | None] | None = None
+    # For a tool whose arguments do not name what it acts on -- a position in a
+    # list the server offered, or the item open on screen -- the server-side
+    # identity of that target, resolved without I/O. Equal arguments against
+    # different targets are different proposals, so an open card is reused only
+    # for the same target. Returning ``None`` (unresolvable) never reuses one.
+    target_key: Callable[[ToolContext, Any], str | None] | None = None
+
+    @property
+    def correction_key(self) -> str:
+        """Which open cards a proposal from this tool may replace as a correction."""
+        return self.correction_group or self.name
+
+    def stale_on_lookup(self, kind: Literal["person", "circle"]) -> bool:
+        """Whether a ``kind`` lookup makes an open card for this tool stale."""
+        if self.lookup_targets is not None:
+            return kind in self.lookup_targets
+        if not self.person_args and not self.circle_args:
+            return True
+        return bool(self.person_args if kind == "person" else self.circle_args)
 
     def declaration(self) -> dict[str, Any]:
         """Gemini function declaration (JSON-schema parameters, refs inlined)."""
@@ -544,6 +857,7 @@ def now_iso() -> str:
 
 
 __all__ = [
+    "CircleNameBaseline",
     "CircleRef",
     "ConfirmationRequired",
     "ConfirmationWaiting",
@@ -551,13 +865,18 @@ __all__ = [
     "ConfirmedPerson",
     "ENTITY_CONTEXT_TTL_SECONDS",
     "LOCATION_UPDATES_PENDING",
+    "MAX_SPELLED_NAME_WORDS",
     "OFFER_TTL_SECONDS",
     "EntityContext",
     "Needs",
     "OfferedRequest",
+    "OfferedScheduledMail",
+    "PendingActionExists",
     "PersonRef",
     "Rejected",
+    "SPELLED_WORD_TTL_SECONDS",
     "ScreenContext",
+    "SpelledNameWord",
     "ToolContext",
     "ToolHandler",
     "ToolInput",

@@ -33,6 +33,7 @@ const kaiSessionMock = vi.hoisted(() => {
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: navigationMock.push }),
 }));
 vi.mock("@/hooks/use-auth", () => ({
@@ -57,6 +58,13 @@ describe("Navbar bottom utilities", () => {
     navigationMock.push.mockReset();
     notificationMock.feedUnreadCount = 0;
     notificationMock.pendingConsents = 0;
+  });
+
+  it("retires route navigation while the owning shell hides it", () => {
+    const { rerender } = render(<Navbar shellNavigationHidden />);
+    expect(screen.queryByRole("radiogroup", { name: "Route navigation" })).toBeNull();
+    rerender(<Navbar shellNavigationHidden={false} />);
+    expect(screen.getByRole("radiogroup", { name: "Route navigation" })).toBeInTheDocument();
   });
 
   it.each([

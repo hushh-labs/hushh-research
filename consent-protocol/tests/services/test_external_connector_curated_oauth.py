@@ -4,6 +4,7 @@ mocked lifecycle/credentials, no live HubSpot grants."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -1015,18 +1016,14 @@ async def test_verify_does_not_mark_verified_when_the_server_rejects_the_token(
 # --- committed descriptor <-> reviewed runtime pin ---------------------------
 
 
-def test_committed_hubspot_descriptor_matches_its_runtime_pin():
-    """The registry row applied from the committed descriptor must satisfy the
-    code pin, otherwise HubSpot silently reads as unavailable."""
-    from pathlib import Path
+def test_committed_hubspot_manifest_yields_a_row_that_satisfies_its_own_pin():
+    """The registry row applied from the committed manifest must satisfy the
+    manifest pin, otherwise HubSpot silently reads as unavailable."""
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
 
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "external_mcp_connectors"
-        / "hubspot.uat.json"
-    )
-    descriptor = json.loads(path.read_text(encoding="utf-8"))
+    manifest = get_manifest("hubspot")
+    assert manifest is not None
+    descriptor = manifest.to_descriptor("uat")
     row = ExternalMcpConnectorDefinition.from_row(
         {
             "connector_id": descriptor["connectorId"],
@@ -1053,7 +1050,17 @@ def test_committed_hubspot_descriptor_matches_its_runtime_pin():
         row.oauth_scopes,
         row.oauth_client_id_env,
         row.oauth_client_secret_env,
-    ) == oauth._CURATED_OAUTH_RUNTIME_PINS["hubspot"]
+    ) == manifest.pin()
+    # The shipped HubSpot pin is unchanged from the reviewed original, so no
+    # existing connection is invalidated by moving it onto a manifest.
+    assert manifest.pin() == (
+        "https://mcp.hubspot.com/",
+        "https://mcp.hubspot.com/oauth/authorize/user",
+        "https://mcp.hubspot.com/oauth/v3/token",
+        (),
+        "HUBSPOT_OAUTH_CLIENT_ID",
+        "HUBSPOT_OAUTH_CLIENT_SECRET",
+    )
 
 
 # --- refresh robustness (review findings) ------------------------------------
@@ -1260,19 +1267,390 @@ def test_hubspot_free_reads_are_pinned_and_are_only_reads():
 
 
 def test_pinned_free_reads_are_all_in_the_committed_tool_allowlist():
-    """A pinned read the descriptor does not expose could never run; catch drift."""
-    from pathlib import Path
+    """A pinned read the manifest does not expose could never run; catch drift."""
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
 
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "external_mcp_connectors"
-        / "hubspot.uat.json"
-    )
-    allowlist = set(json.loads(path.read_text(encoding="utf-8"))["toolAllowlist"])
-    assert oauth.curated_free_read_tools("hubspot") <= allowlist
+    manifest = get_manifest("hubspot")
+    assert manifest is not None
+    assert oauth.curated_free_read_tools("hubspot") <= set(manifest.tool_allowlist)
 
 
 def test_an_unlisted_provider_has_no_free_reads():
-    assert oauth.curated_free_read_tools("notion") == frozenset()
+    assert oauth.curated_free_read_tools("no_such_provider") == frozenset()
     assert oauth.curated_free_read_tools("") == frozenset()
+
+
+# --- provider token revocation on disconnect --------------------------------------
+
+REVOKE_URL = "https://mcp.notion.com/token"
+
+
+@pytest.fixture
+def revoking(service, connector, monkeypatch):
+    """A public-client provider (Notion) that declares a revocation endpoint."""
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    manifest = replace(get_manifest("notion"), revocation_url=REVOKE_URL)
+    monkeypatch.setattr(oauth, "get_manifest", lambda connector_id: manifest)
+    monkeypatch.setenv("NOTION_OAUTH_CLIENT_ID", "client-1")
+    # The registry row is never consulted: a deactivated or drifted row must not stop a
+    # person's own grant being revoked.
+    service._configuration = AsyncMock(
+        side_effect=oauth.CuratedConnectorOAuthError("connector_unavailable", status_code=503)
+    )
+    service.lifecycle.disconnect = AsyncMock(
+        return_value={
+            "credential_ciphertext": "blob",
+            "connection_generation": 5,
+            "envelope_version": 2,
+        }
+    )
+    service.credentials.open_credential = Mock(
+        return_value={
+            "accessToken": "access-1",
+            "refreshToken": "refresh-1",
+            "oauthClientId": "client-1",
+        }
+    )
+    return service
+
+
+def _revocation_requests(monkeypatch, status=200):
+    seen: list[httpx.Request] = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(status)
+
+    _install_transport(monkeypatch, handler)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_disconnect_revokes_the_refresh_token_at_a_declared_endpoint(revoking, monkeypatch):
+    seen = _revocation_requests(monkeypatch)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "revoked"
+    (request,) = seen
+    assert str(request.url) == REVOKE_URL and request.method == "POST"
+    body = dict(item.split("=", 1) for item in request.content.decode().split("&"))
+    assert body == {
+        "token": "refresh-1",
+        "token_type_hint": "refresh_token",
+        "client_id": "client-1",
+    }
+    # A revoked token clears the durable reconnect fence; nothing else does.
+    revoking.lifecycle.record_revocation.assert_awaited_once_with(
+        user_id="u1", connector_id="notion", generation=6, outcome="revoked"
+    )
+
+
+@pytest.mark.asyncio
+async def test_disconnect_falls_back_to_the_access_token_without_a_refresh_token(
+    revoking, monkeypatch
+):
+    revoking.credentials.open_credential = Mock(
+        return_value={"accessToken": "access-1", "oauthClientId": "client-1"}
+    )
+    seen = _revocation_requests(monkeypatch)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "revoked"
+    assert b"token=access-1" in seen[0].content
+    assert b"token_type_hint=access_token" in seen[0].content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 401, 429, 500, 503])
+async def test_a_provider_refusal_is_recorded_as_failed_and_the_local_scrub_stands(
+    revoking, monkeypatch, status
+):
+    _revocation_requests(monkeypatch, status=status)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result == {"status": "revoked", "connectorId": "notion", "revocationOutcome": "failed"}
+    revoking.lifecycle.record_revocation.assert_awaited_once_with(
+        user_id="u1", connector_id="notion", generation=6, outcome="failed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_network_failure_is_recorded_as_failed(revoking, monkeypatch):
+    def handler(request):
+        raise httpx.ConnectError("down")
+
+    _install_transport(monkeypatch, handler)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_a_stalled_provider_is_cut_off_and_recorded_as_failed(revoking, monkeypatch):
+    class Stalled(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.sleep(30)
+            yield b""
+
+    def handler(request):
+        return httpx.Response(200, stream=Stalled())
+
+    _install_transport(monkeypatch, handler)
+    real_timeout = asyncio.timeout
+    monkeypatch.setattr(oauth.asyncio, "timeout", lambda _seconds: real_timeout(0.1))
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case", ["legacy_envelope", "client_changed", "undecryptable", "client_not_mounted"]
+)
+async def test_an_unverifiable_credential_is_never_presented_to_the_provider(
+    revoking, monkeypatch, case
+):
+    seen = _revocation_requests(monkeypatch)
+    if case == "legacy_envelope":
+        revoking.lifecycle.disconnect.return_value["envelope_version"] = 1
+    elif case == "client_changed":
+        revoking.credentials.open_credential = Mock(
+            return_value={"refreshToken": "refresh-1", "oauthClientId": "another-client"}
+        )
+    elif case == "undecryptable":
+        from hushh_mcp.services.external_connector_credentials_service import (
+            ExternalConnectorCredentialError,
+        )
+
+        revoking.credentials.open_credential = Mock(
+            side_effect=ExternalConnectorCredentialError("synthetic")
+        )
+    else:
+        monkeypatch.delenv("NOTION_OAUTH_CLIENT_ID")
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "failed"
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_a_non_public_revocation_endpoint_is_refused(revoking, monkeypatch):
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    internal = replace(get_manifest("notion"), revocation_url="https://127.0.0.1/revoke")
+    monkeypatch.setattr(oauth, "get_manifest", lambda connector_id: internal)
+    seen = _revocation_requests(monkeypatch)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "failed"
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_a_confidential_client_sends_its_secret_with_the_revocation(revoking, monkeypatch):
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    confidential = replace(get_manifest("hubspot"), revocation_url=REVOKE_URL)
+    monkeypatch.setattr(oauth, "get_manifest", lambda connector_id: confidential)
+    monkeypatch.setenv("HUBSPOT_OAUTH_CLIENT_ID", "client-1")
+    monkeypatch.setenv("HUBSPOT_OAUTH_CLIENT_SECRET", "secret-1")
+    seen = _revocation_requests(monkeypatch)
+    await revoking.disconnect(connector_id="hubspot", user_id="u1")
+    assert b"client_secret=secret-1" in seen[0].content
+
+
+@pytest.mark.asyncio
+async def test_a_confidential_client_with_no_secret_mounted_sends_nothing(revoking, monkeypatch):
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    confidential = replace(get_manifest("hubspot"), revocation_url=REVOKE_URL)
+    monkeypatch.setattr(oauth, "get_manifest", lambda connector_id: confidential)
+    monkeypatch.setenv("HUBSPOT_OAUTH_CLIENT_ID", "client-1")
+    monkeypatch.delenv("HUBSPOT_OAUTH_CLIENT_SECRET", raising=False)
+    seen = _revocation_requests(monkeypatch)
+    result = await revoking.disconnect(connector_id="hubspot", user_id="u1")
+    assert result["revocationOutcome"] == "failed" and seen == []
+
+
+@pytest.mark.asyncio
+async def test_a_deactivated_connector_is_still_revoked_on_disconnect(revoking, monkeypatch):
+    """An operator deactivating a provider must not strand a person's grant at the provider."""
+    seen = _revocation_requests(monkeypatch)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "revoked" and len(seen) == 1
+    revoking._configuration.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_provider_without_a_declared_endpoint_keeps_the_unavailable_outcome(
+    service, monkeypatch
+):
+    """HubSpot and Attio publish no revocation endpoint: nothing is sent anywhere."""
+    seen = _revocation_requests(monkeypatch)
+    service.lifecycle.disconnect = AsyncMock(
+        return_value={"credential_ciphertext": "blob", "connection_generation": 5}
+    )
+    result = await service.disconnect(connector_id="hubspot", user_id="u1")
+    assert result["revocationOutcome"] == "unavailable"
+    assert seen == []
+    service.lifecycle.record_revocation.assert_awaited_once_with(
+        user_id="u1",
+        connector_id="hubspot",
+        generation=6,
+        outcome="unavailable",
+        release_fence=True,
+    )
+
+
+# --- a refresh that loses a race with a disconnect must not leave a live token behind ---
+
+
+def _racing_refresh(service, connector, monkeypatch, *, stored, reread):
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    manifest = replace(get_manifest("hubspot"), revocation_url="https://mcp.hubspot.com/revoke")
+    monkeypatch.setattr(oauth, "get_manifest", lambda connector_id: manifest)
+    hash_ = oauth.curated_policy_hash(connector)
+    stale = _row(
+        verified_policy_hash=hash_,
+        credential_expires_at=datetime.now(UTC) + timedelta(seconds=10),
+        connection_generation=3,
+    )
+    service.lifecycle.read = AsyncMock(side_effect=[stale, reread] if reread else [stale])
+    service._configuration = AsyncMock(return_value=(connector, "client-1", "secret-1"))
+    service.credentials.open_credential = Mock(
+        return_value={"oauthClientId": "client-1", "accessToken": "old", "refreshToken": "old-r"}
+    )
+    service.lifecycle.claim_refresh = AsyncMock(return_value=True)
+    service.lifecycle.settle_refresh = AsyncMock(return_value=stored)
+    service._post = AsyncMock(
+        return_value={
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        }
+    )
+    service.credentials.seal_credential = Mock(
+        return_value={
+            "ciphertext": "c",
+            "iv": "i",
+            "algorithm": "a",
+            "expires_at": datetime.now(UTC) + timedelta(hours=1),
+        }
+    )
+    service._revoke = AsyncMock()
+
+
+@pytest.mark.asyncio
+async def test_a_disconnect_during_the_refresh_revokes_the_token_that_could_not_be_stored(
+    service, connector, monkeypatch
+):
+    _racing_refresh(service, connector, monkeypatch, stored=False, reread=None)
+    with pytest.raises(oauth.CuratedConnectorOAuthError, match="connection_changed"):
+        await service.current_credential(connector_id="hubspot", user_id="u1")
+    service._revoke.assert_awaited_once()
+    data = service._revoke.await_args.kwargs["data"]
+    assert data["token"] == "new-refresh" and data["token_type_hint"] == "refresh_token"
+    assert service._revoke.await_args.kwargs["url"] == "https://mcp.hubspot.com/revoke"
+
+
+@pytest.mark.asyncio
+async def test_a_connection_that_moved_after_the_refresh_also_revokes_the_new_token(
+    service, connector, monkeypatch
+):
+    hash_ = oauth.curated_policy_hash(connector)
+    _racing_refresh(
+        service,
+        connector,
+        monkeypatch,
+        stored=True,
+        reread=_row(verified_policy_hash=hash_, connection_generation=4),
+    )
+    with pytest.raises(oauth.CuratedConnectorOAuthError, match="connection_changed"):
+        await service.current_credential(connector_id="hubspot", user_id="u1")
+    service._revoke.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_revoke_of_the_unstored_token_never_masks_the_real_outcome(
+    service, connector, monkeypatch, caplog
+):
+    _racing_refresh(service, connector, monkeypatch, stored=False, reread=None)
+    service._revoke.side_effect = oauth.CuratedConnectorOAuthError("provider_unavailable")
+    with caplog.at_level("WARNING", logger=oauth.logger.name):
+        with pytest.raises(oauth.CuratedConnectorOAuthError, match="connection_changed"):
+            await service.current_credential(connector_id="hubspot", user_id="u1")
+    assert "unstored_revoke_failed" in caplog.text
+    assert "new-refresh" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_that_succeeds_never_revokes_anything(service, connector, monkeypatch):
+    hash_ = oauth.curated_policy_hash(connector)
+    _racing_refresh(
+        service,
+        connector,
+        monkeypatch,
+        stored=True,
+        reread=_row(verified_policy_hash=hash_, connection_generation=3),
+    )
+    await service.current_credential(connector_id="hubspot", user_id="u1")
+    service._revoke.assert_not_awaited()
+
+
+# --- a connection that needs signing in again is not "never connected" -----------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row", [None, _row(status="revoked")])
+async def test_never_connected_or_disconnected_is_the_quiet_kind(service, row):
+    service.lifecycle.read = AsyncMock(return_value=row)
+    with pytest.raises(oauth.CuratedNotConnectedError):
+        await service.current_credential(connector_id="hubspot", user_id="u1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "row",
+    [_row(status="needs_reauth"), _row(status="error"), _row(envelope_version=1)],
+    ids=["needs_reauth", "error", "legacy_envelope"],
+)
+async def test_a_connection_that_stopped_working_is_not_the_quiet_kind(service, row):
+    """The provider rejected the refresh token: the person did connect it, so chat must say so."""
+    service.lifecycle.read = AsyncMock(return_value=row)
+    with pytest.raises(oauth.CuratedConnectorOAuthError, match="reconnect_required") as caught:
+        await service.current_credential(connector_id="hubspot", user_id="u1")
+    assert not isinstance(caught.value, oauth.CuratedNotConnectedError)
+    assert caught.value.status_code == 401
+
+
+# --- token endpoint rejections leave a trace -------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("body", "logged"),
+    [
+        ({"error": "invalid_client"}, "error=invalid.client"),
+        ({"error": "server_error"}, "error=server.error"),
+        ({"error": "PRIVATE_PROVIDER_TEXT"}, "error=other"),
+        ({}, "error=other"),
+    ],
+)
+async def test_a_token_endpoint_rejection_is_logged_with_a_fixed_vocabulary(
+    service, connector, monkeypatch, caplog, body, logged
+):
+    def handler(request):
+        return httpx.Response(400, json=body)
+
+    _install_transport(monkeypatch, handler)
+    with caplog.at_level("WARNING", logger=oauth.logger.name):
+        with pytest.raises(oauth.CuratedConnectorOAuthError):
+            await service._post(
+                connector.oauth_token_url, token_url=connector.oauth_token_url, data={"code": "x"}
+            )
+    line = next(
+        r.getMessage() for r in caplog.records if "curated_oauth.token_endpoint" in r.getMessage()
+    )
+    assert "status=400" in line and logged in line
+    assert "mcp.hubspot.com" in line
+    assert "PRIVATE_PROVIDER_TEXT" not in caplog.text
+    # Nothing the redactor would mask: no long snake_case token in the line.
+    from mcp_modules.log_redaction import redact_log_value
+
+    assert redact_log_value(line) == line

@@ -851,7 +851,35 @@ class ActorIdentityService:
             )
             return None
 
+        if phone_verified is True:
+            await self._sync_referral_qualification_best_effort(normalized_user_id)
+
         return self._normalize_row(row)
+
+    @staticmethod
+    async def _sync_referral_qualification_best_effort(user_id: str) -> None:
+        """Best-effort hook: let a newly-verified phone progress a referral.
+
+        `sync_referral_qualification_from_onboarding` is otherwise only
+        re-invoked from `vault_keys_service` when onboarding itself completes.
+        Phone verification can land after that -- `sync_from_firebase` is a
+        background, cooldown-gated resync -- and nothing previously re-checked
+        a relationship that was parked at `phone_not_verified`. Calling it
+        again here, from the write that actually flips `phone_verified` to
+        true, closes that ordering gap. It is safe to call for an unreferred
+        user or an already-settled relationship (both are documented no-ops),
+        and it runs in a worker thread because the referral service uses a
+        blocking psycopg2 connection, not asyncpg. Any failure here must never
+        surface as a failure of the identity write that triggered it.
+        """
+        try:
+            from hushh_mcp.services.one_referral_service import (
+                sync_referral_qualification_from_onboarding,
+            )
+
+            await asyncio.to_thread(sync_referral_qualification_from_onboarding, user_id)
+        except Exception:
+            logger.exception("[actor_identity] referral_qualification_sync_failed user=%s", user_id)
 
     async def fill_missing_display_name(
         self,
@@ -1093,6 +1121,8 @@ class ActorIdentityService:
         except Exception:  # noqa: S110 -- provisioning kickoff must never break phone verify
             pass
         self._schedule_phone_resume(normalized_user_id, normalized_phone_number)
+        await self._sync_referral_qualification_best_effort(normalized_user_id)
+
         return self._normalize_row(row)
 
     def _schedule_phone_resume(self, user_id: str, phone: str) -> None:

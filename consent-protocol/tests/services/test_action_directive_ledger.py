@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import threading
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ import pytest
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
     ActionDirectiveStore,
+    BoundActionTerms,
 )
 
 
@@ -478,3 +480,107 @@ async def test_browser_reviews_use_existing_ledger_exact_terms_and_cannot_impers
             resource_binding=review.terms.resource_binding,
             trusted_activation_required=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_new_turn_disarms_only_unconfirmed_adk_chat_reviews_for_one_session_and_action():
+    db = _StatefulDirectiveDb()
+    store = ActionDirectiveStore(db=db, hmac_key="k" * 40)
+
+    await store.cancel_unconfirmed_adk_chat(
+        user_id="user-1", session_id="thread-1", action_id="connector.mcp.invoke"
+    )
+
+    sql = " ".join(db.sql[-1].split())
+    # Same transition and reason as the typed-chat supersede, narrowed to one
+    # owner, one encrypted session, one action; approved reviews are kept.
+    assert "SET state = 'cancelled'" in sql
+    assert "settlement_reason_code = 'superseded_by_new_turn'" in sql
+    assert "channel = 'adk_chat'" in sql and "adk_app_name = 'hussh_one'" in sql
+    for bound in ("user_id = :user_id", "session_id = :session_id", "action_id = :action_id"):
+        assert bound in sql
+    assert "AND state = 'issued'" in sql
+    assert "'confirmed'" not in sql and "'consumed'" not in sql
+    assert db.params[-1] == {
+        "user_id": "user-1",
+        "session_id": "thread-1",
+        "action_id": "connector.mcp.invoke",
+    }
+
+
+_MCP_REFUSAL_TERMS = {
+    "user_id": "user-1",
+    "session_id": "thread-1",
+    "action_id": "connector.mcp.invoke",
+    "context_revision": "mcp:rev",
+    "adk_app_name": "hussh_one",
+    "terms": BoundActionTerms(action_contract={"a": 1}, slots={"q": 1}, resource_binding={"r": 1}),
+}
+
+
+class _RefusalDb:
+    """A confirm/consume that matches nothing, then the diagnostic read."""
+
+    def __init__(self, row):
+        self.row = row
+        self.sql: list[str] = []
+
+    def execute_raw(self, sql: str, params: dict):
+        self.sql.append(sql)
+        if "SELECT state" in sql:
+            if isinstance(self.row, Exception):
+                raise self.row
+            return SimpleNamespace(data=[self.row] if self.row else [])
+        return SimpleNamespace(data=[])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("row", "operation", "reason"),
+    [
+        (None, "confirm", "directive_unknown"),
+        ({"state": "cancelled", "expired": False}, "confirm", "directive_not_open"),
+        ({"state": "consumed", "expired": False}, "confirm", "directive_not_open"),
+        ({"state": "issued", "expired": True}, "confirm", "directive_expired"),
+        ({"state": "issued", "expired": False}, "confirm", "binding_mismatch"),
+        ({"state": "issued", "expired": False}, "consume", "directive_not_open"),
+        ({"state": "confirmed", "expired": True}, "consume", "directive_expired"),
+        ({"state": "confirmed", "expired": False}, "consume", "binding_mismatch"),
+    ],
+)
+async def test_refused_adk_directive_logs_a_reason_without_changing_the_refusal(
+    caplog, row, operation, reason
+):
+    db = _RefusalDb(row)
+    store = ActionDirectiveStore(db=db, hmac_key="k" * 40)
+    common = {**_MCP_REFUSAL_TERMS, "directive_id": "dir_" + "a" * 32}
+    call = (
+        store.confirm(**common, trusted_activation=True)
+        if operation == "confirm"
+        else store.consume(**common, receipt="private-receipt-value")
+    )
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ActionDirectiveAuthorityError) as refused:
+            await call
+    assert refused.value.reason == reason
+    assert str(refused.value) in (
+        "directive is stale, mismatched, or already used",
+        "confirmation receipt is invalid or already used",
+    )
+    assert reason in caplog.text
+    for private in ("dir_" + "a" * 32, "user-1", "thread-1", "private-receipt-value"):
+        assert private not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_failing_diagnostic_read_leaves_the_refusal_untouched(caplog):
+    from db.db_client import DatabaseExecutionError
+
+    store = ActionDirectiveStore(
+        db=_RefusalDb(DatabaseExecutionError(table_name="t", operation="select", details="down")),
+        hmac_key="k" * 40,
+    )
+    with pytest.raises(ActionDirectiveAuthorityError) as refused:
+        await store.consume(**_MCP_REFUSAL_TERMS, directive_id="dir_" + "a" * 32, receipt="r")
+    assert refused.value.reason is None
+    assert str(refused.value) == "confirmation receipt is invalid or already used"

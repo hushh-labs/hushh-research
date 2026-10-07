@@ -1383,12 +1383,8 @@ textarea {
 /* The account screen no longer overrides the shared measure or the header gap.
  * It used to force a 560px column and `padding-top: 0`, so it sat at a
  * different width and header offset than every sibling Profile screen; the
- * navigator now supplies the 720px measure, the header gap, and the bottom
- * clearance uniformly. Only the inline gutter stays pinned here. */
-[data-profile-stack-screen="account"] [data-profile-stack-content],
-[data-profile-stack-screen="panel:account"] [data-profile-stack-content] {
-  padding-inline: var(--page-inline-gutter-standard);
-}
+ * navigator supplies the header gap; the outer page shell owns the measure
+ * and gutter and the pane scroller owns bottom clearance for every screen. */
 
 [data-profile-stack-screen="account"] [data-profile-stack-header],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-header] {
@@ -2212,6 +2208,9 @@ body:has(.profile-account-content) .kai-bottom-nav-pill [role="radio"] {
 
 body:has(.profile-account-content)
   .kai-bottom-nav-pill
+  [role="radio"]:active,
+body:has(.profile-account-content)
+  .kai-bottom-nav-pill
   [role="radio"][aria-checked="true"] {
   color: var(--ios-account-accent) !important;
   font-weight: var(--ios-account-medium-weight);
@@ -2570,7 +2569,7 @@ html.native-keyboard-inset iframe[id^="plaid-link-iframe"] {
  * flipping and two backdrop-blur layers taking their first paint in the
  * middle of the composer's descent, which the keyboard trace showed as a
  * 4 px step followed by a 74 px step (bug log B48). */
-html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell],
+html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell]:not([data-agent-dock-chat]),
 html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
   opacity: 0;
   visibility: hidden;
@@ -2595,7 +2594,7 @@ html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
  * Ultra, 2026-09-22). iOS keeps its frame and the keyboard covers the tab
  * bar; here the tab bar steps aside for the same result, and the root
  * composer gives back the room it reserved for the bar. */
-html.kb-open.kb-resizes [data-app-bottom-shell],
+html.kb-open.kb-resizes [data-app-bottom-shell]:not([data-agent-dock-chat]),
 html.kb-open.kb-resizes .ambient-chrome-mask--bottom {
   opacity: 0;
   visibility: hidden;
@@ -2809,7 +2808,7 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
 /* Location owns a compact module header rather than a large route hero. Keep
  * the shared shell reservation, but give this route the 24px breathing room
  * the actual utility row needs instead of an empty band below it. */
-body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
+body:has([data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="true"] {
   height: calc(var(--app-top-content-offset) - 24px);
 }
 
@@ -4681,6 +4680,21 @@ body:has([data-testid="one-location-onboarding"])
     letter-spacing: var(--foundation-title3-tracking) !important;
   }
 
+  /* Memory's tabs and categories use the same section hierarchy as Location.
+     Keep this within Memory so other app surfaces retain their own roles. */
+  .app-page-shell [data-pkm-workspace] [data-slot="settings-group-heading"] {
+    font-family: var(--font-app-body);
+    font-size: var(--type-section-label-size) !important;
+    line-height: var(--type-section-label-line) !important;
+    font-weight: var(--type-section-label-weight) !important;
+    letter-spacing: var(--type-section-label-tracking) !important;
+  }
+
+  [data-pkm-location-view] [data-slot="settings-row-description"] {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .app-page-shell
     .profile-account-content
     [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
@@ -5486,6 +5500,84 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     inset 0 1px 0 color-mix(in oklab, var(--background) 18%, var(--foreground));
 }
 
+/* The retained Agent Bar owns the material in both modes. Chat projects its
+ * existing form into that bar, not another glass pill or another text box. */
+[data-agent-dock-surface="text"] {
+  display: block;
+  min-width: 0;
+  overflow: visible;
+  border-radius: 1.5rem;
+}
+[data-agent-dock-surface="voice"] {
+  /* Same resting frame as the one-line composer: only content changes on
+   * route navigation. Taller drafts still grow inside the bounded editor. */
+  border-radius: 1.5rem;
+  padding-block: 0.25rem;
+}
+[data-agent-dock-voice][hidden],
+[data-agent-dock-composer][hidden] {
+  display: none !important;
+}
+/* The composer is portalled outside the Chat route. Its geometry must not
+ * depend on a route ancestor. A bounded corner and square inner field keep
+ * wrapped text clear of the curve at both narrow and tall sizes. */
+.agent-chat-composer-surface {
+  border-radius: 1.5rem;
+}
+.agent-chat-composer-compact {
+  padding: 0.25rem 0.375rem 0.25rem 1rem;
+}
+.agent-chat-composer-field {
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  max-height: min(10rem, 24dvh);
+  border-radius: 0;
+  padding: 0.625rem 0;
+  line-height: 1.5rem;
+}
+.agent-chat-composer-actions .shell-action-surface {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+[data-agent-dock-embedded].agent-chat-composer-surface,
+.dark [data-agent-dock-embedded].agent-chat-composer-surface {
+  border: 0;
+  background: transparent !important;
+  box-shadow: none;
+}
+[data-agent-dock-composer]:not([hidden]),
+[data-agent-dock-voice]:not([hidden]) {
+  animation: agent-dock-content-enter 150ms ease-out;
+}
+@keyframes agent-dock-content-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Keep the one composer available above the keyboard. Only navigation steps
+ * aside; hiding the whole shell would also hide its now-shared input. */
+html.kb-open [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
+  visibility: hidden;
+  pointer-events: none;
+}
+html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
+  transform: none !important;
+}
+html:not(.kb-resizes) [data-agent-dock-chat] [data-bottom-shell-agent-slot] {
+  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-height, 0px) + 0.5rem) * -1);
+  transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
+}
+html.kb-open.kb-resizes [data-agent-dock-chat] {
+  padding-bottom: 0.5rem !important;
+}
+html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-agent-dock-composer]:not([hidden]),
+  [data-agent-dock-voice]:not([hidden]) { animation: none; }
+  html:not(.kb-resizes) [data-agent-dock-chat] [data-bottom-shell-agent-slot] { transition: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-chat-composer-surface {
     transition: none;
@@ -5719,6 +5811,13 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   letter-spacing: 0;
 }
 
+.kai-bottom-nav-pill [role="radio"] {
+  /* Selection and press feedback use the accent on the first frame. */
+  transition-property: opacity, transform;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kai-bottom-nav-pill [role="radio"]:active,
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
   color: var(--app-accent-deep) !important;
   font-weight: 500;
@@ -5728,6 +5827,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   color: #98989d !important;
 }
 
+.dark .kai-bottom-nav-pill [role="radio"]:active,
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
   color: var(--app-accent-bright) !important;
 }
@@ -5775,10 +5875,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 [data-app-bottom-shell]
   .bottom-chrome-surface
-  :is(.text-foreground, .text-muted-foreground, .chrome-bottom-foreground),
+  :is(.text-foreground, .text-muted-foreground, .chrome-bottom-foreground):not([role="radio"]),
 [data-app-bottom-shell]
   .kai-bottom-nav-pill
-  :is(.text-foreground, .text-muted-foreground, .chrome-bottom-foreground) {
+  :is(.text-foreground, .text-muted-foreground, .chrome-bottom-foreground):not([role="radio"]) {
   color: currentColor !important;
 }
 
@@ -6716,6 +6816,26 @@ html[data-accent="gold"].dark {
       0
     );
   }
+}
+
+/* Profile keeps the Sheet's modal lease while the finger moves. On release,
+ * its ordinary close lifecycle continues from the actual pulled position. */
+[data-profile-pull][data-state="open"] {
+  animation: none;
+}
+[data-profile-pull="exit"][data-state="closed"] {
+  animation-name: profile-pull-exit;
+}
+[data-slot="sheet-overlay"][data-profile-pull="exit"][data-state="closed"] {
+  animation-name: profile-pull-scrim-exit;
+}
+@keyframes profile-pull-exit {
+  from { transform: translate3d(var(--profile-pull-x, 0px), 0, 0); }
+  to { transform: translate3d(100%, 0, 0); }
+}
+@keyframes profile-pull-scrim-exit {
+  from { opacity: var(--profile-pull-opacity, 1); }
+  to { opacity: 0; }
 }
 
 @media (pointer: coarse) {
@@ -7782,14 +7902,10 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 
 .boot-mark-glyph {
   position: absolute;
-  inset: -50%;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-app-emoji), sans-serif;
-  font-size: calc(var(--boot-mark-size) / 0.96);
-  line-height: 1;
-  translate: 0 calc(var(--boot-mark-size) / 0.96 * 0.0267);
   user-select: none;
 }
 

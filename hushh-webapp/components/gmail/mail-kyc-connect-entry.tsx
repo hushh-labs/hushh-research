@@ -20,7 +20,7 @@ export function MailKycConnectEntry({
   busy?: boolean;
   onConnect: () => void;
 }) {
-  // One line at phone width, so the row keeps the shared 56 px geometry. It is
+  // One line at phone width, so the row keeps the shared compact geometry. It is
   // also right for an inbox whose permission was revoked: that reconnects
   // through the same consent.
   const title = "Connect Gmail to manage identity";

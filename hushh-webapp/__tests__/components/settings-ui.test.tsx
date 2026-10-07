@@ -82,17 +82,32 @@ describe("SettingsRow", () => {
 
   it("uses compact single-line geometry when a grouped menu has no subtext", () => {
     const { container } = render(
-      <SettingsRow
-        icon={undefined}
-        title="Security"
-        density="compact"
-        chevron
-        onClick={() => {}}
-      />,
+      <SettingsGroup density="compact">
+        <SettingsRow title="Security" chevron onClick={() => {}} />
+        <SettingsRow
+          title="Notifications"
+          onClick={() => {}}
+          trailing={
+            <input type="checkbox" aria-label="Notifications enabled" />
+          }
+        />
+      </SettingsGroup>,
     );
 
     const rowShell = container.querySelector('[data-testid="settings-row"]');
     expect(rowShell?.className).toContain("[--settings-row-py:8px]");
+    // Both row shapes share the same target and start line. A minimum, rather
+    // than a fixed height, leaves wrapped copy and larger controls room to grow.
+    const grids = container.querySelectorAll(
+      '[data-testid="settings-row"] > .grid',
+    );
+    expect(grids).toHaveLength(2);
+    for (const grid of grids) {
+      expect(grid.className).toContain("min-h-[48px]");
+      expect(grid.className).toContain("px-[var(--settings-row-px)]");
+      expect(grid.className).toContain("py-[var(--settings-row-py)]");
+      expect(grid.className).not.toContain("max-h-");
+    }
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
   });
 
@@ -278,9 +293,10 @@ describe("SettingsRow", () => {
       </SettingsGroup>,
     );
 
-    expect(
-      container.querySelector('[data-testid="settings-row"]')?.className,
-    ).toContain("after:left-0");
+    const plainRow = container.querySelector('[data-testid="settings-row"]');
+    expect(plainRow?.className).toContain("after:left-0");
+    expect(plainRow?.className).toContain("after:right-0");
+    expect(plainRow?.className).not.toContain("after:right-4");
 
     rerender(
       <SettingsGroup separatorInset>
@@ -291,7 +307,41 @@ describe("SettingsRow", () => {
 
     expect(
       container.querySelector('[data-testid="settings-row"]')?.className,
-    ).toContain("after:left-[62px]");
+    ).toContain(
+      "after:left-[calc(var(--settings-row-px)+34px+var(--settings-row-gap))]",
+    );
+
+    rerender(
+      <SettingsGroup density="compact" separatorInset>
+        <SettingsRow icon={Phone} title="Icon row" />
+        <SettingsRow title="Last row" />
+      </SettingsGroup>,
+    );
+    const compactRow = container.querySelector('[data-testid="settings-row"]');
+    // Compact page shells change the gap from 12px to 10px. A fixed 58px
+    // separator cannot follow either text start; the inset must use the gap.
+    expect(compactRow?.className).toContain(
+      "after:left-[calc(var(--settings-row-px)+28px+var(--settings-row-gap))]",
+    );
+    expect(compactRow?.className).toContain(
+      "after:right-[var(--settings-row-px)]",
+    );
+    expect(compactRow?.className).not.toContain("after:left-[58px]");
+
+    rerender(
+      <SettingsGroup density="compact" separatorInset>
+        <SettingsRow layout="person" leading={<span>AB</span>} title="Person" />
+        <SettingsRow leading={<span>Custom</span>} title="Custom leading" />
+      </SettingsGroup>,
+    );
+    const leadingRows = container.querySelectorAll(
+      '[data-testid="settings-row"]',
+    );
+    expect(leadingRows[0]?.className).toContain("after:left-[68px]");
+    expect(leadingRows[0]?.querySelector(".grid")?.className).toContain(
+      "min-h-[72px]",
+    );
+    expect(leadingRows[1]?.className).toContain("after:left-[58px]");
   });
 
   it("inherits route-family separator and density defaults", () => {

@@ -36,12 +36,17 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("sonner", () => ({ toast: mocks.toast }));
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {
-    isNativePlatform: () => mocks.platform.native,
-    getPlatform: () => mocks.platform.value,
-  },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: {
+      ...actual.Capacitor,
+      isNativePlatform: () => mocks.platform.native,
+      getPlatform: () => mocks.platform.value,
+    },
+  };
+});
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: mocks.auth.user }),
@@ -732,5 +737,21 @@ describe("connection-request Feed-first foreground policy", () => {
     expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledTimes(1);
     expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
     expect(screen.getByTestId("pending-count")).toHaveTextContent("0");
+  });
+
+  it("refreshes Feed when a direct-message notification arrives", async () => {
+    await renderProvider();
+    const notification = {
+      data: {
+        type: "direct_message",
+        conversation_id: "conversation-1",
+        message_id: "message-1",
+      },
+      accepted: false,
+    };
+
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail: notification })));
+
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
   });
 });

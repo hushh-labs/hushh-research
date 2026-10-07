@@ -61,7 +61,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('"motion-step-enter flex w-full items-start gap-2"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
     expect(workspace).toContain('"agent-chat-composer"');
-    expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
+    expect(workspace).toContain("agent-chat-composer-compact");
     // Persistent desktop column (2026-09-29): one solid chat-scoped surface
     // beside the conversation, separated by a hairline, never glass.
     expect(history).toContain('"border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)]"');
@@ -115,16 +115,14 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("agent-chat-composer-expanded-textarea");
     expect(workspace).toContain("overflow-y-auto");
     expect(workspace).toContain("agent-chat-composer-surface");
-    expect(workspace).toContain("px-0 py-3");
+    expect(workspace).toContain("agent-chat-composer-field");
     expect(workspace).not.toContain("<Sparkles className=\"h-3.5 w-3.5\" />");
-    expect(workspace).toContain("rounded-[var(--app-input-radius)]");
     expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
     expect(workspace).toContain('"flex shrink-0 items-center gap-1.5"');
     // One text box serves both sizes: two separate ones were swapped when a
     // long draft auto-expanded and keystrokes in that frame were lost.
     expect(workspace.match(/ref=\{composerTextareaRef\}/g) ?? []).toHaveLength(1);
-    expect(workspace).toContain("max-h-40");
-    expect(workspace).toContain("sm:max-h-44");
+    expect(read("app/globals.css")).toContain("max-height: min(10rem, 24dvh)");
     // The transcript's bottom band follows the composer's measured height.
     expect(workspace).toContain("--agent-chat-composer-stack-height");
     expect(workspace).toContain("h-[30dvh]");
@@ -205,6 +203,19 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("return input.statusText || IDLE_AGENT_SUBTITLE;");
     expect(workspace).toContain("<ChatAgentSubtitle text={chatHeaderSubtitle({");
     expect(workspace).not.toContain('title={statusText || undefined}');
+  });
+
+  it("keeps the active-agent mark visible in the compact chat header", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const brandTileStart = workspace.indexOf('data-agent-chat-brand-tile');
+    const brandTile = workspace.slice(brandTileStart, brandTileStart + 700);
+
+    expect(brandTileStart).toBeGreaterThan(0);
+    expect(brandTile).toContain("<HushhMark");
+    expect(brandTile).toContain('className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"');
+    expect(brandTile).toContain('className="h-7 w-7 items-center justify-center overflow-visible"');
+    expect(brandTile).toContain('imageClassName="!h-[23px] !w-[23px]"');
+    expect(brandTile).not.toContain("max-sm:hidden");
   });
 
   it("keeps One's cloud model picker out of the Puppy One surface", () => {
@@ -295,7 +306,16 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}');
     expect(workspace).toContain("onKaiBottomChromeScroll(scrollTop)");
     expect(shell).toContain("agentBarHidden?: boolean");
-    expect(shell).toContain("!model.agentBarHidden || Boolean(command?.active) || voiceActive");
+    expect(shell).not.toContain("const agentBarVisible = !model.agentBarHidden");
+    expect(shell).toContain("<AgentDockVoiceBoundary>");
+    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute}");
+    expect(workspace).toContain('<AgentBar layout="slot" />');
+    expect(workspace).toContain("<AgentBarSurface");
+    expect(workspace).not.toContain("<AgentVoiceWaveInput");
+    // A command result can outlive capture. Never measure the hidden editor;
+    // its visibility change must trigger sizing when that result is dismissed.
+    expect(workspace).toContain("if (!textarea || showVoiceBar) return;");
+    expect(workspace).toContain("[agentDockHost, composerExpanded, input, setComposerExpanded, showVoiceBar]");
     expect(providers).toContain("pathname === ROUTES.HOME");
     expect(providers).toContain("agentBarHidden:");
   });

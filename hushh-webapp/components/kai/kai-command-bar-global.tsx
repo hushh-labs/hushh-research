@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -15,8 +15,10 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
   KAI_COMMAND_BAR_OPEN_EVENT,
   KAI_COMMAND_BAR_TOGGLE_EVENT,
+  setKaiCommandBarOpen,
   type KaiCommandBarOpenRequest,
 } from "@/lib/navigation/kai-command-bar-events";
+import { isKaiCommandBarOpen } from "@/lib/navigation/search-route";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
@@ -97,7 +99,7 @@ function readPortfolioTickers(userId: string): KaiPortfolioTicker[] {
  */
 export function KaiCommandBarGlobal() {
   const [mounted, setMounted] = useState(false);
-  const [open, setOpen] = useState(false);
+  const open = isKaiCommandBarOpen(useSearchParams());
   const [openRequest, setOpenRequest] = useState<KaiCommandBarOpenRequest>({});
   const router = useRouter();
   const pathname = usePathname();
@@ -132,23 +134,29 @@ export function KaiCommandBarGlobal() {
   // hidden must not pop the palette open on the next screen that shows it.
   useEffect(() => {
     if (!available) {
-      setOpen(false);
+      if (mounted && !loading && open) setKaiCommandBarOpen(false);
       setOpenRequest({});
       return;
     }
     const openPalette = (event: Event) => {
       const request = (event as CustomEvent<KaiCommandBarOpenRequest>).detail;
       setOpenRequest(request && typeof request === "object" ? request : {});
-      setOpen(true);
+      setKaiCommandBarOpen(true);
     };
-    const togglePalette = () => setOpen((current) => !current);
+    const togglePalette = () => setKaiCommandBarOpen(
+      !isKaiCommandBarOpen(new URLSearchParams(window.location.search)),
+    );
     window.addEventListener(KAI_COMMAND_BAR_OPEN_EVENT, openPalette);
     window.addEventListener(KAI_COMMAND_BAR_TOGGLE_EVENT, togglePalette);
     return () => {
       window.removeEventListener(KAI_COMMAND_BAR_OPEN_EVENT, openPalette);
       window.removeEventListener(KAI_COMMAND_BAR_TOGGLE_EVENT, togglePalette);
     };
-  }, [available]);
+  }, [available, mounted, loading, open]);
+
+  useEffect(() => {
+    if (!open) setOpenRequest({});
+  }, [open]);
 
   // Read on open, so a portfolio imported after sign-in is searchable.
   const portfolioTickers = useMemo(
@@ -224,7 +232,7 @@ export function KaiCommandBarGlobal() {
     <KaiCommandPalette
       open={open}
       onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
+        setKaiCommandBarOpen(nextOpen);
         if (!nextOpen) setOpenRequest({});
       }}
       intent={openRequest.intent}

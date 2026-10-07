@@ -373,6 +373,17 @@ class TestAgentTreeShape:
         assert "What is my connected person's email?" in ONE_IDENTITY_INSTRUCTION
         assert "call list_my_connections first" in ONE_IDENTITY_INSTRUCTION
 
+    def test_calendar_instruction_requires_asking_missing_scheduling_details(self):
+        assert (
+            "Proposing, ask missing title, date, zone, start/end/duration, guests"
+            in ONE_IDENTITY_INSTRUCTION
+        )
+        assert "reuse supplied details" in ONE_IDENTITY_INSTRUCTION
+        assert "Never invent; 'at 8pm' is not today" in ONE_IDENTITY_INSTRUCTION
+        assert "Resolve relative dates with get_current_time" in ONE_IDENTITY_INSTRUCTION
+        assert "preserve title/attendees" in ONE_IDENTITY_INSTRUCTION
+        assert "Cancellation needs event id" in ONE_IDENTITY_INSTRUCTION
+
     def test_identity_instruction_carries_persona_grounding(self):
         # Durable north-star + principle grounding is folded into the shared
         # identity string, so it reaches BOTH the text and Live heads.

@@ -1,0 +1,28 @@
+.form { display:flex; flex-direction:column; gap:24px; width:100%; padding:4px 0 12px; }
+.heading { display:flex; flex-direction:column; gap:8px; }
+
+.heading p,.scanHint { font-size:13px; line-height:1.5; color:var(--muted-foreground); }
+.scanner { display:flex; flex-direction:column; gap:10px; }
+.scanActions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.scanActions button { padding-inline:8px; }
+.scanProgress { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; color:var(--muted-foreground); }
+.divider { display:flex; align-items:center; gap:12px; color:var(--muted-foreground); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
+.divider::before,.divider::after { content:""; flex:1; height:1px; background:var(--border); }
+.fields { display:flex; flex-direction:column; gap:20px; border:0; padding:0; margin:0; min-width:0; }
+.fields:disabled { opacity:.65; }
+.field { position:relative; display:flex; flex-direction:column; min-width:0; gap:8px; }
+.field>label { position:absolute; left:12px; top:-7px; z-index:1; padding-inline:6px; background:var(--background); font-size:10px; line-height:14px; letter-spacing:.09em; text-transform:uppercase; font-weight:500; color:var(--muted-foreground); }
+.field input,.field select { border-radius:10px; min-height:58px; padding:16px; background:transparent; box-shadow:none; font-size:16px; }
+.field input:focus-visible,.field select:focus-visible { border-color:var(--app-accent); }
+.number input { font-variant-numeric:tabular-nums; letter-spacing:.08em; }
+.row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.secretLabel { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.footer { display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.5; color:var(--muted-foreground); }
+.footer svg { flex:none; margin-top:1px; width:16px; height:16px; }
+
+/* Use the same feature surface and reading scale as Mail's KYC panel. */
+.form { padding:20px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); box-shadow:var(--app-card-shadow-feature); }
+.heading { padding-bottom:8px; }
+.heading p,.scanHint { font-size:15px; line-height:22px; }
+.field>label { background:var(--app-card-surface-default-solid); }
+@media(min-width:640px) { .form { padding:32px; background:var(--app-card-surface-default-solid); } .fields .fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } }

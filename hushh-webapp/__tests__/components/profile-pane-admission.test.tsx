@@ -58,6 +58,78 @@ function paintFirstFrames() {
   paintFrame();
 }
 
+function pull(type: string, target: Element, x: number, y: number, time: number) {
+  const point = { identifier: 1, clientX: x, clientY: y };
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    touches: { value: type === "touchend" ? [] : [point] },
+    changedTouches: { value: [point] },
+    timeStamp: { value: time },
+  });
+  fireEvent(target, event);
+}
+
+it("tracks an owned Profile close without moving the page and commits exactly once", () => {
+  vault.isVaultUnlocked = true;
+  const close = vi.fn();
+  const view = render(<ProfilePane open onOpenChange={close} />);
+  const panel = screen.getByTestId("profile-pane");
+  Object.defineProperty(panel, "offsetWidth", { value: 390 });
+  const title = screen.getByRole("heading");
+  const scrim = document.querySelector<HTMLElement>('[data-slot="sheet-overlay"]')!;
+  pull("touchstart", title, 100, 150, 0);
+  pull("touchmove", title, 150, 152, 120);
+  expect(panel.style.transform).toBe("translate3d(50px, 0, 0)");
+  expect(panel.style.transition).toBe("none");
+  expect(Number(scrim.style.opacity)).toBeCloseTo(1 - 50 / 390);
+  expect(document.body.style.transform).toBe("");
+  expect(close).not.toHaveBeenCalled();
+  pull("touchend", title, 205, 153, 240);
+  pull("touchend", title, 205, 153, 240);
+  expect(close).toHaveBeenCalledExactlyOnceWith(false);
+  expect(panel.dataset.profilePull).toBe("exit");
+  view.unmount();
+  expect(panel.style.transform).toBe("");
+});
+
+it("keeps Profile scroll, fields, horizontal rails and nested dialogs outside the close gesture", () => {
+  vault.isVaultUnlocked = true;
+  const close = vi.fn();
+  const view = render(<ProfilePane open onOpenChange={close} />);
+  const panel = screen.getByTestId("profile-pane");
+  Object.defineProperty(panel, "offsetWidth", { value: 390 });
+  const title = screen.getByRole("heading");
+  const swipe = (target: Element, vertical = false) => {
+    pull("touchstart", target, 100, 150, 0);
+    pull("touchmove", target, vertical ? 105 : 210, vertical ? 270 : 152, 120);
+    pull("touchend", target, 220, vertical ? 290 : 152, 240);
+  };
+  swipe(title, true);
+  swipe(screen.getByRole("button", { name: "Close Profile" }));
+  const field = document.createElement("input");
+  panel.append(field);
+  swipe(field);
+  const rail = document.createElement("div");
+  rail.style.overflowX = "auto";
+  Object.defineProperties(rail, { scrollWidth: { value: 600 }, clientWidth: { value: 200 } });
+  panel.append(rail);
+  swipe(rail);
+  const dialog = document.createElement("div");
+  dialog.dataset.slot = "alert-dialog-content";
+  dialog.dataset.state = "open";
+  document.body.append(dialog);
+  swipe(title);
+  dialog.remove();
+  expect(close).not.toHaveBeenCalled();
+  expect(panel.style.transform).toBe("");
+  pull("touchstart", title, 100, 150, 0);
+  pull("touchmove", title, 125, 151, 120);
+  pull("touchend", title, 125, 151, 240);
+  expect(panel.style.transform).toBe("translate3d(0px, 0, 0)");
+  expect(close).not.toHaveBeenCalled();
+  view.unmount();
+});
+
 it("defers a URL-requested pane until unlock and removes it immediately on relock", () => {
   const onOpenChange = vi.fn();
   const view = render(<ProfilePane open onOpenChange={onOpenChange} />);

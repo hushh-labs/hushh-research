@@ -62,12 +62,17 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("sonner", () => ({ toast: mocks.toast }));
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {
-    isNativePlatform: () => mocks.platform.native,
-    getPlatform: () => mocks.platform.value,
-  },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: {
+      ...actual.Capacitor,
+      isNativePlatform: () => mocks.platform.native,
+      getPlatform: () => mocks.platform.value,
+    },
+  };
+});
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: mocks.auth.user }),

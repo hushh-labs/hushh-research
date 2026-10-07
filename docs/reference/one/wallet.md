@@ -79,3 +79,89 @@ never sent to the model (`consent-protocol/docs/reference/personal-knowledge-mod
 
 A rename must also cover string literals passed as ids: `_load_product_agent_manifest("wallet")`
 and the LlmAgent `name="wallet"` were the two the first pass missed and they crashed boot.
+
+
+## Wallet entry and card collection
+
+The first visit per account on a device to `/one/wallet` starts with the Wallet illustration and Continue,
+without a duplicate Wallet page heading. Continue saves a cosmetic account-scoped device preference; later visits open
+the workspace directly. This does not complete account setup or unlock the vault.
+
+Cards owns the animated collection, safe summary search, and the existing
+explicit reveal/removal actions. An empty collection shows labelled demo
+summaries; these never enter Wallet storage or invoke reveal/remove services.
+Add opens the encrypted card-entry form directly. Save and Cancel return to
+Cards, while switching tabs preserves and masks an unfinished draft. Vault lock
+discards the form and revealed details. Chat and Secrets handoffs wait until
+Continue, then use the existing card-entry flow.
+
+The One dashboard preloads the same preprocessed WebP URL rendered by Wallet.
+The illustration loads eagerly at high priority with an inline blur placeholder;
+it does not wait for the card summary request or a server image transform.
+Cold connections can still require an image download. The PNG remains the
+source artwork.
+
+## Card browser
+
+The Cards tab uses `WalletCardBrowser` to coordinate an All overview, the existing
+animated card collection, and a selected-card detail view. Cards open as a compact deck; View all opens a scroll-driven stack and Collapse cards restores
+the compact deck without overlapping detail links. A thumbnail strip outside the tab pager remains above the shared
+bottom chrome; its plus action opens the existing Add form. Reduced-motion users
+receive the same controls with a static list and instant selection.
+
+An empty Wallet shows explicitly labelled demo cards with fictional numbers,
+statements, activity, rewards, payment and autopay previews. These are presentation
+records only: they are never inserted into saved Wallet cards or sent to payment,
+consent, or vault services. Preview actions explain that no transaction or autopay
+is performed. Saved-card selection remains metadata-only; the existing explicit
+Show card details action owns decryption, and leaving Cards or selecting All
+clears any revealed values.
+
+The card thumbnail bar hides on downward page scrolling and returns on upward scrolling. Stopping alone does not reveal it; keyboard focus keeps its controls available.
+
+### Add: photo-assisted entry
+
+The Wallet Add tab keeps all fields on one screen. Scan card uses the native camera
+or browser capture picker; Choose photo uses the device photo picker. Both prefill
+an editable draft, never submit it. Existing manually entered name/expiry values
+are preserved. CVV, PIN, issuing region and nickname remain manual.
+
+Recognition runs locally with Tesseract.js. Worker, WASM and English language
+assets are copied from locked npm dependencies by `hushh-webapp/scripts/prepare-wallet-ocr.mjs`
+from Next config before development/build/export. Generated assets are ignored; no CDN, image
+upload or OCR-result persistence is used. Native capture disables cropping and
+gallery saving. Leaving Add, cancelling, or unmounting aborts the scan; the owned supervisor and nested OCR worker
+are terminated after completion, failure or a 60-second timeout. Unsupported/ambiguous photos fall back to manual
+entry. Existing validation and explicit encrypted WalletService submission remain
+the sole save path. Native camera and bundled worker execution require device QA.
+
+### Sharing: review and manage inside Wallet
+
+Sharing shows existing Wallet-specific grants with the recipient and information
+shared. Manage opens a shared dialog inside Wallet. Revocation reuses
+`useConsentActions`, requires confirmation and an exact request ID, and never
+falls back to a scope-wide revoke. Pending requests remain in Consent Center.
+No grants or card-specific permissions are invented. Failed reads never appear
+as empty access. Reads exceeding 15 seconds show retry; late results cannot
+replace a newer read.
+
+### Mail-aligned Wallet surfaces
+
+Cards, Add and Sharing use the shared 820px workspace measure and Mail-style
+feature surface tokens (solid surface, shared border, radius and shadow).
+Feature headings use Location's shared semantic section typography.
+Physical card faces remain capped at 420px inside the wider Cards panel.
+
+Wallet onboarding uses the full-resolution preloaded artwork without a blur
+placeholder, centered with its title and Continue action. Stacked cards hide
+their separate detail links while pinned and remeasure after expansion settles;
+the card itself remains the details action. Sharing uses a labelled illustrative
+card instead of the header counters; real access remains in the lists below.
+
+Sharing lists existing recipients and the information shared, with Manage and
+confirmed revocation through the existing consent actions. Pending requests stay
+in Consent Center. Loading and read errors are distinct from empty access.
+
+Wallet panels use solid surfaces and Location section typography. The collection
+omits example labels and fictional total-due content. PIN is optional; blank or
+whitespace-only PIN input is omitted before validation and saving.

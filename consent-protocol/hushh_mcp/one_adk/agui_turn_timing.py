@@ -45,6 +45,7 @@ from hushh_mcp.one_adk.drive_result_privacy import (
     redact_drive_wire_event,
 )
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
+from hushh_mcp.one_adk.mcp_call_approval import supersede_unanswered_reviews
 from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
 from hushh_mcp.one_adk.mcp_turn_scope import consume_turn_configurations, mcp_turn_scope
 from hushh_mcp.one_adk.output_privacy import (
@@ -241,6 +242,39 @@ def _error_class(code: Any) -> str:
     return "other"
 
 
+# The codes the AG-UI bridge and this module author. Anything else is "unlisted":
+# a code is logged only from this fixed set, never from a provider-controlled value.
+_KNOWN_ERROR_CODES = frozenset(
+    {
+        "AGENT_ERROR",
+        "BACKGROUND_EXECUTION_ERROR",
+        "ENCODING_ERROR",
+        "EXECUTION_ERROR",
+        "EXECUTION_TIMEOUT",
+        "NO_TOOL_RESULTS",
+        "PENDING_TOOL_CALLS",
+        "TOOL_RESULT_BUFFER_ERROR",
+        "TOOL_RESULT_PROCESSING_ERROR",
+        MODEL_CAPACITY_CODE,
+        MODEL_UNAVAILABLE_CODE,
+        SERVER_RESTARTING_CODE,
+    }
+)
+
+
+def _error_code(code: Any) -> str:
+    """A run error's code when it is one we know, else a fixed placeholder.
+
+    Dotted and lower-case on purpose: the log redactor masks any 24-128 character
+    token made of letters, digits, `_` and `-` as a possible identifier, which
+    would turn `BACKGROUND_EXECUTION_ERROR` into `[REDACTED]` in the very line it
+    is meant to explain.
+    """
+    if not isinstance(code, str):
+        return "untyped"
+    return code.lower().replace("_", ".") if code in _KNOWN_ERROR_CODES else "unlisted"
+
+
 @dataclass
 class TurnTiming:
     """Counters for one AG-UI run. Holds no identifying records by construction."""
@@ -274,6 +308,8 @@ class TurnTiming:
     history_items_peak: int | None = None
     outcome: str = OUTCOME_FINISHED
     error_class: str = "none"
+    error_code: str = "none"
+    tools_peak: int | None = None
     terminal_observed: bool = False
 
     def begin_agent(self) -> None:
@@ -299,10 +335,17 @@ class TurnTiming:
         if self.pending_model_call_starts is None:
             self.pending_model_call_starts = []
         self.pending_model_call_starts.append(now)
+        config = getattr(request, "config", None)
+        # A count is cheap and carries nothing private; it shows how many tools every
+        # model step is asked to weigh (the sizes below stay behind the detailed switch).
+        declared = sum(
+            len(getattr(tool, "function_declarations", None) or [])
+            for tool in (getattr(config, "tools", None) or [])
+        )
+        self.tools_peak = max(self.tools_peak or 0, declared)
         if os.getenv(_DETAILED_TIMING_ENV) != "1":
             return
 
-        config = getattr(request, "config", None)
         contents = getattr(request, "contents", None) or []
         system_instruction = getattr(config, "system_instruction", None)
         instruction_chars = len(_request_text(system_instruction))
@@ -342,6 +385,7 @@ class TurnTiming:
             self.terminal_observed = True
             self.outcome = OUTCOME_ERROR
             self.error_class = _error_class(getattr(event, "code", None))
+            self.error_code = _error_code(getattr(event, "code", None))
         elif event_type == EventType.RUN_FINISHED:
             self.terminal_observed = True
         if event_type != EventType.TOOL_CALL_START:
@@ -368,7 +412,8 @@ class TurnTiming:
             "model_calls=%s model_call_total_ms=%s "
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
-            "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s",
+            "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s "
+            "error_code=%s tools_peak=%s",
             self.head,
             self.run,
             _ms_since(self.started_at, self.first_visible_at),
@@ -395,6 +440,8 @@ class TurnTiming:
             self.specialist_calls,
             self.outcome,
             self.error_class,
+            self.error_code,
+            self.tools_peak,
         )
 
 
@@ -517,10 +564,18 @@ class TimedADKAgent(ADKAgent):
         confirmations = ConfirmationWireProjection()
         summary_replays = ThoughtSummaryReplayFilter()
         try:
+            # Judged on the request as received: translating a resume below
+            # rewrites its messages.
+            new_user_turn = self.head == HEAD_ONE and _is_new_user_turn(input)
             if self.head == HEAD_ONE:
                 input = resume_as_confirmation_results(input)
                 private_call_ids.update(governed_call_ids(input.messages))
             state = input.state if isinstance(input.state, dict) else {}
+            if new_user_turn:
+                owner = str(state.get("hussh:user_id") or "")
+                if owner and not owner.startswith(_ANONYMOUS_OWNER_PREFIX):
+                    # Before the run, so a review this turn issues is never touched.
+                    await supersede_unanswered_reviews(owner, str(input.thread_id or ""))
             configurations = consume_turn_configurations(
                 state,
                 owner_id=str(state.get("hussh:user_id") or ""),
@@ -699,6 +754,14 @@ def _is_resume(input: RunAgentInput) -> bool:
         return True
     messages = input.messages or []
     return bool(messages) and getattr(messages[-1], "role", None) == "tool"
+
+
+def _is_new_user_turn(input: RunAgentInput) -> bool:
+    """A typed message, not a resume or tool result answering a paused call."""
+    if _is_resume(input):
+        return False
+    messages = input.messages or []
+    return bool(messages) and getattr(messages[-1], "role", None) == "user"
 
 
 def _queued_notice(key: queued_input.RunKey | None, *, settled: bool) -> CustomEvent | None:

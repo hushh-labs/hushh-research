@@ -152,15 +152,28 @@ Provider-derived data becomes durable user memory only after a consented, encryp
 
 `kai_gmail_receipts` and `kai_receipt_memory_artifacts` are in a
 **read-only cutover**. Existing rows are retained temporarily so people do not
-lose their visible receipt history, but migration 265 and the Gmail service both
+lose their visible receipt history, but migration 267 and the Gmail service both
 reject new receipt or preview writes. This is deliberately not a table-drop
 migration.
 
-The next stage must ship browser/device-owned Gmail reads with in-memory
-pagination and owner-encrypted PKM save only by explicit action. Only after that
-reader has production evidence may an owner-scoped, batched purge run; dropping
-the legacy tables is a final standalone destructive migration. Gmail search and
-KYC workflows are not allowed to use these receipt tables as an alternate store.
+The supported new path is a stateless backend Gmail read-through. It reuses the
+owner's encrypted `kai_gmail_connections` credential, reads a bounded candidate
+page under current Firebase and vault-owner authorization, normalizes the
+response in memory, and returns it directly to the Receipts presentation layer.
+The only persistence this request may cause is a legitimate encrypted OAuth
+token refresh in `kai_gmail_connections`; it never inserts or updates a receipt,
+receipt-memory artifact, scan result, email body, attachment, order, or amount.
+No new persistent receipt store has been approved. An owner-encrypted PKM save
+remains a separate explicit action.
+
+Browser and native clients must not run a parallel extractor or silently fall
+back around the backend extraction authority. Fixture rows and responsive
+screenshots do not satisfy the authenticated live acceptance gate.
+
+Real mailbox release evidence is also required before any owner-scoped, batched
+legacy purge may run; dropping the legacy tables remains a final standalone
+destructive migration. Gmail search and KYC workflows are not allowed to use
+these receipt tables as an alternate store.
 
 Gmail token refresh binds its result to the observed active connection's encrypted
 refresh-token envelope and token timestamp. A delayed success or failure cannot

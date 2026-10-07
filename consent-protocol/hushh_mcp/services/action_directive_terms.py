@@ -10,6 +10,9 @@ from typing import Any, Awaitable, Callable, TypedDict
 class ActionDirectiveAuthorityError(RuntimeError):
     """A directive could not advance through its one-time authority state."""
 
+    # Closed diagnostic code; never changes who may proceed.
+    reason: str | None = None
+
 
 MCP_ACTION_ID = "connector.mcp.invoke"
 BROWSER_ACTION_IDS = frozenset(

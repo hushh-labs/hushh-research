@@ -235,6 +235,7 @@ def test_non_mcp_confirmation_preserves_existing_contract():
     assert json.loads(events[1].delta) == args
 
 
+@pytest.mark.usefixtures("shared_pending_store")
 async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
@@ -341,7 +342,7 @@ async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(
     assert set(confirmations) == {"call"}
     assert calls["call"].name == name
     assert calls["call"].args == {}
-    handle = capture_pending_call(
+    handle = await capture_pending_call(
         SimpleNamespace(
             user_id="owner",
             function_call_id="call",
@@ -353,7 +354,7 @@ async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(
         tool_name=name,
         arguments={"recipient": private},
     )
-    live = restore_pending_call(restored, handle)
+    live = await restore_pending_call(restored, handle)
     resumed_context.session = live
     _, recovered = await _resolve_confirmation_targets(
         resumed_context,

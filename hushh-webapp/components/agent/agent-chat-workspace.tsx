@@ -16,6 +16,7 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   applyOwnerConfirmedSave,
@@ -107,7 +108,13 @@ import {
 } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
-import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
+import {
+  McpCallReviewCard,
+  type McpChatReview,
+  type McpReviewActivityOutcome,
+} from "@/components/agent/mcp-call-review-card";
+import { isBareReviewReply } from "@/lib/agent/mcp-review-typed-reply";
+import { serverNow } from "@/lib/agent/server-clock";
 import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
 import { ComputerUseOwnerBridge } from "@/components/computer-use/computer-use-owner-bridge";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
@@ -232,7 +239,13 @@ import {
   getWelcomePrompts,
 } from "@/lib/agent/agent-welcome-prompts";
 import type { ClientPrompt } from "@/lib/one-location/types";
-import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
+import { AgentBar } from "@/components/agent/agent-bar";
+import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
+import { AgentDockPortal, useAgentDockFrame, useAgentDockHost } from "@/components/agent/agent-dock";
+import { NativeChatChrome, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
+import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
+import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
+import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import {
@@ -660,6 +673,52 @@ function settleVisibleStreamEvents(
       durationMs: Math.max(0, Date.now() - event.createdAtMs),
     };
   });
+}
+
+/**
+ * A browser review failure has no server tool-result event to replace its
+ * Activity rows. Settle only the opaque ids that emitted this review, never a
+ * different pending call, and never promise that a post-receipt result did not
+ * reach the provider.
+ */
+export function settleMcpReviewActivity(
+  events: AgentVisibleStreamEvent[] | undefined,
+  activityIds: readonly string[] | undefined,
+  outcome: McpReviewActivityOutcome,
+): AgentVisibleStreamEvent[] | undefined {
+  if (!events || !activityIds?.length) return events;
+  const ids = new Set(activityIds);
+  const presentation: Record<McpReviewActivityOutcome, {
+    status: Extract<AgentVisibleStreamStatus, "blocked" | "error">;
+    tag: string;
+    message: string;
+  }> = {
+    unavailable: {
+      status: "error",
+      tag: "Unavailable",
+      message: "Connector review unavailable. No change was sent.",
+    },
+    expired: {
+      status: "blocked",
+      tag: "Expired",
+      message: "Review expired. No change was sent.",
+    },
+    unknown: {
+      status: "error",
+      tag: "Check status",
+      message: "Connector outcome could not be verified. Check the connector before trying again.",
+    },
+  };
+  const next = presentation[outcome];
+  return events.map((event) =>
+    ids.has(event.id) && (event.status === "running" || event.status === "waiting")
+      ? {
+          ...event,
+          ...next,
+          durationMs: Math.max(0, Date.now() - event.createdAtMs),
+        }
+      : event,
+  );
 }
 
 function stopDriveCompilationProgress(
@@ -2361,6 +2420,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
+  const agentDockHost = useAgentDockHost();
+  const agentDockFrame = useAgentDockFrame();
   const searchParams = useSearchParams();
   const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
@@ -2479,7 +2540,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const transcript = transcriptRef.current;
       if (!transcript || !transcript.contains(element)) return;
       const top = transcriptRevealScrollTop(
-        measureTranscriptReveal(transcript, element, composerStackRef.current),
+        measureTranscriptReveal(transcript, element, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current),
       );
       if (Math.abs(top - transcript.scrollTop) < 1) return;
       beginTranscriptProgrammaticScroll(top);
@@ -2488,7 +2549,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
     });
-  }, [beginTranscriptProgrammaticScroll]);
+  }, [agentDockFrame, isCanonicalChatRoute, beginTranscriptProgrammaticScroll]);
   const enterPuppySurface = useCallback(() => {
     // Unconditional, and not behind a `voiceActive` guard. It is a no-op when
     // nothing is running, and it is the only shape that also covers the window
@@ -2716,6 +2777,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   } | null>(null);
   const [appActionBusy, setAppActionBusy] = useState(false);
   const [pendingMcpReviews, setPendingMcpReviews] = useState<McpChatReview[]>([]);
+  // runAgentTurn and enqueuePrompt close over a render's state; this keeps their
+  // view of the review card current.
+  const pendingMcpReviewsRef = useRef(pendingMcpReviews);
+  pendingMcpReviewsRef.current = pendingMcpReviews;
+  // Directive ids of review cards whose Allow once / Cancel can be pressed now.
+  const actionableMcpReviewsRef = useRef(new Set<string>());
+  // Reviews whose Allow once / Cancel was pressed and whose resume has not settled.
+  const decidingMcpReviewsRef = useRef(new Set<string>());
   const [specialistBusy, setSpecialistBusy] = useState(false);
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<
     string | null
@@ -2760,6 +2829,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setComposerExpandedState(expanded);
   }, []);
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const historyChromeRef = useRef<NativeChatChromeHandle | null>(null);
+  const agentSurfaceFocusRef = useRef<HTMLButtonElement | null>(null);
+  const historyWasOpen = useRef(false);
+  useEffect(() => {
+    const dismissed = historyWasOpen.current && !isHistoryDrawerOpen;
+    historyWasOpen.current = isHistoryDrawerOpen;
+    if (dismissed) void historyChromeRef.current?.restoreFocus();
+  }, [isHistoryDrawerOpen]);
   const historyDrawerFallbackRef = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
     // Next.js can hide and preserve this route instead of unmounting it.
@@ -2864,7 +2941,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   });
 
   const voiceActive = voiceState !== "idle";
-  const voiceLevel = useAgentVoiceState((state) => state.level);
+  const commandPresentation = useOptionalLocationCommand();
+  const liveVoiceEnabled = useOneVoiceLiveEnabled();
+  const liveVoiceError = useVoiceSessionStore(state => state.state.error !== null);
+  const showVoiceBar = voiceActive || (liveVoiceEnabled
+    ? liveVoiceError
+    : Boolean(commandPresentation?.active) || commandPresentation?.view.phase === "result");
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const isVisiblePkmMemoryWorking = visiblePkmToolCount > 0;
@@ -3270,7 +3352,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // composer, not the raw scroll bottom, and is sticky once followed, so a
     // growing answer never slides under the composer and bottom bar.
     const endBelowBand = transcriptRevealScrollTop(
-      measureTranscriptReveal(transcript, messagesEnd, composerStackRef.current),
+      measureTranscriptReveal(transcript, messagesEnd, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current),
     ) - transcript.scrollTop;
     const shouldFollowTranscript = transcriptFollowsLatest({
       userScrolled: transcriptUserScrollRef.current,
@@ -3295,7 +3377,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const target =
       (submittedTurn ? findPendingAssistantTurn(transcript) : null) ?? messagesEnd;
     const top = transcriptRevealScrollTop(
-      measureTranscriptReveal(transcript, target, composerStackRef.current),
+      measureTranscriptReveal(transcript, target, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current),
     );
     if (Math.abs(top - transcript.scrollTop) < 1) return;
     beginTranscriptProgrammaticScroll(top);
@@ -3310,6 +3392,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     isPuppySurface,
     messages,
     pendingSpecialistDirective,
+    agentDockFrame,
+    isCanonicalChatRoute,
   ]);
 
   // Put One's transcript back where the reader left it after a look at Puppy.
@@ -3423,7 +3507,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
-    if (!textarea || voiceActive) return;
+    if (!textarea || showVoiceBar) return;
     const surface = composerSurfaceRef.current;
     const wasExpanded = composerExpanded;
     const previousHeight = textarea.style.height;
@@ -3434,7 +3518,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // lines), then scrolls inside itself, as in the reference composer. It no
     // longer jumps into the tall editor on the second line (founder direction,
     // 2026-09-29); that editor is only for opening a pasted-text attachment.
-    const nextHeight = textarea.scrollHeight;
+    const ceiling = Number.parseFloat(window.getComputedStyle(textarea).maxHeight);
+    const nextHeight = Number.isFinite(ceiling)
+      ? Math.min(textarea.scrollHeight, ceiling)
+      : textarea.scrollHeight;
 
     if (!input.trim() && wasExpanded) {
       textarea.style.height = previousHeight;
@@ -3443,7 +3530,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     // The expanded writing surface owns its fixed, spacious height.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
-  }, [composerExpanded, input, setComposerExpanded, voiceActive]);
+  }, [agentDockHost, composerExpanded, input, setComposerExpanded, showVoiceBar]);
 
   useLayoutEffect(() => {
     const fromRect = composerTransitionRectRef.current;
@@ -5409,6 +5496,43 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
   }, [resumeMemorySaveJob, user?.uid, vaultKey]);
 
+  /**
+   * A bare "yes"/"no" typed while a review card is still actionable. Typed text
+   * never approves a connector call, and a new turn would silently delete the
+   * card, so point back at the card instead. Returns true when it handled the
+   * message (nothing is sent, nothing is cleared).
+   */
+  const interceptBareReviewReply = (text: string): boolean => {
+    if (decidingMcpReviewsRef.current.size > 0) {
+      // An approval is being carried out. A new turn would delete the card and cut off
+      // the approved call (the write may still happen with no result shown, and a
+      // repeat request could duplicate it), so wait for it to settle.
+      appendMessage({
+        id: `msg-${Date.now()}-review-busy`,
+        role: "assistant",
+        text: "Still finishing your approval. Send that again in a moment.",
+        ...stampNow(),
+        status: "done",
+        renderAsPlainAssistantMessage: true,
+      });
+      return true;
+    }
+    const review = pendingMcpReviewsRef.current[0];
+    if (!review || !isBareReviewReply(text)) return false;
+    // A card that is loading, busy or dead has no buttons to point at.
+    if (!actionableMcpReviewsRef.current.has(review.reference.directiveId)) return false;
+    if (!review.isCurrent() || !(Date.parse(review.reference.expiresAt) > serverNow())) return false;
+    appendMessage({
+      id: `msg-${Date.now()}-review-reply`,
+      role: "assistant",
+      text: "Use Allow once or Cancel on the review card.",
+      ...stampNow(),
+      status: "done",
+      renderAsPlainAssistantMessage: true,
+    });
+    return true;
+  };
+
   const runAgentTurn = async (
     textInput: string,
     options: AgentRunTurnOptions = { source: "typed" },
@@ -5446,12 +5570,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       });
       return;
     }
+    // Backstop for turns that reach here after queueing: see enqueuePrompt.
+    if (
+      options.source === "typed" && !options.queuedPrompts && attachments.length === 0 &&
+      !options.personSelectionHandle && interceptBareReviewReply(text)
+    ) return;
     // A person starting a new turn owns the workspace. Invalidate any ambient
     // initial-history restoration so a late warmup cannot replace this turn.
     historyRestoreEpochRef.current += 1;
     // A new user turn supersedes any unconfirmed proposal. Never let a stale
     // action card remain armed after the person asks for something else.
     setPendingAppAction(null);
+    pendingMcpReviewsRef.current = [];
     setPendingMcpReviews([]);
 
     const userId = user.uid;
@@ -6150,6 +6280,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             // into messages, stream diagnostics, or restored history.
             const boundReview: McpChatReview = {
               ...review,
+              activityMessageId: assistantMessageId,
               isCurrent: () => review.isCurrent() &&
                 conversationIdRef.current === review.conversationId &&
                 latestVisibleTurnIdRef.current === debugTurnId,
@@ -7048,6 +7179,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const text = textInput.trim();
     const attachments = options.attachments ?? [];
     if (!text && attachments.length === 0) return;
+    // Before it can queue behind, or join, the turn that raised the card.
+    if (attachments.length === 0 && !personSelectionHandle && interceptBareReviewReply(text)) return;
     const prompt: QueuedAgentPrompt = {
       id: crypto.randomUUID(),
       text,
@@ -7892,7 +8025,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // Agent Chat never owns audio. Its microphone affordance delegates to the
   // persistent Agent Bar, which is the sole owner of command capture.
   const startConversationalVoice = requestAgentConversation;
-  const cancelConversationalVoice = requestAgentConversationStop;
 
   // The single agent bar always works. Before the vault is unlocked it runs the
   // informational tier (help + navigation), so the access banner is a soft,
@@ -8200,7 +8332,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       },
     });
   };
-  const handleWelcomePromptSelect = useCallback((prompt: string) => {
+  const handleWelcomePromptSelect = (prompt: string) => {
+    if (recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming) return;
+    transcriptUserScrollRef.current = false;
+    scrollToSubmittedTurnRef.current = true;
+    void enqueueGuardedTurn({ typedText: prompt, attachments: [], fromPaste: false });
+  };
+  const handlePromptDraftSelect = useCallback((prompt: string) => {
     pendingDriveSearchSelectionRef.current = null;
     setPendingDriveSearchSelection(null);
     generatedDriveSearchDraftRef.current = false;
@@ -8236,15 +8374,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return;
     }
     // The composer floats over the transcript, so "in view" ends at its top.
-    const visibleBottom =
-      composerStackRef.current?.getBoundingClientRect().top ??
-      transcript.getBoundingClientRect().bottom;
+    const transcriptRect = transcript.getBoundingClientRect();
+    const overlay = isCanonicalChatRoute ? agentDockFrame : composerStackRef.current;
+    const overlayRect = overlay?.getBoundingClientRect();
+    const visibleBottom = Math.max(transcriptRect.top, Math.min(transcriptRect.bottom,
+      overlayRect && overlayRect.height > 0 ? overlayRect.top : transcriptRect.bottom));
     let count = 0;
     transcript.querySelectorAll<HTMLElement>("[data-message-role]").forEach((row) => {
       if (row.getBoundingClientRect().bottom > visibleBottom + 4) count += 1;
     });
     setMessagesBelow(count);
-  }, [isPuppySurface]);
+  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface]);
   const scheduleMessagesBelowCount = useCallback(() => {
     if (messagesBelowFrameRef.current !== null) return;
     messagesBelowFrameRef.current = window.requestAnimationFrame(countMessagesBelow);
@@ -8273,7 +8413,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // draft that grows to several lines never covers the last message. A
   // reader already at the end stays at the end while it grows.
   useEffect(() => {
-    const stack = composerStackRef.current;
+    const stack = isCanonicalChatRoute ? agentDockFrame : composerStackRef.current;
     const transcript = transcriptRef.current;
     if (!stack || !transcript || typeof ResizeObserver === "undefined") return;
     const publish = () => {
@@ -8290,7 +8430,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const observer = new ResizeObserver(publish);
     observer.observe(stack);
     return () => observer.disconnect();
-  }, [isPuppySurface, scheduleMessagesBelowCount]);
+  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface, scheduleMessagesBelowCount]);
   const openGetApp = useCallback((trigger: HTMLButtonElement) => {
     // The drawer is modal at every width. Close it before raising the sheet.
     getAppReturnFocusRef.current =
@@ -8463,6 +8603,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         )}
       >
         <AgentConnectionsDrawer
+          gestureSurfaceRef={transcriptRef}
+          gestureEnabled={isCanonicalChatRoute && hasChatAccess && !isPuppySurface}
+          onGestureOpen={toggleHistoryDrawer}
           triggerRef={historyDrawerTriggerRef}
           fallbackFocusRef={historyDrawerFallbackRef}
           open={isHistoryDrawerOpen}
@@ -8505,6 +8648,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
+            <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
+              pendingAttention={driveReviewsPending}
+              context={`${pathname}:${isVaultUnlocked}:${agentSurface}`}
+              // History and Close must be one presentation through the entire
+              // drawer lifecycle. The native History-only pilot cannot own
+              // the modal's Close action yet; retain the coherent web control
+              // rather than swap materials or bypass overlay isolation.
+              eligible={false}
+              onActivate={toggleHistoryDrawer} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
+              className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
             <ShellActionSurface
               variant="icon"
               ref={historyDrawerFallbackRef}
@@ -8522,16 +8675,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {driveReviewsPending > 0 && !isHistoryDrawerOpen && !isPuppySurface ?
                 <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
             </ShellActionSurface>
+            </NativeChatChrome>
             <div
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
             >
-              {/* Hidden on phones: the title beside it and the toggle's active
-                  segment already say which agent is on screen, and the 48px
-                  this tile costs is better spent on the agent's name. */}
+              {/* Keep the active agent's mark visible at every viewport. The
+                  compact phone tile leaves the identity label room to clip
+                  before it can overlap the trailing controls. */}
               <div
                 data-agent-chat-brand-tile
-                className="grid h-9 w-9 shrink-0 place-items-center max-sm:hidden"
+                className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"
               >
                 {isPuppySurface ? (
                   <Laptop
@@ -8539,20 +8693,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-hidden
                   />
                 ) : (
-                  /* The mark, as text, exactly like the top bar / sidebar /
-                     intro gate. This slot used to render a raster of Noto
-                     (Android) artwork — so it stayed Android on a Mac no matter
-                     what the font stack said, and it was the one brand mark in
-                     the app that could not follow the platform.
-                     .hushh-brand-mark pins the emoji font the same way every
-                     other mark does. */
-                  <span
-                    aria-label="One"
-                    role="img"
-                    className="hushh-brand-mark select-none text-[24px] leading-none"
-                  >
-                    🤫
-                  </span>
+                  <HushhMark
+                    aria-hidden="true"
+                    className="h-7 w-7 items-center justify-center overflow-visible"
+                    imageClassName="!h-[23px] !w-[23px]"
+                  />
                 )}
               </div>
               {/* The name in the header is the reader's only guarantee about
@@ -8660,7 +8805,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 its spoken name through `accessibleLabel`, so hiding the visible
                 word removes nothing from a screen reader.
               */}
+              <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
+                context={`${pathname}:${isVaultUnlocked}:${agentSurface}`}
+                eligible={isCanonicalChatRoute && hasChatAccess && !isHistoryDrawerOpen}
+                value={agentSurface} onValueChange={(next) => {
+                  if (next === "puppy") enterPuppySurface();
+                  else setAgentSurface(next);
+                }} focusRef={agentSurfaceFocusRef}
+                className="flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
               <SegmentedControl
+                selectedButtonRef={agentSurfaceFocusRef}
                 variant="compact"
                 size="sm"
                 ariaLabel="Agent"
@@ -8692,12 +8846,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 labelClassName="max-sm:hidden"
                 className="w-auto shrink-0"
               />
+              </NativeChatChrome>
               <ShellActionSurface
-                variant="icon"
+                variant="avatar"
                 data-testid="profile-open-button"
                 aria-label="Open Profile"
                 onClick={() => requestProfilePaneOpen("tap")}
-                className="!h-8 !w-8 shrink-0 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
               >
                 <Avatar className="h-8 w-8">
                   {userAvatarUrl ? (
@@ -8813,7 +8967,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 transcriptUserScrollRef.current = true;
               }}
               className={cn(
-                "h-full w-full overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+                "h-full w-full touch-pan-y overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
                 "pb-[calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem))] lg:px-8",
               )}
               tabIndex={0}
@@ -8857,13 +9011,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   <AgentWelcomePanel
                     name={displayName}
                     prompts={welcomePrompts}
-                    disabled={isChatLoading || isStreaming}
+                    disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
                     onPromptSelect={handleWelcomePromptSelect}
                   />
                   {chatOnboarding.dailyTip ? (
                     <ChatOnboardingDailyTip
                       tip={chatOnboarding.dailyTip}
-                      onUse={handleWelcomePromptSelect}
+                      onUse={handlePromptDraftSelect}
                       onDismiss={chatOnboarding.dismissDailyTip}
                     />
                   ) : null}
@@ -9164,7 +9318,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     suggestions={visibleFollowUps(
                       message, visibleMessages.at(-1)?.id, isChatLoading || isStreaming,
                     )}
-                    onSelect={handleWelcomePromptSelect}
+                    onSelect={handlePromptDraftSelect}
                   />
                   {message.id === emailDraftAnchorMessageId
                     ? renderEmailDraftCard()
@@ -9294,8 +9448,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   key={review.reference.directiveId}
                   review={review}
                   vaultOwnerToken={vaultOwnerToken || ""}
+                  onActivityOutcome={(outcome) => {
+                    if (!review.activityMessageId) return;
+                    updateMessage(review.activityMessageId, (message) => ({
+                      ...message,
+                      streamEvents: settleMcpReviewActivity(
+                        message.streamEvents,
+                        review.activityIds,
+                        outcome,
+                      ),
+                    }));
+                  }}
                   onDismiss={() => setPendingMcpReviews((current) => current.filter((item) =>
                     item.reference.directiveId !== review.reference.directiveId))}
+                  onActionableChange={(actionable) => {
+                    const ids = actionableMcpReviewsRef.current;
+                    if (actionable) ids.add(review.reference.directiveId);
+                    else ids.delete(review.reference.directiveId);
+                  }}
+                  onDecidingChange={(deciding) => {
+                    const ids = decidingMcpReviewsRef.current;
+                    if (deciding) ids.add(review.reference.directiveId);
+                    else ids.delete(review.reference.directiveId);
+                  }}
                 />
               ))}
 
@@ -10058,8 +10233,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <form
-            onSubmit={handleSubmit}
+          <AgentDockPortal enabled={isCanonicalChatRoute} visible={!showVoiceBar && !isPuppySurface} suppressed={isPuppySurface}>
+          <div
             inert={isHistoryDrawerOpen}
             data-agent-chat-composer-form={
               isCanonicalChatRoute ? "root" : "embedded"
@@ -10068,8 +10243,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // CSS-only focus-within drives the padding shift in lockstep with
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
-              "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3",
-              "bg-transparent pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
+              isCanonicalChatRoute
+                ? "pointer-events-none relative w-full bg-transparent"
+                : "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3 bg-transparent pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the
               // cloud one, which is exactly the confusion this mode prevents.
@@ -10077,7 +10253,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             )}
           >
             {messagesBelow > 0 ? (
-              <div className="pointer-events-none mx-auto mb-2 flex w-full justify-center">
+              <div className={cn("pointer-events-none mx-auto mb-2 flex w-full justify-center", isCanonicalChatRoute && "absolute inset-x-0 bottom-full")}>
                 <button
                   type="button"
                   data-testid="agent-chat-messages-below"
@@ -10130,17 +10306,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   </Button>
                 </div>
               ) : null}
-              {voiceActive ? (
-                <div className="rounded-[22px] bg-foreground/[0.045] p-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]">
-                  <AgentVoiceWaveInput
-                    status={voiceState}
-                    level={voiceLevel}
-                    disabled={isVoiceConnecting}
-                    onCancel={cancelConversationalVoice}
-                  />
-                </div>
-              ) : (
-                <>
+              {showVoiceBar && !isCanonicalChatRoute ? (
+                <AgentBar layout="slot" />
+              ) : null}
+              <form onSubmit={handleSubmit} hidden={showVoiceBar} inert={showVoiceBar}>
                   {activeDriveSearchSelection ? (
                     <div className="mb-2 flex min-w-0 items-center gap-2 rounded-[18px] bg-foreground/[0.045] px-3 py-1.5 text-sm" aria-label="Selected Drive file">
                       <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -10170,19 +10339,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                    * ("number 3 fopand" on a Galaxy S24 Ultra, 2026-09-22). The
                    * text box now stays the same element; only its size, the
                    * corner control and the labels change. */}
-                  <div
+                  <AgentBarSurface
+                    embedded={isCanonicalChatRoute}
                     ref={composerSurfaceRef}
                     data-testid={composerExpanded ? "agent-chat-composer-expanded" : "agent-chat-composer"}
                     className={cn(
                       composerExpanded
-                        ? "agent-chat-composer-surface relative mb-2 overflow-hidden rounded-[24px]"
-                        : "agent-chat-composer-surface flex min-h-[3.75rem] items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] px-2.5 pl-3.5",
+                        ? "agent-chat-composer-surface relative mb-2 block overflow-hidden rounded-[24px]"
+                        : "agent-chat-composer-surface agent-chat-composer-compact flex min-w-0 items-end gap-2 overflow-hidden",
+                      !isCanonicalChatRoute && "max-w-none",
                       composerExpanded
                         ? isCanonicalChatRoute
-                          ? "bottom-chrome-surface"
+                          ? ""
                           : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
                         : isCanonicalChatRoute
-                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
+                          ? ""
                           : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
                     )}
                   >
@@ -10237,7 +10408,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         className={
                           composerExpanded
                             ? "block h-[30dvh] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
-                                : "h-auto max-h-40 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-44 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                                : "agent-chat-composer-field block w-full min-w-0 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
                         }
                       />
                     </div>
@@ -10248,15 +10419,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               : "flex shrink-0 items-center gap-1.5"
                           }
                         >
-                          <div className="flex items-center gap-1 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] p-1">
+                          <div className="agent-chat-composer-actions flex items-center gap-1">
                             {composerActionRail}
                           </div>
                         </div>
-                  </div>
-                </>
-              )}
+                  </AgentBarSurface>
+                </form>
             </div>
-          </form>
+          </div>
+          </AgentDockPortal>
         </div>
         </section>
       </div>

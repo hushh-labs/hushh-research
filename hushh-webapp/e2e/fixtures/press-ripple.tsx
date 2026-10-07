@@ -11,7 +11,7 @@
 // same measurements against it and requires them to FAIL.
 import { createRoot } from "react-dom/client";
 import { ArrowRight, Send } from "../../components/icons";
-import { AgentFollowUpSuggestions } from "../../components/agent/agent-follow-up-suggestions";
+import { AgentFollowUpSuggestions, AgentSuggestionList } from "../../components/agent/agent-follow-up-suggestions";
 import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
 import { AuthProviderButton } from "../../components/onboarding/AuthProviderButton";
 import { Button as StockButton } from "../../components/ui/button";
@@ -41,6 +41,8 @@ function Fixture() {
         suggestions={["Show my week", "Draft a reply to Sam"]}
         onSelect={() => {}}
       />
+      <AgentSuggestionList layout="starter-grid" label="Start a conversation" testId="starter-suggestions"
+        suggestions={["Plan my week", "Explore my connected apps", "Remember something important"]} onSelect={() => {}} />
       <ShellActionSurface
         type="button"
         rippleEffect="fill"

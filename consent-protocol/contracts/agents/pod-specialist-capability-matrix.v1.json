@@ -38,6 +38,31 @@
     {
       "a2a_surface": false,
       "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "The flag-gated Career resume parser runs on the hub with its managed model. No pod owner adapter, specialist dispatch or AgentTool exists; device review, PKM encryption and application confirmation do not establish pod execution.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_agent_tool": false,
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_career",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/career/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
         "confirmation_owner": "none",
         "executes_in_pod": false,
         "information_source": "unavailable",
@@ -447,6 +472,7 @@
       "parent": null,
       "required_scopes": [
         "cap.one.invoke",
+        "browser.invoke",
         "vault.owner"
       ],
       "status": "active"

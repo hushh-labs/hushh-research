@@ -13,29 +13,46 @@ synchronous SQLAlchemy code, so they are dispatched with ``asyncio.to_thread``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import logging
 import os
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import quote
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hushh_mcp.one_voice.tools.base import (
     CircleRef,
     ConfirmedCircle,
+    EntityContext,
     Needs,
     PersonRef,
+    Prepared,
     Rejected,
     ToolContext,
     ToolInput,
     ToolPolicy,
     ToolResult,
     ToolSpec,
+    Unsupported,
     now_iso,
 )
 from hushh_mcp.one_voice.tools.people import ServiceError as PeopleServiceError
 from hushh_mcp.one_voice.tools.people import load_people_snapshot
+from hushh_mcp.one_voice.tools.spelling import (
+    clean_spelled_word,
+    missing_spelled_words,
+    name_word_changes,
+    name_word_slots,
+    spell_out,
+    spelling_key,
+    unique_spelled_words,
+    word_key,
+    word_keys,
+)
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentError
 from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
@@ -48,7 +65,13 @@ from hushh_mcp.services.spoken_name_resolver import (
     normalize_spoken_name,
 )
 
+logger = logging.getLogger(__name__)
+
 CIRCLE_SERVICE = "circles"
+# A proposed name dropped a word the person spelled letter by letter.
+SPELLED_WORD_MISSING = "spelled_word_missing"
+# A correction changed a word of the name under review that it did not declare.
+NAME_CHANGED = "name_changed"
 CIRCLE_JOIN_PATH = "/circle/join"
 # Client surfaces to refresh after a successful mutation (screen ids from session.py).
 REFRESH_CIRCLES = ("location_circles",)
@@ -686,14 +709,276 @@ async def list_circle_members(ctx: ToolContext, args: ListCircleMembersInput) ->
 # -- create_circle ----------------------------------------------------------------
 
 
+# At most this many spelled words per call. A bound on the list only: Vertex
+# Live refuses a schema with length bounds on array items.
+MAX_SPELLED_WORDS_PER_CALL = 4
+# At most this many changed words per call; a bound on the list only, as above.
+MAX_CHANGED_WORDS_PER_CALL = 8
+# A changed word longer than a whole circle name is not a word of one. Checked
+# by the validator, never declared in the schema (see above).
+MAX_CHANGED_WORD_LENGTH = 80
+
+
+class ChangedWord(BaseModel):
+    """One word a correction changes: ``old`` as on the waiting card, ``new`` as
+    it becomes. An empty ``old`` is an added word, an empty ``new`` a removed one."""
+
+    model_config = ConfigDict(extra="forbid")
+    old: str = ""
+    new: str = ""
+
+    @field_validator("old", "new")
+    @classmethod
+    def _bounded(cls, value: str) -> str:
+        if len(value) > MAX_CHANGED_WORD_LENGTH:
+            raise ValueError("a changed word is at most 80 characters")
+        return value
+
+
 class CreateCircleInput(ToolInput):
-    name: str = Field(min_length=1, max_length=80, description="The circle's name.")
+    name: str = Field(
+        min_length=1,
+        max_length=80,
+        description="The circle's name, exactly as the person said or spelled it.",
+    )
     kind: CircleKind = Field(default="other")
+    spelled_words: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_SPELLED_WORDS_PER_CALL,
+        description=(
+            "Each word of this name the person spelled letter by letter, as one word of "
+            "letters and digits (k a y r a -> KAYRA). Keep them in every correction."
+        ),
+    )
+    release_spelled_words: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_SPELLED_WORDS_PER_CALL,
+        description=(
+            "An earlier spelled word the person changed or dropped, or every earlier "
+            "spelled word when they now name a different circle."
+        ),
+    )
+    changed_words: list[ChangedWord] = Field(
+        default_factory=list,
+        max_length=MAX_CHANGED_WORDS_PER_CALL,
+        description=(
+            "When correcting a name you proposed, even after cancelling its card: each word "
+            "you changed, added or removed that they did not spell — old as on the card (empty "
+            "if added), new as in name (empty if removed). A word neither listed here nor "
+            "spelled stays exactly as on the card."
+        ),
+    )
+
+    @field_validator("spelled_words", "release_spelled_words")
+    @classmethod
+    def _one_word_each(cls, value: list[str]) -> list[str]:
+        words: list[str] = []
+        for item in value:
+            word = clean_spelled_word(item)
+            if word is None:
+                raise ValueError("each spelled word is one word of letters and digits")
+            words.append(word)
+        return words
 
 
 class CreateCircleResult(ToolResult):
     status: Literal["created", "already_exists"]
     circle: CircleSummary
+
+
+def _spelling_now() -> float:
+    """Epoch seconds on the entity context's own clock, which ``prune`` uses too."""
+    return EntityContext._now().timestamp()
+
+
+def _spelled_word_facts(missing: Sequence[str], declared: Sequence[str]) -> list[str]:
+    """One question per missing word, phrased by where the word came from.
+
+    A word this proposal declared itself was spelled for this name. A word kept
+    from earlier may belong to a different circle, so the question offers that
+    reading too and the model can release it in the same turn.
+    """
+    declared_keys = {spelling_key(word) for word in declared}
+    return [
+        f"You spelled {word} as {spell_out(word)}, but this name doesn't include it. "
+        f"Should the name use {word}?"
+        if spelling_key(word) in declared_keys
+        else f"Earlier you spelled {word} as {spell_out(word)}. "
+        f"Is this a different circle, or should the name keep {word}?"
+        for word in missing
+    ]
+
+
+def _spelling_refused(
+    missing: Sequence[str], declared: Sequence[str], *, retire_open_proposal: bool
+) -> Rejected:
+    logger.info("one_voice.spelling.refused missing=%d", len(missing))
+    return Rejected(
+        reason_code=SPELLED_WORD_MISSING,
+        needs="repeat_name",
+        spoken_facts=_spelled_word_facts(missing, declared),
+        retire_open_proposal=retire_open_proposal,
+    )
+
+
+def _change_phrase(dropped: Sequence[str], put: Sequence[str]) -> str:
+    old, new = " ".join(dropped), " ".join(put)
+    if dropped and put:
+        return f'change "{old}" to "{new}"'
+    if dropped:
+        return f'drop "{old}"'
+    return f'add "{new}"'
+
+
+def _name_changed(fact: str, *, slots: int, order: str) -> Rejected:
+    # Counts and a short enum only: never a word of either name.
+    logger.info("one_voice.name_lineage.refused slots=%d order=%s", slots, order)
+    return Rejected(
+        reason_code=NAME_CHANGED,
+        needs="repeat_name",
+        spoken_facts=[fact],
+        retire_open_proposal=True,
+    )
+
+
+def _declared_words(text: str, names: set[str]) -> list[str]:
+    """The words one side of a declared change names, read against the name it
+    describes: its words as written when each is a word of that name, else
+    letters spelled one by one joined into one word, as in ``spelled_words``."""
+    words = text.split()
+    if words and all(word_key(word) in names for word in words):
+        return words
+    joined = clean_spelled_word(text)
+    return [joined] if joined else words
+
+
+@dataclass(frozen=True)
+class _Declared:
+    """The word keys a call declares changed, each word once.
+
+    ``changed`` are old words a ``changed_words`` pair gives a new word for;
+    ``dropped`` are old words declared with no new word, and the words in
+    ``release_spelled_words`` (the person changed or dropped that spelled
+    word); ``added`` are the pairs' new words.
+    """
+
+    changed: Counter[str]
+    dropped: Counter[str]
+    added: Counter[str]
+
+
+def _declared_changes(
+    args: CreateCircleInput, old_names: set[str], new_names: set[str]
+) -> _Declared:
+    """What this call declares. A ``changed_words`` pair naming the same words
+    in the same order changed nothing and declares nothing."""
+    changed: Counter[str] = Counter()
+    dropped: Counter[str] = Counter()
+    added: Counter[str] = Counter()
+    for change in args.changed_words:
+        old = [word_key(word) for word in _declared_words(change.old, old_names)]
+        new = [word_key(word) for word in _declared_words(change.new, new_names)]
+        if old == new:
+            continue
+        (changed if new else dropped).update(old)
+        added.update(new)
+    dropped.update(word_key(word) for word in args.release_spelled_words)
+    return _Declared(changed=changed, dropped=dropped, added=added)
+
+
+def _use(pool: Counter[str], key: str) -> bool:
+    """Use up one ``key`` from ``pool``; False when none is left."""
+    if pool[key] <= 0:
+        return False
+    pool[key] -= 1
+    return True
+
+
+def _name_lineage(
+    baseline: str | None, args: CreateCircleInput
+) -> tuple[Rejected | None, list[str]]:
+    """Judge a proposal against the name under review. Never edits the name.
+
+    Returns a refusal, or the words of the name under review the person
+    changed on purpose, so a spelled one among them stops being kept.
+
+    ``baseline`` is the name the last passing proposal showed the person. A
+    proposal corrects it when they share a word or when a ``changed_words``
+    old names one of its words; one that does neither is a different circle
+    and is not compared. A correction passes when, in each stretch where the
+    names differ, every word it adds is declared added or spelled in this call,
+    and every word it removes is declared removed or replaced by one of those
+    spelled words. Each declaration and each spelled word accounts for one
+    word, once: a spelled word declared as a change's new word replaces only
+    that change's old word, and a word declared removed (or released) with a
+    spelled word in its stretch is one change, a respelling, so that spelled
+    word replaces nothing else. A word that moved is removed in one stretch and
+    added in another, so a move is declared like any other change. Which words
+    changed is the spelling module's exact word comparison; whether the person
+    asked for a change is only ever the model's declaration.
+    """
+    now_keys = set(word_keys(args.name))
+    base_keys = set(word_keys(baseline)) if baseline is not None else set()
+    released = [
+        clean_spelled_word(word) or word
+        for change in args.changed_words
+        for word in _declared_words(change.old, base_keys)
+        if word_key(word) not in now_keys
+    ]
+    if baseline is None:
+        return None, released
+    declared_old = {
+        word_key(word)
+        for change in args.changed_words
+        for word in _declared_words(change.old, base_keys)
+    }
+    if not (base_keys & now_keys or base_keys & declared_old):
+        return None, released
+    declared = _declared_changes(args, base_keys, now_keys)
+    spelled = Counter(word_key(word) for word in args.spelled_words)
+    slots = name_word_slots(baseline, args.name)
+    undeclared: list[str] = []
+    for dropped, put in slots:
+        loose_new = [word for word in put if not _use(declared.added, word_key(word))]
+        replacements = sum(1 for word in loose_new if _use(spelled, word_key(word)))
+        loose_old: list[str] = []
+        respelled = 0
+        for word in dropped:
+            key = word_key(word)
+            if _use(declared.changed, key):
+                continue
+            if _use(declared.dropped, key):
+                respelled += 1
+                continue
+            loose_old.append(word)
+        # A declared removal with a spelled word in its stretch is that word
+        # respelled: the spelled word covers it and nothing else.
+        spare = max(0, replacements - respelled)
+        if len(loose_new) > replacements or len(loose_old) > spare:
+            undeclared.append(_change_phrase(dropped, put))
+        else:
+            released.extend(clean_spelled_word(word) or word for word in loose_old)
+    if not undeclared:
+        return None, released
+    if not name_word_changes(baseline, args.name)[2]:
+        return (
+            _name_changed(
+                f'This would put the words in a different order: "{args.name}". '
+                "Is that what you want?",
+                slots=len(undeclared),
+                order="moved",
+            ),
+            [],
+        )
+    lead = "This would also" if len(undeclared) < len(slots) else "This would"
+    return (
+        _name_changed(
+            f"{lead} {join_names_for_speech(undeclared)}. Is that what you want?",
+            slots=len(undeclared),
+            order="kept",
+        ),
+        [],
+    )
 
 
 def _owned_circle_named(rows: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
@@ -706,12 +991,60 @@ def _owned_circle_named(rows: list[dict[str, Any]], name: str) -> dict[str, Any]
     return None
 
 
+_SPELLING_ARGS = frozenset({"spelled_words", "release_spelled_words", "changed_words"})
+
+
+def _invalid_create_circle_correction(
+    raw_args: dict[str, Any], failed: frozenset[str]
+) -> Rejected | None:
+    """The refusal for a correction whose spelling could not be read: ask for the
+    spelled word again, not for a missing detail.
+
+    The executor has already retired the card this proposal was correcting.
+    Only which arguments failed validation is checked (their names, never their
+    values); a failure anywhere else keeps the executor's generic refusal, which
+    names the field. ``None`` keeps that refusal.
+    """
+    if not failed & _SPELLING_ARGS:
+        return None
+    return Rejected(
+        reason_code="invalid_spelling",
+        needs="repeat_name",
+        spoken_facts=[
+            "I couldn't read how that was spelled. Which word did they spell? "
+            "Ask them to spell just that word."
+        ],
+    )
+
+
+def _prepared_spelled_words(snapshot: dict[str, Any] | None) -> list[str]:
+    raw = snapshot.get("spelled_words") if isinstance(snapshot, dict) else None
+    if not isinstance(raw, list):
+        return []
+    return [word for word in raw if isinstance(word, str) and word]
+
+
 async def create_circle(ctx: ToolContext, args: CreateCircleInput) -> ToolResult:
+    # Defence in depth, checked again at execution: the words the card was
+    # prepared with, plus every word the person has spelled since. A card from
+    # before a word was spelled (or one reused as a duplicate) never ran that
+    # check, so it is refused here and nothing is created.
+    required = unique_spelled_words(
+        [
+            *_prepared_spelled_words(ctx.prepared),
+            *ctx.entities.retained_spelled_words(_spelling_now()),
+        ]
+    )
+    missing = missing_spelled_words(args.name, required)
+    if missing:
+        return _spelling_refused(missing, args.spelled_words, retire_open_proposal=False)
     service = _service(ctx)
     try:
         existing = _owned_circle_named(await _list_circle_rows(ctx), args.name)
         if existing is not None:
             circle = _remember(ctx, existing)
+            ctx.entities.clear_spelled_words()
+            ctx.entities.clear_circle_name_baseline()
             return CreateCircleResult(
                 status="already_exists",
                 circle=CircleSummary.from_row(existing),
@@ -724,6 +1057,8 @@ async def create_circle(ctx: ToolContext, args: CreateCircleInput) -> ToolResult
         return _rejected(exc)
     row = dict(row or {})
     circle = _remember(ctx, row)
+    ctx.entities.clear_spelled_words()
+    ctx.entities.clear_circle_name_baseline()
     return CreateCircleResult(
         status="created",
         circle=CircleSummary.from_row(row),
@@ -737,12 +1072,66 @@ def summarize_create_circle(ctx: ToolContext, args: CreateCircleInput) -> str:
     return f"create a {args.kind} circle called {args.name}"
 
 
+async def prepare_create_circle(ctx: ToolContext, args: CreateCircleInput) -> Prepared | ToolResult:
+    """Check the proposed name keeps every word the person spelled.
+
+    Which words were spelled is the model's declaration (``spelled_words``),
+    kept for the conversation so a correction or a re-proposal after a cancel
+    cannot drop one silently; ``release_spelled_words`` is the model saying the
+    person changed one. The host only compares the declared words with the
+    model's own name text, exactly, and asks when one is missing. It never
+    edits the name.
+
+    The person's words are kept before any check, so a refused call still
+    remembers how they spelled it. A proposal that passes renews every word it
+    needed, so retention runs from the last proposal that used a word.
+
+    Before the spelling check, a correction of the name under review (the last
+    one that passed, kept the same 3 minutes and across a cancel) must declare
+    every word it changes (see ``_name_lineage``), so an untouched word cannot
+    change whether or not it was ever declared as spelled. Only a call that
+    passes that check releases a spelled word, declared or respelled: a refused
+    one leaves every word for the next proposal to keep. A proposal that passes
+    becomes the name under review.
+
+    A name the person typed (``ctx.typed_name``) is theirs as written: it
+    releases every spelled word, skips both checks and the spelled read-back,
+    and becomes the name under review.
+    """
+    now = _spelling_now()
+    if ctx.typed_name:
+        logger.info("one_voice.circle_name.typed")
+        ctx.entities.clear_spelled_words()
+        ctx.entities.set_circle_name_baseline(args.name, now)
+        return Prepared(summary=summarize_create_circle(ctx, args), snapshot={"spelled_words": []})
+    ctx.entities.remember_spelled_words(args.spelled_words, now)
+    refused, released = _name_lineage(ctx.entities.live_circle_name_baseline(now), args)
+    if refused is not None:
+        return refused
+    ctx.entities.release_spelled_words([*args.release_spelled_words, *released])
+    retained = ctx.entities.retained_spelled_words(now)
+    required = unique_spelled_words([*retained, *args.spelled_words])
+    missing = missing_spelled_words(args.name, required)
+    if missing:
+        return _spelling_refused(missing, args.spelled_words, retire_open_proposal=True)
+    ctx.entities.remember_spelled_words(required, now)
+    ctx.entities.set_circle_name_baseline(args.name, now)
+    summary = summarize_create_circle(ctx, args) + "".join(
+        f", with {word} spelled {spell_out(word)}" for word in required
+    )
+    return Prepared(summary=summary, snapshot={"spelled_words": required})
+
+
 # -- rename_circle ----------------------------------------------------------------
 
 
 class RenameCircleInput(ToolInput):
     circle: CircleRef
-    name: str = Field(min_length=1, max_length=80, description="The new name.")
+    name: str = Field(
+        min_length=1,
+        max_length=80,
+        description="The new name, exactly as the person said or spelled it.",
+    )
 
 
 class RenameCircleResult(ToolResult):
@@ -1366,6 +1755,316 @@ def summarize_add_circle_members(ctx: ToolContext, args: AddCircleMembersInput) 
     return f"add {_names_for_speech(people)} to {_circle_label(_circle_name(ctx, args.circle.circle_id))}"
 
 
+# -- add_all_connections ----------------------------------------------------------
+
+# Circles the app manages, which "everyone I'm connected with" never fills in one
+# go: Trusted is curated person by person, and the SMS circle is a short
+# emergency list (ten people), not a group.
+_BULK_REFUSED_SYSTEM_KINDS = frozenset({"trusted", "sms"})
+
+
+class AddAllConnectionsInput(ToolInput):
+    """Only the circle. Who "all my connections" are is read by the server from
+    the person's own connections, never named by the model, so the audience can
+    be neither invented nor widened by an argument."""
+
+    circle: CircleRef
+
+
+AddAllStatus = Literal["added", "no_one_to_add", "not_enough_room", "not_added"]
+
+
+class AddAllConnectionsResult(ToolResult):
+    """Counts, not a roster: the audience can be a hundred people, and the
+    circle's own roster read is where the names live."""
+
+    status: AddAllStatus
+    circle_id: str
+    added_count: int = 0
+    already_member_count: int = 0
+    unavailable_count: int = 0
+    # A few of the people added, for the sentence One says; never all of them.
+    added_names: list[str] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _AudiencePlan:
+    """Who "all my connections" means for one circle, read without writing."""
+
+    circle_id: str
+    circle_name: str
+    addable: tuple[str, ...]
+    names: dict[str, str]
+    member_ids: frozenset[str]
+    unavailable_count: int
+    connection_count: int
+    remaining: int
+
+
+def _audience_digest(circle_id: str, user_ids: Sequence[str]) -> str:
+    """A fingerprint of the exact reviewed audience, stored with the card."""
+    material = f"{circle_id}:{','.join(sorted(user_ids))}".encode()
+    return hashlib.sha256(material).hexdigest()[:32]
+
+
+def _count(count: int, one: str, many: str) -> str:
+    return f"{count} {one if count == 1 else many}"
+
+
+async def _audience_plan(ctx: ToolContext, circle_id: str) -> _AudiencePlan | ToolResult:
+    """Read the owner's connections against the circle, as the add would judge them.
+
+    Raises the service's own errors (not the owner, circle gone) for the caller
+    to map. A managed circle answers with ``unsupported`` instead of a plan.
+    """
+    service = _service(ctx)
+    plan = dict(
+        await asyncio.to_thread(
+            service.plan_direct_connection_adds, actor_user_id=ctx.user_id, circle_id=circle_id
+        )
+        or {}
+    )
+    circle = dict(plan.get("circle") or {})
+    name = str(circle.get("name") or "") or _circle_name(ctx, circle_id)
+    system_kind = str(circle.get("systemKind") or "")
+    if system_kind in _BULK_REFUSED_SYSTEM_KINDS or bool(circle.get("isSystem")):
+        label = _circle_label(name)
+        return Unsupported(
+            reason_code="managed_circle",
+            spoken_facts=[
+                f"I can't add all your connections to {label} at once. "
+                "Tell me who you want in it and I'll add them."
+            ],
+        )
+    connections = [dict(row) for row in (plan.get("connections") or [])]
+    member_ids = frozenset(
+        str(row.get("userId") or "") for row in connections if row.get("status") == "member"
+    )
+    addable_rows = [row for row in connections if row.get("status") == "addable"]
+    addable = tuple(sorted(str(row.get("userId") or "") for row in addable_rows))
+    limit = int(circle.get("memberLimit") or 0)
+    reserved = int(circle.get("reservedCount") or 0)
+    return _AudiencePlan(
+        circle_id=circle_id,
+        circle_name=name,
+        addable=addable,
+        names={
+            str(row.get("userId") or ""): str(row.get("displayName") or "") or "a connection"
+            for row in addable_rows
+        },
+        member_ids=member_ids,
+        unavailable_count=len(connections) - len(member_ids) - len(addable),
+        connection_count=len(connections),
+        remaining=max(0, limit - reserved),
+    )
+
+
+def _already_in(count: int) -> str:
+    return f"{count} {'is' if count == 1 else 'are'} already in it"
+
+
+def _nobody_to_add(plan: _AudiencePlan, label: str) -> AddAllConnectionsResult:
+    if not plan.connection_count:
+        fact = f"You aren't connected with anyone yet, so there's nobody to add to {label}."
+    elif not plan.unavailable_count:
+        fact = f"Everyone you're connected with is already in {label}."
+    elif not plan.member_ids:
+        fact = f"None of your connections can be added to {label} right now."
+    else:
+        fact = (
+            f"Nobody can be added to {label} right now: {_already_in(len(plan.member_ids))}, "
+            f"and {plan.unavailable_count} can't be added yet."
+        )
+    return AddAllConnectionsResult(
+        status="no_one_to_add",
+        circle_id=plan.circle_id,
+        already_member_count=len(plan.member_ids),
+        unavailable_count=plan.unavailable_count,
+        spoken_facts=[fact],
+    )
+
+
+def _no_room(plan: _AudiencePlan, label: str, wanted: int) -> AddAllConnectionsResult:
+    fact = (
+        f"{label[0].upper()}{label[1:]} is full, so nobody was added."
+        if plan.remaining <= 0
+        else f"{label[0].upper()}{label[1:]} only has room for {plan.remaining} more, so I "
+        f"can't add all {wanted} as you asked. Nobody was added."
+    )
+    return AddAllConnectionsResult(
+        status="not_enough_room",
+        circle_id=plan.circle_id,
+        already_member_count=len(plan.member_ids),
+        unavailable_count=plan.unavailable_count,
+        reason_code="capacity",
+        spoken_facts=[fact],
+    )
+
+
+def _add_all_summary(plan: _AudiencePlan, label: str) -> str:
+    """The card sentence: exact counts, decided before the person says yes."""
+    count = len(plan.addable)
+    if count == plan.connection_count:
+        who = "your only connection" if count == 1 else f"all {count} of your connections"
+    else:
+        who = f"{count} of your {plan.connection_count} connections"
+    notes: list[str] = []
+    if plan.member_ids:
+        notes.append(_already_in(len(plan.member_ids)))
+    if plan.unavailable_count:
+        notes.append(f"{plan.unavailable_count} can't be added right now")
+    return f"add {who} to {label}" + (f" ({', '.join(notes)})" if notes else "")
+
+
+async def prepare_add_all_connections(
+    ctx: ToolContext, args: AddAllConnectionsInput
+) -> Prepared | ToolResult:
+    """Work out exactly who would be added before the card is shown.
+
+    Nothing is written. The card names the counts, and the snapshot binds the
+    exact sorted ids, so the yes approves that group and nobody else.
+    """
+    circle_id = args.circle.circle_id
+    try:
+        plan = await _audience_plan(ctx, circle_id)
+    except _SERVICE_ERRORS as exc:
+        return _rejected(exc)
+    if isinstance(plan, ToolResult):
+        return plan
+    label = _circle_label(plan.circle_name)
+    if not plan.addable:
+        return _nobody_to_add(plan, label)
+    if len(plan.addable) > plan.remaining:
+        # All or nothing, decided before asking: never a silent subset.
+        return _no_room(plan, label, len(plan.addable))
+    return Prepared(
+        summary=_add_all_summary(plan, label),
+        snapshot={
+            "circle_id": circle_id,
+            "user_ids": list(plan.addable),
+            "audience": _audience_digest(circle_id, plan.addable),
+            "already_member_count": len(plan.member_ids),
+            "unavailable_count": plan.unavailable_count,
+        },
+    )
+
+
+def summarize_add_all_connections(ctx: ToolContext, args: AddAllConnectionsInput) -> str:
+    """Fallback card sentence only; the prepared summary carries the counts."""
+    return f"add all your connections to {_circle_label(_circle_name(ctx, args.circle.circle_id))}"
+
+
+def _approved_audience(snapshot: dict[str, Any] | None, circle_id: str) -> tuple[str, ...] | None:
+    """The exact ids the person approved, or None when the card's binding is unusable."""
+    if not isinstance(snapshot, dict) or snapshot.get("circle_id") != circle_id:
+        return None
+    raw = snapshot.get("user_ids")
+    if not isinstance(raw, list) or not raw or not all(isinstance(item, str) for item in raw):
+        return None
+    ids = tuple(sorted(raw))
+    if snapshot.get("audience") != _audience_digest(circle_id, ids):
+        return None
+    return ids
+
+
+async def add_all_connections(ctx: ToolContext, args: AddAllConnectionsInput) -> ToolResult:
+    """Add exactly the reviewed audience, in one all-or-nothing write.
+
+    Everything is read again first. Anyone approved who can no longer be added
+    (disconnected, left, cooling down) means the card no longer describes what
+    would happen, so nothing is written and the person is asked again. Someone
+    who connected after the card was shown is never added on its strength.
+    """
+    circle_id = args.circle.circle_id
+    approved = _approved_audience(ctx.prepared, circle_id)
+    if approved is None:
+        return AddAllConnectionsResult(
+            status="not_added",
+            circle_id=circle_id,
+            reason_code="review_required",
+            spoken_facts=["I need to check your connections again before adding anyone."],
+        )
+    try:
+        plan = await _audience_plan(ctx, circle_id)
+    except _SERVICE_ERRORS as exc:
+        return _rejected(exc)
+    if isinstance(plan, ToolResult):
+        return plan
+    label = _circle_label(plan.circle_name)
+    addable = set(plan.addable)
+    joined = [user_id for user_id in approved if user_id in plan.member_ids]
+    to_add = [user_id for user_id in approved if user_id in addable]
+    if len(joined) + len(to_add) != len(approved):
+        return AddAllConnectionsResult(
+            status="not_added",
+            circle_id=circle_id,
+            reason_code="audience_changed",
+            spoken_facts=[
+                f"Your connections or {label} changed since I asked, so I haven't added "
+                "anyone. Should I check again?"
+            ],
+        )
+    if not to_add:
+        return AddAllConnectionsResult(
+            status="no_one_to_add",
+            circle_id=circle_id,
+            already_member_count=len(joined),
+            spoken_facts=[f"Everyone on the card is already in {label}."],
+        )
+    if len(to_add) > plan.remaining:
+        return _no_room(plan, label, len(to_add))
+    service = _service(ctx)
+    try:
+        written = dict(
+            await asyncio.to_thread(
+                service.add_direct_connections,
+                actor_user_id=ctx.user_id,
+                circle_id=circle_id,
+                user_ids=to_add,
+            )
+            or {}
+        )
+    except _SERVICE_ERRORS as exc:
+        # One transaction: a refusal means nobody was added.
+        return _rejected(exc)
+    added = [str(item) for item in (written.get("addedUserIds") or [])]
+    skipped = {
+        str(key): str(value) for key, value in dict(written.get("skippedReasons") or {}).items()
+    }
+    if added:
+        await _refresh_remembered(ctx, circle_id)
+    already = len(joined) + sum(1 for reason in skipped.values() if reason == "already_member")
+    unavailable = sum(1 for reason in skipped.values() if reason != "already_member")
+    names = [plan.names.get(user_id) or "a connection" for user_id in added]
+    facts: list[str] = []
+    if added:
+        listed = (
+            f", including {_names_for_speech(names[:3])}"
+            if len(names) > 3
+            else f": {_names_for_speech(names)}"
+        )
+        facts.append(f"Added {_count(len(added), 'person', 'people')} to {label}{listed}.")
+    if already:
+        facts.append(f"{_count(already, 'person was', 'people were')} already in it.")
+    if unavailable:
+        facts.append(f"{_count(unavailable, 'person', 'people')} couldn't be added right now.")
+    newer = len(addable - set(approved))
+    if newer:
+        facts.append(
+            f"{_count(newer, 'newer connection was', 'newer connections were')} not on the "
+            "card, so I left them out."
+        )
+    return AddAllConnectionsResult(
+        status="added" if added else "no_one_to_add",
+        circle_id=circle_id,
+        added_count=len(added),
+        already_member_count=already,
+        unavailable_count=unavailable,
+        added_names=names[:SPOKEN_LIST_LIMIT],
+        spoken_facts=facts or [f"Nobody was added to {label}."],
+    )
+
+
 # -- remove_circle_member ---------------------------------------------------------
 
 
@@ -1787,10 +2486,21 @@ TOOLS: tuple[ToolSpec, ...] = (
             "Create an empty circle with the given name (kind family, friends, or other). "
             "Creating a circle sends no invitations and shares no location; adding people is a "
             "separate action. Reports already_exists when the person already owns one by that name."
+            " Use the name exactly as the person said or spelled it. When correcting a name you "
+            "proposed, even after cancelling its card, change only what they asked: the letters "
+            "they spell replace the word they correct and go in spelled_words, and each other "
+            "changed word goes in changed_words; a word they spelled stays until they change it. If it answers name_changed or "
+            "spelled_word_missing for a change they did ask for, call it again with that change "
+            "declared (changed_words or release_spelled_words)."
         ),
         handler=create_circle,
         ui_refresh=REFRESH_CIRCLES,
         summarize=summarize_create_circle,
+        prepare=prepare_create_circle,
+        on_invalid_correction=_invalid_create_circle_correction,
+        # A new circle names no existing person or circle, so a lookup made for
+        # a follow-up ("yes, and add Priya to it") must not cancel its card.
+        lookup_targets=(),
     ),
     ToolSpec(
         name="rename_circle",
@@ -1853,6 +2563,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "if the person asks. Both arguments are canonical ids, never names."
         ),
         handler=add_circle_member,
+        correction_group="circle_add",
         person_args=("person",),
         circle_args=("circle",),
         ui_refresh=REFRESH_CIRCLES,
@@ -1877,10 +2588,35 @@ TOOLS: tuple[ToolSpec, ...] = (
             "argument is a canonical id, never a name."
         ),
         handler=add_circle_members,
+        correction_group="circle_add",
         person_args=("people",),
         circle_args=("circle",),
         ui_refresh=REFRESH_CIRCLES,
         summarize=summarize_add_circle_members,
+    ),
+    ToolSpec(
+        name="add_all_connections",
+        gateway_action_id="location.add_to_circle",
+        policy=ToolPolicy.confirm_voice,
+        input_model=AddAllConnectionsInput,
+        output_model=AddAllConnectionsResult,
+        description=(
+            "Add everyone the person is connected with to one confirmed circle they own, in a "
+            "single step with one confirmation. People are not an argument: the server reads "
+            "their current connections, and the card gives exact counts (how many will be "
+            "added, how many are already in it or can't be added right now). The yes adds "
+            "exactly that group, never someone who connects later. All or none: without room "
+            "for everyone it adds nobody (not_enough_room). For a few named people use "
+            "add_circle_members instead, and never resolve people one by one for this. Trusted "
+            "and the SMS circle are refused. It sends no connection requests. The circle is a "
+            "canonical id, never a name."
+        ),
+        handler=add_all_connections,
+        correction_group="circle_add",
+        circle_args=("circle",),
+        ui_refresh=REFRESH_CIRCLES,
+        summarize=summarize_add_all_connections,
+        prepare=prepare_add_all_connections,
     ),
     ToolSpec(
         name="remove_circle_member",

@@ -237,10 +237,23 @@ const toggleLabelClass = one(
   WORKSPACE_PATH,
 )[1];
 
-const profileClass = one(
+const profileVariant = one(
   header,
-  /data-testid="profile-open-button"[\s\S]*?className="([^"]+)"/,
-  "profile button class",
+  /<ShellActionSurface\s+variant="([^"]+)"\s+data-testid="profile-open-button"/,
+  "profile button variant",
+  WORKSPACE_PATH,
+)[1];
+const shellSurfacePath = "components/app-ui/shell-action-surface.tsx";
+const profileClass = one(
+  read(shellSurfacePath),
+  new RegExp(`\\b${profileVariant}:\\s*"([^"]+)"`),
+  "shared profile target class",
+  shellSurfacePath,
+)[1];
+const profilePhotoClass = one(
+  header,
+  /data-testid="profile-open-button"[\s\S]*?<Avatar className="([^"]+)"/,
+  "profile photo class",
   WORKSPACE_PATH,
 )[1];
 
@@ -421,6 +434,7 @@ export const AGENT_SURFACE_SOURCE = {
     /** Source order of the actions, e.g. ["picker", "toggle", "profile"]. */
     actionOrder,
     profileClass,
+    profilePhotoClass,
     nameClass: nameMatch[1],
     /** `isPuppySurface ? "Puppy One" : "One"`, run by the fixture. */
     nameExpression: flatten(nameMatch[2]),

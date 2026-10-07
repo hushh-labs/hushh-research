@@ -279,6 +279,94 @@ function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
   }, [x, y] as const);
 }
 
+for (const width of [390, 1440])
+  test(`body swipe reveals the realtime drawer without shifting chat or bottom chrome at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mountAppChrome(page, 64);
+    await expect(page.locator("[data-agent-history-drawer]")).toBeAttached();
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    const result = await page.evaluate(async () => {
+      const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
+      const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
+      const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
+      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x };
+      const closed = panel.getBoundingClientRect().x;
+      let time = 0;
+      function finger(type: string, dx: number) {
+        const event = new Event(type, { bubbles: true });
+        const point = { identifier: 1, clientX: 80 + dx, clientY: 500, target: body };
+        Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [point] });
+        Object.defineProperty(event, "changedTouches", { value: [point] });
+        Object.defineProperty(event, "timeStamp", { value: time += 120 });
+        body.dispatchEvent(event);
+      }
+      finger("touchstart", 0);
+      const samples: { offset: number; expected: number; opacity: number; visible: boolean }[] = [];
+      for (const dx of [24, 48, 72, 96, 120]) {
+        finger("touchmove", dx);
+        await new Promise(requestAnimationFrame);
+        samples.push({ offset: panel.getBoundingClientRect().x, expected: closed + dx,
+          opacity: Number(getComputedStyle(scrim).opacity), visible: getComputedStyle(scrim).visibility === "visible" });
+      }
+      const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar;
+      const filter = getComputedStyle(scrim).backdropFilter || getComputedStyle(scrim).webkitBackdropFilter;
+      const inertDuringPull = panel.inert;
+      finger("touchend", 120);
+      return { samples, stationary, filter, inertDuringPull };
+    });
+    for (const sample of result.samples) {
+      expect(sample.offset).toBeCloseTo(sample.expected, 0);
+      expect(sample.visible).toBe(true);
+      expect(sample.opacity).toBeGreaterThan(0);
+      expect(sample.opacity).toBeLessThan(1);
+    }
+    expect(result.stationary).toBe(true);
+    expect(result.inertDuringPull).toBe(true);
+    expect(result.filter).toContain("blur");
+    const drawer = page.getByRole("dialog", { name: "Agent chat history" });
+    await expect(drawer).toBeVisible();
+    // Let the opening settle, then exercise the same owner in the other
+    // direction. WebKit and Chromium must follow the finger, not wait for up.
+    await expect(page.locator("[data-agent-history-drawer]")).not.toHaveAttribute("style", /will-change/);
+    const closing = await page.evaluate(async () => {
+      const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
+      const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
+      const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
+      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x };
+      let time = 0;
+      function finger(type: string, dx: number) {
+        const event = new Event(type, { bubbles: true });
+        const point = { identifier: 1, clientX: 250 + dx, clientY: 500, target: panel };
+        Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [point] });
+        Object.defineProperty(event, "changedTouches", { value: [point] });
+        Object.defineProperty(event, "timeStamp", { value: time += 120 });
+        panel.dispatchEvent(event);
+      }
+      finger("touchstart", 0);
+      const samples = [];
+      for (const dx of [-24, -48, -72, -96, -120]) {
+        finger("touchmove", dx);
+        await new Promise(requestAnimationFrame);
+        samples.push({ offset: panel.getBoundingClientRect().x, expected: dx,
+          opacity: Number(getComputedStyle(scrim).opacity), inert: panel.inert });
+      }
+      const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar;
+      finger("touchend", -120);
+      return { samples, stationary };
+    });
+    for (const sample of closing.samples) {
+      expect(sample.offset).toBeCloseTo(sample.expected, 0);
+      expect(sample.opacity).toBeGreaterThan(0);
+      expect(sample.opacity).toBeLessThan(1);
+      expect(sample.inert).toBe(false);
+    }
+    expect(closing.stationary).toBe(true);
+    await expect(drawer).toBeHidden();
+    await expect(page.getByRole("textbox", { name: "Chat draft" })).toBeEnabled();
+  });
+
 for (const width of [390, 768, 1440])
   test(`chat sidebar spans the full viewport over the shared sheet scrim at ${width}px`, async ({ page }) => {
     // REVERSAL (founder direction, 2026-09-28): "Extend the chat sidebar end to

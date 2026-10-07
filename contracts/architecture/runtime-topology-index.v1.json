@@ -34,6 +34,39 @@
       }
     },
     {
+      "id": "agent_career",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "ONE_CAREER_ENABLED",
+        "rollback": "Turn off ONE_CAREER_ENABLED; resumes already saved stay in the owner's PKM and nothing else changes.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "hybrid",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Chat routing, voice, remote A2A and MCP arrive with the Career Agent chat change; this version is the Career screen only.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
       "id": "agent_computer_use",
       "parent": "agent_one",
       "rollout": {
@@ -725,7 +758,8 @@
       "exact_tables": [
         "agent_chat_conversations",
         "agent_chat_messages",
-        "one_adk_sessions"
+        "one_adk_sessions",
+        "one_mcp_pending_calls"
       ],
       "id": "agent_chat_encrypted_memory",
       "lifecycle_status": "current",
@@ -858,18 +892,29 @@
       "id": "direct_message_encrypted_content",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread-count/read-receipt updates, and transactionally committed recipient doorbells from the Direct Messages service."
+      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service."
     },
     {
       "data_class": "personal_metadata",
       "exact_tables": [
         "conversations",
-        "direct_message_blocks"
+        "direct_message_blocks",
+        "direct_message_reactions"
       ],
       "id": "direct_message_relationship_state",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Firebase-authenticated Direct Messages service and /api/one/messages routes. Conversation creation and message insertion lock and verify only the canonical active connections pair; they never infer eligibility from Circle membership, trusted_connections, or a connection origin. Read paths remain participant-scoped after a connection ends."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "directory_listing_claims"
+      ],
+      "id": "directory_listing_claims",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "hussh.ai White Pages 'Is this you?' claim: a signed-in, phone-verified One user claims a public-record listing id; an operator verifies it; the public listing lookup then shows the verified owner's for-sale packets."
     },
     {
       "data_class": "reference",
@@ -1066,7 +1111,7 @@
       "id": "feed_events",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache."
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269)."
     },
     {
       "data_class": "workflow_state",
@@ -1417,16 +1462,29 @@
       "exact_tables": [
         "one_agent_engagement_sessions",
         "one_referral_attributions",
+        "one_referral_circle_contributions",
+        "one_referral_circle_selections",
         "one_referral_codes",
+        "one_referral_display_handles",
         "one_referral_events",
+        "one_referral_fulfillment_records",
+        "one_referral_leaderboard_snapshot_entries",
+        "one_referral_leaderboard_snapshots",
+        "one_referral_milestone_entitlements",
         "one_referral_policies",
+        "one_referral_program_settings",
         "one_referral_relationships",
-        "one_referral_risk_reviews"
+        "one_referral_reward_rounds",
+        "one_referral_risk_reviews",
+        "one_referral_score_events",
+        "one_referral_scoring_jobs",
+        "one_referral_streak_state",
+        "one_referral_weekly_awards"
       ],
       "id": "one_referral_program",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only."
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only. Migration 270 adds the gamification layer built on top of this graph: versioned program settings (points, milestones, streaks, flash windows, weekly schedule, prize catalogue) and the weekly reward round schedule slots. Migration 271 adds cumulative scoring: an append-only points ledger (one_referral_score_events), a durable worker queue enqueued atomically alongside each qualification transition (one_referral_scoring_jobs), a per-referrer streak-award watermark (one_referral_streak_state, recomputed from relationship qualification dates rather than stored incrementally), and published cumulative-ranking snapshots (one_referral_leaderboard_snapshots / _entries) the dashboard reads instead of a live aggregate query. Migration 272 adds circles and milestones: an interval history of each user's single active referral-contest team (one_referral_circle_selections, new and referral-owned -- it never writes to one_location_circles or one_location_circle_memberships), an append-only settled-once record of which team gets credit for each qualified relationship resolved at event time (one_referral_circle_contributions, COUNT(*) per circle_id is the team's raw cumulative score), lifetime once-only milestone entitlements (one_referral_milestone_entitlements), and a staff review/fulfillment foundation with no shipping or purchase capability (one_referral_fulfillment_records). Migration 273 adds one_referral_display_handles: an opt-in, self-chosen public alias distinct from actor_identity_cache.display_name, so a referrer who has not set one has no public leaderboard identity and is rendered as an anonymous placeholder rather than their real/account name. Migration 274 adds one_referral_weekly_awards: finalized weekly rank-1/2/3 prize awards, unique on (reward_round_id, award_slot) only -- deliberately never on user_id, because the program is cumulative with no weekly reset and a previous winner is expected to win again in a later round without earning anything new that week. cumulative_points_at_cutoff is a frozen snapshot written once at finalization; winning never writes back to one_referral_score_events, so a prize is never itself a point award, and re-running finalization for an already-finalized round is a no-op via ON CONFLICT DO NOTHING on that same unique pair."
     },
     {
       "data_class": "workflow_state",
@@ -1482,6 +1540,27 @@
       "primary_access_path": "Dev-only migration950. hushh_mcp/services/personal_agent_standby_store.py (statements in personal_agent_standby_sql.py): add_standby for a provisioned, signing primary (latching identity_mode), read_standby for the hub signed-request verifier's key and epoch fence, claim_sync_lease / list_standbys_due / record_sync_result for the standby sync, swap_primary_and_standby for a switch (one statement, fenced on placement_epoch and the observed standby pod_key_id, promoting only a standby with a completed sync), remove_standby keeping coordinates only under the registry's backend_metadata.detachedPlacements. Design: docs/future/personal-agent/STANDBY-SYNC.md."
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_credit_subscription_cancellations"
+      ],
+      "id": "pkm_credit_subscription_cancellations",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Account deletion moves a deleted subscriber's Stripe subscription id here; the scheduled work drain cancels it at Stripe and deletes the row."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_credit_subscriptions",
+        "pkm_credit_ledger"
+      ],
+      "id": "pkm_credits",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "hussh.ai credits plans: a buyer subscribes monthly through Stripe Checkout; the signed webhook grants the plan's credits once per paid invoice (pkm_grant_credits, expiring the unused balance) and records plan status; buying a packet with credits spends from the ledger (pkm_spend_credits under a per-user advisory lock); refunds of credit-paid orders return credits."
+    },
+    {
       "data_class": "personal_projection",
       "exact_tables": [
         "pkm_default_available_projections"
@@ -1516,6 +1595,36 @@
       "lifecycle_status": "current",
       "owner": "vault-pkm-governance",
       "primary_access_path": "PKM metadata, scope discovery, manifest repair, and replay/audit services"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pkm_owner_payout_accounts"
+      ],
+      "id": "pkm_owner_payout_accounts",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One marketplace Owner tab payouts: a packet owner onboards to a Stripe Connect Express account; the work drain marks delivered orders' earnings due and transfers them (amount minus platform fee) once Stripe enables payouts."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_packet_orders"
+      ],
+      "id": "pkm_packet_orders",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "hussh.ai White Pages buy flow: a signed-in buyer pays hussh for one packet through Stripe Checkout; the signed Stripe webhook marks the order paid and files an owner-approved marketplace access request; denied, expired or orphaned requests are refunded by the packet-order reconcile."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pkm_packets"
+      ],
+      "id": "pkm_packets",
+      "lifecycle_status": "current",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "One marketplace Owner tab: the owner creates, prices and lists packets (named bundles of their own PKM scope references) for sale; hussh.ai White Pages reads only the titles and prices of a verified owner's for-sale packets through the public listing lookup."
     },
     {
       "data_class": "workflow_state",
@@ -2735,6 +2844,7 @@
           "route.one_feed",
           "route.one_location",
           "route.one_pkm",
+          "route.one_pkm_location_home",
           "route.voice_settings",
           "wallet.add",
           "wallet.list",
@@ -2783,6 +2893,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.calendar"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-career",
+      "page_file": "app/one/career/page.tsx",
+      "pathname": "/one/career",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.career"
       }
     },
     {
@@ -3882,10 +4015,10 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "memory-only+sse-background",
+        "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
         "resource_classes": [
-          "unknown"
+          "realtime_stream"
         ]
       },
       "implementation_override": null,
@@ -3925,6 +4058,56 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.pkm"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm-location",
+      "page_file": "app/one/pkm/location/page.tsx",
+      "pathname": "/one/pkm/location",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_pkm_location_home"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.pkm.location"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm-location-detail",
+      "page_file": "app/one/pkm/location/detail/page.tsx",
+      "pathname": "/one/pkm/location/detail",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_pkm_location_home"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.pkm.location.detail"
       }
     },
     {
@@ -6085,28 +6268,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "1f5d04a5da49f167d7848b793406c8f0cb300e6f16909b169ee00b9dfa0e67e7",
-    "agent_registry": "a2119cb8f1fc1ac4f67300e2b2f17721fa2b723434c8c195b1c6cfd2562c323b",
-    "cache_manifest": "e1e54c98ad7f359b92517b65f01444dcc0bb876a09dbece17644da38c57cf2da",
-    "data_plane": "7a565eef45a719679ae99d2af5cfed759f3e83b8991095dfde98365614adcd36",
+    "action_gateway": "9f022d8c7acf93d12e8dc96f8b39ff61c12e74f5c26f9a1ca9c62bd3bfdcc558",
+    "agent_registry": "c7bb292dd2fa55d567ae320b172abb45e1b0dd14253a3abf804bcb5b2eccd29d",
+    "cache_manifest": "0ae2cec0e50625741e41ddb028bc53a8cb1168b7bdffd2b044fa60840e29f959",
+    "data_plane": "0053d501024ccc6c73f9c8ce73173370925e3b32de7e85e6bedea596a698caf0",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
-    "route_index": "77ff2062f394612e7cc3d4238ff72aa4978d6ad22b07de42fafe3cc89577caa3",
-    "route_layout": "66839360b7ccfd4d10473348f6d9c2ececa3567d50ed54536bdeda52a515004a",
-    "surface_map": "c82669b0804d4d1b6d18b41909c503b3b25a56ff533e52a3c30312d40559ee0b",
+    "route_index": "90bc6a59905e85fd4be1ecfc46011cdd259eaf6d85f2557b16c6439cb19ed9d9",
+    "route_layout": "c5b99c3467712432a6dc966d9d908ba1a5a1a4a95685151d4feb9ddbb7654bcf",
+    "surface_map": "b4eb22232d8510d824d0093e0dc2f8190e311bba6eeceb908ecc651b7f85b4ee",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 227,
-    "agents": 20,
+    "actions": 228,
+    "agents": 21,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 148,
+    "physical_routes": 151,
     "semantic_routes": 14,
-    "table_families": 93
+    "table_families": 99
   }
 }

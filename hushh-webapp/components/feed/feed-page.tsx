@@ -564,9 +564,8 @@ function FeedPageSession({
     if (data?.items[0]?.id) markSeen();
   }, [data?.items, markSeen]);
 
-  // A poll that returns the same rows must not hand FeedRow new objects: the
-  // rows are memoised on their item, so a row whose id, read flag and time
-  // are unchanged keeps its previous object and skips its render.
+  // Keep unchanged rows stable, but include the presentation metadata: bundled
+  // consent details and current counterpart photos can change under the same id.
   const previousItemsRef = useRef<Map<string, FeedItem>>(new Map());
   const items = useMemo(() => {
     // useStaleResource can synchronously expose a warm first page. Do not let
@@ -594,8 +593,10 @@ function FeedPageSession({
         previous &&
           previous.read === item.read &&
           previous.created_at === item.created_at &&
+          previous.source_domain === item.source_domain &&
           previous.event_type === item.event_type &&
-          previous.actor_label === item.actor_label
+          previous.actor_label === item.actor_label &&
+          JSON.stringify(previous.metadata) === JSON.stringify(item.metadata)
           ? previous
           : item,
       );
@@ -918,7 +919,7 @@ function FeedPageSession({
               : null}
 
             {hasHistory && pagination.nextCursor ? (
-              <div className="flex flex-col items-center gap-1 py-3">
+              <div className="flex flex-col items-center gap-1 pt-2">
                 {loadMoreError ? (
                   <p role="alert" className="text-xs text-muted-foreground">
                     {loadMoreError} Try again.
@@ -944,7 +945,7 @@ function FeedPageSession({
                 history, never under a "Needs you" row where it read as a
                 reply to that request. It turns destructive only once armed. */}
             {canClear ? (
-              <div className="flex w-full justify-center pt-4" aria-live="polite">
+              <div className="flex w-full justify-center pt-1" aria-live="polite">
                 <StockButton
                   type="button"
                   variant="secondary"

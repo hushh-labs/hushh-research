@@ -188,9 +188,7 @@ def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
 
 def _validate_connector_rollout(args: argparse.Namespace) -> None:
     """Fail before touching Secret Manager on an unsafe hosted rollout."""
-    enabled = any(
-        getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS
-    )
+    enabled = any(getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS)
     uat_cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
     prod_cohort = str(getattr(args, "connector_production_owner_cohort", "") or "")
     uat_value = str(getattr(args, "connector_uat_all_users", "false")).strip().lower()
@@ -249,9 +247,7 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
             for member in members
         )
     ):
-        raise ValueError(
-            "Connector cohort must contain at most 25 distinct exact Firebase UIDs"
-        )
+        raise ValueError("Connector cohort must contain at most 25 distinct exact Firebase UIDs")
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -301,23 +297,26 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
         "hushh_tech_client_enabled": getattr(args, "hushh_tech_client_enabled", "false"),
+        # One Voice reply-in-thread. A new capability, so absent means off and
+        # each lane opts in explicitly (UAT first; production passes false).
+        "one_voice_mail_reply_enabled": getattr(args, "one_voice_mail_reply_enabled", "false"),
+        # Voice scheduled send, voice Gmail drafts, and the server-side drain
+        # that delivers scheduled mail with no device present. New capability,
+        # so each is off unless a lane opts in (UAT first; production false).
+        "one_voice_mail_schedule_send_enabled": getattr(
+            args, "one_voice_mail_schedule_send_enabled", "false"
+        ),
+        "one_voice_mail_drafts_enabled": getattr(args, "one_voice_mail_drafts_enabled", "false"),
+        "mail_scheduled_drain_enabled": getattr(args, "mail_scheduled_drain_enabled", "false"),
         "hushh_tech_developer_app_id": getattr(args, "hushh_tech_developer_app_id", ""),
         "hushh_tech_allowed_audience": getattr(args, "hushh_tech_allowed_audience", ""),
-        "hushh_tech_allowed_redirect_uris": getattr(
-            args, "hushh_tech_allowed_redirect_uris", ""
-        ),
-        "hushh_tech_allowed_consent_scopes": getattr(
-            args, "hushh_tech_allowed_consent_scopes", ""
-        ),
+        "hushh_tech_allowed_redirect_uris": getattr(args, "hushh_tech_allowed_redirect_uris", ""),
+        "hushh_tech_allowed_consent_scopes": getattr(args, "hushh_tech_allowed_consent_scopes", ""),
         "hushh_tech_uat_firebase_uid_allowlist": getattr(
             args, "hushh_tech_uat_firebase_uid_allowlist", ""
         ),
-        "hushh_tech_shadow_max_age_ms": getattr(
-            args, "hushh_tech_shadow_max_age_ms", "604800000"
-        ),
-        "hushh_tech_trusted_proxy_hops": getattr(
-            args, "hushh_tech_trusted_proxy_hops", "0"
-        ),
+        "hushh_tech_shadow_max_age_ms": getattr(args, "hushh_tech_shadow_max_age_ms", "604800000"),
+        "hushh_tech_trusted_proxy_hops": getattr(args, "hushh_tech_trusted_proxy_hops", "0"),
         "hushh_tech_proxy_audience": getattr(args, "hushh_tech_proxy_audience", ""),
         "hushh_tech_trusted_proxy_service_accounts": getattr(
             args, "hushh_tech_trusted_proxy_service_accounts", ""
@@ -482,7 +481,9 @@ def main() -> int:
     parser.add_argument("--connector-internal-owner-cohort", default="")
     parser.add_argument("--connector-uat-all-users", default="false", choices=["true", "false"])
     parser.add_argument("--connector-production-owner-cohort", default="")
-    parser.add_argument("--connector-production-all-users", default="false", choices=["true", "false"])
+    parser.add_argument(
+        "--connector-production-all-users", default="false", choices=["true", "false"]
+    )
     parser.add_argument("--production-drive-candidate-secret", default="")
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
@@ -495,6 +496,18 @@ def main() -> int:
     parser.add_argument("--hushh-trusted-device-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-uat-allowlist", default="")
     parser.add_argument("--hushh-tech-client-enabled", default="false")
+    parser.add_argument(
+        "--one-voice-mail-reply-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--one-voice-mail-schedule-send-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--one-voice-mail-drafts-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--mail-scheduled-drain-enabled", default="false", choices=["true", "false"]
+    )
     parser.add_argument("--hushh-tech-developer-app-id", default="")
     parser.add_argument("--hushh-tech-allowed-audience", default="")
     parser.add_argument("--hushh-tech-allowed-redirect-uris", default="")
@@ -512,17 +525,13 @@ def main() -> int:
     # The directory key is owned by one project and consumed by several, so it
     # is mirrored rather than copied by hand — see _sync_advisors_api_key.
     parser.add_argument("--advisors-api-key-source-project", default="hushh-tech-prod")
-    parser.add_argument(
-        "--advisors-api-key-source-secret", default="brokercheck-api-key"
-    )
+    parser.add_argument("--advisors-api-key-source-secret", default="brokercheck-api-key")
     # Insurance agent directory. Same split as the advisor directory directly
     # above: a non-secret base URL in the generated runtime config, and a bearer
     # key mirrored from the project that owns it.
     parser.add_argument("--insurance-agents-api-base-url", default="")
     parser.add_argument("--one-places-directory-enabled", default="")
-    parser.add_argument(
-        "--insurance-agents-api-key-source-project", default="hushh-tech-prod"
-    )
+    parser.add_argument("--insurance-agents-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"
     )
@@ -536,12 +545,8 @@ def main() -> int:
         "--nws-nearby-api-base-url",
         default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
     )
-    parser.add_argument(
-        "--nws-nearby-api-key-source-project", default="hushh-tech-prod"
-    )
-    parser.add_argument(
-        "--nws-nearby-api-key-source-secret", default="nws-nearby-api-key"
-    )
+    parser.add_argument("--nws-nearby-api-key-source-project", default="hushh-tech-prod")
+    parser.add_argument("--nws-nearby-api-key-source-secret", default="nws-nearby-api-key")
     # NWS v4 net-worth contract. Same single deployed service, so the base URL
     # carries a real default for the same reason as the v2 one above. The v4
     # credential is a per-consumer key rather than the shared service key, so it
@@ -553,9 +558,7 @@ def main() -> int:
         "--nws-nearby-v4-api-base-url",
         default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
     )
-    parser.add_argument(
-        "--nws-nearby-v4-api-key-source-project", default="hushh-tech-prod"
-    )
+    parser.add_argument("--nws-nearby-v4-api-key-source-project", default="hushh-tech-prod")
     # Blank by default and resolved from the lane below. Unlike the v2 key,
     # which is one shared service credential every lane may use, a v4 key is
     # bound in the upstream registry to a single consumer with a single
@@ -568,9 +571,7 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
-    canonical_passkey_rp_ids = _canonical_passkey_allowed_rp_ids(
-        args.app_frontend_origin
-    )
+    canonical_passkey_rp_ids = _canonical_passkey_allowed_rp_ids(args.app_frontend_origin)
     if args.passkey_allowed_rp_ids and _normalize_passkey_rp_ids(
         args.passkey_allowed_rp_ids
     ) != _normalize_passkey_rp_ids(canonical_passkey_rp_ids):
@@ -630,9 +631,7 @@ def main() -> int:
         _upsert_secret(args.project, canonical_name, value)
         sync_summary.append(canonical_name)
 
-    _upsert_secret(
-        args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip()
-    )
+    _upsert_secret(args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip())
     sync_summary.append("APP_FRONTEND_ORIGIN")
 
     _upsert_secret(
@@ -642,8 +641,8 @@ def main() -> int:
     )
     sync_summary.append("GMAIL_OAUTH_REDIRECT_URI")
 
-    backend_runtime_config, candidate_runtime_config = (
-        _split_production_drive_candidate_config(args, _build_backend_runtime_config(args))
+    backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
+        args, _build_backend_runtime_config(args)
     )
     if candidate_runtime_config is None:
         _upsert_secret(

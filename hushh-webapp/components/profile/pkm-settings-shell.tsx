@@ -18,6 +18,7 @@ import {
 } from "@/lib/morphy-ux/gsap-init";
 import { getGsap, prefersReducedMotion } from "@/lib/morphy-ux/gsap";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export function PkmSettingsShell({
   title,
@@ -127,7 +128,7 @@ export function PkmSettingsShell({
 
       <AppPageContentRegion>
         <div ref={shellRef} className={cn("w-full space-y-4", innerClassName)}>
-          <div data-pkm-detail-panel="true">
+          <div data-pkm-detail-panel="true" data-pkm-workspace={pathname === ROUTES.PKM || pathname?.startsWith(`${ROUTES.PKM}/`) ? "true" : undefined}>
             <SurfaceStack compact>{children}</SurfaceStack>
           </div>
         </div>

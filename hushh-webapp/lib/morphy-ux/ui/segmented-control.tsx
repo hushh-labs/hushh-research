@@ -69,6 +69,8 @@ interface SegmentedControlProps {
    */
   iconClassName?: string;
   labelClassName?: string;
+  /** Authored selected-control focus return for a native presentation adapter. */
+  selectedButtonRef?: React.RefObject<HTMLButtonElement | null>;
 }
 
 // =============================================================================
@@ -85,6 +87,7 @@ export function SegmentedControl({
   ariaLabel,
   iconClassName,
   labelClassName,
+  selectedButtonRef,
 }: SegmentedControlProps) {
   const isExpanding = variant === "expanding";
   const buttonsRef = React.useRef<Array<HTMLButtonElement | null>>([]);
@@ -187,6 +190,7 @@ export function SegmentedControl({
             key={option.value}
             ref={(node) => {
               buttonsRef.current[index] = node;
+              if (index === focusIndex && selectedButtonRef) selectedButtonRef.current = node;
             }}
             role="radio"
             aria-checked={isActive}

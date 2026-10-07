@@ -24,6 +24,68 @@ function feedItem(
 }
 
 describe("notification-backed Feed projection renderers", () => {
+  it.each([
+    ["kai_analysis_failed", "kai", "Analysis could not finish"],
+    ["kai_analysis_canceled", "kai", "Analysis canceled"],
+    ["kai_import_completed", "kai", "Statement parsing finished"],
+    ["kai_import_failed", "kai", "Statement import could not finish"],
+    ["kai_import_canceled", "kai", "Statement import canceled"],
+    ["calendar_action_failed", "connected_systems", "Calendar change needs review"],
+    ["mail_mailbox_archive", "connected_systems", "Messages archived"],
+    ["mail_mailbox_trash", "connected_systems", "Messages moved to trash"],
+    ["mail_mailbox_add_label", "connected_systems", "Label added"],
+    ["mail_mailbox_remove_label", "connected_systems", "Label removed"],
+    ["mail_mailbox_mark_read", "connected_systems", "Messages marked as read"],
+    ["mail_mailbox_mark_unread", "connected_systems", "Messages marked as unread"],
+    ["mail_mailbox_failed", "connected_systems", "Mailbox change needs review"],
+    ["connected_systems_mutation_succeeded", "connected_systems", "App change completed"],
+    ["connected_systems_mutation_partial", "connected_systems", "App change needs review"],
+    ["drive_search_completed", "connected_systems", "Drive search finished"],
+    ["drive_bulk_stopped", "connected_systems", "Drive sharing stopped"],
+  ] as const)("presents %s with authored copy and a local destination", (type, domain, label) => {
+    const view = presentFeedItem(feedItem(type, { error: "private-provider-error", filename: "private.pdf", payload: "private-holdings", request_url: "https://evil.example" }, domain));
+    expect(view.label).toBe(label);
+    expect(view.href).toMatch(/^\/(?:one(?:\/|\?)|$)/);
+    expect(JSON.stringify(view)).not.toContain("private");
+    expect(JSON.stringify(view)).not.toContain("evil.example");
+  });
+
+  it("distinguishes uncertain Drive writes from failure without suggesting a blind retry", () => {
+    for (const type of ["drive_share_unconfirmed", "drive_trash_unconfirmed"]) {
+      const view = presentFeedItem(feedItem(type, {}, "connected_systems"));
+      expect(view.label).toContain("unconfirmed");
+      expect(view.description).toContain("before trying again");
+      expect(view.description).toContain("may have succeeded");
+    }
+    // These source outcomes also include successful writes whose readback
+    // failed or could not establish who created the permission.
+    for (const type of ["connected_systems_mutation_partial", "drive_bulk_partial", "drive_bulk_failed"]) {
+      const view = presentFeedItem(feedItem(type, {}, "connected_systems"));
+      expect(view.description).toContain("could not be confirmed");
+      expect(view.description).toContain("before trying again");
+      expect(view.description).not.toContain("Some files could not be shared");
+      expect(view.description).not.toContain("Only part of your approved change finished");
+    }
+  });
+
+  it("reports mixed-bundle expiry without claiming that nothing was shared", () => {
+    const view = presentFeedItem(feedItem("consent_timed_out", {}, "consent"));
+    expect(view.description).toBe("An unanswered part of this request expired.");
+    expect(view.href).toContain("previous");
+  });
+
+  it("presents relationship outcomes for the actual audience", () => {
+    expect(presentFeedItem(feedItem("connection_withdrawn", { counterpart_label: "Rohan", actor_is_self: true }, "connections")).description).toBe("You withdrew the connection request");
+    expect(presentFeedItem(feedItem("connection_withdrawn", { counterpart_label: "Rohan" }, "connections")).description).toBe("Withdrew the connection request");
+    const circle = presentFeedItem(feedItem("circle_membership_ended", { circle_name: "Family", actor: "private" }));
+    expect(circle.label).toBe("Family");
+    expect(circle.description).toBe("Your membership in this circle ended.");
+    expect(JSON.stringify(circle)).not.toContain("private");
+    const left = presentFeedItem(feedItem("circle_member_left", { circle_name: "Family", counterpart_label: "Aarav" }));
+    expect(left.label).toBe("Family");
+    expect(left.description).toBe("Aarav left your circle.");
+    expect(left.href).toBe("/one/connect?tab=circles");
+  });
   it("opens circle chat from metadata without exposing a message preview or trusting an external destination", () => {
     const circle = "11111111-2222-3333-4444-555555555555";
     const presented = presentFeedItem(feedItem("location_circle_message", { circle_id: circle, circle_name: "Family", message: "private plaintext", request_url: "https://evil.example" }));

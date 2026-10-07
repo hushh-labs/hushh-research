@@ -32,6 +32,7 @@ describe("IntroStep voice contract", () => {
     vi.useFakeTimers();
     const onLogin = vi.fn();
     const { unmount } = render(<IntroStep onLogin={onLogin} />);
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     for (const name of [
       "Family",
       "Friends",
@@ -107,6 +108,7 @@ describe("IntroStep voice contract", () => {
       })),
     );
     render(<IntroStep onLogin={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     act(() => vi.advanceTimersByTime(20000));
     expect(
       screen.getByRole("button", { name: "Family", exact: true }),
@@ -147,6 +149,7 @@ describe("IntroStep voice contract", () => {
     )?.({});
     expect(earlyResult?.status).toBe("blocked");
     expect(onLogin).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
     fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
     const button = screen.getByRole("button", { name: "Sign in", exact: true });
@@ -169,19 +172,27 @@ describe("IntroStep voice contract", () => {
     });
   });
 
-  it("shows exactly three previews, with no login until an account action", () => {
+  it("restores the welcome before the three previews, with no early sign-in", () => {
     Element.prototype.scrollIntoView = vi.fn();
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
+    expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Your agents. Yours to own.")).toBeInTheDocument();
+    expect(screen.getByText("Your private network of AI agents")).toBeInTheDocument();
+    expect(screen.getByText("You choose what to share.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in", exact: true })).not.toBeInTheDocument();
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
+    expect(onLogin).not.toHaveBeenCalled();
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");
+    expect(screen.getByRole("heading", { name: "Your people, closer." })).toBeInTheDocument();
+    expect(document.querySelector("[data-hushh-mark]")).not.toBeNull();
     expect(
-      screen.getByRole("heading", { name: "Your people, closer." }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("img", { name: "hushh", exact: true }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Screen 3: Get started" }),
+      screen.getByRole("button", { name: "Screen 4: Get started" }),
     ).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
+    expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
     expect(
       screen.getByRole("img", { name: "hushh", exact: true }),

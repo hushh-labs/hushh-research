@@ -138,6 +138,35 @@ function query(page: Page) {
   return new URL(page.url()).searchParams;
 }
 
+test("Profile root and nested screens share one gutter", async ({ page }) => {
+  for (const width of [320, 393, 768]) {
+    await mount(page, { width, at: "/one?profile_pane=1" });
+    // A visible sheet can still be travelling in from the right. Measure
+    // only its settled grid, not the opening animation's translated frame.
+    await expect.poll(async () => {
+      const frame = await pane(page).boundingBox();
+      return frame ? Math.abs(frame.x + frame.width - width) : Number.POSITIVE_INFINITY;
+    }).toBeLessThanOrEqual(0.5);
+    const cardEdges = () => pane(page).locator("[data-profile-stack-active='true'] [data-slot='settings-group-shell']").first().evaluate(node => {
+      const box = node.getBoundingClientRect();
+      return { left: box.left, right: box.right };
+    });
+    const root = await cardEdges();
+    await page.getByTestId("profile-account-row").getByRole("button").click();
+    await expect(paneTitle(page)).toHaveText(/account/i);
+    await expect.poll(async () => Math.abs((await cardEdges()).left - root.left)).toBeLessThanOrEqual(0.5);
+    await expect.poll(async () => Math.abs((await cardEdges()).right - root.right)).toBeLessThanOrEqual(0.5);
+    await pane(page).getByRole("button", { name: /back/i }).click();
+    await page.getByTestId("profile-legal-terms-row").getByRole("button").click();
+    const reader = pane(page).getByTestId("legal-reader-terms");
+    await expect(reader).toBeVisible();
+    await expect.poll(async () => Math.abs((await reader.boundingBox())!.x - root.left)).toBeLessThanOrEqual(0.5);
+    const legal = await reader.boundingBox();
+    expect(Math.abs(legal!.x - root.left)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(legal!.x + legal!.width - root.right)).toBeLessThanOrEqual(0.5);
+  }
+});
+
 test("Legal opens in place in the Profile pane and Back returns to Profile", async ({ page }) => {
   const errors = await mount(page, { at: "/one" });
   await page.getByTestId("open-profile").click();

@@ -110,7 +110,7 @@ const VAULT_ALTERNATIVE_BUTTON_CLASS =
 const VAULT_ESCAPE_LINK_CLASS =
   "inline-flex min-h-11 h-11 items-start rounded-none px-0 py-0 text-[13px] font-semibold leading-5 !text-[color:var(--app-accent-deep)] underline-offset-2 hover:underline focus-visible:rounded-[var(--app-radius-sm)]";
 const VAULT_INPUT_SHELL_CLASS =
-  "flex h-14 items-center gap-3 rounded-[var(--app-input-radius)] border-[1.5px] bg-black/[0.02] px-4 transition-[border-color,box-shadow] dark:bg-white/[0.04] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]";
+  "flex h-14 items-center gap-3 rounded-[var(--app-input-radius)] border-[1.5px] bg-black/[0.02] px-4 dark:bg-white/[0.04]";
 const VAULT_INPUT_CONTROL_CLASS =
   "h-auto min-h-0 min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-foreground/35";
 const VAULT_FIELD_STACK_CLASS = "space-y-[var(--app-form-field-gap)]";
@@ -1799,9 +1799,7 @@ export function VaultFlow({
                   <div
                     className={cn(
                       VAULT_INPUT_SHELL_CLASS,
-                      passphrase
-                        ? "border-[color:var(--app-accent)]"
-                        : "border-black/10 dark:border-white/15",
+                      "border-black/10 dark:border-white/15",
                     )}
                   >
                     <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
@@ -1822,7 +1820,7 @@ export function VaultFlow({
                       aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
                       title={showPassphrase ? "Hide passphrase" : "Show passphrase"}
                     >
-                      <Icon icon={showPassphrase ? EyeOff : Eye} size={18} />
+                      <Icon icon={showPassphrase ? Eye : EyeOff} size={18} />
                     </button>
                   </div>
               </div>
@@ -1833,9 +1831,7 @@ export function VaultFlow({
                   <div
                     className={cn(
                       VAULT_INPUT_SHELL_CLASS,
-                      confirmPassphrase
-                        ? "border-[color:var(--app-accent)]"
-                        : "border-black/10 dark:border-white/15",
+                      "border-black/10 dark:border-white/15",
                     )}
                   >
                     <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
@@ -1855,7 +1851,7 @@ export function VaultFlow({
                       aria-label={showConfirmPassphrase ? "Hide passphrase" : "Show passphrase"}
                       title={showConfirmPassphrase ? "Hide passphrase" : "Show passphrase"}
                     >
-                      <Icon icon={showConfirmPassphrase ? EyeOff : Eye} size={18} />
+                      <Icon icon={showConfirmPassphrase ? Eye : EyeOff} size={18} />
                     </button>
                   </div>
                 {createPassphraseHelperText && (
@@ -1958,9 +1954,7 @@ export function VaultFlow({
                   <div
                     className={cn(
                       VAULT_INPUT_SHELL_CLASS,
-                      passphrase
-                        ? "border-[color:var(--app-accent)]"
-                        : "border-black/10 dark:border-white/15",
+                      "border-black/10 dark:border-white/15",
                     )}
                   >
                     <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
@@ -1985,7 +1979,7 @@ export function VaultFlow({
                       aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
                       title={showPassphrase ? "Hide passphrase" : "Show passphrase"}
                     >
-                      <Icon icon={showPassphrase ? EyeOff : Eye} size={18} />
+                      <Icon icon={showPassphrase ? Eye : EyeOff} size={18} />
                     </button>
                   </div>
                 </div>

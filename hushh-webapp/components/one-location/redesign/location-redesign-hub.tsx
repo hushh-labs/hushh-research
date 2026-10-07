@@ -164,6 +164,7 @@ import {
   PUBLIC_LINK_CREATE_FORM_CLASSNAME,
   PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
   PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
+  PUBLIC_LINK_SELECT_CLASSNAME,
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
   PUBLIC_LINK_CONTROLS_CLASSNAME,
@@ -1851,7 +1852,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return renderLocationSurface(
     <div
       data-location-hub
-      className="mx-auto w-full max-w-[820px] space-y-3.5 sm:space-y-3.5"
+      className="mx-auto w-full max-w-[820px] space-y-1.5 sm:space-y-3.5"
     >
       <PageHeader
         title="Location"
@@ -2331,13 +2332,13 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         </div>
         <Button
           type="button"
-          size="compact"
+          size="prominent"
           data-voice-control-id="one-location-action-share"
           data-voice-action-id="location.open_share"
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-          className="w-full shrink-0 rounded-[14px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] max-sm:min-h-[50px] sm:w-auto"
+          className="mx-auto w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:mx-0 sm:w-auto sm:max-w-none"
         >
           Share location
         </Button>
@@ -4718,7 +4719,7 @@ function PublicLinkActionRows({
           {copyBusy ? "Copying…" : copyLabel}
         </Button>
       </div>
-      <div className="border-t border-[color:var(--app-separator)] pt-1">
+      <div className="pt-1">
         <button
           type="button"
           onClick={onRevoke}
@@ -4808,9 +4809,10 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
     <div className="space-y-3">
       <SettingsGroup
         title="Temporary link"
-        separatorInset
+        separatorInset={!hasLiveLink}
         density="compact"
         shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}
+        contentClassName={hasLiveLink ? "divide-y-0" : undefined}
         className="[&>div:first-child]:mt-0"
         testId="one-location-links-temporary-link"
       >
@@ -4878,6 +4880,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
               leading={<LinkIdentityMark />}
               title="Create a temporary link"
               description="Anyone with this link can see your location until it expires."
+              className="after:hidden"
             />
             <div className={PUBLIC_LINK_CREATE_FORM_CLASSNAME}>
               <DurationSelector
@@ -4887,10 +4890,11 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 label="Duration"
                 presentation="select"
                 maxWidthClassName={PUBLIC_LINK_DURATION_GROUP_CLASSNAME}
+                selectClassName={PUBLIC_LINK_SELECT_CLASSNAME}
               />
               <Button
                 onClick={vm.onCreatePublicInvite}
-                size="compact"
+                size="prominent"
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
                 className={PUBLIC_LINK_PRIMARY_CTA_CLASSNAME}
@@ -6420,7 +6424,7 @@ function AskFlow({
             getKey={(row) => row.key}
             testId="one-location-ask-recipients"
             ariaLabel="People you can ask"
-            maxHeightClassName="max-h-[min(640px,70vh)]"
+            scrollMode="page"
             renderItem={(row) => {
               const r = row.recipient;
               const selected = vm.selectedRequestOwnerIds.includes(r.userId);

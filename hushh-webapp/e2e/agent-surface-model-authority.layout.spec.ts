@@ -199,9 +199,8 @@ function renderScreen(mode: Mode, variant: Variant): string {
 
   const toggle = `<div role="radiogroup" data-testid="agent-toggle" aria-label="${escapeHtml(SRC.toggle.ariaLabel)}"
              class="${SRC.toggle.containerClass} w-auto shrink-0">${segments}</div>`;
-  const profile = `<button type="button" data-testid="${SRC.header.profileButton.testId}"
-             aria-label="${escapeHtml(SRC.header.profileButton.ariaLabel)}"
-             class="${SRC.header.profileButton.className}"><span class="h-8 w-8">P</span></button>`;
+  const profile = `<button type="button" data-testid="profile-open-button" aria-label="Open Profile"
+             class="inline-flex shrink-0 items-center justify-center rounded-full ${SRC.header.profileClass}"><span data-testid="profile-photo" class="${SRC.header.profilePhotoClass}"></span></button>`;
   // Rendered in the shipped source order, so the toggle's anchor is whatever
   // the product anchors it to.
   const actions = SRC.header.actionOrder
@@ -212,7 +211,7 @@ function renderScreen(mode: Mode, variant: Variant): string {
     <div data-testid="agent-header" class="${SRC.header.containerClass}">
       <button type="button" aria-label="Open chat history" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"></button>
       <div data-testid="agent-identity" class="${SRC.header.identityClass}">
-        <div class="${SRC.header.brandTileClass}"></div>
+        <div data-testid="agent-brand-tile" class="${SRC.header.brandTileClass}"></div>
         <div class="min-w-0">
           <div data-testid="agent-name" class="${SRC.header.nameClass}">${escapeHtml(plan.name)}</div>
           <p data-testid="agent-subtitle" class="${SRC.header.subtitleClass}">${escapeHtml(plan.subtitle)}</p>
@@ -564,10 +563,35 @@ test.describe("Agent Chat: which agent is answering", () => {
   });
 
   for (const width of WIDTHS) {
+    test(`the agent mark stays visible in the header at ${width}px`, async ({
+      page,
+    }) => {
+      await openFixture(page, SHIPPED, width);
+
+      const brandTile = page.getByTestId("agent-brand-tile");
+      await expect(brandTile).toBeVisible();
+
+      const tile = await box(page, "agent-brand-tile");
+      const header = await box(page, "agent-header");
+      expect(tile.width).toBeGreaterThan(0);
+      expect(tile.height).toBeGreaterThan(0);
+      expect(tile.x).toBeGreaterThanOrEqual(header.x - 0.5);
+      expect(tile.x + tile.width).toBeLessThanOrEqual(
+        header.x + header.width + 0.5,
+      );
+    });
+
     test(`the header cluster does not move when the mode changes at ${width}px`, async ({
       page,
     }) => {
       await openFixture(page, SHIPPED, width);
+
+      const profileTarget = await box(page, "profile-open-button");
+      const profilePhoto = await box(page, "profile-photo");
+      expect(profileTarget.width).toBeGreaterThanOrEqual(44);
+      expect(profileTarget.height).toBeGreaterThanOrEqual(44);
+      expect(profilePhoto.width).toBe(32);
+      expect(profilePhoto.height).toBe(32);
 
       const before = {
         toggle: await box(page, "agent-toggle"),

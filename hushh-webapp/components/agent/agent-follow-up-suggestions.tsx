@@ -26,7 +26,7 @@ export function visibleFollowUps(
 }
 
 /**
- * Tapping a follow-up fills the composer, exactly like welcome suggestions: the
+ * Tapping a follow-up fills the composer: the
  * person can read, edit, or discard it before anything is sent.
  *
  * Each suggestion is a semantic button with a quiet text-row presentation and
@@ -51,7 +51,7 @@ export function AgentFollowUpSuggestions({
 }
 
 /** Welcome uses equal grid tracks; follow-ups keep a compact list. Both retain
- * the same edit-before-send selection, focus and flat ripple contracts. */
+ * the same selection, focus and flat ripple presentation; callers own submission. */
 export function AgentSuggestionList({ suggestions, label, testId, disabled = false, layout = "list", onSelect }: {
   suggestions: readonly string[];
   label: string;
@@ -67,7 +67,7 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
       role="group"
       aria-label={label}
       className={layout === "starter-grid"
-        ? "mt-6 mb-2 grid w-full max-w-2xl grid-cols-1 auto-rows-fr gap-3 text-left sm:grid-cols-3 sm:gap-6"
+        ? "mt-4 mb-2 grid w-full max-w-2xl grid-cols-1 auto-rows-fr gap-1 text-left sm:grid-cols-3 sm:gap-4"
         : "mb-2 flex w-full max-w-2xl flex-col items-start gap-0.5 text-left"}
     >
       {suggestions.map((suggestion, index) => (
@@ -77,7 +77,7 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
           disabled={disabled}
           onClick={() => onSelect(suggestion)}
           className={`relative inline-flex !h-auto max-w-full !justify-start overflow-hidden !rounded-lg !border-0 !bg-transparent text-left text-sm font-medium !shadow-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 active:!scale-100 disabled:pointer-events-none disabled:opacity-60 ${layout === "starter-grid"
-            ? "!min-h-[72px] w-full items-center gap-4 !px-0 !py-3 text-foreground hover:text-[color:var(--app-accent-deep)] sm:!min-h-[128px] sm:flex-col sm:items-start sm:gap-3"
+            ? "!min-h-11 w-full items-center gap-3 !px-0 !py-2 text-foreground hover:text-[color:var(--app-accent-deep)]"
             : "!min-h-11 items-center gap-2 !px-2 !py-2 text-muted-foreground hover:text-foreground"}`}
         >
           {layout === "starter-grid" ? (

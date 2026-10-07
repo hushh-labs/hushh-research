@@ -64,6 +64,8 @@ export const ROUTE_ID_VALUES = [
   "email_agent",
   "pkm",
   "pkm_recent",
+  "pkm_location",
+  "pkm_location_detail",
   "connected_systems",
   "profile_pkm",
   "profile_pkm_agent_lab",
@@ -81,6 +83,7 @@ export const ROUTE_ID_VALUES = [
   "marketplace_connection_portfolio",
   "marketplace_ria_profile",
   "one_kyc",
+  "one_career",
   "one_marketplace",
   "one_location",
   "one_location_map",
@@ -243,6 +246,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.EMAIL_AGENT) return "email_agent";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
   if (pathname === ROUTES.PKM_RECENT) return "pkm_recent";
+  if (pathname === ROUTES.PKM_LOCATION) return "pkm_location";
+  if (pathname === ROUTES.PKM_LOCATION_DETAIL) return "pkm_location_detail";
   if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";
   if (
     pathname === ROUTES.CONNECTED_SYSTEMS ||
@@ -289,6 +294,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "marketplace_ria_profile";
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
+  if (pathname === ROUTES.ONE_CAREER) return "one_career";
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
   // Its own id rather than the map's: these are separate screens now, and
   // folding them together would hide the split from every page-view metric.
@@ -584,6 +590,14 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/kai\/gmail\/sync\/[^/?]+(?:\?.*)?$/i,
     template: "/api/kai/gmail/sync/{run_id}",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/receipts\/scan(?:\?.*)?$/i,
+    template: "/api/kai/gmail/receipts/scan",
+  },
+  {
+    regex: /^\/api\/kai\/gmail\/receipts\/detail(?:\?.*)?$/i,
+    template: "/api/kai/gmail/receipts/detail",
   },
   {
     regex: /^\/api\/kai\/gmail\/receipts\/[^/?]+(?:\?.*)?$/i,

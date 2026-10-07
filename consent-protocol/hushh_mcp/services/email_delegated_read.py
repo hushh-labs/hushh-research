@@ -11,12 +11,15 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import re
-from collections.abc import Awaitable, Callable
+import time
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone as datetime_timezone
 from typing import Any, Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,6 +36,54 @@ from hushh_mcp.services.gmail_personal_information_request_service import (
     SensitiveRequestAssessment,
     get_personal_gmail_information_request_service,
 )
+from hushh_mcp.services.owner_time import owner_zone
+
+logger = logging.getLogger(__name__)
+
+
+class MailLatencySpan:
+    """Lets a caller report a stage that returned normally but did not succeed
+    (an unknown send outcome, an analysis that failed in some categories)."""
+
+    __slots__ = ("status",)
+
+    def __init__(self) -> None:
+        self.status = "ok"
+
+
+@contextmanager
+def mail_latency(stage: str, log: logging.Logger | None = None) -> Iterator[MailLatencySpan]:
+    """Log how long one Mail stage took, with bounded metadata only.
+
+    ``stage`` and the status are short authored enums. Nothing from the
+    request, the mailbox or a provider error is ever formatted into the line,
+    and every token stays under the log redactor's 24-character threshold.
+    A block that returns normally logs ``ok`` unless it set ``span.status``.
+    """
+
+    started = time.monotonic()
+    outcome = "failed"
+    span = MailLatencySpan()
+    try:
+        yield span
+        outcome = span.status if 0 < len(span.status) < 24 else "ok"
+    except TimeoutError:
+        outcome = "timeout"
+        raise
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    except GmailMetadataError as exc:
+        outcome = exc.code if len(exc.code) < 24 else "refused"
+        raise
+    finally:
+        (log or logger).info(
+            "one_voice.mail.latency stage=%s ms=%d status=%s",
+            stage,
+            int((time.monotonic() - started) * 1000),
+            outcome,
+        )
+
 
 AnalysisCategory = Literal["personal_info", "action_items", "meetings"]
 _ANALYSIS_CATEGORIES = ("personal_info", "action_items", "meetings")
@@ -130,12 +181,9 @@ _DATE_OPERATOR = {"after": "after", "newer": "after", "before": "before", "older
 
 
 def _owner_zone(name: str) -> ZoneInfo:
-    try:
-        return ZoneInfo(name or "UTC")
-    except (ValueError, ZoneInfoNotFoundError, OSError):
-        # OSError is what ZoneInfo raises for an over-long or unusable name.
-        # A bad zone degrades to UTC; it never breaks the read.
-        return ZoneInfo("UTC")
+    # One owner-zone rule for every surface; see ``owner_time.owner_zone``.
+    zone: ZoneInfo = owner_zone(name)
+    return zone
 
 
 def _epoch_date_terms(query: str, zone: ZoneInfo) -> str:
@@ -393,19 +441,21 @@ async def run_delegated_mail_read(
                 # overruled, and `plan_source` records that it was skipped -- an
                 # unrecorded skip is indistinguishable from a planned read.
                 plan = MailReadPlan(operation="read_message", mailbox=offer_mailbox)
+                logger.info("one_voice.mail.latency stage=%s ms=%d status=%s", "plan", 0, "skipped")
             else:
-                plan = MailReadPlan.model_validate(
-                    await gene_runner(
-                        gene_id="agent_email_read_planner",
-                        prompt=json.dumps(
-                            {"user_request": message, **time_context}, ensure_ascii=False
-                        ),
-                        user_id=user_id,
-                        consent_token=consent_token,
-                        output_schema=MailReadPlan,
-                        timeout_seconds=20,
+                with mail_latency("plan"):
+                    plan = MailReadPlan.model_validate(
+                        await gene_runner(
+                            gene_id="agent_email_read_planner",
+                            prompt=json.dumps(
+                                {"user_request": message, **time_context}, ensure_ascii=False
+                            ),
+                            user_id=user_id,
+                            consent_token=consent_token,
+                            output_schema=MailReadPlan,
+                            timeout_seconds=20,
+                        )
                     )
-                )
             await require_access()
             if plan.operation == "clarify":
                 return _result(
@@ -455,8 +505,9 @@ async def run_delegated_mail_read(
                 expect_account=expect_account,
             )
             stage = "retrieval"
-            metadata = await reader.read(operation, arguments)
-            await reader.require_current()
+            with mail_latency("fetch"):
+                metadata = await reader.read(operation, arguments)
+                await reader.require_current()
             if operation == "analyze_mail":
                 stage = "analysis"
                 rows = metadata["untrusted_external_content"]
@@ -469,16 +520,19 @@ async def run_delegated_mail_read(
                         failure_stage="analysis",
                         analysis_failed=analysis_categories,
                     )
-                findings, failed = await _analyze_rows(
-                    rows=readable,
-                    categories=plan.categories,
-                    message=message,
-                    time_context=time_context,
-                    user_id=user_id,
-                    consent_token=consent_token,
-                    gene_runner=gene_runner,
-                    personal_assessor=personal_assessor,
-                )
+                with mail_latency("analyze") as span:
+                    findings, failed = await _analyze_rows(
+                        rows=readable,
+                        categories=plan.categories,
+                        message=message,
+                        time_context=time_context,
+                        user_id=user_id,
+                        consent_token=consent_token,
+                        gene_runner=gene_runner,
+                        personal_assessor=personal_assessor,
+                    )
+                    if failed:
+                        span.status = "failed" if len(failed) == len(plan.categories) else "partial"
                 await reader.require_current()
                 if len(failed) == len(plan.categories):
                     return _result(
@@ -575,19 +629,24 @@ async def run_delegated_mail_read(
             coverage = dict(metadata.get("coverage") or {})
             evidence = {k: v for k, v in metadata.items() if k != "coverage"}
             stage = "interpretation"
-            answer = MailReadAnswer.model_validate(
-                await gene_runner(
-                    gene_id="agent_email_read_interpreter",
-                    prompt=json.dumps(
-                        {"user_request": message, "retrieved_metadata": evidence, **time_context},
-                        ensure_ascii=False,
-                    ),
-                    user_id=user_id,
-                    consent_token=consent_token,
-                    output_schema=MailReadAnswer,
-                    timeout_seconds=20,
+            with mail_latency("interpret"):
+                answer = MailReadAnswer.model_validate(
+                    await gene_runner(
+                        gene_id="agent_email_read_interpreter",
+                        prompt=json.dumps(
+                            {
+                                "user_request": message,
+                                "retrieved_metadata": evidence,
+                                **time_context,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        user_id=user_id,
+                        consent_token=consent_token,
+                        output_schema=MailReadAnswer,
+                        timeout_seconds=20,
+                    )
                 )
-            )
             # A disconnected/superseded grant cannot release an answer prepared
             # while interpretation was running, even when no further tool ran.
             await reader.require_current()

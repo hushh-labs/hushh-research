@@ -177,6 +177,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert result["details"]["marketplace_delivery_envelopes"] is True
     assert result["details"]["marketplace_access_requests"] is True
     assert result["details"]["marketplace_recipient_keys"] is True
+    assert result["details"]["pkm_packets"] is True
+    assert result["details"]["pkm_packet_orders"] is True
+    assert result["details"]["pkm_credit_ledger"] is True
+    assert result["details"]["pkm_credit_subscriptions"] is True
+    assert result["details"]["pkm_owner_payout_accounts"] is True
+    assert result["details"]["directory_listing_claims"] is True
     assert result["details"]["marketplace_opportunity_signals"] is True
     assert result["details"]["one_referral_relationships"] is True
     assert result["details"]["one_referral_attributions"] is True
@@ -224,6 +230,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM marketplace_delivery_envelopes",
         "DELETE FROM marketplace_access_requests",
         "DELETE FROM marketplace_recipient_keys",
+        "DELETE FROM pkm_packets",
+        "DELETE FROM pkm_packet_orders",
+        "DELETE FROM pkm_credit_ledger",
+        "DELETE FROM pkm_credit_subscriptions",
+        "DELETE FROM pkm_owner_payout_accounts",
+        "DELETE FROM directory_listing_claims",
         "DELETE FROM marketplace_opportunity_signals",
         "DELETE FROM one_referral_risk_reviews",
         "DELETE FROM one_referral_events",
@@ -837,6 +849,9 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["details"]["pwm_documents"] is True
     assert result["details"]["fabric_subscription_grants"] is True
     assert result["details"]["marketplace_access_requests"] is True
+    # A reset keeps vault_keys, so the send ledger's ON DELETE CASCADE never
+    # fires: a scheduled email must be deleted here or it sends after the reset.
+    assert result["details"]["gmail_owner_send_actions"] is True
 
     first_sql = str(conn.execute.call_args_list[0].args[0])
     assert "pg_advisory_xact_lock" in first_sql
@@ -847,6 +862,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     # Personal data is cleared.
     cleared_fragments = [
         "DELETE FROM kai_gmail_receipts",
+        "DELETE FROM gmail_owner_send_actions WHERE user_id = :user_id",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM pkm_events",
         "DELETE FROM pkm_blobs",
@@ -859,6 +875,12 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM marketplace_delivery_envelopes",
         "DELETE FROM marketplace_access_requests",
         "DELETE FROM marketplace_recipient_keys",
+        "DELETE FROM pkm_packets",
+        "DELETE FROM pkm_packet_orders",
+        "DELETE FROM pkm_credit_ledger",
+        "DELETE FROM pkm_credit_subscriptions",
+        "DELETE FROM pkm_owner_payout_accounts",
+        "DELETE FROM directory_listing_claims",
         "DELETE FROM marketplace_opportunity_signals",
         "DELETE FROM trusted_device_challenges",
         "DELETE FROM trusted_device_authorizations",
@@ -1700,3 +1722,17 @@ async def test_release_fence_refusal_is_reported_as_paused(monkeypatch, message,
     assert result["account_deleted"] is False
     assert result["error_code"] == expected_code
     release.assert_not_called()
+
+
+def test_account_reset_and_deletion_erase_pending_connector_reviews(monkeypatch):
+    """Sealed review arguments must not outlive a reset, which keeps the actor_profiles row."""
+    service = AccountService()
+    assert "user_id = :user_id" in str(service._delete_by_user_queries["one_mcp_pending_calls"])
+    conn = MagicMock()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_clear_external_connector_data", lambda *_args, **_kwargs: None)
+    results: dict[str, bool] = {}
+    service._clear_user_data_tables(conn, "user_123", results)
+    executed = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "DELETE FROM one_mcp_pending_calls" in executed
+    assert results.get("one_mcp_pending_calls") is True

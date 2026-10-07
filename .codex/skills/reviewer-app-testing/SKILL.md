@@ -67,8 +67,8 @@ Non-owned surfaces:
 10. Trusted Devices: `verify-reviewer-trusted-devices.mjs` (read-only). Always compose `createReviewerSessionHarness`; never hand-roll one (see the preflight reference).
 11. Wallet, consent lifecycle from chat, large Memory imports: `verify-reviewer-wallet.mjs`, `verify-reviewer-consent-chat.mjs`,
     `verify-reviewer-memory-import.mjs` (mutation-authorized; the preflight reference states what each proves).
-Local enablement and identity reconciliation follow
-`.codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md`.
+12. Physical native reviewers hand off to `mobile-parity-audit` and its `references/physical-reviewer-preflight.md`; browser authorization does not enable XCTest or unlock a device.
+Local enablement and identity reconciliation follow `.codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md`.
 
 ## Handoff Rules
 1. Vault and encrypted-storage implementation work routes to `vault-pkm-governance`.

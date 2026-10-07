@@ -51,6 +51,11 @@ _BRIDGE_ERROR_CODES = frozenset({"BACKGROUND_EXECUTION_ERROR", "EXECUTION_ERROR"
 # google.genai: "<code> <STATUS>. {details}". ADK prefixes its 429 with advice
 # text, so the token may start any line. Only the first 1 KiB is inspected.
 _PROVIDER_STATUS = re.compile(r"(?m)^(\d{3}) [A-Z_]+\.")
+# The same status when something wrapped the message ("Error in node x: 429 ...").
+_WRAPPED_PROVIDER_STATUS = re.compile(
+    r"(?<!\d)(429|500|502|503|504) "
+    r"(RESOURCE_EXHAUSTED|UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED|BAD_GATEWAY|GATEWAY_TIMEOUT)\b"
+)
 _UNAVAILABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
 
 
@@ -70,25 +75,49 @@ def _for_status(code: int | None) -> RunErrorEvent | None:
     return None
 
 
+def _provider_status(message: object) -> int | None:
+    text = str(message or "")[:1024]
+    match = _PROVIDER_STATUS.search(text) or _WRAPPED_PROVIDER_STATUS.search(text)
+    return int(match.group(1)) if match else None
+
+
 def transient_model_run_error(event: BaseEvent) -> RunErrorEvent | None:
-    """Map a bridge error caused by a transient provider status to a retryable one.
+    """Map an error caused by a transient provider status to a retryable one.
 
     Regional failover moves a request only while it is being opened. A 429 or
     5xx after the first chunk, or after every location refused, reaches the
     bridge as an exception; the person can succeed by sending again.
+
+    On UAT (2026-10-05) five of fourteen turns ended on a 429 yet reached the
+    person as a generic failure: the mapping looked only at two bridge codes and
+    at a status that began a line. It now accepts any non-authored run error
+    whose message carries a recognisable provider status anywhere in its first
+    KiB. The status is the only thing read; nothing from the message is kept.
     """
-    if not isinstance(event, RunErrorEvent) or event.code not in _BRIDGE_ERROR_CODES:
+    if not isinstance(event, RunErrorEvent) or is_authored_run_error(event):
         return None
-    match = _PROVIDER_STATUS.search(str(event.message or "")[:1024])
-    return _for_status(int(match.group(1))) if match else None
+    status = _provider_status(event.message)
+    return _for_status(status) if status is not None else None
+
+
+def _leaf_exceptions(error: BaseException) -> list[BaseException]:
+    """The exceptions inside nested exception groups (a task group wraps its failures)."""
+    if isinstance(error, BaseExceptionGroup):
+        return [leaf for inner in error.exceptions for leaf in _leaf_exceptions(inner)]
+    return [error]
 
 
 def transient_model_error_for_exception(error: BaseException) -> RunErrorEvent | None:
     """The same mapping for an exception that escaped the bridge."""
-    if not isinstance(error, Exception) or not is_retryable_vertex_error(error):
+    if not isinstance(error, Exception):
         return None
-    code = getattr(error, "code", None)
-    return _for_status(code if isinstance(code, int) else None) or MODEL_UNAVAILABLE_RUN_ERROR
+    for leaf in _leaf_exceptions(error):
+        if isinstance(leaf, Exception) and is_retryable_vertex_error(leaf):
+            code = getattr(leaf, "code", None)
+            return (
+                _for_status(code if isinstance(code, int) else None) or MODEL_UNAVAILABLE_RUN_ERROR
+            )
+    return None
 
 
 def server_is_draining() -> bool:

@@ -216,9 +216,9 @@ for (const theme of ["light", "dark"] as const)
       const readings = await Promise.all([0, 1, 2].map((index) => readRow(rows.nth(index))));
       assertRows(readings, `${width} ${theme}`);
       expect(readings[0]!.glyphSize).toBeCloseTo(22, 0);
-      // The shared compact row: 56 px, a 28 px well, 16 px in from the edge.
+      // The shared compact row: 48 px, a 28 px well, 16 px in from the edge.
       expect(readings[0]!.lines).toBe(1);
-      expect(readings[0]!.height).toBeCloseTo(56, 0);
+      expect(readings[0]!.height).toBeCloseTo(48, 0);
       expect(readings[0]!.glyphLeft).toBeCloseTo(16, 0);
 
       // Ripple on: a press grows the Material ripple inside the row, clipped to it.
@@ -286,7 +286,7 @@ for (const theme of ["light", "dark"] as const)
 
       const reading = await readRow(row);
       assertRows([reading], `${width} ${theme}`);
-      expect(reading.height).toBeCloseTo(56, 0);
+      expect(reading.height).toBeCloseTo(48, 0);
       // A page-level card: the same --app-card-* surface as the Sharing card
       // beside it, never blurred. (The chat's offers sit inside the receipt
       // card, so they carry no shadow at all: no card in a card.)

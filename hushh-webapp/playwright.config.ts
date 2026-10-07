@@ -118,6 +118,8 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        // The shared voice/text dock and keyboard clearance ship in WKWebView.
+        /bottom-chrome-width\.layout\.spec\.ts/,
         /connect-page-grid\.layout\.spec\.ts/,
         /first-connect-insights\.layout\.spec\.ts/,
         /chat-onboarding\.layout\.spec\.ts/,
@@ -139,11 +141,13 @@ export default defineConfig({
         // travel and the zero-shift open are felt on an iPhone first; the
         // fixture builds its own document.
         /wallet-workspace\.layout\.spec\.ts/,
+        /wallet-card-scan\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,
         // memory-save-card: the explicit-save receipt's pixel-grid contract
         // (insets, tile grid, aligned tabular counts) in the shipped engine.
         /memory-save-card\.layout\.spec\.ts/,
+        /location-memory\.layout\.spec\.ts/,
         // reserved-offer-card: the receipt's "Add as Home in Location" rows and
         // Memory's read-only "Open in" row, tapped on an iPhone first.
         /reserved-offer-card\.layout\.spec\.ts/,
@@ -173,6 +177,9 @@ export default defineConfig({
         // subject hold in the engine the app ships in.
         /one-voice-mail-open\.layout\.spec\.ts/,
         /mail-overview\.layout\.spec\.ts/,
+        // receipt-sync-hero: the receipt hero and compact table are shipped
+        // inside the iOS WKWebView and the fixture is self-contained.
+        /receipt-sync-hero\.layout\.spec\.ts/,
         /receipt-pagination\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
         /profile-legal-connectors\.layout\.spec\.ts/,

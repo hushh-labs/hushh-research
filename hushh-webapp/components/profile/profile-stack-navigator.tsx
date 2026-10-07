@@ -205,7 +205,7 @@ export function ProfileStackNavigator({
                    * them — see --app-page-content-bottom-gap. It used to carry
                    * --app-bottom-content-clearance, a second full copy of that
                    * band, on top of the one .app-page-shell was also adding. */
-                  className="mx-auto flex w-full max-w-[720px] flex-col gap-[var(--page-header-section-gap)] px-[var(--page-inline-gutter-standard)] pb-[var(--app-page-content-bottom-gap)] pt-[var(--page-header-section-gap)]"
+                  className="mx-auto flex w-full max-w-[720px] flex-col gap-[var(--page-header-section-gap)] pt-[var(--page-header-section-gap)]"
                 >
                   <PageHeader
                     title={entry.title}

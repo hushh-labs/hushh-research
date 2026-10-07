@@ -157,6 +157,7 @@ from api.routes import (  # noqa: E402
     hushh_tech,
     notifications,
     profile_discovery_work_drain,
+    referral_scoring_drain,
     session,
     sse,
     trust,
@@ -336,6 +337,11 @@ app.include_router(drive_searches.router)
 app.include_router(drive_work_drain.router)
 app.include_router(profile_discovery_work_drain.router)
 
+# A separately authenticated, default-off Cloud Scheduler route drains the
+# durable referral-scoring queue (one_referral_scoring_jobs). It has no
+# startup/background execution path.
+app.include_router(referral_scoring_drain.router)
+
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)
 
@@ -451,6 +457,12 @@ from api.routes import one_wallet_card  # noqa: E402
 
 app.include_router(one_wallet_card.router)
 logger.info("one_wallet_card.routes_registered")
+
+# White Pages public lookup: unauthenticated, rate-limited; returns only verified
+# claims and the titles/prices of their for-sale packets.
+from api.routes import white_pages_public  # noqa: E402
+
+app.include_router(white_pages_public.router)
 
 logger.info(
     "🚀 Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"

@@ -22,7 +22,8 @@ export interface TopShellTabDefinition {
 }
 
 export interface TopShellTabSet {
-  id: TopShellTabSetId;
+  /** Wallet is a local controlled pager, not a route-resolved tab set. */
+  id: TopShellTabSetId | "wallet";
   label: string;
   queryParam: "view" | "tab" | null;
   activeValue: string;

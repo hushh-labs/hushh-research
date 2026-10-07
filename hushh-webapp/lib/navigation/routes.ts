@@ -10,7 +10,7 @@ export const INVITE_TO_ONE_PATH = "/?invite=one";
 
 /** The Finance workspace is a One-owned query-tabbed route, not a nested market page. */
 export const KAI_MARKET_PATH = "/one/kai";
-/** Canonical inbox for private, connection-gated 1:1 messages. */
+/** Canonical thread route for private, connection-gated 1:1 messages. */
 export const DIRECT_MESSAGES_PATH = "/one/messages";
 /** Browser-only Firebase handoff; never part of signed-in app navigation. */
 export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
@@ -74,7 +74,7 @@ export function buildPersonProfileRoute(
 /**
  * Opens a private 1:1 conversation without exposing an internal user id in
  * the URL. A person reference starts a draft conversation; a conversation id
- * reopens an existing thread from the authenticated inbox.
+ * reopens an existing thread for the authenticated person.
  */
 export function buildDirectMessageRoute(entries?: {
   personRef?: string | null;
@@ -180,6 +180,8 @@ export const ROUTES = {
   CALENDAR: "/one/calendar",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
+  PKM_LOCATION: "/one/pkm/location",
+  PKM_LOCATION_DETAIL: "/one/pkm/location/detail",
   ONE_MARKETPLACE: "/one/marketplace",
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
@@ -197,7 +199,7 @@ export const ROUTES = {
   AGENT: "/agent",
   /** Compatibility-only inbound path; the active chat surface is `/`. */
   LEGACY_AGENT: "/agent",
-  /** Private 1:1 inbox. Direct messaging remains separate from One agent chat. */
+  /** Private 1:1 message route. Direct messaging remains separate from One agent chat. */
   ONE_MESSAGES: DIRECT_MESSAGES_PATH,
   CONNECT: "/one/connect",
   CONNECT_SETTINGS: "/one/connect/settings",
@@ -207,6 +209,7 @@ export const ROUTES = {
   /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
   ONE_KYC: "/one/email",
   ONE_FILES: "/one/files",
+  ONE_CAREER: "/one/career",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",

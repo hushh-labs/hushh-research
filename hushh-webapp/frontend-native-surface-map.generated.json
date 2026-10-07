@@ -2350,6 +2350,7 @@
         "route.one_feed",
         "route.one_location",
         "route.one_pkm",
+        "route.one_pkm_location_home",
         "route.voice_settings"
       ],
       "api_dependencies": [],
@@ -2431,6 +2432,72 @@
         "oauth_connection": "Google refresh tokens remain server-encrypted; the browser receives only connection status and an authorization URL.",
         "mutation_authority": "Calendar creates, reschedules, and cancellations remain short-lived proposals and execute only after explicit owner confirmation in One chat."
       }
+    },
+    {
+      "route": "/one/career",
+      "page_file": "app/one/career/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/career/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.career",
+          "purpose": "Help the person understand and use the career screen through its generated controls.",
+          "screen": "one_career",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/one/career",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/career",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fcareer",
+        "expectedMarker": "native-route-one-career",
+        "expectedRoute": "/one/career",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "loading"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
     },
     {
       "route": "/one/connect",
@@ -4714,6 +4781,146 @@
         "initialRoute": "/login?redirect=%2Fone%2Fpkm",
         "expectedMarker": "native-route-pkm",
         "expectedRoute": "/one/pkm",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/pkm/location",
+      "page_file": "app/one/pkm/location/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.pkm.location",
+          "purpose": "Help the person read saved places and visit details directly in Location memory.",
+          "screen": "pkm_location",
+          "entry_cue": "You can say “Open Memory” to return to the Memory home from this list.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.one_pkm_location_home",
+          "happy_path_action_ids": [
+            "route.one_pkm_location_home"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/one/pkm/location",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/pkm/location",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flocation",
+        "expectedMarker": "native-route-pkm-location",
+        "expectedRoute": "/one/pkm/location",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/pkm/location/detail",
+      "page_file": "app/one/pkm/location/detail/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.pkm.location.detail",
+          "purpose": "Help the person manage a selected Location memory detail through its verified controls.",
+          "screen": "pkm_location_detail",
+          "entry_cue": "You can say “Open Memory” to return to the Memory home from this list.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.one_pkm_location_home",
+          "happy_path_action_ids": [
+            "route.one_pkm_location_home"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/one/pkm/location/detail",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/pkm/location/detail",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flocation%2Fdetail",
+        "expectedMarker": "native-route-pkm-location-detail",
+        "expectedRoute": "/one/pkm/location/detail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -9945,5 +10152,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "46c8d044b13055fa78002e19b8d9961e59163ba527ee73bdee80c3755339cc76"
+  "content_sha256": "76f6359d8bda8d58ccfe6ae03036c0d7d277f2068f5fcbf5cda37ccc2f01840e"
 }

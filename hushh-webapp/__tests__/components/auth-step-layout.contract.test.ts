@@ -7,6 +7,10 @@ describe("AuthStep layout contract", () => {
   it("shows only the quiet brand mark above sign-in, without the floating agents", () => {
     const source = readFileSync(join(process.cwd(), "components/onboarding/AuthStep.tsx"), "utf8");
     expect(source).toContain("lightStyles.brandMark");
+    expect(source).toContain("HushhMark");
+    expect(source).not.toContain("hushh-auth-mark-light.png");
+    expect(source).not.toContain("hushh-auth-mark-dark.png");
+    expect(source).not.toContain("brandEmoji");
     expect(source).not.toContain("OneArcIllustration");
     expect(source).not.toContain("screen-3-art.png");
     expect(source).not.toContain("screen-7-art.png");

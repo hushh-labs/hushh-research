@@ -1,6 +1,7 @@
 """The shared ADK adapter never treats discovery as execution authority."""
 
 import asyncio
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     ResolvedMcpConnection,
     native_registration_admitted,
     resolve_registered_connection,
+    validated_mcp_arguments,
 )
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client
@@ -1720,6 +1722,10 @@ async def test_curated_allowlist_change_retires_a_running_toolset_without_reconn
 async def test_curated_oauth_without_an_allowlist_leaves_the_catalog_unrestricted(
     registry_harness, monkeypatch
 ):
+    # A connector with no manifest falls back to its row (narrowing only).
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    monkeypatch.setattr(module, "get_manifest", lambda _connector_id: None)
     row = dict(
         status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
     )
@@ -1732,6 +1738,9 @@ async def test_curated_oauth_without_an_allowlist_leaves_the_catalog_unrestricte
 
 
 async def test_curated_oauth_empty_allowlist_admits_no_tools(registry_harness, monkeypatch):
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    monkeypatch.setattr(module, "get_manifest", lambda _connector_id: None)
     row = dict(
         status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
     )
@@ -1745,6 +1754,26 @@ async def test_curated_oauth_empty_allowlist_admits_no_tools(registry_harness, m
     resolved = await resolve_registered_connection(registry_harness.context, "hubspot")
     assert resolved.catalog_policy is not None
     assert resolved.catalog_policy([{"name": "search_crm_objects"}]) == []
+
+
+async def test_a_manifest_allowlist_wins_over_an_edited_registry_row(registry_harness, monkeypatch):
+    """The row is operator-writable; only the reviewed manifest decides which
+    tools chat may offer, so neither an emptied nor a widened row changes it."""
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    definition, _, _ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    from hushh_mcp.services.external_connector_curated_oauth import curated_policy_hash
+
+    catalog = [{"name": "search_crm_objects"}, {"name": "create_landing_page"}]
+    for edited in ([], ["create_landing_page", "search_crm_objects"]):
+        definition.capability_policy = {"version": 1, "chat": "reviewed", "tools": edited}
+        row["verified_policy_hash"] = curated_policy_hash(definition)
+        resolved = await resolve_registered_connection(registry_harness.context, "hubspot")
+        assert resolved.catalog_policy is not None
+        assert resolved.catalog_policy(catalog) == [{"name": "search_crm_objects"}]
 
 
 # --- per-step MCP budget knob ------------------------------------------------
@@ -1963,3 +1992,199 @@ def test_free_read_ids_must_be_a_frozenset_of_strings(bad):
             review_policy="reviewed_writes",
             free_read_tool_ids=bad,  # type: ignore[arg-type]
         )
+
+
+DRAFT7_TOOL_SCHEMA = {
+    "type": "object",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "properties": {
+        "code": {"type": "string"},
+        # Draft-07 ignores keywords beside a $ref; 2020-12 applies them. The
+        # provider's declared dialect decides, so "xyz" is valid here.
+        "alias": {"$ref": "#/properties/code", "maxLength": 1},
+    },
+    "required": ["code"],
+    "additionalProperties": False,
+}
+
+
+async def test_draft7_tool_is_offered_conservatively_and_validated_in_its_own_dialect(native_ok):
+    """A zod-style server (Attio) declares draft-07: its tools are admitted, the model
+    sees a copy with no dialect marker or pointer reference, and arguments are checked
+    against the provider's exact schema under the dialect it declared."""
+    schema = DRAFT7_TOOL_SCHEMA
+    toolset, approve, _ = _policy_toolset(
+        "credentialed",
+        [SimpleNamespace(name="find", inputSchema=schema, annotations=None, description="d")],
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        # The model-facing declaration is conservative...
+        declared = tool._get_declaration().model_dump(exclude_none=True, by_alias=True)
+        text = json.dumps(declared)
+        assert "$schema" not in text and "$ref" not in text
+        # A keyword beside a $ref narrows the target, so the copy keeps both, conjunctively.
+        assert declared["parametersJsonSchema"]["properties"]["alias"] == {
+            "allOf": [{"type": "string"}],
+            "maxLength": 1,
+        }
+        # ...while the authoritative schema is the provider's, untouched.
+        assert tool.descriptor["inputSchema"] == schema
+        assert tool.provider_schema == schema
+        # Valid under draft-07 (sibling of $ref ignored), so the call goes through.
+        result = await tool.run_async(
+            args={"code": "abc", "alias": "xyz"}, tool_context=_owner_context()
+        )
+        assert result["status"] == "ok"
+        native_ok.assert_awaited_once()
+        # A genuinely invalid call is still refused before dispatch.
+        refused = await tool.run_async(args={"alias": "x"}, tool_context=_owner_context())
+        assert refused["error"] == "MCP_ARGUMENTS_INVALID"
+        native_ok.assert_awaited_once()
+    finally:
+        await toolset.close()
+
+
+def test_arguments_for_an_undeclared_dialect_fail_closed():
+    with pytest.raises(ExternalMcpError) as caught:
+        validated_mcp_arguments({"type": "object", "$schema": "https://unknown.invalid/s"}, {})
+    assert caught.value.code == "MCP_SCHEMA_INVALID"
+
+
+async def test_curated_not_connected_is_distinct_from_a_connection_that_stopped_working(
+    monkeypatch,
+):
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+    from hushh_mcp.services import external_connector_oauth_service as oauth_module
+    from hushh_mcp.services.external_connector_curated_oauth import (
+        CuratedConnectorOAuthError,
+        CuratedNotConnectedError,
+    )
+
+    connector = SimpleNamespace(connector_id="hubspot")
+    failure = {"error": CuratedNotConnectedError()}
+
+    async def current_credential(**_kwargs):
+        raise failure["error"]
+
+    adapter = SimpleNamespace(current_credential=current_credential)
+    monkeypatch.setattr(
+        oauth_module,
+        "get_external_connector_oauth_service",
+        lambda: SimpleNamespace(curated=lambda: adapter),
+    )
+    with pytest.raises(ExternalMcpError) as caught:
+        await module._resolve_curated_connection("owner", connector)
+    assert caught.value.code == "MCP_NOT_CONNECTED"
+    # The error type changes nothing for any other caller: same code, same status.
+    assert str(failure["error"]) == "reconnect_required"
+    assert failure["error"].status_code == 401
+
+    failure["error"] = CuratedConnectorOAuthError("reconnect_required", status_code=401)
+    with pytest.raises(ExternalMcpError) as caught:
+        await module._resolve_curated_connection("owner", connector)
+    assert caught.value.code == "MCP_CREDENTIAL_EXPIRED"
+
+
+def test_allowlist_drops_are_logged_once_per_change(caplog):
+    import logging
+
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    module._LOGGED_DROPPED_TOOLS.clear()
+    connector = SimpleNamespace(
+        connector_id="synthetic",
+        capability_policy={"tools": ["keep", "gone"]},
+    )
+    policy = module._curated_tool_allowlist(connector)
+    catalog = [{"name": "keep"}, {"name": "surprise"}]
+    with caplog.at_level(logging.INFO, logger=module.logger.name):
+        assert policy(list(catalog)) == [{"name": "keep"}]
+        policy(list(catalog))
+        policy([{"name": "keep"}])
+    lines = [r.getMessage() for r in caplog.records if "mcp_catalog_filtered" in r.getMessage()]
+    assert len(lines) == 2
+    assert "dropped_names=surprise" in lines[0]
+    assert "missing=gone" in lines[0]
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        (("reconnect_required", 401), "MCP_CREDENTIAL_EXPIRED"),
+        (("grant_rejected", 401), "MCP_CREDENTIAL_EXPIRED"),
+        (("connection_changed", 409), "MCP_CONNECTION_CHANGED"),
+        # The person's connection is fine in all of these: never ask them to reconnect.
+        (("provider_unavailable", 503), "MCP_CONNECTOR_UNAVAILABLE"),
+        (("connector_configuration_invalid", 503), "MCP_CONNECTOR_UNAVAILABLE"),
+        (("connector_unavailable", 503), "MCP_CONNECTOR_UNAVAILABLE"),
+        (("provider_response_invalid", 502), "MCP_CONNECTOR_UNAVAILABLE"),
+    ],
+)
+async def test_curated_failures_are_mapped_by_cause_not_lumped_into_reconnect(
+    registry_harness, monkeypatch, caplog, failure, code
+):
+    from hushh_mcp.services.external_connector_curated_oauth import CuratedConnectorOAuthError
+
+    _, adapter, _ = _wire_curated(registry_harness, monkeypatch, row={}, credential={})
+    adapter.current_credential.side_effect = CuratedConnectorOAuthError(
+        failure[0], status_code=failure[1]
+    )
+    with caplog.at_level("WARNING"):
+        with pytest.raises(ExternalMcpError) as error:
+            await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert error.value.code == code
+    # The real cause survives in the logs, in a form the redactor keeps.
+    line = next(r.getMessage() for r in caplog.records if "mcp_curated_resolve" in r.getMessage())
+    assert f"cause={failure[0].replace('_', '.')}" in line and "connector=hubspot" in line
+
+
+async def test_a_token_refresh_is_never_abandoned_when_the_callers_budget_lapses(
+    registry_harness, monkeypatch
+):
+    """The provider may rotate a single-use refresh token; losing the new one forces a reconnect."""
+    import asyncio
+
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    _, adapter, hash_ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    row["verified_policy_hash"] = hash_
+    finished = asyncio.Event()
+
+    async def slow_refresh(**_kwargs):
+        await asyncio.sleep(0.2)  # provider answered; the new token is being stored
+        finished.set()
+        return row, {"accessToken": "synthetic-token"}
+
+    adapter.current_credential = slow_refresh
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.05):
+            await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert not finished.is_set()
+    await asyncio.wait_for(finished.wait(), 2)  # it still ran to completion
+
+
+async def test_a_refresh_that_fails_after_the_caller_gave_up_is_not_an_unhandled_error(
+    registry_harness, monkeypatch, recwarn
+):
+    import asyncio
+    import gc
+
+    from hushh_mcp.services.external_connector_curated_oauth import CuratedConnectorOAuthError
+
+    _, adapter, _ = _wire_curated(registry_harness, monkeypatch, row={}, credential={})
+
+    async def failing(**_kwargs):
+        await asyncio.sleep(0.1)
+        raise CuratedConnectorOAuthError("provider_unavailable", status_code=503)
+
+    adapter.current_credential = failing
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.02):
+            await resolve_registered_connection(registry_harness.context, "hubspot")
+    await asyncio.sleep(0.2)
+    gc.collect()
+    assert not [w for w in recwarn.list if "never retrieved" in str(w.message)]

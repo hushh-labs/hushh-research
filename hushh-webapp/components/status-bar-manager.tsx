@@ -8,6 +8,8 @@ import {
   SystemBarType,
 } from "@capacitor/core";
 import { useTheme } from "next-themes";
+import { syncNativeCanvasAppearance } from "@/lib/capacitor/native-chrome";
+import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import {
   AMBIENT_CHROME_TOP_SURFACE_ATTR,
   type AmbientChromeSurfaceTone,
@@ -77,6 +79,7 @@ function measureSafeAreaInsetTop() {
  */
 export function StatusBarManager() {
   const { resolvedTheme, theme } = useTheme();
+  const nativeAppearance = useNativeControlAppearance();
   const [mounted, setMounted] = useState(false);
   const [ambientTopSurfaceTone, setAmbientTopSurfaceTone] =
     useState<AmbientChromeSurfaceTone | null>(null);
@@ -88,6 +91,16 @@ export function StatusBarManager() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Icon contrast and the native backing canvas are different contracts.
+  // Follow committed app CSS on every route, not the device's OS preference or
+  // navigation admission. Never persist a second native theme preference.
+  useEffect(() => {
+    if (!nativeAppearance || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
+    void syncNativeCanvasAppearance().catch(() => {
+      console.warn("NATIVE_CANVAS_APPEARANCE_UNAVAILABLE");
+    });
+  }, [nativeAppearance]);
 
   // The ambient chrome engine publishes the same sampled tone used to make
   // the web controls legible. Native status icons must follow that tone too,

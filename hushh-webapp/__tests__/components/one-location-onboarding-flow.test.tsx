@@ -92,6 +92,13 @@ async function renderReady(
 }
 
 describe("OneLocationOnboardingFlow four-step contract", () => {
+  it("hides the tab bar and other app chrome for as long as it is mounted", () => {
+    const { unmount } = renderFlow();
+    expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(true);
+    unmount();
+    expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(false);
+  });
+
   it("keeps the authored blue welcome and exposes step 1 of 4", () => {
     renderFlow();
 

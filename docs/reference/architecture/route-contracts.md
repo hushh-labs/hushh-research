@@ -54,6 +54,14 @@ are prompt posture only; generated actions and their guards remain execution aut
 
 Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.ts`:
 
+Search is the shared command palette on the current signed-in route, including
+Chat at `/`. Its `?search=1` marker controls visibility and the selected Search
+segment; typed queries and finance request payloads remain in memory. Opening
+uses contextual client navigation and dismissal removes the marker in place.
+Browser history and refresh restore visibility subject to existing auth/vault
+gates. Pending navigation selects the destination immediately; cancellation
+restores the committed selection.
+
 - `/`
 - `/welcome?tab=<research|blog|developers>`
 - `/login`
@@ -116,9 +124,12 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/files` — encrypted BYOC Files; direct admitted pod transport, initially web-only
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/pkm/recent`
+- `/one/pkm/location` — readable saved places, visits and Location memory details
+- `/one/pkm/location/detail?memory=<opaque-selector>` — existing actions for a current Location memory field; Back returns to Location memory
 - `/one/gmail`
 - `/one/email`
 - `/one/kyc`
+- `/one/career`
 - `/one/location`
 - `/one/location/map`
 - `/one/location/check-in`

@@ -34,11 +34,11 @@ from hushh_mcp.services.gmail_receipts_service import (
 )
 
 MailboxAction = Literal["archive", "add_label", "remove_label", "mark_read", "mark_unread", "trash"]
+logger = logging.getLogger(__name__)
 MAILBOX_ACTIONS: frozenset[str] = frozenset(get_args(MailboxAction))
 LABEL_ACTIONS = frozenset({"add_label", "remove_label"})
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _TTL = timedelta(minutes=10)
-logger = logging.getLogger(__name__)
 # (addLabelIds, removeLabelIds) for the actions whose labels are fixed.
 _FIXED_LABEL_CHANGES: dict[str, tuple[list[str], list[str]]] = {
     "archive": ([], ["INBOX"]),
@@ -192,7 +192,15 @@ class GmailMailboxActions:
             with suppress(Exception):
                 await self._mark_failed(user_id, proposal_id)
             raise
+        # A receipt/cleanup outage must not turn provider success into a
+        # retryable write. The consumed proposal remains unavailable until TTL.
         try:
+            await self._sql(
+                """UPDATE gmail_mailbox_action_proposals SET status = 'executed'
+                   WHERE proposal_id = :proposal_id AND user_id = :user_id
+                     AND status = 'executing'""",
+                {"proposal_id": proposal_id, "user_id": user_id},
+            )
             await self._sql(
                 """DELETE FROM gmail_mailbox_action_proposals
                    WHERE proposal_id = :proposal_id AND user_id = :user_id""",

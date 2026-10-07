@@ -49,6 +49,13 @@ const OS_PERMISSIONS = new Set<OsPermission>([
   "denied",
 ]);
 
+/**
+ * The mail row open on screen, as a position in the offer it was drawn from.
+ * A hint for "reply to this", never authority: the relay resolves the position
+ * against its own offer, and only while that offer's revision still matches.
+ */
+export type ActiveMailHint = { ordinal: number; offerRevision: number };
+
 export type BuildAppContextInput = {
   runtime: AgentRuntimeState | null;
   pathname: string | null;
@@ -56,6 +63,8 @@ export type BuildAppContextInput = {
   osLocationPermission?: OsPermission | null;
   /** Injectable for tests; defaults to the published voice surface. */
   surface?: VoiceSurfaceMetadata | null;
+  /** The mail row open on screen, if any. */
+  activeMail?: ActiveMailHint | null;
 };
 
 function cleanText(value: unknown, max: number): string | null {
@@ -188,6 +197,30 @@ export function collectActiveCircleId(
   return CIRCLE_ID_PATTERN.test(id) ? id : null;
 }
 
+/**
+ * Both active-mail fields, or neither. Only a well-formed position (1-25) and
+ * revision leave the device; the relay refuses anything else, and an older
+ * relay refuses the keys outright, so they are omitted rather than sent null.
+ */
+export function collectActiveMail(
+  hint: ActiveMailHint | null | undefined,
+): Pick<AppContextFrame, "active_mail_ordinal" | "active_mail_offer_revision"> {
+  if (
+    !hint ||
+    !Number.isInteger(hint.ordinal) ||
+    hint.ordinal < 1 ||
+    hint.ordinal > 25 ||
+    !Number.isInteger(hint.offerRevision) ||
+    hint.offerRevision < 1
+  ) {
+    return {};
+  }
+  return {
+    active_mail_ordinal: hint.ordinal,
+    active_mail_offer_revision: hint.offerRevision,
+  };
+}
+
 /** Build one `app_context` frame from the app's published state. */
 export function buildAppContextFrame(
   input: BuildAppContextInput,
@@ -206,5 +239,6 @@ export function buildAppContextFrame(
     screen_state: collectScreenState(input.runtime, surface),
     os_location_permission: permission,
     active_circle_id: collectActiveCircleId(surface),
+    ...collectActiveMail(input.activeMail),
   };
 }

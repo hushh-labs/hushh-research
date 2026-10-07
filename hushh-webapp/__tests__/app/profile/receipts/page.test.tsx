@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
+  const receiptScan = vi.fn();
   return {
     routerPush: vi.fn(),
     navigateToAgentChat: vi.fn(),
@@ -20,7 +21,11 @@ const mocks = vi.hoisted(() => {
       ),
     },
     gmailReceiptsService: {
-      listReceipts: vi.fn(),
+      // Keep the compatibility name bound to the same mock while older
+      // assertions in this broad page suite migrate to the live scan name.
+      listReceipts: receiptScan,
+      scanReceipts: receiptScan,
+      getReceiptDetail: vi.fn(),
       listNudges: vi.fn(),
       startConnect: vi.fn(),
       startNativeConnect: vi.fn(),
@@ -102,9 +107,22 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: mocks.useGmailConnectorStatus,
 }));
 
-vi.mock("@/lib/services/gmail-receipts-service", () => ({
-  GmailReceiptsService: mocks.gmailReceiptsService,
-}));
+vi.mock("@/lib/services/gmail-receipts-service", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/services/gmail-receipts-service")>();
+  return {
+    GmailReceiptsService: mocks.gmailReceiptsService,
+    GmailReceiptRequestError: actual.GmailReceiptRequestError,
+    isRetryableReceiptScanPageError: actual.isRetryableReceiptScanPageError,
+    isReceiptScanInProgressError: (error: unknown) =>
+      Boolean(
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: unknown }).code === "GMAIL_RECEIPT_SCAN_IN_PROGRESS",
+      ),
+  };
+});
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: mocks.preVaultUserStateService,
@@ -115,8 +133,24 @@ vi.mock("@/lib/capacitor", () => ({
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+  AppPageShell: ({
+    children,
+    nativeTest,
+  }: {
+    children: React.ReactNode;
+    nativeTest?: {
+      dataState?: string;
+      errorCode?: string | null;
+      errorMessage?: string | null;
+    };
+  }) => (
+    <div
+      data-native-data-state={nativeTest?.dataState}
+      data-native-error-code={nativeTest?.errorCode || undefined}
+      data-native-error-message={nativeTest?.errorMessage || undefined}
+    >
+      {children}
+    </div>
   ),
   AppPageHeaderRegion: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
@@ -145,6 +179,19 @@ vi.mock("@/components/app-ui/page-sections", () => ({
       <div>{actions}</div>
     </div>
   ),
+  SectionHeader: ({
+    id,
+    testId,
+    title,
+  }: {
+    id?: string;
+    testId?: string;
+    title?: React.ReactNode;
+  }) => (
+    <div id={id} data-testid={testId} role="heading" aria-level={2}>
+      {title}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/app-ui/surfaces", () => ({
@@ -167,8 +214,17 @@ vi.mock("@/components/gmail/gmail-information-requests-section", () => ({
 }));
 
 vi.mock("@/components/ui/progress", () => ({
-  Progress: ({ value, className }: { value?: number; className?: string }) => (
-    <div role="progressbar" data-value={value} className={className} />
+  Progress: ({
+    value,
+    className,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement> & { value?: number }) => (
+    <div
+      role="progressbar"
+      data-value={value}
+      className={className}
+      {...props}
+    />
   ),
 }));
 
@@ -410,24 +466,75 @@ import {
   clearCachedGmailReceipts,
   primeCachedGmailReceipts,
 } from "@/lib/profile/gmail-receipts-cache";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import {
+  GmailReceiptRequestError,
+  GmailReceiptsService,
+} from "@/lib/services/gmail-receipts-service";
 import { GmailReceiptMemoryService } from "@/lib/services/gmail-receipt-memory-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 
 function makeReceipt(id: number, merchant: string) {
   const timestamp = `2026-04-0${id}T00:00:00Z`;
+  const senderDomain =
+    merchant === "Amazon"
+      ? "amazon.com"
+      : merchant === "Apple"
+        ? "apple.com"
+        : "myntra.com";
   return {
     id,
+    source_id: `gmail_live_Z21haWwt${id}.signature`,
+    receipt_key: `gmail_live_Z21haWwt${id}.signature`,
+    source_kind: "gmail_live" as const,
     gmail_message_id: `gmail-${id}`,
+    gmail_thread_id: `thread-${id}`,
     merchant_name: merchant,
+    merchant_domain: senderDomain,
+    sender_domain: senderDomain,
+    from_name: merchant,
+    from_email: `orders@${senderDomain}`,
     subject: `${merchant} order`,
+    snippet: `${merchant} receipt preview`,
+    preview: `${merchant} receipt preview`,
     amount: 19.99,
     currency: "USD",
-    classification_source: "deterministic" as const,
+    classification_confidence: 0.98,
+    classification_source: "agent" as const,
+    event_type: "purchase" as const,
     receipt_date: timestamp,
     gmail_internal_date: timestamp,
     created_at: timestamp,
     updated_at: timestamp,
+  };
+}
+
+function makeLiveCoverage(
+  page: number,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    source: "gmail_live" as const,
+    listed_count: 0,
+    candidate_count: 0,
+    matched_count: 0,
+    pages_scanned: page,
+    max_messages: 6,
+    max_pages: 10,
+    reached_limit: false,
+    query_scope: "receipt_signals_all_mail_except_spam_trash" as const,
+    rejection_counts: {
+      missing_receipt_signal: 0,
+      extractor_not_receipt: 0,
+    },
+    evidence_counts: {
+      gmail_category: 0,
+      subject_signal: 0,
+      body_signal: 0,
+      verified_merchant: 0,
+      order_candidate: 0,
+      total_candidate: 0,
+    },
+    ...overrides,
   };
 }
 
@@ -450,6 +557,7 @@ function buildGmailView() {
       revoked: false,
       latest_run: null,
       google_email: "akshat@example.com",
+      receipt_sync_available: true,
     },
     syncRun: null,
     presentation: {
@@ -483,6 +591,11 @@ function buildGmailView() {
     }),
     seedStatus: vi.fn(),
   };
+}
+
+// Receipts never scan on open; every list read starts from Start sync.
+async function startReceiptSync() {
+  fireEvent.click(await screen.findByRole("button", { name: "Start sync" }));
 }
 
 describe("ProfileReceiptsPage", () => {
@@ -574,27 +687,232 @@ describe("ProfileReceiptsPage", () => {
     });
   });
 
-  it("starts Gmail sync in the background", async () => {
-    // Sync lives in the receipts orientation for a connected workspace; the
-    // header Sync action is onboarding-only since #7105.
-    window.localStorage.removeItem(
+  it("starts supported sync without replacing the receipts landing view", async () => {
+    window.localStorage.setItem(
       "hushh.gmail.receipts.onboarding.v1:user-123",
+      "complete",
     );
-    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    const rendered = render(
+      <ProfileReceiptsPage initialWorkspace="receipts" />,
+    );
 
     const button = await screen.findByRole("button", {
-      name: "Start receipt sync",
+      name: "Start sync",
     });
     expect(button.disabled).toBe(false);
 
+    expect(GmailReceiptsService.scanReceipts).not.toHaveBeenCalled();
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(gmailView.syncNow).toHaveBeenCalledTimes(1);
+      expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
     });
 
-    expect(mocks.toast.message).toHaveBeenCalledWith(
-      "Syncing your receipts now.",
+    expect(mocks.toast.success).toHaveBeenCalledWith("Receipts updated");
+    expect(screen.getByText("Receipts updated.")).toBeVisible();
+    expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
+    expect(screen.getByTestId("recent-receipts")).toBeVisible();
+    expect(
+      await screen.findByText(/No receipts are available for this account/i),
+    ).toBeVisible();
+    expect(screen.queryByText(/Shopping summary/i)).toBeNull();
+    expect(screen.queryByText(/Latest scan/i)).toBeNull();
+
+    rendered.unmount();
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    expect(await screen.findByTestId("receipt-sync-hero")).toBeVisible();
+  });
+
+  it("does not claim progress when a supported sync request is rejected", async () => {
+    vi.mocked(GmailReceiptsService.scanReceipts)
+      .mockRejectedValueOnce(
+        new Error("Receipt sync is not available while storage is read-only."),
+      );
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start sync" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Couldn’t finish scanning your receipts.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
+    expect(screen.queryByText(/Receipts updated/i)).toBeNull();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+  });
+
+  it("reports a concurrent backend scan without fake success", async () => {
+    vi.mocked(GmailReceiptsService.scanReceipts)
+      .mockRejectedValueOnce(new Error("Receipt sync is already in progress."));
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start sync" }),
+    );
+
+    expect(
+      await screen.findByText("Couldn’t finish scanning your receipts."),
+    ).toBeVisible();
+  });
+
+  it("waits briefly for a genuine active receipt scan and retries in place", async () => {
+    vi.mocked(GmailReceiptsService.scanReceipts)
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error("A receipt scan is already running for this account."),
+          { code: "GMAIL_RECEIPT_SCAN_IN_PROGRESS", status: 409 },
+        ),
+      )
+      .mockResolvedValueOnce({
+        items: [makeReceipt(2, "Amazon")],
+        page: 1,
+        per_page: 6,
+        total: 1,
+        has_more: false,
+      });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await screen.findByText("Start sync to find receipts in your Mail.");
+    fireEvent.click(screen.getByRole("button", { name: "Start sync" }));
+
+    expect(
+      await screen.findByText("Looking through your recent purchases…"),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Scanning" })).toBeDisabled();
+    expect(screen.getByTestId("receipt-sync-hero")).not.toHaveTextContent(/page \d|\d of \d/);
+    expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(2);
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps known rows visible while one manual sync refreshes them in place", async () => {
+    primeCachedGmailReceipts({
+      userId: "user-123",
+      accountKey: "akshat@example.com",
+      response: {
+        items: [makeReceipt(1, "Myntra")],
+        page: 1,
+        per_page: 6,
+        total: 1,
+        has_more: false,
+      },
+    });
+    let resolveScan: ((value: unknown) => void) | null = null;
+    vi.mocked(GmailReceiptsService.scanReceipts).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveScan = resolve;
+      }) as never,
+    );
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+    const start = screen.getByRole("button", { name: "Start sync" });
+    // Two activations before React re-renders still start one provider scan.
+    act(() => {
+      start.click();
+      start.click();
+    });
+
+    expect(await screen.findByRole("button", { name: "Scanning" })).toBeDisabled();
+    expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Loading receipts")).toBeNull();
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
+
+    resolveScan?.({
+      items: [makeReceipt(2, "Amazon")],
+      page: 1,
+      per_page: 6,
+      total: 1,
+      has_more: false,
+    });
+    expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+    // A completed pass replaces the list exactly with what it read.
+    await waitFor(() => expect(screen.queryByText("Myntra")).toBeNull());
+    expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads a page once after the Gmail connection row changes mid-scan", async () => {
+    vi.mocked(GmailReceiptsService.scanReceipts)
+      .mockResolvedValueOnce({
+        items: [makeReceipt(1, "Myntra")],
+        page: 1,
+        per_page: 6,
+        total: 1,
+        has_more: true,
+        coverage: makeLiveCoverage(1),
+      })
+      .mockRejectedValueOnce(
+        new GmailReceiptRequestError(
+          "The Gmail connection changed. Retry the receipt request.",
+          409,
+          "GMAIL_CONNECTION_CHANGED",
+        ),
+      )
+      .mockResolvedValueOnce({
+        items: [makeReceipt(2, "Amazon")],
+        page: 2,
+        per_page: 6,
+        total: 1,
+        has_more: false,
+      });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+
+    expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+    // The same page is read again in place; earlier pages are not repeated.
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(3);
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ page: 2 }),
+    );
+    expect(
+      screen.queryByText("Couldn’t finish scanning your receipts."),
+    ).toBeNull();
+  });
+
+  it("opens a scanned receipt from its validated scan data without a Gmail read", async () => {
+    const scanned = {
+      ...makeReceipt(1, "Myntra"),
+      source_evidence: [{ kind: "amount" as const, text: "Order total USD 19.99" }],
+    };
+    const unscanned = makeReceipt(2, "Amazon");
+    vi.mocked(GmailReceiptsService.scanReceipts).mockResolvedValue({
+      items: [scanned, unscanned],
+      page: 1,
+      per_page: 6,
+      total: 2,
+      has_more: false,
+    });
+    vi.mocked(GmailReceiptsService.getReceiptDetail).mockResolvedValue({
+      item: unscanned,
+      email_excerpt: null,
+      source_evidence: [],
+    } as never);
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+    const rowFor = async (merchant: string) =>
+      (await screen.findAllByTestId("receipt-row")).find((row) =>
+        row.textContent?.includes(merchant),
+      ) as HTMLElement;
+
+    fireEvent.click(await rowFor("Myntra"));
+    const detail = await screen.findByTestId("receipt-detail");
+    expect(within(detail).getByText(/Order total USD 19.99/)).toBeTruthy();
+    expect(GmailReceiptsService.getReceiptDetail).not.toHaveBeenCalled();
+
+    // A row without validated scan evidence still reads its exact source.
+    fireEvent.click(await rowFor("Amazon"));
+    await waitFor(() =>
+      expect(GmailReceiptsService.getReceiptDetail).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceId: unscanned.source_id }),
+      ),
     );
   });
 
@@ -605,11 +923,73 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
+    const hero = await screen.findByTestId("receipt-sync-hero");
     expect(
-      await screen.findByText(/One organizes your email receipts into a shopping summary/i),
+      within(hero).getByRole("heading", { name: "Your receipts" }),
     ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Explore receipts" }));
-    expect(await screen.findByText(/No receipts yet/i)).toBeVisible();
+    expect(
+      within(hero).getByTestId("receipt-sync-description"),
+    ).toHaveTextContent(
+      "Find receipts in your mail. Automatically organized into smart categories.",
+    );
+    expect(
+      within(hero)
+        .getAllByRole("listitem")
+        .map((category) => category.textContent?.replace(/\s+/g, " ").trim()),
+    ).toEqual(["Shopping", "Dining", "Travel"]);
+    expect(
+      within(hero).getByRole("button", { name: "Start sync" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Explore receipts" }),
+    ).toBeNull();
+
+    for (const category of ["shopping", "dining", "travel"]) {
+      expect(
+        screen
+          .getByTestId(`receipt-sync-category-${category}`)
+          .querySelectorAll('svg[data-canonical-icon="true"]'),
+      ).toHaveLength(2);
+    }
+  });
+
+  it("shows compact recent receipts directly below the preserved hero", async () => {
+    window.localStorage.removeItem(
+      "hushh.gmail.receipts.onboarding.v1:user-123",
+    );
+    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
+      items: [
+        { ...makeReceipt(1, "Myntra"), order_id: "MYNTRA-1" },
+        { ...makeReceipt(2, "Myntra"), order_id: "MYNTRA-2" },
+        {
+          ...makeReceipt(3, "Myntra"),
+          order_id: "MYNTRA-3",
+          amount: null,
+        },
+      ],
+      page: 1,
+      per_page: 20,
+      total: 3,
+      has_more: false,
+    });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+
+    const hero = await screen.findByTestId("receipt-sync-hero");
+    const recent = await screen.findByTestId("recent-receipts");
+    expect(
+      hero.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      within(recent).getByRole("heading", { name: "Recent receipts" }),
+    ).toBeVisible();
+    expect(await within(recent).findAllByText("Myntra")).toHaveLength(3);
+    expect(within(recent).getByText("—")).toBeVisible();
+    expect(recent.querySelectorAll('[data-logo-kind="fallback"]')).toHaveLength(
+      3,
+    );
+    expect(within(recent).queryByText(/MYNTRA-/)).toBeNull();
   });
 
   it("removes the redundant Gmail eyebrow", () => {
@@ -618,88 +998,40 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByText(/one \/ mail/i)).toBeNull();
   });
 
-  it("lets the person explicitly save the generated summary to private memory", async () => {
+  it("keeps generic summary cards off the landing while preserving its preview pipeline", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
-      items: [makeReceipt(1, "Summary Shop")],
+      items: [makeReceipt(1, "Myntra")],
       page: 1,
       per_page: 20,
       total: 1,
       has_more: false,
     });
-
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
 
-    expect(
-      await screen.findByText("Kai sees recent shopping activity."),
-    ).toBeTruthy();
-    expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
-    fireEvent.click(
-      screen.getByRole("button", { name: /save shopping summary/i }),
-    );
+    expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/shopping summary/i)).toBeNull();
+    expect(screen.queryByText(/receipt sync is moving/i)).toBeNull();
     await waitFor(() => {
       expect(
-        mocks.pkmWriteCoordinator.savePreparedDomain,
-      ).toHaveBeenCalledTimes(1);
+        vi.mocked(GmailReceiptMemoryService.preview),
+      ).toHaveBeenCalledOnce();
     });
-    expect(await screen.findByText("Saved to memory")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Your shopping summary is saved to your private memory.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /save insights/i })).toBeNull();
-  });
-
-  it("requires an explicit save even when a matching summary already exists", async () => {
-    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
-      items: [makeReceipt(1, "Existing Summary Shop")],
-      page: 1,
-      per_page: 20,
-      total: 1,
-      has_more: false,
-    });
-    mocks.pkmDomainResourceService.prepareDomainWriteContext.mockResolvedValue({
-      domainData: { receipts_memory: { provenance: {} } },
-    });
-    mocks.receiptMemoryPkm.hasMatchingReceiptMemoryProvenance.mockReturnValue(
-      true,
-    );
-
-    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
-
-    expect(await screen.findByText("Preparing")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /save shopping summary/i }),
-    ).toBeTruthy();
     expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
-  });
-
-  it("does not claim the summary was saved when explicit persistence fails", async () => {
-    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
-      items: [makeReceipt(1, "Failed Summary Shop")],
-      page: 1,
-      per_page: 20,
-      total: 1,
-      has_more: false,
-    });
-    mocks.pkmWriteCoordinator.savePreparedDomain.mockResolvedValue({
-      success: false,
-      conflict: false,
-      saveState: "failed",
-      message: "Private memory is temporarily unavailable.",
-    });
-
-    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
-
-    await screen.findByText("Kai sees recent shopping activity.");
-    fireEvent.click(
-      screen.getByRole("button", { name: /save shopping summary/i }),
-    );
-    expect(await screen.findByText("Save failed")).toBeTruthy();
-    expect(screen.queryByText("Saved to memory")).toBeNull();
   });
 
   it("holds sealed receipts behind vault unlock when the vault is locked", async () => {
+    primeCachedGmailReceipts({
+      userId: "user-123",
+      accountKey: "akshat@example.com",
+      response: {
+        items: [makeReceipt(1, "Myntra")],
+        page: 1,
+        per_page: 20,
+        total: 1,
+        has_more: false,
+      },
+    });
     mocks.useVault.mockReturnValue({
       vaultKey: null,
       vaultOwnerToken: null,
@@ -710,28 +1042,30 @@ describe("ProfileReceiptsPage", () => {
 
     expect(
       await screen.findByText(
-        "Set up or open your private vault to view and summarize synced receipts.",
+        "Set up or open your private vault to view synced receipts.",
       ),
     ).toBeTruthy();
     expect(vi.mocked(GmailReceiptsService.listReceipts)).not.toHaveBeenCalled();
     expect(vi.mocked(GmailReceiptMemoryService.preview)).not.toHaveBeenCalled();
+    expect(screen.queryByText("Myntra")).toBeNull();
   });
 
-  it("keeps older receipts appended after loading the next page", async () => {
+  it("continues after a matched page and keeps older receipts appended", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockImplementation(
       async ({ page }) => {
         if (page === 1) {
           return {
-            items: [makeReceipt(1, "Page One Shop")],
+            items: [makeReceipt(1, "Myntra")],
             page: 1,
             per_page: 20,
             total: 2,
             has_more: true,
+            coverage: makeLiveCoverage(1),
           };
         }
 
         return {
-          items: [makeReceipt(2, "Page Two Shop")],
+          items: [makeReceipt(2, "Amazon")],
           page: 2,
           per_page: 20,
           total: 2,
@@ -741,10 +1075,9 @@ describe("ProfileReceiptsPage", () => {
     );
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
 
-    expect(
-      (await screen.findAllByText("Page One Shop")).length,
-    ).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
     expect(
       vi.mocked(GmailReceiptsService.listReceipts),
     ).toHaveBeenNthCalledWith(
@@ -755,14 +1088,8 @@ describe("ProfileReceiptsPage", () => {
       }),
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /load older receipts/i }),
-    );
-
-    expect(
-      (await screen.findAllByText("Page Two Shop")).length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText("Page One Shop").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
 
     await waitFor(() => {
       expect(
@@ -771,9 +1098,144 @@ describe("ProfileReceiptsPage", () => {
     });
   });
 
-  it("reuses cached receipts on remount instead of refetching immediately", async () => {
+  it("continues a bounded scan when the first candidate page has no receipts", async () => {
+    vi.mocked(GmailReceiptsService.scanReceipts)
+      .mockResolvedValueOnce({
+        items: [],
+        page: 1,
+        per_page: 6,
+        total: 0,
+        has_more: true,
+        coverage: makeLiveCoverage(1),
+      })
+      .mockResolvedValueOnce({
+        items: [makeReceipt(2, "Amazon")],
+        page: 2,
+        per_page: 6,
+        total: 1,
+        has_more: false,
+      });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+
+    expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(GmailReceiptsService.scanReceipts).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ page: 2, perPage: 6 }),
+      );
+    });
+    expect(
+      screen.queryByRole("button", { name: "Check older Mail" }),
+    ).toBeNull();
+  });
+
+  it("retries the exact failed page after earlier pages matched nothing", async () => {
+    vi.mocked(GmailReceiptsService.scanReceipts)
+      .mockResolvedValueOnce({
+        items: [],
+        page: 1,
+        per_page: 6,
+        total: 0,
+        has_more: true,
+        coverage: makeLiveCoverage(1),
+      })
+      .mockRejectedValueOnce(new Error("older receipt page unavailable"))
+      .mockResolvedValueOnce({
+        items: [makeReceipt(2, "Amazon")],
+        page: 2,
+        per_page: 6,
+        total: 1,
+        has_more: false,
+      });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+
+    expect(
+      await screen.findByText("Couldn’t finish scanning your receipts."),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ page: 2 }),
+    );
+  });
+
+  it("stops an empty scan at the fifty-page receipt bound", async () => {
+    vi.mocked(GmailReceiptsService.scanReceipts).mockImplementation(
+      async ({ page }) => ({
+        items: [],
+        page: page ?? 1,
+        per_page: 6,
+        total: 0,
+        has_more: (page ?? 1) < 50,
+        coverage: makeLiveCoverage(page ?? 1, {
+          max_pages: 50,
+          reached_limit: (page ?? 1) === 50,
+        }),
+      }),
+    );
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+
+    expect(
+      await screen.findByText(
+        /No receipts were found within the 50 Mail pages checked/i,
+      ),
+    ).toBeVisible();
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(50);
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 50 }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Check older Mail" }),
+    ).toBeNull();
+  });
+
+  it("keeps visible rows and retries the failed pagination page", async () => {
+    vi.mocked(GmailReceiptsService.listReceipts)
+      .mockResolvedValueOnce({
+        items: [makeReceipt(1, "Myntra")],
+        page: 1,
+        per_page: 20,
+        total: 2,
+        has_more: true,
+        coverage: makeLiveCoverage(1),
+      })
+      .mockRejectedValueOnce(new Error("older page unavailable"))
+      .mockResolvedValueOnce({
+        items: [makeReceipt(2, "Amazon")],
+        page: 2,
+        per_page: 20,
+        total: 2,
+        has_more: false,
+      });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+    expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+
+    expect(
+      await screen.findByText("Couldn’t finish scanning your receipts."),
+    ).toBeVisible();
+    expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+
+    expect(screen.queryByText("older page unavailable")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+    expect(
+      vi.mocked(GmailReceiptsService.listReceipts),
+    ).toHaveBeenNthCalledWith(3, expect.objectContaining({ page: 2 }));
+  });
+
+  it("renders synced receipts on tab revisits and remounts without rescanning", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
-      items: [makeReceipt(1, "Cached Shop")],
+      items: [makeReceipt(1, "Myntra")],
       page: 1,
       per_page: 20,
       total: 1,
@@ -783,26 +1245,31 @@ describe("ProfileReceiptsPage", () => {
     const firstRender = render(
       <ProfileReceiptsPage initialWorkspace="receipts" />,
     );
-    expect((await screen.findAllByText("Cached Shop")).length).toBeGreaterThan(
-      0,
-    );
+    await startReceiptSync();
+    expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+
+    for (let visit = 0; visit < 2; visit += 1) {
+      fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
+      expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+    }
 
     firstRender.unmount();
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
-    expect((await screen.findAllByText("Cached Shop")).length).toBeGreaterThan(
-      0,
-    );
-    await waitFor(() => {
-      expect(
-        vi.mocked(GmailReceiptsService.listReceipts),
-      ).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Loading receipts")).toBeNull();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    expect(
+      vi.mocked(GmailReceiptsService.listReceipts),
+    ).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the receipt-memory preview cached when the existing watermark is still current", async () => {
+  it("renders a cached list without scanning and keeps its preview pipeline", async () => {
     const cachedResponse = {
-      items: [makeReceipt(1, "Current Watermark Shop")],
+      items: [makeReceipt(1, "Myntra")],
       page: 1,
       per_page: 20,
       total: 1,
@@ -810,116 +1277,253 @@ describe("ProfileReceiptsPage", () => {
     };
     primeCachedGmailReceipts({
       userId: "user-123",
+      accountKey: "akshat@example.com",
       response: cachedResponse,
     });
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue(
       cachedResponse,
     );
 
-    const renderResult = render(
-      <ProfileReceiptsPage initialWorkspace="receipts" />,
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+    expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(GmailReceiptMemoryService.preview).toHaveBeenCalledOnce();
+    });
+    expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
+  });
+
+  it("shows a cached empty result without rescanning", async () => {
+    primeCachedGmailReceipts({
+      userId: "user-123",
+      accountKey: "akshat@example.com",
+      response: {
+        items: [],
+        page: 1,
+        per_page: 20,
+        total: 0,
+        has_more: false,
+      },
+    });
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+    await screen.findByText(/No receipts are available for this account/i);
+    expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
+  });
+
+  it("never renders retired device or legacy rows from the cache", async () => {
+    primeCachedGmailReceipts({
+      userId: "user-123",
+      accountKey: "akshat@example.com",
+      fetchedAt: 1,
+      response: {
+        items: [
+          {
+            ...makeReceipt(1, "Myntra"),
+            source_kind: "gmail_device",
+          },
+          {
+            ...makeReceipt(2, "Amazon"),
+            source_kind: "legacy_read_only",
+          },
+        ],
+        page: 1,
+        per_page: 20,
+        total: 2,
+        has_more: false,
+      },
+    });
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+    await screen.findByText(/No receipts are available for this account/i);
+    expect(screen.queryByText("Myntra")).toBeNull();
+    expect(screen.queryByText("Amazon")).toBeNull();
+    expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
+  });
+
+  it("does not publish an in-flight receipt response after the vault locks", async () => {
+    let resolveReceipts:
+      | ((value: {
+          items: ReturnType<typeof makeReceipt>[];
+          page: number;
+          per_page: number;
+          total: number;
+          has_more: boolean;
+        }) => void)
+      | null = null;
+    vi.mocked(GmailReceiptsService.listReceipts).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveReceipts = resolve;
+      }),
     );
 
-    expect(
-      (await screen.findAllByText("Current Watermark Shop")).length,
-    ).toBeGreaterThan(0);
-    await waitFor(() => {
-      expect(
-        vi.mocked(GmailReceiptMemoryService.preview),
-      ).toHaveBeenCalledTimes(1);
+    const rendered = render(
+      <ProfileReceiptsPage initialWorkspace="receipts" />,
+    );
+    await startReceiptSync();
+    await waitFor(() =>
+      expect(GmailReceiptsService.listReceipts).toHaveBeenCalledTimes(1),
+    );
+
+    mocks.useVault.mockReturnValue({
+      vaultKey: null,
+      vaultOwnerToken: null,
+      isVaultUnlocked: false,
     });
-    expect(
-      vi.mocked(GmailReceiptMemoryService.preview),
-    ).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        forceRefresh: false,
-      }),
+    rendered.rerender(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    resolveReceipts?.({
+      items: [makeReceipt(1, "Myntra")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
+    });
+
+    await screen.findByText(
+      /Set up or open your private vault to view synced receipts/i,
+    );
+    await waitFor(() => expect(screen.queryByText("Myntra")).toBeNull());
+  });
+
+  it("does not publish an in-flight response under a replacement Mail account", async () => {
+    let resolveOldAccount:
+      | ((value: {
+          items: ReturnType<typeof makeReceipt>[];
+          page: number;
+          per_page: number;
+          total: number;
+          has_more: boolean;
+        }) => void)
+      | null = null;
+    vi.mocked(GmailReceiptsService.listReceipts)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOldAccount = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        items: [makeReceipt(2, "Amazon")],
+        page: 1,
+        per_page: 20,
+        total: 1,
+        has_more: false,
+      });
+
+    const rendered = render(
+      <ProfileReceiptsPage initialWorkspace="receipts" />,
+    );
+    await startReceiptSync();
+    await waitFor(() =>
+      expect(GmailReceiptsService.listReceipts).toHaveBeenCalledTimes(1),
     );
 
     gmailView = makeGmailView({
-      syncRun: {
-        run_id: "run-2",
-        user_id: "user-123",
-        trigger_source: "manual",
-        status: "completed",
-        completed_at: "2026-04-02T00:00:00Z",
-        listed_count: 1,
-        filtered_count: 1,
-        synced_count: 1,
-        extracted_count: 1,
-        duplicates_dropped: 0,
-        extraction_success_rate: 1,
-      },
       status: {
         ...buildGmailView().status,
-        last_sync_at: "2026-04-02T00:00:00Z",
-        last_sync_status: "completed",
-        latest_run: {
-          run_id: "run-2",
-          user_id: "user-123",
-          trigger_source: "manual",
-          status: "completed",
-          completed_at: "2026-04-02T00:00:00Z",
-          listed_count: 1,
-          filtered_count: 1,
-          synced_count: 1,
-          extracted_count: 1,
-          duplicates_dropped: 0,
-          extraction_success_rate: 1,
-        },
+        google_email: "replacement@example.com",
       },
     });
     mocks.useGmailConnectorStatus.mockReturnValue(gmailView);
+    rendered.rerender(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
-    renderResult.rerender(<ProfileReceiptsPage initialWorkspace="receipts" />);
-
-    await waitFor(() => {
-      expect(
-        vi.mocked(GmailReceiptMemoryService.preview),
-      ).toHaveBeenCalledTimes(2);
+    resolveOldAccount?.({
+      items: [makeReceipt(1, "Myntra")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
     });
-    expect(
-      vi.mocked(GmailReceiptMemoryService.preview),
-    ).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        forceRefresh: false,
-      }),
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Start sync" })).toBeEnabled(),
     );
+    expect(screen.queryByText("Myntra")).toBeNull();
+    // The replacement account is read only when its owner starts a sync.
+    expect(GmailReceiptsService.listReceipts).toHaveBeenCalledTimes(1);
+    await startReceiptSync();
+
+    expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Myntra")).toBeNull();
   });
 
-  it.each(["overview", "receipts"] as const)("keeps background sync informational in %s", async (workspace) => {
-    mocks.useGmailConnectorStatus.mockReturnValue(makeGmailView({
-      syncRun: {
-        run_id: "background-scan", user_id: "user-123", trigger_source: "manual",
-        status: "running", listed_count: 10, filtered_count: 5,
-        synced_count: 3, extracted_count: 1, duplicates_dropped: 0,
-        extraction_success_rate: 1,
-      },
-      presentation: {
-        ...buildGmailView().presentation,
-        state: "syncing", badgeLabel: "Syncing", description: "Fetching recent purchases.",
-      },
-    }));
-    render(<ProfileReceiptsPage initialWorkspace={workspace} />);
-    if (workspace === "overview") {
-      expect(await screen.findByRole("status", { name: "Fetching receipts" })).toBeVisible();
-      expect(screen.queryByRole("progressbar", { hidden: true })).not.toBeInTheDocument();
-      expect(screen.getByTestId("mail-receipt-sync")).toHaveTextContent("Receipt sync");
-    } else {
-      await waitFor(() => {
-        const bars = screen.getAllByRole("progressbar", { hidden: true });
-        expect(bars.length).toBeGreaterThan(0);
-        for (const bar of bars) {
-          expect(bar).toHaveClass("hidden");
-          expect(bar).toHaveAttribute("data-value", "30");
-        }
-      });
-      expect(screen.getAllByText(/10/).length).toBeGreaterThan(0);
-    }
-    expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
+  it("keeps a failed request distinct from a confirmed empty list", async () => {
+    vi.mocked(GmailReceiptsService.listReceipts).mockRejectedValue(
+      new Error("Receipt service unavailable"),
+    );
+
+    const { container } = render(
+      <ProfileReceiptsPage initialWorkspace="receipts" />,
+    );
+    await startReceiptSync();
+
+    expect(
+      await screen.findByText("Couldn’t finish scanning your receipts."),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/No receipts are available for this account/i),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-native-data-state="error"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[data-native-error-code="gmail_receipts_load_failed"]',
+      ),
+    ).not.toBeNull();
   });
+
+  it.each(["overview", "receipts"] as const)(
+    "keeps background sync informational in %s",
+    async (workspace) => {
+      mocks.useGmailConnectorStatus.mockReturnValue(
+        makeGmailView({
+          syncRun: {
+            run_id: "background-scan",
+            user_id: "user-123",
+            trigger_source: "manual",
+            status: "running",
+            listed_count: 10,
+            filtered_count: 5,
+            synced_count: 3,
+            extracted_count: 1,
+            duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+          presentation: {
+            ...buildGmailView().presentation,
+            state: "syncing",
+            badgeLabel: "Syncing",
+            description: "Fetching recent purchases.",
+          },
+        }),
+      );
+      render(<ProfileReceiptsPage initialWorkspace={workspace} />);
+      if (workspace === "overview") {
+        expect(
+          await screen.findByRole("status", { name: "Fetching receipts" }),
+        ).toBeVisible();
+        expect(
+          within(
+            screen.getByRole("tabpanel", { name: "Overview" }),
+          ).queryByRole("progressbar", { hidden: true }),
+        ).not.toBeInTheDocument();
+        expect(screen.getByTestId("mail-receipt-sync")).toHaveTextContent(
+          "Receipt sync",
+        );
+      } else {
+        expect(
+          screen.queryByRole("progressbar", { name: "Receipt sync progress" }),
+        ).not.toBeInTheDocument();
+        await waitFor(() =>
+          expect(
+            screen.getByRole("button", { name: "Start sync" }),
+          ).toBeEnabled(),
+        );
+        expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
+      }
+      expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps one steady fetching state while older purchases arrive as a chain of runs", async () => {
     const run = (id: string, status: "running" | "completed") => ({
@@ -970,9 +1574,21 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
   });
 
-  it("waits until Gmail sync settles before building the receipt-memory preview", async () => {
+  it("does not treat retired device-run metrics as live scan progress", async () => {
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({
+        syncRun: {
+          run_id: "device-mail-active",
+          user_id: "user-123",
+          trigger_source: "device_mail",
+          status: "running",
+          listed_count: 10,
+          filtered_count: 5,
+          synced_count: 3,
+          extracted_count: 1,
+          duplicates_dropped: 0,
+          extraction_success_rate: 1,
+        },
         presentation: {
           state: "connected_backfill_running",
           badgeLabel: "Syncing",
@@ -988,7 +1604,7 @@ describe("ProfileReceiptsPage", () => {
       }),
     );
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
-      items: [makeReceipt(1, "Backfill Shop")],
+      items: [makeReceipt(1, "Myntra")],
       page: 1,
       per_page: 20,
       total: 1,
@@ -996,15 +1612,12 @@ describe("ProfileReceiptsPage", () => {
     });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
 
-    expect(
-      (await screen.findAllByText("Backfill Shop")).length,
-    ).toBeGreaterThan(0);
-    expect(
-      screen.getByText(
-        /summary will be generated after sync completes/i,
-      ),
-    ).toBeTruthy();
+    expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/10 mail messages checked/i)).toBeNull();
+    expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
+    expect(screen.getByTestId("recent-receipts")).toBeVisible();
 
     await waitFor(() => {
       expect(
@@ -1035,13 +1648,13 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /checking your gmail status/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(
+      within(screen.getByRole("tabpanel", { name: "Receipts" })).getByText(
         /your inbox and receipts will appear here as they are ready/i,
       ),
     ).toBeTruthy();
   });
 
-  it("keeps previously synced receipts visible with reconnect guidance after Gmail disconnects", async () => {
+  it("does not scan or retain live account rows after Gmail disconnects", async () => {
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({
         status: {
@@ -1075,17 +1688,14 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
-    expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
-      0,
-    );
+    expect(screen.queryByText("Stored Shop")).toBeNull();
     expect(
       screen.getByRole("heading", { name: /reconnect mail/i }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /reconnect mail/i }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /connect mail/i })).toBeTruthy();
     expect(screen.queryByText(/mail is currently disconnected/i)).toBeNull();
     expect(screen.queryByText(/shopping summary/i)).toBeNull();
+    expect(GmailReceiptsService.scanReceipts).not.toHaveBeenCalled();
     expect(vi.mocked(GmailReceiptMemoryService.preview)).not.toHaveBeenCalled();
   });
 
@@ -1120,8 +1730,8 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /mail not connected/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        /connect mail to set up receipts and kyc requests/i,
+      within(screen.getByRole("tabpanel", { name: "Receipts" })).getByText(
+        /syncs receipts into a private shopping summary/i,
       ),
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();
@@ -1438,8 +2048,12 @@ describe("ProfileReceiptsPage", () => {
       presentation: { ...connected.presentation, state: "disconnected", isConnected: false },
     }));
     const { rerender } = render(<ProfileReceiptsPage />);
-    expect(await screen.findByRole("button", { name: /reconnect mail/i })).toBeVisible();
-    expect(screen.queryByRole("button", { name: /disconnect/i })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /connect mail/i }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /disconnect/i }),
+    ).not.toBeInTheDocument();
 
     mocks.useGmailConnectorStatus.mockReturnValue(connected);
     rerender(<ProfileReceiptsPage />);
@@ -1452,13 +2066,21 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
     fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
     const panel = await screen.findByText("KYC requests");
+    const workspacePanel = screen.getByRole("tabpanel", { name: "KYC" });
+    expect(workspacePanel).toContainElement(panel);
     expect(panel).toBeVisible();
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-    expect(panel).not.toBeVisible();
+    expect(workspacePanel).toHaveAttribute("aria-hidden", "true");
+    expect(workspacePanel).toHaveAttribute("inert");
+    expect(screen.queryByRole("tabpanel", { name: "KYC" })).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
-    expect(panel).not.toBeVisible();
+    expect(workspacePanel).toHaveAttribute("aria-hidden", "true");
+    expect(workspacePanel).toHaveAttribute("inert");
     fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
     expect(screen.getByText("KYC requests")).toBe(panel);
+    expect(screen.getByRole("tabpanel", { name: "KYC" })).toBe(workspacePanel);
+    expect(workspacePanel).toHaveAttribute("aria-hidden", "false");
+    expect(workspacePanel).not.toHaveAttribute("inert");
     expect(panel).toBeVisible();
   });
 
@@ -1772,9 +2394,7 @@ describe("ProfileReceiptsPage", () => {
     expect(
       screen.queryByRole("button", { name: /skip mail setup/i }),
     ).toBeNull();
-    expect(
-      screen.getAllByText(/preparing your receipt scan/i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getByTestId("recent-receipts")).toBeVisible();
   });
 
   it("opens One chat from the overview CTA", () => {
@@ -1807,8 +2427,10 @@ describe("ProfileReceiptsPage", () => {
     expect(within(screen.getByTestId("mail-receipt-sync")).queryByText(/0 receipts/)).toBeNull();
     expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
-    await waitFor(() => expect(GmailReceiptsService.listReceipts).toHaveBeenCalled());
-    await screen.findByText(/no receipts yet/i);
+    await screen.findByText("Start sync to find receipts in your Mail.");
+    expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
+    await startReceiptSync();
+    await screen.findByText(/no receipts are available for this account/i);
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     expect(within(screen.getByTestId("mail-receipt-sync")).getByText(/0 receipts/)).toBeTruthy();
   });
@@ -1834,6 +2456,7 @@ describe("ProfileReceiptsPage", () => {
     });
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
 
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,
@@ -1848,7 +2471,7 @@ describe("ProfileReceiptsPage", () => {
 
     fireEvent.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
-        name: /^disconnect mail$/i,
+        name: /^disconnect$/i,
       }),
     );
 

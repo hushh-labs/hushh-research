@@ -54,6 +54,15 @@ const OPTIONS = [
 ] as const;
 
 describe("SwipeViews", () => {
+  it("updates a retained drag guard when a loading workspace becomes ready", () => {
+    const view = render(<SwipeViews disabled options={OPTIONS} tabSetId="guard" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    const watchDrag = embla.options!.watchDrag as (api: unknown, event: Event) => boolean;
+    const api = { rootNode: () => document.body };
+    const event = new MouseEvent("mousedown");
+    expect(watchDrag(api, event)).toBe(false);
+    view.rerender(<SwipeViews options={OPTIONS} tabSetId="guard" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    expect(watchDrag(api, event)).toBe(true);
+  });
   it("clamps shared tab progress at the first and last workspace pane", () => {
     expect(clampSwipePosition(-0.24, 3)).toBe(0);
     expect(clampSwipePosition(0.65, 3)).toBe(0.65);
@@ -201,6 +210,37 @@ describe("SwipeViews", () => {
     const apiStub = { containerNode: () => containerNode };
     expect(watchResize(apiStub, [{ target: containerNode }])).toBe(true);
     expect(watchResize(apiStub, [{ target: slideNode }])).toBe(false);
+  });
+
+  it("repairs a terminal WebKit snap residual without changing a live in-range drag", () => {
+    const vector = () => {
+      let value = 0;
+      return { get: () => value, set: vi.fn((next: number) => { value = next; }) };
+    };
+    const target = vector(), location = vector(), previousLocation = vector(), offsetLocation = vector();
+    const translate = { to: vi.fn() };
+    const scrollBody = { useDuration: vi.fn(), seek: vi.fn(), useBaseDuration: vi.fn() };
+    scrollBody.useDuration.mockReturnValue(scrollBody);
+    scrollBody.seek.mockReturnValue(scrollBody);
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }], scrollSnaps: [0, -400],
+      target, location, previousLocation, offsetLocation, translate, scrollBody,
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    render(<SwipeViews tabSetId="terminal-snap" activeValue="first" options={OPTIONS}><div>First pane</div><div>Second pane</div></SwipeViews>);
+    offsetLocation.set(-200);
+    embla.listeners.get("pointerDown")?.();
+    embla.listeners.get("scroll")?.();
+    expect(offsetLocation.get()).toBe(-200);
+    expect(translate.to).not.toHaveBeenCalled(); // Negative control: finger owns it.
+    offsetLocation.set(3.36);
+    embla.listeners.get("settle")?.();
+    expect(offsetLocation.get()).toBe(0);
+    expect(location.get()).toBe(0);
+    expect(previousLocation.get()).toBe(0);
+    expect(target.get()).toBe(0);
+    expect(translate.to).toHaveBeenCalledWith(0);
+    expect(scrollBody.useDuration).toHaveBeenCalledWith(0);
+    expect(scrollBody.seek).toHaveBeenCalledOnce();
   });
 
   it("starts pane motion immediately when the shared top tab is pressed", () => {
@@ -365,25 +405,25 @@ describe("SwipeViews", () => {
     // in — a window-only listener never fires, Embla keeps a stale width, and
     // it translates by the wrong distance, leaving the previous pane clipped
     // beside the selected one (the Memory /one/pkm report).
-    let observerCallback: ResizeObserverCallback | null = null;
+    const viewportCallbacks = new Set<ResizeObserverCallback>();
     let observed: Element | null = null;
     let disconnected = false;
     const originalResizeObserver = globalThis.ResizeObserver;
     const originalRaf = globalThis.requestAnimationFrame;
 
     beforeEach(() => {
-      observerCallback = null;
+      viewportCallbacks.clear();
       observed = null;
       disconnected = false;
       globalThis.ResizeObserver = class {
-        constructor(callback: ResizeObserverCallback) {
-          observerCallback = callback;
-        }
+        constructor(private callback: ResizeObserverCallback) {}
         observe(element: Element) {
           observed = element;
+          if (element === embla.rootNode) viewportCallbacks.add(this.callback);
         }
         disconnect() {
           disconnected = true;
+          viewportCallbacks.delete(this.callback);
         }
         unobserve() {}
       } as unknown as typeof ResizeObserver;
@@ -400,7 +440,7 @@ describe("SwipeViews", () => {
     });
 
     const emitWidth = (width: number) => {
-      observerCallback?.(
+      for (const callback of viewportCallbacks) callback(
         [{ contentRect: { width } } as unknown as ResizeObserverEntry],
         {} as ResizeObserver,
       );
@@ -441,6 +481,27 @@ describe("SwipeViews", () => {
       emitWidth(800); // taller content, identical width
 
       expect(embla.reInit).not.toHaveBeenCalled();
+    });
+
+    it("does not snap a tapped tab back while route state catches up, but still repairs changed geometry", () => {
+      let width = 800;
+      let target = 0;
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
+      embla.engine = {
+        containerRect: { width: 800 }, scrollSnaps: [0, -800],
+        target: { get: () => target },
+      } as ReturnType<EmblaCarouselType["internalEngine"]>;
+      renderPager();
+      embla.scrollTo.mockClear();
+      requestTopShellTabSelection("resize", "second");
+      target = -800;
+      embla.scrollTo.mockClear();
+      emitWidth(800);
+      expect(embla.scrollTo).not.toHaveBeenCalled();
+      width = 785;
+      emitWidth(785);
+      expect(embla.reInit).toHaveBeenCalled();
+      expect(embla.scrollTo).toHaveBeenCalledWith(0, true);
     });
 
     it("disconnects the observer on unmount", () => {

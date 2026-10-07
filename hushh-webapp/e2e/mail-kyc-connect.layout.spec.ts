@@ -10,7 +10,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
  * an identity fact links here, so this is what that link lands on.
  *
  * Contract: the KYC tab is the selected one; KYC's own connect entry is the
- * shared compact row (56 px, a 28 px well 16 px in, the bare duotone registry
+ * shared compact row (48 px, a 28 px well 16 px in, the bare duotone registry
  * glyph centred in it), on a flat Morphy surface with the Material press ripple
  * clipped to the row and no press scale; the note sits 8 px under the group with
  * its text on the glyph's column; spacing on the 4 and 8 pt grid and symmetric
@@ -173,9 +173,10 @@ for (const theme of ["light", "dark"] as const)
 
       const reading = await readRow(row);
       assertRow(reading, `${width} ${theme}`);
-      // The shared compact row: 56 px, a 28 px well 16 px in, a 22 px glyph.
+      // The shared compact row is 48 px since 2c45bbf4b (8 px vertical padding,
+      // 48 px minimum); the icon and horizontal grid did not change.
       expect(reading.lines).toBe(1);
-      expect(reading.height).toBeCloseTo(56, 0);
+      expect(reading.height).toBeCloseTo(48, 0);
       expect(reading.wellSize).toBeCloseTo(28, 0);
       expect(reading.glyphLeft).toBeCloseTo(16, 0);
       expect(reading.glyphSize).toBeCloseTo(22, 0);
@@ -282,10 +283,67 @@ for (const theme of ["light", "dark"] as const)
       }
     });
 
-test("leaving the KYC tab removes its connect entry (negative control)", async ({ page }) => {
+test("leaving KYC retains its pane but removes connect authority (negative control)", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await open(page, "light");
   await expect(page.getByTestId("mail-kyc-connect")).toBeVisible();
   await page.getByRole("tab", { name: "Overview" }).click();
-  await expect(page.getByTestId("mail-kyc-connect")).toHaveCount(0);
+  await expect(page.getByRole("tabpanel", { name: "Overview" })).toBeVisible();
+  await expect(page.locator("#top-shell-gmail-workspace-panel-kyc")).toHaveAttribute("inert", "");
+  await expect(page.locator("#top-shell-gmail-workspace-panel-kyc")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.getByRole("button", { name: "Connect Gmail to manage identity" })).toHaveCount(0);
+  await expect(page.getByTestId("kyc-connects")).toHaveText("0");
+});
+
+test("Mail drags through all three retained panes and nested receipt scrolling wins", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await open(page, "light");
+  await expect(page.getByRole("tabpanel", { name: "KYC" })).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { retainedKyc: Element | null }).retainedKyc = document.querySelector("[data-testid='mail-kyc-connect']");
+  });
+  const pager = page.locator("[data-swipe-views-root='true']");
+  // Fill height is measured on the first animation frame. Starting before
+  // that frame would place the gesture on receipt content, not the blank body.
+  await expect.poll(async () => pager.evaluate(element => parseFloat(getComputedStyle(element).minHeight))).toBeGreaterThan(400);
+  const pagerBox = await box(pager);
+  const y = pagerBox.y + Math.min(pagerBox.height / 2, 180);
+  const drag = async (direction: "left" | "right", atY = y) => {
+    const left = pagerBox.x + 40;
+    const right = pagerBox.x + pagerBox.width - 40;
+    await page.mouse.move(direction === "left" ? right : left, atY);
+    await page.mouse.down();
+    await page.mouse.move(direction === "left" ? left : right, atY, { steps: 12 });
+    await page.mouse.up();
+  };
+  const selected = async (name: string) => {
+    await expect(page.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
+    // Selection reports immediately; a follow-up gesture must start on the
+    // settled visible pane rather than on the outgoing one mid-snap.
+    // The shared pager reconciles snap residuals above 1 CSS px; keep this
+    // arrival check on that existing engine contract (WebKit stops at ~0.57).
+    await expect.poll(async () => Math.abs((await box(page.getByRole("tabpanel", { name }))).x - (await box(pager)).x)).toBeLessThanOrEqual(1);
+  };
+  await drag("right");
+  await selected("Overview");
+  await drag("left");
+  await selected("KYC");
+  await drag("left");
+  await selected("Receipts");
+
+  const rail = await box(page.getByTestId("receipt-rail"));
+  await drag("right", rail.y + rail.height / 2);
+  await selected("Receipts");
+  await drag("right");
+  await selected("KYC");
+  expect(await page.evaluate(() => (window as unknown as { retainedKyc: Element | null }).retainedKyc === document.querySelector("[data-testid='mail-kyc-connect']"))).toBe(true);
+  await expect(page.getByTestId("kyc-connects")).toHaveText("0");
+  await page.getByRole("tab", { name: "Receipts" }).click();
+  await expect(page.getByRole("tabpanel", { name: "Receipts" })).toBeVisible();
+  await page.getByRole("tab", { name: "Receipts" }).press("Home");
+  await expect(page.getByRole("tabpanel", { name: "Overview" })).toBeVisible();
+  await expect(page.getByText("Connect Mail to set up receipts and KYC requests.")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // Pager frames stay local to this strip, never invalidate the app root.
+  expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--top-shell-tab-swipe-gmail-workspace-position"))).toBe("");
 });

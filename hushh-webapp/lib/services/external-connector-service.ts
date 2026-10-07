@@ -33,6 +33,12 @@ export type ExternalConnectorSummary = {
   revocationOutcome?: string;
   lastErrorCode?: string | null;
   available?: boolean;
+  /** Server-derived: an operator-registered OAuth provider with a reviewed manifest. */
+  curatedOAuth?: boolean;
+  /** Server-declared built-in card; presentation only and never an OAuth grant. */
+  catalogCard?: boolean;
+  /** Why a server-declared catalog card cannot yet start a connection. */
+  catalogState?: "setup_pending" | "discovery_pending" | "unavailable" | null;
 };
 
 export type ConnectorFeatures = Partial<

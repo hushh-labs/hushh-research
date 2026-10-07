@@ -283,7 +283,7 @@ describe("mounted command bar", () => {
     );
     expect(harness.pause).toHaveBeenCalledTimes(recordingPauses);
     expect(harness.cancelCapture).toHaveBeenCalledTimes(cancellations);
-    expect(screen.getByText("Tap to send")).toBeInTheDocument();
+    expect(screen.getByText("Tap to cancel")).toBeInTheDocument();
   });
   it("cancels only the matching pending Siri request and ignores its late failure", async () => {
     let reject!: (reason: Error) => void;
@@ -387,7 +387,7 @@ describe("mounted command bar", () => {
     });
     expect(result.status).toBe("blocked");
     expect(harness.submitAction).not.toHaveBeenCalled();
-    expect(screen.getByText("Tap to send")).toBeInTheDocument();
+    expect(screen.getByText("Tap to cancel")).toBeInTheDocument();
   });
   it("does not let a Siri text ingress replace an active microphone recording", async () => {
     render(<App />);
@@ -406,7 +406,7 @@ describe("mounted command bar", () => {
     );
     await flush();
     expect(harness.submit).not.toHaveBeenCalled();
-    expect(screen.getByText("Tap to send")).toBeInTheDocument();
+    expect(screen.getByText("Tap to cancel")).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(250));
     up();
     await flush();
@@ -427,24 +427,25 @@ describe("mounted command bar", () => {
     expect(harness.submit).toHaveBeenCalledWith("Do my Location onboarding");
     expect(harness.start).toHaveBeenCalledOnce();
   });
-  it("short tap latches recording; a second tap or keyboard activation finishes", async () => {
+  it("short tap latches recording; a second tap cancels, while Send alone submits", async () => {
     render(<App />);
     down();
     await flush();
     up();
     fireEvent.click(mic(), { detail: 1 });
     expect(harness.finish).not.toHaveBeenCalled();
-    expect(screen.getByText("Tap to send")).toBeInTheDocument();
+    expect(screen.getByText("Tap to cancel")).toBeInTheDocument();
     down();
     up();
     await flush();
-    expect(harness.finish).toHaveBeenCalledOnce();
+    expect(harness.finish).not.toHaveBeenCalled();
+    expect(harness.transcribe).not.toHaveBeenCalled();
     await present({ phase: "idle", message: "" });
     fireEvent.click(mic(), { detail: 0 });
     await flush();
-    fireEvent.click(mic(), { detail: 0 });
+    fireEvent.click(screen.getByLabelText("Send recording"));
     await flush();
-    expect(harness.finish).toHaveBeenCalledTimes(2);
+    expect(harness.finish).toHaveBeenCalledOnce();
   });
   it.each(["resolve", "reject"])(
     "release before readiness discards a late %s",
@@ -559,15 +560,30 @@ describe("mounted command bar", () => {
       }),
     );
     await flush();
+    fireEvent.click(screen.getByLabelText("Send recording"));
+    await flush();
+    expect(mic()).not.toBeDisabled();
+    expect(screen.getByText("Finishing recording…")).toBeInTheDocument();
     down();
     up();
-    await flush();
-    expect(mic()).toBeDisabled();
-    expect(screen.getByText("Finishing recording…")).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Cancel task"));
     await flush();
     await act(async () => finish({ audioBase64: "stale" }));
     expect(harness.transcribe).not.toHaveBeenCalled();
     expect(harness.captureInstances).toBe(1);
+  });
+  it("cancels on a second press before microphone readiness, without waiting for it", async () => {
+    let ready!: () => void;
+    harness.start.mockReturnValueOnce(new Promise<void>(resolve => { ready = resolve; }));
+    render(<App />);
+    down();
+    up();
+    expect(screen.getByText("Preparing microphone…")).toBeInTheDocument();
+    down();
+    up();
+    expect(screen.getByTestId("one-voice-agent-bar")).toHaveAttribute("data-command-capture-state", "idle");
+    await act(async () => ready());
+    expect(harness.start).toHaveBeenCalledOnce();
+    expect(harness.finish).not.toHaveBeenCalled();
+    expect(harness.transcribe).not.toHaveBeenCalled();
   });
 });

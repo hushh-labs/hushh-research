@@ -6,21 +6,40 @@ import {
   InviteFriendsProfileIcon,
   JoinRowIcon,
   LinkRowIcon,
+  PeopleRowIcon,
   ProgressRowIcon,
   QualifiedRowIcon,
   ReviewRowIcon,
+  SuccessRowIcon,
   UseAgentRowIcon,
   WarningRowIcon,
 } from "@/components/icons/agents";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
+import { apiErrorCode } from "@/lib/services/api-client";
 import {
   ReferralService,
+  type CircleLeaderboardEntry,
+  type CircleSelection,
+  type EngagementStatus,
+  type LeaderboardPage,
+  type MilestoneProgress,
   type ReferralSummary,
 } from "@/lib/services/referral-service";
+
+type GamificationState = {
+  leaderboard: LeaderboardPage | null;
+  circleLeaderboard: CircleLeaderboardEntry[] | null;
+  milestones: MilestoneProgress | null;
+  engagement: EngagementStatus | null;
+  circleSelection: CircleSelection | null;
+  handle: string | null;
+};
 
 type LoadState = "loading" | "ready" | "error";
 
@@ -68,6 +87,72 @@ export function ReferralsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Gamification reads, loaded independently of the core summary above: a
+  // leaderboard outage must never take down the referral link or the
+  // qualified count, and vice versa.
+  const [gamification, setGamification] = useState<GamificationState>({
+    leaderboard: null,
+    circleLeaderboard: null,
+    milestones: null,
+    engagement: null,
+    circleSelection: null,
+    handle: null,
+  });
+  const gamificationSeq = useRef(0);
+
+  const loadGamification = useCallback(async () => {
+    const seq = ++gamificationSeq.current;
+    if (!user) return;
+    const idToken = await user.getIdToken();
+    const [leaderboard, circleLeaderboard, milestones, engagement, circleSelection, handle] =
+      await Promise.all([
+        ReferralService.getLeaderboard({ idToken, limit: 10 }).catch(() => null),
+        ReferralService.getCircleLeaderboard({ idToken })
+          .then((res) => res.teams)
+          .catch(() => null),
+        ReferralService.getMilestones({ idToken }).catch(() => null),
+        ReferralService.getEngagement({ idToken }).catch(() => null),
+        ReferralService.getCircleSelection({ idToken }).catch(() => null),
+        ReferralService.getHandle({ idToken })
+          .then((res) => res.handle)
+          .catch(() => null),
+      ]);
+    if (!mounted.current || seq !== gamificationSeq.current) return;
+    setGamification({ leaderboard, circleLeaderboard, milestones, engagement, circleSelection, handle });
+  }, [user]);
+
+  useEffect(() => {
+    void loadGamification();
+  }, [loadGamification]);
+
+  const [handleInput, setHandleInput] = useState("");
+  const [handleSaving, setHandleSaving] = useState(false);
+  const [handleErrorMessage, setHandleErrorMessage] = useState<string | null>(null);
+
+  const onSaveHandle = useCallback(async () => {
+    if (!user || !handleInput.trim()) return;
+    setHandleSaving(true);
+    setHandleErrorMessage(null);
+    try {
+      const idToken = await user.getIdToken();
+      const { handle } = await ReferralService.setHandle({ idToken, handle: handleInput.trim() });
+      if (!mounted.current) return;
+      setGamification((prev) => ({ ...prev, handle }));
+      setHandleInput("");
+      morphyToast.success("Handle set");
+    } catch (error) {
+      if (!mounted.current) return;
+      const code = apiErrorCode(error);
+      setHandleErrorMessage(
+        code === "REFERRAL_HANDLE_TAKEN"
+          ? "That handle is already taken."
+          : "Enter 3-24 letters, numbers, or hyphens."
+      );
+    } finally {
+      if (mounted.current) setHandleSaving(false);
+    }
+  }, [user, handleInput]);
 
   // Live push. While this is connected the numbers arrive as they change, and
   // the timer below stands down.
@@ -164,6 +249,10 @@ export function ReferralsPanel() {
   const inProgressRows = summary.referrals.filter(
     (row) => row.status === "In progress",
   );
+  const viewerLeaderboardRow =
+    gamification.leaderboard?.viewer ??
+    gamification.leaderboard?.entries.find((entry) => entry.is_viewer) ??
+    null;
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -189,6 +278,202 @@ export function ReferralsPanel() {
         <SettingsRow icon={UseAgentRowIcon} iconTone="capability" title="Use an agent" density="compact" />
         <SettingsRow icon={QualifiedRowIcon} iconTone="capability" title="Referral qualifies" density="compact" />
       </SettingsGroup>
+
+      <SettingsGroup
+        title="Overview"
+        description="All contributions carry forward"
+      >
+        <SettingsRow
+          icon={SuccessRowIcon}
+          iconTone="capability"
+          title="Overall rank"
+          trailing={
+            <span data-testid="referral-overall-rank">
+              {viewerLeaderboardRow ? `#${viewerLeaderboardRow.rank}` : "Not yet ranked"}
+            </span>
+          }
+          density="compact"
+        />
+        <SettingsRow
+          icon={SuccessRowIcon}
+          iconTone="capability"
+          title="Cumulative points"
+          trailing={<span data-testid="referral-cumulative-points">{viewerLeaderboardRow?.points ?? 0}</span>}
+          density="compact"
+        />
+        {gamification.circleSelection?.circle_id ? (
+          <SettingsRow
+            icon={PeopleRowIcon}
+            iconTone="capability"
+            title="Your team"
+            description="Raw qualified referrals, counted for your team"
+            trailing={
+              <span>
+                {gamification.circleLeaderboard?.find(
+                  (team) => team.circle_id === gamification.circleSelection?.circle_id,
+                )?.contribution_count ?? 0}
+              </span>
+            }
+            density="compact"
+          />
+        ) : null}
+      </SettingsGroup>
+
+      {gamification.milestones ? (
+        <SettingsGroup title="Your next reward">
+          {gamification.milestones.next_milestone ? (
+            <SettingsRow
+              icon={ProgressRowIcon}
+              iconTone="capability"
+              title={gamification.milestones.next_milestone.reward}
+              density="compact"
+              description={
+                <div className="flex w-full flex-col gap-2 pt-1">
+                  <div className="flex items-center justify-end text-sm">
+                    <span data-testid="referral-milestone-progress">
+                      {gamification.milestones.next_milestone.progress}/
+                      {gamification.milestones.next_milestone.threshold}
+                    </span>
+                  </div>
+                  <Progress
+                    value={
+                      (gamification.milestones.next_milestone.progress /
+                        gamification.milestones.next_milestone.threshold) *
+                      100
+                    }
+                  />
+                </div>
+              }
+            />
+          ) : (
+            <SettingsRow
+              icon={SuccessRowIcon}
+              iconTone="capability"
+              title="Every reward earned"
+              density="compact"
+            />
+          )}
+          {gamification.milestones.earned.map((item) => (
+            <SettingsRow
+              key={item.milestone_key}
+              icon={SuccessRowIcon}
+              iconTone="capability"
+              title={item.reward}
+              description="Earned"
+              density="compact"
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
+
+      {gamification.engagement &&
+      (gamification.engagement.streak.current_run_days > 0 || gamification.engagement.flash.active) ? (
+        <SettingsGroup title="Keep it going">
+          {gamification.engagement.streak.current_run_days > 0 ? (
+            <SettingsRow
+              icon={ProgressRowIcon}
+              iconTone="capability"
+              title="Referral streak"
+              description={`${gamification.engagement.streak.current_run_days} of ${gamification.engagement.streak.run_length_days} days`}
+              density="compact"
+            />
+          ) : null}
+          {gamification.engagement.flash.active ? (
+            <SettingsRow
+              icon={SuccessRowIcon}
+              iconTone="capability"
+              title="Flash bonus is live"
+              description="Referrals qualifying now earn double points"
+              density="compact"
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+
+      {gamification.handle === null ? (
+        <SettingsGroup
+          title="Appear on the leaderboard"
+          description="Choose a handle to show your rank to other referrers. Your real name is never shown."
+        >
+          <SettingsRow
+            icon={PeopleRowIcon}
+            iconTone="capability"
+            title="Your leaderboard handle"
+            density="compact"
+            description={
+              <div className="flex w-full flex-col gap-2 pt-1 sm:flex-row sm:items-center">
+                <Input
+                  value={handleInput}
+                  onChange={(event) => setHandleInput(event.target.value)}
+                  placeholder="your-handle"
+                  maxLength={32}
+                  aria-label="Leaderboard handle"
+                />
+                <Button
+                  onClick={() => void onSaveHandle()}
+                  disabled={handleSaving || !handleInput.trim()}
+                >
+                  Save
+                </Button>
+              </div>
+            }
+          />
+          {handleErrorMessage ? (
+            <SettingsRow
+              icon={WarningRowIcon}
+              iconTone="capability"
+              title={handleErrorMessage}
+              density="compact"
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+
+      {gamification.leaderboard && gamification.leaderboard.entries.length > 0 ? (
+        <SettingsGroup
+          title="Leaderboard"
+          description={
+            gamification.leaderboard.snapshot_generated_at
+              ? `As of ${new Date(gamification.leaderboard.snapshot_generated_at).toLocaleString()}`
+              : undefined
+          }
+        >
+          {gamification.leaderboard.entries.map((entry) => (
+            <SettingsRow
+              key={entry.rank}
+              icon={entry.is_viewer ? SuccessRowIcon : PeopleRowIcon}
+              iconTone="capability"
+              title={`#${entry.rank} ${entry.handle}`}
+              trailing={<span>{entry.points} pts</span>}
+              density="compact"
+            />
+          ))}
+          {gamification.leaderboard.viewer ? (
+            <SettingsRow
+              icon={SuccessRowIcon}
+              iconTone="capability"
+              title={`#${gamification.leaderboard.viewer.rank} ${gamification.leaderboard.viewer.handle} (you)`}
+              trailing={<span>{gamification.leaderboard.viewer.points} pts</span>}
+              density="compact"
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+
+      {gamification.circleLeaderboard && gamification.circleLeaderboard.length > 0 ? (
+        <SettingsGroup title="Team leaderboard">
+          {gamification.circleLeaderboard.map((team) => (
+            <SettingsRow
+              key={team.circle_id}
+              icon={PeopleRowIcon}
+              iconTone="capability"
+              title={team.circle_name}
+              trailing={<span>{team.contribution_count}</span>}
+              density="compact"
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
 
       <SettingsGroup
         title="Your referrals"

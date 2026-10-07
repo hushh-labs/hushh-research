@@ -55,6 +55,7 @@ describe("One interactive audio ownership", () => {
     expect(providers).toContain("<AgentOwnerGate>");
     expect(providers).not.toContain("<LocationCommandProvider>");
     expect(providers).toContain("<OneVoiceReadinessProvider>");
+    expect(gate).toContain("dispatchAgentConversationAfterRoute(pathname);");
 
     // One stable launcher, two owners; never a NEXT_PUBLIC build flag.
     expect(bar).toContain("export function AgentBar");
@@ -77,10 +78,11 @@ describe("One interactive audio ownership", () => {
 
     expect(settings).toContain("AGENT_CONVERSATION_STOP_EVENT");
     expect(settings).toContain("export function requestAgentConversationStop");
-    expect(workspace).toContain(
-      "const cancelConversationalVoice = requestAgentConversationStop",
-    );
-    expect(workspace).toContain("onCancel={cancelConversationalVoice}");
+    // Chat reuses the persistent bar instead of creating a second cancel UI.
+    const liveControl = read("components/one-voice/one-voice-control.tsx");
+    expect(workspace).toContain('<AgentBar layout="slot" />');
+    expect(workspace).not.toContain("<VoiceStatePill");
+    expect(liveControl).toContain('onStop={() => session.stop("tap")}');
     expect(workspace).not.toContain("onCancel={startConversationalVoice}");
     expect(workspace).not.toContain("onToggleMute={startConversationalVoice}");
     expect(workspace).not.toContain("AgentVoiceClient");

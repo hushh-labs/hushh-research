@@ -47,6 +47,20 @@ class SendDirectMessageBody(_CamelModel):
         max_length=64,
     )
     content: str = Field(..., min_length=1, max_length=MAX_DIRECT_MESSAGE_LENGTH)
+    reply_to_message_id: str | None = Field(
+        default=None,
+        alias="replyToMessageId",
+        min_length=1,
+        max_length=64,
+    )
+
+
+class EditDirectMessageBody(_CamelModel):
+    content: str = Field(..., min_length=1, max_length=MAX_DIRECT_MESSAGE_LENGTH)
+
+
+class DirectMessageReactionBody(_CamelModel):
+    emoji: str = Field(..., min_length=1, max_length=32)
 
 
 class DirectMessageBlockBody(_CamelModel):
@@ -160,6 +174,7 @@ async def send_direct_message(
             content=payload.content,
             recipient_user_id=payload.recipient_user_id,
             recipient_person_ref=payload.recipient_person_ref,
+            reply_to_message_id=payload.reply_to_message_id,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -230,6 +245,63 @@ async def mark_conversation_read(
             _service().mark_as_read,
             firebase_uid,
             conversation_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.patch("/conversations/{conversation_id}/messages/{message_id}")
+async def edit_direct_message(
+    payload: EditDirectMessageBody,
+    conversation_id: str = Path(..., min_length=1, max_length=64),
+    message_id: str = Path(..., min_length=1, max_length=64),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return await run_in_threadpool(
+            _service().edit_message,
+            firebase_uid,
+            conversation_id,
+            message_id,
+            content=payload.content,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.delete("/conversations/{conversation_id}/messages/{message_id}")
+async def delete_direct_message(
+    conversation_id: str = Path(..., min_length=1, max_length=64),
+    message_id: str = Path(..., min_length=1, max_length=64),
+    scope: str = Query(..., pattern="^(me|everyone)$"),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return await run_in_threadpool(
+            _service().delete_message,
+            firebase_uid,
+            conversation_id,
+            message_id,
+            scope=scope,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.put("/conversations/{conversation_id}/messages/{message_id}/reaction")
+async def react_to_direct_message(
+    payload: DirectMessageReactionBody,
+    conversation_id: str = Path(..., min_length=1, max_length=64),
+    message_id: str = Path(..., min_length=1, max_length=64),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return await run_in_threadpool(
+            _service().react_to_message,
+            firebase_uid,
+            conversation_id,
+            message_id,
+            emoji=payload.emoji,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -328,4 +400,10 @@ async def direct_message_stream(
     return await _events_response(request, firebase_uid)
 
 
-__all__ = ["DirectMessageBlockBody", "SendDirectMessageBody", "router"]
+__all__ = [
+    "DirectMessageBlockBody",
+    "DirectMessageReactionBody",
+    "EditDirectMessageBody",
+    "SendDirectMessageBody",
+    "router",
+]

@@ -6,8 +6,9 @@ Two tests share ``fixtures/circle_tool_selection.v1.json``:
 * ``test_circle_fixture_is_well_formed_and_held_out`` always runs: fixture
   shape, every named tool really declared, every family's forbidden set
   carries the tools that would be the *wrong* effect (leave vs delete, remove
-  from circle vs disconnect, add vs send a connection request), and no fixture
-  sentence appears verbatim anywhere the model could have read it.
+  from circle vs disconnect, add vs send a connection request), no fixture
+  sentence shares six consecutive words with anything the model could have
+  read, and no word a case spells is spelled out there either.
 
 * ``test_live_model_selects_circle_tools`` drives the real model (marked
   ``live_model``, skipped unless ``ONE_VOICE_LIVE_TOOL_EVAL=1``). Function
@@ -22,7 +23,9 @@ Two tests share ``fixtures/circle_tool_selection.v1.json``:
 from __future__ import annotations
 
 import os
+import re
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -54,11 +57,14 @@ FAMILIES = frozenset(
         "rename",
         "set_kind",
         "add_member",
+        "add_all",
         "remove_member",
         "leave",
         "delete",
         "connection_prereq",
         "follow_up",
+        # A name given or corrected by spelling: scored on the arguments too.
+        "spelled_name",
         "no_mutation",
         "clarify",
     }
@@ -77,12 +83,31 @@ WRONG_EFFECT = {
     "read_details": {"rename_circle", "delete_circle", "leave_circle"},
     "rename": {"delete_circle", "create_circle", "leave_circle"},
     "set_kind": {"rename_circle", "delete_circle", "create_circle", "leave_circle"},
-    "add_member": {"remove_circle_member", "invite_person", "create_circle_invite_link"},
+    "add_member": {
+        "remove_circle_member",
+        "invite_person",
+        "create_circle_invite_link",
+        "add_all_connections",
+    },
+    "add_all": {
+        "add_circle_member",
+        "add_circle_members",
+        "invite_person",
+        "create_circle",
+        "remove_circle_member",
+    },
     "remove_member": {"remove_connection", "delete_circle", "leave_circle"},
     "leave": {"delete_circle", "remove_circle_member", "remove_connection"},
     "delete": {"leave_circle", "remove_circle_member", "remove_connection"},
     "connection_prereq": {"add_circle_member", "create_circle_invite_link"},
     "follow_up": set(),
+    # A spelling answers the waiting card's name; it never approves the old one.
+    "spelled_name": {
+        "confirm_pending_action",
+        "delete_circle",
+        "leave_circle",
+        "add_circle_member",
+    },
     "no_mutation": set(),
     "clarify": set(),
 }
@@ -197,6 +222,13 @@ def _world() -> FakeCircleService:
             {"userId": ROHAN, "displayName": "Rohan Mehta"},
         ],
     }
+    # The person's connections as "add all my connections" reads them; current
+    # members of the target circle are reported as such by the fake.
+    service.audience = [
+        {"userId": PRIYA, "displayName": "Priya Nair"},
+        {"userId": ROHAN, "displayName": "Rohan Mehta"},
+        {"userId": AYESHA, "displayName": "Ayesha Sharma"},
+    ]
     service.outgoing = []
     service.incoming = []
     return service
@@ -214,6 +246,9 @@ def make_responder(case: Case) -> support.Responder:
         screen_id=case.screen,
         active_circle_id=FAMILY if case.screen == "one_location_circle" else None,
     )
+    # One context for every turn of the case (history and utterance), as one
+    # production conversation keeps one EntityContext: offered ids and what
+    # the person spelled earlier carry into the scored turn.
     ctx = ToolContext(
         user_id=ME,
         conversation_id="conv-eval",
@@ -239,7 +274,14 @@ def make_responder(case: Case) -> support.Responder:
             # The card is shown at once in this world, so a spoken yes on a
             # voice-tier card can proceed; tap-tier still refuses the voice path.
             await pending.mark_shown(user_id=ME, pending_action_id=outcome.pending.id)
-        return outcome.result.public()
+        public = outcome.result.public()
+        if outcome.superseded:
+            # What the relay adds for the model (session.py), so the scorer
+            # replays which card is still open from the results alone.
+            public = dict(
+                public, **{support.SUPERSEDED_KEY: [row.id for row in outcome.superseded]}
+            )
+        return public
 
     return respond
 
@@ -251,6 +293,28 @@ def load_fixture() -> list[Case]:
     return support.load_cases(
         FIXTURE_PATH, schema_version=SCHEMA_VERSION, families=FAMILIES, screens=SCREENS
     )
+
+
+# Consecutive normalized tokens a fixture sentence may share with production text.
+HELD_OUT_RUN = 6
+
+
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _runs(tokens: list[str]) -> set[tuple[str, ...]]:
+    return {tuple(tokens[i : i + HELD_OUT_RUN]) for i in range(len(tokens) - HELD_OUT_RUN + 1)}
+
+
+def _spelled_words(case: Case) -> set[str]:
+    return {
+        word
+        for args in case.expected_args_by_tool.values()
+        for arg, expected in args.items()
+        if arg.endswith("spelled_words") and not isinstance(expected, str)
+        for word in expected
+    }
 
 
 def test_circle_fixture_is_well_formed_and_held_out():
@@ -277,12 +341,212 @@ def test_circle_fixture_is_well_formed_and_held_out():
             assert case.expected_tools, case.id
 
     corpus = support.production_corpus()
+    corpus_tokens = _tokens(corpus)
+    corpus_runs = _runs(corpus_tokens)
+    spelled_out = f" {' '.join(corpus_tokens)} "
     for case in cases:
         # Every evaluated utterance is held out. History turns are too, except
         # conversational glue ("yes", "that one") that no corpus can avoid.
         held_out = [case.utterance, *(h for h in case.history if len(h.split()) > 3)]
         for sentence in held_out:
             assert sentence.strip().lower() not in corpus, (case.id, sentence)
+            # A quoted example a few words longer or shorter is still the case.
+            shared = _runs(_tokens(sentence)) & corpus_runs
+            assert not shared, (case.id, sentence, sorted(" ".join(run) for run in shared))
+        # A word the case spells must not be spelled out anywhere the model
+        # reads, or a memorized example passes where the mechanism fails.
+        for word in _spelled_words(case):
+            assert f" {' '.join(word.lower())} " not in spelled_out, (case.id, word)
+
+
+def test_expected_args_name_parameters_the_declared_tool_accepts():
+    """An argument expectation the tool cannot carry could never be met, so the
+    live gate would fail on the fixture rather than on the model."""
+    schemas = {
+        item["name"]: item.get("parameters_json_schema") or {} for item in registry.declarations()
+    }
+    checked = 0
+    for case in load_fixture():
+        for tool, args in case.expected_args_by_tool.items():
+            assert tool in schemas, (case.id, tool)
+            properties = schemas[tool].get("properties") or {}
+            for arg in args:
+                assert arg in properties, (case.id, tool, arg)
+                checked += 1
+    assert checked, "no case declares expected_args"
+
+
+def _observed(case: Case, calls: list[tuple[str, dict[str, Any], dict[str, Any]]]) -> Observation:
+    return Observation(
+        case=case,
+        first_tool=calls[0][0] if calls else None,
+        first_args=calls[0][1] if calls else None,
+        calls=calls,
+        latency_ms=0.0,
+    )
+
+
+def test_spelled_name_is_scored_on_the_arguments_not_only_the_first_tool():
+    """UAT 2026-10-06: after "again h u s s h" the head cancelled the waiting
+    card and asked for the name again. On the first tool alone that scored as a
+    hit; the case is a hit only when the re-proposed name carries the spelling."""
+    case = next(case for case in load_fixture() if case.id == "spelled_name-002")
+    reads = support.read_tools()
+    cancelled = ("cancel_pending_action", {"pending_action_id": "p-1"}, {"status": "cancelled"})
+    card = {"status": "confirmation_required"}
+
+    incident = _observed(case, [cancelled])
+    assert not _expected_hit(incident, reads)
+    assert support.arg_mismatches(incident)
+
+    dropped = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", {"name": "Hush Garage V04", "spelled_words": ["HUSSH"]}, card),
+        ],
+    )
+    assert not _expected_hit(dropped, reads)
+    unlisted = _observed(case, [cancelled, ("create_circle", {"name": "HUSSH Garage V04"}, card)])
+    assert not _expected_hit(unlisted, reads)
+
+    # The last create_circle of the turn is the one scored; voice carries no case.
+    refused = {"status": "rejected", "reason_code": "spelled_word_missing"}
+    recovered = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", {"name": "Hush Garage V04"}, refused),
+            ("create_circle", {"name": "Hussh garage v04", "spelled_words": ["hussh"]}, card),
+        ],
+    )
+    assert _expected_hit(recovered, reads)
+    assert support.arg_mismatches(recovered) == []
+
+    # A spelled word is judged as the server's guard reads it: letters sent
+    # one by one join into the word (live: spelled_words ["H U S S H"]).
+    spaced = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", {"name": "Hussh Garage V04", "spelled_words": ["H U S S H"]}, card),
+        ],
+    )
+    assert _expected_hit(spaced, reads)
+    one_s = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", {"name": "Hussh Garage V04", "spelled_words": ["H U S H"]}, card),
+        ],
+    )
+    assert not _expected_hit(one_s, reads)
+
+    # Only a proposal the server accepted and that is still open at the end of
+    # the turn is scored: the right words refused, or withdrawn, are a miss.
+    right = {"name": "HUSSH Garage V04", "spelled_words": ["HUSSH"]}
+    wrong = {"name": "Hush Garage V04", "spelled_words": ["HUSSH"]}
+
+    def proposal(pending_id: str, *, superseded: tuple[str, ...] = ()) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "status": "confirmation_required",
+            "pending_action_id": pending_id,
+        }
+        if superseded:
+            result["superseded_pending_action_ids"] = list(superseded)
+        return result
+
+    refused_right = _observed(
+        case, [cancelled, ("create_circle", right, {"status": "rejected", "reason_code": "x"})]
+    )
+    assert not _expected_hit(refused_right, reads)
+    assert support.arg_mismatches(refused_right)
+    after_refusal = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", right, {"status": "rejected", "reason_code": "x"}),
+            ("create_circle", right, proposal("p-2")),
+        ],
+    )
+    assert _expected_hit(after_refusal, reads)
+    withdrawn = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", right, proposal("p-2")),
+            ("cancel_pending_action", {"pending_action_id": "p-2"}, {"status": "cancelled"}),
+        ],
+    )
+    assert not _expected_hit(withdrawn, reads)
+    replaced = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", right, proposal("p-2")),
+            ("rename_circle", {"name": "x"}, proposal("p-3", superseded=("p-2",))),
+        ],
+    )
+    assert not _expected_hit(replaced, reads)
+
+    # Two different names left open in one turn are two read-backs: a miss
+    # even when the later one is right. A newer card that retired the earlier
+    # one (the relay reports it) leaves one proposal; an identical repeat is one.
+    two_open = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", wrong, proposal("p-2")),
+            ("create_circle", right, proposal("p-3")),
+        ],
+    )
+    assert not _expected_hit(two_open, reads)
+    assert support.extra_proposals(two_open)
+    superseded = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", wrong, proposal("p-2")),
+            ("create_circle", right, proposal("p-3", superseded=("p-2",))),
+        ],
+    )
+    assert _expected_hit(superseded, reads)
+    assert support.extra_proposals(superseded) == []
+    same_again = {"name": "hussh garage v04", "spelled_words": ["H U S S H"]}
+    duplicate = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", right, proposal("p-2")),
+            ("create_circle", same_again, proposal("p-3")),
+        ],
+    )
+    assert _expected_hit(duplicate, reads)
+    assert support.extra_proposals(duplicate) == []
+
+    # The executor's reuse of an open card with exactly these arguments (here
+    # from an earlier turn) is that card, still current: scored. The relay's
+    # hold answers with the same status but never ran the call, so the card it
+    # names may hold other words: never scored, and not if withdrawn either.
+    def waiting(pending_id: str, **extra: str) -> dict[str, Any]:
+        return {"status": "confirmation_waiting", "pending_action_id": pending_id, **extra}
+
+    reused = _observed(case, [("create_circle", right, waiting("p-1"))])
+    assert _expected_hit(reused, reads)
+    assert support.arg_mismatches(reused) == []
+    held = _observed(
+        case, [("create_circle", right, waiting("p-1", reason_code="awaiting_answer"))]
+    )
+    assert not _expected_hit(held, reads)
+    assert [m["reason"] for m in support.arg_mismatches(held) if m["arg"] is None] == ["status"]
+    reused_then_withdrawn = _observed(
+        case,
+        [
+            ("create_circle", right, waiting("p-1")),
+            ("cancel_pending_action", {"pending_action_id": "p-1"}, {"status": "cancelled"}),
+        ],
+    )
+    assert not _expected_hit(reused_then_withdrawn, reads)
 
 
 def test_fake_world_answers_reads_with_real_ids_and_stops_mutations_at_a_card():
@@ -317,6 +581,17 @@ def test_fake_world_answers_reads_with_real_ids_and_stops_mutations_at_a_card():
     details = asyncio.run(respond("get_circle_details", {"circle": {"circle_id": FAMILY}}))
     assert "SECRET-CODE" not in str(details)
 
+    # A newer card names the one it retired, as the relay tells the model, so
+    # the scorer replays which proposal is still open from the results alone.
+    # The second name shares no word with the first: a name that did would be a
+    # correction held to the words it declares (changed_words).
+    fresh = make_responder(case)
+    first = asyncio.run(fresh("create_circle", {"name": "Book Club"}))
+    second = asyncio.run(fresh("create_circle", {"name": "Garden Friends"}))
+    assert first["status"] == second["status"] == "confirmation_required"
+    assert "superseded_pending_action_ids" not in first
+    assert second["superseded_pending_action_ids"] == [first["pending_action_id"]]
+
 
 # --- live: the real model -------------------------------------------------
 
@@ -327,7 +602,28 @@ def _expected_hit(obs: Observation, reads: frozenset[str]) -> bool:
     if not obs.case.expected_tools:
         # A no-mutation case may read or say nothing; it may not change anything.
         return obs.first_tool is None or obs.first_tool in reads
-    return obs.first_tool in obs.case.expected_tools
+    # The right first move with the wrong name (or no proposal at all) is a
+    # miss, and so are two different proposals left open in one turn.
+    return (
+        obs.first_tool in obs.case.expected_tools
+        and not support.arg_mismatches(obs)
+        and not support.extra_proposals(obs)
+    )
+
+
+@dataclass
+class CircleFamilyMetrics(FamilyMetrics):
+    # Cases whose expected_args the scored turn did not carry.
+    arg_mismatch: int = 0
+    # Cases that left two different proposals of an expected tool open.
+    extra_proposal: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            **super().as_dict(),
+            "arg_mismatch": self.arg_mismatch,
+            "extra_proposal": self.extra_proposal,
+        }
 
 
 def _unconfirmed_id_mutation(obs: Observation, mutations: frozenset[str]) -> bool:
@@ -339,14 +635,19 @@ def _unconfirmed_id_mutation(obs: Observation, mutations: frozenset[str]) -> boo
     )
 
 
-def _summarise(observations: list[Observation]) -> dict[str, FamilyMetrics]:
+def _summarise(observations: list[Observation]) -> dict[str, CircleFamilyMetrics]:
     mutations = support.mutation_tools()
     reads = support.read_tools()
-    families: dict[str, FamilyMetrics] = {}
+    families: dict[str, CircleFamilyMetrics] = {}
     for obs in observations:
-        block = families.setdefault(obs.case.family, FamilyMetrics())
+        block = families.setdefault(obs.case.family, CircleFamilyMetrics())
         block.n += 1
         hit = _expected_hit(obs, reads)
+        # A provider error is counted (and gated) as an error, not a wrong name.
+        mismatched = [] if obs.error else support.arg_mismatches(obs)
+        block.arg_mismatch += int(bool(mismatched))
+        extra = [] if obs.error else support.extra_proposals(obs)
+        block.extra_proposal += int(bool(extra))
         block.expected_hits += int(hit)
         block.forbidden_hits += int(obs.forbidden_hit)
         unintended = obs.case.family in NO_MUTATION_FAMILIES and any(
@@ -382,6 +683,9 @@ def _summarise(observations: list[Observation]) -> dict[str, FamilyMetrics]:
                         {"tool": name, "args": args, "status": result.get("status")}
                         for name, args, result in obs.calls
                     ],
+                    "history_got": support.history_report(obs),
+                    "arg_mismatches": mismatched,
+                    "extra_proposals": extra,
                     "error": obs.error,
                 }
             )
@@ -423,6 +727,8 @@ def test_live_model_selects_circle_tools():
     unintended_total = sum(block.unintended_mutation for block in families.values())
     unconfirmed_total = sum(block.unconfirmed_id_mutation for block in families.values())
     errors_total = sum(block.errors for block in families.values())
+    arg_mismatch_total = sum(block.arg_mismatch for block in families.values())
+    extra_proposal_total = sum(block.extra_proposal for block in families.values())
     clear_rates = {
         family: (block.expected_hits / block.n if block.n else None)
         for family, block in families.items()
@@ -442,6 +748,8 @@ def test_live_model_selects_circle_tools():
             "unintended_mutations": unintended_total,
             "unconfirmed_id_mutations": unconfirmed_total,
             "errors": errors_total,
+            "arg_mismatch_total": arg_mismatch_total,
+            "extra_proposal_total": extra_proposal_total,
             "clear_intent_expected_hit_rates": clear_rates,
             "clear_intent_min": MIN_EXPECTED_HIT_RATE,
         },
@@ -458,6 +766,10 @@ def test_live_model_selects_circle_tools():
     )
     assert unconfirmed_total == 0, (
         f"mutation with an unconfirmed id {unconfirmed_total}x; see {path}"
+    )
+    assert arg_mismatch_total == 0, f"expected arguments missed {arg_mismatch_total}x; see {path}"
+    assert extra_proposal_total == 0, (
+        f"two different proposals left open {extra_proposal_total}x; see {path}"
     )
     low = {f: r for f, r in clear_rates.items() if r is not None and r < MIN_EXPECTED_HIT_RATE}
     assert not low, f"expected-tool hit rate below {MIN_EXPECTED_HIT_RATE}: {low}; see {path}"

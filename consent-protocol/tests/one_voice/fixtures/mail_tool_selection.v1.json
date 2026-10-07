@@ -1,0 +1,1852 @@
+{
+  "schema_version": "one.voice.mail_tool_selection.v1",
+  "note": "Held-out sentences for the Live head's mail tool selection. Never copy any of these into a tool description, instruction.py, or agent.yaml: the well-formedness test fails when one appears there.",
+  "cases": [
+    {
+      "id": "access-001",
+      "family": "access",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can you see my gmail?",
+      "expected_tools": [
+        "get_mail_access"
+      ],
+      "forbidden_tools": [
+        "get_profile",
+        "open_mail",
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "capability question: answered from the connection, never by opening the inbox or the profile email"
+    },
+    {
+      "id": "access-002",
+      "family": "access",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "is my email hooked up to you",
+      "expected_tools": [
+        "get_mail_access"
+      ],
+      "forbidden_tools": [
+        "get_profile",
+        "open_mail",
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "capability question in casual wording"
+    },
+    {
+      "id": "access-003",
+      "family": "access",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "kya tum mera gmail dekh sakte ho?",
+      "expected_tools": [
+        "get_mail_access"
+      ],
+      "forbidden_tools": [
+        "get_profile",
+        "open_mail",
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "Hinglish capability question"
+    },
+    {
+      "id": "read-001",
+      "family": "read",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "which of my emails are still waiting on a reply from me?",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "open_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "needs-reply read; the reader's scope is needs_reply, not newest"
+    },
+    {
+      "id": "read-002",
+      "family": "read",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "pull out the action items my clients sent me",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "open_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "action-item analysis is a read"
+    },
+    {
+      "id": "read-003",
+      "family": "read",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "did anyone ask for my KYC or personal details over email today?",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "open_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "personal-information request analysis, owner's today"
+    },
+    {
+      "id": "read-004",
+      "family": "read",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "is there a meeting invitation for this afternoon in my inbox?",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "open_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "meeting analysis is a read"
+    },
+    {
+      "id": "read-005",
+      "family": "read",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "what did Ayesha say about the launch",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "open_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "a sender named in a mail question is a search criterion, not a person to act on"
+    },
+    {
+      "id": "read-006",
+      "family": "read",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "give me the gist of my newest five emails",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "open_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "newest-N summary"
+    },
+    {
+      "id": "read-007",
+      "family": "read",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "just the headings of my latest mail, nothing more",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "open_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "metadata-only read; never open a message"
+    },
+    {
+      "id": "read-008",
+      "family": "read",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "catch me up on my inbox",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "open_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "inbox update"
+    },
+    {
+      "id": "open-001",
+      "family": "open",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "open number three",
+      "expected_tools": [
+        "open_mail"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "position in the list just shown: open, do not re-read or summarise"
+    },
+    {
+      "id": "open-002",
+      "family": "open",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "show me the second one",
+      "expected_tools": [
+        "open_mail"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "show the original message at a position"
+    },
+    {
+      "id": "open-003",
+      "family": "open",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "don't open three; summarize it",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "open_mail",
+        "send_mail"
+      ],
+      "note": "negated open: summarise by ordinal instead"
+    },
+    {
+      "id": "send-001",
+      "family": "send",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "send Ayesha an email",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail"
+      ],
+      "note": "a spoken name is never an id: resolve first"
+    },
+    {
+      "id": "send-002",
+      "family": "send",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "could you write Ayesha that UAT is ready",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail"
+      ],
+      "note": "dictated message; resolve the recipient first"
+    },
+    {
+      "id": "send-003",
+      "family": "send",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "draft a note to Ayesha",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail"
+      ],
+      "note": "draft wording is the send tool, which only opens a review card"
+    },
+    {
+      "id": "send-004",
+      "family": "send",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "email Ayesha with subject Launch and tell her we'll ship tomorrow",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail"
+      ],
+      "note": "subject and body dictated together"
+    },
+    {
+      "id": "send-005",
+      "family": "send",
+      "screen": "one_home",
+      "history": [
+        "look up Ayesha Sharma among my connections",
+        "yes, that's her"
+      ],
+      "utterance": "now email her that the UAT build is ready",
+      "expected_tools": [
+        "send_mail",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail"
+      ],
+      "note": "recipient confirmed in history: send_mail directly, or a fresh resolve"
+    },
+    {
+      "id": "send-006",
+      "family": "send",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "write Ayesha a new email, not a reply",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "reply_mail"
+      ],
+      "note": "a new email to a named person, even with her mail on screen: resolve her and use send_mail, never reply_mail"
+    },
+    {
+      "id": "reply-001",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "answer the second one and tell her the deck is ready",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "position in the list just shown, with dictated words: reply in that email's thread; the recipient comes from the email, never resolve_person or send_mail"
+    },
+    {
+      "id": "reply-002",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "respond to the first email and politely turn down the invitation",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "an instruction rather than dictated words: the reply is written from the instruction alone, with no invented dates, amounts or commitments"
+    },
+    {
+      "id": "reply-003",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "pehle wale ko reply karo ki main kal bhejunga",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "Hinglish: reply to the first one saying I'll send it tomorrow; 'bhejunga' is the reply's words, not a send_mail request"
+    },
+    {
+      "id": "reply-004",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?",
+        "read me the second one"
+      ],
+      "utterance": "write back saying count me in",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "the single email just read is the one in front of them: reply_mail with no position"
+    },
+    {
+      "id": "reply-005",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?",
+        "open the first one"
+      ],
+      "utterance": "reply to this one: thanks, I'll review it tonight",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "the email open on screen: reply_mail with no position; the surface's open row names it"
+    },
+    {
+      "id": "reply-006",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "reply to Ayesha's email",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "list_people",
+        "reply_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "no email shown yet and nothing to say: search her mail first, then ask which one and what to say; never pick one from a name or resolve her as a person"
+    },
+    {
+      "id": "reply-007",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "tell whoever sent the third one that Friday works for me",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "the sender of a shown email is reached by replying to it; the model never knows who sent it, so never look them up"
+    },
+    {
+      "id": "reply-008",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "respond to email two with: sounds good, see you Monday",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "position named as 'email two' with a dictated reply"
+    },
+    {
+      "id": "reply-009",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "teesre mail ka jawab bhej do ki meeting confirm hai",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "Hinglish: answer the third mail saying the meeting is confirmed; 'jawab bhej do' (send the answer) is still a reply"
+    },
+    {
+      "id": "reply-010",
+      "family": "reply",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "reply to the first one: please send me the invoice by Friday",
+      "expected_tools": [
+        "reply_mail"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "read_mail",
+        "resolve_person",
+        "send_mail"
+      ],
+      "note": "'send' inside the dictated reply is the reply's text, not a send_mail request"
+    },
+    {
+      "id": "follow-001",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "email Ayesha Sharma that the staging build is green",
+        "yes, Ayesha Sharma is right"
+      ],
+      "utterance": "sure, prepare it",
+      "expected_tools": [
+        "confirm_pending_action"
+      ],
+      "forbidden_tools": [
+        "cancel_pending_action",
+        "send_mail"
+      ],
+      "note": "yes to the waiting voice-tier draft card confirms it; never re-propose the draft"
+    },
+    {
+      "id": "follow-002",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "email Ayesha Sharma that the staging build is green",
+        "yes, Ayesha Sharma is right"
+      ],
+      "utterance": "actually hold on, scrap that draft",
+      "expected_tools": [
+        "cancel_pending_action"
+      ],
+      "forbidden_tools": [
+        "confirm_pending_action",
+        "send_mail"
+      ],
+      "note": "change of mind cancels the waiting draft card"
+    },
+    {
+      "id": "follow-003",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?",
+        "reply to the second one saying I'll call tonight"
+      ],
+      "utterance": "yep, go ahead and prepare that reply",
+      "expected_tools": [
+        "confirm_pending_action"
+      ],
+      "forbidden_tools": [
+        "cancel_pending_action",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "yes to the waiting voice-tier reply card confirms it; never re-propose the reply"
+    },
+    {
+      "id": "nm-001",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "don't send Ayesha anything",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "negated send"
+    },
+    {
+      "id": "nm-002",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "how would I send Ayesha an email?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "a how-to question, not a request"
+    },
+    {
+      "id": "nm-003",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "summarize the email where Ayesha asks me to send something",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "'send' inside mail content is not an instruction"
+    },
+    {
+      "id": "nm-004",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "archive that one",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no archive tool exists; never substitute another mutation"
+    },
+    {
+      "id": "nm-005",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "mark it as read",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no mark-read tool exists; reading never marks mail read"
+    },
+    {
+      "id": "nm-006",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "summarize the email about creating a circle",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "'create a circle' inside mail content is not an instruction"
+    },
+    {
+      "id": "nm-007",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "delete the newest email in my inbox",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no mail delete tool exists"
+    },
+    {
+      "id": "nm-008",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "unsubscribe me from that newsletter",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no unsubscribe tool exists"
+    },
+    {
+      "id": "nm-009",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "don't reply to the second one, just tell me what it says",
+      "expected_tools": [
+        "read_mail"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "negated reply: summarise that position instead; no draft"
+    },
+    {
+      "id": "nm-010",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "how do I reply to an email from here?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "a how-to question about replying, not a request"
+    },
+    {
+      "id": "nm-011",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "reply all on the first one and say thanks everyone",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "reply-all is not possible here: say so; never substitute a reply to the sender alone"
+    },
+    {
+      "id": "nm-012",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "forward the third one to Rohan",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "forwarding is not possible here: say so; never substitute a new email or a reply"
+    },
+    {
+      "id": "nm-013",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "answer the second one and attach my resume",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "attachments are not possible here: say so; never propose the reply without it"
+    },
+    {
+      "id": "nm-014",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "what's new in my mail?"
+      ],
+      "utterance": "can you reply to the top one for me",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "a reply with nothing to say in it: ask what to say first; never invent the reply"
+    },
+    {
+      "id": "cross-001",
+      "family": "cross",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "create a circle called Mail Team",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "a circle named after mail is still a circle"
+    },
+    {
+      "id": "cross-002",
+      "family": "cross",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "start a new circle named Inbox Crew",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "mail word in a circle name"
+    },
+    {
+      "id": "cross-003",
+      "family": "cross",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "make a circle named Reply Squad",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "reply_mail",
+        "send_mail"
+      ],
+      "note": "a mail word in a circle name is still a circle"
+    },
+    {
+      "id": "schedule-001",
+      "family": "schedule",
+      "screen": "one_home",
+      "history": [
+        "look up Ayesha Sharma among my connections",
+        "yes, that's her"
+      ],
+      "utterance": "send her the launch notes tomorrow at nine in the morning",
+      "expected_tools": [
+        "schedule_mail",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "a named later time is a scheduled send, never an immediate draft"
+    },
+    {
+      "id": "schedule-002",
+      "family": "schedule",
+      "screen": "one_home",
+      "history": [
+        "look up Ayesha Sharma among my connections",
+        "yes, that's her"
+      ],
+      "utterance": "mail her on Friday morning that the review moved to Monday",
+      "expected_tools": [
+        "schedule_mail",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "a weekday and part of day is a later time: a scheduled send"
+    },
+    {
+      "id": "schedule-003",
+      "family": "schedule",
+      "screen": "one_home",
+      "history": [
+        "look up Ayesha Sharma among my connections",
+        "yes, that's her"
+      ],
+      "utterance": "kal shaam chhe baje usko mail kar dena ki report taiyaar hai",
+      "expected_tools": [
+        "schedule_mail",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "Hinglish evening time for tomorrow: a scheduled send to the confirmed person"
+    },
+    {
+      "id": "schedule-004",
+      "family": "schedule",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "email Ayesha in two hours saying I am running late",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "an unresolved person is looked up first; an immediate draft is the wrong effect"
+    },
+    {
+      "id": "schedule-005",
+      "family": "schedule",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "which of my emails are queued to send later?",
+      "expected_tools": [
+        "list_scheduled_mail"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "asking what will go out later is the scheduled list, not the inbox"
+    },
+    {
+      "id": "schedule-006",
+      "family": "schedule",
+      "screen": "one_home",
+      "history": [
+        "which emails have I set to go out later?"
+      ],
+      "utterance": "call off the second one so it never goes",
+      "expected_tools": [
+        "cancel_scheduled_mail"
+      ],
+      "forbidden_tools": [
+        "cancel_pending_action",
+        "send_mail"
+      ],
+      "note": "a position in the scheduled list just shown is a scheduled cancel, not a pending card"
+    },
+    {
+      "id": "schedule-007",
+      "family": "schedule",
+      "screen": "one_home",
+      "history": [
+        "look up Ayesha Sharma among my connections",
+        "yes, that's her"
+      ],
+      "utterance": "in 30 minutes send her that I am stuck in traffic",
+      "expected_tools": [
+        "schedule_mail",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "a duration from now is a scheduled send (send_in_minutes, counted by the server), never an immediate draft"
+    },
+    {
+      "id": "send-007",
+      "family": "send",
+      "screen": "one_home",
+      "history": [
+        "look up Ayesha Sharma among my connections",
+        "yes, that's her"
+      ],
+      "utterance": "email her right away that the build passed",
+      "expected_tools": [
+        "send_mail",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "schedule_mail"
+      ],
+      "note": "no later time named: an immediate draft, never a scheduled send"
+    },
+    {
+      "id": "drafts-001",
+      "family": "drafts",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "what drafts have I got saved in Gmail?",
+      "expected_tools": [
+        "list_drafts"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "Gmail drafts are listed as drafts, never as inbox mail"
+    },
+    {
+      "id": "drafts-002",
+      "family": "drafts",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "mere saare drafts dikhao",
+      "expected_tools": [
+        "list_drafts"
+      ],
+      "forbidden_tools": [
+        "read_mail",
+        "send_mail"
+      ],
+      "note": "Hinglish request for the saved drafts list"
+    },
+    {
+      "id": "drafts-003",
+      "family": "drafts",
+      "screen": "one_home",
+      "history": [
+        "which drafts are sitting in my Gmail?"
+      ],
+      "utterance": "open up the first draft",
+      "expected_tools": [
+        "open_draft"
+      ],
+      "forbidden_tools": [
+        "open_mail",
+        "send_draft",
+        "send_mail"
+      ],
+      "note": "opening a listed draft by position opens the draft, not an email"
+    },
+    {
+      "id": "drafts-004",
+      "family": "drafts",
+      "screen": "one_home",
+      "history": [
+        "which drafts are sitting in my Gmail?"
+      ],
+      "utterance": "go ahead and send the second draft",
+      "expected_tools": [
+        "send_draft"
+      ],
+      "forbidden_tools": [
+        "schedule_mail",
+        "send_mail"
+      ],
+      "note": "sending a listed draft sends that draft by position, never a new email"
+    },
+    {
+      "id": "nm-015",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "which drafts are sitting in my Gmail?"
+      ],
+      "utterance": "delete the third draft for me",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "discarding a draft is not a voice tool: say so, change nothing"
+    },
+    {
+      "id": "nm-016",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [
+        "which drafts are sitting in my Gmail?"
+      ],
+      "utterance": "send the second draft tomorrow at nine in the morning",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "a Gmail draft cannot be scheduled: say so and ask whether to send it now; never send it now and never compose a new scheduled email"
+    }
+  ]
+}

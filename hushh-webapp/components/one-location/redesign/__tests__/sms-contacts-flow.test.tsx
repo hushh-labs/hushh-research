@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -9,7 +10,7 @@ import {
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
@@ -133,6 +134,13 @@ const baseProps = {
 function openAllContacts() {
   fireEvent.click(screen.getByRole("tab", { name: "All Contacts" }));
 }
+
+afterEach(async () => {
+  cleanup();
+  // Radix restores focus on the next timer turn. Finish that owned cleanup
+  // before Vitest retires this DOM and replaces its Event constructors.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+});
 
 describe("SmsContactsFlow", () => {
   it("grows past phone width and keeps contacts in one calm column", () => {

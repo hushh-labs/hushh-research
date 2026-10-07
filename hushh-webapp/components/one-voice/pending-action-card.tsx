@@ -13,27 +13,37 @@
  * here says "done" — that comes from `pending_action.resolved executed`.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   Check,
   Clock,
   Loader2,
+  Pencil,
   ShieldCheck,
   X,
 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   roleClasses,
   type SemanticRole,
 } from "@/lib/morphy-ux/tokens/semantic-roles";
-import { SOS_GRANTS_CREATED } from "@/lib/one-voice/protocol";
+import {
+  NAME_EDITABLE_TOOLS,
+  NAME_EDIT_MAX_CHARS,
+  SOS_GRANTS_CREATED,
+} from "@/lib/one-voice/protocol";
 import {
   isNeutralStatus,
   isPendingStatus,
 } from "@/lib/one-voice/session-reducer";
-import type { PendingActionView } from "@/lib/one-voice/session-types";
+import type {
+  NameEditOutcome,
+  PendingActionView,
+} from "@/lib/one-voice/session-types";
 import { cn } from "@/lib/utils";
 
 import { EntityCard } from "./entity-card";
@@ -45,7 +55,18 @@ export type PendingActionCardProps = {
   busy?: boolean;
   /** Skip the mount focus (the control does this while the panel is collapsed). */
   autoFocus?: boolean;
+  /**
+   * Submit a typed name for this card. Passed only while the relay accepts
+   * `name_edit`; the card offers "Edit name" only on an open card of a tool
+   * in `NAME_EDITABLE_TOOLS`.
+   */
+  onEditName?: (name: string) => Promise<NameEditOutcome>;
 };
+
+/** The name as the relay will read it: trimmed, inner whitespace collapsed. */
+export function collapseTypedName(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
 
 const DESTRUCTIVE_TOOLS = new Set<string>([
   "delete_circle",
@@ -224,14 +245,163 @@ function useCountdown(
   return remainingMs(expiresAt, now);
 }
 
+const NAME_EDIT_FALLBACK = "That didn't go through. Please try again.";
+
+/**
+ * The inline "Edit name" form. Mounted fresh each time it opens, prefilled
+ * with the card's current name. Submitting hands the collapsed name to the
+ * relay, which replaces the card; a refusal stays here, under the input. A
+ * refusal that arrives after the form is gone (the relay cancelled the card
+ * before it could prepare the new one) is shown as a toast instead.
+ */
+function NameEditor({
+  initialName,
+  canSubmit,
+  onSubmit,
+  onBack,
+}: {
+  initialName: string;
+  canSubmit: boolean;
+  onSubmit: (name: string) => Promise<NameEditOutcome>;
+  onBack: () => void;
+}) {
+  const id = useId();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const mounted = useRef(false);
+  const [draft, setDraft] = useState(initialName);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = collapseTypedName(draft);
+  const tooLong = name.length > NAME_EDIT_MAX_CHARS;
+  const reviewable = canSubmit && !submitting && name.length > 0 && !tooLong;
+
+  useEffect(() => {
+    mounted.current = true;
+    inputRef.current?.focus({ preventScroll: true });
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!reviewable) return;
+    setSubmitting(true);
+    setError(null);
+    let outcome: NameEditOutcome;
+    try {
+      outcome = await onSubmit(name);
+    } catch {
+      outcome = {
+        status: "rejected",
+        reasonCode: "not_sent",
+        message: NAME_EDIT_FALLBACK,
+        pendingActionId: null,
+      };
+    }
+    // Accepted: the relay has already replaced this card with the new one.
+    const refusal =
+      outcome.status === "accepted" ? null : outcome.message || NAME_EDIT_FALLBACK;
+    if (!mounted.current) {
+      // The card went first (the relay cancelled it, then could not prepare
+      // the new one), so there is no input left to show the refusal under.
+      if (refusal) morphyToast.error(refusal);
+      return;
+    }
+    setSubmitting(false);
+    if (refusal) setError(refusal);
+  };
+
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
+  return (
+    <form
+      data-testid="one-voice-name-edit"
+      aria-label="Edit circle name"
+      className="mt-3 flex flex-col gap-2"
+      onSubmit={(event) => void submit(event)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onBack();
+        }
+      }}
+    >
+      <label
+        htmlFor={`${id}-input`}
+        className="text-[13px] font-medium leading-[18px] text-[color:var(--app-secondary-label)]"
+      >
+        Circle name
+      </label>
+      <Input
+        ref={inputRef}
+        id={`${id}-input`}
+        data-testid="one-voice-name-edit-input"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        autoComplete="off"
+        enterKeyHint="done"
+        aria-invalid={error !== null || tooLong}
+        aria-describedby={error ? `${hintId} ${errorId}` : hintId}
+      />
+      <p
+        id={hintId}
+        data-testid="one-voice-name-edit-preview"
+        className="min-h-[18px] break-words text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]"
+      >
+        {tooLong
+          ? `Keep it to ${NAME_EDIT_MAX_CHARS} characters or fewer.`
+          : name
+            ? <>Will be named <span className="font-semibold text-[color:var(--app-label)]">{name}</span></>
+            : "Type a name for the circle."}
+      </p>
+      {error ? (
+        <p
+          id={errorId}
+          role="alert"
+          data-testid="one-voice-name-edit-error"
+          className={cn("text-[13px] font-medium leading-[18px]", roleClasses("danger").glyph)}
+        >
+          {error}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <Button
+          data-testid="one-voice-name-edit-back"
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onBack}
+          className="min-h-11 min-w-11 px-4"
+        >
+          Back
+        </Button>
+        <Button
+          data-testid="one-voice-name-edit-review"
+          type="submit"
+          size="sm"
+          isLoading={submitting}
+          disabled={!reviewable}
+          className="min-h-11 flex-1 px-4"
+        >
+          Review name
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export function PendingActionCard({
   action,
   onConfirm,
   onCancel,
   busy = false,
   autoFocus = true,
+  onEditName,
 }: PendingActionCardProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
+  const restoreEditFocus = useRef(false);
   const resolved = action.resolvedStatus;
   const open = resolved === null;
   const outcome = resolvedLabel(action);
@@ -240,11 +410,24 @@ export function PendingActionCard({
   const role = pendingActionRole(action);
   const palette = roleClasses(role);
   const Icon = role === "danger" ? AlertTriangle : ShieldCheck;
+  // The editor belongs to the card it was opened on: the relay's replacement
+  // card (a new id) starts closed, and a card it cancelled never re-arms.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const nameEditable =
+    onEditName !== undefined && NAME_EDITABLE_TOOLS.has(String(action.tool || ""));
+  const editing = nameEditable && editingId === action.pending_action_id;
+  const currentName = typeof action.args?.name === "string" ? action.args.name : "";
 
   useEffect(() => {
     if (!autoFocus || !open) return;
     cardRef.current?.focus({ preventScroll: true });
   }, [action.pending_action_id, autoFocus, open]);
+
+  useEffect(() => {
+    if (editing || !restoreEditFocus.current) return;
+    restoreEditFocus.current = false;
+    editButtonRef.current?.focus({ preventScroll: true });
+  }, [editing]);
 
   return (
     <div
@@ -314,6 +497,20 @@ export function PendingActionCard({
               {outcome?.label ?? RESOLVED_LABEL[resolved]}
             </p>
           )}
+          {open && nameEditable && !editing ? (
+            <Button
+              ref={editButtonRef}
+              data-testid="one-voice-edit-name"
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setEditingId(action.pending_action_id)}
+              className="-ml-3 mt-1 min-h-11 px-3"
+            >
+              <Pencil className="h-4 w-4" aria-hidden />
+              Edit name
+            </Button>
+          ) : null}
         </div>
         {open && remaining !== null ? (
           <span
@@ -334,6 +531,19 @@ export function PendingActionCard({
           </span>
         ) : null}
       </div>
+
+      {editing && onEditName ? (
+        <NameEditor
+          key={action.pending_action_id}
+          initialName={currentName}
+          canSubmit={open}
+          onSubmit={onEditName}
+          onBack={() => {
+            restoreEditFocus.current = true;
+            setEditingId(null);
+          }}
+        />
+      ) : null}
 
       {action.entities.length > 0 ? (
         <div className="mt-2 flex flex-col divide-y divide-[color:var(--app-separator)] pl-11">
@@ -363,7 +573,9 @@ export function PendingActionCard({
             variant={role === "danger" ? "destructive" : "default"}
             size="sm"
             isLoading={busy}
-            disabled={expired}
+            // Held while the name is being edited: Confirm must act on the
+            // card the person reviewed, not on one they are changing.
+            disabled={expired || editing}
             onClick={onConfirm}
             className="min-h-11 flex-1 px-4"
           >

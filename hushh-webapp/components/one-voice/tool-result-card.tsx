@@ -15,6 +15,7 @@
  */
 
 import {
+  Component,
   useCallback,
   useEffect,
   useId,
@@ -27,10 +28,14 @@ import { Button } from "@/components/ui/button";
 
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import {
+  ONE_VOICE_OPEN_DRAFT_EVENT,
   ONE_VOICE_OPEN_MAIL_EVENT,
   type OneVoiceOpenMailDetail,
 } from "@/lib/one-voice/directives";
-import type { OpenedMailMessage } from "@/lib/one-voice/mail-open";
+import type {
+  OpenedDraft,
+  OpenedMailMessage,
+} from "@/lib/one-voice/mail-open";
 import { AvatarBubble } from "@/lib/morphy-ux/ui/surface-primitives";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import {
@@ -43,6 +48,7 @@ import {
 } from "@/lib/one-voice/protocol";
 import {
   NAVIGATION_DISPATCH_STATUSES,
+  NEUTRAL_OUTCOME_STATUSES,
   isPendingStatus,
   toolResultTone,
   type ToolResultTone,
@@ -57,6 +63,20 @@ export type OpenMail = (input: {
   conversationId: string;
 }) => Promise<OpenedMailMessage>;
 
+/** Open the owner's draft behind a drafts-list row, the same way. */
+export type OpenDraft = (input: {
+  ordinal: number;
+  offerRevision: number;
+  conversationId: string;
+}) => Promise<OpenedDraft>;
+
+/** Which offered mail row is open on screen, for "reply to this". */
+export type ActiveMailSelection = {
+  ordinal: number;
+  offerRevision: number;
+  conversationId: string;
+};
+
 export type ToolResultCardProps = {
   result: ToolResultPublic;
   tool: string;
@@ -69,6 +89,14 @@ export type ToolResultCardProps = {
    * render in the tests does.
    */
   onOpenMail?: OpenMail;
+  /** Open the draft behind a drafts-list row. Optional, like `onOpenMail`. */
+  onOpenDraft?: OpenDraft;
+  /**
+   * Told which row is open (after its message is on screen) and when none is,
+   * so a spoken "reply to this" can resolve it. Never called on unmount: a new
+   * question can unmount the card a moment before the reply is asked for.
+   */
+  onActiveMailChange?: (selection: ActiveMailSelection | null) => void;
 };
 
 export type ToolResultFamily =
@@ -79,6 +107,7 @@ export type ToolResultFamily =
   | "status"
   | "sos"
   | "mail"
+  | "scheduled_mail"
   | "generic";
 
 const PEOPLE_TOOLS = new Set([
@@ -103,6 +132,7 @@ const CIRCLE_TOOLS = new Set([
   "delete_circle",
   "add_circle_member",
   "add_circle_members",
+  "add_all_connections",
   "remove_circle_member",
   "leave_circle",
   "respond_circle_invite",
@@ -134,10 +164,14 @@ const STATUS_TOOLS = new Set([
   "get_location_setup_state",
 ]);
 /**
- * Mail reads. The answer and the message rows arrive on the result and render
- * here; nothing about them reaches the Live model, which gets counts only.
+ * Mail reads and the drafts list. The answer and the rows arrive on the result
+ * and render here; nothing about them reaches the Live model, which gets counts.
  */
-const MAIL_TOOLS = new Set(["read_mail"]);
+const MAIL_TOOLS = new Set(["read_mail", "list_drafts"]);
+/** The drafts list: the same rows and open flow as mail, addressed by `draft:<n>`. */
+const DRAFT_LIST_TOOL = "list_drafts";
+/** Scheduled emails that have not sent yet. Read-only rows; cancel is by voice. */
+const SCHEDULED_MAIL_TOOLS = new Set(["list_scheduled_mail"]);
 const SOS_TOOLS = new Set<string>([
   SOS_TRIGGER_TOOL,
   SOS_REPORT_TOOL,
@@ -174,6 +208,7 @@ export function toolResultFamily(
   // Keyed on the tool name alone. read_mail's statuses are ok/empty/rejected,
   // which every family shares, so a status fallback would mis-family others.
   if (MAIL_TOOLS.has(name)) return "mail";
+  if (SCHEDULED_MAIL_TOOLS.has(name)) return "scheduled_mail";
   return "generic";
 }
 
@@ -183,7 +218,7 @@ export function toneForResult(
   ok: boolean | undefined,
 ): ToolResultTone {
   const status = String(result.status || "").trim();
-  if (status === "draft_open_unconfirmed") return "neutral";
+  if (NEUTRAL_OUTCOME_STATUSES.has(status)) return "neutral";
   if (isPendingStatus(status)) return "pending";
   // A navigation request is neither done nor failed; ui_settled decides.
   if (NAVIGATION_DISPATCH_STATUSES.has(status)) {
@@ -818,6 +853,8 @@ const OPEN_FAILURES: Record<string, string> = {
   offer_unresolved:
     "That one isn't on offer anymore. Ask again for a fresh list.",
   source_changed: "That message isn't there anymore.",
+  draft_gone: "That draft isn't in Gmail anymore.",
+  reconnect_required: "Mail needs reconnecting. Reconnect Gmail, then try again.",
   rate_limited: "Too many requests just now. Try again in a moment.",
   network: "Couldn't reach your mail. Check your connection.",
   invalid_request: "I couldn't open that one.",
@@ -872,7 +909,17 @@ export function mailCoverageLine(coverage: unknown): string | null {
   const returned = count(row.returned);
   const assessed = count(row.assessed);
   const scope = text(row.scope);
-  if (returned !== null) {
+  if (returned !== null && scope === "needs_reply") {
+    // A filtered set: threads that may need a reply. Never "newest N", which
+    // would describe the front of the mailbox rather than what was kept, and the
+    // threads checked to find them are a separate server-counted fact.
+    parts.push(
+      `${returned} ${unitNoun(row.unit, returned)} that may need a reply`,
+    );
+    if (assessed !== null && assessed > returned) {
+      parts.push(`${assessed} checked`);
+    }
+  } else if (returned !== null) {
     parts.push(
       Array.isArray(row.analysis_requested) && assessed !== null && assessed < returned
         ? `${assessed} of ${returned} message texts checked`
@@ -906,55 +953,91 @@ export function mailCoverageLine(coverage: unknown): string | null {
  */
 function MailDetail({
   result,
+  variant = "mail",
   onOpenMail,
+  onOpenDraft,
+  onActiveMailChange,
 }: {
   result: ToolResultPublic;
+  /** A drafts list renders the same rows, addressed by `draft:<n>`. */
+  variant?: "mail" | "drafts";
   onOpenMail?: OpenMail;
+  onOpenDraft?: OpenDraft;
+  onActiveMailChange?: (selection: ActiveMailSelection | null) => void;
 }) {
+  const isDrafts = variant === "drafts";
+  const refPrefix = isDrafts ? "draft:" : "mail:";
   // Which row is open, and the message behind it. Expanding in place rather than
   // navigating is what makes "Back returns to the same list, order and position"
   // true without any restore logic: the list never unmounts.
   const [openRef, setOpenRef] = useState<string | null>(null);
   const [message, setMessage] = useState<OpenedMailMessage | null>(null);
+  const [draft, setDraft] = useState<OpenedDraft | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // Bumped on every open and every collapse, so a slow answer for a row the
   // person has already closed -- or a different row -- is dropped instead of
   // being painted under the wrong heading.
   const requestRef = useRef(0);
+  // Whether this card is the one currently naming an open row, so it clears
+  // that name when it leaves the screen, and only then.
+  const publishedRef = useRef(false);
+  const publish = useCallback(
+    (selection: ActiveMailSelection | null) => {
+      // A draft is never "this email": a reply answers mail someone sent, so
+      // an open draft names nothing for "reply to this". It may still clear.
+      if (isDrafts && selection !== null) return;
+      publishedRef.current = selection !== null;
+      onActiveMailChange?.(selection);
+    },
+    [isDrafts, onActiveMailChange],
+  );
   const regionId = useId();
   const offerRevision =
     typeof result.offer_revision === "number" ? result.offer_revision : null;
   const conversationId = text(result.conversation_id);
+  const opener = isDrafts ? onOpenDraft : onOpenMail;
   const canOpen =
-    Boolean(onOpenMail) && offerRevision !== null && Boolean(conversationId);
+    Boolean(opener) && offerRevision !== null && Boolean(conversationId);
 
   const openAt = useCallback(
     async (
       ordinal: number,
       settle?: (status: "opened" | "failed", reason?: string) => void,
     ) => {
-      const ref = `mail:${ordinal}`;
+      const ref = `${refPrefix}${ordinal}`;
       const ticket = ++requestRef.current;
       setOpenRef(ref);
       setMessage(null);
+      setDraft(null);
       setFailure(null);
-      if (!onOpenMail || offerRevision === null || !conversationId) {
+      // Whatever was open has just closed; until this one is on screen, no row
+      // is "this email".
+      publish(null);
+      if (!opener || offerRevision === null || !conversationId) {
         settle?.("failed", "no_resolver");
         return;
       }
       setLoading(true);
       try {
-        const opened = await onOpenMail({
-          ordinal,
-          offerRevision,
-          conversationId,
-        });
+        const input = { ordinal, offerRevision, conversationId };
+        const openedDraft =
+          isDrafts && onOpenDraft ? await onOpenDraft(input) : null;
+        const openedMessage =
+          !isDrafts && onOpenMail ? await onOpenMail(input) : null;
         if (requestRef.current !== ticket) {
           settle?.("failed", "superseded");
           return;
         }
-        setMessage(opened);
+        if (!openedDraft && !openedMessage) {
+          settle?.("failed", "no_resolver");
+          return;
+        }
+        setDraft(openedDraft);
+        setMessage(openedMessage);
+        // Only now is this row the one on screen, so only now may "reply to
+        // this" mean it.
+        publish({ ordinal, offerRevision, conversationId });
         // Settled on the render, not on the dispatch: a resolved handler is not
         // evidence the person is looking at the message.
         settle?.("opened");
@@ -964,12 +1047,22 @@ function MailDetail({
           return;
         }
         setFailure(mailOpenMessage(error));
+        publish(null);
         settle?.("failed", "open_failed");
       } finally {
         if (requestRef.current === ticket) setLoading(false);
       }
     },
-    [conversationId, offerRevision, onOpenMail],
+    [
+      conversationId,
+      isDrafts,
+      offerRevision,
+      onOpenDraft,
+      onOpenMail,
+      opener,
+      publish,
+      refPrefix,
+    ],
   );
 
   const toggle = useCallback(
@@ -980,19 +1073,56 @@ function MailDetail({
         requestRef.current += 1;
         setOpenRef(null);
         setMessage(null);
+        setDraft(null);
         setFailure(null);
         setLoading(false);
+        publish(null);
         return;
       }
       await openAt(ordinal);
     },
-    [openAt, openRef],
+    [openAt, openRef, publish],
+  );
+
+  // A newer list can arrive in this same card. Its rows are different messages,
+  // so whatever was open belonged to the old list: close it, and stop naming it
+  // as the email on screen. Only a change after mount counts; mounting a list
+  // closes nothing.
+  const offerKey = `${variant}:${conversationId ?? ""}:${offerRevision ?? ""}`;
+  const offerKeyRef = useRef(offerKey);
+  useEffect(() => {
+    if (offerKeyRef.current === offerKey) return;
+    offerKeyRef.current = offerKey;
+    requestRef.current += 1;
+    setOpenRef(null);
+    setMessage(null);
+    setDraft(null);
+    setFailure(null);
+    setLoading(false);
+    publish(null);
+  }, [offerKey, publish]);
+
+  // Leaving the screen (Clear view, a collapsed panel, another kind of answer)
+  // ends "this email". A new question no longer unmounts a mail list -- the
+  // reducer keeps it until that question has its own result -- so this cannot
+  // race a "reply to this" that is still being asked.
+  const publishOnLeaveRef = useRef(publish);
+  publishOnLeaveRef.current = publish;
+  useEffect(
+    () => () => {
+      if (publishedRef.current) publishOnLeaveRef.current(null);
+    },
+    [],
   );
 
   // A spoken "open the second one" arrives here, so it runs the same code a tap
   // does. A directive naming a different offer or conversation is refused before
-  // any request: its position two is not this list's position two.
+  // any request: its position two is not this list's position two. Mail and
+  // drafts listen on separate events, so neither list answers for the other.
   useEffect(() => {
+    const eventName = isDrafts
+      ? ONE_VOICE_OPEN_DRAFT_EVENT
+      : ONE_VOICE_OPEN_MAIL_EVENT;
     const onDirective = (event: Event) => {
       const detail = (event as CustomEvent<OneVoiceOpenMailDetail>).detail;
       if (!detail) return;
@@ -1005,10 +1135,9 @@ function MailDetail({
       }
       void openAt(detail.ordinal, detail.settle);
     };
-    window.addEventListener(ONE_VOICE_OPEN_MAIL_EVENT, onDirective);
-    return () =>
-      window.removeEventListener(ONE_VOICE_OPEN_MAIL_EVENT, onDirective);
-  }, [conversationId, offerRevision, openAt]);
+    window.addEventListener(eventName, onDirective);
+    return () => window.removeEventListener(eventName, onDirective);
+  }, [conversationId, isDrafts, offerRevision, openAt]);
 
   const items = rows(result.items);
   const cited = new Set(
@@ -1023,7 +1152,9 @@ function MailDetail({
         .map((part) => part.trim())
         .filter(Boolean)
     : [];
-  const coverage = mailCoverageLine(result.coverage);
+  const coverage = isDrafts
+    ? draftsCoverageLine(result.coverage)
+    : mailCoverageLine(result.coverage);
   const analysisCoverage =
     result.coverage && typeof result.coverage === "object"
       ? (result.coverage as Row)
@@ -1052,6 +1183,7 @@ function MailDetail({
     <div
       className="mt-2 flex flex-col gap-2"
       data-testid="one-voice-mail-detail"
+      data-variant={variant}
     >
       {paragraphs.length > 0 ? (
         <div className="flex flex-col gap-1.5">
@@ -1083,23 +1215,32 @@ function MailDetail({
         </div>
       ) : null}
       {items.length > 0 ? (
-        <ul className="flex flex-col gap-0.5" aria-label="Mail">
+        <ul
+          className="flex flex-col gap-0.5"
+          aria-label={isDrafts ? "Drafts" : "Mail"}
+        >
           {items.map((row, index) => {
             const subject = text(row.subject);
-            const sender = text(row.sender);
+            // A draft is named by who it goes to; a message by who sent it.
+            const party = isDrafts ? text(row.to) : text(row.sender);
             const ref = text(row.source_ref);
-            const when = mailReceivedLabel(row.received_at);
+            const when = mailReceivedLabel(
+              isDrafts ? row.updated_at : row.received_at,
+            );
             // What the message is about, when its text was actually read. The
             // backend refuses a gist for a row it only has headers for, so an
             // absent one here means there was nothing to summarise, not that
-            // summarising failed.
-            const gist = text(row.gist);
-            const analysis = Array.isArray(row.analysis) ? row.analysis : [];
-            const byline = [sender, when].filter(Boolean).join(" · ") || null;
+            // summarising failed. A draft shows its own opening words instead.
+            const gist = isDrafts ? text(row.snippet) : text(row.gist);
+            const analysis =
+              !isDrafts && Array.isArray(row.analysis) ? row.analysis : [];
+            const byline = [party, when].filter(Boolean).join(" · ") || null;
             // The server's own ordinal, read off the ref rather than counted
             // here, so the number the person sees is the number "the second
             // one" resolves to even if a row above it has nothing to show.
-            const position = ref?.startsWith("mail:") ? ref.slice(5) : null;
+            const position = ref?.startsWith(refPrefix)
+              ? ref.slice(refPrefix.length)
+              : null;
             const isOpen = Boolean(ref) && openRef === ref;
             return (
               <li
@@ -1139,7 +1280,12 @@ function MailDetail({
                       </span>
                     ) : null}
                     {gist ? (
-                      <span className="text-[13px] leading-[1.35] text-[color:var(--app-label)]">
+                      <span
+                        className={cn(
+                          "text-[13px] leading-[1.35] text-[color:var(--app-label)]",
+                          isDrafts && "truncate",
+                        )}
+                      >
                         {gist}
                       </span>
                     ) : null}
@@ -1173,7 +1319,7 @@ function MailDetail({
                       className="min-h-11 shrink-0 self-start px-3 text-[13px]"
                       onClick={() => void toggle(ref, Number(position))}
                     >
-                      {isOpen ? "Close" : "Open email"}
+                      {isOpen ? "Close" : isDrafts ? "Open draft" : "Open email"}
                     </Button>
                   ) : null}
                 </div>
@@ -1228,6 +1374,44 @@ function MailDetail({
                           </p>
                         ) : null}
                       </div>
+                    ) : draft ? (
+                      <div
+                        className="flex flex-col gap-1.5"
+                        data-testid="one-voice-draft-original"
+                      >
+                        <p className="text-[13px] font-medium text-[color:var(--app-label)]">
+                          {draft.subject ?? "No subject"}
+                        </p>
+                        <p className="text-[12px] text-[color:var(--app-secondary-label)]">
+                          {draft.to.length > 0
+                            ? `To ${draft.to.join(", ")}`
+                            : "No recipient yet"}
+                        </p>
+                        {draft.cc.length > 0 ? (
+                          <p className="text-[12px] text-[color:var(--app-secondary-label)]">
+                            {`Cc ${draft.cc.join(", ")}`}
+                          </p>
+                        ) : null}
+                        {draft.bcc.length > 0 ? (
+                          // The screen only: Bcc never reaches the model.
+                          <p className="text-[12px] text-[color:var(--app-secondary-label)]">
+                            {`Bcc ${draft.bcc.join(", ")}`}
+                          </p>
+                        ) : null}
+                        {draft.body ? (
+                          // Text node, never markup, like a message: a draft
+                          // can quote mail somebody else wrote.
+                          <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.45] text-[color:var(--app-label)]">
+                            {draft.body}
+                          </p>
+                        ) : null}
+                        {draft.bodyTruncated ? (
+                          <p className="text-[12px] text-[color:var(--app-secondary-label)]">
+                            Shortened to fit. Open it in Gmail for the full
+                            text.
+                          </p>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
@@ -1248,14 +1432,132 @@ function MailDetail({
   );
 }
 
+/** How many drafts the list holds, and whether Gmail has more. */
+export function draftsCoverageLine(coverage: unknown): string | null {
+  const row =
+    coverage && typeof coverage === "object" ? (coverage as Row) : null;
+  const returned = row ? count(row.returned) : null;
+  if (returned === null) return null;
+  const parts = [`${returned} ${returned === 1 ? "draft" : "drafts"}`];
+  if (row?.has_more === true) parts.push("more in Gmail");
+  return parts.join(" · ");
+}
+
+/**
+ * Scheduled emails that have not sent yet, in send order. Read-only: there is
+ * no tap-to-cancel, because cancelling is a spoken, confirmed action. The send
+ * time is the server's owner-local label, shown as given.
+ */
+function ScheduledMailDetail({ result }: { result: ToolResultPublic }) {
+  const status = String(result.status || "").trim();
+  const items = rows(result.items);
+  if (items.length === 0) {
+    if (status !== "empty" && status !== "ok") return null;
+    return (
+      <p
+        data-testid="one-voice-scheduled-mail-empty"
+        className="mt-2 text-[13px] text-[color:var(--app-secondary-label)]"
+      >
+        No scheduled emails
+      </p>
+    );
+  }
+  return (
+    <ul
+      className="mt-2 flex flex-col gap-0.5"
+      aria-label="Scheduled emails"
+      data-testid="one-voice-scheduled-mail-detail"
+    >
+      {items.map((row, index) => {
+        const ref = text(row.source_ref);
+        const position = ref?.startsWith("scheduled:")
+          ? ref.slice("scheduled:".length)
+          : null;
+        const byline =
+          [text(row.to), text(row.send_at_label)].filter(Boolean).join(" · ") ||
+          null;
+        return (
+          <li
+            key={`${ref ?? index}`}
+            data-source-ref={ref ?? undefined}
+            className="flex min-h-11 flex-col justify-center gap-0.5 py-1"
+          >
+            <div className="flex items-baseline gap-2">
+              {position ? (
+                <span
+                  className="shrink-0 text-[12px] tabular-nums text-[color:var(--app-secondary-label)]"
+                  aria-hidden
+                >
+                  {position}.
+                </span>
+              ) : null}
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--app-label)]">
+                {text(row.subject) ?? "No subject"}
+              </span>
+            </div>
+            {byline ? (
+              <span className="truncate text-[12px] text-[color:var(--app-secondary-label)]">
+                {byline}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * Keeps a mail detail that fails to render from taking the panel with it.
+ *
+ * The fallback is a static line: it reads nothing, opens nothing and dispatches
+ * nothing, so a malformed result can never turn into a new read or an open. The
+ * error is not logged -- what threw may carry message content. A new result
+ * gets a fresh attempt.
+ */
+class MailDetailBoundary extends Component<
+  { result: ToolResultPublic; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidUpdate(prev: { result: ToolResultPublic }) {
+    if (this.state.failed && prev.result !== this.props.result) {
+      this.setState({ failed: false });
+    }
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <p
+        data-testid="one-voice-mail-detail-error"
+        className="mt-2 text-[13px] text-[color:var(--app-secondary-label)]"
+      >
+        Couldn&apos;t show these messages.
+      </p>
+    );
+  }
+}
+
 function Detail({
   family,
+  tool,
   result,
   onOpenMail,
+  onOpenDraft,
+  onActiveMailChange,
 }: {
   family: ToolResultFamily;
+  tool: string;
   result: ToolResultPublic;
   onOpenMail?: OpenMail;
+  onOpenDraft?: OpenDraft;
+  onActiveMailChange?: (selection: ActiveMailSelection | null) => void;
 }) {
   switch (family) {
     case "sos":
@@ -1271,7 +1573,25 @@ function Detail({
     case "status":
       return <StatusDetail result={result} />;
     case "mail":
-      return <MailDetail result={result} onOpenMail={onOpenMail} />;
+      return (
+        <MailDetailBoundary result={result}>
+          <MailDetail
+            result={result}
+            variant={
+              String(tool || "").trim() === DRAFT_LIST_TOOL ? "drafts" : "mail"
+            }
+            onOpenMail={onOpenMail}
+            onOpenDraft={onOpenDraft}
+            onActiveMailChange={onActiveMailChange}
+          />
+        </MailDetailBoundary>
+      );
+    case "scheduled_mail":
+      return (
+        <MailDetailBoundary result={result}>
+          <ScheduledMailDetail result={result} />
+        </MailDetailBoundary>
+      );
     default:
       return null;
   }
@@ -1285,6 +1605,8 @@ export function ToolResultCard({
   ok,
   className,
   onOpenMail,
+  onOpenDraft,
+  onActiveMailChange,
 }: ToolResultCardProps) {
   const tone = toneForResult(result, ok);
   const family = toolResultFamily(tool, result.status);
@@ -1326,7 +1648,7 @@ export function ToolResultCard({
   const headline =
     family === "sos"
       ? (sosHeadline(result.status, tone) ?? genericHeadline)
-      : family === "mail" && tone !== "failure"
+      : (family === "mail" || family === "scheduled_mail") && tone !== "failure"
         ? // A read is not a thing that got "Done". The count line is the headline.
           null
         : (dispatchHeadline ?? genericHeadline);
@@ -1387,7 +1709,14 @@ export function ToolResultCard({
               Nothing was changed.
             </p>
           ) : null}
-          <Detail family={family} result={result} onOpenMail={onOpenMail} />
+          <Detail
+            family={family}
+            tool={tool}
+            result={result}
+            onOpenMail={onOpenMail}
+            onOpenDraft={onOpenDraft}
+            onActiveMailChange={onActiveMailChange}
+          />
         </div>
       </div>
     </div>

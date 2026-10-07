@@ -1,5 +1,5 @@
 import React from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
@@ -26,6 +26,7 @@ const approval = { connectorId: reference.connectorId, toolName: reference.toolN
   directiveId: reference.directiveId, pendingHandle: reference.pendingHandle, receipt: "r".repeat(48) };
 const makeReview = (): McpChatReview => ({ reference, conversationId: "synthetic-thread",
   isCurrent: vi.fn(() => true), resume: vi.fn(async () => {}) });
+afterEach(() => resetServerClock());
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(ExternalConnectorService.reviewMcpCall).mockResolvedValue(preview);
@@ -88,13 +89,67 @@ describe("native MCP review card", () => {
     expect(screen.queryByText("Synthetic exact phrase")).toBeNull();
   });
 
-  it("retains an honest unknown outcome and never offers an automatic retry", async () => {
+  it("settles Activity as unavailable when confirmation fails before a receipt", async () => {
     const review = makeReview();
-    vi.mocked(review.resume).mockRejectedValueOnce(new Error("private provider failure"));
-    render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    const onActivityOutcome = vi.fn();
+    vi.mocked(ExternalConnectorService.confirmMcpCall)
+      .mockRejectedValueOnce(new Error("private backend failure"));
+    render(<McpCallReviewCard
+      review={review}
+      vaultOwnerToken="synthetic"
+      onDismiss={vi.fn()}
+      onActivityOutcome={onActivityOutcome}
+    />);
+    await screen.findByText("Synthetic exact phrase");
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    await waitFor(() => expect(onActivityOutcome).toHaveBeenCalledWith("unavailable"));
+    expect(onActivityOutcome).toHaveBeenCalledTimes(1);
+    expect(review.resume).not.toHaveBeenCalled();
+    expect(await screen.findByText(/no longer available/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("private backend failure");
+  });
+
+  it("does not claim an unknown outcome when the confirmation was refused and the card re-renders", async () => {
+    // UAT 2026-10-05: a refused confirmation (409) was followed by a re-render with a
+    // fresh review object, which flipped the card to "could not verify the outcome"
+    // although nothing had been sent.
+    const review = makeReview();
+    vi.mocked(ExternalConnectorService.confirmMcpCall).mockRejectedValueOnce(new Error("409"));
+    const view = render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    await screen.findByText("Synthetic exact phrase");
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    expect(await screen.findByText(/no longer available/)).toBeTruthy();
+    view.rerender(<McpCallReviewCard review={{ ...review }} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    expect(await screen.findByText(/no longer available/)).toBeTruthy();
+    expect(screen.queryByText(/could not verify the outcome/)).toBeNull();
+    expect(review.resume).not.toHaveBeenCalled();
+  });
+
+  it("keeps the unknown outcome across a re-render once the resume was dispatched", async () => {
+    const review = makeReview();
+    vi.mocked(review.resume).mockRejectedValueOnce(new Error("provider"));
+    const view = render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
     await screen.findByText("Synthetic exact phrase");
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     expect(await screen.findByText(/Check the connector before trying again/)).toBeTruthy();
+    view.rerender(<McpCallReviewCard review={{ ...review }} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    expect(await screen.findByText(/Check the connector before trying again/)).toBeTruthy();
+  });
+
+  it("retains an honest unknown outcome and never offers an automatic retry", async () => {
+    const review = makeReview();
+    const onActivityOutcome = vi.fn();
+    vi.mocked(review.resume).mockRejectedValueOnce(new Error("private provider failure"));
+    render(<McpCallReviewCard
+      review={review}
+      vaultOwnerToken="synthetic"
+      onDismiss={vi.fn()}
+      onActivityOutcome={onActivityOutcome}
+    />);
+    await screen.findByText("Synthetic exact phrase");
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    expect(await screen.findByText(/Check the connector before trying again/)).toBeTruthy();
+    expect(onActivityOutcome).toHaveBeenCalledWith("unknown");
     expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
     expect(document.body.textContent).not.toContain("private provider failure");
     expect(review.resume).toHaveBeenCalledTimes(1);
@@ -137,6 +192,97 @@ describe("native MCP review card", () => {
     expect(container.querySelector("a")).toBeNull();
   });
 
+  describe("a decision in flight", () => {
+    const start = Date.parse("2026-01-01T00:00:00Z");
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      vi.setSystemTime(start);
+    });
+    afterEach(() => { resetServerClock(); vi.useRealTimers(); });
+    const expiringIn = (seconds: number) => {
+      const review = makeReview();
+      review.reference = { ...reference, expiresAt: new Date(start + seconds * 1000).toISOString() };
+      return review;
+    };
+
+    it("is not cut off when the expiry passes while the approved resume is still running", async () => {
+      // UAT audit: Allow once with 10 s left, the resume takes longer, the still-armed timer
+      // aborted it and the card claimed it could not verify the outcome.
+      let finish!: () => void;
+      const review = expiringIn(10);
+      vi.mocked(review.resume).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+      const onDismiss = vi.fn();
+      const onActivityOutcome = vi.fn();
+      render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={onDismiss} onActivityOutcome={onActivityOutcome} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(review.resume).toHaveBeenCalledTimes(1);
+      const signal = vi.mocked(review.resume).mock.calls[0][1]!;
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(signal.aborted).toBe(false);
+      expect(screen.queryByText(/could not verify the outcome/)).toBeNull();
+      expect(onActivityOutcome).not.toHaveBeenCalledWith("unknown");
+      await act(async () => finish());
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it("tells the chat while a decision is in flight and when it settles", async () => {
+      let finish!: () => void;
+      const review = expiringIn(300);
+      vi.mocked(review.resume).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+      const onDecidingChange = vi.fn();
+      render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onDecidingChange={onDecidingChange} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(onDecidingChange).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(onDecidingChange).toHaveBeenLastCalledWith(true);
+      await act(async () => finish());
+      expect(onDecidingChange).toHaveBeenLastCalledWith(false);
+    });
+
+    it("clears the in-flight flag when a failed decision settles or the card unmounts", async () => {
+      const failing = expiringIn(300);
+      vi.mocked(ExternalConnectorService.confirmMcpCall).mockRejectedValueOnce(new Error("refused"));
+      const onDecidingChange = vi.fn();
+      render(<McpCallReviewCard review={failing} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onDecidingChange={onDecidingChange} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(onDecidingChange.mock.calls.map((call) => call[0])).toEqual([true, false]);
+
+      let finish!: () => void;
+      const hanging = expiringIn(300);
+      vi.mocked(hanging.resume).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+      const unmounted = vi.fn();
+      const view = render(<McpCallReviewCard review={hanging} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onDecidingChange={unmounted} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(within(view.container).getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      view.unmount();
+      expect(unmounted).toHaveBeenLastCalledWith(false);
+      await act(async () => finish());
+    });
+
+    it("turns into a closable 'replaced' card within a second when another turn takes it over", async () => {
+      const review = expiringIn(300);
+      let current = true;
+      review.isCurrent = vi.fn(() => current);
+      const onDismiss = vi.fn();
+      render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={onDismiss} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("button", { name: "Allow once" })).toBeEnabled();
+      current = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_100); });
+      expect(screen.getByText(/This review was replaced/)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Close review" }));
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("timer")).toBeNull();
+    });
+  });
+
   describe("expiry countdown", () => {
     const start = Date.parse("2026-01-01T00:00:00Z");
     beforeEach(() => {
@@ -171,7 +317,7 @@ describe("native MCP review card", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
       expect(screen.getByRole("timer").textContent).toBe("Expires in 0:05");
       await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
-      expect(screen.getByText(/expired and is no longer available/)).toBeTruthy();
+      expect(screen.getByText("This review expired. Ask One to prepare it again.")).toBeTruthy();
       expect(screen.queryByRole("timer")).toBeNull();
       expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
     });
@@ -184,6 +330,54 @@ describe("native MCP review card", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
       expect(screen.getByRole("timer").textContent).toBe("Expires in 5:00");
       expect(screen.queryByText(/no longer available/)).toBeNull();
+    });
+
+    it("does not expire from a device clock that is ahead before the server clock is learned", async () => {
+      // The device runs 10 minutes ahead and no response has taught it otherwise, so
+      // the review looks 5 minutes expired locally. It must ask the server first.
+      let finish!: (value: typeof preview) => void;
+      vi.mocked(ExternalConnectorService.reviewMcpCall).mockImplementationOnce(() => new Promise((resolve) => {
+        finish = (value) => {
+          observeServerDate(new Date(start - 10 * 60_000).toUTCString(), start);
+          resolve(value);
+        };
+      }));
+      render(<McpCallReviewCard review={reviewExpiringIn(-300)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(ExternalConnectorService.reviewMcpCall).toHaveBeenCalledOnce();
+      expect(screen.queryByText(/expired/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Close review" })).toBeNull();
+      expect(screen.getByText(/Checking the exact call/)).toBeTruthy();
+      await act(async () => finish(preview));
+      expect(screen.getByRole("timer").textContent).toBe("Expires in 4:55");
+      expect(screen.getByRole("button", { name: "Allow once" }).hasAttribute("disabled")).toBe(false);
+      expect(screen.queryByText(/expired/)).toBeNull();
+    });
+
+    it("expires after the fetch when the clock stays unlearned and the review is past due", async () => {
+      // No Date header (for example a cross-origin native call): the device clock is all there is.
+      render(<McpCallReviewCard review={reviewExpiringIn(-300)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(ExternalConnectorService.reviewMcpCall).toHaveBeenCalledOnce();
+      expect(screen.getByText("This review expired. Ask One to prepare it again.")).toBeTruthy();
+      expect(screen.queryByText("Synthetic exact phrase")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+    });
+
+    it("goes to the unavailable state, not expired, when the first fetch fails", async () => {
+      vi.mocked(ExternalConnectorService.reviewMcpCall).mockRejectedValueOnce(new Error("Synthetic failure"));
+      render(<McpCallReviewCard review={reviewExpiringIn(-300)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByText(/no longer available. Unlock or reconnect/)).toBeTruthy();
+      expect(screen.queryByText(/This review expired/)).toBeNull();
+    });
+
+    it("expires without fetching once the server clock is learned", async () => {
+      observeServerDate(new Date(start).toUTCString(), start);
+      render(<McpCallReviewCard review={reviewExpiringIn(-300)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(ExternalConnectorService.reviewMcpCall).not.toHaveBeenCalled();
+      expect(screen.getByText("This review expired. Ask One to prepare it again.")).toBeTruthy();
     });
 
     it("hides the countdown for an implausibly distant expiry", async () => {
@@ -201,10 +395,50 @@ describe("native MCP review card", () => {
     });
   });
 
-  it("does not fetch an expired review", async () => {
+  it("does not fetch an expired review once the server clock is known", async () => {
+    observeServerDate(new Date().toUTCString());
     const review = makeReview(); review.reference = { ...reference, expiresAt: "2000-01-01" };
     render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
-    expect(await screen.findByText(/no longer available/)).toBeTruthy();
+    expect(await screen.findByText(/This review expired/)).toBeTruthy();
     expect(ExternalConnectorService.reviewMcpCall).not.toHaveBeenCalled();
+  });
+
+  it("says a superseded review was replaced, not expired, and never fetches it", async () => {
+    const review = makeReview();
+    vi.mocked(review.isCurrent).mockReturnValue(false);
+    render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    expect(await screen.findByText("This review was replaced. Ask One again.")).toBeTruthy();
+    expect(screen.queryByText(/expired/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Close review" })).toBeTruthy();
+    expect(ExternalConnectorService.reviewMcpCall).not.toHaveBeenCalled();
+    expect(review.resume).not.toHaveBeenCalled();
+  });
+
+  describe("reports when its buttons can be pressed", () => {
+    it("is actionable only once the exact call is ready, and not after unmount", async () => {
+      const onActionableChange = vi.fn();
+      const view = render(<McpCallReviewCard review={makeReview()} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onActionableChange={onActionableChange} />);
+      await screen.findByText("Synthetic exact phrase");
+      expect(onActionableChange).toHaveBeenLastCalledWith(true);
+      view.unmount();
+      expect(onActionableChange).toHaveBeenLastCalledWith(false);
+    });
+
+    it("is not actionable while loading or when the review cannot be fetched", async () => {
+      vi.mocked(ExternalConnectorService.reviewMcpCall).mockRejectedValueOnce(new Error("private provider failure"));
+      const onActionableChange = vi.fn();
+      render(<McpCallReviewCard review={makeReview()} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onActionableChange={onActionableChange} />);
+      await screen.findByRole("button", { name: "Close review" });
+      expect(onActionableChange).not.toHaveBeenCalledWith(true);
+    });
+
+    it("stops being actionable the moment a decision is in flight", async () => {
+      const onActionableChange = vi.fn();
+      render(<McpCallReviewCard review={makeReview()} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onActionableChange={onActionableChange} />);
+      await screen.findByText("Synthetic exact phrase");
+      fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+      await waitFor(() => expect(onActionableChange).toHaveBeenLastCalledWith(false));
+    });
   });
 });

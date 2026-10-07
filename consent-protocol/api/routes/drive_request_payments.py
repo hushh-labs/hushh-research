@@ -9,6 +9,16 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from api.middleware import require_firebase_auth_read_only
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.pkm_packet_order_service import (
+    PAYMENT_KIND as PKM_PACKET_PAYMENT_KIND,
+)
+from hushh_mcp.services.pkm_packet_order_service import (
+    PacketOrderError,
+    PkmPacketOrderService,
+    is_subscription_event,
+    webhook_event_type,
+    webhook_payment_kind,
+)
 
 router = APIRouter(prefix="/api/connectors/google_drive/sharing", tags=["drive-request-payments"])
 webhook_router = APIRouter(prefix="/api/payments/stripe", tags=["payments"])
@@ -71,6 +81,24 @@ async def stripe_drive_request_webhook(
     payload = await request.body()
     if len(payload) > 128_000:
         raise HTTPException(status_code=413, detail="Payment event is too large.")
+    # One Stripe endpoint, two kinds of payment. Route on the (unverified)
+    # payment_kind; each handler verifies the signature before acting.
+    if webhook_payment_kind(payload) in {
+        PKM_PACKET_PAYMENT_KIND,
+        "pkm_credits",
+    } or is_subscription_event(webhook_event_type(payload)):
+        try:
+            await PkmPacketOrderService().process_webhook(
+                payload=payload, signature=stripe_signature
+            )
+        except PacketOrderError as error:
+            status = 400 if error.code == "INVALID_SIGNATURE" else 409
+            if error.code == "PAYMENT_UNAVAILABLE":
+                status = 503
+            raise HTTPException(
+                status_code=status, detail=str(error), headers={"Cache-Control": "no-store"}
+            ) from None
+        return {"received": True}
     try:
         await _service().process_webhook(payload=payload, signature=stripe_signature)
     except Exception as error:

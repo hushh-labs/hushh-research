@@ -1,261 +1,209 @@
 "use client";
 
-import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 
-import { ROUTES } from "@/lib/navigation/routes";
-
-/**
- * On the chat route a swipe to the right opens the chat history drawer, the
- * mirror of the swipe to the left that opens the profile pane on /one. The
- * drawer is a translated panel, so it follows the finger for the whole
- * gesture and settles on the commit, instead of appearing after it.
- *
- * The workspace owns the drawer's state; this gesture only drives the
- * panel's transform while the finger is down and then presses the
- * workspace's own toggle (the labelled "Open chat history" control), so the
- * state, focus handling and list loading stay where they live.
- */
-
-const BACK_GESTURE_RESERVED_WIDTH_PX = 28;
-const AXIS_LOCK_PX = 8;
+const EDGE_BACK_LANE = 28;
+const AXIS_LOCK = 8;
 const DIRECTION_RATIO = 1.12;
-const COMMIT_DISTANCE_PX = 72;
-const COMMIT_VELOCITY_PX_PER_MS = 0.48;
-const SETTLE_MS = 150;
-const SETTLE_EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
-
-const WORKSPACE = '.agent-chat-workspace[data-agent-chat-route="root"]';
-// The drawer is portalled to <body> so it can stack above the bottom bar
-// (2026-09-28); it is found by its own marker, and only while the chat
-// workspace it belongs to is on screen.
-const DRAWER = '[role="dialog"][aria-label="Agent chat history"][data-agent-history-drawer]';
-const TOGGLE = 'button[aria-label="Open chat history"]';
-
-type GestureInput = "pointer" | "touch";
-type GestureAxis = "undecided" | "horizontal" | "vertical";
-
-type DrawerGesture = {
-  input: GestureInput;
-  identifier: number;
-  startX: number;
-  startY: number;
-  startedAt: number;
-  axis: GestureAxis;
-  drawer: HTMLElement;
-  overlay: HTMLElement | null;
-  width: number;
+const COMMIT_DISTANCE = 72;
+const COMMIT_VELOCITY = 0.48;
+type Gesture = {
+  identifier: number; x: number; y: number; time: number;
+  axis: "undecided" | "horizontal";
+  initialOpen: boolean; surface: HTMLElement;
+  width: number; panel: HTMLElement; scrim: HTMLElement;
 };
 
-function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
-  const element = target instanceof HTMLElement ? target : null;
-  if (!element) return false;
-  return Boolean(
-    element.closest(
-      'button, a, input, textarea, select, [contenteditable="true"], [data-no-route-swipe], [data-no-profile-swipe], [data-swipe-views-horizontal-scroll], [data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="command"], [cmdk-root]',
-    ),
-  );
-}
-
-function hasBlockingOverlay(): boolean {
-  return Boolean(
-    document.querySelector(
-      '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [data-slot="command"], [data-agent-history-drawer-open="true"], html.kb-open',
-    ),
-  );
-}
-
-/** The drawer at rest sits at -100%; the finger pulls it toward 0. */
-function place(gesture: DrawerGesture, deltaX: number, settle: boolean) {
-  const offset = Math.min(0, Math.max(-gesture.width, deltaX - gesture.width));
-  const progress = 1 - Math.abs(offset) / gesture.width;
-  const transition = settle ? `transform ${SETTLE_MS}ms ${SETTLE_EASE}` : "none";
-  gesture.drawer.style.transition = transition;
-  gesture.drawer.style.transform = `translate3d(${offset}px, 0, 0)`;
-  if (gesture.overlay) {
-    gesture.overlay.style.transition = settle ? `opacity ${SETTLE_MS}ms ease-out` : "none";
-    gesture.overlay.style.opacity = String(progress);
+function excludedTarget(target: EventTarget | null, surface: HTMLElement, closing = false) {
+  const element = target instanceof Element ? target : null;
+  if (!element || !surface.contains(element) || element.closest(
+    'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [inert], [hidden], [data-no-route-swipe], [data-no-profile-swipe], [data-swipe-views-horizontal-scroll], [data-slot="carousel"], [data-slot="carousel-content"], [data-slot="carousel-item"], [data-slot="slider"], [role="slider"]',
+  ) || (!closing && element.closest('button, a'))) return true;
+  // Tables, code blocks and charts retain their own horizontal pan.
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (["auto", "scroll"].includes(style.overflowX) && node.scrollWidth > node.clientWidth + 4) return true;
+    if (node === surface) break;
   }
+  return Boolean(window.getSelection()?.toString());
 }
 
-function clearInline(gesture: DrawerGesture) {
-  gesture.drawer.style.removeProperty("transition");
-  gesture.drawer.style.removeProperty("transform");
-  if (gesture.overlay) {
-    gesture.overlay.style.removeProperty("transition");
-    gesture.overlay.style.removeProperty("opacity");
-  }
+function domBlocked() {
+  return Boolean(document.querySelector(
+    'html.kb-open, [data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [data-slot="popover-content"][data-state="open"], [data-slot="dropdown-menu-content"][data-state="open"], [data-slot="command"]',
+  ));
 }
 
-export function AppChatHistoryEdgeGesture({ enabled }: { enabled: boolean }) {
-  const pathname = usePathname() || "/";
+/** Presentation-only pull. The drawer owner supplies geometry and its authored
+ * open action. No global listener, inferred button or route dispatch. React
+ * changes only at gesture boundaries, never for a movement frame. */
+export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, drawerRef, scrimRef, onOpen, onClose }: {
+  enabled: boolean;
+  open?: boolean;
+  surfaceRef: RefObject<HTMLElement | null>;
+  drawerRef: RefObject<HTMLElement | null>;
+  scrimRef: RefObject<HTMLElement | null>;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  const action = useRef({ onOpen, onClose });
+  useLayoutEffect(() => { action.current = { onOpen, onClose }; }, [onOpen, onClose]);
+  const [dragging, setDragging] = useState(false);
+  const reconcile = useRef<((open: boolean) => void) | null>(null);
+  const wasOpen = useRef(open);
+  useNativeNavigationBlocked(dragging);
+  useLayoutEffect(() => {
+    if (wasOpen.current !== open) reconcile.current?.(open);
+    wasOpen.current = open;
+  }, [open]);
 
   useEffect(() => {
-    if (!enabled || pathname !== ROUTES.HOME || typeof window === "undefined") {
-      return;
-    }
+    const surface = surfaceRef.current;
+    const panel = drawerRef.current;
+    const scrim = scrimRef.current;
+    if (!enabled || !surface || !panel || !scrim) return;
+    let gesture: Gesture | null = null;
+    let settling: Gesture | null = null;
+    let settlingOpen = false;
+    let timer = 0;
+    let suppressClickUntil = 0;
+    // The closed panel already includes its authored shadow clearance.
+    const shadowClearance = Math.max(0, -panel.getBoundingClientRect().left - panel.offsetWidth);
 
-    let gesture: DrawerGesture | null = null;
-    let settleTimer = 0;
-
-    const reset = () => {
+    const clear = (current: Gesture) => {
+      for (const property of ["transition", "transform", "translate", "will-change"]) current.panel.style.removeProperty(property);
+      for (const property of ["transition", "opacity", "visibility", "will-change"]) current.scrim.style.removeProperty(property);
+    };
+    const place = (current: Gesture, distance: number, phase: "drag" | "open" | "close") => {
+      const offset = Math.min(0, Math.max(-current.width, distance - current.width));
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const motion = phase === "open" ? "enter" : "exit";
+      current.panel.style.transition = phase === "drag" || reduced ? "none"
+        : `transform var(--motion-sheet-${motion}-duration) var(--motion-sheet-${motion}-ease)`;
+      // Tailwind v4's resting translate is independent of transform. Disable
+      // it for the pull, otherwise both offsets add and the panel stays hidden.
+      current.panel.style.translate = "none";
+      current.scrim.style.transition = phase === "drag" || reduced ? "none"
+        : `opacity var(--motion-sheet-${motion}-duration) var(--motion-sheet-${motion}-ease)`;
+      current.panel.style.transform = `translate3d(${offset}px, 0, 0)`;
+      current.scrim.style.opacity = String(1 - Math.abs(offset) / current.width);
+      current.scrim.style.visibility = "visible";
+    };
+    const settle = (current: Gesture, open: boolean, notify = false) => {
+      window.clearTimeout(timer);
       gesture = null;
-    };
-
-    const begin = (params: Omit<DrawerGesture, "axis" | "drawer" | "overlay" | "width">) => {
-      if (!document.querySelector(WORKSPACE)) return;
-      const drawer = document.querySelector<HTMLElement>(DRAWER);
-      if (!drawer || drawer.getAttribute("aria-hidden") !== "true") return;
-      const overlay = drawer.previousElementSibling instanceof HTMLElement ? drawer.previousElementSibling : null;
-      window.clearTimeout(settleTimer);
-      gesture = { ...params, axis: "undecided", drawer, overlay, width: drawer.offsetWidth || 320 };
-    };
-
-    const move = (x: number, y: number) => {
-      if (!gesture) return;
-      const deltaX = x - gesture.startX;
-      const deltaY = y - gesture.startY;
-      const horizontal = Math.abs(deltaX);
-      const vertical = Math.abs(deltaY);
-      if (gesture.axis === "undecided" && (horizontal >= AXIS_LOCK_PX || vertical >= AXIS_LOCK_PX)) {
-        gesture.axis = horizontal > vertical * DIRECTION_RATIO ? "horizontal" : "vertical";
+      settling = current;
+      settlingOpen = open;
+      place(current, open ? current.width : 0, open ? "open" : "close");
+      if (notify && open !== current.initialOpen) {
+        // Existing state, focus, loading and isolation owner, once per release.
+        if (open) action.current.onOpen(); else action.current.onClose();
       }
-      if (gesture.axis === "vertical" || deltaX <= 0) {
-        if (gesture.axis === "horizontal") {
-          place(gesture, 0, true);
-          scheduleClear(gesture);
-        }
-        reset();
-        return;
-      }
-      if (gesture.axis !== "horizontal") return;
-      place(gesture, deltaX, false);
-    };
-
-    const scheduleClear = (current: DrawerGesture) => {
-      window.clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => clearInline(current), SETTLE_MS + 30);
-    };
-
-    const finish = (x: number, y: number, timestamp: number) => {
-      if (!gesture) return;
-      const current = gesture;
-      const deltaX = x - current.startX;
-      const deltaY = y - current.startY;
-      const horizontal = Math.abs(deltaX);
-      const vertical = Math.abs(deltaY);
-      const elapsed = Math.max(1, timestamp - current.startedAt);
-      const velocity = horizontal / elapsed;
-      const shouldOpen =
-        current.axis === "horizontal" &&
-        deltaX > 0 &&
-        horizontal > vertical * DIRECTION_RATIO &&
-        (horizontal >= COMMIT_DISTANCE_PX || velocity >= COMMIT_VELOCITY_PX_PER_MS);
-      reset();
-      if (current.axis !== "horizontal") return;
-      if (shouldOpen) {
-        // Settle to open from where the finger left it, then hand the state
-        // to the workspace; its class puts the drawer at the same place.
-        place(current, current.width, true);
-        document.querySelector<HTMLButtonElement>(TOGGLE)?.click();
-      } else {
-        place(current, 0, true);
-      }
-      scheduleClear(current);
-    };
-
-    const pointerStart = (event: PointerEvent) => {
-      if (
-        event.pointerType !== "touch" ||
-        event.clientX <= BACK_GESTURE_RESERVED_WIDTH_PX ||
-        hasBlockingOverlay() ||
-        shouldIgnoreSwipeTarget(event.target)
-      ) {
-        return;
-      }
-      begin({
-        input: "pointer",
-        identifier: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        startedAt: event.timeStamp || performance.now(),
-      });
-    };
-    const pointerMove = (event: PointerEvent) => {
-      if (gesture?.input !== "pointer" || gesture.identifier !== event.pointerId) return;
-      move(event.clientX, event.clientY);
-    };
-    const pointerEnd = (event: PointerEvent) => {
-      if (gesture?.input !== "pointer" || gesture.identifier !== event.pointerId) return;
-      finish(event.clientX, event.clientY, event.timeStamp || performance.now());
-    };
-
-    const touchStart = (event: TouchEvent) => {
-      const touch = event.touches[0];
-      if (gesture?.input === "pointer") return;
-      if (
-        !touch ||
-        event.touches.length !== 1 ||
-        touch.clientX <= BACK_GESTURE_RESERVED_WIDTH_PX ||
-        hasBlockingOverlay() ||
-        shouldIgnoreSwipeTarget(event.target)
-      ) {
-        return;
-      }
-      begin({
-        input: "touch",
-        identifier: touch.identifier,
-        startX: touch.clientX,
-        startY: touch.clientY,
-        startedAt: event.timeStamp || performance.now(),
-      });
-    };
-    const touchForGesture = (touches: TouchList) =>
-      gesture ? (Array.from(touches).find((touch) => touch.identifier === gesture?.identifier) ?? null) : null;
-    const touchMove = (event: TouchEvent) => {
-      if (gesture?.input !== "touch") return;
-      const touch = touchForGesture(event.touches);
-      if (!touch) return reset();
-      move(touch.clientX, touch.clientY);
-    };
-    const touchEnd = (event: TouchEvent) => {
-      if (gesture?.input !== "touch") return;
-      const touch = touchForGesture(event.changedTouches);
-      if (!touch) return reset();
-      finish(touch.clientX, touch.clientY, event.timeStamp || performance.now());
+      const duration = getComputedStyle(current.panel).transitionDuration.split(",").reduce((max, value) => {
+        const ms = parseFloat(value) * (value.trim().endsWith("ms") ? 1 : 1000);
+        return Number.isFinite(ms) ? Math.max(max, ms) : max;
+      }, 0);
+      timer = window.setTimeout(() => {
+        clear(current); settling = null; setDragging(false);
+      }, duration + 30);
     };
     const cancel = () => {
-      if (gesture?.axis === "horizontal") {
-        place(gesture, 0, true);
-        scheduleClear(gesture);
+      if (gesture?.axis === "horizontal") settle(gesture, wasOpen.current);
+      else gesture = null;
+    };
+    reconcile.current = (nextOpen) => {
+      if (settling && settlingOpen !== nextOpen) settle(settling, nextOpen);
+      else if (gesture?.axis === "horizontal") settle(gesture, nextOpen);
+      else gesture = null;
+    };
+    const start = (event: TouchEvent) => {
+      // A fresh touch ends the prior drag's synthetic-click sequence even if
+      // settlement or an excluded control prevents this touch becoming a pan.
+      suppressClickUntil = 0;
+      if (event.touches.length !== 1) { cancel(); return; }
+      const touch = event.touches[0];
+      if (!touch) return;
+      const initialOpen = wasOpen.current;
+      const origin = event.currentTarget as HTMLElement;
+      if (settling || (initialOpen ? origin === surface : origin !== surface) ||
+          panel.getAttribute("aria-hidden") !== String(!initialOpen) || touch.clientX <= EDGE_BACK_LANE ||
+          (!initialOpen && nativeShellOverlayBlocked()) || domBlocked() || excludedTarget(event.target, origin, initialOpen)) return;
+      // Include the authored closed shadow clearance, not just panel width.
+      const width = initialOpen ? panel.offsetWidth + shadowClearance : Math.max(panel.offsetWidth, -panel.getBoundingClientRect().left);
+      if (width <= 0) return;
+      gesture = { identifier: touch.identifier, x: touch.clientX, y: touch.clientY,
+        time: event.timeStamp, axis: "undecided", initialOpen, surface: origin, width, panel, scrim };
+    };
+    const move = (event: TouchEvent) => {
+      if (!gesture) return;
+      if (event.touches.length !== 1) { cancel(); return; }
+      const touch = Array.from(event.touches).find(point => point.identifier === gesture?.identifier);
+      if (!touch || panel.getAttribute("aria-hidden") !== String(!gesture.initialOpen) || gesture.surface.closest("[inert], [hidden]") ||
+          domBlocked()) { cancel(); return; }
+      const dx = touch.clientX - gesture.x;
+      const dy = touch.clientY - gesture.y;
+      if (gesture.axis === "undecided") {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < AXIS_LOCK) return;
+        const directed = gesture.initialOpen ? -dx : dx;
+        if (directed <= 0 || Math.abs(dx) <= Math.abs(dy) * DIRECTION_RATIO || (!gesture.initialOpen && nativeShellOverlayBlocked())) { gesture = null; return; }
+        gesture.axis = "horizontal";
+        panel.style.willChange = "transform";
+        scrim.style.willChange = "opacity";
+        setDragging(true);
       }
-      reset();
+      suppressClickUntil = performance.now() + 500;
+      event.stopPropagation(); // Keep owned moves local; Profile already yields to the open drawer.
+      place(gesture, (gesture.initialOpen ? gesture.width : 0) + dx, "drag");
     };
-
-    const options = { capture: true, passive: true } as const;
-    window.addEventListener("pointerdown", pointerStart, options);
-    window.addEventListener("pointermove", pointerMove, options);
-    window.addEventListener("pointerup", pointerEnd, options);
-    window.addEventListener("pointercancel", cancel, { capture: true });
-    window.addEventListener("touchstart", touchStart, options);
-    window.addEventListener("touchmove", touchMove, options);
-    window.addEventListener("touchend", touchEnd, options);
-    window.addEventListener("touchcancel", cancel, { capture: true });
-
+    const end = (event: TouchEvent) => {
+      if (!gesture) return;
+      const touch = Array.from(event.changedTouches).find(point => point.identifier === gesture?.identifier);
+      if (!touch) { cancel(); return; }
+      if (gesture.axis !== "horizontal") { gesture = null; return; }
+      const dx = touch.clientX - gesture.x;
+      const dy = touch.clientY - gesture.y;
+      event.stopPropagation();
+      suppressClickUntil = performance.now() + 500;
+      const directed = gesture.initialOpen ? -dx : dx;
+      const velocity = directed / Math.max(1, event.timeStamp - gesture.time);
+      const committed = !domBlocked() && panel.getAttribute("aria-hidden") === String(!gesture.initialOpen) &&
+        directed > Math.abs(dy) * DIRECTION_RATIO &&
+        (directed >= COMMIT_DISTANCE || (directed >= AXIS_LOCK * 2 && velocity >= COMMIT_VELOCITY));
+      settle(gesture, committed ? !gesture.initialOpen : gesture.initialOpen, true);
+    };
+    const click = (event: MouseEvent) => {
+      // A horizontal drag over a chat row/scrim must not select/delete/close it.
+      if (event.detail === 0 || performance.now() >= suppressClickUntil) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const visibility = () => { if (document.visibilityState === "hidden") cancel(); };
+    const options = { passive: true } as const;
+    const surfaces = [surface, panel, scrim];
+    for (const node of surfaces) {
+      node.addEventListener("touchstart", start, options);
+      node.addEventListener("touchmove", move, options);
+      node.addEventListener("touchend", end, options);
+      node.addEventListener("touchcancel", cancel, options);
+      node.addEventListener("click", click, true);
+    }
+    document.addEventListener("visibilitychange", visibility);
     return () => {
-      window.clearTimeout(settleTimer);
-      if (gesture) clearInline(gesture);
-      reset();
-      window.removeEventListener("pointerdown", pointerStart, true);
-      window.removeEventListener("pointermove", pointerMove, true);
-      window.removeEventListener("pointerup", pointerEnd, true);
-      window.removeEventListener("pointercancel", cancel, true);
-      window.removeEventListener("touchstart", touchStart, true);
-      window.removeEventListener("touchmove", touchMove, true);
-      window.removeEventListener("touchend", touchEnd, true);
-      window.removeEventListener("touchcancel", cancel, true);
+      window.clearTimeout(timer);
+      if (gesture) clear(gesture);
+      if (settling) clear(settling);
+      reconcile.current = null;
+      setDragging(false);
+      for (const node of surfaces) {
+        node.removeEventListener("touchstart", start);
+        node.removeEventListener("touchmove", move);
+        node.removeEventListener("touchend", end);
+        node.removeEventListener("touchcancel", cancel);
+        node.removeEventListener("click", click, true);
+      }
+      document.removeEventListener("visibilitychange", visibility);
     };
-  }, [enabled, pathname]);
-
+  }, [enabled, surfaceRef, drawerRef, scrimRef]);
   return null;
 }

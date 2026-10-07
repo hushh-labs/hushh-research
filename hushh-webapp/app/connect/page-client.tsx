@@ -156,6 +156,7 @@ import {
 } from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { MessageBubbleIcon } from "@/components/connections/message-bubble-icon";
 import {
   CONNECT_CONNECTION_LIST_CLASSNAME,
   CONNECT_PAGE_CONTENT_CLASSNAME,
@@ -264,6 +265,12 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
  */
 const CONNECT_STICKY_SEARCH_CLASSNAME =
   "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] pb-2 pt-0.5";
+
+/** dd/mm/yy in the viewer's local calendar, the same on every device locale. */
+function formatConnectedDate(date: Date): string {
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${two(date.getDate())}/${two(date.getMonth() + 1)}/${two(date.getFullYear() % 100)}`;
+}
 
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
@@ -2911,7 +2918,9 @@ export default function ConnectPageClient() {
     <div
       ref={directoryMenuRef}
       data-testid="connect-directory-menu-anchor"
-      className="relative"
+      // The 44px tap target centres a ~20px label, so 12px of it is blank
+      // below "People". Pull the description up; the hit area is unchanged.
+      className="relative -mb-3"
     >
       {useWebDirectoryPopover ? (
         <Popover open={directoryMenuOpen} onOpenChange={setDirectoryMenuOpen}>
@@ -3085,38 +3094,6 @@ export default function ConnectPageClient() {
                         </div>
                       ) : (
                         <div className="space-y-3 sm:space-y-4">
-                          {tab === "people" ? (
-                            <LivingConnections
-                              key={user?.uid ?? "signed-out"}
-                              currentUserId={user?.uid ?? null}
-                              circlesState={circlesState}
-                              ownerName={user?.displayName || "You"}
-                              ownerPhotoUrl={user?.photoURL ?? null}
-                              connections={sortedConnections}
-                              totalCount={connectionsTotalCount}
-                              loading={
-                                !connectionsRefreshError &&
-                                (!connectionsLoaded ||
-                                  connectionsRefreshingFirstPage) &&
-                                sortedConnections.length === 0
-                              }
-                              error={connectionsRefreshError}
-                              onFindPeople={() => {
-                                searchInputRef.current?.scrollIntoView({
-                                  behavior: "smooth",
-                                  block: "center",
-                                });
-                                searchInputRef.current?.focus({
-                                  preventScroll: true,
-                                });
-                              }}
-                              onCreateCircle={() => setCreateCircleDialogOpen(true)}
-                              onRetry={handleRefreshConnections}
-                              onRetryCircles={() =>
-                                setCircleRefreshToken((value) => value + 1)
-                              }
-                            />
-                          ) : null}
                           <SettingsGroup
                             className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-3 sm:p-4"
                             titleControl={
@@ -3288,7 +3265,7 @@ export default function ConnectPageClient() {
                                     !Number.isNaN(
                                       Date.parse(connection.createdAt),
                                     )
-                                      ? `Connected on ${new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" }).format(new Date(connection.createdAt))}`
+                                      ? `Connected on ${formatConnectedDate(new Date(connection.createdAt))}`
                                       : undefined
                                   }
                                   voiceLabel={
@@ -3320,7 +3297,7 @@ export default function ConnectPageClient() {
                                           effect="fade"
                                           size="compact"
                                           aria-label={`Message ${connection.displayName || connection.userId}`}
-                                          className="!border !border-[color:var(--app-accent)] !bg-transparent !px-3 !text-[color:var(--app-accent)]"
+                                          className="!size-11 !min-w-11 !bg-transparent !p-0"
                                           onClick={(event) => {
                                             event.stopPropagation();
                                             router.push(
@@ -3330,7 +3307,7 @@ export default function ConnectPageClient() {
                                             );
                                           }}
                                         >
-                                          Message
+                                          <MessageBubbleIcon />
                                         </Button>
                                       ) : null}
                                       <Button
@@ -3345,7 +3322,7 @@ export default function ConnectPageClient() {
                                           );
                                         }}
                                         aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                                        className="!size-11 !min-w-11 !bg-transparent !p-0 text-[color:var(--app-secondary-label)]"
+                                        className="!size-11 !min-w-11 !bg-transparent !p-0 text-destructive"
                                       >
                                         <Trash2
                                           aria-hidden="true"
@@ -3383,9 +3360,10 @@ export default function ConnectPageClient() {
                           <div className="space-y-4">
                             <SettingsGroup
                               testId="connect-directory-group"
-                              headingClassName={
-                                CONNECT_SECTION_HEADING_CLASSNAME
-                              }
+                              headingClassName={cn(
+                                CONNECT_SECTION_HEADING_CLASSNAME,
+                                "mb-1 mt-1",
+                              )}
                               titleControl={directorySelector}
                               // People only. This one JSX node also renders the RIAs
                               // tab, where an address book has nothing to offer --
@@ -3913,8 +3891,23 @@ export default function ConnectPageClient() {
                     </div>
                     <div
                       data-connect-surface="circles"
-                      className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}
+                      className={cn(CONNECT_SWIPE_PANE_INSET_CLASSNAME, "space-y-3 sm:space-y-4")}
                     >
+                      <LivingConnections
+                        key={user?.uid ?? "signed-out"}
+                        currentUserId={user?.uid ?? null}
+                        circlesState={circlesState}
+                        ownerName={user?.displayName || "You"}
+                        ownerPhotoUrl={user?.photoURL ?? null}
+                        connections={sortedConnections}
+                        totalCount={connectionsTotalCount}
+                        loading={!connectionsRefreshError && (!connectionsLoaded || connectionsRefreshingFirstPage) && sortedConnections.length === 0}
+                        error={connectionsRefreshError}
+                        onFindPeople={() => { setTab("people"); commitSurface("all"); }}
+                        onCreateCircle={() => setCreateCircleDialogOpen(true)}
+                        onRetry={handleRefreshConnections}
+                        onRetryCircles={() => setCircleRefreshToken(value => value + 1)}
+                      />
                       <ConnectCirclesTab
                         createDialogOpen={createCircleDialogOpen}
                         onCreateDialogOpenChange={setCreateCircleDialogOpen}

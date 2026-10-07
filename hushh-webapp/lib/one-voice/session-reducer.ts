@@ -27,6 +27,8 @@ import type {
   PendingActionPublic,
   ServerFrame,
   ToolResultPublic,
+  TranscriptFrame,
+  TranscriptKind,
   VoiceState,
 } from "@/lib/one-voice/protocol";
 import {
@@ -79,6 +81,9 @@ const NEUTRAL_STATUSES = new Set<string>([
   "sos_partially_stopped",
   // The emergency roster is at its limit; nobody was added.
   "roster_full",
+  // add_circle_members: every requested person was refused or already in; no
+  // one was added, so the batch must not read as done.
+  "none_added",
   "step_order",
   "recipient_key_missing",
   "recipient_not_ready",
@@ -115,6 +120,22 @@ export type ToolResultTone = "success" | "neutral" | "failure" | "pending";
  */
 const PENDING_STATUSES = new Set<string>([SOS_GRANTS_CREATED, "draft_open_requested"]);
 
+/**
+ * Outcomes that are neither done nor failed, whatever the frame's `ok` says.
+ * Nothing went wrong, and what the person asked for either did not happen (a
+ * cancel that found the email already sent, being sent, or never sent) or
+ * cannot be confirmed (Gmail may or may not have sent it). Never "Done".
+ */
+export const NEUTRAL_OUTCOME_STATUSES = new Set<string>([
+  "draft_open_unconfirmed",
+  "draft_send_unconfirmed",
+  "send_unconfirmed",
+  "schedule_unconfirmed",
+  "already_sent",
+  "already_sending",
+  "not_sent",
+]);
+
 /** An armed-but-unsent outcome: neither success nor failure yet. */
 /**
  * Statuses that ask the surface to do something rather than report an outcome.
@@ -122,7 +143,40 @@ const PENDING_STATUSES = new Set<string>([SOS_GRANTS_CREATED, "draft_open_reques
  * They carry nothing of their own to show, and the surface they act on is the
  * result already displayed.
  */
-export const DISPATCH_ONLY_STATUSES = new Set<string>(["mail_open_dispatched"]);
+export const DISPATCH_ONLY_STATUSES = new Set<string>([
+  "mail_open_dispatched",
+  "draft_open_dispatched",
+]);
+
+/**
+ * A mail list the person can still act on by position: rows the server
+ * offered under a revision ("open the second one", "reply to it").
+ *
+ * It keeps the answer slot across a new question until that question produces
+ * a result of its own. Clearing it the moment the person spoke took away the
+ * very list their words were about, so a spoken open arrived with nothing left
+ * on screen to open.
+ */
+export function keepsAnswerSlotAcrossInput(result: ToolResultPublic | null): boolean {
+  return (
+    result !== null &&
+    typeof result.offer_revision === "number" &&
+    Array.isArray(result.items) &&
+    result.items.length > 0
+  );
+}
+
+/**
+ * A proposal whose UI is the pending card. It answers nothing yet, so it does
+ * not take the answer slot from an offered list: "send the second draft" and
+ * "cancel the first one" are approved while the list they name stays on screen.
+ */
+function isConfirmationHandoff(result: ToolResultPublic): boolean {
+  return (
+    String(result.status || "").trim() === "confirmation_required" ||
+    result.needs === "confirmation"
+  );
+}
 
 /**
  * A navigation the app was asked to make. It is not a success (it stays in
@@ -147,9 +201,10 @@ export function toolResultTone(
   // An armed Save My Soul is "sending your position", whatever `ok` says: the
   // relay sends it with ok:false because nothing has been delivered yet.
   if (isPendingStatus(value)) return "pending";
-  // The review card may already be visible after a lost acknowledgement.
-  // This says nothing about a send, so avoid both success and failure claims.
-  if (value === "draft_open_unconfirmed") return "neutral";
+  // The review card may already be visible after a lost acknowledgement, a
+  // send may or may not have gone out, a cancel may have found nothing left to
+  // cancel: avoid both success and failure claims.
+  if (NEUTRAL_OUTCOME_STATUSES.has(value)) return "neutral";
   if (NAVIGATION_DISPATCH_STATUSES.has(value)) {
     return ok === false ? "failure" : "neutral";
   }
@@ -340,6 +395,9 @@ const INFORMATIONAL_ERROR_CODES = new Set<string>([
   // The tap's proof failed verification (expired, revoked, other account);
   // the card stays pending and a fresh tap can still complete it.
   "firebase_proof_invalid",
+  // Voice storage could not record a tap or cancel; the relay keeps the
+  // session up and the card stays as it was, so the person can try again.
+  "storage_unavailable",
 ]);
 
 function summarizeArgs(
@@ -407,37 +465,137 @@ function mapServerStateToPhase(
   return state;
 }
 
+/**
+ * Whitespace-insensitive form of one row's text. Used ONLY to compare a row
+ * with an incoming frame of the same role and turn; it never classifies what
+ * was said and never matches across turns or roles.
+ */
+function normalizeTranscriptText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+type TranscriptMerge = { transcript: TranscriptItem[]; transcriptSeq: number };
+
+/**
+ * Renders a transcript frame idempotently per identity (role + turn). A frame
+ * carries no chunk id, so the latest row of the same identity decides whether
+ * the incoming text restates it (replace), repeats a settled final (no-op),
+ * continues it (append to the row) or starts a new line (append a row).
+ */
 function mergeTranscript(
   transcript: TranscriptItem[],
+  transcriptSeq: number,
   role: TranscriptItem["role"],
   turnId: string,
   text: string,
   final: boolean,
-): TranscriptItem[] {
-  const index = findLastIndex(
-    transcript,
-    (item) => item.turnId === turnId && item.role === role && !item.final,
-  );
-  if (index === -1) {
+): TranscriptMerge {
+  const appendRow = (): TranscriptMerge => {
     const item: TranscriptItem = {
-      id: `${role}:${turnId}:${transcript.length}`,
+      // A monotonic sequence keeps ids unique after the cap drops old rows.
+      id: `${role}:${turnId}:${transcriptSeq}`,
       role,
       text,
       final,
       turnId,
     };
-    return [...transcript, item].slice(-MAX_TRANSCRIPT_ITEMS);
+    return {
+      transcript: [...transcript, item].slice(-MAX_TRANSCRIPT_ITEMS),
+      transcriptSeq: transcriptSeq + 1,
+    };
+  };
+  const replaceRow = (index: number, merged: string): TranscriptMerge => {
+    const next = transcript.slice();
+    next[index] = { ...transcript[index]!, text: merged, final };
+    return { transcript: next, transcriptSeq };
+  };
+
+  const index = findLastIndex(
+    transcript,
+    (item) => item.turnId === turnId && item.role === role,
+  );
+  if (index === -1) return appendRow();
+  const existing = transcript[index]!;
+  const incoming = normalizeTranscriptText(text);
+  const current = normalizeTranscriptText(existing.text);
+  const isPrefix = incoming.startsWith(current);
+  const longer = incoming.length > current.length;
+  // A chunk that begins with whitespace is incremental by its own shape: it
+  // continues the row ("H" + " Hussh garage"), so it can never restate it.
+  const continues = /^\s/.test(text);
+  const restates = !continues && isPrefix;
+
+  if (!existing.final) {
+    // A cumulative restatement replaces the row. A chunk equal to the row so
+    // far is not strictly longer, so it is incremental and appends ("S","S").
+    if (restates && (longer || final)) return replaceRow(index, text);
+    return replaceRow(index, `${existing.text}${text}`);
+  }
+  // The row is settled. Re-sending the same final changes nothing.
+  if (final && incoming === current) return { transcript, transcriptSeq };
+  if (restates && longer) return replaceRow(index, text);
+  // Anything else (e.g. speech after a tool result) is its own line.
+  return appendRow();
+}
+
+type TranscriptSegment = { segmentId: string; seq: number; kind: TranscriptKind };
+
+/** The relay's segment identity, only when all three fields are well formed. */
+function transcriptSegment(frame: TranscriptFrame): TranscriptSegment | null {
+  const { segment_id: segmentId, seq, kind } = frame;
+  if (typeof segmentId !== "string" || segmentId.length === 0) return null;
+  if (typeof seq !== "number" || !Number.isInteger(seq) || seq < 1) return null;
+  if (kind !== "partial" && kind !== "cumulative" && kind !== "final") return null;
+  return { segmentId, seq, kind };
+}
+
+/**
+ * Applies a contracted frame to its row, keyed by role and the relay's
+ * segment id. The relay says how to apply the text, so nothing here reads its
+ * shape: a frame at or below the row's last seq (a repeat or a late arrival)
+ * and any frame for a frozen row change nothing; partial appends; cumulative
+ * replaces; final replaces and freezes.
+ */
+function mergeContractedTranscript(
+  transcript: TranscriptItem[],
+  transcriptSeq: number,
+  role: TranscriptItem["role"],
+  turnId: string,
+  text: string,
+  segment: TranscriptSegment,
+): TranscriptMerge {
+  const final = segment.kind === "final";
+  const index = findLastIndex(
+    transcript,
+    (item) => item.role === role && item.segmentId === segment.segmentId,
+  );
+  if (index === -1) {
+    const item: TranscriptItem = {
+      id: `${role}:${segment.segmentId}`,
+      role,
+      text,
+      final,
+      turnId,
+      segmentId: segment.segmentId,
+      lastSeq: segment.seq,
+    };
+    return {
+      transcript: [...transcript, item].slice(-MAX_TRANSCRIPT_ITEMS),
+      transcriptSeq,
+    };
   }
   const existing = transcript[index]!;
-  // Cumulative transcripts replace; incremental ones append.
-  const merged =
-    !existing.text ||
-    (text.length >= existing.text.length && text.startsWith(existing.text))
-      ? text
-      : `${existing.text}${text}`;
+  if (existing.final || segment.seq <= (existing.lastSeq ?? 0)) {
+    return { transcript, transcriptSeq };
+  }
   const next = transcript.slice();
-  next[index] = { ...existing, text: merged, final };
-  return next;
+  next[index] = {
+    ...existing,
+    text: segment.kind === "partial" ? `${existing.text}${text}` : text,
+    final,
+    lastSeq: segment.seq,
+  };
+  return { transcript: next, transcriptSeq };
 }
 
 /** True when the transcript has anything a person would actually read. */
@@ -547,6 +705,9 @@ function reduceServerFrame(
         activeInputTurnId: null,
         activeResponseTurnId: null,
         fencedTurnIds: [],
+        relayFeatures: Array.isArray(frame.features)
+          ? frame.features.filter((item): item is string => typeof item === "string")
+          : [],
       };
     }
     case "audio": {
@@ -605,13 +766,24 @@ function reduceServerFrame(
             : state.clearedTurnIds,
         };
       }
-      const transcript = mergeTranscript(
-        state.transcript,
-        role,
-        frame.turn_id,
-        frame.text,
-        frame.final,
-      );
+      const segment = transcriptSegment(frame);
+      const { transcript, transcriptSeq } = segment
+        ? mergeContractedTranscript(
+            state.transcript,
+            state.transcriptSeq,
+            role,
+            frame.turn_id,
+            frame.text,
+            segment,
+          )
+        : mergeTranscript(
+            state.transcript,
+            state.transcriptSeq,
+            role,
+            frame.turn_id,
+            frame.text,
+            frame.final,
+          );
       return {
         ...state,
         turnId: isStaleOrigin(state, frame.turn_id) && !newInput && !autonomousAfterFinal
@@ -635,7 +807,10 @@ function reduceServerFrame(
           : state.fencedTurnIds,
         // A new question owns the visible answer slot. Older tool receipts
         // remain in the timeline and any pending action still settles by ID.
-        lastResult: newInput ? null : state.lastResult,
+        lastResult:
+          newInput && !keepsAnswerSlotAcrossInput(state.lastResult)
+            ? null
+            : state.lastResult,
         toolTimeline: newInput
           ? state.toolTimeline.map((item) => item.tool === "open_screen" ? { ...item, navigationSuperseded: true } : item)
           : state.toolTimeline,
@@ -645,6 +820,7 @@ function reduceServerFrame(
             : state.phase,
         idleDeadlineAt: null,
         transcript,
+        transcriptSeq,
         historyCleared: hasVisibleTranscript(transcript)
           ? false
           : state.historyCleared,
@@ -802,7 +978,8 @@ function reduceServerFrame(
         // list that made "second" mean anything. It still joins the timeline, so
         // it is observable; it just does not become the thing on screen.
         lastResult: DISPATCH_ONLY_STATUSES.has(String(result.status || "").trim()) ||
-          !belongsToCurrentInput
+          !belongsToCurrentInput ||
+          (isConfirmationHandoff(result) && keepsAnswerSlotAcrossInput(state.lastResult))
           ? state.lastResult
           : result,
         pendingAction:
@@ -839,6 +1016,12 @@ function reduceServerFrame(
           ? entities.slice(0, MAX_ENTITIES)
           : [],
         receiptToken: receipt_token || null,
+        offeredResult:
+          state.pendingAction?.pending_action_id === row.pending_action_id
+            ? state.pendingAction.offeredResult
+            : keepsAnswerSlotAcrossInput(state.lastResult)
+              ? state.lastResult ?? undefined
+              : undefined,
         resolvedStatus: null,
         resolvedResult: null,
       };
@@ -870,6 +1053,12 @@ function reduceServerFrame(
       const awaitingDevice = isPendingStatus(frame.result_public?.status);
       return {
         ...state,
+        // Only the list kept beside this exact card yields to its result. A
+        // newer answer or a resolution with no result stays on screen.
+        lastResult:
+          frame.result_public && state.lastResult === current!.offeredResult
+            ? null
+            : state.lastResult,
         idleDeadlineAt: null,
         phase:
           state.activeInputTurnId
@@ -1114,6 +1303,8 @@ export function reduceVoiceSession(
           activeInputTurnId: null,
           activeResponseTurnId: null,
           fencedTurnIds: [],
+          // The next relay may be older; it says what it accepts in session.ready.
+          relayFeatures: [],
         };
       }
       return {
@@ -1150,6 +1341,7 @@ export function reduceVoiceSession(
         clientStep: null,
         candidatePicker: null,
         idleDeadlineAt: null,
+        relayFeatures: [],
         // A reconnect that is not happening leaves no stale reason behind.
         reconnectReason: reconnecting ? state.reconnectReason : null,
         error: error

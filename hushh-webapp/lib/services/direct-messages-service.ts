@@ -3,6 +3,19 @@ import { ApiService } from "@/lib/services/api-service";
 /** Text-only for now; keep the record shape extensible for future attachments. */
 export type DirectMessageKind = "text";
 
+export type DirectMessageReaction = {
+  emoji: string;
+  count: number;
+  reactedByViewer: boolean;
+};
+
+export type DirectMessageReplyPreview = {
+  id: string;
+  content: string;
+  senderIsViewer: boolean;
+  deletedForEveryoneAt: string | null;
+};
+
 export const DIRECT_MESSAGE_MAX_LENGTH = 2_000;
 
 export type DirectMessage = {
@@ -13,6 +26,10 @@ export type DirectMessage = {
   content: string;
   createdAt: string;
   readAt: string | null;
+  editedAt?: string | null;
+  deletedForEveryoneAt?: string | null;
+  replyTo?: DirectMessageReplyPreview | null;
+  reactions?: DirectMessageReaction[];
   kind?: DirectMessageKind;
 };
 
@@ -111,6 +128,32 @@ function asNonNegativeInt(value: unknown): number {
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
+function parseReactions(value: unknown): DirectMessageReaction[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const source = entry as Record<string, unknown>;
+    const emoji = asTrimmedString(source.emoji);
+    const count = asNonNegativeInt(source.count);
+    if (!emoji || !count) return [];
+    return [{ emoji, count, reactedByViewer: source.reactedByViewer === true }];
+  });
+}
+
+function parseReplyPreview(value: unknown): DirectMessageReplyPreview | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const id = asTrimmedString(source.id);
+  const content = typeof source.content === "string" ? source.content : null;
+  if (!id || content === null) return null;
+  return {
+    id,
+    content,
+    senderIsViewer: source.senderIsViewer === true,
+    deletedForEveryoneAt: asTrimmedString(source.deletedForEveryoneAt),
+  };
+}
+
 function parseMessage(value: unknown): DirectMessage | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
@@ -128,6 +171,10 @@ function parseMessage(value: unknown): DirectMessage | null {
     content,
     createdAt,
     readAt: asTrimmedString(source.readAt),
+    editedAt: asTrimmedString(source.editedAt),
+    deletedForEveryoneAt: asTrimmedString(source.deletedForEveryoneAt),
+    replyTo: parseReplyPreview(source.replyTo),
+    reactions: parseReactions(source.reactions),
     kind: source.kind === "text" ? "text" : undefined,
   };
 }
@@ -275,6 +322,7 @@ export class DirectMessagesService {
     idToken: string;
     content: string;
     recipientPersonRef: string;
+    replyToMessageId?: string | null;
   }): Promise<DirectMessageSendResult> {
     const recipientPersonRef = String(input.recipientPersonRef || "").trim();
     if (!recipientPersonRef) throw new Error("Choose one connected recipient before sending.");
@@ -284,6 +332,9 @@ export class DirectMessagesService {
       body: JSON.stringify({
         content: normalizeDirectMessageContent(input.content),
         recipientPersonRef,
+        ...(input.replyToMessageId?.trim()
+          ? { replyToMessageId: input.replyToMessageId.trim() }
+          : {}),
       }),
     });
     const payload = await jsonOrThrow<{ conversation?: unknown; message?: unknown }>(
@@ -295,6 +346,80 @@ export class DirectMessagesService {
       throw new Error("The sent message could not be verified.");
     }
     return { conversation, message };
+  }
+
+  static async editMessage(input: {
+    idToken: string;
+    conversationId: string;
+    messageId: string;
+    content: string;
+  }): Promise<DirectMessage> {
+    const conversationId = String(input.conversationId || "").trim();
+    const messageId = String(input.messageId || "").trim();
+    if (!conversationId || !messageId) throw new Error("This message is no longer available.");
+    const response = await ApiService.apiFetch(
+      `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: "PATCH",
+        headers: authHeaders(input.idToken),
+        body: JSON.stringify({ content: normalizeDirectMessageContent(input.content) }),
+      },
+    );
+    const payload = await jsonOrThrow<{ message?: unknown }>(response);
+    const message = parseMessage(payload.message);
+    if (!message || message.id !== messageId || message.conversationId !== conversationId) {
+      throw new Error("The edited message could not be verified.");
+    }
+    return message;
+  }
+
+  static async deleteMessage(input: {
+    idToken: string;
+    conversationId: string;
+    messageId: string;
+    scope: "me" | "everyone";
+  }): Promise<{ scope: "me" | "everyone"; message: DirectMessage | null }> {
+    const conversationId = String(input.conversationId || "").trim();
+    const messageId = String(input.messageId || "").trim();
+    if (!conversationId || !messageId) throw new Error("This message is no longer available.");
+    const response = await ApiService.apiFetch(
+      `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}?scope=${input.scope}`,
+      { method: "DELETE", headers: authHeaders(input.idToken) },
+    );
+    const payload = await jsonOrThrow<{ scope?: unknown; message?: unknown }>(response);
+    const scope = payload.scope === "everyone" ? "everyone" : payload.scope === "me" ? "me" : null;
+    if (!scope) throw new Error("The deleted message could not be verified.");
+    const message = payload.message == null ? null : parseMessage(payload.message);
+    if (scope === "everyone" && (!message || message.id !== messageId)) {
+      throw new Error("The deleted message could not be verified.");
+    }
+    return { scope, message };
+  }
+
+  static async reactToMessage(input: {
+    idToken: string;
+    conversationId: string;
+    messageId: string;
+    emoji: string;
+  }): Promise<DirectMessage> {
+    const conversationId = String(input.conversationId || "").trim();
+    const messageId = String(input.messageId || "").trim();
+    const emoji = String(input.emoji || "").trim();
+    if (!conversationId || !messageId || !emoji) throw new Error("This message is no longer available.");
+    const response = await ApiService.apiFetch(
+      `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/reaction`,
+      {
+        method: "PUT",
+        headers: authHeaders(input.idToken),
+        body: JSON.stringify({ emoji }),
+      },
+    );
+    const payload = await jsonOrThrow<{ message?: unknown }>(response);
+    const message = parseMessage(payload.message);
+    if (!message || message.id !== messageId || message.conversationId !== conversationId) {
+      throw new Error("The reaction could not be verified.");
+    }
+    return message;
   }
 
   static async markConversationRead(input: {

@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 
 import { LocationCommandProvider } from "@/components/agent/location-command-provider";
 import { LocationCommandDeviceBridge } from "@/components/one-location/onboarding/location-command-device-bridge";
@@ -10,6 +11,7 @@ import { RequestReviewStepBridge } from "@/components/connections/request-review
 import { VoiceSessionProvider } from "@/components/one-voice/voice-session-provider";
 import { OneVoiceMailDraftBridge } from "@/components/one-voice/one-voice-mail-draft-bridge";
 import { useOneVoiceLiveEnabled, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
+import { dispatchAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
 
 /**
  * Exactly one microphone owner at a time.
@@ -22,6 +24,14 @@ import { useOneVoiceLiveEnabled, useOneVoiceCommandsEnabled } from "@/lib/one-vo
 export function AgentOwnerGate({ children }: { children: ReactNode }) {
   const live = useOneVoiceLiveEnabled();
   const commands = useOneVoiceCommandsEnabled();
+  const pathname = usePathname();
+
+  // A source surface can hand Talk to One off to canonical Chat, but never
+  // starts recording under that source surface's route context.
+  useEffect(() => {
+    dispatchAgentConversationAfterRoute(pathname);
+  }, [pathname]);
+
   return (
     <LocationCommandProvider enabled={commands}>
       {commands ? <LocationCommandDeviceBridge /> : null}

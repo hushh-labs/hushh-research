@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Resolve the next Android build number (versionCode).
 
-The one-click Google Play pipeline needs a versionCode that is strictly greater
+The Google Play production pipeline needs a versionCode that is strictly greater
 than both:
 
-  * the highest versionCode already uploaded to Google Play Console for
-    com.hussh.app across all tracks (internal, alpha, beta, production), and
+  * the highest versionCode already known to Google Play Console for
+    com.hussh.app across current bundles, APKs, and active track releases, and
   * the ``versionCode`` committed in ``hushh-webapp/android/app/build.gradle``.
 
 This script reads the local ``build.gradle`` versionCode, mints a Google OAuth2
 access token from a service account JSON file (if provided) and queries the
-Google Play Developer API for the highest versionCode across all tracks, and
-prints ``max(play_latest, gradle_current) + 1`` to stdout. All diagnostics go to
-stderr so callers can capture the number cleanly:
+Google Play Developer API for the highest versionCode across current binary
+artifacts and active tracks, then prints ``max(play_latest, gradle_current) + 1``
+to stdout. All diagnostics go to stderr so callers can capture the number cleanly:
 
     NEXT_VERSION_CODE="$(python3 scripts/ci/resolve-android-build-number.py \
         --service-account-json "$RUNNER_TEMP/google-play-key.json")"
@@ -21,9 +21,10 @@ stderr so callers can capture the number cleanly:
     python3 scripts/ci/resolve-android-build-number.py --update-gradle
 
 Only PyJWT + cryptography are required beyond the standard library for the
-Play Developer API query; both are pip-installed in the workflow job. Without
-``--service-account-json`` (or if it is omitted), this falls back to
-``gradle_current + 1`` only.
+Play Developer API query; both are pip-installed in the workflow job. The
+production workflow always supplies ``--service-account-json`` and fails closed
+if Play cannot be queried. Omitting it remains an explicit local-only fallback
+to ``gradle_current + 1``.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import NoReturn
 
 DEFAULT_PACKAGE_NAME = "com.hussh.app"
 DEFAULT_GRADLE_PATH = os.path.join(
@@ -51,7 +53,7 @@ def log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
-def die(message: str) -> "NoReturn":  # type: ignore[name-defined]
+def die(message: str) -> NoReturn:
     log(f"resolve-android-build-number: {message}")
     raise SystemExit(1)
 
@@ -170,48 +172,71 @@ def play_request(url: str, token: str, method: str = "GET", body: dict | None = 
 
 
 def highest_play_version_code(token: str, package_name: str) -> int:
-    """Highest versionCode known to Play across ALL tracks, or 0 if the app
-    has no upload history yet (a legitimate first-run state, not an error)."""
+    """Highest versionCode known to Play, or 0 for a genuinely empty app.
+
+    Authorization and package lookup failures are never equivalent to an empty
+    release history: silently treating 403/404 as zero can reuse an already
+    uploaded versionCode for an established app.
+    """
     edit_result = play_request(
         f"{PLAY_API_ROOT}/applications/{package_name}/edits", token, method="POST", body={}
     )
     if isinstance(edit_result, urllib.error.HTTPError):
         detail = edit_result.read().decode("utf-8", "replace")
-        if edit_result.code in (403, 404):
-            log(
-                f"Google Play: no accessible upload history yet for {package_name} "
-                f"({edit_result.code}: {detail}); treating Play-known versionCode as 0."
-            )
-            return 0
         die(f"Google Play Developer API {edit_result.code} creating edit: {detail}")
 
     edit_id = edit_result.get("id")
     if not edit_id:
         die(f"Google Play edit response missing id: {edit_result}")
 
-    tracks_result = play_request(
-        f"{PLAY_API_ROOT}/applications/{package_name}/edits/{edit_id}/tracks", token
-    )
-    if isinstance(tracks_result, urllib.error.HTTPError):
-        detail = tracks_result.read().decode("utf-8", "replace")
-        die(f"Google Play Developer API {tracks_result.code} listing tracks: {detail}")
+    base_url = f"{PLAY_API_ROOT}/applications/{package_name}/edits/{edit_id}"
+    results: dict[str, dict] = {}
+    for resource in ("tracks", "bundles", "apks"):
+        result = play_request(f"{base_url}/{resource}", token)
+        if isinstance(result, urllib.error.HTTPError):
+            detail = result.read().decode("utf-8", "replace")
+            die(
+                f"Google Play Developer API {result.code} listing {resource}: {detail}"
+            )
+        results[resource] = result
 
     highest = 0
     track_count = 0
-    for track in tracks_result.get("tracks", []):
+    release_code_count = 0
+    for track in results["tracks"].get("tracks", []):
         track_count += 1
         for release in track.get("releases", []):
             for code in release.get("versionCodes", []):
                 try:
                     highest = max(highest, int(code))
+                    release_code_count += 1
                 except (TypeError, ValueError):
                     continue
 
+    artifact_count = 0
+    for resource, field in (("bundles", "bundles"), ("apks", "apks")):
+        for artifact in results[resource].get(field, []):
+            try:
+                highest = max(highest, int(artifact.get("versionCode")))
+                artifact_count += 1
+            except (TypeError, ValueError):
+                continue
+
     log(
-        f"Google Play: inspected {track_count} track(s) for {package_name}; "
+        f"Google Play: inspected {track_count} track(s), {release_code_count} active "
+        f"release code(s), and {artifact_count} current binary artifact(s) for {package_name}; "
         f"highest known versionCode = {highest}"
     )
     return highest
+
+
+def resolve_next_version_code(gradle_code: int, play_latest: int) -> int:
+    """Return the next versionCode above both authoritative floors."""
+    if gradle_code < 1:
+        raise ValueError("Gradle versionCode must be positive")
+    if play_latest < 0:
+        raise ValueError("Google Play versionCode floor cannot be negative")
+    return max(play_latest, gradle_code) + 1
 
 
 def main() -> None:
@@ -247,7 +272,7 @@ def main() -> None:
         token = mint_play_access_token(args.service_account_json)
         play_latest = highest_play_version_code(token, args.package_name)
 
-    next_version_code = max(play_latest, gradle_code) + 1
+    next_version_code = resolve_next_version_code(gradle_code, play_latest)
     log(
         f"gradle_current = {gradle_code}; play_latest = {play_latest}; "
         f"next versionCode = {next_version_code}"

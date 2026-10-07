@@ -174,7 +174,30 @@ const TARGETS: Array<[string, (page: Page) => Locator]> = [
   ["composer Send", (page) => page.getByRole("button", { name: "Send message" })],
 ];
 
-const RIPPLED_CONTROLS = TARGETS.length + 1;
+const RIPPLED_CONTROLS = TARGETS.length + 4;
+
+test("starter suggestions retain compact spacing, aligned tracks and accessible targets", async ({ page }) => {
+  await openFixture(page, "no-preference");
+  for (const width of [320, 393, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    const buttons = page.getByTestId("starter-suggestions").getByRole("button");
+    const frames = await buttons.evaluateAll(nodes => nodes.map(node => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return { x, y, width, height };
+    }));
+    expect(frames).toHaveLength(3);
+    for (const frame of frames) expect(frame.height).toBeGreaterThanOrEqual(44);
+    if (width < 640) {
+      expect(frames[0].x).toBe(frames[2].x);
+      expect(frames[1].y - frames[0].y - frames[0].height).toBeLessThanOrEqual(4.5);
+      expect(frames[2].y - frames[1].y - frames[1].height).toBeLessThanOrEqual(4.5);
+    } else {
+      expect(frames[0].y).toBe(frames[2].y);
+      expect(Math.abs(frames[0].width - frames[2].width)).toBeLessThanOrEqual(0.5);
+      expect(frames[0].height).toBeLessThan(100);
+    }
+  }
+});
 
 test("pointerdown grows a clipped ripple and never scales the control", async ({ page }) => {
   await openFixture(page, "no-preference");

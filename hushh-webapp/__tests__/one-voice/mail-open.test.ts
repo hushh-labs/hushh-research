@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   MailOpenError,
   mailOpenReason,
+  parseOpenedDraft,
   parseOpenedMail,
 } from "@/lib/one-voice/mail-open";
 
@@ -217,5 +218,112 @@ describe("the open_mail directive", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("draft open: the same binding, against the drafts route", () => {
+  it("posts a position and its offer to /draft/open and reads the draft as text", async () => {
+    const { ApiService } = await import("@/lib/services/api-service");
+    const { openOfferedDraft } = await import("@/lib/one-voice/mail-open");
+    const fetchSpy = vi.spyOn(ApiService, "apiFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          draft: {
+            to_label: "Priya",
+            to: ["priya@example.com"],
+            cc: [],
+            bcc: ["hidden@example.com"],
+            subject: " Diwali plans ",
+            body: "Shall we meet at 7?",
+            body_truncated: false,
+            updated_at: "2026-10-04T10:00:00+00:00",
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    try {
+      const draft = await openOfferedDraft({
+        vaultOwnerToken: "HCT:token",
+        conversationId: CONV,
+        ordinal: 2,
+        offerRevision: 8,
+      });
+      expect(draft).toEqual({
+        toLabel: "Priya",
+        to: ["priya@example.com"],
+        cc: [],
+        bcc: ["hidden@example.com"],
+        subject: "Diwali plans",
+        body: "Shall we meet at 7?",
+        bodyTruncated: false,
+        updatedAt: "2026-10-04T10:00:00+00:00",
+      });
+      const [path, init] = fetchSpy.mock.calls[0];
+      expect(path).toBe("/api/one/voice/draft/open");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        conversation_id: CONV,
+        ordinal: 2,
+        offer_revision: 8,
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("names a draft gone from Gmail, and the drafts switch, as reasons", () => {
+    expect(mailOpenReason(410, "DRAFT_GONE")).toBe("draft_gone");
+    expect(mailOpenReason(403, "VOICE_MAIL_DRAFTS_DISABLED")).toBe("disabled");
+  });
+
+  it("names a changed or missing Gmail connection, not a stale list", () => {
+    // These arrive as 409, which on its own means an unresolved offer. Telling
+    // the person to ask for a fresh list would loop them: the list is fine and
+    // the connection is what needs fixing.
+    expect(mailOpenReason(409, "GMAIL_ACCOUNT_CHANGED")).toBe("source_changed");
+    for (const code of [
+      "GMAIL_NOT_CONNECTED",
+      "GMAIL_READ_PERMISSION_REQUIRED",
+      "CONNECT_REQUIRED",
+      "RECONNECT_REQUIRED",
+    ]) {
+      expect(mailOpenReason(409, code)).toBe("reconnect_required");
+    }
+    // Negative control: a plain unresolved offer is still that.
+    expect(mailOpenReason(409, "MAIL_OFFER_UNRESOLVED")).toBe("offer_unresolved");
+  });
+
+  it("refuses a body that describes no draft", () => {
+    expect(parseOpenedDraft(null)).toBeNull();
+    expect(parseOpenedDraft({ draft: { subject: " ", body: "", to: [] } })).toBeNull();
+  });
+
+  it("routes a spoken draft open to the draft event, never the mail one", async () => {
+    const { executeDirective, ONE_VOICE_OPEN_DRAFT_EVENT } = await import(
+      "@/lib/one-voice/directives"
+    );
+    const types: string[] = [];
+    await expect(
+      executeDirective(
+        "open_draft",
+        { ordinal: 2, offer_revision: 8, conversation_id: CONV },
+        {
+          pathname: "/",
+          dispatchEvent: (event) => {
+            types.push(event.type);
+            (event as CustomEvent).detail.settle("opened");
+          },
+        },
+      ),
+    ).resolves.toMatchObject({ handled: true, status: "opened" });
+    expect(types).toEqual([ONE_VOICE_OPEN_DRAFT_EVENT]);
+    expect(ONE_VOICE_OPEN_DRAFT_EVENT).toBe("one-voice:open-draft");
+    await expect(
+      executeDirective(
+        "open_draft",
+        { ordinal: 2, conversation_id: CONV },
+        { pathname: "/", dispatchEvent: () => undefined },
+      ),
+    ).resolves.toMatchObject({ status: "failed", reason: "unbound_reference" });
   });
 });

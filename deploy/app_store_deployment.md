@@ -12,13 +12,19 @@
 >   opt-in — submits for public Apple review. Submission is not publication; automatic release
 >   after Apple approval additionally requires `--release-after-approval` — runbook:
 >   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
+> - **Google Play production:** `npm run android:release:playstore -- --dry-run` verifies the
+>   production backend, exact green `main` SHA, Play version floor, Firebase identity, signing, and
+>   AAB without uploading. `npm run android:release:playstore` performs the separately confirmed
+>   live production upload — runbook:
+>   [docs/guides/mobile/ship-android-playstore.md](../docs/guides/mobile/ship-android-playstore.md).
 >
 > The manual iOS steps below remain a reference. The human App Store Connect steps that no pipeline
 > can automate (metadata, screenshots, privacy nutrition labels, age rating, pricing, final review)
-> are documented in the production runbook. **Play Store remains fully manual.** Publish-safety
+> are documented in the production runbook. The manual Android build/upload steps below are also
+> historical reference; the governed workflow targets Google Play production only. Publish-safety
 > preconditions: `KT/hushh-one-publish-safety-audit.md`.
 
-**Status**: Reference for public store submission (iOS TestFlight + App Store upload/prepare are automated — see banner above)
+**Status**: Reference for public store submission (iOS and Android build/upload paths are automated — see banner above)
 **App Name**: Hussh One (display name; historically "Kai")
 **Bundle ID**: com.hushh.app
 **Current version**: read `MARKETING_VERSION` in `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj`
@@ -36,8 +42,8 @@
 - [x] Project synced with Capacitor
 
 ### Android Configuration
-- [x] Package name updated to `com.hushh.app` in build.gradle
-- [x] Namespace updated to `com.hushh.app`
+- [x] Package name updated to `com.hussh.app` in build.gradle
+- [x] Namespace updated to `com.hussh.app`
 - [x] App name changed to "Hushh" in strings.xml
 - [x] Version updated to 1.0.0 (versionName) and versionCode 1
 - [x] Package structure migrated from `com.hushh.pda` to `com.hushh.app`
@@ -277,7 +283,7 @@ In **Organizer** (opens automatically):
    - App access
    - Ads
 
-### Phase 2: Build Release APK/AAB
+### Phase 2: Governed production AAB
 
 #### Step 1: Bootstrap Local Signing State
 ```bash
@@ -287,53 +293,32 @@ cd <repo-root>
 
 Android release signing now comes from the active runtime profile and generated sidecar under `hushh-webapp/.env.local.d/android/`. Do not create ad hoc `key.properties` files in the repo.
 
-#### Step 2: Build Release AAB
+#### Step 2: Prove the release without uploading
 ```bash
 cd <repo-root>/hushh-webapp
-
-# Build and sync with the active profile materialized
-npm run cap:android:sync -- --profile prod-remote
-
-# Build release AAB
-cd android
-./gradlew bundleRelease
-
-# AAB location:
-# android/app/build/outputs/bundle/release/app-release.aab
+npm run android:release:playstore -- --dry-run
 ```
 
-### Phase 3: Upload to Play Console
+The dry run queries the real Play version floor, builds against the production backend, verifies
+the exact production backend revision and generated native routes, signs the AAB, verifies its
+signature, and stores it privately. It does not upload to Play.
 
-#### Step 1: Create Internal Testing Release
-1. **Play Console** → **Hushh** → **Release** → **Testing** → **Internal testing**
-2. Click **Create new release**
-3. Upload AAB: `app-release.aab`
-4. **Release name**: 1.0.0 (1)
-5. **Release notes**: Initial release
-6. Click **Review release** → **Start rollout to Internal testing**
+#### Step 3: Confirm and dispatch the live production release
 
-#### Step 2: Add Internal Testers
-1. **Testing** → **Internal testing** → **Testers**
-2. Create email list or use Google Group
-3. Share opt-in URL with testers
-4. No review required
-5. Max 100 testers
+```bash
+cd <repo-root>/hushh-webapp
+npm run android:release:playstore
+```
 
-#### Step 3: Promote to Closed Testing (Beta)
-1. After internal testing, go to **Closed testing**
-2. Create new release or promote from internal
-3. Add test tracks
-4. Submit for review
-5. Wait 1-2 days for approval
+The dispatcher displays the exact green `main` SHA, package, production runtime, and production
+track, then requires typing `release production`. The workflow has no internal, closed, open,
+alpha, beta, or scheduled mode.
 
-#### Step 4: Production Release
-1. **Release** → **Production**
-2. Create new release or promote from closed testing
-3. Upload or use existing AAB
-4. **Release notes**: What's new
-5. **Staged rollout**: 20% → 50% → 100% (recommended)
-6. Click **Review release** → **Start rollout to Production**
-7. Wait 1-7 days for review
+### Phase 3: Verify Play Console
+
+1. Open **Play Console** → **Hussh** → **Release** → **Production**.
+2. Confirm the uploaded versionCode, versionName, package `com.hussh.app`, release status, and review state match the successful workflow run.
+3. Resolve any Console-side policy, Data safety, availability, or listing blocker. Those forms are not changed by the workflow.
 
 ### Phase 4: Play Store Listing
 
@@ -378,11 +363,9 @@ open ios/App/App.xcodeproj
 ### Android Update
 ```bash
 cd <repo-root>/hushh-webapp
-npm run cap:build
-npm run cap:sync:android
-cd android
-./gradlew bundleRelease
-# Upload AAB to Play Console
+npm run android:release:playstore -- --dry-run
+# After reviewing the exact dry-run evidence:
+npm run android:release:playstore
 ```
 
 ---
@@ -429,7 +412,7 @@ cd android
 
 ### Testing
 - Test on real devices before submission
-- Use TestFlight/Internal Testing extensively
+- Use the dedicated QA/UAT lanes before selecting a production release SHA; the governed Play workflow itself is production-only
 - Check all native features (camera, location, file access, etc.)
 
 ---
@@ -443,6 +426,6 @@ cd android
 
 ---
 
-**Last Updated**: January 12, 2026  
-**App Version**: 1.0.0  
-**Build**: 1
+**Last Updated**: October 6, 2026
+**Android version**: read `versionName` from `hushh-webapp/android/app/build.gradle`
+**Android build**: resolved automatically above the current Google Play versionCode floor

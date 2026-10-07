@@ -19,14 +19,16 @@ function withMeasuredViewport(heightPx: number) {
   const rect = vi
     .spyOn(HTMLElement.prototype, "getBoundingClientRect")
     .mockImplementation(function measured(this: HTMLElement) {
-      const height = this.dataset.virtualized === "true" ? heightPx : 58;
+      const height = this.dataset.virtualized === "true" || this.dataset.appScrollRoot === "true" ? heightPx : 58;
+      const root = this.parentElement?.closest<HTMLElement>('[data-app-scroll-root="true"]');
+      const top = this.dataset.virtualized === "true" && root ? 120 - root.scrollTop : 0;
       return {
         x: 0,
-        y: 0,
-        top: 0,
+        y: top,
+        top,
         left: 0,
         right: 320,
-        bottom: height,
+        bottom: top + height,
         width: 320,
         height,
         toJSON: () => ({}),
@@ -37,7 +39,7 @@ function withMeasuredViewport(heightPx: number) {
     .mockReturnValue(heightPx);
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
     function measured(this: HTMLElement) {
-      return this.dataset.virtualized === "true"
+      return this.dataset.virtualized === "true" || this.dataset.appScrollRoot === "true"
         ? heightPx
         : 58;
     },
@@ -67,6 +69,70 @@ function renderList(count: number) {
 }
 
 describe("VirtualContactList", () => {
+  it("preserves page scroll when mounting and filtering across the windowing threshold", () => {
+    withMeasuredViewport(400);
+    const scrollTo = vi.fn(function (this: HTMLElement, options?: ScrollToOptions | number) {
+      if (typeof options === "object") this.scrollTop = options.top ?? this.scrollTop;
+    });
+    const rootRef = (node: HTMLDivElement | null) => {
+      if (node) {
+        node.scrollTop = 1000;
+        node.scrollTo = scrollTo;
+      }
+    };
+    const content = (count: number) => (
+      <div data-app-scroll-root="true" data-testid="retained-root" ref={rootRef}>
+        <VirtualContactList
+          items={rows(count)} getKey={(row) => row.id} scrollMode="page"
+          testId="retained-list" ariaLabel="People"
+          renderItem={(row) => <div data-testid="retained-row">person {row.id}</div>}
+        />
+      </div>
+    );
+    const view = render(content(120));
+    const root = screen.getByTestId("retained-root");
+    expect(root.scrollTop).toBe(1000);
+    expect(screen.getAllByTestId("retained-row").length).toBeLessThan(30);
+    view.rerender(content(3));
+    expect(screen.getAllByTestId("retained-row")).toHaveLength(3);
+    view.rerender(content(120));
+    expect(root.scrollTop).toBe(1000);
+    expect(screen.getAllByTestId("retained-row").length).toBeLessThan(30);
+    expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 0 }));
+  });
+
+  it("windows page-owned contacts against the app scroll root and follows its scroll", () => {
+    withMeasuredViewport(400);
+    const view = render(
+      <div data-app-scroll-root="true" data-testid="page-scroll">
+        <VirtualContactList
+          items={rows(120)}
+          getKey={(row) => row.id}
+          testId="page-list"
+          ariaLabel="People"
+          scrollMode="page"
+          renderItem={(row) => <button data-testid="page-row">person {row.id}</button>}
+        />
+        <button>Continue</button>
+      </div>,
+    );
+    const list = screen.getByTestId("page-list");
+    expect(list.className).not.toContain("overflow-y-auto");
+    expect(list.className).not.toContain("max-h-");
+    expect(screen.getAllByTestId("page-row").length).toBeLessThan(30);
+    const before = screen.getAllByTestId("page-row").map((row) => row.textContent);
+    const root = screen.getByTestId("page-scroll");
+    act(() => {
+      root.scrollTop = 2500;
+      fireEvent.scroll(root);
+    });
+    const after = screen.getAllByTestId("page-row").map((row) => row.textContent);
+    expect(after).not.toEqual(before);
+    expect(after.length).toBeLessThan(30);
+    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+    view.unmount();
+  });
+
   it("renders a short list as plain rows, with no windowing at all", () => {
     renderList(CONTACT_LIST_CONTROLS_THRESHOLD);
 

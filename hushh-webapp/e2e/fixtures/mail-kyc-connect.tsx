@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "../../components/app-ui/app-page-shell";
 import { PageHeader } from "../../components/app-ui/page-sections";
 import { SurfaceStack } from "../../components/app-ui/surfaces";
-import { type GmailWorkspace, GmailWorkspaceNavigation } from "../../components/gmail/gmail-workspace-navigation";
+import { type GmailWorkspace, GmailWorkspaceNavigation, GmailWorkspacePanels } from "../../components/gmail/gmail-workspace-navigation";
 import { MailKycConnectEntry } from "../../components/gmail/mail-kyc-connect-entry";
 
 /**
@@ -16,25 +16,39 @@ function Fixture() {
   const [workspace, setWorkspace] = useState<GmailWorkspace>("kyc");
   const [connects, setConnects] = useState(0);
   return (
+    <div data-app-scroll-root="true" className="relative h-dvh overflow-y-auto">
     <AppPageShell as="div" width="agent" className="bg-background py-8 text-foreground">
       <AppPageHeaderRegion className="mx-auto max-w-[820px]">
         <PageHeader
           title="Mail"
           titleRole="agent"
-          description="Connect Mail to set up receipts and KYC requests."
           className="[&_[data-slot=page-header-copy]]:!space-y-3"
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion className="mx-auto !mt-0 max-w-[820px]">
         <SurfaceStack compact>
           <GmailWorkspaceNavigation value={workspace} onValueChange={setWorkspace} />
-          {workspace === "kyc" ? (
-            <MailKycConnectEntry onConnect={() => setConnects((count) => count + 1)} />
-          ) : null}
+          <GmailWorkspacePanels
+            value={workspace}
+            onValueChange={setWorkspace}
+            panels={{
+              overview: <p>Mail overview</p>,
+              kyc: <MailKycConnectEntry onConnect={() => setConnects((count) => count + 1)} />,
+              receipts: (
+                <div>
+                  <p>Saved receipts</p>
+                  <div data-swipe-views-horizontal-scroll data-testid="receipt-rail" className="overflow-x-auto">
+                    <div className="w-[1000px] py-6">Synthetic wide receipt table</div>
+                  </div>
+                </div>
+              ),
+            }}
+          />
           <output data-testid="kyc-connects" className="sr-only">{connects}</output>
         </SurfaceStack>
       </AppPageContentRegion>
     </AppPageShell>
+    </div>
   );
 }
 

@@ -488,6 +488,7 @@ const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
 // answer its first admission request. Keep the longer ceiling on these exact
 // direct routes; normal app and hub requests retain the 60-second bound.
 const OWNER_POD_WAKE_FETCH_TIMEOUT_MS = 120_000;
+const LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS = 80_000;
 
 /**
  * Keep the browser alive long enough to receive the KYC scan proxy's bounded
@@ -500,6 +501,14 @@ const LONG_DRIVE_SHARING_PATH =
 /** Above the connector proxy's 170 s budget for synchronous Drive work. */
 function isLongDriveSharingPath(path: string): boolean {
   return LONG_DRIVE_SHARING_PATH.test(path.split("?", 1)[0] ?? "");
+}
+
+function isLiveGmailReceiptPath(path: string): boolean {
+  const pathname = path.split("?", 1)[0] ?? "";
+  return (
+    pathname === "/api/kai/gmail/receipts/scan" ||
+    pathname === "/api/kai/gmail/receipts/detail"
+  );
 }
 
 /**
@@ -520,6 +529,7 @@ export function webFetchTimeoutMsForPath(path: string): number {
   }
   if (isLongDriveSharingPath(path)) return 180_000;
   if (pathname === "/api/account/delete") return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
+  if (isLiveGmailReceiptPath(path)) return LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS;
   return pathname === "/api/one/email/information-requests/scan"
     ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS
     : WEB_FETCH_TIMEOUT_MS;
@@ -910,6 +920,8 @@ async function apiFetch(
       // Synchronous Drive work can take longer on web and native.
       const readTimeoutMs = requestTimeoutMs ?? (isLongDriveSharingPath(path)
           ? 180_000
+          : isLiveGmailReceiptPath(path)
+            ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS
           : isLongRunningRoute
             ? 90_000
             : 60_000);

@@ -44,6 +44,7 @@ import {
 } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import { getGsap } from "@/lib/morphy-ux/gsap";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import {
   ensureMorphyGsapReady,
   getMorphyEaseName,
@@ -56,6 +57,8 @@ import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./guest-preview.module.css";
+import welcomeStyles from "./IntroStep.module.css";
+import { OneWelcomeStory, OneWelcomePrivacy } from "./OneWelcomeStory";
 
 const CIRCLES = [
   {
@@ -415,13 +418,11 @@ function CircleStory() {
         />
         <div className={styles.brandCenter} data-preview-center>
           <div className={styles.brandTile} data-preview-intro>
-            <span
+            <HushhMark
               className={styles.brandMark}
-              role="img"
-              aria-label="Hussh One"
-            >
-              🤫
-            </span>
+              alt="Hussh One"
+              priority
+            />
           </div>
         </div>
         {CIRCLES.map((item, position) => {
@@ -736,15 +737,18 @@ export function GuestPreview({
   const [furthestStep, setFurthestStep] = useState(0);
   const headingRef = useRef<HTMLDivElement>(null);
   const previousStepRef = useRef(step);
+  const motionEnabled = usePreviewMotionPreference();
   const title =
     step === 0
-      ? "Your people, closer."
+      ? "One"
       : step === 1
-        ? "A little help. Every day."
-        : "Just ask One.";
+        ? "Your people, closer."
+        : step === 2
+          ? "A little help. Every day."
+          : "Just ask One.";
 
   useEffect(() => {
-    onReadyChange?.(step === 2);
+    onReadyChange?.(step === 3);
   }, [step, onReadyChange]);
 
   useEffect(() => {
@@ -768,151 +772,175 @@ export function GuestPreview({
   return (
     <FullscreenFlowShell
       width="reading"
-      className={styles.shell}
+      className={step === 0 ? welcomeStyles.shell : styles.shell}
+      style={step === 0 ? { maxWidth: "none" } : undefined}
       data-testid="guest-preview"
       data-preview-step={step + 1}
       data-has-invitation={Boolean(invitation)}
     >
-      <header className={styles.topbar}>
-        <div className={styles.backSlot}>
-          {step > 0 && (
-            <ShellActionSurface
-              variant="icon"
-              aria-label="Previous screen"
-              onClick={() => moveTo(step - 1)}
-            >
-              <ArrowLeft aria-hidden="true" className="h-5 w-5" />
-            </ShellActionSurface>
-          )}
-        </div>
-        <HushhWordmark />
-        {step === 2 ? (
-          <Button
-            variant="link"
-            size="compact"
-            data-voice-control-id="onboarding_claim_one"
-            onClick={onStart}
-          >
-            Sign in
-          </Button>
-        ) : (
-          <div className={styles.backSlot} aria-hidden="true" />
-        )}
-      </header>
-
-      <div className={styles.content} data-step={step}>
-        <div ref={headingRef} tabIndex={-1} className={styles.heading}>
-          <CaptionText className="text-accent-strong">
-            {invitation ? "You’re invited to One" : "Welcome to One"}
-          </CaptionText>
-          <h1 className={`type-display ${styles.title}`} aria-live="polite">
-            {title}
-          </h1>
-          <BodyText className={styles.subtitle}>
-            {step === 0
-              ? "Circles for every part of your life."
-              : step === 1
-                ? "Your private agents, together in One."
-                : "Talk or type. Let One help you."}
-          </BodyText>
-        </div>
-
-        <section
-          key={step}
-          className={`${styles.stage} motion-step-enter`}
-          aria-label={title}
-        >
-          {step === 0 ? (
-            <CircleStory />
-          ) : step === 1 ? (
-            <AgentStory />
-          ) : (
-            <div
-              className={styles.invitation}
-              data-has-invitation={Boolean(invitation)}
-            >
-              <ConversationStory />
-
-              {invitation && (
-                <div className={styles.inviteContext}>
-                  <MediumRowLabel
-                    as="div"
-                    role="heading"
-                    aria-level={2}
-                    className="break-words"
-                  >
-                    {invitation.name ||
-                      (invitation.kind === "circle"
-                        ? "Your Circle invitation"
-                        : "Connect on One")}
-                  </MediumRowLabel>
-                  <RowDescription className="break-words" role="status">
-                    {invitation.loading
-                      ? "Checking your invitation…"
-                      : invitation.error
-                        ? invitation.error
-                        : invitation.ownerName
-                          ? `Invited by ${invitation.ownerName}`
-                          : "Sign in to continue with this invitation."}
-                  </RowDescription>
-                </div>
+      {step === 0 ? (
+        <div className={welcomeStyles.stage}>
+          <div className={welcomeStyles.composition}>
+            <OneWelcomeStory headingRef={headingRef} motionEnabled={motionEnabled} />
+            <footer className={welcomeStyles.footer}>
+              <OneWelcomePrivacy />
+              <Button variant="blue" effect="fill" size="prominent" fullWidth className={welcomeStyles.welcomeCta} onClick={() => moveTo(1)}>
+                <span className={welcomeStyles.ctaLabel}>Create your One</span>
+              </Button>
+              {publicLinks && (
+                <nav className={welcomeStyles.links} aria-label="Explore Hussh">
+                  <Link href={ROUTES.RESEARCH} className={welcomeStyles.link}>Research</Link>
+                  <Link href={ROUTES.BLOG} className={welcomeStyles.link}>Blog</Link>
+                  <Link href={ROUTES.DEVELOPERS} className={welcomeStyles.link}>Developers</Link>
+                </nav>
               )}
-              {invitation?.error && invitation.onRetry && (
-                <Button
-                  variant="link"
-                  onClick={invitation.onRetry}
-                  className="mt-3"
+            </footer>
+          </div>
+        </div>
+      ) : (
+          <>
+          <header className={styles.topbar}>
+            <div className={styles.backSlot}>
+              {step > 0 && (
+                <ShellActionSurface
+                  variant="icon"
+                  aria-label="Previous screen"
+                  onClick={() => moveTo(step - 1)}
                 >
-                  Try again
-                </Button>
+                  <ArrowLeft aria-hidden="true" className="h-5 w-5" />
+                </ShellActionSurface>
               )}
             </div>
-          )}
-        </section>
-      </div>
+            <HushhWordmark />
+            {step === 3 ? (
+              <Button
+                variant="link"
+                size="compact"
+                data-voice-control-id="onboarding_claim_one"
+                onClick={onStart}
+              >
+                Sign in
+              </Button>
+            ) : (
+              <div className={styles.backSlot} aria-hidden="true" />
+            )}
+          </header>
 
-      <footer className={styles.footer}>
-        <nav className={styles.progress} aria-label="Preview screens">
-          {["Circles", "Agents", "Get started"].map((label, index) => (
-            <button
-              key={label}
-              type="button"
-              aria-label={`Screen ${index + 1}: ${label}`}
-              aria-current={step === index ? "step" : undefined}
-              disabled={index > furthestStep}
-              onClick={() => moveTo(index)}
+          <div className={styles.content} data-step={step}>
+            <div ref={headingRef} tabIndex={-1} className={styles.heading}>
+              <CaptionText className="text-accent-strong">
+                {invitation ? "You’re invited to One" : "Welcome to One"}
+              </CaptionText>
+              <h1 className={`type-display ${styles.title}`} aria-live="polite">
+                {title}
+              </h1>
+              <BodyText className={styles.subtitle}>
+                {step === 1
+                  ? "Circles for every part of your life."
+                  : step === 2
+                    ? "Your private agents, together in One."
+                    : "Talk or type. Let One help you."}
+              </BodyText>
+            </div>
+
+            <section
+              key={step}
+              className={`${styles.stage} motion-step-enter`}
+              aria-label={title}
             >
-              <span />
-            </button>
-          ))}
-        </nav>
-        <Button
-          variant="blue"
-          effect="fill"
-          size="prominent"
-          fullWidth
-          disabled={step === 2 && invitation?.unavailable}
-          onClick={step < 2 ? () => moveTo(step + 1) : onStart}
-        >
-          {step === 0
-            ? "Meet your agents"
-            : step === 1
-              ? "See what’s next"
-              : invitation?.kind === "circle"
-                ? "Join this Circle"
-                : invitation
-                  ? "Accept invitation"
-                  : "Create your One"}
-          <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
-        </Button>
-        {publicLinks && (
-          <nav className={styles.publicLinks} aria-label="Explore Hussh">
-            <Link href={ROUTES.RESEARCH}>Research</Link>
-            <Link href={ROUTES.BLOG}>Blog</Link>
-            <Link href={ROUTES.DEVELOPERS}>Developers</Link>
-          </nav>
-        )}
-      </footer>
+              {step === 1 ? (
+                <CircleStory />
+              ) : step === 2 ? (
+                <AgentStory />
+              ) : (
+                <div
+                  className={styles.invitation}
+                  data-has-invitation={Boolean(invitation)}
+                >
+                  <ConversationStory />
+
+                  {invitation && (
+                    <div className={styles.inviteContext}>
+                      <MediumRowLabel
+                        as="div"
+                        role="heading"
+                        aria-level={2}
+                        className="break-words"
+                      >
+                        {invitation.name ||
+                          (invitation.kind === "circle"
+                            ? "Your Circle invitation"
+                            : "Connect on One")}
+                      </MediumRowLabel>
+                      <RowDescription className="break-words" role="status">
+                        {invitation.loading
+                          ? "Checking your invitation…"
+                          : invitation.error
+                            ? invitation.error
+                            : invitation.ownerName
+                              ? `Invited by ${invitation.ownerName}`
+                              : "Sign in to continue with this invitation."}
+                      </RowDescription>
+                    </div>
+                  )}
+                  {invitation?.error && invitation.onRetry && (
+                    <Button
+                      variant="link"
+                      onClick={invitation.onRetry}
+                      className="mt-3"
+                    >
+                      Try again
+                    </Button>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+
+          <footer className={styles.footer}>
+            <nav className={styles.progress} aria-label="Preview screens">
+              {["Welcome", "Circles", "Agents", "Get started"].map((label, index) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-label={`Screen ${index + 1}: ${label}`}
+                  aria-current={step === index ? "step" : undefined}
+                  disabled={index > furthestStep}
+                  onClick={() => moveTo(index)}
+                >
+                  <span />
+                </button>
+              ))}
+            </nav>
+            <Button
+              variant="blue"
+              effect="fill"
+              size="prominent"
+              fullWidth
+              disabled={step === 3 && invitation?.unavailable}
+              onClick={step < 3 ? () => moveTo(step + 1) : onStart}
+            >
+              {step === 1
+                ? "Meet your agents"
+                : step === 2
+                  ? "See what’s next"
+                  : invitation?.kind === "circle"
+                    ? "Join this Circle"
+                    : invitation
+                      ? "Accept invitation"
+                      : "Create your One"}
+              <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
+            </Button>
+            {publicLinks && (
+              <nav className={styles.publicLinks} aria-label="Explore Hussh">
+                <Link href={ROUTES.RESEARCH}>Research</Link>
+                <Link href={ROUTES.BLOG}>Blog</Link>
+                <Link href={ROUTES.DEVELOPERS}>Developers</Link>
+              </nav>
+            )}
+          </footer>
+          </>
+      )}
     </FullscreenFlowShell>
   );
 }

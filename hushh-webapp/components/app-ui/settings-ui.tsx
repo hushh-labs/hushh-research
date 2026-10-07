@@ -385,7 +385,7 @@ export function SettingsGroup({
         <div
           className={cn(
             "flex items-start justify-between gap-3 px-1",
-            resolvedDensity === "compact" ? "mb-1.5 mt-5" : "mb-2 mt-7",
+            resolvedDensity === "compact" ? "mb-1.5 mt-4" : "mb-2 mt-7",
             headingClassName,
           )}
         >
@@ -425,11 +425,11 @@ export function SettingsGroup({
         <div
           data-slot="settings-group-toolbar"
           className={cn(
-            "mb-3",
+            resolvedDensity === "compact" ? "mb-2" : "mb-3",
             // Without a heading above it there is no `mt-7` to sit under, so
             // the control would hug whatever preceded the group.
             !(eyebrow || title || titleControl || description) &&
-              (resolvedDensity === "compact" ? "mt-5" : "mt-7"),
+              (resolvedDensity === "compact" ? "mt-4" : "mt-7"),
           )}
         >
           {toolbar}
@@ -541,12 +541,18 @@ export function SettingsRow({
     // need a full-width hairline; otherwise the divider appears arbitrarily cut
     // off, as it did on Connect's plain-text rows.
     layout === "person"
-      ? "group-data-[inset-separators=true]/settings-list:after:left-[68px]"
-      : icon || leading
+      ? "group-data-[inset-separators=true]/settings-list:after:left-[68px] group-data-[inset-separators=true]/settings-list:after:right-4"
+      : leading
+        // Custom leading content has caller-owned geometry; retain its existing
+        // separator contract instead of assuming it is the built-in icon size.
         ? resolvedDensity === "compact"
-          ? "group-data-[inset-separators=true]/settings-list:after:left-[58px] sm:group-data-[inset-separators=true]/settings-list:after:left-[58px]"
-          : "group-data-[inset-separators=true]/settings-list:after:left-[62px] sm:group-data-[inset-separators=true]/settings-list:after:left-[62px]"
-        : "group-data-[inset-separators=true]/settings-list:after:left-0";
+          ? "group-data-[inset-separators=true]/settings-list:after:left-[58px] group-data-[inset-separators=true]/settings-list:after:right-4"
+          : "group-data-[inset-separators=true]/settings-list:after:left-[62px] group-data-[inset-separators=true]/settings-list:after:right-4"
+        : icon
+          ? resolvedDensity === "compact"
+            ? "group-data-[inset-separators=true]/settings-list:after:left-[calc(var(--settings-row-px)+28px+var(--settings-row-gap))] group-data-[inset-separators=true]/settings-list:after:right-[var(--settings-row-px)]"
+            : "group-data-[inset-separators=true]/settings-list:after:left-[calc(var(--settings-row-px)+34px+var(--settings-row-gap))] group-data-[inset-separators=true]/settings-list:after:right-[var(--settings-row-px)]"
+          : "group-data-[inset-separators=true]/settings-list:after:left-0 group-data-[inset-separators=true]/settings-list:after:right-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-transparent",
     resolvedDensity === "compact" && "[--settings-row-py:8px]",
@@ -555,7 +561,7 @@ export function SettingsRow({
     // iOS-style separator — active only inside SettingsGroup with
     // separatorInset and hidden on the final row. Its start is derived from
     // whether this row actually has a leading visual.
-    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-4 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--app-separator)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
+    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--app-separator)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
     separatorInsetClassName,
     rowRadiusClassName,
     disabled && "cursor-not-allowed opacity-60",
@@ -717,7 +723,7 @@ export function SettingsRow({
   // and as indented as one without.
   const rowGridClassName = cn(
     "relative isolate grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left",
-    resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
+    resolvedDensity === "compact" ? "min-h-[48px]" : "min-h-[60px]",
     layout === "person" && "min-h-[72px]",
     shouldStackTrailing
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"

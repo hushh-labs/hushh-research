@@ -27,8 +27,10 @@ import {
   planLostTurnRetry,
   restoredMessageTime,
   settleAssistantMessageError,
+  settleMcpReviewActivity,
   storedMessagesToAgentMessages,
 } from "@/components/agent/agent-chat-workspace";
+import type { AgentVisibleStreamEvent } from "@/components/agent/agent-turn-stream-panel";
 import { ApiService } from "@/lib/services/api-service";
 import { parseAgentActivityExperience } from "@/lib/agent/agui-structured-experiences";
 import {
@@ -274,6 +276,69 @@ describe("a settled answer in the chat column", () => {
     const [untimed] = storedMessagesToAgentMessages([{ ...connectAnswer, content: "Untimed." }]);
     expect(timed?.sentAtMs).toBe(Date.parse("2026-09-26T07:46:00Z"));
     expect(untimed).not.toHaveProperty("sentAtMs");
+  });
+});
+
+describe("settling an unavailable connector review", () => {
+  const waitingActivity: AgentVisibleStreamEvent[] = [
+    {
+      id: "original-call",
+      label: "Connected tool",
+      message: "Waiting for your review.",
+      status: "waiting",
+      tag: "Needs review",
+      createdAtMs: 1_000,
+    },
+    {
+      id: "confirmation-call",
+      label: "Your review",
+      message: "Waiting for your review.",
+      status: "waiting",
+      tag: "Needs review",
+      createdAtMs: 1_100,
+    },
+    {
+      id: "different-call",
+      label: "Connected tool",
+      message: "Waiting for your review.",
+      status: "waiting",
+      tag: "Needs review",
+      createdAtMs: 1_200,
+    },
+  ];
+
+  it("settles only the card's waiting Activity rows when no receipt was issued", () => {
+    const settled = settleMcpReviewActivity(
+      waitingActivity,
+      ["original-call", "confirmation-call"],
+      "unavailable",
+    )!;
+    expect(settled[0]).toMatchObject({
+      status: "error",
+      tag: "Unavailable",
+      message: "Connector review unavailable. No change was sent.",
+    });
+    expect(settled[1]).toMatchObject({
+      status: "error",
+      tag: "Unavailable",
+      message: "Connector review unavailable. No change was sent.",
+    });
+    expect(settled[2]).toBe(waitingActivity[2]);
+  });
+
+  it("never claims no change when a receipt may already have been resumed", () => {
+    const settled = settleMcpReviewActivity(
+      waitingActivity,
+      ["original-call", "confirmation-call"],
+      "unknown",
+    )!;
+    expect(settled[0]).toMatchObject({
+      status: "error",
+      tag: "Check status",
+      message: "Connector outcome could not be verified. Check the connector before trying again.",
+    });
+    expect(settled[0]!.message).not.toContain("No change was sent.");
+    expect(settled[2]).toBe(waitingActivity[2]);
   });
 });
 

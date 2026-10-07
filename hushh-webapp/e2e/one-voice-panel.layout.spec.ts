@@ -33,6 +33,7 @@ const WEBAPP_ROOT = process.cwd();
 const VOICE_PILL_PATH = "components/one-voice/voice-state-pill.tsx";
 const VOICE_PANEL_PATH = "components/one-voice/one-voice-panel.tsx";
 const VOICE_CONTROL_PATH = "components/one-voice/one-voice-control.tsx";
+const AGENT_BAR_SURFACE_PATH = "components/agent/agent-bar-surface.tsx";
 const VOICE_TRANSCRIPT_PATH = "components/one-voice/voice-transcript.tsx";
 const BOTTOM_CHROME_COLUMN_PATH = "components/app-ui/bottom-chrome-column.ts";
 
@@ -102,9 +103,10 @@ function extractSource(): Source {
   const pill = read(VOICE_PILL_PATH);
   const panel = read(VOICE_PANEL_PATH);
   const control = read(VOICE_CONTROL_PATH);
+  const dockSurface = read(AGENT_BAR_SURFACE_PATH);
   const transcript = read(VOICE_TRANSCRIPT_PATH);
   const bottomChromeColumn = read(BOTTOM_CHROME_COLUMN_PATH);
-  if (!control.includes("BOTTOM_CHROME_COLUMN_CLASSNAME")) {
+  if (!dockSurface.includes("BOTTOM_CHROME_COLUMN_CLASSNAME")) {
     throw new Error(
       "one-voice-panel-layout: dock no longer uses the shared bottom-chrome column.",
     );
@@ -151,12 +153,19 @@ function extractSource(): Source {
     ),
     panelHeaderClass: stringConstant(panel, "PANEL_HEADER", VOICE_PANEL_PATH),
     panelContentClass: stringConstant(panel, "PANEL_CONTENT", VOICE_PANEL_PATH),
-    dockClass: required(
-      control,
-      /<div\s+data-testid="one-voice-agent-bar"[\s\S]*?className=\{cn\(\s*"([^"]+)"/,
-      "One Voice dock classes",
-      VOICE_CONTROL_PATH,
-    )[1],
+    dockClass: [
+      // This fixture measures the active, non-embedded shared dock. Include
+      // its conditional surface and dock geometry, not just the next literal.
+      required(dockSurface, /className=\{cn\(\s*!embedded && "([^"]+)"/,
+        "non-embedded AgentBarSurface classes", AGENT_BAR_SURFACE_PATH)[1],
+      required(dockSurface, /className=\{cn\(\s*!embedded && "[^"]+",\s*"([^"]+)"/,
+        "shared AgentBarSurface classes", AGENT_BAR_SURFACE_PATH)[1],
+      required(dockSurface, /dock && "([^"]+)"/,
+        "active AgentBarSurface dock classes", AGENT_BAR_SURFACE_PATH)[1],
+      required(control,
+        /<AgentBarSurface\s+data-testid="one-voice-agent-bar"[\s\S]*?className="([^"]+)"/,
+        "One Voice dock adapter classes", VOICE_CONTROL_PATH)[1],
+    ].join(" "),
     dockWidthClass: stringConstant(
       bottomChromeColumn,
       "BOTTOM_CHROME_COLUMN_CLASSNAME",

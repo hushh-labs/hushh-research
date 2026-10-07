@@ -1,0 +1,48 @@
+{
+  "version": "curated-connector.v1",
+  "connectorId": "notion",
+  "displayName": "Notion",
+  "description": "Connect Notion so Kai can search and read your pages and databases, and make changes you approve.",
+  "mcpEndpoint": "https://mcp.notion.com/mcp",
+  "oauth": {
+    "authorizeUrl": "https://mcp.notion.com/authorize",
+    "tokenUrl": "https://mcp.notion.com/token",
+    "registrationUrl": "https://mcp.notion.com/register",
+    "revocationUrl": "https://mcp.notion.com/token",
+    "scopes": ["default"],
+    "tokenEndpointAuth": "none",
+    "clientIdEnv": "NOTION_OAUTH_CLIENT_ID"
+  },
+  "tools": {
+    "allowlist": [
+      "notion-search",
+      "notion-fetch",
+      "notion-query-data-sources",
+      "notion-get-comments",
+      "notion-get-users",
+      "notion-get-teams",
+      "notion-create-pages",
+      "notion-update-page",
+      "notion-move-pages",
+      "notion-duplicate-page",
+      "notion-create-database",
+      "notion-update-data-source",
+      "notion-create-comment"
+    ],
+    "freeRead": [
+      "notion-search",
+      "notion-fetch",
+      "notion-query-data-sources",
+      "notion-get-comments",
+      "notion-get-users",
+      "notion-get-teams"
+    ]
+  },
+  "environments": {
+    "uat": {
+      "registeredRedirectUris": [
+        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+      ]
+    }
+  }
+}

@@ -29,11 +29,16 @@ vi.mock("@/lib/services/vault-bootstrap-service", () => ({
   },
 }));
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {
-    isNativePlatform: () => isNativePlatformMock,
-  },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: {
+      ...actual.Capacitor,
+      isNativePlatform: () => isNativePlatformMock,
+    },
+  };
+});
 
 vi.mock("@/lib/services/vault-service", () => ({
   VaultAuthSessionNotReadyError: class extends Error {},

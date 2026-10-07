@@ -14,14 +14,27 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from hushh_mcp.one_voice.tools.base import LOCATION_UPDATES_PENDING as _LOCATION_UPDATES_PENDING
 from hushh_mcp.one_voice.tools.mail import MAIL_OPEN_DISPATCHED as _MAIL_OPEN_DISPATCHED
+from hushh_mcp.one_voice.tools.mail_drafts import (
+    DRAFT_OPEN_DISPATCHED as _DRAFT_OPEN_DISPATCHED,
+)
+from hushh_mcp.one_voice.tools.mail_drafts import (
+    DRAFT_SEND_UNCONFIRMED as _DRAFT_SEND_UNCONFIRMED,
+)
 
 PROTOCOL_VERSION = "one-voice-v1"
+# Additive client capabilities this relay accepts, advertised in session.ready.
+# A client sends the matching keys or frames only when its relay lists them, so
+# a newer app never has a whole frame refused by an older or rolled-back relay.
+# "name_edit": the typed Edit name on an open create_circle card.
+RELAY_FEATURES: tuple[str, ...] = ("active_mail", "mail_delivery", "name_edit")
 INPUT_MIME = "audio/pcm;rate=16000"
 OUTPUT_MIME = "audio/pcm;rate=24000"
 MAX_AUDIO_FRAME_B64_CHARS = 1_000_000
 MAX_AUDIO_FRAME_BYTES = 512 * 1024
 MAX_TEXT_CHARS = 4_000
 MAX_CONTEXT_JSON_CHARS = 48_000
+# Wire bound for a typed name; the relay applies the tool's own 1-80 rule.
+MAX_NAME_EDIT_CHARS = 400
 
 # Interim status of a device-executed Location updates step (resume/pause
 # tools); defined with the tool contract, re-exported here for the wire.
@@ -29,6 +42,8 @@ LOCATION_UPDATES_PENDING = _LOCATION_UPDATES_PENDING
 # Re-exported for the wire, like the status above it, so the relay does not have
 # to import a tool family to know a dispatch when it sees one.
 MAIL_OPEN_DISPATCHED = _MAIL_OPEN_DISPATCHED
+# The drafts list's twin of the dispatch above: open a draft row on screen.
+DRAFT_OPEN_DISPATCHED = _DRAFT_OPEN_DISPATCHED
 # Interim status of an armed Save My Soul alert: grants exist, the device has
 # not published a position yet, and nobody has been reached.
 SOS_GRANTS_CREATED = "sos_grants_created"
@@ -45,10 +60,19 @@ NOT_OK_STATUSES = frozenset(
         "unsupported",
         "confirmation_required",
         "confirmation_waiting",
+        "pending_action_exists",
         "firebase_proof_required",
         "scope_review_required",
         "draft_open_requested",
         "draft_open_unconfirmed",
+        _DRAFT_SEND_UNCONFIRMED,
+        # A scheduled-mail cancel that did not cancel anything, and a scheduled
+        # send whose confirmation could not be recorded: none is a success.
+        "already_sent",
+        "already_sending",
+        "not_sent",
+        "send_unconfirmed",
+        "schedule_unconfirmed",
         LOCATION_UPDATES_PENDING,
         SOS_GRANTS_CREATED,
         RESET_STEP_ISSUED,
@@ -101,6 +125,11 @@ class AppContextFrame(_Frame):
     # separate from ``screen_state`` (which is rendered into the prompt and
     # carries no identifiers); the host reads it through the circle service.
     active_circle_id: str | None = Field(default=None, min_length=36, max_length=36)
+    # The mail row open on screen: its position in a server offer and that
+    # offer's revision. No message id ever travels this way; the server resolves
+    # the position against its own offer, and only while the revisions match.
+    active_mail_ordinal: int | None = Field(default=None, ge=1, le=25)
+    active_mail_offer_revision: int | None = Field(default=None, ge=0, le=1_000_000_000)
 
 
 class PendingShownFrame(_Frame):
@@ -137,6 +166,19 @@ class ClientStepResultFrame(_Frame):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class MailDeliveryResultFrame(_Frame):
+    """The device says a review card's Send finished. Never what happened.
+
+    Names the send action and the session-issued correlation only. There is no
+    status field on purpose: the relay re-reads the action server-side, so a
+    client cannot report a send that did not happen.
+    """
+
+    type: Literal["mail_delivery.result"]
+    delivery_ref: str = Field(min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    action_id: str = Field(min_length=36, max_length=36)
+
+
 class UiSettledFrame(_Frame):
     type: Literal["ui.settled"]
     directive_id: str = Field(min_length=1, max_length=64)
@@ -151,8 +193,37 @@ class PingFrame(_Frame):
     type: Literal["ping"]
 
 
+class PerfFrame(_Frame):
+    """Content-free, optional client timing sample for operational logs."""
+
+    type: Literal["perf"]
+    metric: Literal[
+        "endpointing_client",
+        "audio_receive_to_audible",
+        "capture_callback_to_socket_enqueue",
+    ]
+    duration_ms: int = Field(ge=0, le=120_000, strict=True)
+    # Every relay-issued turn id is uuid4 hex[:12]. Restrict this field so an
+    # untrusted client cannot smuggle a transcript or other content into logs.
+    turn_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{12}$")
+
+
 class EndFrame(_Frame):
     type: Literal["end"]
+
+
+class NameEditSubmitFrame(_Frame):
+    """The person typed a new name on an open create_circle card.
+
+    The name is bounded loosely here and validated by the relay, so a refusal
+    reaches the editor as a ``name_edit.result`` the person can read rather
+    than as a protocol error. ``operation_id`` makes a resend idempotent.
+    """
+
+    type: Literal["name_edit.submit"]
+    pending_action_id: str = Field(min_length=36, max_length=36)
+    name: str = Field(max_length=MAX_NAME_EDIT_CHARS)
+    operation_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 ClientFrame = Annotated[
@@ -165,10 +236,13 @@ ClientFrame = Annotated[
     | CancelActionFrame
     | CandidateChooseFrame
     | ClientStepResultFrame
+    | MailDeliveryResultFrame
     | UiSettledFrame
     | InterruptFrame
     | PingFrame
-    | EndFrame,
+    | PerfFrame
+    | EndFrame
+    | NameEditSubmitFrame,
     Field(discriminator="type"),
 ]
 _client_adapter: TypeAdapter[Any] = TypeAdapter(ClientFrame)
@@ -217,6 +291,10 @@ def session_ready(
         "pending_actions": pending_actions,
         "setup_progress": setup_progress,
         "output_mime_type": OUTPUT_MIME,
+        # Optional extension advertised before the client may send perf
+        # frames. Older relays omit it during rolling deployment.
+        "client_perf": True,
+        "features": list(RELAY_FEATURES),
     }
 
 
@@ -249,6 +327,10 @@ def audio_out(
     return frame
 
 
+# How a client applies a contracted transcript frame to its segment's row.
+TranscriptKind = Literal["partial", "cumulative", "final"]
+
+
 def transcript(
     kind: Literal["input", "output"],
     text: str,
@@ -256,10 +338,29 @@ def transcript(
     final: bool,
     turn_id: str,
     request_id: str | None = None,
+    segment_id: str | None = None,
+    seq: int | None = None,
+    segment_kind: TranscriptKind | None = None,
 ) -> dict[str, Any]:
-    frame = {"type": f"transcript.{kind}", "text": text, "final": final, "turn_id": turn_id}
+    """One transcript frame.
+
+    ``segment_id``/``seq``/``kind`` are additive and travel together: the relay
+    names the segment, numbers its frames from 1, and says how to apply the
+    text (``partial`` appends it, ``cumulative`` replaces the row, ``final``
+    replaces and freezes it). A client that ignores them keeps its own merge.
+    """
+    frame: dict[str, Any] = {
+        "type": f"transcript.{kind}",
+        "text": text,
+        "final": final,
+        "turn_id": turn_id,
+    }
     if request_id:
         frame["request_id"] = request_id
+    if segment_id is not None and seq is not None and segment_kind is not None:
+        frame["segment_id"] = segment_id
+        frame["seq"] = seq
+        frame["kind"] = segment_kind
     return frame
 
 
@@ -402,6 +503,25 @@ def client_step_request(
     if confirmed_pending_action_id:
         frame["confirmed_pending_action_id"] = confirmed_pending_action_id
     return frame
+
+
+def name_edit_result(
+    *,
+    operation_id: str,
+    status: Literal["accepted", "rejected"],
+    reason_code: str | None = None,
+    message: str | None = None,
+    pending_action_id: str | None = None,
+) -> dict[str, Any]:
+    """The answer to one ``name_edit.submit``; the same frame on a resend."""
+    return {
+        "type": "name_edit.result",
+        "operation_id": operation_id,
+        "status": status,
+        "reason_code": reason_code,
+        "message": message,
+        "pending_action_id": pending_action_id,
+    }
 
 
 def reconnect_required(reason: Literal["go_away", "max_duration"]) -> dict[str, Any]:

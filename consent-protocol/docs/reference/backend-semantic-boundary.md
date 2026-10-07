@@ -385,6 +385,44 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   across in-app navigation. Synthetic contract tests prove the safety boundary;
   they do not establish classification accuracy on a live mailbox.
 
+### Declared: live Gmail receipt read-through
+
+- Owning agent: the Email specialist child `agent_email_receipt_extractor`.
+  The backend owns Gmail transport and authorization; this existing manifest-owned
+  child alone decides `is_receipt`, `event_type`, and which supplied evidence
+  candidates support the normalized receipt fields.
+- Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`.
+- Structured output: `EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA` in
+  `consent-protocol/hushh_mcp/agents/email/runtime.py`. It returns receipt and
+  event decisions, confidence, nullable merchant/order/amount/currency fields,
+  and an evidence ID for every selected semantic value. The public read-through
+  DTO adds only provider facts and normalized transport fields such as the
+  account-bound `source_id`, Gmail message/thread IDs, sender, date, subject,
+  preview, and reviewed canonical merchant domain.
+- Validator: `gmail_live_receipts_service.py` supplies bounded, untrusted email
+  evidence and a reviewed sender-domain merchant candidate. Deterministic code
+  may validate exact evidence IDs, normalize representation, and reject an
+  unsupported or conflicting value; it never substitutes its own merchant,
+  order, amount, currency, receipt decision, or event. Gmail `internalDate`, a
+  valid `Date` header, provider IDs, and sender-domain syntax remain transport
+  facts. Missing evidence stays null, and a model timeout or malformed output is
+  a typed unavailable/error result rather than a successful empty mailbox.
+- Authority and storage: scan and detail require the same Firebase owner and
+  current `vault.owner` capability, reuse the encrypted server-side Gmail
+  `gmail.readonly` grant, recheck the grant/account before publication, and emit
+  private no-store responses. The path is stateless apart from legitimate OAuth
+  token refresh; it never writes `kai_gmail_receipts`, receipt-memory artifacts,
+  or another receipt store.
+- Live eval before production promotion: use an authenticated, legitimately
+  unlocked UAT owner mailbox and prove a non-fixture scan response, a visible
+  Recent receipts row, and exact selected-source detail. Include positive and
+  negative receipt candidates, a technical Myntra sender, missing amount,
+  unknown merchant, distinct orders, fulfillment updates, and a refund. Record
+  only sanitized counts/status and never mailbox content or identifiers. Mocked
+  extraction and responsive fixtures prove contracts only; until this live gate
+  passes, browser/iOS/Android receipt readers remain demoted rollback code rather
+  than a parallel production authority.
+
 
 ### Declared: typed-chat message reactions
 
@@ -401,3 +439,187 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
 - Validation: real ADK/AG-UI scripted-model contract, sealed-history exclusion,
   client parsing/deduplication and exact user attachment. Live semantic quality
   is not established by scripted tests and requires authenticated evaluation.
+
+### Declared: One Voice scheduled send time
+
+- Owning agent: the One Voice Live head. It selects `schedule_mail` over
+  `send_mail` when the owner names a later time. It resolves a clock time or a
+  day ("kal subah", "tomorrow at 9", "next Friday") into an owner-local
+  wall-clock `send_at`, using the current time and the owner's zone that
+  `build_instruction` states in the system instruction, and a duration ("in 30
+  minutes") into `send_in_minutes`, which the server counts from its own clock.
+  Host code never parses natural language and never picks a time.
+- Manifest path: the tool declarations in
+  `consent-protocol/hushh_mcp/one_voice/tools/mail.py` (`schedule_mail`,
+  `list_scheduled_mail`, `cancel_scheduled_mail`; the 9:00 AM defaults live in
+  the `schedule_mail` description) and narration rule 13 in
+  `consent-protocol/hushh_mcp/one_voice/instruction.py`.
+- Structured output: exactly one of `ScheduleMailInput.send_at` (string,
+  owner-local wall-clock ISO-8601 without a UTC offset, e.g.
+  `2026-10-06T09:00:00`; the server applies the owner's zone, daylight saving
+  included, and still accepts an explicit offset) and
+  `ScheduleMailInput.send_in_minutes` (integer, 2 to 43200). Neither or both is
+  refused with a spoken question (`schedule_time_missing`,
+  `schedule_time_ambiguous`), never resolved by host code.
+- Validator: `owner_time.resolve_send_at`, `send_at_after_minutes` and
+  `check_send_at` only accept or reject. They refuse an unparseable or worded
+  time, a time already past, one less than 60 seconds out, or one more than 30
+  days out, each with a typed reason and a spoken question. They never round,
+  roll or rewrite a time. The confirmation card repeats the stored instant in
+  owner-local words ("tomorrow at 9:00 AM IST") as the human check. The yes
+  re-validates that instant against the server clock; a duration's instant is
+  pinned at the card and never counted again.
+- Live eval before production promotion: the mail tool-selection eval's
+  `schedule` family (later time is `schedule_mail`, never `send_mail`; no time
+  is `send_mail`) sampled several times per case on the UAT Live model, plus a
+  consented UAT session that schedules a near-future send, lists and cancels
+  one, and lets one fire through the drain.
+
+### Declared: One Voice spelled name words
+
+- Owning agent: the One Voice Live head. It decides that the person spelled a
+  word of a circle's name letter by letter ("h u s s h", "double s", "V zero
+  four"), joins exactly those letters and digits, keeps the rest of the name
+  as given, and declares the word in `spelled_words`. When the person corrects
+  the name on the card, it changes only what they corrected and declares each
+  changed word in `changed_words`. It decides when the person changed or
+  dropped an earlier spelled word, or is now naming a different circle, and
+  declares it in `release_spelled_words`; when a word is unclear, or the person
+  says the name is wrong without giving the fix, it asks them to spell just
+  that word. Host code never reads letters out of a transcript, never decides
+  whether two names are the same circle or whether the person asked for a
+  change, and never changes the name.
+- Manifest path: the voice head instruction in
+  `consent-protocol/hushh_mcp/agents/one/agent.yaml`
+  (`capabilities.voice_head.instruction`, "Names are exact"), narration rule 4
+  in `consent-protocol/hushh_mcp/one_voice/instruction.py` (a correction is
+  proposed again in the same turn, changing only what was corrected and
+  declaring each changed word), and the `create_circle` declaration in
+  `consent-protocol/hushh_mcp/one_voice/tools/circles.py`.
+- Structured output: `CreateCircleInput.spelled_words` and
+  `CreateCircleInput.release_spelled_words`, each at most 4 words of 1 to 40
+  letters, digits or combining marks, and `CreateCircleInput.changed_words`, at
+  most 8 `{old, new}` pairs, all beside the model's own `name`. As
+  storage-safe structure normalization of the declared field only, letters
+  sent one by one ("H-U-S-S-H") are joined and apostrophes, hyphens and periods
+  inside a word are dropped; any other space makes the word invalid.
+- Validator: `consent-protocol/hushh_mcp/one_voice/tools/spelling.py` checks
+  that every spelled word (those declared now and those retained from earlier
+  in the conversation in `EntityContext.spelled_name_words`, kept for 3 minutes
+  after their last use and cleared once a circle is created or already exists)
+  is a whole word of the name, ignoring case only. The declared word and the
+  name are normalized the same way (combining marks are part of a word;
+  apostrophes, hyphens and periods inside a word are ignored; letters spelled
+  one by one are joined). There is no fuzzy or accent-folded matching. A name
+  without one is refused (`spelled_word_missing`, `needs=repeat_name`) with one
+  spoken question per word, and the open `create_circle` card is retired in the
+  same step so a later yes cannot approve the rejected name; if the card cannot
+  be retired the call fails closed (`storage_unavailable`). The same check runs
+  again when a card is confirmed, against the card's own words and the words
+  retained at that moment. The guard logs that it fired
+  (`one_voice.spelling.refused`, a count only). The card and the spoken
+  confirmation spell each word out ("..., with HUSSH spelled H-U-S-S-H") as the
+  person's check. The name the model returned is never rewritten.
+- Name under review: the last `create_circle` name that passed is kept in
+  `EntityContext.circle_name_baseline` for 3 minutes, across a cancel, and
+  cleared once a circle is created or already exists. A proposal that shares
+  at least one word with it, or whose `changed_words` names one of its words
+  as an `old`, is a correction of it. In each stretch where the names differ,
+  every word a correction adds must be declared as a `new` or spelled in the
+  same call, and every word it removes must be declared as an `old`, released
+  in `release_spelled_words`, or replaced by one of those spelled words. Each
+  declaration and each spelled word accounts for one word once: a spelled word
+  declared as a change's `new` replaces only that change's `old`, a word
+  declared removed or released with a spelled word in its stretch is one
+  respelling, and a pair naming the same words in the same order declares
+  nothing. A declared side is read against the name it describes (its words
+  as written when each is a word of that name, else letters joined into one
+  word). A moved word is
+  removed in one place and added in another, so a move is declared like any
+  other change. Otherwise the call is refused (`name_changed`,
+  `needs=repeat_name`) with one spoken question naming the undeclared change
+  ("This would also change GARAGE to GARAZ. Is that what you want?"), and the
+  open card is retired the same way. Which words changed is the exact word
+  comparison above; whether the person asked for the change is only the
+  model's declaration. A proposal that shares no word and declares no change
+  to one is a different circle and is not compared. Logged as
+  `one_voice.name_lineage.refused slots=N order=kept|moved` (counts only).
+- One declaration changes a spelled word: a `changed_words` `old` the new name
+  no longer has, or a word spelled in this call in an old word's place,
+  releases that spelled word. Only a call that passes the comparison releases
+  anything, so a refused call leaves every spelled word kept. A spelled word
+  that merely goes missing is still refused.
+- Invalid correction: a `create_circle` call whose arguments fail validation
+  while a card is open (`ToolSpec.on_invalid_correction`) retires that card.
+  When a spelling argument is what failed it asks for that word
+  (`invalid_spelling`, `needs=repeat_name`); otherwise the refusal names the
+  argument that failed. It fails closed (`storage_unavailable`) if the card
+  cannot be retired. Logged as `one_voice.pending.retired
+  phase=arguments|prepare`.
+- Typed name: a name the person types on the card (Edit name,
+  `ToolContext.typed_name`, set only by the relay's `name_edit.submit` path)
+  is theirs as written. It releases every spelled word, skips both checks and
+  the spelled read-back, and becomes the name under review
+  (`one_voice.circle_name.typed`).
+- Live eval before production promotion: the circle tool-selection eval's
+  `spelled_name` family, which scores the `name`, `spelled_words` and
+  `release_spelled_words` arguments as well as the tool choice, sampled
+  several times per case on the UAT Live model against a main baseline. Only a
+  proposal the server accepted that is still open at the end of the turn
+  scores (a new card, or the executor's reuse of the open card; never a held
+  call), and more than one distinct open proposal is a miss
+  (`extra_proposals`). Its spelled examples share no words with the production
+  prompt (a held-out check rejects any 6-token overlap). It includes real
+  "Hush" and "Hash" names that must not become "Hussh", near-brand spellings
+  (HUSS, HUSSHH), an intentional change back to one S, a different circle after
+  a cancel, a later correction that must keep the spelled word without listing
+  it again (`spelled_name-013`), a spelled first word that replaces only that
+  word (`spelled_name-014`), and a name called wrong with no fix
+  (`clarify-013`).
+
+### Declared: One Voice proposals held while a card waits
+
+- Owning agent: the One Voice Live head proposes; only the person answers a
+  card. UAT 2026-10-06: 14.5 s after a card was read back, with no input
+  transcript, Live proposed again with different arguments and replaced the
+  card the person was about to answer.
+- Rule (`consent-protocol/hushh_mcp/one_voice/session.py`, `_held_card`): a
+  confirm-tier proposal, or a `confirm_pending_action` /
+  `cancel_pending_action` call, is held unrun when Live makes it in a
+  continuation with no input of its own (bound to an earlier input, with none
+  newer and none in progress) that Live opened owing nothing (no tool result
+  or app event waiting for its reply), or right after a held answer, while a
+  card already presented waits. Structural, never lexical: the call's
+  arguments are never read. A tool result, an app event, or anything the
+  person says lets the next call run as the model asked. Once Live has
+  answered it, an app event the person did not cause (`ui_settled` for Live's
+  own navigation, `session_ending_soon`) leaves the hold in place.
+- Recovery (`_shown_recoveries`): the one exempt card answer is the person's
+  own yes. When their confirm was refused as `card_not_shown` and the client
+  then reports that card shown, the relay records the card with the input
+  whose yes was refused, before it tells Live (`[ONE_EVENT] pending_shown`).
+  While that input is still the person's latest, Live's first
+  `confirm_pending_action` whose waiting card (the card the hold found, never
+  the call's arguments) carries the record runs, however Live's reply and the
+  event interleave. That use spends the record and the person's next input
+  drops it. It is logged as `one_voice.tool.recovered after=…`, without the
+  card.
+- What the model gets: `confirmation_waiting` with `reason_code=awaiting_answer`,
+  the waiting card's id and no spoken facts (from the third hold in a row, a
+  note to wait for the person's answer). The card is not cancelled, replaced
+  or sent again, and the client gets a not-ok result. If the waiting cards
+  cannot be read, a card answer made this way is refused
+  (`storage_unavailable`, nothing changed, no spoken facts) instead of run.
+  That refusal counts as a held answer, so Live retrying it at once, in the
+  same provider turn or the next continuation, is checked again even when
+  storage is back.
+- Recorded: every hold is logged as `one_voice.tool.held tool=… after=…` and
+  counted as `held` in the session's perf line, so a skipped call is never
+  read as one the executor answered.
+- Not covered: Live repeating the question in speech without a tool call; a
+  continuation that opens with Live's own read tool call (its result lets the
+  next call run); an app event Live answers with silence, after which the
+  next continuation still counts as answering it; and a confirm Live makes in
+  the same input that proposed the card, refused as `card_not_shown`, which
+  is recorded like a person's yes (structure cannot tell it from a yes given
+  with the request, such as "call it Home instead, yes").

@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -14,10 +15,16 @@ import {
   panelHasContent,
   selectPanelResult,
 } from "@/components/one-voice/one-voice-panel";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
+import {
+  executeDirective,
+  type DirectiveOutcome,
+} from "@/lib/one-voice/directives";
 import type { ServerFrame } from "@/lib/one-voice/protocol";
 import { reduceVoiceSession } from "@/lib/one-voice/session-reducer";
 import {
   INITIAL_VOICE_SESSION_STATE,
+  type NameEditOutcome,
   type VoiceSessionController,
   type VoiceSessionState,
 } from "@/lib/one-voice/session-types";
@@ -265,6 +272,217 @@ describe("OneVoicePanel", () => {
     expect(card.textContent).not.toContain("Opening it.");
   });
 
+  it("a spoken open on the next turn still finds the list it names and opens the row", async () => {
+    // Regression: the person's new words cleared the answer slot, so the list
+    // unmounted before the open_mail directive arrived and nothing was left on
+    // screen to open. Frames are replayed in the order the relay sends them:
+    // the directive goes out before the dispatch's own receipt.
+    const binding = { ordinal: 2, offerRevision: 7, conversationId: "conv_1" };
+    const openMail = vi.fn(async () => ({
+      sourceRef: "mail:2",
+      subject: "March invoice",
+      sender: "Acme",
+      receivedAt: null,
+      body: "Invoice 4471 is overdue.",
+      bodyTruncated: false,
+    }));
+    const setActiveMail = vi.fn();
+    const control = controller({ openMail, setActiveMail });
+    const directivePayload = {
+      ordinal: 2,
+      offer_revision: 7,
+      conversation_id: "conv_1",
+    };
+    const step = (state: VoiceSessionState, frames: ServerFrame[]) =>
+      frames.reduce(
+        (next, frame) =>
+          reduceVoiceSession(next, { type: "server", frame, now: NOW }),
+        state,
+      );
+
+    const shown = replay([
+      ready,
+      { type: "transcript.input", text: "What's in my inbox?", final: true, turn_id: "t1" },
+      { type: "tool.started", call_id: "m1", tool: "read_mail", args_public: {}, turn_id: "t1" },
+      {
+        type: "tool.result",
+        call_id: "m1",
+        tool: "read_mail",
+        status: "ok",
+        ok: true,
+        turn_id: "t1",
+        result_public: {
+          status: "ok",
+          spoken_facts: ["I read your 2 newest messages."],
+          answer: "Two findings.",
+          sources: [],
+          items: [
+            { source_ref: "mail:1", subject: "Q3 deck", sender: "Priya" },
+            { source_ref: "mail:2", subject: "March invoice", sender: "Acme" },
+          ],
+          coverage: { unit: "messages", returned: 2, scope: "newest" },
+          offer_revision: 7,
+          conversation_id: "conv_1",
+        },
+      },
+      { type: "turn", state: "model_end", turn_id: "t1" },
+    ]);
+    const { rerender } = render(
+      <OneVoicePanel state={shown} controller={control} />,
+    );
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+
+    const spoken = step(shown, [
+      { type: "transcript.input", text: "Open the second one", final: true, turn_id: "t2" },
+      { type: "tool.started", call_id: "m2", tool: "open_mail", args_public: { ordinal: 2 }, turn_id: "t2" },
+      {
+        type: "ui_directive",
+        directive_id: "dir-open",
+        kind: "open_mail",
+        turn_id: "t2",
+        payload: directivePayload,
+      },
+    ]);
+    expect(spoken.activeInputTurnId).toBe("t2");
+    rerender(<OneVoicePanel state={spoken} controller={control} />);
+    // The list the ordinal refers to is still on screen.
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+
+    // The provider runs the directive through the same module.
+    let outcome: DirectiveOutcome | undefined;
+    await act(async () => {
+      outcome = await executeDirective("open_mail", directivePayload, {
+        pathname: null,
+      });
+    });
+    expect(outcome).toEqual({ handled: true, status: "opened" });
+    expect(openMail.mock.calls).toEqual([[binding]]);
+    expect(screen.getByText("Invoice 4471 is overdue.")).toBeInTheDocument();
+    // The opened row is what "reply to it" now means.
+    expect(setActiveMail).toHaveBeenLastCalledWith(binding);
+
+    // The dispatch's receipt arrives last and does not take the list, or the
+    // open row, off the screen.
+    const settled = step(spoken, [
+      {
+        type: "tool.result",
+        call_id: "m2",
+        tool: "open_mail",
+        status: "mail_open_dispatched",
+        ok: true,
+        turn_id: "t2",
+        result_public: {
+          status: "mail_open_dispatched",
+          spoken_facts: ["Opening it."],
+          ...directivePayload,
+        },
+      },
+    ]);
+    rerender(<OneVoicePanel state={settled} controller={control} />);
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+    expect(screen.getByText("Invoice 4471 is overdue.")).toBeInTheDocument();
+  });
+
+  it("a spoken draft open finds the drafts list it names and opens the draft through openDraft", async () => {
+    const binding = { ordinal: 2, offerRevision: 8, conversationId: "conv_1" };
+    const openDraft = vi.fn(async () => ({
+      toLabel: "Arjun",
+      to: ["arjun@example.com"],
+      cc: [],
+      bcc: [],
+      subject: "Rent",
+      body: "Sending October's share today.",
+      bodyTruncated: false,
+      updatedAt: null,
+    }));
+    const openMail = vi.fn();
+    const setActiveMail = vi.fn();
+    const control = controller({ openMail, openDraft, setActiveMail });
+    const directivePayload = {
+      ordinal: 2,
+      offer_revision: 8,
+      conversation_id: "conv_1",
+    };
+    const step = (state: VoiceSessionState, frames: ServerFrame[]) =>
+      frames.reduce(
+        (next, frame) =>
+          reduceVoiceSession(next, { type: "server", frame, now: NOW }),
+        state,
+      );
+
+    const shown = replay([
+      ready,
+      { type: "transcript.input", text: "Show my drafts", final: true, turn_id: "t1" },
+      { type: "tool.started", call_id: "d1", tool: "list_drafts", args_public: {}, turn_id: "t1" },
+      {
+        type: "tool.result",
+        call_id: "d1",
+        tool: "list_drafts",
+        status: "ok",
+        ok: true,
+        turn_id: "t1",
+        result_public: {
+          status: "ok",
+          spoken_facts: ["You have 2 drafts."],
+          items: [
+            { source_ref: "draft:1", to: "Priya", subject: "Diwali plans" },
+            { source_ref: "draft:2", to: "Arjun", subject: "Rent" },
+          ],
+          coverage: { returned: 2, has_more: false },
+          offer_revision: 8,
+          conversation_id: "conv_1",
+        },
+      },
+      { type: "turn", state: "model_end", turn_id: "t1" },
+      { type: "transcript.input", text: "Open the second one", final: true, turn_id: "t2" },
+      {
+        type: "ui_directive",
+        directive_id: "dir-draft",
+        kind: "open_draft",
+        turn_id: "t2",
+        payload: directivePayload,
+      },
+    ]);
+    const { rerender } = render(
+      <OneVoicePanel state={shown} controller={control} />,
+    );
+    expect(screen.getByLabelText("Drafts").children).toHaveLength(2);
+
+    let outcome: DirectiveOutcome | undefined;
+    await act(async () => {
+      outcome = await executeDirective("open_draft", directivePayload, {
+        pathname: null,
+      });
+    });
+    expect(outcome).toEqual({ handled: true, status: "opened" });
+    expect(openDraft.mock.calls).toEqual([[binding]]);
+    expect(openMail).not.toHaveBeenCalled();
+    expect(screen.getByText("Sending October's share today.")).toBeInTheDocument();
+    // A draft is never "this email" for a reply.
+    expect(
+      setActiveMail.mock.calls.filter(([hint]) => hint !== null),
+    ).toEqual([]);
+
+    const settled = step(shown, [
+      {
+        type: "tool.result",
+        call_id: "d2",
+        tool: "open_draft",
+        status: "draft_open_dispatched",
+        ok: false,
+        turn_id: "t2",
+        result_public: {
+          status: "draft_open_dispatched",
+          spoken_facts: ["Opening it."],
+          ...directivePayload,
+        },
+      },
+    ]);
+    rerender(<OneVoicePanel state={settled} controller={control} />);
+    expect(screen.getByLabelText("Drafts").children).toHaveLength(2);
+    expect(screen.getByText("Sending October's share today.")).toBeInTheDocument();
+  });
+
   it("hides a confirmation_required result behind the pending card and confirms through the controller", async () => {
     const control = controller();
     const state = replay([
@@ -331,11 +549,99 @@ describe("OneVoicePanel", () => {
     await waitFor(() =>
       expect(control.confirmPending).toHaveBeenCalledTimes(1),
     );
+    await waitFor(() =>
+      expect(screen.getByTestId("one-voice-pending-cancel")).toBeEnabled(),
+    );
     fireEvent.click(screen.getByTestId("one-voice-pending-cancel"));
     expect(control.cancelPending).toHaveBeenCalledTimes(1);
     expect(
       isHandoffResult({ status: "tap_required" }, { candidatePicker: null }),
     ).toBe(true);
+  });
+
+  it("keeps the drafts list beside the send card it is about, then shows the result", () => {
+    // Regression: the card's confirmation result took the answer slot, so the
+    // list disappeared and "send draft 2" was approved with no draft 2 on screen.
+    const listed = replay([
+      ready,
+      { type: "transcript.input", text: "Show my drafts", final: true, turn_id: "t1" },
+      {
+        type: "tool.result",
+        call_id: "d1",
+        tool: "list_drafts",
+        status: "ok",
+        ok: true,
+        turn_id: "t1",
+        result_public: {
+          status: "ok",
+          spoken_facts: ["You have 2 drafts."],
+          items: [
+            { source_ref: "draft:1", to: "Priya Sharma", subject: "Diwali plans" },
+            { source_ref: "draft:2", to: "Arjun", subject: "Rent" },
+          ],
+          coverage: { returned: 2, has_more: false },
+          offer_revision: 8,
+          conversation_id: "conv_1",
+        },
+      },
+      { type: "turn", state: "model_end", turn_id: "t1" },
+      { type: "transcript.input", text: "Send the second one", final: true, turn_id: "t2" },
+      {
+        type: "pending_action",
+        pending_action_id: "pa_1",
+        tool: "send_draft",
+        gateway_action_id: "email.chat.turn",
+        tier: "voice",
+        summary: "send draft 2 in your list now",
+        args: { ordinal: 2 },
+        status: "pending",
+        shown_at: null,
+        expires_at: new Date(NOW + 120_000).toISOString(),
+        result: null,
+        risk_level: "medium",
+        requires_tap: false,
+        entities: [],
+        turn_id: "t2",
+      },
+      {
+        type: "tool.result",
+        call_id: "s1",
+        tool: "send_draft",
+        status: "confirmation_required",
+        ok: false,
+        turn_id: "t2",
+        result_public: {
+          status: "confirmation_required",
+          needs: "confirmation",
+          spoken_facts: ["Send draft 2 in your list now?"],
+        },
+      },
+    ]);
+    const view = render(<OneVoicePanel state={listed} controller={controller()} />);
+    expect(screen.getByTestId("one-voice-pending-action")).toBeInTheDocument();
+    const drafts = screen.getByLabelText("Drafts");
+    expect(drafts.children).toHaveLength(2);
+    expect(drafts.textContent).toContain("Arjun");
+    view.unmount();
+
+    const sent = [
+      { type: "turn", state: "model_end", turn_id: "t2" },
+      { type: "transcript.input", text: "Yes", final: true, turn_id: "t3" },
+      {
+        type: "pending_action.resolved",
+        pending_action_id: "pa_1",
+        status: "executed",
+        result_public: { status: "draft_sent", spoken_facts: ["Sent."] },
+      },
+    ] as ServerFrame[];
+    const done = sent.reduce(
+      (next, frame) => reduceVoiceSession(next, { type: "server", frame, now: NOW }),
+      listed,
+    );
+    render(<OneVoicePanel state={done} controller={controller()} />);
+    expect(screen.queryByTestId("one-voice-pending-action")).toBeNull();
+    expect(screen.queryByLabelText("Drafts")).toBeNull();
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveTextContent("Sent.");
   });
 
   it("removes the confirmation card when resolved and tool.result carry the same payload", () => {
@@ -432,6 +738,60 @@ describe("OneVoicePanel", () => {
       "create_circle",
     );
     expect(screen.getByText("Created the Goa Circle.")).toBeInTheDocument();
+  });
+
+  it("shows an Edit name refusal under the input, or as a toast once the relay cancelled the card", async () => {
+    const toastError = vi.spyOn(morphyToast, "error").mockImplementation(() => "toast");
+    const card: ServerFrame = {
+      type: "pending_action",
+      pending_action_id: "pa-edit",
+      tool: "create_circle",
+      gateway_action_id: "location.create_circle",
+      tier: "voice",
+      summary: "create a circle called Hush Garage V04",
+      args: { name: "Hush Garage V04", kind: "other" },
+      status: "pending",
+      shown_at: null,
+      expires_at: null,
+      result: null,
+      risk_level: "medium",
+      requires_tap: false,
+      entities: [],
+    };
+    let state = replay([{ ...ready, features: ["name_edit"] } as ServerFrame, card]);
+    const refusals: Array<(outcome: NameEditOutcome) => void> = [];
+    const control = controller({
+      submitNameEdit: vi.fn(() => new Promise<NameEditOutcome>((resolve) => refusals.push(resolve))),
+    });
+    const view = render(<OneVoicePanel state={state} controller={control} />);
+    fireEvent.click(screen.getByTestId("one-voice-edit-name"));
+    fireEvent.change(screen.getByTestId("one-voice-name-edit-input"), {
+      target: { value: "HUSSH GARAGE V04" },
+    });
+
+    // Refused before the cancel: the card and its editor are still there.
+    fireEvent.click(screen.getByTestId("one-voice-name-edit-review"));
+    await act(async () => {
+      refusals[0]!({ status: "rejected", reasonCode: "invalid_name", message: "Not that name.", pendingActionId: null });
+    });
+    expect(screen.getByTestId("one-voice-name-edit-error")).toHaveTextContent("Not that name.");
+    expect(toastError).not.toHaveBeenCalled();
+
+    // Refused after the relay cancelled the card: the editor has gone with it.
+    fireEvent.click(screen.getByTestId("one-voice-name-edit-review"));
+    state = replay(
+      [{ type: "pending_action.resolved", pending_action_id: "pa-edit", status: "cancelled", result_public: null }],
+      state,
+    );
+    view.rerender(<OneVoicePanel state={state} controller={control} />);
+    expect(screen.queryByTestId("one-voice-name-edit")).toBeNull();
+    const message = "I couldn't prepare a card with that name. Please try again.";
+    await act(async () => {
+      refusals[1]!({ status: "rejected", reasonCode: "storage_unavailable", message, pendingActionId: null });
+    });
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError).toHaveBeenCalledWith(message);
+    toastError.mockRestore();
   });
 
   it("routes the candidate picker to chooseCandidate and 'None of these' to null", () => {

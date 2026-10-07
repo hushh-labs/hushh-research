@@ -1,5 +1,6 @@
 "use client";
 
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import {
   useCallback,
   useEffect,
@@ -2002,6 +2003,9 @@ export function OneLocationOnboardingFlow({
   onCopyOnboardingCircleCode,
   onShareOnboardingCircleCode,
 }: OneLocationOnboardingFlowProps) {
+  // Onboarding owns the whole screen: no tab bar, top bar or agent dock under it.
+  useSessionChromeSuppression(true);
+
   for (const source of ONBOARDING_IMAGE_SOURCES) {
     preload(source, { as: "image", fetchPriority: "high" });
   }

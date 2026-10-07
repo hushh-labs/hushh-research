@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   findPendingAssistantTurn,
+  measureTranscriptReveal,
   transcriptFollowsLatest,
   transcriptRevealScrollTop,
   type TranscriptFollowState,
@@ -97,6 +98,22 @@ describe("transcriptFollowsLatest", () => {
 });
 
 describe("findPendingAssistantTurn", () => {
+  it("reveals above the visible dock even when its form is hidden, clamping to the transcript", () => {
+    const transcript = document.createElement("div");
+    const row = document.createElement("div");
+    const dock = document.createElement("div");
+    const hiddenForm = document.createElement("div");
+    const rect = (top: number, bottom: number) => ({ top, bottom, height: bottom - top } as DOMRect);
+    vi.spyOn(transcript, "getBoundingClientRect").mockReturnValue(rect(100, 800));
+    vi.spyOn(row, "getBoundingClientRect").mockReturnValue(rect(620, 680));
+    vi.spyOn(hiddenForm, "getBoundingClientRect").mockReturnValue(rect(0, 0));
+    const bounds = vi.spyOn(dock, "getBoundingClientRect").mockReturnValue(rect(500, 800));
+    expect(measureTranscriptReveal(transcript, row, dock).visibleBottom).toBe(500);
+    // Negative control: the old hidden-form measurement misses the voice panel.
+    expect(measureTranscriptReveal(transcript, row, hiddenForm).visibleBottom).toBe(800);
+    bounds.mockReturnValue(rect(50, 800));
+    expect(measureTranscriptReveal(transcript, row, dock).visibleBottom).toBe(100);
+  });
   it("targets the newest assistant row that is still streaming", () => {
     const transcript = document.createElement("div");
     transcript.innerHTML = `
@@ -137,11 +154,11 @@ describe("chat workspace send path", () => {
       "(submittedTurn ? findPendingAssistantTurn(transcript) : null) ?? messagesEnd",
     );
     expect(source).toContain(
-      "measureTranscriptReveal(transcript, target, composerStackRef.current)",
+      "measureTranscriptReveal(transcript, target, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current)",
     );
     expect(source).not.toMatch(/messagesEnd\.scrollIntoView\(/);
     // The follow gate is measured against the composer and sticky once followed.
-    expect(source).toContain("measureTranscriptReveal(transcript, messagesEnd, composerStackRef.current)");
+    expect(source).toContain("measureTranscriptReveal(transcript, messagesEnd, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current)");
     expect(source).toContain("const shouldFollowTranscript = transcriptFollowsLatest({");
     expect(source).not.toContain("oneScrollTopRef.current <= 2 || distanceFromBottom <= 48");
   });

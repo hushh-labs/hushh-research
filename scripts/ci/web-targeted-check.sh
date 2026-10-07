@@ -64,7 +64,9 @@ printf 'Resolved %s changed file(s) for targeted web checks.\n' "$changed_count"
 
 has_match() {
   local pattern="$1"
-  printf '%s\n' "$CHANGED_FILE_LIST" | grep -Eq "$pattern"
+  # With pipefail, grep may close the pipe immediately after a match and turn
+  # printf's SIGPIPE into a false negative for a long changed-file list.
+  grep -Eq "$pattern" <<<"$CHANGED_FILE_LIST"
 }
 
 # Every matched pack runs and every failure is reported: stopping at the first

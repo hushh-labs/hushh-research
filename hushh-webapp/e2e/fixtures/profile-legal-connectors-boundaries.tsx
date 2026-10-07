@@ -6,6 +6,7 @@
 import { useSyncExternalStore } from "react";
 
 import { ProfileStackNavigator } from "@/components/profile/profile-stack-navigator";
+import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 import {
@@ -86,15 +87,19 @@ export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocati
     entries.push(...buildProfileLegalStackEntries({ detail: location.detail, updateView }));
   } else if (location.panel === "connectors") {
     entries.push(buildProfileConnectorsStackEntry({ detail: location.detail, updateView }));
+  } else if (location.panel === "account") {
+    entries.push({ key: "panel:account", title: "Account", content: <SettingsGroup title="Account"><SettingsRow title="Signed-in account" /></SettingsGroup> });
   }
   return (
     <SettingsPresentationProvider density="compact">
+      <AppPageShell as="div" width="reading" fitContent>
       <ProfileStackNavigator
         resetScroll={false}
         entries={entries}
         rootContent={
-          <div className="flex flex-col gap-6 px-[var(--page-inline-gutter-standard)] pt-6">
+          <div className="flex flex-col gap-6 pt-6">
             <SettingsGroup title="Your settings" separatorInset>
+              <SettingsRow title="Account" chevron testId="profile-account-row" onClick={() => updateView({ panel: "account", detail: null }, "push")} />
               <SettingsRow
                 title="Connectors"
                 chevron
@@ -110,6 +115,7 @@ export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocati
           </div>
         }
       />
+      </AppPageShell>
     </SettingsPresentationProvider>
   );
 }

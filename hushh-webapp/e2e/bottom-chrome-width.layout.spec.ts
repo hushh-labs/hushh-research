@@ -189,6 +189,95 @@ async function open(page: Page, width: number, dark: boolean, variant: Variant, 
     await page.locator("[data-testid='one-voice-panel']").waitFor();
 }
 
+test("shared dock retains material and input identity with aligned edges and keyboard clearance", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  for (const width of [320, 393, 768]) {
+    await open(page, width, false, { name: "shared text dock", html: { composer: "true" } }, errors);
+    const dock = page.locator("[data-agent-dock-surface]");
+    const input = page.getByRole("textbox", { name: "Message One" });
+    await expect(input).toBeVisible();
+    const retainedBar = await dock.elementHandle();
+    const retainedInput = await input.elementHandle();
+    const measureInput = () => input.evaluate(node => {
+      const field = node as HTMLTextAreaElement;
+      const frame = field.getBoundingClientRect();
+      const surface = field.closest("[data-agent-dock-surface]")!.getBoundingClientRect();
+      return {
+        height: frame.height, contentHeight: field.scrollHeight,
+        within: frame.left >= surface.left && frame.right <= surface.right,
+        radius: getComputedStyle(field).borderRadius,
+      };
+    });
+    await input.fill(Array.from({ length: 30 }, (_, i) => `Line ${i + 1}: ${"wrappedtext".repeat(8)}`).join("\n"));
+    const multiline = await measureInput();
+    expect(multiline.within).toBe(true);
+    expect(multiline.height).toBeLessThanOrEqual(160);
+    expect(multiline.contentHeight).toBeGreaterThan(multiline.height);
+    expect(multiline.radius).toBe("0px");
+    const sendFrame = await page.getByRole("button", { name: "Send message" }).boundingBox();
+    const inputFrame = await input.boundingBox();
+    expect(inputFrame!.x + inputFrame!.width).toBeLessThanOrEqual(sendFrame!.x);
+    expect(sendFrame!.width).toBeGreaterThanOrEqual(44);
+    await input.fill("");
+    expect((await measureInput()).height).toBeLessThanOrEqual(48);
+    const emptyTextFrame = await dock.boundingBox();
+    const material = () => dock.evaluate(node => {
+      const style = getComputedStyle(node);
+      return { radius: style.borderRadius, background: style.backgroundColor, border: style.borderWidth };
+    });
+    const textMaterial = await material();
+    await page.getByTestId("fixture-route").click();
+    await expect(input).toHaveCount(0);
+    await expect.poll(async () => {
+      const frame = await dock.boundingBox();
+      return Math.max(...(["x", "y", "width", "height"] as const)
+        .map(key => Math.abs(emptyTextFrame![key] - frame![key])));
+    }, { message: "Route handoff must settle to the identical Agent Bar frame" }).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+    expect(await material()).toEqual(textMaterial);
+    expect(await dock.evaluate((node, original) => node === original, retainedBar)).toBe(true);
+    await page.getByTestId("fixture-route").click();
+    await expect(input).toBeVisible();
+    // Routes retain the outer surface, not an unmounted route's textarea.
+    await retainedInput?.dispose();
+    const currentInput = await input.elementHandle();
+    await input.fill("Unsent synthetic draft");
+    const barFrame = await dock.boundingBox();
+    const navFrame = await page.locator(".kai-bottom-nav-pill").boundingBox();
+    expect(Math.abs(barFrame!.x - navFrame!.x)).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+    expect(Math.abs(barFrame!.width - navFrame!.width)).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+    await page.getByTestId("fixture-mode").click();
+    await expect(input).toBeHidden();
+    await page.getByTestId("fixture-mode").click();
+    await expect(input).toHaveValue("Unsent synthetic draft");
+    expect(await input.evaluate((node, original) => node === original, currentInput)).toBe(true);
+    expect(await dock.evaluate((node, original) => node === original, retainedBar)).toBe(true);
+    await page.evaluate(() => {
+      document.documentElement.classList.add("native-keyboard-inset", "kb-open");
+      document.documentElement.style.setProperty("--kb-height", "280px");
+    });
+    await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeHidden();
+    await expect.poll(async () => {
+      const frame = await input.boundingBox();
+      return frame ? Math.round(844 - 280 - frame.y - frame.height) : -1;
+    }).toBeGreaterThanOrEqual(7);
+    await expect.poll(async () => {
+      const frame = await dock.boundingBox();
+      return frame ? Math.round(844 - 280 - frame.y - frame.height) : -1;
+    }).toBeLessThanOrEqual(9);
+    await page.evaluate(() => {
+      document.documentElement.classList.remove("native-keyboard-inset", "kb-open");
+      document.documentElement.style.removeProperty("--kb-height");
+    });
+    await page.getByTestId("fixture-route").click();
+    await expect(input).toHaveCount(0);
+    expect(await dock.evaluate((node, original) => node === original, retainedBar)).toBe(true);
+    expect(errors).toEqual([]);
+    await currentInput?.dispose();
+    await retainedBar?.dispose();
+  }
+});
+
 type Edges = { left: number; right: number; width: number };
 type Measure = {
   voice: Edges;
@@ -229,6 +318,36 @@ function assertOneColumn(measured: Measure, label: string) {
   // Never flush to the screen edge on a phone.
   expect.soft(leftInset, `${label}: left inset`).toBeGreaterThanOrEqual(12);
 }
+
+for (const width of [393, 1440])
+  for (const dark of [false, true])
+    for (const profile of [false, true])
+      test(`navigation uses its accent immediately: ${width}px ${dark ? "dark" : "light"} ${profile ? "profile" : "standard"}`, async ({ page }) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await open(page, width, dark, VARIANTS[0], errors);
+        if (profile) {
+          await page.locator("[data-fixture-page]").evaluate((element) => {
+            element.classList.add("profile-account-content");
+          });
+        }
+        const selected = page.getByRole("radio", { name: "Connect" });
+        const accent = await selected.evaluate((element) => getComputedStyle(element).color);
+        for (const label of ["Chat", "One", "Feed", "Search"]) {
+          const button = page.getByRole("radio", { name: label });
+          await button.hover();
+          await page.mouse.down();
+          const pressed = await button.evaluate((element) => ({
+            color: getComputedStyle(element).color,
+            transitions: getComputedStyle(element).transitionProperty,
+          }));
+          expect(pressed.color, `${label} press color`).toBe(accent);
+          expect(pressed.transitions).not.toMatch(/color|all/);
+          await page.mouse.move(0, 0);
+          await page.mouse.up();
+        }
+        expect(errors).toEqual([]);
+      });
 
 for (const variant of VARIANTS)
   for (const width of variant.widths ?? WIDTHS)

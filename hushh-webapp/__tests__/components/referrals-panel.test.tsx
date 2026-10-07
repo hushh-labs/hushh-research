@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
+import { ApiError } from "@/lib/services/api-client";
 import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
 
 // The panel reads the signed-in user to mint an ID token. Stubbing the hook
@@ -64,10 +65,36 @@ function mockSummary(value: Partial<ReferralSummary> = {}) {
     .mockResolvedValue({ ...summary, ...value });
 }
 
+/**
+ * Every gamification read defaults to a safe, empty-but-present shape so a
+ * test that only cares about ONE section does not have to mock all six.
+ */
+function mockGamificationDefaults() {
+  vi.spyOn(ReferralService, "getLeaderboard").mockResolvedValue({
+    snapshot_generated_at: null,
+    entries: [],
+    viewer: null,
+    stale: true,
+  });
+  vi.spyOn(ReferralService, "getCircleLeaderboard").mockResolvedValue({ teams: [] });
+  vi.spyOn(ReferralService, "getMilestones").mockResolvedValue({
+    lifetime_qualified_count: 0,
+    earned: [],
+    next_milestone: null,
+  });
+  vi.spyOn(ReferralService, "getEngagement").mockResolvedValue({
+    streak: { current_run_days: 0, run_length_days: 3 },
+    flash: { active: false, ends_at: null },
+  });
+  vi.spyOn(ReferralService, "getCircleSelection").mockResolvedValue({ circle_id: null });
+  vi.spyOn(ReferralService, "getHandle").mockResolvedValue({ handle: "already-set" });
+}
+
 beforeEach(() => {
   Object.assign(navigator, {
     clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
   });
+  mockGamificationDefaults();
 });
 
 afterEach(() => {
@@ -278,5 +305,214 @@ describe("ReferralsPanel", () => {
     await waitFor(() =>
       expect(screen.getByTestId("referral-qualified-count").textContent).toBe("1"),
     );
+  });
+
+  it("still renders the core summary when every gamification read fails", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getLeaderboard").mockRejectedValue(new Error("down"));
+    vi.spyOn(ReferralService, "getCircleLeaderboard").mockRejectedValue(new Error("down"));
+    vi.spyOn(ReferralService, "getMilestones").mockRejectedValue(new Error("down"));
+    vi.spyOn(ReferralService, "getEngagement").mockRejectedValue(new Error("down"));
+    vi.spyOn(ReferralService, "getCircleSelection").mockRejectedValue(new Error("down"));
+    vi.spyOn(ReferralService, "getHandle").mockRejectedValue(new Error("down"));
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText(summary.link)).toBeTruthy());
+    expect(screen.getByTestId("referral-qualified-count").textContent).toBe("3");
+  });
+});
+
+describe("ReferralsPanel gamification", () => {
+  it("shows the viewer's rank and points from the leaderboard read", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getLeaderboard").mockResolvedValue({
+      snapshot_generated_at: "2026-11-09T00:00:00Z",
+      entries: [{ rank: 1, handle: "top-dog", points: 500, is_viewer: false }],
+      viewer: { rank: 47, handle: "me-handle", points: 20, is_viewer: true },
+      stale: false,
+    });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("referral-overall-rank").textContent).toBe("#47"),
+    );
+    expect(screen.getByTestId("referral-cumulative-points").textContent).toBe("20");
+  });
+
+  it("shows 'Not yet ranked' rather than a fabricated rank with no snapshot", async () => {
+    mockSummary();
+    render(<ReferralsPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("referral-overall-rank").textContent).toBe("Not yet ranked"),
+    );
+  });
+
+  it("never renders a real name on the leaderboard -- only chosen handles", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getLeaderboard").mockResolvedValue({
+      snapshot_generated_at: "2026-11-09T00:00:00Z",
+      entries: [
+        { rank: 1, handle: "top-dog", points: 500, is_viewer: false },
+        { rank: 2, handle: "Anonymous referrer", points: 300, is_viewer: false },
+      ],
+      viewer: null,
+      stale: false,
+    });
+
+    const { container } = render(<ReferralsPanel />);
+    await waitFor(() => expect(screen.getByText(/top-dog/)).toBeTruthy());
+
+    const rendered = container.textContent || "";
+    for (const leak of ["@", "+91", "user_", "uid"]) {
+      expect(rendered.toLowerCase()).not.toContain(leak.toLowerCase());
+    }
+  });
+
+  it("shows progress toward the next milestone", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getMilestones").mockResolvedValue({
+      lifetime_qualified_count: 3,
+      earned: [],
+      next_milestone: { milestone_key: "tee_5", threshold: 5, reward: "Hushh tee", progress: 3 },
+    });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText("Hushh tee")).toBeTruthy());
+    expect(screen.getByTestId("referral-milestone-progress").textContent).toBe("3/5");
+  });
+
+  it("lists earned merchandise", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getMilestones").mockResolvedValue({
+      lifetime_qualified_count: 5,
+      earned: [{ milestone_key: "tee_5", reward: "Hushh tee", earned_at: "2026-10-01T00:00:00Z" }],
+      next_milestone: null,
+    });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText("Hushh tee")).toBeTruthy());
+    expect(screen.getByText("Every reward earned")).toBeTruthy();
+  });
+
+  it("shows streak progress only while a streak is live", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getEngagement").mockResolvedValue({
+      streak: { current_run_days: 2, run_length_days: 3 },
+      flash: { active: false, ends_at: null },
+    });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText("Referral streak")).toBeTruthy());
+    expect(screen.getByText("2 of 3 days")).toBeTruthy();
+  });
+
+  it("hides the engagement section with no live streak and no active flash", async () => {
+    mockSummary();
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText(summary.link)).toBeTruthy());
+    expect(screen.queryByText("Keep it going")).toBeNull();
+  });
+
+  it("shows a flash banner while a flash window is active", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getEngagement").mockResolvedValue({
+      streak: { current_run_days: 0, run_length_days: 3 },
+      flash: { active: true, ends_at: "2026-11-09T18:00:00Z" },
+    });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText("Flash bonus is live")).toBeTruthy());
+  });
+
+  it("prompts for a handle only when none is set yet", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getHandle").mockResolvedValue({ handle: null });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText("Appear on the leaderboard")).toBeTruthy());
+  });
+
+  it("hides the handle prompt once a handle is already set", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getHandle").mockResolvedValue({ handle: "my-handle" });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText(summary.link)).toBeTruthy());
+    expect(screen.queryByText("Appear on the leaderboard")).toBeNull();
+  });
+
+  it("saves a chosen handle and clears the prompt", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getHandle").mockResolvedValue({ handle: null });
+    const setHandleSpy = vi
+      .spyOn(ReferralService, "setHandle")
+      .mockResolvedValue({ handle: "my-new-handle" });
+
+    render(<ReferralsPanel />);
+    await waitFor(() => expect(screen.getByLabelText("Leaderboard handle")).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText("Leaderboard handle"), {
+      target: { value: "my-new-handle" },
+    });
+    fireEvent.click(screen.getByText("Save"));
+
+    await waitFor(() => expect(setHandleSpy).toHaveBeenCalledWith({
+      idToken: "test-id-token",
+      handle: "my-new-handle",
+    }));
+  });
+
+  it("surfaces a distinct message when the chosen handle is already taken", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getHandle").mockResolvedValue({ handle: null });
+    vi.spyOn(ReferralService, "setHandle").mockRejectedValue(
+      new ApiError("Handle taken", 409, { detail: { code: "REFERRAL_HANDLE_TAKEN" } }),
+    );
+
+    render(<ReferralsPanel />);
+    await waitFor(() => expect(screen.getByLabelText("Leaderboard handle")).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText("Leaderboard handle"), {
+      target: { value: "popular-handle" },
+    });
+    fireEvent.click(screen.getByText("Save"));
+
+    await waitFor(() =>
+      expect(screen.getByText("That handle is already taken.")).toBeTruthy(),
+    );
+  });
+
+  it("shows the team leaderboard with raw contribution counts", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getCircleLeaderboard").mockResolvedValue({
+      teams: [{ circle_id: "circle-1", circle_name: "The Avengers", contribution_count: 12 }],
+    });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText("The Avengers")).toBeTruthy());
+    expect(screen.getByText("12")).toBeTruthy();
+  });
+
+  it("shows the viewer's own team contribution when a circle is selected", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getCircleSelection").mockResolvedValue({ circle_id: "circle-1" });
+    vi.spyOn(ReferralService, "getCircleLeaderboard").mockResolvedValue({
+      teams: [{ circle_id: "circle-1", circle_name: "The Avengers", contribution_count: 9 }],
+    });
+
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(screen.getByText("Your team")).toBeTruthy());
   });
 });

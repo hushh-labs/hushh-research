@@ -5,7 +5,7 @@ import { ChevronLeft } from "@/components/icons";
 import { usePathname } from "next/navigation";
 
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
-import { ROUTES } from "@/lib/navigation/routes";
+import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 
 const BACK_GESTURE_RESERVED_WIDTH_PX = 28;
 const AXIS_LOCK_PX = 8;
@@ -25,6 +25,7 @@ type ProfileBodyGesture = {
   startY: number;
   startedAt: number;
   axis: GestureAxis;
+  link: HTMLAnchorElement | null;
 };
 
 function isOneSurfaceRoute(pathname: string): boolean {
@@ -34,7 +35,8 @@ function isOneSurfaceRoute(pathname: string): boolean {
   // affordance on other authenticated routes, but a finance/location/connect
   // surface must retain ownership of its own horizontal gestures and tab
   // pagers.
-  return pathname === ROUTES.ONE_HOME || pathname === ROUTES.HOME;
+  const route = normalizeStaticExportPathname(pathname);
+  return route === ROUTES.ONE_HOME || route === ROUTES.HOME;
 }
 
 function hasHorizontalScrollParent(target: HTMLElement | null): boolean {
@@ -54,16 +56,16 @@ function hasHorizontalScrollParent(target: HTMLElement | null): boolean {
 }
 
 function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
-  const element = target instanceof HTMLElement ? target : null;
+  const element = target instanceof Element ? target : null;
   if (!element) return false;
   if (
     element.closest(
-      'button, a, input, textarea, select, [contenteditable="true"], [data-no-route-swipe], [data-no-profile-swipe], [data-swipe-views-horizontal-scroll], [data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="command"], [cmdk-root], [data-slot="carousel"], [data-slot="carousel-content"], [data-slot="carousel-item"]',
+      'button, a:not([data-profile-body-swipe]), input, textarea, select, [contenteditable="true"], [data-no-route-swipe], [data-no-profile-swipe], [data-swipe-views-horizontal-scroll], [data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="command"], [cmdk-root], [data-slot="carousel"], [data-slot="carousel-content"], [data-slot="carousel-item"]',
     )
   ) {
     return true;
   }
-  return hasHorizontalScrollParent(element);
+  return hasHorizontalScrollParent(element instanceof HTMLElement ? element : element.parentElement);
 }
 
 function hasBlockingOverlay(): boolean {
@@ -114,6 +116,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
 
     const root = document.documentElement;
     let gesture: ProfileBodyGesture | null = null;
+    let suppressedClick: { link: HTMLAnchorElement; expires: number } | null = null;
 
     const reset = () => {
       gesture = null;
@@ -121,6 +124,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
     };
 
     const begin = (params: Omit<ProfileBodyGesture, "axis">) => {
+      suppressedClick = null;
       gesture = { ...params, axis: "undecided" };
       setIndicator(root, {
         active: true,
@@ -182,8 +186,21 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
 
       if (current.axis === "horizontal") consume(event);
       reset();
-      if (shouldOpen) requestProfilePaneOpen("native_swipe");
+      if (shouldOpen) {
+        if (current.link) suppressedClick = { link: current.link, expires: performance.now() + 800 };
+        requestProfilePaneOpen("native_swipe");
+      }
     };
+    const suppressCommittedLinkClick = (event: MouseEvent) => {
+      const pending = suppressedClick;
+      if (!pending || event.detail === 0 || performance.now() > pending.expires ||
+          !(event.target instanceof Node) || !pending.link.contains(event.target)) return;
+      suppressedClick = null;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const swipeLink = (target: EventTarget | null) => target instanceof Element
+      ? target.closest<HTMLAnchorElement>("a[data-profile-body-swipe]") : null;
 
     const pointerStart = (event: PointerEvent) => {
       if (
@@ -200,6 +217,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         startX: event.clientX,
         startY: event.clientY,
         startedAt: event.timeStamp || performance.now(),
+        link: swipeLink(event.target),
       });
     };
     const pointerMove = (event: PointerEvent) => {
@@ -244,6 +262,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         startX: touch.clientX,
         startY: touch.clientY,
         startedAt: event.timeStamp || performance.now(),
+        link: swipeLink(event.target),
       });
     };
     const touchForGesture = (touches: TouchList) => {
@@ -272,6 +291,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
       );
     };
 
+    window.addEventListener("click", suppressCommittedLinkClick, true);
     window.addEventListener("pointerdown", pointerStart, {
       capture: true,
       passive: true,
@@ -301,6 +321,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
 
     return () => {
       reset();
+      window.removeEventListener("click", suppressCommittedLinkClick, true);
       window.removeEventListener("pointerdown", pointerStart, true);
       window.removeEventListener("pointermove", pointerMove, true);
       window.removeEventListener("pointerup", pointerEnd, true);

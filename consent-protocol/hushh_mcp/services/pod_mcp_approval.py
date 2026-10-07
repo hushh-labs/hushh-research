@@ -300,7 +300,7 @@ class PodMcpApprovalPort:
 
         from hushh_mcp.one_adk.mcp_pending_call import current_pending_handle, pending_call_details
 
-        pending = pending_call_details(
+        pending = await pending_call_details(
             Session(id=approval.conversation_id, user_id=approval.owner_id, app_name="hussh_one"),
             current_pending_handle(),
         )

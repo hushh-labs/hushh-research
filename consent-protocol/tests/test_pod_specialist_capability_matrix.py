@@ -114,7 +114,7 @@ def test_hub_backed_information_is_declared_hub_backed_never_hub_independent(mat
             assert rows[agent_id]["declared"]["information_source"] == "hub_door", agent_id
             assert door in rows[agent_id]["derived"]["hub_doors"]
     # Hub-only agents are declared hub-only, with a reason.
-    for agent_id in ("agent_kai", "agent_kyc", "agent_wallet"):
+    for agent_id in ("agent_kai", "agent_kyc", "agent_wallet", "agent_career"):
         assert rows[agent_id]["declared"]["executes_in_pod"] is False
         assert rows[agent_id]["declared"]["information_source"] == "hub"
         assert rows[agent_id]["declared"]["why"].strip()

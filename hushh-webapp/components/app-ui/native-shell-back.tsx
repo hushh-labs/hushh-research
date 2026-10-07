@@ -53,7 +53,8 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     void (async () => {
       try {
         const capability = await nativeChrome.getCapabilities();
-        if (cancelled || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || !capability.families.includes("back")) return;
+        if (cancelled || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
+            capability.independentControls !== true || !capability.families.includes("back")) return;
         await retain(nativeChrome.addListener("choiceRequested", (event) => {
           const active = lease.current;
           void active?.choose(event, () => lease.current === active && current.current.context === active.context &&

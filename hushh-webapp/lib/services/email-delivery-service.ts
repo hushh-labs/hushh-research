@@ -20,6 +20,12 @@ export type EmailDraft = {
   driveFileId?: string;
   /** Opaque Gmail information-request reference; the server derives the reply envelope. */
   sourceWorkflowId?: string;
+  /**
+   * Opaque reference to an email One showed, for a reply in its own thread.
+   * The server derives recipient, subject and thread from it on every prepare
+   * and send; only the body here is the person's.
+   */
+  sourceMailRef?: string;
 };
 
 export type DriveAttachmentPreview = {
@@ -41,6 +47,8 @@ export type PreparedEmailSend = {
 };
 
 export type SentEmailResult = {
+  /** The send action the server recorded, which the voice relay can re-read. */
+  actionId: string | null;
   messageId: string | null;
   threadId: string | null;
   outcomeUnknown: boolean;
@@ -60,7 +68,9 @@ export class EmailDeliveryError extends Error {
   get needsGmailReconnect(): boolean {
     return (
       this.code === "GMAIL_SEND_PERMISSION_REQUIRED" ||
-      this.code === "GMAIL_SEND_DISABLED"
+      this.code === "GMAIL_SEND_DISABLED" ||
+      // A reply re-reads its original email, which needs the read grant.
+      this.code === "GMAIL_READ_PERMISSION_REQUIRED"
     );
   }
 
@@ -157,6 +167,35 @@ function safeErrorMessage(code: string | null, status: number): string {
   if (code === "GMAIL_MAILBOX_UNAVAILABLE" || code === "GMAIL_MAILBOX_OUTCOME_UNKNOWN") {
     return "Gmail may have applied some or all of this change. Check Gmail before preparing another change.";
   }
+  if (code === "REPLY_SOURCE_CHANGED" || code === "REPLY_ACCOUNT_CHANGED") {
+    return "The original email or your Mail connection changed. Ask One to prepare the reply again.";
+  }
+  if (code === "REPLY_SOURCE_REF_EXPIRED" || code === "REPLY_SOURCE_REF_INVALID") {
+    return "This reply expired. Ask One to prepare it again.";
+  }
+  if (code === "REPLY_SOURCE_UNAVAILABLE") {
+    return "The original email can't be found now, so this reply wasn't sent.";
+  }
+  if (
+    code === "REPLY_TARGET_IS_OWNER" ||
+    code === "REPLY_TARGET_AMBIGUOUS" ||
+    code === "REPLY_RECIPIENT_INVALID" ||
+    code === "REPLY_HEADERS_INVALID"
+  ) {
+    return "This email can't be replied to from here. Write a new email instead.";
+  }
+  if (code === "REPLY_SOURCE_RETRYABLE") {
+    return "Mail couldn't check the original email just now. Nothing was sent. Try again.";
+  }
+  if (code === "MAIL_REPLY_UNAVAILABLE") {
+    return "Replying from One is switched off right now. Nothing was sent.";
+  }
+  if (code === "GMAIL_READ_PERMISSION_REQUIRED") {
+    return "Reconnect Mail to continue. Nothing was sent.";
+  }
+  if (code === "SOURCE_BOUND_ATTACHMENT_UNSUPPORTED") {
+    return "A reply can't include an attachment. Nothing was sent.";
+  }
   if (status === 401 || status === 403) {
     return "Unlock your vault and try again.";
   }
@@ -219,6 +258,16 @@ async function postJson<T>(
   });
   if (!response.ok) throw await readFailure(response);
   return (await response.json()) as T;
+}
+
+/** A reply is bound to exactly one original email; two bindings is a caller bug. */
+function sourceBinding(draft: EmailDraft): Record<string, string> {
+  if (draft.sourceWorkflowId && draft.sourceMailRef) {
+    throw new EmailDeliveryError("A reply can have only one original email.", 400);
+  }
+  if (draft.sourceWorkflowId) return { source_workflow_id: draft.sourceWorkflowId };
+  if (draft.sourceMailRef) return { source_mail_ref: draft.sourceMailRef };
+  return {};
 }
 
 function draftFromPayload(payload: unknown): EmailDraftResult {
@@ -321,9 +370,7 @@ export class EmailDeliveryService {
       ...(input.draft.driveFileId
         ? { drive_attachment: { file_id: input.draft.driveFileId } }
         : {}),
-      ...(input.draft.sourceWorkflowId
-        ? { source_workflow_id: input.draft.sourceWorkflowId }
-        : {}),
+      ...sourceBinding(input.draft),
     });
     const record = asRecord(payload);
     const attachment = asRecord(record?.drive_attachment);
@@ -353,7 +400,7 @@ export class EmailDeliveryService {
       privateSends.delete(input.actionId);
       const result = await confirmPrivateGoogleAction(input.actionId, 'gmail_mailbox');
       if (result.status !== 'sent' || result.action !== 'send_email' || typeof result.message_id !== 'string') throw new EmailDeliveryError('Check Sent Mail before trying again.', 502, 'GMAIL_SEND_OUTCOME_UNKNOWN');
-      return { messageId: result.message_id, threadId: null, outcomeUnknown: false };
+      return { actionId: input.actionId, messageId: result.message_id, threadId: null, outcomeUnknown: false };
     }
     const payload = await postJson<unknown>("/api/one/email/send", input, {
       action_id: input.actionId,
@@ -366,12 +413,11 @@ export class EmailDeliveryService {
       ...(input.attachmentToken
         ? { attachment_token: input.attachmentToken }
         : {}),
-      ...(input.draft.sourceWorkflowId
-        ? { source_workflow_id: input.draft.sourceWorkflowId }
-        : {}),
+      ...sourceBinding(input.draft),
     });
     const record = asRecord(payload);
     return {
+      actionId: stringValue(record, "action_id", "actionId") || null,
       messageId: stringValue(record, "message_id", "messageId") || null,
       threadId: stringValue(record, "thread_id", "threadId") || null,
       outcomeUnknown: record?.outcome_unknown === true || record?.outcomeUnknown === true,

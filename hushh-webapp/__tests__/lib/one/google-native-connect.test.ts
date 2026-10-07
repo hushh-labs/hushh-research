@@ -132,7 +132,7 @@ describe("google native connect", () => {
     expect(sent).toMatchObject({ kind: "authorization_code", clientProfile: "hussh_ios", clientId: IOS_CLIENT, code: "4/0Acode" });
     expect(sent.transition).toEqual(TRANSITION);
     expect(apiFetch).toHaveBeenCalledWith('/api/one/google/connect/transition/prepare', expect.objectContaining({
-      headers: expect.objectContaining({ 'X-Consent-Token': CAPABILITY }),
+      headers: expect.objectContaining({ 'X-Hushh-Consent': CAPABILITY }),
       body: JSON.stringify({ user_id: 'owner', client_profile: 'hussh_ios', confirmed: false }),
     }));
     expect(JSON.stringify(apiFetch.mock.calls)).not.toContain('4/0Acode');

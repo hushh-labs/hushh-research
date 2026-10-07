@@ -19,6 +19,7 @@ import { Loader2 } from "@/components/icons";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import {
+  NAME_EDIT_FEATURE,
   SOS_PUBLISH_PURPOSE,
   SOS_PUBLISH_STEP_KIND,
   type ToolResultPublic,
@@ -67,6 +68,8 @@ const HANDOFF_STATUSES = new Set<string>([
   // that has nothing of its own to show -- and take away the very rows the
   // ordinal refers to.
   "mail_open_dispatched",
+  // The same for a draft in a drafts list.
+  "draft_open_dispatched",
 ]);
 const DISAMBIGUATION_STATUSES = new Set<string>([
   "multiple",
@@ -218,6 +221,8 @@ export function OneVoicePanel({
   const resultSlot = selectPanelResult(state);
   const sosPublishing = isSosPublishStep(state.clientStep);
   const error = state.error;
+  // Offered only while the connected relay lists the frame.
+  const submitNameEdit = controller.submitNameEdit;
 
   useEffect(() => {
     setPickedId(null);
@@ -400,6 +405,11 @@ export function OneVoicePanel({
                 busy={busy}
                 onConfirm={() => void confirm()}
                 onCancel={() => controller.cancelPending()}
+                onEditName={
+                  submitNameEdit && state.relayFeatures.includes(NAME_EDIT_FEATURE)
+                    ? (name) => submitNameEdit(visiblePending.pending_action_id, name)
+                    : undefined
+                }
               />
             ) : null}
 
@@ -431,6 +441,8 @@ export function OneVoicePanel({
                 tool={resultSlot.tool}
                 ok={resultSlot.ok}
                 onOpenMail={controller.openMail}
+                onOpenDraft={controller.openDraft}
+                onActiveMailChange={controller.setActiveMail}
               />
             ) : null}
 

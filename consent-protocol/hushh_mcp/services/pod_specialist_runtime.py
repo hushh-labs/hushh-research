@@ -194,6 +194,18 @@ _HUB_ONLY = "Registered on the hub with no owner adapter; service_for refuses it
 #: ``none`` or ``hub``. Hub-owned capabilities stay hub-owned here; a manifest is
 #: not a claim of pod execution.
 POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
+    "agent_career": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why=(
+            "The flag-gated Career resume parser runs on the hub with its managed "
+            "model. No pod owner adapter, specialist dispatch or AgentTool exists; "
+            "device review, PKM encryption and application confirmation do not "
+            "establish pod execution."
+        ),
+    ),
     "agent_computer_use": _declare(
         executes_in_pod=False,
         information_source="unavailable",

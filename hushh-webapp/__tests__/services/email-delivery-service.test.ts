@@ -15,6 +15,26 @@ import {
 } from "@/lib/services/email-delivery-service";
 import { ApiService } from "@/lib/services/api-service";
 
+const AUTH = { firebaseIdToken: "firebase-token", vaultOwnerToken: "vault-owner-token" };
+const SOURCE_MAIL_REF = "rs1.nX4-qL9_c2VhbGVkLXJlcGx5LXNvdXJjZQ";
+const WORKFLOW_ID = "6f1c2b9e-0d4a-4e8b-9a37-1c5d7e9f2b40";
+const ACTION_ID = "3f0c9a52-6b1e-4d8a-9c47-2e5b8f1d0a63";
+
+/** What the voice reply card hands the service: the body only, bound by the sealed ref. */
+const replyDraft = () => ({
+  to: "",
+  cc: "",
+  bcc: "",
+  subject: "",
+  body: "  Friday works.\nSee you at noon.",
+  htmlBody: "<p>Friday works.<br>See you at noon.</p>",
+  sourceMailRef: SOURCE_MAIL_REF,
+});
+
+function requestBody(call: number): Record<string, unknown> {
+  return JSON.parse(String(vi.mocked(ApiService.apiFetch).mock.calls[call]?.[1]?.body));
+}
+
 describe("EmailDeliveryService", () => {
   beforeEach(() => { placement.mockResolvedValue(false); vi.clearAllMocks(); });
 
@@ -117,11 +137,99 @@ describe("EmailDeliveryService", () => {
       drive_attachment: { file_id: "drive-file-1" },
     });
 
-    await EmailDeliveryService.send({ ...auth, draft, actionId: prepared.actionId, attachmentToken: prepared.attachmentToken });
+    const sent = await EmailDeliveryService.send({ ...auth, draft, actionId: prepared.actionId, attachmentToken: prepared.attachmentToken });
     const sendBody = JSON.parse(String(vi.mocked(ApiService.apiFetch).mock.calls[1][1]?.body));
     expect(sendBody.attachment_token).toBe("sealed-review-token");
     expect(sendBody).not.toHaveProperty("drive_attachment");
     expect(sendBody).not.toHaveProperty("driveFileId");
+    // A send answer without a recorded action yields no id to report.
+    expect(sent).toMatchObject({ actionId: null, messageId: "sent-1" });
+  });
+
+  it("binds a reply by its sealed source ref alone on prepare and send, and returns the recorded send action", async () => {
+    vi.mocked(ApiService.apiFetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ action_id: ACTION_ID, expires_at: "2026-10-05T00:10:00Z" }), {
+        status: 200,
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        action_id: ACTION_ID,
+        message_id: "msg-1",
+        thread_id: "thread-1",
+        state: "sent",
+        outcome_unknown: false,
+      }), { status: 200 }));
+
+    const prepared = await EmailDeliveryService.prepare({ ...AUTH, draft: replyDraft(), idempotencyKey: "idem-reply" });
+    const sent = await EmailDeliveryService.send({ ...AUTH, draft: replyDraft(), actionId: prepared.actionId });
+
+    expect(vi.mocked(ApiService.apiFetch).mock.calls.map(([path]) => path)).toEqual([
+      "/api/one/email/prepare",
+      "/api/one/email/send",
+    ]);
+    expect(requestBody(0)).toEqual({
+      to: "",
+      cc: "",
+      bcc: "",
+      subject: "",
+      body: "  Friday works.\nSee you at noon.",
+      html_body: "<p>Friday works.<br>See you at noon.</p>",
+      idempotency_key: "idem-reply",
+      source_mail_ref: SOURCE_MAIL_REF,
+    });
+    expect(requestBody(1)).toEqual({
+      action_id: ACTION_ID,
+      to: "",
+      cc: "",
+      bcc: "",
+      subject: "",
+      body: "  Friday works.\nSee you at noon.",
+      html_body: "<p>Friday works.<br>See you at noon.</p>",
+      source_mail_ref: SOURCE_MAIL_REF,
+    });
+    expect(sent).toEqual({ actionId: ACTION_ID, messageId: "msg-1", threadId: "thread-1", outcomeUnknown: false });
+  });
+
+  it("refuses a draft bound to two original emails before any request leaves the device", async () => {
+    const draft = { ...replyDraft(), sourceWorkflowId: WORKFLOW_ID };
+    const attempts: Array<() => Promise<unknown>> = [
+      () => EmailDeliveryService.prepare({ ...AUTH, draft, idempotencyKey: "idem-reply" }),
+      () => EmailDeliveryService.send({ ...AUTH, draft, actionId: ACTION_ID }),
+    ];
+    for (const attempt of attempts) {
+      const error = await attempt().then(() => null, (cause: unknown) => cause);
+      expect(error).toBeInstanceOf(EmailDeliveryError);
+      expect(error).toMatchObject({ status: 400 });
+    }
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
+
+    // Control: the information-request reply still carries its own single binding.
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ action_id: ACTION_ID }), { status: 200 }),
+    );
+    await EmailDeliveryService.prepare({
+      ...AUTH,
+      draft: { ...draft, sourceMailRef: undefined },
+      idempotencyKey: "idem-reply",
+    });
+    expect(requestBody(0)).toMatchObject({ source_workflow_id: WORKFLOW_ID });
+    expect(requestBody(0)).not.toHaveProperty("source_mail_ref");
+  });
+
+  it("maps reply-binding failures to local copy without echoing the server's detail", async () => {
+    const cases = [
+      ["REPLY_SOURCE_CHANGED", "The original email or your Mail connection changed. Ask One to prepare the reply again."],
+      ["REPLY_SOURCE_REF_EXPIRED", "This reply expired. Ask One to prepare it again."],
+    ] as const;
+    for (const [code, message] of cases) {
+      vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: { code, message: "Re: Q3 numbers <maya@example.com>" } }), {
+          status: 409,
+        }),
+      );
+      await expect(
+        EmailDeliveryService.send({ ...AUTH, draft: replyDraft(), actionId: ACTION_ID }),
+      ).rejects.toMatchObject({ code, status: 409, message });
+    }
   });
 
   it("maps a missing Gmail send scope to a safe reconnect error without echoing server detail", async () => {

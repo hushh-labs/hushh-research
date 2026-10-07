@@ -115,24 +115,10 @@
   height: 100%;
   display: grid;
   place-items: center;
-  border-radius: var(--app-card-radius-standard);
-  border: 1px solid var(--app-card-surface-default-solid);
-  background: linear-gradient(
-    135deg,
-    var(--app-card-surface-default-solid),
-    color-mix(
-      in oklab,
-      var(--orbit-gold) 65%,
-      var(--app-card-surface-default-solid)
-    )
-  );
-  box-shadow: var(--app-card-shadow-standard);
 }
 .brandMark {
-  font-family:
-    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 5rem;
-  line-height: 1;
+  width: 6.25rem;
+  height: 6.25rem;
 }
 .circle {
   --circle-ink: var(--agent-icon-profile-fg);
@@ -574,7 +560,8 @@
     padding: 0.625rem 0.875rem;
   }
   .brandMark {
-    font-size: 3.75rem;
+    width: 3.75rem;
+    height: 3.75rem;
   }
   .brandCenter {
     width: 30%;
@@ -623,24 +610,24 @@
       max(var(--app-scroll-bottom-pad, 0px), var(--app-safe-area-bottom-effective, 0px)) + 0.625rem
     );
   }
-  .shell[data-has-invitation="true"] .content[data-step="2"] {
+  .shell[data-has-invitation="true"] .content[data-step="3"] {
     gap: 0.75rem;
   }
-  .shell[data-has-invitation="true"] .content[data-step="2"] .voiceVisual {
+  .shell[data-has-invitation="true"] .content[data-step="3"] .voiceVisual {
     height: 3rem;
     margin-bottom: 0.5rem;
   }
-  .shell[data-has-invitation="true"] .content[data-step="2"] .inviteContext {
+  .shell[data-has-invitation="true"] .content[data-step="3"] .inviteContext {
     margin-top: 0.5rem;
   }
 }
 @media (min-height: 601px) and (max-height: 680px) and (max-width: 767px) {
-  /* The third screen is the tallest; preserve its answer and action without
+  /* The final screen is the tallest; preserve its answer and action without
      introducing a dead-scroll tail on shorter phones. */
-  .shell[data-has-invitation="true"] .content[data-step="2"] {
+  .shell[data-has-invitation="true"] .content[data-step="3"] {
     gap: 0.375rem;
   }
-  .shell[data-has-invitation="true"] .content[data-step="2"] .voiceVisual {
+  .shell[data-has-invitation="true"] .content[data-step="3"] .voiceVisual {
     height: 2.5rem;
     margin-bottom: 0.25rem;
   }
@@ -648,7 +635,7 @@
 @media (max-height: 600px) and (max-width: 767px) {
   /* At compact phone heights the title and microphone already explain this
      scene. Give the complete exchange and invitation priority over a tagline. */
-  .content[data-step="2"] .subtitle {
+  .content[data-step="3"] .subtitle {
     display: none;
   }
   .conversation {
@@ -665,7 +652,8 @@
     width: 30%;
   }
   .brandMark {
-    font-size: 3rem;
+    width: 3rem;
+    height: 3rem;
   }
   .circle {
     width: 5.75rem;

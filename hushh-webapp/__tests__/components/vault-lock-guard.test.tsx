@@ -27,9 +27,13 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: mocks.isNativePlatform },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, isNativePlatform: mocks.isNativePlatform },
+  };
+});
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),

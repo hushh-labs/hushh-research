@@ -21,9 +21,14 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     validated_mcp_arguments,
 )
 from hushh_mcp.one_adk.mcp_call_approval import McpCallApproval
-from hushh_mcp.one_adk.mcp_pending_call import pending_call_details, restore_pending_call
+from hushh_mcp.one_adk.mcp_pending_call import (
+    pending_call_details,
+    restore_pending_call,
+    review_refusal,
+)
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope, validate_mcp_turn_configurations
 from hushh_mcp.one_adk.request_secrets import store_request_secret
+from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
     ActionDirectiveStore,
@@ -120,6 +125,8 @@ async def review_tool(
     vault_only: bool = False,
 ):
     owner = str(token["user_id"])
+    if pod_mode() and not vault_only:
+        raise ActionDirectiveAuthorityError("Private connector review requires injected custody.")
     if vault_only and (sessions is None or owner_admission is None or configuration is None):
         raise ActionDirectiveAuthorityError("Private connector review unavailable.")
     if configuration is not None:
@@ -255,7 +262,7 @@ async def confirm_review(
             configuration=configuration,
         )
         if directive_id != pending["directiveId"] or arguments != pending["arguments"]:
-            raise ActionDirectiveAuthorityError("Pending call changed. Review again.")
+            raise review_refusal("pending_terms_changed", "Pending call changed. Review again.")
     ledger = ActionDirectiveStore()
     async with review_tool(
         token=token,
@@ -288,22 +295,24 @@ async def prepare_pending_review(
     configuration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Preview the already-issued native call; never issue another directive."""
+    if pod_mode():
+        raise ActionDirectiveAuthorityError("Private connector review requires injected custody.")
     session = await EncryptedAdkSessionService().get_session(
         app_name="hussh_one",
         user_id=str(token["user_id"]),
         session_id=conversation_id,
     )
     if session is None:
-        raise ActionDirectiveAuthorityError("Conversation unavailable.")
-    pending = pending_call_details(session, pending_handle)
-    restore_pending_call(session, pending_handle)  # Require both native call identities.
+        raise review_refusal("conversation_unavailable", "Conversation unavailable.")
+    pending = await pending_call_details(session, pending_handle)
+    await restore_pending_call(session, pending_handle)  # Require both native call identities.
     review = pending.get("review")
     if (
         not isinstance(review, dict)
         or review.get("connectorId") != connector_id
         or pending["tool_name"] != tool_name
     ):
-        raise ActionDirectiveAuthorityError("Pending call changed. Review again.")
+        raise review_refusal("binding_mismatch", "Pending call changed. Review again.")
     async with review_tool(
         token=token,
         connector_id=connector_id,
@@ -312,7 +321,7 @@ async def prepare_pending_review(
         configuration=configuration,
     ) as (context, tool):
         if tool.revision != review.get("catalogRevision"):
-            raise ActionDirectiveAuthorityError("Connector tools changed. Review again.")
+            raise review_refusal("catalog_changed", "Connector tools changed. Review again.")
         approval = current_approval(context, tool, pending["arguments"])
         return {
             "directiveId": review["directiveId"],

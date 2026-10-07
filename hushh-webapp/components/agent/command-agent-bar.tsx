@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
-import { AudioLines, X, ChevronUp } from "@/components/icons";
+import { AudioLines, Send, X, ChevronUp } from "@/components/icons";
+import { AgentBarSurface } from "./agent-bar-surface";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { LocationCommandCard } from "./location-command-card";
 import {
@@ -87,7 +88,7 @@ export function CommandAgentBar({
         : recording
           ? held
             ? "Release to send"
-            : "Tap to send"
+            : "Tap to cancel"
           : working
             ? view.message
             : "Talk to One";
@@ -125,18 +126,18 @@ export function CommandAgentBar({
           </p>
         ) : null}
       </div>
-      <div
+      <AgentBarSurface
         data-testid="one-voice-agent-bar"
         data-agent-dock="one-agent-dock"
         data-command-capture-state={recording ?? "idle"}
         data-command-cancel-armed={cancelArmed || undefined}
         role="group"
         aria-label="One private agent"
-        className={cn(
-          "bottom-chrome-surface pointer-events-auto relative flex items-center overflow-hidden rounded-full transition-opacity motion-reduce:transition-none",
-          BOTTOM_CHROME_COLUMN_CLASSNAME,
-          cancelArmed && "text-destructive",
-        )}
+        className={cn("transition-opacity motion-reduce:transition-none", cancelArmed && "text-destructive")}
+        onPointerDown={(event) => {
+          const control = event.target instanceof Element && event.target.closest("button, input, textarea, a");
+          if (!control && active && event.button === 0 && (event.isPrimary || !event.pointerType)) cancelTask();
+        }}
       >
         <button
           type="button"
@@ -147,16 +148,19 @@ export function CommandAgentBar({
             "agent-bar-voice-launcher relative flex h-11 min-w-0 flex-1 touch-none select-none items-center gap-2 rounded-l-full px-3 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
             recording && "bg-primary/5",
           )}
-          disabled={Boolean(unavailableLabel) || working || (active && !recording)}
+          disabled={Boolean(unavailableLabel) && !active}
           aria-label={
-            recording
-              ? "Finish recording"
-              : unavailableLabel || "Talk to One. Hold to speak, or tap to start and finish."
+            active ? "Cancel voice command" : unavailableLabel || "Talk to One. Hold to speak, or tap to start."
           }
           onContextMenu={(event) => event.preventDefault()}
           onPointerDown={(event) => {
             if (event.button !== 0 || (!event.isPrimary && event.pointerType))
               return;
+            if (active) {
+              clearPress();
+              cancelTask();
+              return;
+            }
             event.currentTarget.setPointerCapture(event.pointerId);
             press.current = {
               id: event.pointerId,
@@ -201,7 +205,8 @@ export function CommandAgentBar({
           onClick={(event) => {
             // Pointer gestures are handled above. Keyboard and assistive activation use tap mode.
             if (event.detail !== 0) return;
-            run(recording ? finishCapture() : startCapture());
+            if (active) cancelTask();
+            else run(startCapture());
           }}
         >
           {recording || working ? (
@@ -239,6 +244,17 @@ export function CommandAgentBar({
             </span>
           ) : null}
         </button>
+        {recording ? (
+          <button
+            type="button"
+            onClick={() => run(finishCapture())}
+            disabled={recording === "starting"}
+            aria-label="Send recording"
+            className="flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center text-primary disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+          >
+            <Send className="h-4 w-4" />
+          </button>
+        ) : null}
         {recording || working ? (
           <button
             type="button"
@@ -260,7 +276,7 @@ export function CommandAgentBar({
             <ChevronUp className="h-4 w-4" />
           </button>
         ) : null}
-      </div>
+      </AgentBarSurface>
     </div>
   );
 }

@@ -20,6 +20,7 @@ from hushh_mcp.one_voice.tools.base import (
     ConfirmedPerson,
     EntityContext,
     PersonRef,
+    Prepared,
     ScreenContext,
     ToolContext,
     ToolInput,
@@ -244,7 +245,7 @@ def test_execution_failure_after_confirmation_does_not_claim_nothing_changed():
         mp.undo()
 
 
-def test_a_lookup_supersedes_every_open_card_even_when_the_lookup_itself_fails(monkeypatch):
+def test_a_person_lookup_supersedes_a_person_card_even_when_the_lookup_itself_fails(monkeypatch):
     """The store cancels the card before the handler runs; the outcome still
     names it so the relay can tell the client, whatever the handler did."""
     from hushh_mcp.one_voice.tools.base import ToolInput as _Input
@@ -269,11 +270,412 @@ def test_a_lookup_supersedes_every_open_card_even_when_the_lookup_itself_fails(m
     store = MemoryPendingStore()
     executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
     ctx = _ctx("good")
-    pending = _propose(executor, ctx, PLAIN.name)  # a card with no person_args at all
+    pending = _propose(executor, ctx, PLAIN.name)  # a card about a person
     outcome = asyncio.run(executor.call(ctx, "resolve_person", {"spoken_name": "Priya"}))
     assert outcome.result.status == "rejected" and outcome.result.reason_code == "execution_failed"
     assert [row.id for row in outcome.superseded] == [pending.id]
     assert asyncio.run(store.get(user_id=USER, pending_action_id=pending.id)).status == "cancelled"
+
+
+# -- which open card a lookup makes stale -----------------------------------------
+#
+# UAT: "Create Family" -> "Yes, and add all my connections to it". The model began
+# a person lookup for the follow-up, the lookup cancelled the create card, and the
+# person heard "I can create a circle called Family. Should I go ahead?" again. A
+# lookup now cancels only a card about the kind of thing it looks up.
+
+
+def _catalog_spec(name: str) -> ToolSpec:
+    from hushh_mcp.one_voice.tools import circles, people
+
+    return {tool.name: tool for tool in (*circles.TOOLS, *people.TOOLS)}[name]
+
+
+@pytest.mark.parametrize(
+    ("tool", "stale_on_person", "stale_on_circle"),
+    [
+        ("create_circle", False, False),
+        ("rename_circle", False, True),
+        ("set_circle_kind", False, True),
+        ("delete_circle", False, True),
+        ("add_circle_member", True, True),
+        ("add_circle_members", True, True),
+        ("add_all_connections", False, True),
+        ("invite_person", True, False),
+        # Its counterpart rides an opaque request id, so any lookup may be the
+        # correction that makes it stale.
+        ("accept_connection_request", True, True),
+    ],
+)
+def test_a_lookup_makes_stale_only_the_cards_about_what_it_looks_up(
+    tool, stale_on_person, stale_on_circle
+):
+    spec = _catalog_spec(tool)
+    assert spec.stale_on_lookup("person") is stale_on_person
+    assert spec.stale_on_lookup("circle") is stale_on_circle
+
+
+class _NameInput(ToolInput):
+    name: str
+
+
+CREATE = ToolSpec(
+    name="create_thing",
+    gateway_action_id="location.rename_circle",
+    policy=ToolPolicy.confirm_voice,
+    input_model=_NameInput,
+    output_model=_SendResult,
+    description="Create.",
+    handler=_send,
+    summarize=lambda ctx, a: f"create {a.name}",
+    lookup_targets=(),
+)
+
+
+def _lookup_harness(monkeypatch):
+    class LookupInput(ToolInput):
+        spoken_name: str
+
+    async def found(ctx, args):
+        return ToolResult(status="single_likely")
+
+    lookup = ToolSpec(
+        name="resolve_person",
+        gateway_action_id="connect.search_people",
+        policy=ToolPolicy.read,
+        input_model=LookupInput,
+        output_model=ToolResult,
+        description="Lookup.",
+        handler=found,
+    )
+    by_name = {spec.name: spec for spec in (SEND, PLAIN, TAP, CREATE, lookup)}
+    monkeypatch.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
+    return store, executor, _ctx("good")
+
+
+def test_a_lookup_for_a_follow_up_leaves_an_unrelated_card_open(monkeypatch):
+    store, executor, ctx = _lookup_harness(monkeypatch)
+    created = asyncio.run(executor.call(ctx, CREATE.name, {"name": "Family"}))
+    assert created.result.status == "confirmation_required"
+
+    lookup = asyncio.run(executor.call(ctx, "resolve_person", {"spoken_name": "Priya"}))
+
+    assert lookup.result.status == "single_likely"
+    assert lookup.superseded == []
+    row = asyncio.run(store.get(user_id=USER, pending_action_id=created.pending.id))
+    assert row.status == "pending"
+
+
+def test_a_card_corrected_by_a_lookup_is_asked_fresh(monkeypatch):
+    """Negative control: a card about a person is still cancelled by a person
+    lookup, and re-proposing it unchanged afterwards asks again. The yes that
+    follows a lookup answered "is that who you mean?", never the action, so it
+    must not be treated as consent (no repeats_cancelled)."""
+    store, executor, ctx = _lookup_harness(monkeypatch)
+    card = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+
+    lookup = asyncio.run(executor.call(ctx, "resolve_person", {"spoken_name": "Priya"}))
+    assert [row.id for row in lookup.superseded] == [card.pending.id]
+
+    again = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    assert again.result.status == "confirmation_required"
+    assert "repeats_cancelled" not in again.result.public()
+    assert again.result.spoken_facts == ["I can do the plain thing. Should I go ahead?"]
+
+
+# -- a different action never silently replaces an unanswered card ---------------
+
+
+def test_a_different_action_waits_for_the_shown_card_to_be_answered(monkeypatch):
+    store, executor, ctx = _lookup_harness(monkeypatch)
+    open_card = _propose(executor, ctx, PLAIN.name)  # shown to the person
+
+    other = asyncio.run(executor.call(ctx, SEND.name, {"person": {"user_id": PRIYA}}))
+
+    assert other.result.status == "pending_action_exists"
+    public = other.result.public()
+    assert public["pending_action_id"] == open_card.id
+    assert public["tool"] == PLAIN.name and public["tier"] == "voice"
+    assert public["card_shown"] is True and public["needs"] == "confirmation"
+    assert other.pending is not None and other.pending.id == open_card.id
+    assert other.receipt_token is None and other.superseded == []
+    # Nothing was written or cancelled: the person's card still waits.
+    assert [(r.id, r.status) for r in _open_rows(store, ctx)] == [(open_card.id, "pending")]
+
+    # Once that card is answered, the new action is proposed as usual.
+    asyncio.run(executor.call(ctx, "cancel_pending_action", {"pending_action_id": open_card.id}))
+    proposed = asyncio.run(executor.call(ctx, SEND.name, {"person": {"user_id": PRIYA}}))
+    assert proposed.result.status == "confirmation_required"
+
+
+def test_a_card_never_shown_blocks_nothing(monkeypatch):
+    """A card the client never displayed was never reviewed and cannot be
+    answered, so a new proposal replaces it as before rather than pointing the
+    person at something they cannot see."""
+    store, executor, ctx = _lookup_harness(monkeypatch)
+    unseen = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+
+    other = asyncio.run(executor.call(ctx, SEND.name, {"person": {"user_id": PRIYA}}))
+
+    assert other.result.status == "confirmation_required"
+    assert [row.id for row in other.superseded] == [unseen.pending.id]
+
+
+def test_a_shared_gateway_is_not_a_correction(monkeypatch):
+    """Requesting and withdrawing share one gateway action and do opposite
+    things; one must never silently replace the other's shown card."""
+    store, executor, ctx = _lookup_harness(monkeypatch)
+    request = ToolSpec(
+        name="request_thing",
+        gateway_action_id="location.send_request",
+        policy=ToolPolicy.confirm_voice,
+        input_model=_SendInput,
+        output_model=_SendResult,
+        description="Request.",
+        handler=_send,
+        person_args=("person",),
+        summarize=lambda ctx, a: "request the thing",
+    )
+    withdraw = ToolSpec(
+        name="withdraw_thing",
+        gateway_action_id="location.send_request",
+        policy=ToolPolicy.confirm_voice,
+        input_model=_NameInput,
+        output_model=_SendResult,
+        description="Withdraw.",
+        handler=_send,
+        summarize=lambda ctx, a: "withdraw the thing",
+    )
+    by_name = {spec.name: spec for spec in (request, withdraw)}
+    monkeypatch.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+    card = _propose(executor, ctx, request.name)
+
+    other = asyncio.run(executor.call(ctx, withdraw.name, {"name": "raj"}))
+
+    assert other.result.status == "pending_action_exists"
+    assert other.result.pending_action_id == card.id
+
+
+def test_a_correction_in_the_same_group_still_replaces_its_card(monkeypatch):
+    """Negative control: the same tool, or a tool declared in the same
+    correction group, re-aims the shown card instead of waiting on it."""
+    store, executor, ctx = _lookup_harness(monkeypatch)
+    one = ToolSpec(
+        name="add_one",
+        gateway_action_id="location.add_to_circle",
+        policy=ToolPolicy.confirm_voice,
+        input_model=_SendInput,
+        output_model=_SendResult,
+        description="Add one.",
+        handler=_send,
+        person_args=("person",),
+        summarize=lambda ctx, a: "add one",
+        correction_group="adds",
+    )
+    group = ToolSpec(
+        name="add_everyone",
+        gateway_action_id="location.add_to_circle",
+        policy=ToolPolicy.confirm_voice,
+        input_model=_NameInput,
+        output_model=_SendResult,
+        description="Add everyone.",
+        handler=_send,
+        summarize=lambda ctx, a: "add everyone",
+        correction_group="adds",
+    )
+    by_name = {spec.name: spec for spec in (one, group)}
+    monkeypatch.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+    card = _propose(executor, ctx, one.name)
+
+    corrected = asyncio.run(executor.call(ctx, group.name, {"name": "family"}))
+
+    assert corrected.result.status == "confirmation_required"
+    assert [row.id for row in corrected.superseded] == [card.id]
+    assert [row.id for row in _open_rows(store, ctx)] == [corrected.pending.id]
+
+
+def test_the_real_catalog_groups_only_true_corrections():
+    from hushh_mcp.one_voice.tools import circles, location_state, sharing
+
+    tools = {tool.name: tool for tool in (*circles.TOOLS, *location_state.TOOLS, *sharing.TOOLS)}
+
+    def key(name: str) -> str:
+        return tools[name].correction_key
+
+    assert key("add_circle_member") == key("add_circle_members") == key("add_all_connections")
+    assert key("turn_sharing_on") == key("turn_sharing_off")
+    # Same gateway, opposite effects: never one another's correction.
+    assert (
+        tools["request_location"].gateway_action_id == tools["withdraw_request"].gateway_action_id
+    )
+    assert key("request_location") != key("withdraw_request")
+
+
+def test_an_alert_replaces_an_unanswered_card_instead_of_waiting(monkeypatch):
+    store, executor, ctx = _lookup_harness(monkeypatch)
+    alert = ToolSpec(
+        name="alert_thing",
+        gateway_action_id="location.trigger_sos",
+        policy=ToolPolicy.confirm_tap,
+        input_model=_NameInput,
+        output_model=_SendResult,
+        description="Alert.",
+        handler=_send,
+        summarize=lambda ctx, a: "send the alert",
+        preempts_pending=True,
+    )
+    by_name = {spec.name: spec for spec in (PLAIN, alert)}
+    monkeypatch.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+    open_card = _propose(executor, ctx, PLAIN.name)  # shown, so it would block
+
+    sent = asyncio.run(executor.call(ctx, alert.name, {"name": "help"}))
+
+    assert sent.result.status == "confirmation_required"
+    assert [row.id for row in sent.superseded] == [open_card.id]
+
+
+def test_the_real_alert_tool_is_the_one_that_preempts():
+    from hushh_mcp.one_voice.tools import circles, sos
+
+    preempting = {tool.name for tool in (*circles.TOOLS, *sos.TOOLS) if tool.preempts_pending}
+    assert preempting == {"trigger_save_my_soul"}
+
+
+# -- storage failures fail closed and keep the session ---------------------------
+
+
+class _BrokenStore(MemoryPendingStore):
+    def __init__(self, *broken: str) -> None:
+        super().__init__()
+        self.broken = set(broken)
+
+    def _check(self, method: str) -> None:
+        from hushh_mcp.one_voice.pending_actions import PendingActionStorageError
+
+        if method in self.broken:
+            raise PendingActionStorageError("Voice storage is temporarily unavailable.")
+
+    async def list_open(self, *, user_id, conversation_id):
+        self._check("list_open")
+        return await super().list_open(user_id=user_id, conversation_id=conversation_id)
+
+    async def confirm(self, *, user_id, pending_action_id, source, receipt_token=None):
+        self._check("confirm")
+        return await super().confirm(
+            user_id=user_id,
+            pending_action_id=pending_action_id,
+            source=source,
+            receipt_token=receipt_token,
+        )
+
+    async def resolve(self, *, user_id, pending_action_id, status, result):
+        self._check("resolve")
+        return await super().resolve(
+            user_id=user_id, pending_action_id=pending_action_id, status=status, result=result
+        )
+
+    async def cancel(self, *, user_id, pending_action_id):
+        self._check("cancel")
+        return await super().cancel(user_id=user_id, pending_action_id=pending_action_id)
+
+
+def test_an_unreadable_pending_state_proposes_nothing(monkeypatch):
+    """Unreadable is not "none open": a proposal on it could sit beside the card
+    the person is answering. Before this, the error escaped and closed the
+    session with 4013."""
+    _store, _executor, ctx = _lookup_harness(monkeypatch)
+    store = _BrokenStore("list_open")
+    executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
+
+    proposed = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    looked_up = asyncio.run(executor.call(ctx, "resolve_person", {"spoken_name": "Priya"}))
+
+    assert (proposed.result.status, proposed.result.reason_code) == (
+        "rejected",
+        "storage_unavailable",
+    )
+    assert (looked_up.result.status, looked_up.result.reason_code) == (
+        "rejected",
+        "storage_unavailable",
+    )
+    assert store.rows == {}
+
+
+def test_a_storage_failure_while_confirming_executes_nothing(monkeypatch):
+    calls: list[str] = []
+
+    async def counted(ctx, args):
+        calls.append(args.person.user_id)
+        return _SendResult(status="sent")
+
+    spec = ToolSpec(
+        name="plain_thing",
+        gateway_action_id="location.create_circle",
+        policy=ToolPolicy.confirm_voice,
+        input_model=_SendInput,
+        output_model=_SendResult,
+        description="Plain.",
+        handler=counted,
+        person_args=("person",),
+        summarize=lambda ctx, a: "do the plain thing",
+    )
+    monkeypatch.setattr(registry, "get_tool", lambda name: spec if name == spec.name else None)
+    store = _BrokenStore()
+    executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
+    ctx = _ctx("good")
+    card = _propose(executor, ctx, spec.name)
+
+    store.broken = {"confirm"}
+    refused = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.id})
+    )
+    assert (refused.result.status, refused.result.reason_code) == (
+        "rejected",
+        "storage_unavailable",
+    )
+    assert calls == []
+    assert asyncio.run(store.get(user_id=USER, pending_action_id=card.id)).status == "pending"
+
+    # A yes after storage recovers runs it once; a second, late yes runs nothing.
+    store.broken = set()
+    done = asyncio.run(executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.id}))
+    late = asyncio.run(executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.id}))
+    assert done.result.status == "sent"
+    assert late.result.status == "not_pending"
+    assert calls == [PRIYA]
+
+
+def test_an_unrecorded_result_still_reports_what_the_service_did(monkeypatch):
+    """The service committed; only the voice ledger write failed. The answer is
+    the service's, the card is retired, and the row is never re-executable."""
+    store = _BrokenStore()
+    executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
+    ctx = _ctx("good")
+    card = _propose(executor, ctx, PLAIN.name)
+
+    store.broken = {"resolve"}
+    outcome = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.id})
+    )
+
+    assert outcome.result.status == "sent"
+    assert outcome.pending is not None and outcome.pending.status == "executed"
+    stored = asyncio.run(store.get(user_id=USER, pending_action_id=card.id))
+    assert stored.status == "confirmed"
+    store.broken = set()
+    again = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.id})
+    )
+    assert again.result.status == "not_pending"
+
+
+def test_executor_phases_are_timed(monkeypatch):
+    _store, executor, ctx = _lookup_harness(monkeypatch)
+    proposed = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    assert {"pending", "create", "total"} <= set(proposed.timings)
+    assert all(isinstance(value, int) and value >= 0 for value in proposed.timings.values())
 
 
 # -- duplicate voice-tier proposals -------------------------------------------
@@ -345,6 +747,210 @@ def test_different_arguments_still_replace_the_open_card(monkeypatch):
     assert [row.id for row in _open_rows(store, ctx)] == [other.pending.id]
 
 
+# -- a spelled word survives every correction ----------------------------------
+#
+# UAT: after the person spelled "again h u s s h" the model cancelled the card and
+# asked for the name again. A re-proposal that drops a word the person spelled is
+# refused with a question, and the card it was correcting is retired, so no yes
+# can reach a name the person has just corrected.
+
+
+def _spelling_harness(monkeypatch, store: MemoryPendingStore | None = None):
+    from hushh_mcp.one_voice.tools import circles
+
+    create = next(tool for tool in circles.TOOLS if tool.name == "create_circle")
+    monkeypatch.setattr(registry, "get_tool", lambda name: create if name == create.name else None)
+    store = store or MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
+    return store, executor, _ctx("good")
+
+
+def _create(executor: ToolExecutor, ctx: ToolContext, **args: Any):
+    return asyncio.run(executor.call(ctx, "create_circle", args))
+
+
+HUSSH_TO_HUSH = [{"old": "HUSSH", "new": "HUSH"}]
+V04_TO_V05 = [{"old": "V04", "new": "V05"}]
+
+
+def test_a_correction_that_drops_a_spelled_word_retires_the_card(monkeypatch):
+    store, executor, ctx = _spelling_harness(monkeypatch)
+    card = _create(executor, ctx, name="HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    assert card.result.status == "confirmation_required"
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=card.pending.id))
+
+    # Dropped without any declaration: neither spelled again nor listed as changed.
+    dropped = _create(executor, ctx, name="HUSH GARAGE V04")
+
+    assert (dropped.result.status, dropped.result.reason_code) == ("rejected", "name_changed")
+    assert [row.id for row in dropped.superseded] == [card.pending.id]
+    assert _open_rows(store, ctx) == []
+    late_yes = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.pending.id})
+    )
+    assert late_yes.result.status == "not_pending"
+
+
+def test_a_refused_correction_fails_closed_when_its_card_cannot_be_retired(monkeypatch):
+    """The card the correction was aimed at may still be open, so no question
+    is asked over it: nothing is prepared, as when a lookup cannot retire the
+    card it corrects."""
+    store, executor, ctx = _spelling_harness(monkeypatch, _BrokenStore())
+    card = _create(executor, ctx, name="HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=card.pending.id))
+    store.broken = {"cancel"}
+
+    dropped = _create(executor, ctx, name="HUSH GARAGE V04")
+
+    assert (dropped.result.status, dropped.result.reason_code) == (
+        "rejected",
+        "storage_unavailable",
+    )
+    assert dropped.result.spoken_facts == [
+        "I couldn't prepare that right now. Nothing was changed. Please try again in a moment."
+    ]
+    assert dropped.superseded == []
+    assert [row.id for row in _open_rows(store, ctx)] == [card.pending.id]
+
+
+def test_a_spelled_word_is_still_required_after_the_models_own_cancel(monkeypatch):
+    store, executor, ctx = _spelling_harness(monkeypatch)
+    card = _create(executor, ctx, name="HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    asyncio.run(executor.call(ctx, "cancel_pending_action", {"pending_action_id": card.pending.id}))
+
+    # A different circle (no word shared with the name under review) is not a
+    # correction, but the spelled word is still kept: asked once, never dropped.
+    again = _create(executor, ctx, name="BOOK CLUB")
+
+    assert again.result.reason_code == "spelled_word_missing"
+    assert again.superseded == [] and _open_rows(store, ctx) == []
+    # A yes that answers the spelling question is never a yes to the action:
+    # the next proposal, even the cancelled card again, asks as usual.
+    follow = _create(executor, ctx, name="HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    assert follow.result.status == "confirmation_required"
+    assert follow.result.public().get("repeats_cancelled", False) is False
+    assert follow.result.spoken_facts[0].endswith("Should I go ahead?")
+    # The kept word came from earlier, so the question names both readings.
+    assert again.result.spoken_facts == [
+        "Earlier you spelled HUSSH as H-U-S-S-H. "
+        "Is this a different circle, or should the name keep HUSSH?"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("declared", "summary"),
+    [
+        (
+            {"spelled_words": ["HUSH"]},
+            "create a circle called HUSH GARAGE V04, with HUSH spelled H-U-S-H",
+        ),
+        ({"changed_words": HUSSH_TO_HUSH}, "create a circle called HUSH GARAGE V04"),
+    ],
+    ids=["respelled_in_place", "declared_change"],
+)
+def test_an_intended_respelling_needs_one_declaration(monkeypatch, declared, summary):
+    """ "Sorry, just one S, H U S H": the person changed the word they spelled.
+    Spelling the new word in its place, or listing the change, is enough on its
+    own; the earlier spelling is no longer kept, so the card is not refused."""
+    store, executor, ctx = _spelling_harness(monkeypatch)
+    _create(executor, ctx, name="HUSSH GARAGE V04", spelled_words=["HUSSH"])
+
+    changed = _create(executor, ctx, name="HUSH GARAGE V04", **declared)
+
+    assert changed.result.status == "confirmation_required"
+    assert changed.result.summary == summary
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"name": "HUSH GARAGE V05", "changed_words": V04_TO_V05},
+        {
+            "name": "HUSH GARAGE ZOYA",
+            "spelled_words": ["ZOYA"],
+            "changed_words": [{"old": "V04", "new": "ZOYA"}],
+        },
+    ],
+    ids=["undeclared_drop", "spelled_elsewhere"],
+)
+def test_a_spelled_word_dropped_without_its_own_declaration_is_refused(monkeypatch, args):
+    """Negative controls: the UAT drop (V04 -> V05 declared, HUSSH -> HUSH not),
+    and a word spelled somewhere else in the name, release nothing."""
+    store, executor, ctx = _spelling_harness(monkeypatch)
+    _create(executor, ctx, name="HUSSH GARAGE V04", spelled_words=["HUSSH"])
+
+    refused = _create(executor, ctx, **args)
+
+    assert (refused.result.status, refused.result.reason_code) == ("rejected", "name_changed")
+
+
+def test_a_released_spelled_word_lets_the_correction_through(monkeypatch):
+    """Negative control: the person changed the word and the model said so."""
+    store, executor, ctx = _spelling_harness(monkeypatch)
+    card = _create(executor, ctx, name="HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    asyncio.run(executor.call(ctx, "cancel_pending_action", {"pending_action_id": card.pending.id}))
+
+    changed = _create(
+        executor,
+        ctx,
+        name="HUSH GARAGE V04",
+        changed_words=HUSSH_TO_HUSH,
+        release_spelled_words=["HUSSH"],
+    )
+
+    assert changed.result.status == "confirmation_required"
+    assert changed.result.summary == "create a circle called HUSH GARAGE V04"
+    assert [row.id for row in _open_rows(store, ctx)] == [changed.pending.id]
+
+
+# -- a correction changes only what it declares ------------------------------------
+#
+# UAT 2026-10-06: "only make it V05" became HUSH GARAGE V05, and the model had not
+# declared HUSSH as spelled. The model also cancels the waiting card before it
+# re-proposes, so the card is often gone when the correction arrives: the name the
+# person was reviewing is kept on its own, for 3 minutes, and a correction is held
+# to it whether or not its card is still open.
+
+
+def test_an_undeclared_change_is_refused_and_retires_the_card(monkeypatch):
+    store, executor, ctx = _spelling_harness(monkeypatch)
+    card = _create(executor, ctx, name="HUSSH GARAGE V04")
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=card.pending.id))
+
+    changed = _create(executor, ctx, name="HUSH GARAGE V05", changed_words=V04_TO_V05)
+
+    assert (changed.result.status, changed.result.reason_code) == ("rejected", "name_changed")
+    assert [row.id for row in changed.superseded] == [card.pending.id]
+    assert _open_rows(store, ctx) == []
+    late_yes = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.pending.id})
+    )
+    assert late_yes.result.status == "not_pending"
+
+
+def test_the_reviewed_name_outlives_the_models_own_cancel_for_three_minutes(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    clock = [datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)]
+    monkeypatch.setattr(EntityContext, "_now", staticmethod(lambda: clock[0]))
+    store, executor, ctx = _spelling_harness(monkeypatch)
+    card = _create(executor, ctx, name="HUSSH GARAGE V04")
+    asyncio.run(executor.call(ctx, "cancel_pending_action", {"pending_action_id": card.pending.id}))
+
+    clock[0] += timedelta(seconds=170)
+    again = _create(executor, ctx, name="HUSH GARAGE V05", changed_words=V04_TO_V05)
+
+    assert again.result.reason_code == "name_changed"
+    assert again.result.spoken_facts == [
+        'This would also change "HUSSH" to "HUSH". Is that what you want?'
+    ]
+    assert again.superseded == [] and _open_rows(store, ctx) == []
+    # Negative control: 3 minutes after the last name that passed, nothing waits.
+    clock[0] += timedelta(seconds=11)
+    later = _create(executor, ctx, name="HUSH GARAGE V05", changed_words=V04_TO_V05)
+    assert later.result.status == "confirmation_required"
+
+
 def test_tap_tier_duplicate_still_creates_a_new_card_and_receipt(monkeypatch):
     """A tap card's receipt is handed out once, so the guard never reuses it."""
     store, executor, ctx = _dup_harness(monkeypatch)
@@ -411,3 +1017,148 @@ def test_changed_or_late_reproposal_after_a_cancel_asks_as_usual(monkeypatch):
     monkeypatch.setattr(executor_module.time, "monotonic", lambda: later)
     late = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": AISHA}}))
     assert "repeats_cancelled" not in late.result.public()
+
+
+# -- a correction that cannot be read still retires the card it corrects ---------
+#
+# UAT 2026-10-06: a correction whose arguments failed validation was refused
+# with invalid_arguments and the card it was correcting stayed confirmable, so
+# the next yes acted on the name the person had just corrected. A proposal of a
+# confirm-tier action that cannot be read or prepared now retires the open card
+# of its own correction key, exactly as a well-formed refused correction does.
+
+
+async def _prepare_name(ctx: ToolContext, args: _NameInput) -> Prepared:
+    if args.name == "unreadable":
+        raise RuntimeError("state unreadable")
+    return Prepared(summary=f"name it {args.name}")
+
+
+async def _read(ctx: ToolContext, args: _NameInput) -> ToolResult:
+    return ToolResult(status="ok")
+
+
+NAMED = ToolSpec(
+    name="name_thing",
+    gateway_action_id="location.rename_circle",
+    policy=ToolPolicy.confirm_voice,
+    input_model=_NameInput,
+    output_model=_SendResult,
+    description="Name.",
+    handler=_send,
+    prepare=_prepare_name,
+    lookup_targets=(),
+)
+READ = ToolSpec(
+    name="read_thing",
+    gateway_action_id="location.open_circles",
+    policy=ToolPolicy.read,
+    input_model=_NameInput,
+    output_model=ToolResult,
+    description="Read.",
+    handler=_read,
+)
+
+
+def _correction_harness(monkeypatch, store: MemoryPendingStore | None = None):
+    by_name = {spec.name: spec for spec in (PLAIN, NAMED, READ)}
+    monkeypatch.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+    store = store or MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
+    ctx = _ctx("good")
+    card = asyncio.run(executor.call(ctx, NAMED.name, {"name": "Garage"}))
+    assert card.result.status == "confirmation_required"
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=card.pending.id))
+    return store, executor, ctx, card.pending
+
+
+@pytest.mark.parametrize(
+    ("args", "reason"),
+    [({}, "invalid_arguments"), ({"name": "unreadable"}, "prepare_failed")],
+)
+def test_an_unreadable_correction_retires_the_card_it_was_aimed_at(monkeypatch, args, reason):
+    store, executor, ctx, card = _correction_harness(monkeypatch)
+
+    refused = asyncio.run(executor.call(ctx, NAMED.name, args))
+
+    assert (refused.result.status, refused.result.reason_code) == ("rejected", reason)
+    assert [row.id for row in refused.superseded] == [card.id]
+    assert _open_rows(store, ctx) == []
+    late_yes = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.id})
+    )
+    assert late_yes.result.status == "not_pending"
+
+
+@pytest.mark.parametrize("args", [{}, {"name": "unreadable"}])
+def test_an_unreadable_correction_fails_closed_when_its_card_cannot_be_retired(monkeypatch, args):
+    store, executor, ctx, card = _correction_harness(monkeypatch, _BrokenStore())
+    store.broken = {"cancel"}
+
+    refused = asyncio.run(executor.call(ctx, NAMED.name, args))
+
+    assert (refused.result.status, refused.result.reason_code) == (
+        "rejected",
+        "storage_unavailable",
+    )
+    assert refused.result.spoken_facts == [
+        "I couldn't prepare that right now. Nothing was changed. Please try again in a moment."
+    ]
+    assert refused.superseded == []
+    assert [row.id for row in _open_rows(store, ctx)] == [card.id]
+
+
+def test_an_unreadable_call_that_corrects_no_open_card_changes_nothing(monkeypatch):
+    """Negative controls: a different action's malformed proposal and a
+    malformed read leave the person's card to be answered, and with nothing
+    open at all the store is not written."""
+    store, executor, ctx, card = _correction_harness(monkeypatch)
+
+    other = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {}}))
+    read = asyncio.run(executor.call(ctx, READ.name, {}))
+
+    for refused in (other, read):
+        assert (refused.result.status, refused.result.reason_code) == (
+            "rejected",
+            "invalid_arguments",
+        )
+        assert refused.superseded == []
+    assert [row.id for row in _open_rows(store, ctx)] == [card.id]
+    done = asyncio.run(executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.id}))
+    assert done.result.status == "sent"
+
+    before = {row_id: row.status for row_id, row in store.rows.items()}
+    alone = asyncio.run(executor.call(ctx, NAMED.name, {}))
+    assert (alone.result.reason_code, alone.superseded) == ("invalid_arguments", [])
+    assert {row_id: row.status for row_id, row in store.rows.items()} == before
+
+
+def test_a_card_retired_by_an_unreadable_correction_is_asked_fresh(monkeypatch):
+    """The yes after the refusal answers its question, never the retired card.
+    Re-proposing that card is a new card asked as usual: not the old one still
+    waiting, and not a repeat of a cancel the model made before the refusal."""
+    store, executor, ctx, card = _correction_harness(monkeypatch)
+    asyncio.run(executor.call(ctx, "cancel_pending_action", {"pending_action_id": card.id}))
+    # A twin of the cancelled card is still open: the store's cancel and insert
+    # are separate statements, so two proposals in flight can both land.
+    twin, _receipt = asyncio.run(
+        store.create(
+            user_id=USER,
+            conversation_id=ctx.conversation_id,
+            tool_name=NAMED.name,
+            gateway_action_id=NAMED.gateway_action_id,
+            tier="voice",
+            args={"name": "Garage"},
+            summary="name it Garage",
+        )
+    )
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=twin.id))
+
+    refused = asyncio.run(executor.call(ctx, NAMED.name, {}))
+    again = asyncio.run(executor.call(ctx, NAMED.name, {"name": "Garage"}))
+
+    assert [row.id for row in refused.superseded] == [twin.id]
+    assert again.result.status == "confirmation_required"
+    assert again.pending.id not in {card.id, twin.id}
+    assert "repeats_cancelled" not in again.result.public()
+    assert again.result.spoken_facts == ["I can name it Garage. Should I go ahead?"]

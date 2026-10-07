@@ -109,7 +109,13 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 call.reject("NATIVE_NAVIGATION_STALE_STATE"); return
             }
             self.installIfNeeded()
-            self.tabBar?.items?.first(where: { $0.tag == 3 })?.badgeValue = call.getBool("feedAttention") == true ? " " : nil
+            if let feed = self.tabBar?.items?.first(where: { $0.tag == 3 }) {
+                feed.badgeValue = call.getBool("feedAttention") == true ? " " : nil
+                // A 4pt badge font shrinks UIKit's pill to a small round attention dot.
+                let dot: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 4)]
+                feed.setBadgeTextAttributes(dot, for: .normal)
+                feed.setBadgeTextAttributes(dot, for: .selected)
+            }
             self.tabBar?.overrideUserInterfaceStyle = theme.style
             self.tabBar?.tintColor = theme.accent
             self.updatePresentation()
@@ -144,7 +150,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         bar.delegate = self
         // Keep Apple's standard appearance: no custom blur, material or background image.
         let labels = ["Chat", "One", "Connect", "Feed", "Search"]
-        let symbols = ["bubble.left.and.bubble.right", "square.grid.2x2", "safari", "newspaper", "magnifyingglass"]
+        // Solid glyphs: full silhouette with the semantic detail cut out as negative space.
+        let symbols = ["bubble.left.and.bubble.right.fill", "square.grid.2x2.fill", "safari.fill", "newspaper.fill", "magnifyingglass.circle.fill"]
+        bar.unselectedItemTintColor = .label
         bar.items = zip(labels, symbols).enumerated().map { index, pair in
             let item = UITabBarItem(title: pair.0, image: UIImage(systemName: pair.1), tag: index)
             item.accessibilityIdentifier = "one-native-tab-\(HushhNativeNavigationState.tabs[index])"

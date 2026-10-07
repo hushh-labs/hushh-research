@@ -13,6 +13,7 @@ import {
 } from "../components/one-location/redesign/duration-presets";
 import {
   PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+  PUBLIC_LINK_SELECT_CLASSNAME,
   PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
   PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
@@ -79,7 +80,7 @@ async function buildFixture(): Promise<string> {
     PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
     SHARE_CONFIRM_ACTIONS_CLASSNAME,
     SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
-    "h-11 w-full rounded-[14px] border px-3",
+    PUBLIC_LINK_SELECT_CLASSNAME,
     DURATION_COMPACT_GRID_CLASS,
     COMPACT_CELL_ON_CLASSNAME,
     COMPACT_CELL_OFF_CLASSNAME,
@@ -134,7 +135,7 @@ async function buildFixture(): Promise<string> {
     <div data-public-controls class="${PUBLIC_LINK_CREATE_FORM_CLASSNAME}">
       <div data-public-duration class="${PUBLIC_LINK_DURATION_GROUP_CLASSNAME} space-y-2.5">
         <p>Duration</p>
-        <button data-public-select class="h-11 w-full rounded-[14px] border px-3">1 hour</button>
+        <button data-public-select class="${PUBLIC_LINK_SELECT_CLASSNAME} w-full border">1 hour</button>
       </div>
       <button data-public-cta class="${PUBLIC_LINK_PRIMARY_CTA_CLASSNAME} inline-flex items-center justify-center">Create link</button>
     </div>
@@ -182,6 +183,11 @@ test.describe("One Location compact CTA layout", () => {
         ).map((node) => node.getBoundingClientRect());
         const shareActions = box("[data-share-actions]");
         const shareCta = box("[data-share-cta]");
+        const shareCtaBorderRadius = Number.parseFloat(
+          getComputedStyle(
+            document.querySelector<HTMLElement>("[data-share-cta]")!,
+          ).borderRadius,
+        );
         const headers = Array.from(
           document.querySelectorAll<HTMLElement>("[data-header]"),
         ).map((header) => {
@@ -220,6 +226,11 @@ test.describe("One Location compact CTA layout", () => {
               document.querySelector<HTMLElement>("[data-public-controls]")!,
             ).paddingLeft,
           ),
+          publicControlsPaddingRight: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-public-controls]")!,
+            ).paddingRight,
+          ),
           publicDuration: publicDuration.toJSON(),
           publicSelect: publicSelect.toJSON(),
           publicCta: publicCta.toJSON(),
@@ -233,6 +244,7 @@ test.describe("One Location compact CTA layout", () => {
           shareCells: shareCells.map((value) => value.toJSON()),
           shareActions: shareActions.toJSON(),
           shareCta: shareCta.toJSON(),
+          shareCtaBorderRadius,
           headers,
           overflow:
             document.documentElement.scrollWidth -
@@ -242,9 +254,11 @@ test.describe("One Location compact CTA layout", () => {
 
       expect(result.overflow).toBeLessThanOrEqual(1);
 
+      // The form shares the row gutter: it starts on the card's content edge
+      // and fills it up to the 420px cap, rather than floating centred.
       expect(result.publicControls.width).toBeCloseTo(
         Math.min(
-          320,
+          420,
           result.publicCard.width - result.publicCardPaddingLeft * 2,
         ),
         0,
@@ -256,10 +270,9 @@ test.describe("One Location compact CTA layout", () => {
         ),
       ).toBeLessThanOrEqual(1);
       expect(result.publicDuration.width).toBeCloseTo(
-        Math.min(
-          260,
-          result.publicControls.width - result.publicControlsPaddingLeft * 2,
-        ),
+        result.publicControls.width -
+          result.publicControlsPaddingLeft -
+          result.publicControlsPaddingRight,
         0,
       );
       expect(
@@ -268,18 +281,18 @@ test.describe("One Location compact CTA layout", () => {
             (result.publicControls.left + result.publicControlsPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(result.publicSelect.height).toBeGreaterThanOrEqual(44);
+      expect(result.publicSelect.height).toBeCloseTo(48, 0);
       expect(result.publicSelect.width).toBeCloseTo(
         result.publicDuration.width,
         0,
       );
-      expect(result.publicCta.width).toBeGreaterThanOrEqual(144);
-      expect(result.publicCta.width).toBeLessThan(result.publicDuration.width);
+      expect(result.publicCta.height).toBeCloseTo(48, 0);
+      expect(result.publicCta.width).toBeCloseTo(
+        result.publicDuration.width,
+        0,
+      );
       expect(
-        Math.abs(
-          result.publicCta.left -
-            (result.publicControls.left + result.publicControlsPaddingLeft),
-        ),
+        Math.abs(result.publicCta.left - result.publicDuration.left),
       ).toBeLessThanOrEqual(1);
 
       expect(result.shareOptions.width).toBeCloseTo(
@@ -304,8 +317,13 @@ test.describe("One Location compact CTA layout", () => {
         ).toBeLessThanOrEqual(1);
       }
 
-      expect(result.shareActions.width).toBeLessThanOrEqual(320.5);
+      expect(result.shareActions.width).toBeLessThanOrEqual(244.5);
       expect(result.shareCta.width).toBeCloseTo(result.shareActions.width, 0);
+      expect(result.shareCta.height).toBeCloseTo(50, 0);
+      expect(result.shareCta.width).toBeCloseTo(244, 0);
+      expect(result.shareCtaBorderRadius).toBeGreaterThanOrEqual(
+        result.shareCta.height / 2,
+      );
       if (width >= 430) {
         expect(result.shareCta.width).toBeLessThan(result.shareCard.width - 30);
       }

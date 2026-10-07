@@ -11,6 +11,29 @@ const ONBOARDING_MARKETING_SEEN_KEY = "onboarding_marketing_seen_v1";
 const ONBOARDING_FORCE_INTRO_ONCE_KEY = "onboarding_force_intro_once_v1";
 
 export class OnboardingLocalService {
+  /** Cosmetic Wallet introduction only; never grants setup, consent, or vault access. */
+  static async hasSeenWalletIntroduction(ownerId: string): Promise<boolean> {
+    const key = `wallet_introduction_seen_v1:${ownerId}`;
+    if (getLocalItem(key) === "true") return true;
+    try {
+      const { value } = await Preferences.get({ key });
+      if (value === "true") setLocalItem(key, "true");
+      return value === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  static async markWalletIntroductionSeen(ownerId: string): Promise<void> {
+    const key = `wallet_introduction_seen_v1:${ownerId}`;
+    setLocalItem(key, "true");
+    try {
+      await Preferences.set({ key, value: "true" });
+    } catch {
+      // Browser fallback remains available when native preferences are unavailable.
+    }
+  }
+
   private static setLocalValue(key: string, value: string): void {
     setLocalItem(key, value);
   }

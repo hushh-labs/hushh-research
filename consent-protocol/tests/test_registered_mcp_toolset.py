@@ -91,6 +91,79 @@ async def test_discovery_does_not_mutate_or_repeat_labels_on_sdk_tools(registry)
     assert shared_tool.description == "Find files"
 
 
+def _review_toolset(tools, *, free_read=()):
+    """A native toolset that decides review with the real governed rule."""
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_review_outcome
+
+    return SimpleNamespace(
+        get_tools=AsyncMock(return_value=tools),
+        review_outcome=lambda tool_id, descriptor: mcp_review_outcome(
+            "reviewed_writes", descriptor, free_read=tool_id in free_read
+        ),
+    )
+
+
+async def test_review_required_tool_carries_the_app_note_and_free_read_does_not(registry):
+    write = SimpleNamespace(
+        name="mcp_write",
+        description="Create or update CRM records",
+        descriptor={"name": "manage", "annotations": {"readOnlyHint": False}},
+    )
+    read = SimpleNamespace(
+        name="mcp_read",
+        description="Search CRM records",
+        descriptor={"name": "search", "annotations": {"readOnlyHint": True}},
+    )
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(
+            return_value=_review_toolset([write, read], free_read={"mcp_read"})
+        )
+        discovered = {
+            item.name: item for item in await module.RegisteredMcpToolset().get_tools(context())
+        }
+    assert discovered["mcp_write"].description.startswith('Connected app: "Synthetic connector". ')
+    assert "Create or update CRM records" in discovered["mcp_write"].description
+    assert discovered["mcp_write"].description.endswith(module.REVIEW_CARD_NOTE)
+    assert "only approval" in module.REVIEW_CARD_NOTE
+    assert discovered["mcp_read"].description == (
+        'Connected app: "Synthetic connector". Search CRM records'
+    )
+    # The shared provider tools are never edited.
+    assert write.description == "Create or update CRM records"
+    assert read.description == "Search CRM records"
+
+
+async def test_review_note_is_not_duplicated_across_discoveries(registry):
+    write = SimpleNamespace(
+        name="mcp_write", description="Create records", descriptor={"name": "manage"}
+    )
+    native = _review_toolset([write])
+    view = module.RegisteredMcpToolset()
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        first = await view.get_tools(context())
+        second = await view.get_tools(context())
+    assert first[0].description == second[0].description
+    assert first[0].description.count(module.REVIEW_CARD_NOTE) == 1
+    assert write.description == "Create records"
+
+
+async def test_review_note_fails_closed_to_no_note(registry):
+    unknown = SimpleNamespace(name="mcp_x", description="Plain", descriptor={"name": "x"})
+    no_descriptor = SimpleNamespace(name="mcp_y", description="Plain")
+    broken = SimpleNamespace(
+        get_tools=AsyncMock(return_value=[unknown]),
+        review_outcome=Mock(side_effect=RuntimeError("synthetic")),
+    )
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=broken)
+        found = await module.RegisteredMcpToolset().get_tools(context())
+        assert found[0].description == 'Connected app: "Synthetic connector". Plain'
+        scope.acquire = AsyncMock(return_value=_review_toolset([no_descriptor]))
+        found = await module.RegisteredMcpToolset().get_tools(context())
+        assert found[0].description == 'Connected app: "Synthetic connector". Plain'
+
+
 @pytest.mark.parametrize("kind", ["missing", "owner", "surface", "thread"])
 async def test_invalid_context_never_queries_registry(registry, kind):
     candidate = context()
@@ -169,7 +242,10 @@ async def test_one_connector_discovery_failure_does_not_abort_other_connectors(r
 
         scope.acquire = AsyncMock(side_effect=acquire)
         discovered = await module.RegisteredMcpToolset().get_tools(context())
-        assert [item.name for item in discovered] == ["mcp_healthy"]
+        names = [item.name for item in discovered]
+        # The broken app is not hidden: a stand-in says so, and the healthy one works.
+        assert names[0].startswith("connector_unavailable_")
+        assert names[1:] == ["mcp_healthy"]
         assert "private provider diagnostic" not in repr(discovered)
 
 
@@ -239,6 +315,10 @@ async def test_private_connector_setup_is_owner_bound_and_exposes_only_safe_meta
     assert (await module.inspect_private_connectors(context()))["status"] == "unavailable"
 
 
+def typed(text):
+    return SimpleNamespace(parts=[SimpleNamespace(text=text)])
+
+
 async def test_probe_is_owner_bound_and_never_sends_the_owner_token(monkeypatch):
     authority = AsyncMock(return_value=True)
     probe = AsyncMock(
@@ -248,6 +328,7 @@ async def test_probe_is_owner_bound_and_never_sends_the_owner_token(monkeypatch)
     monkeypatch.setattr(module, "probe_mcp_server", probe)
     candidate = context()
     candidate.state["hussh:consent_token"] = "synthetic-owner-token"
+    candidate.user_content = typed("please check https://mcp.example.com/mcp for me")
     result = await module.probe_private_connector("https://mcp.example.com/mcp", candidate)
     assert result["status"] == "ok" and result["probe"] == {"status": "ready", "tools": []}
     # The probe receives the address only: no owner token, header or vault record.
@@ -357,6 +438,8 @@ async def test_vault_connector_joins_native_discovery_review_refresh_and_disable
         assert len(tools) == 2
         assert {tool.descriptor["name"] for tool in tools} == {"search", "summarize"}
         assert all(tool.name.startswith("mcp_") for tool in tools)
+        # The person's own connector never pauses for the card, so no card note.
+        assert all(module.REVIEW_CARD_NOTE not in tool.description for tool in tools)
         # Founder, 2026-09-27: the person's own connector runs without review.
         first = await tools[0].run_async(args={}, tool_context=candidate)
         assert first["status"] == "ok" and first["review"] == "own_connector"
@@ -426,8 +509,9 @@ async def test_disconnected_connector_does_not_hide_working_connector(registry):
 
         scope.acquire = AsyncMock(side_effect=acquire)
         discovered = await module.RegisteredMcpToolset().get_tools(context())
-        assert [item.name for item in discovered] == [tool.name]
-        assert discovered[0].description.endswith("Read")
+        assert [item.name for item in discovered][1:] == [tool.name]
+        assert discovered[0].name.startswith("connector_unavailable_")
+        assert discovered[1].description.endswith("Read")
 
 
 async def test_connector_bound_rejects_without_partial_discovery(registry):
@@ -439,29 +523,92 @@ async def test_connector_bound_rejects_without_partial_discovery(registry):
         scope.acquire.assert_not_awaited()
 
 
-async def test_duplicate_tool_identity_is_not_silently_overwritten(registry):
+def _listing(*names, epoch=None):
+    return [SimpleNamespace(name=name, description="Read", epoch=epoch) for name in names]
+
+
+def _per_connector(listings):
+    """acquire() returning a toolset whose listing depends on the connector."""
+
+    async def acquire(_context, connector_id, **_kwargs):
+        return SimpleNamespace(get_tools=AsyncMock(return_value=listings[connector_id]))
+
+    return AsyncMock(side_effect=acquire)
+
+
+async def test_a_connector_with_duplicate_tool_names_steps_aside_not_the_turn(registry):
+    registry.list_active_connectors.return_value = [definition("dup"), definition("fine")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = _per_connector(
+            {"dup": _listing("same", "same"), "fine": _listing("mcp_fine")}
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [tool.name for tool in discovered]
+    assert "mcp_fine" in names and "same" not in names
+    assert sum(name.startswith("connector_unavailable_") for name in names) == 1
+
+
+async def test_an_oversized_connector_does_not_fail_the_turn(registry, caplog):
+    registry.list_active_connectors.return_value = [definition("huge"), definition("fine")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = _per_connector(
+            {
+                "huge": _listing(*[f"mcp_h{i}" for i in range(201)]),
+                "fine": _listing("mcp_fine"),
+            }
+        )
+        with caplog.at_level("WARNING", logger=module.logger.name):
+            discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [tool.name for tool in discovered]
+    assert "mcp_fine" in names and not any(name.startswith("mcp_h") for name in names)
+    assert "reason=catalog.limit tools=201" in caplog.text
+
+
+async def test_a_name_that_collides_across_connectors_costs_the_later_one_only(registry):
+    registry.list_active_connectors.return_value = [definition("first"), definition("second")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = _per_connector(
+            {"first": _listing("mcp_shared", "mcp_a"), "second": _listing("mcp_shared", "mcp_b")}
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [tool.name for tool in discovered]
+    assert {"mcp_shared", "mcp_a"} <= set(names) and "mcp_b" not in names
+
+
+async def test_the_turn_wide_tool_limit_stops_admitting_connectors_without_failing(registry):
+    registry.list_active_connectors.return_value = [definition(f"c{i}") for i in range(3)]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = _per_connector(
+            {f"c{i}": _listing(*[f"mcp_{i}_{n}" for n in range(200)]) for i in range(3)}
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [tool.name for tool in discovered]
+    assert len(names) <= 500
+    assert sum(name.startswith("mcp_0_") for name in names) == 200
+    assert sum(name.startswith("mcp_1_") for name in names) == 200
+    assert not any(name.startswith("mcp_2_") for name in names)  # no room left, not an error
+
+
+async def test_a_provider_description_is_capped_before_it_reaches_the_model(registry):
+    registry.list_active_connectors.return_value = [definition("verbose")]
+    huge = SimpleNamespace(name="mcp_v", description="x" * 500_000)
     async with mcp_turn_scope("thread") as scope:
         scope.acquire = AsyncMock(
-            return_value=SimpleNamespace(
-                get_tools=AsyncMock(
-                    return_value=[
-                        SimpleNamespace(name="same", description="Read"),
-                        SimpleNamespace(name="same", description="Read"),
-                    ]
-                )
-            )
+            return_value=SimpleNamespace(get_tools=AsyncMock(return_value=[huge]))
         )
-        with pytest.raises(ExternalMcpError, match="catalog"):
-            await module.RegisteredMcpToolset().get_tools(context())
+        (tool,) = await module.RegisteredMcpToolset().get_tools(context())
+    assert len(tool.description) < 2_200
+    assert huge.description == "x" * 500_000  # the shared provider tool is never edited
 
 
-async def test_discovery_error_does_not_expose_private_diagnostics(registry):
+async def test_registry_failure_degrades_without_exposing_diagnostics(registry, caplog):
     registry.list_active_connectors.side_effect = RuntimeError("private SQL and provider token")
     async with mcp_turn_scope("thread"):
-        with pytest.raises(ExternalMcpError) as error:
-            await module.RegisteredMcpToolset().get_tools(context())
-    assert str(error.value) == "Connector discovery unavailable."
-    assert error.value.__suppress_context__ is True
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    # The turn still runs, without connector tools, rather than failing outright.
+    assert discovered == []
+    assert "private SQL" not in caplog.text
+    assert "provider token" not in caplog.text
 
 
 async def test_parallel_owners_with_same_invocation_id_never_share_tools(registry):
@@ -484,16 +631,15 @@ async def test_parallel_owners_with_same_invocation_id_never_share_tools(registr
     assert view._cached_prefixed_tools is None
 
 
-async def test_discovery_siblings_are_cancelled_before_failed_turn_returns(registry):
-    registry.list_active_connectors.return_value = [definition("slow"), definition("bad")]
-    started = asyncio.Event()
+async def test_slow_connector_is_cancelled_and_does_not_hold_up_the_others(registry, monkeypatch):
+    monkeypatch.setenv("MCP_DISCOVERY_TIMEOUT_SECONDS", "0.2")
+    registry.list_active_connectors.return_value = [definition("slow"), definition("fast")]
     cancelled = asyncio.Event()
+    tool = SimpleNamespace(name="mcp_fast", description="Read")
 
     async def acquire(_context, connector_id, **_kwargs):
-        if connector_id == "bad":
-            await started.wait()
-            raise RuntimeError("private provider failure")
-        started.set()
+        if connector_id == "fast":
+            return SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
         try:
             await asyncio.Event().wait()
         finally:
@@ -501,6 +647,273 @@ async def test_discovery_siblings_are_cancelled_before_failed_turn_returns(regis
 
     async with mcp_turn_scope("thread") as scope:
         scope.acquire = AsyncMock(side_effect=acquire)
-        with pytest.raises(ExternalMcpError):
+        started = asyncio.get_running_loop().time()
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+        assert asyncio.get_running_loop().time() - started < 2
+    assert cancelled.is_set()
+    assert [item.name for item in discovered][1:] == ["mcp_fast"]
+    assert discovered[0].name.startswith("connector_unavailable_")
+    result = await discovered[0].run_async(args={}, tool_context=Mock())
+    assert result["reason"] == "unavailable"
+    assert result["status"] == "unavailable"
+    assert "Nothing was sent" in result["message"]
+
+
+async def test_never_connected_service_is_not_reported_as_a_problem(registry):
+    registry.list_active_connectors.return_value = [definition("hubspot")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(
+            side_effect=ExternalMcpError("Connect first", code="MCP_NOT_CONNECTED")
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    assert discovered == []
+
+
+async def test_expired_connection_is_reported_as_needing_reconnect(registry):
+    registry.list_active_connectors.return_value = [definition("hubspot")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(
+            side_effect=ExternalMcpError("Reconnect", code="MCP_CREDENTIAL_EXPIRED")
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+        (stand_in,) = discovered
+        result = await stand_in.run_async(args={}, tool_context=Mock())
+    assert result["reason"] == "reconnect"
+    assert "reconnect" in result["message"]
+    assert "Synthetic connector" in stand_in.description
+    assert "Never use a different app" in stand_in.description
+
+
+async def test_failed_connector_is_not_waited_on_again_in_the_same_turn(registry):
+    registry.list_active_connectors.return_value = [definition("hubspot")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(side_effect=RuntimeError("down"))
+        view = module.RegisteredMcpToolset()
+        first = await view.get_tools(context())
+        second = await view.get_tools(context())
+        assert scope.acquire.await_count == 1
+    assert [item.name for item in first] == [item.name for item in second]
+
+
+async def test_stand_in_name_is_stable_unique_and_never_a_provider_tool_name(registry):
+    registry.list_active_connectors.return_value = [definition("a"), definition("b")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(side_effect=RuntimeError("down"))
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [item.name for item in discovered]
+    assert len(set(names)) == 2
+    assert all(name.startswith("connector_unavailable_") for name in names)
+    assert not any(name.startswith("mcp_") for name in names)
+
+
+# --- listing is reused across the model steps of one turn --------------------------
+
+
+def epoch_toolset(tools, epoch=3):
+    return SimpleNamespace(catalog_epoch=epoch, get_tools=AsyncMock(return_value=tools))
+
+
+async def test_a_connector_is_listed_once_per_turn_not_once_per_model_step(registry):
+    tool = SimpleNamespace(name="mcp_one", description="Read", epoch=3)
+    toolset = epoch_toolset([tool])
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=toolset)
+        view = module.RegisteredMcpToolset()
+        first = await view.get_tools(context())
+        second = await view.get_tools(context())
+        third = await view.get_tools(context())
+        assert toolset.get_tools.await_count == 1
+        assert scope.acquire.await_count == 1
+    assert [t.name for t in first] == [t.name for t in second] == [t.name for t in third]
+    # Each step still gets its own labelled copy; labels never accumulate on the original.
+    assert second[0] is not first[0]
+    assert second[0].description.count("Connected app:") == 1
+    assert tool.description == "Read"
+
+
+async def test_a_refreshed_catalog_is_listed_again(registry):
+    tool = SimpleNamespace(name="mcp_one", description="Read", epoch=3)
+    toolset = epoch_toolset([tool])
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=toolset)
+        view = module.RegisteredMcpToolset()
+        await view.get_tools(context())
+        # A refresh bumps the epoch, which invalidates every tool listed before it.
+        toolset.catalog_epoch = 4
+        toolset.get_tools.return_value = [SimpleNamespace(name="mcp_two", description="", epoch=4)]
+        refreshed = await view.get_tools(context())
+        assert toolset.get_tools.await_count == 2
+    assert [t.name for t in refreshed] == ["mcp_two"]
+
+
+async def test_tools_that_carry_no_epoch_are_never_reused(registry):
+    toolset = SimpleNamespace(
+        catalog_epoch=3,
+        get_tools=AsyncMock(return_value=[SimpleNamespace(name="mcp_one", description="Read")]),
+    )
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=toolset)
+        view = module.RegisteredMcpToolset()
+        await view.get_tools(context())
+        await view.get_tools(context())
+        assert toolset.get_tools.await_count == 2
+
+
+async def test_an_empty_listing_is_not_held_so_a_later_step_can_try_again(registry):
+    toolset = epoch_toolset([])
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=toolset)
+        view = module.RegisteredMcpToolset()
+        await view.get_tools(context())
+        await view.get_tools(context())
+        assert toolset.get_tools.await_count == 2
+
+
+async def test_a_listing_is_never_carried_into_another_turn(registry):
+    tool = SimpleNamespace(name="mcp_one", description="Read", epoch=3)
+    toolset = epoch_toolset([tool])
+    view = module.RegisteredMcpToolset()
+    for _ in range(2):
+        async with mcp_turn_scope("thread") as scope:
+            scope.acquire = AsyncMock(return_value=toolset)
+            await view.get_tools(context())
+    assert toolset.get_tools.await_count == 2
+
+
+async def test_a_reused_listing_still_carries_the_review_note_exactly_once(registry):
+    """The review-card note and the once-per-turn listing must compose."""
+    write = SimpleNamespace(
+        name="mcp_write",
+        description="Create records",
+        descriptor={"name": "manage", "annotations": {"readOnlyHint": False}},
+        epoch=3,
+    )
+    native = _review_toolset([write])
+    native.catalog_epoch = 3
+    view = module.RegisteredMcpToolset()
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        first = await view.get_tools(context())
+        second = await view.get_tools(context())
+        third = await view.get_tools(context())
+        assert native.get_tools.await_count == 1
+    for listing in (first, second, third):
+        assert listing[0].description.count(module.REVIEW_CARD_NOTE) == 1
+        assert listing[0].description.endswith(module.REVIEW_CARD_NOTE)
+    assert write.description == "Create records"
+
+
+async def test_a_provider_outage_is_not_reported_as_needing_a_reconnect(registry):
+    registry.list_active_connectors.return_value = [definition("hubspot")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(
+            side_effect=ExternalMcpError("down", code="MCP_CONNECTOR_UNAVAILABLE")
+        )
+        (stand_in,) = await module.RegisteredMcpToolset().get_tools(context())
+        result = await stand_in.run_async(args={}, tool_context=Mock())
+    assert result["reason"] == "unavailable"
+    assert "reconnect" not in result["message"].lower()
+
+
+async def test_the_discovery_log_keeps_the_cause_in_a_form_the_redactor_leaves_alone(
+    registry, caplog
+):
+    from mcp_modules.log_redaction import redact_log_value
+
+    registry.list_active_connectors.return_value = [definition("hubspot")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(side_effect=ExternalMcpError("x", code="MCP_CREDENTIAL_EXPIRED"))
+        with caplog.at_level("WARNING", logger=module.logger.name):
             await module.RegisteredMcpToolset().get_tools(context())
-        assert cancelled.is_set()
+    line = next(
+        r.getMessage() for r in caplog.records if "mcp_connector_unavailable" in r.getMessage()
+    )
+    assert "code=mcp.credential.expired" in line
+    assert redact_log_value(line) == line
+
+
+async def probe_with(monkeypatch, endpoint, user_content):
+    probe = AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"status": "ready"}))
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    monkeypatch.setattr(module, "probe_mcp_server", probe)
+    candidate = context()
+    candidate.state["hussh:consent_token"] = "synthetic-owner-token"
+    candidate.user_content = user_content
+    return await module.probe_private_connector(endpoint, candidate), probe
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "check https://mcp.example.com/mcp",
+        "CHECK HTTPS://MCP.EXAMPLE.COM/MCP please",
+        "https://mcp.example.com/mcp/",
+        "my server is at https://mcp.example.com/mcp, can you look?",
+    ],
+)
+async def test_the_probe_runs_for_an_address_the_person_typed(monkeypatch, message):
+    result, probe = await probe_with(monkeypatch, "https://mcp.example.com/mcp", typed(message))
+    assert result["status"] == "ok"
+    probe.assert_awaited_once_with("https://mcp.example.com/mcp")
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "user_content"),
+    [
+        # The model chose the host: nothing the person typed names it.
+        ("https://collector.attacker.example/summary-of-the-last-answer", typed("hello")),
+        ("https://mcp.example.com/mcp", typed("check https://other.example.com/mcp")),
+        # Extending a typed address with a path the person never typed is not the typed address
+        # (this is how a model could carry data out in the path).
+        (
+            "https://mcp.example.com/mcp/leak-the-summary",
+            typed("check https://mcp.example.com/mcp"),
+        ),
+        ("https://mcp.example.com/mcp", None),
+        ("https://mcp.example.com/mcp", SimpleNamespace(parts=[])),
+        ("https://mcp.example.com/mcp", SimpleNamespace(parts=[SimpleNamespace(text=None)])),
+        ("", typed("anything")),
+        ("   ", typed("anything")),
+    ],
+)
+async def test_the_probe_never_contacts_an_address_the_person_did_not_type(
+    monkeypatch, endpoint, user_content
+):
+    result, probe = await probe_with(monkeypatch, endpoint, user_content)
+    assert result["status"] == "blocked"
+    assert "typed" in result["message"]
+    probe.assert_not_awaited()
+
+
+async def test_pod_probe_requires_admitted_owner_without_shared_token_fallback(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import registered_mcp_toolset as registered
+
+    monkeypatch.setattr(registered, "pod_mode", lambda: True)
+    monkeypatch.setattr(
+        registered,
+        "validate_first_party_owner_token",
+        lambda *_args: pytest.fail("Private probe used shared token authority"),
+    )
+    admitted = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        registered, "current_mcp_turn", lambda: SimpleNamespace(owner_is_admitted=admitted)
+    )
+    probe = AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"status": "ok"}))
+    monkeypatch.setattr(registered, "probe_mcp_server", probe)
+    context = SimpleNamespace(
+        user_id="owner",
+        state={"hussh:user_id": "owner", "temp:one_execution_surface": "typed_chat"},
+        user_content=SimpleNamespace(parts=[SimpleNamespace(text="Check https://example.com/mcp")]),
+    )
+    assert (await registered.probe_private_connector("https://example.com/mcp", context))[
+        "status"
+    ] == "ok"
+    probe.reset_mock()
+    admitted.return_value = False
+    assert (await registered.probe_private_connector("https://example.com/mcp", context))[
+        "status"
+    ] == "blocked"
+    probe.assert_not_awaited()

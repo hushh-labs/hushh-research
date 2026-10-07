@@ -49,6 +49,10 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(state.prepare(first))
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true)) // prepared is not interactive
         XCTAssertTrue(state.activate(first))
+        let otherControl = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 1,
+                                                          controlId: "chat-agent-surface")
+        XCTAssertFalse(state.activate(otherControl))
+        XCTAssertFalse(state.confirm(otherControl, sequence: 1, latestSequence: 1, allowed: true))
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: false)) // privacy/overlay guard
         XCTAssertTrue(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true))
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true))

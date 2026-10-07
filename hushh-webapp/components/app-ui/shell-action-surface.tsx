@@ -25,6 +25,8 @@ const shellActionSurfaceVariants = cva(
       variant: {
         icon:
           "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground",
+        avatar:
+          "h-11 w-11 items-center justify-center !border-transparent !bg-transparent p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-transparent",
         pill:
           "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground sm:gap-2 sm:px-4 sm:text-base",
       },
@@ -93,6 +95,9 @@ export const ShellActionSurface = React.forwardRef<
           className={cn(
             "pointer-events-none relative z-10 inline-flex min-w-0 max-w-full items-center justify-center",
             variant === "pill" && "gap-1.5 sm:gap-2",
+            // The photo stays visually 32px while the shared button owns the
+            // full 44px target in both Chat and the ordinary top shell.
+            variant === "avatar" && "h-8 w-8 rounded-full bg-[color:var(--app-accent)] transition-colors group-hover/shell-action:bg-[color:var(--app-accent-hover)]",
             contentClassName
           )}
         >

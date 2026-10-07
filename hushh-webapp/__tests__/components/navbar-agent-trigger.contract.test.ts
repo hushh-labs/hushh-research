@@ -29,6 +29,10 @@ describe("Navbar bottom chrome contract", () => {
     const searchBar = read("components/kai/kai-command-bar-global.tsx");
     const agentBar = read("components/agent/command-agent-bar.tsx");
     const providers = read("app/providers.tsx");
+    // Chat has no top shell, but Search still needs its global receiver.
+    expect(providers).toMatch(
+      /!hidesPersistentChrome && !effectiveHideCommandBar \? \(\s*<KaiCommandBarGlobal/,
+    );
 
     // One column for both bars: the pill fills the shared bottom chrome
     // column and carries no viewport or route arithmetic of its own.
@@ -50,11 +54,13 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain("useLocationCommand()");
     expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('data-agent-action="voice"');
-    expect(agentBar).toContain("Talk to One. Hold to speak, or tap to start and finish.");
+    expect(agentBar).toContain('active ? "Cancel voice command" : "Talk to One. Hold to speak, or tap to start."');
     expect(agentBar).toContain("onPointerDown=");
     expect(agentBar).toContain("onPointerUp=");
     expect(agentBar).toContain("onPointerCancel=");
-    expect(agentBar).toContain("finishCapture() : startCapture()");
+    expect(agentBar).toContain("if (active) cancelTask();");
+    expect(agentBar).toContain("else run(startCapture());");
+    expect(agentBar).toContain('aria-label="Send recording"');
     expect(agentBar).toContain("cancelCapture()");
     expect(agentBar).toContain("focus-visible:ring-inset");
     expect(agentBar).toContain('layout = "fixed"');
@@ -101,12 +107,11 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain('data-agent-dock="one-agent-dock"');
     expect(agentBar).toContain('role="group"');
     expect(agentBar).toContain('aria-label="One private agent"');
-    const dockClass = agentBar.match(
-      /data-testid="one-voice-agent-bar"[\s\S]*?className=\{cn\((?<classes>[\s\S]*?)\)\}/,
-    )?.groups?.classes;
-    expect(dockClass).toBeDefined();
-    expect(dockClass).toContain("bottom-chrome-surface");
-    expect(dockClass).not.toContain("backdrop-blur");
+    // Shared presentation is used by both text and voice, without taking authority.
+    const dockSurface = read("components/agent/agent-bar-surface.tsx");
+    expect(agentBar).toContain("<AgentBarSurface");
+    expect(dockSurface).toContain("bottom-chrome-surface");
+    expect(dockSurface).not.toContain("backdrop-blur");
     expect(agentBar).not.toContain('? "h-11 rounded-[22px] px-2.5"');
     expect(agentBar).toContain("BOTTOM_CHROME_COLUMN_CLASSNAME");
     expect(agentBar).not.toContain("100vw");
@@ -147,8 +152,7 @@ describe("Navbar bottom chrome contract", () => {
       "const foundationVoiceOnlyChrome = isFoundationRoute && !isAuthenticated;",
     );
     expect(providers).toMatch(
-      // Native tabs pin the web chrome too (7c1047002): the platform bar owns that edge.
-      /const pinnedBottomChrome\s*=\s*isRiaRoute\(pathname\)\s*\|\|\s*foundationVoiceOnlyChrome(?:\s*\|\|\s*nativeNavigationInstalled)?;/,
+      /const pinnedBottomChrome\s*=\s*isRiaRoute\(pathname\)\s*\|\|\s*foundationVoiceOnlyChrome\s*\|\|\s*nativeNavigationInstalled;/,
     );
     expect(providers).toMatch(
       /navigationHidden:\s*hideBottomNavigation,/,

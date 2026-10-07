@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from functools import partial
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
@@ -11,8 +12,13 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes import external_connectors as routes
+from hushh_mcp.services import external_connector_oauth_service as generic_oauth
+from hushh_mcp.services.external_connector_curated_oauth import CuratedConnectorOAuthError
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
-from hushh_mcp.services.external_connector_oauth_service import ExternalConnectorOAuthError
+from hushh_mcp.services.external_connector_oauth_service import (
+    ExternalConnectorOAuthError,
+    ExternalConnectorOAuthService,
+)
 from hushh_mcp.services.external_connector_registry_service import (
     ConnectorRegistrationError,
     ExternalMcpConnectorDefinition,
@@ -186,7 +192,21 @@ def route_client(monkeypatch):
             raise ExternalConnectorOAuthError("OAuth state is invalid")
         return "synthetic-attempt"
 
-    service = SimpleNamespace(_verify_state=verify, drive=lambda: drive)
+    curated = SimpleNamespace(
+        complete=AsyncMock(return_value={"connectorId": "notion", "status": "connected"})
+    )
+    service = SimpleNamespace(
+        _verify_state=verify,
+        drive=lambda: drive,
+        curated=lambda: curated,
+        _execute=AsyncMock(return_value=[{"connector_id": "google_drive"}]),
+        _registry=SimpleNamespace(get_connector=AsyncMock(return_value=None)),
+        complete=AsyncMock(side_effect=AssertionError("vault-only legacy path")),
+    )
+    # The real dispatcher runs against the fakes above, so the route's wiring
+    # to the Drive/curated/refuse decision is what these tests exercise.
+    service.complete_web_popup = partial(ExternalConnectorOAuthService.complete_web_popup, service)
+    service.curated_adapter = curated
     monkeypatch.setattr(routes, "get_external_connector_oauth_service", lambda: service)
     app = FastAPI()
     app.include_router(routes.router)
@@ -770,6 +790,134 @@ def test_web_popup_rejects_another_attempt_before_exchange(route_client):
     drive.complete.assert_not_called()
 
 
+_WEB_BODY = {
+    "state": "signed-synthetic-state",
+    "code": "synthetic-code",
+    "attemptId": "synthetic-attempt",
+}
+
+
+def _operator_row():
+    return SimpleNamespace(owner_user_id=None)
+
+
+def test_curated_popup_completion_needs_only_firebase_auth(route_client):
+    client, app, drive = route_client
+    service = routes.get_external_connector_oauth_service()
+    service._execute.return_value = [{"connector_id": "notion"}]
+    service._registry.get_connector.return_value = _operator_row()
+    assert client.post("/api/connectors/oauth/complete/web", json=_WEB_BODY).status_code == 401
+    # No vault dependency override: only Firebase auth is satisfied.
+    app.dependency_overrides[require_firebase_auth] = lambda: "verified-owner"
+    response = client.post("/api/connectors/oauth/complete/web", json=_WEB_BODY)
+    assert response.status_code == 200
+    assert response.json()["connectorId"] == "notion"
+    assert response.json()["status"] == "connected"
+    service.curated_adapter.complete.assert_awaited_once_with(
+        state=_WEB_BODY["state"], code=_WEB_BODY["code"], expected_user_id="verified-owner"
+    )
+    drive.complete.assert_not_called()
+    service.complete.assert_not_called()
+
+
+def test_curated_popup_rejects_another_attempt_before_any_adapter(route_client):
+    client, app, drive = route_client
+    service = routes.get_external_connector_oauth_service()
+    service._execute.return_value = [{"connector_id": "notion"}]
+    service._registry.get_connector.return_value = _operator_row()
+    app.dependency_overrides[require_firebase_auth] = lambda: "verified-owner"
+    response = client.post(
+        "/api/connectors/oauth/complete/web", json={**_WEB_BODY, "attemptId": "different-attempt"}
+    )
+    assert response.status_code == 409
+    service._execute.assert_not_called()
+    service.curated_adapter.complete.assert_not_called()
+    drive.complete.assert_not_called()
+
+
+@pytest.mark.parametrize("registry_row", [None, SimpleNamespace(owner_user_id="private-owner")])
+def test_popup_refuses_non_drive_non_operator_connectors_without_the_legacy_path(
+    route_client, monkeypatch, registry_row
+):
+    client, app, drive = route_client
+    service = routes.get_external_connector_oauth_service()
+    service._execute.return_value = [{"connector_id": "legacy_crm"}]
+    service._registry.get_connector.return_value = registry_row
+    http = Mock(side_effect=AssertionError("legacy HTTP"))
+    monkeypatch.setattr(generic_oauth.httpx, "AsyncClient", http)
+    app.dependency_overrides[require_firebase_auth] = lambda: "verified-owner"
+    response = client.post("/api/connectors/oauth/complete/web", json=_WEB_BODY)
+    assert response.status_code == 409
+    service.complete.assert_not_called()
+    http.assert_not_called()
+    service.curated_adapter.complete.assert_not_called()
+    drive.complete.assert_not_called()
+
+
+def test_popup_refuses_a_missing_or_consumed_attempt(route_client):
+    client, app, drive = route_client
+    service = routes.get_external_connector_oauth_service()
+    service._execute.return_value = []
+    app.dependency_overrides[require_firebase_auth] = lambda: "verified-owner"
+    response = client.post("/api/connectors/oauth/complete/web", json=_WEB_BODY)
+    assert response.status_code == 409
+    service.curated_adapter.complete.assert_not_called()
+    drive.complete.assert_not_called()
+    # A consumed curated attempt reaches the adapter, whose atomic claim refuses it.
+    service._execute.return_value = [{"connector_id": "notion"}]
+    service._registry.get_connector.return_value = _operator_row()
+    service.curated_adapter.complete.side_effect = CuratedConnectorOAuthError(
+        "attempt_unavailable", status_code=409
+    )
+    response = client.post("/api/connectors/oauth/complete/web", json=_WEB_BODY)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "attempt_unavailable"
+
+
+def test_curated_popup_completes_as_the_firebase_user_and_the_body_cannot_name_one(route_client):
+    # The request model carries no identity field at all, so a body-supplied owner
+    # is dropped before the route runs. Pin that, or a later "convenience" field
+    # could quietly let a caller complete another user's attempt.
+    identity_fields = [
+        name for name in routes.CompleteWebOAuthRequest.model_fields if "user" in name.lower()
+    ]
+    assert identity_fields == []
+    client, app, _ = route_client
+    service = routes.get_external_connector_oauth_service()
+    service._execute.return_value = [{"connector_id": "notion"}]
+    service._registry.get_connector.return_value = _operator_row()
+
+    async def claim(*, state, code, expected_user_id):
+        if expected_user_id != "attempt-owner":
+            raise CuratedConnectorOAuthError("attempt_unavailable", status_code=409)
+        return {"connectorId": "notion", "status": "connected"}
+
+    service.curated_adapter.complete.side_effect = claim
+    app.dependency_overrides[require_firebase_auth] = lambda: "someone-else"
+    response = client.post(
+        "/api/connectors/oauth/complete/web", json={**_WEB_BODY, "userId": "attempt-owner"}
+    )
+    assert response.status_code == 409
+    service.curated_adapter.complete.assert_awaited_once_with(
+        state=_WEB_BODY["state"], code=_WEB_BODY["code"], expected_user_id="someone-else"
+    )
+
+
+def test_vault_complete_is_unchanged_and_still_requires_the_vault_token(route_client):
+    client, app, _ = route_client
+    service = routes.get_external_connector_oauth_service()
+    service.complete.side_effect = None
+    service.complete.return_value = {"connectorId": "notion", "status": "connected"}
+    body = {"state": "signed-synthetic-state", "code": "synthetic-code"}
+    app.dependency_overrides[require_firebase_auth] = lambda: "verified-owner"
+    assert client.post("/api/connectors/oauth/complete", json=body).status_code == 401
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    assert client.post("/api/connectors/oauth/complete", json=body).status_code == 200
+    service.complete.assert_awaited_once_with(
+        state=body["state"], code=body["code"], expected_user_id="verified-owner"
+    )
+
+
 def test_deactivation_does_not_hide_owner_disconnect_status(route_client, monkeypatch):
     client, app, _ = route_client
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
@@ -950,14 +1098,23 @@ def test_pod_mcp_machine_body_is_bounded_before_auth_and_errors_never_echo(opera
 
 
 def _hubspot_definition(**overrides):
+    connector_id = str(overrides.get("connector_id", "hubspot"))
+    manifest = routes.get_manifest(connector_id)
     base = dict(
-        connector_id="hubspot",
+        connector_id=connector_id,
         display_name="HubSpot",
         description="CRM",
         auth_style="oauth",
         owner_user_id=None,
         transport_kind="mcp",
         capability_policy={"chat": "reviewed"},
+        mcp_endpoint=manifest.mcp_endpoint if manifest else "https://mcp.example/mcp",
+        oauth_authorize_url=manifest.authorize_url if manifest else "https://mcp.example/authorize",
+        oauth_token_url=manifest.token_url if manifest else "https://mcp.example/token",
+        oauth_scopes=manifest.scopes if manifest else (),
+        oauth_client_id_env=manifest.client_id_env if manifest else "HUBSPOT_OAUTH_CLIENT_ID",
+        oauth_client_secret_env=manifest.client_secret_env if manifest else None,
+        registered_redirect_uris=(manifest.redirect_uris["uat"] if manifest else ()),
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -989,9 +1146,186 @@ def test_curated_catalog_availability_comes_from_the_curated_adapter(
         lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
     )
     body = client.get("/api/connectors").json()
-    assert body["connectors"][0]["available"] is configured
+    hubspot = [item for item in body["connectors"] if item["connectorId"] == "hubspot"]
+    if configured:
+        assert [item["available"] for item in hubspot] == [True]
+    else:
+        # Not connectable and no stored grant to recover: the card is not sent at all.
+        assert hubspot == []
     assert "curated_mcp_connectors" in body["features"]
     curated.connection_available.assert_awaited_once_with("hubspot", user_id="verified-owner")
+
+
+def test_reviewed_providers_without_a_usable_row_are_not_offered_to_an_owner_with_no_grant(
+    route_client, monkeypatch
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[])),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+
+    response = client.get("/api/connectors")
+
+    assert response.status_code == 200
+    # Reviewed providers with no usable runtime row (setup pending) are not offered
+    # (Attio now has a runtime manifest, so it is covered like the others), and an
+    # owner with no stored grant has nothing to recover: no dead cards.
+    ids = {card["connectorId"] for card in response.json()["connectors"]}
+    assert ids.isdisjoint({"hubspot", "notion", "attio"})
+
+
+def test_catalog_requires_an_exact_manifest_pinned_row_before_connect_is_available(
+    route_client, monkeypatch
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    curated = SimpleNamespace(connection_available=AsyncMock(return_value=True))
+    _wire_curated_service(monkeypatch, curated)
+    drifted_notion = _hubspot_definition(
+        connector_id="notion",
+        display_name="Operator-controlled Notion",
+        mcp_endpoint="https://unreviewed.example/mcp",
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(
+            list_active_connectors=AsyncMock(return_value=[drifted_notion]),
+            list_curated_connectors=AsyncMock(return_value=[drifted_notion]),
+        ),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(
+            list_statuses=AsyncMock(
+                return_value=[{"connectorId": "notion", "status": "connected", "accountLabel": "x"}]
+            )
+        ),
+    )
+
+    response = client.get("/api/connectors")
+
+    notion = next(item for item in response.json()["connectors"] if item["connectorId"] == "notion")
+    assert notion["displayName"] == "Notion"
+    assert notion["catalogCard"] is True
+    assert notion["catalogState"] == "setup_pending"
+    assert notion["available"] is False
+    # A stale stored grant can still be disconnected, but this combined gate
+    # prevents the panel from offering Start OAuth for the drifted row.
+    assert not (notion["curatedOAuth"] and notion["available"])
+
+
+def test_a_drifted_row_with_no_stored_grant_is_not_offered(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    _wire_curated_service(
+        monkeypatch, SimpleNamespace(connection_available=AsyncMock(return_value=True))
+    )
+    drifted = _hubspot_definition(
+        connector_id="notion", mcp_endpoint="https://unreviewed.example/mcp"
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[drifted])),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+
+    ids = {item["connectorId"] for item in client.get("/api/connectors").json()["connectors"]}
+
+    assert "notion" not in ids
+
+
+def test_a_registration_only_provider_is_never_surfaced_even_with_a_similarly_named_registry_row(
+    route_client, monkeypatch, registration_only_provider
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    # The registration spec is loaded, yet it is not a runtime provider.
+    assert registration_only_provider.connector_id == "pendingco"
+    assert routes.get_manifest("pendingco") is None
+    pending_row = _hubspot_definition(
+        connector_id="pendingco", display_name="Operator-controlled Pending Co"
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[pending_row])),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+
+    response = client.get("/api/connectors")
+
+    # Registration-only: neither a card nor the operator's similarly named row is surfaced.
+    assert response.status_code == 200
+    assert all(item["connectorId"] != "pendingco" for item in response.json()["connectors"])
+
+
+@pytest.mark.parametrize(
+    "definition,expected",
+    [
+        (_hubspot_definition(), True),
+        (_hubspot_definition(connector_id="notion", display_name="Notion"), True),
+        # Attio now has a reviewed runtime manifest, so its pinned row is curated.
+        (_hubspot_definition(connector_id="attio", display_name="Attio"), True),
+        # A registration-only contract is never enough to surface a provider: it
+        # has no authenticated tool policy or runtime manifest.
+        (_hubspot_definition(connector_id="pendingco", display_name="Pending Co"), False),
+        # A reviewed-looking row with no manifest never reads as a curated provider,
+        # so the frontend would not offer a Connect button that could only fail.
+        (_hubspot_definition(connector_id="no_manifest_crm"), False),
+        (_hubspot_definition(owner_user_id="someone"), False),
+        (_hubspot_definition(capability_policy={"chat": "unreviewed"}), False),
+        (_hubspot_definition(auth_style="api_key"), False),
+    ],
+)
+def test_the_catalog_marks_manifest_backed_oauth_providers_for_the_frontend(
+    route_client, monkeypatch, registration_only_provider, definition, expected
+):
+    # The registration-only spec is loaded for every case, so the "pendingco"
+    # case proves a loaded registration contract still never reads as curated.
+    assert registration_only_provider.connector_id == "pendingco"
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    _wire_curated_service(
+        monkeypatch, SimpleNamespace(connection_available=AsyncMock(return_value=True))
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[definition])),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+    body = client.get("/api/connectors").json()
+    entries = [
+        item for item in body["connectors"] if item["connectorId"] == definition.connector_id
+    ]
+    if expected:
+        assert [item["curatedOAuth"] for item in entries] == [True]
+    else:
+        # Never offered as a curated provider: hidden outright, or at least not marked curated.
+        assert all(item["curatedOAuth"] is False for item in entries)
 
 
 def test_inactive_curated_connector_is_reprojected_for_owner_recovery(route_client, monkeypatch):
@@ -1021,23 +1355,27 @@ def test_inactive_curated_connector_is_reprojected_for_owner_recovery(route_clie
     response = client.get("/api/connectors")
 
     assert response.status_code == 200
-    assert response.json()["connectors"] == [
-        {
-            "connectorId": "hubspot",
-            "displayName": "HubSpot",
-            "description": "CRM",
-            "authStyle": "oauth",
-            "registrationKind": "curated",
-            "status": "connected",
-            "accountLabel": "owner@example.invalid",
-            "connectedAt": None,
-            "validationState": "unverified",
-            "profile": None,
-            "revocationOutcome": "not_attempted",
-            "lastErrorCode": None,
-            "available": False,
-        }
-    ]
+    hubspot = next(
+        item for item in response.json()["connectors"] if item["connectorId"] == "hubspot"
+    )
+    assert hubspot == {
+        "connectorId": "hubspot",
+        "displayName": "HubSpot",
+        "description": "Connect HubSpot so Kai can read and act on your CRM contacts, deals, and companies.",
+        "authStyle": "oauth",
+        "registrationKind": "curated",
+        "status": "connected",
+        "accountLabel": "owner@example.invalid",
+        "connectedAt": None,
+        "validationState": "unverified",
+        "profile": None,
+        "revocationOutcome": "not_attempted",
+        "lastErrorCode": None,
+        "available": False,
+        "curatedOAuth": True,
+        "catalogCard": True,
+        "catalogState": "unavailable",
+    }
     registry.list_curated_connectors.assert_awaited_once_with(include_inactive=True)
 
 
@@ -1122,3 +1460,66 @@ def test_unknown_deactivated_connector_still_scrubs_legacy_credentials(route_cli
     credentials.disconnect.assert_awaited_once_with(
         user_id="verified-owner", connector_id="unknown"
     )
+
+
+async def test_review_409_keeps_its_response_and_logs_a_reason(caplog):
+    from fastapi import HTTPException
+
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    async def refuse(**_):
+        raise ActionDirectiveAuthorityError("private-detail-in-message")
+
+    with caplog.at_level("WARNING", logger=routes.logger.name):
+        with pytest.raises(HTTPException) as refused:
+            await routes._mcp_review_response(refuse, arguments={"q": "private-argument"})
+    assert refused.value.status_code == 409
+    assert refused.value.detail == "This review changed or expired. Review the call again."
+    assert [r.getMessage() for r in caplog.records] == [
+        "one.mcp_review_refused reason=authority_refused"
+    ]
+    assert "private-detail-in-message" not in caplog.text
+    assert "private-argument" not in caplog.text
+
+
+async def test_review_409_with_a_known_reason_is_not_logged_twice(caplog):
+    from fastapi import HTTPException
+
+    from hushh_mcp.one_adk.mcp_pending_call import review_refusal
+
+    async def refuse(**_):
+        raise review_refusal("pending_handle_missing", "Connector review expired. Review again.")
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(HTTPException) as refused:
+            await routes._mcp_review_response(refuse)
+    assert refused.value.status_code == 409
+    assert [r.getMessage() for r in caplog.records] == [
+        "one.mcp_review_refused reason=pending.handle.missing"
+    ]
+
+
+async def test_a_review_failure_leaves_a_cause_without_leaking_its_message(caplog):
+    from fastapi import HTTPException
+
+    from api.routes import external_connectors as routes
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+
+    async def unexpected(**_kwargs):
+        raise KeyError("PRIVATE_SQL_FRAGMENT")
+
+    async def provider_down(**_kwargs):
+        raise ExternalMcpError("x", code="MCP_CONNECTOR_UNAVAILABLE", status_code=503)
+
+    with caplog.at_level("WARNING", logger=routes.logger.name):
+        with pytest.raises(HTTPException) as caught:
+            await routes._mcp_review_response(unexpected)
+        assert caught.value.status_code == 503
+        with pytest.raises(HTTPException):
+            await routes._mcp_review_response(provider_down)
+    lines = [r.getMessage() for r in caplog.records if "one.mcp_review_failed" in r.getMessage()]
+    assert lines == [
+        "one.mcp_review_failed type=KeyError",
+        "one.mcp_review_failed code=mcp.connector.unavailable status=503",
+    ]
+    assert "PRIVATE_SQL_FRAGMENT" not in caplog.text

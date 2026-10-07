@@ -87,7 +87,10 @@ describe("Profile canonical page layout", () => {
     const vaultTones = [...vaultMethods.matchAll(/iconTone="([a-z]+)"/g)].map(
       (match) => match[1],
     );
-    expect(vaultTones.length).toBeGreaterThanOrEqual(6);
+    // Five implemented row families; unsupported "coming soon" methods
+    // must not be counted as usable unlock choices.
+    expect(vaultTones.length).toBeGreaterThanOrEqual(5);
+    expect(vaultMethods).not.toContain('title="BYOK and passkeys"');
     expect(new Set(vaultTones)).toEqual(new Set(["capability"]));
     expect(workspace).not.toContain("Use device biometric");
     expect(workspace).not.toContain("Use passphrase");

@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 _RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
 _CONNECTION_FEED_EVENT_TYPES = frozenset(
-    {"connection_accepted", "connection_rejected", "connection_revoked"}
+    {"connection_accepted", "connection_rejected", "connection_revoked", "connection_withdrawn"}
 )
 
 
@@ -2949,6 +2949,17 @@ class ConnectionsService:
                 actor_user_id=user_id,
                 reason="connection_cancelled",
             )
+            if cancelled_row:
+                requester = str(req.get("requester_user_id") or "")
+                addressee = str(req.get("addressee_user_id") or "")
+                for owner, counterpart in ((requester, addressee), (addressee, requester)):
+                    self._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id=counterpart,
+                        actor_user_id=requester,
+                        event_type="connection_withdrawn",
+                        source_row_id=str(req["id"]),
+                    )
         if cancelled_row:
             self._notify_request_cancelled(
                 str(req.get("addressee_user_id") or ""),

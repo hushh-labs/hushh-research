@@ -158,7 +158,8 @@ describe("ProfileStackNavigator", () => {
     expect(source).toContain('from "@/components/app-ui/page-sections"');
     expect(source).toContain("<PageHeader");
     expect(source).toContain('testId="profile-stack-page-header"');
-    expect(source).toContain("px-[var(--page-inline-gutter-standard)]");
+    // The outer AppPageShell owns the gutter; doubling it shifts nested rows.
+    expect(source).not.toContain("px-[var(--page-inline-gutter-standard)]");
     expect(source).toContain("pt-[var(--page-header-section-gap)]");
     expect(source).toContain("<SettingsPresentationProvider");
     expect(source).toContain("separatorInset");

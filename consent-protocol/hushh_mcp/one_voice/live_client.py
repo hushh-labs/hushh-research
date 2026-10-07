@@ -24,7 +24,7 @@ from hushh_mcp.runtime_providers.factory import build_managed_live_client
 class LiveEvent:
     """Provider-agnostic view of one server message."""
 
-    kind: str  # setup_complete | audio | input_transcript | output_transcript | interrupted | turn_complete | tool_call | tool_cancel | resumption | go_away | other
+    kind: str  # setup_complete | activity_start | activity_end | audio | input_transcript | output_transcript | interrupted | turn_complete | tool_call | tool_cancel | resumption | go_away | other
     audio_b64: str | None = None
     text: str | None = None
     finished: bool | None = None
@@ -33,6 +33,8 @@ class LiveEvent:
     resumption_handle: str | None = None
     resumable: bool | None = None
     go_away_seconds: int | None = None
+    activity_source: str | None = None  # voice_activity | vad_signal
+    same_message_input_transcript: bool = False
 
 
 class LiveSessionPort(Protocol):
@@ -162,15 +164,37 @@ def translate_message(message: Any) -> list[LiveEvent]:
     if getattr(message, "setup_complete", None) is not None:
         events.append(LiveEvent(kind="setup_complete"))
     content = getattr(message, "server_content", None)
+    input_transcription = getattr(content, "input_transcription", None)
+    same_message_input = bool(getattr(input_transcription, "text", None))
+    # These are fields on the pinned google-genai LiveServerMessage. Either
+    # explicit end signal may be absent from a real stream; client-side
+    # endpointing telemetry remains the fallback in that case.
+    activity = getattr(message, "voice_activity", None)
+    activity_type = getattr(activity, "voice_activity_type", None)
+    signal = getattr(message, "voice_activity_detection_signal", None)
+    signal_type = getattr(signal, "vad_signal_type", None)
+    if activity_type == genai_types.VoiceActivityType.ACTIVITY_START:
+        events.append(LiveEvent(kind="activity_start", activity_source="voice_activity"))
+    if activity_type == genai_types.VoiceActivityType.ACTIVITY_END:
+        events.append(
+            LiveEvent(
+                kind="activity_end",
+                activity_source="voice_activity",
+                same_message_input_transcript=same_message_input,
+            )
+        )
+    elif signal_type == genai_types.VadSignalType.VAD_SIGNAL_TYPE_EOS:
+        events.append(
+            LiveEvent(
+                kind="activity_end",
+                activity_source="vad_signal",
+                same_message_input_transcript=same_message_input,
+            )
+        )
     if content is not None:
-        turn = getattr(content, "model_turn", None)
-        for part in getattr(turn, "parts", None) or []:
-            inline = getattr(part, "inline_data", None)
-            data = getattr(inline, "data", None) if inline is not None else None
-            if data:
-                events.append(
-                    LiveEvent(kind="audio", audio_b64=base64.b64encode(data).decode("ascii"))
-                )
+        # The person's words come before Live's reply to them. Within one message
+        # the relay must see the input first, or the reply's opening audio is
+        # attributed to whatever turn was current before the person spoke.
         transcription = getattr(content, "input_transcription", None)
         if transcription is not None and getattr(transcription, "text", None):
             events.append(
@@ -180,6 +204,14 @@ def translate_message(message: Any) -> list[LiveEvent]:
                     finished=bool(getattr(transcription, "finished", False)),
                 )
             )
+        turn = getattr(content, "model_turn", None)
+        for part in getattr(turn, "parts", None) or []:
+            inline = getattr(part, "inline_data", None)
+            data = getattr(inline, "data", None) if inline is not None else None
+            if data:
+                events.append(
+                    LiveEvent(kind="audio", audio_b64=base64.b64encode(data).decode("ascii"))
+                )
         transcription = getattr(content, "output_transcription", None)
         if transcription is not None and getattr(transcription, "text", None):
             events.append(

@@ -191,6 +191,7 @@ function ChatConnectCards() {
 
 function Fixture() {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const transcriptRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ConnectionsDrawerMode>("chats");
   const [external, setExternal] = useState(false);
@@ -223,6 +224,8 @@ function Fixture() {
         Open drawer
       </button>
       <AgentConnectionsDrawer
+        gestureSurfaceRef={transcriptRef}
+        gestureEnabled
         triggerRef={triggerRef}
         open={open}
         onOpenChange={changeOpen}
@@ -258,7 +261,7 @@ function Fixture() {
           />
         }
       />
-      <section inert={open} className="flex min-h-0 flex-1 flex-col p-4">
+      <section ref={transcriptRef} inert={open} data-gesture-body className="flex min-h-0 flex-1 touch-pan-y flex-col p-4">
         <ConnectorReadReceipt experience={{ type: "one.connector_read.v1", connector: "mail",
           status: "reconnect_required", sourceRefs: [], truncated: false, metadataOnly: true }}
           onOpenConnections={(_provider, trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />

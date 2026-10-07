@@ -23,6 +23,145 @@ function createRequest(url: string, init: RequestInit): NextRequest {
 }
 
 describe("/api/kai/[...path] proxy", () => {
+  it("forwards both receipt auth planes and makes live scan responses no-store", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          page: 1,
+          per_page: 6,
+          returned_count: 0,
+          has_more: false,
+          coverage: {},
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const req = createRequest(
+      "http://localhost:3000/api/kai/gmail/receipts/scan",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer firebase-id-token",
+          "X-Hushh-Consent": "Bearer vault-owner-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: "owner-uid", page: 1, per_page: 6 }),
+      },
+    );
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "receipts", "scan"] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe(
+      "private, no-store, max-age=0",
+    );
+    expect(res.headers.get("Pragma")).toBe("no-cache");
+    const [url, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://backend.test/api/kai/gmail/receipts/scan");
+    expect(options?.cache).toBe("no-store");
+    const headers = options?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer firebase-id-token");
+    expect(headers.get("X-Hushh-Consent")).toBe("Bearer vault-owner-token");
+  });
+
+  it("does not log or relay unsafe live receipt error bodies", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail:
+            "provider body owner@example.test order=SECRET-ORDER amount=999",
+        }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const req = createRequest(
+      "http://localhost:3000/api/kai/gmail/receipts/detail",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer firebase-id-token",
+          "X-Hushh-Consent": "Bearer vault-owner-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: "owner-uid",
+          source_id: "gmail_live_opaque.signature",
+        }),
+      },
+    );
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "receipts", "detail"] }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+    await expect(res.json()).resolves.toEqual({
+      error: "Receipt detail unavailable",
+      message:
+        "We couldn't load that Mail receipt right now. Please try again in a moment.",
+    });
+    const logged = JSON.stringify(consoleError.mock.calls);
+    expect(logged).not.toContain("owner@example.test");
+    expect(logged).not.toContain("SECRET-ORDER");
+    expect(logged).not.toContain("999");
+  });
+
+  it("uses its own safe copy for recognized live receipt errors", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "GMAIL_RECEIPT_NOT_FOUND",
+            message: "private-message-id should never be relayed",
+          },
+        }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const req = createRequest(
+      "http://localhost:3000/api/kai/gmail/receipts/detail",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer firebase-id-token",
+          "X-Hushh-Consent": "Bearer vault-owner-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: "owner-uid",
+          source_id: "gmail_live_opaque.signature",
+        }),
+      },
+    );
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "receipts", "detail"] }),
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toContain("no-store");
+    await expect(res.json()).resolves.toEqual({
+      detail: {
+        code: "GMAIL_RECEIPT_NOT_FOUND",
+        message: "The selected receipt is not available.",
+      },
+    });
+  });
+
   it("forwards Authorization header for JSON POST routes", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {

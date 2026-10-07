@@ -797,18 +797,14 @@ describe("Connect — People", () => {
   it("welcomes a new member without hiding the real people directory", async () => {
     render(<ConnectPageClient />);
 
-    expect(await screen.findByRole("heading", { name: "Circles" })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Find people to connect with" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Circles" })).toBeNull();
     expect(screen.getByRole("textbox", { name: "Search people" })).toBeTruthy();
     expect(
       await screen.findByText(
         /Find people to connect with/,
       ),
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create your own circle" }),
-    );
-    expect(await screen.findByRole("dialog", { name: "Create a Circle" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create your own circle" })).toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
@@ -2709,8 +2705,11 @@ describe("Connect — the phone-width geometry QA reported", () => {
     const remove = await screen.findByRole("button", {
       name: "Remove connection with Abdul Rashid",
     });
-    expect(message.textContent).toContain("Message");
+    // Messages is the iOS bubble glyph, not a text pill, so the name keeps the width.
+    expect(message.textContent).not.toContain("Message");
+    expect(message.querySelector("svg")).toBeTruthy();
     expect(message.className).toContain("h-11");
+    expect(remove.className).toContain("text-destructive");
     expect(remove.className).toContain("h-11");
     expect(remove.className).toContain("min-h-11");
     expect(remove.querySelector("svg")).toBeTruthy();
@@ -3128,6 +3127,7 @@ describe("Connect — Circles", () => {
     // Both surfaces live in one swipeable pager (as Finance and Consent do);
     // the one the URL did not ask for is present but inert and hidden.
     const circles = screen.getByTestId("connect-circles-tab");
+    expect(screen.getByTestId("connect-living-connections").closest('[data-connect-surface="circles"]')).not.toBeNull();
     expect(circles.closest('[aria-hidden="true"]')).not.toBeNull();
     expect(circles.closest("[inert]")).not.toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
@@ -3226,6 +3226,20 @@ describe("Connect — Circles", () => {
     ).toBeTruthy();
     // No navigation: the inner strip does not touch the URL.
     expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("returns Circle discovery's Find people to People, not the previous directory", async () => {
+    const view = render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    chooseDirectory("RIAs");
+    await screen.findByText("Advisors with a verified profile.");
+    mocks.searchParams = new URLSearchParams("tab=circles");
+    view.rerender(<ConnectPageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Find people to connect with" }));
+    expect(mocks.routerPush).toHaveBeenCalledWith(expect.stringContaining("tab=all"), { scroll: false });
+    mocks.searchParams = new URLSearchParams("tab=all");
+    view.rerender(<ConnectPageClient />);
+    expect(await screen.findByRole("button", { name: "Current directory: People" })).toBeVisible();
   });
 });
 

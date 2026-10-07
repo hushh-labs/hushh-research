@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 128,
-  "native_required_routes": 105,
+  "total_routes": 131,
+  "native_required_routes": 108,
   "excluded_routes": 23,
   "routes": [
     {
@@ -325,6 +325,19 @@
       "route": "/one/calendar",
       "classification": "excluded-web-only",
       "reason": "GAP, not a permanent exclusion. Calendar is a first-class One agent and should have a native surface; it does not have one yet. Excluding it hides that. Revisit before the next native release."
+    },
+    {
+      "route": "/one/career",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fcareer",
+      "expectedMarker": "native-route-one-career",
+      "expectedRoute": "/one/career",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "loading"
+      ]
     },
     {
       "route": "/one/connect",
@@ -662,6 +675,34 @@
       "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Frecent",
       "expectedMarker": "native-route-pkm-recent",
       "expectedRoute": "/one/pkm/recent",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/pkm/location",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flocation",
+      "expectedMarker": "native-route-pkm-location",
+      "expectedRoute": "/one/pkm/location",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/pkm/location/detail",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flocation%2Fdetail",
+      "expectedMarker": "native-route-pkm-location-detail",
+      "expectedRoute": "/one/pkm/location/detail",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

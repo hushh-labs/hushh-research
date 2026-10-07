@@ -152,3 +152,29 @@ describe("OnboardingLocalService", () => {
     });
   });
 });
+
+
+describe("Wallet introduction preference", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGetLocalItem.mockReturnValue(null);
+    mockPreferences.get.mockResolvedValue({ value: null });
+    mockPreferences.set.mockResolvedValue(undefined);
+  });
+  it("keeps dismissal scoped to the account", async () => {
+    const stored = new Map<string, string>();
+    mockPreferences.get.mockImplementation(async ({ key }) => ({ value: stored.get(key) ?? null }));
+    mockPreferences.set.mockImplementation(async ({ key, value }) => { stored.set(key, value); });
+    expect(await OnboardingLocalService.hasSeenWalletIntroduction("owner-a")).toBe(false);
+    await OnboardingLocalService.markWalletIntroductionSeen("owner-a");
+    expect(await OnboardingLocalService.hasSeenWalletIntroduction("owner-a")).toBe(true);
+    expect(await OnboardingLocalService.hasSeenWalletIntroduction("owner-b")).toBe(false);
+  });
+  it("uses the browser fallback if native preference writes fail", async () => {
+    mockPreferences.set.mockRejectedValue(new Error("Unavailable"));
+    await expect(OnboardingLocalService.markWalletIntroductionSeen("owner-a")).resolves.toBeUndefined();
+    expect(mockSetLocalItem).toHaveBeenCalledWith("wallet_introduction_seen_v1:owner-a", "true");
+    mockGetLocalItem.mockReturnValue("true");
+    expect(await OnboardingLocalService.hasSeenWalletIntroduction("owner-a")).toBe(true);
+  });
+});

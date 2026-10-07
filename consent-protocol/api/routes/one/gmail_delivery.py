@@ -14,7 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth
+from hushh_mcp.one_voice.config import voice_mail_reads_enabled, voice_mail_reply_enabled
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.email_delegated_read import mail_latency
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
     create_reviewed_gmail_draft,
@@ -25,7 +27,12 @@ from hushh_mcp.services.gmail_mailbox_actions import get_gmail_mailbox_actions
 from hushh_mcp.services.gmail_personal_information_request_service import (
     get_personal_gmail_information_request_service,
 )
-from hushh_mcp.services.gmail_receipts_service import GmailApiError
+from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
+from hushh_mcp.services.gmail_reply_source_service import (
+    MAX_SOURCE_REF_CHARS,
+    SOURCE_REF_PATTERN,
+    resolve_source_bound_reply,
+)
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
@@ -90,6 +97,11 @@ class EmailPrepareRequest(EmailEnvelope):
         max_length=128,
         pattern=r"^[A-Za-z0-9-]+$",
     )
+    # An opaque reply binding minted by the server for one offered message. Its
+    # recipient, subject and thread are re-derived from Gmail on every use.
+    source_mail_ref: str | None = Field(
+        default=None, min_length=20, max_length=MAX_SOURCE_REF_CHARS, pattern=SOURCE_REF_PATTERN
+    )
 
 
 class MailboxProposalExecuteRequest(BaseModel):
@@ -112,6 +124,9 @@ class EmailSendRequest(EmailEnvelope):
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9-]+$",
+    )
+    source_mail_ref: str | None = Field(
+        default=None, min_length=20, max_length=MAX_SOURCE_REF_CHARS, pattern=SOURCE_REF_PATTERN
     )
 
 
@@ -148,34 +163,85 @@ def _as_http_error(exc: Exception) -> HTTPException:
     )
 
 
+def _reply_enabled() -> bool:
+    """A reply re-reads the original email, so both voice mail switches gate it."""
+    return voice_mail_reply_enabled() and voice_mail_reads_enabled()
+
+
+async def _reply_access() -> None:
+    """Re-checked by the source read around its provider hop."""
+    if not _reply_enabled():
+        raise PermissionError("Mail replies are disabled")
+
+
 async def _resolve_delivery_payload(
     *,
     user_id: str,
     payload: EmailEnvelope,
     source_workflow_id: str | None,
+    source_mail_ref: str | None = None,
 ) -> tuple[dict[str, Any], Any | None]:
-    """Use the normal delivery boundary while preserving a Gmail source binding."""
+    """Use the normal delivery boundary while preserving a Gmail source binding.
 
-    if not source_workflow_id:
+    Three modes, never blended: a fresh compose (the caller's envelope, which the
+    service normalizes), a personal-information-request reply (its workflow
+    source), and a reply to an offered message (its ``source_mail_ref``). Both
+    reply modes take only the body from the caller; recipient, subject and
+    thread come from the source on every prepare and every send.
+    """
+
+    if source_workflow_id and source_mail_ref:
+        raise GmailDeliveryError(
+            "SOURCE_BINDING_CONFLICT",
+            "A reply can have only one original email.",
+            status_code=422,
+        )
+    if not source_workflow_id and not source_mail_ref:
         excluded = (
-            {"idempotency_key", "source_workflow_id"}
+            {"idempotency_key", "source_workflow_id", "source_mail_ref"}
             if isinstance(payload, EmailPrepareRequest)
-            else {"action_id", "source_workflow_id"}
+            else {"action_id", "source_workflow_id", "source_mail_ref"}
         )
         return payload.model_dump(exclude=excluded, exclude_none=True), None
     if isinstance(payload, EmailPrepareRequest) and payload.drive_attachment is not None:
         raise GmailDeliveryError(
             "SOURCE_BOUND_ATTACHMENT_UNSUPPORTED",
-            "A reply to a Gmail information request cannot include a Drive attachment.",
+            "A reply in the original thread cannot include a Drive attachment.",
             status_code=422,
+        )
+    if source_workflow_id:
+        return cast(
+            tuple[dict[str, Any], Any | None],
+            await get_personal_gmail_information_request_service().resolve_reply_delivery(
+                user_id=user_id,
+                workflow_id=source_workflow_id,
+                body=payload.body,
+                html_body=payload.html_body,
+            ),
+        )
+    if isinstance(payload, EmailSendRequest) and payload.attachment_token is not None:
+        # Refused, not silently dropped: a reply carries no attachment, and an
+        # attachment the person reviewed must never quietly go missing.
+        raise GmailDeliveryError(
+            "SOURCE_BOUND_ATTACHMENT_UNSUPPORTED",
+            "A reply in the original thread cannot include a Drive attachment.",
+            status_code=422,
+        )
+    if not _reply_enabled():
+        raise GmailDeliveryError(
+            "MAIL_REPLY_UNAVAILABLE",
+            "Replying from One is switched off.",
+            status_code=403,
         )
     return cast(
         tuple[dict[str, Any], Any | None],
-        await get_personal_gmail_information_request_service().resolve_reply_delivery(
+        await resolve_source_bound_reply(
+            gmail=get_gmail_receipts_service(),
             user_id=user_id,
-            workflow_id=source_workflow_id,
+            source_mail_ref=str(source_mail_ref),
             body=payload.body,
             html_body=payload.html_body,
+            require_access=_reply_access,
         ),
     )
 
@@ -220,29 +286,32 @@ async def gmail_email_prepare(
             user_id=user_id,
             payload=payload,
             source_workflow_id=payload.source_workflow_id,
+            source_mail_ref=payload.source_mail_ref,
         )
-        prepared = cast(
-            dict[str, Any],
-            await get_gmail_delivery_service().prepare(
-                user_id=user_id,
-                draft_payload=draft_payload,
-                idempotency_key=payload.idempotency_key,
-                reply_context=reply_context,
-            ),
-        )
+        with mail_latency("deliver_prep", logger):
+            prepared = cast(
+                dict[str, Any],
+                await get_gmail_delivery_service().prepare(
+                    user_id=user_id,
+                    draft_payload=draft_payload,
+                    idempotency_key=payload.idempotency_key,
+                    reply_context=reply_context,
+                ),
+            )
         if reply_context is None:
             return prepared
         normalized = normalize_draft(draft_payload)
-        return {
-            **prepared,
-            "preview": {
-                "to": list(normalized.to),
-                "cc": list(normalized.cc),
-                "bcc": list(normalized.bcc),
-                "subject": normalized.subject,
-                "gmail_thread_id": reply_context.thread_id,
-            },
+        preview: dict[str, Any] = {
+            "to": list(normalized.to),
+            "cc": list(normalized.cc),
+            "bcc": list(normalized.bcc),
+            "subject": normalized.subject,
         }
+        if payload.source_workflow_id:
+            # Unchanged for the information-request card. A general reply's
+            # thread stays server-side: the browser never needs it to send.
+            preview["gmail_thread_id"] = reply_context.thread_id
+        return {**prepared, "preview": preview}
     except Exception as exc:
         logger.warning("one.gmail_delivery.prepare_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from exc
@@ -306,16 +375,21 @@ async def gmail_email_send(
             user_id=user_id,
             payload=payload,
             source_workflow_id=payload.source_workflow_id,
+            source_mail_ref=payload.source_mail_ref,
         )
-        result = cast(
-            dict[str, Any],
-            await get_gmail_delivery_service().execute(
-                user_id=user_id,
-                action_id=payload.action_id,
-                draft_payload=draft_payload,
-                reply_context=reply_context,
-            ),
-        )
+        with mail_latency("deliver", logger) as span:
+            result = cast(
+                dict[str, Any],
+                await get_gmail_delivery_service().execute(
+                    user_id=user_id,
+                    action_id=payload.action_id,
+                    draft_payload=draft_payload,
+                    reply_context=reply_context,
+                ),
+            )
+            if result.get("outcome_unknown"):
+                # Ambiguous provider answer: never logged as a delivered send.
+                span.status = "unknown"
         if payload.source_workflow_id:
             return cast(
                 dict[str, Any],

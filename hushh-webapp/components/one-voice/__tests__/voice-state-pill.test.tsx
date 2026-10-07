@@ -39,10 +39,11 @@ function renderPill(
 }
 
 beforeEach(() => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
   media.reducedMotion = false;
 });
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("VoiceStatePill", () => {
   it("labels every phase", () => {
@@ -56,7 +57,7 @@ describe("VoiceStatePill", () => {
       executing: "Working…",
       complete: "Done",
       error: "Something went wrong",
-      paused: "Paused — tap to resume",
+      paused: "Paused",
     };
     for (const [phase, label] of Object.entries(expected) as Array<
       [VoicePhase, string]
@@ -65,13 +66,18 @@ describe("VoiceStatePill", () => {
       expect(screen.getByTestId("one-voice-state-label")).toHaveTextContent(
         label,
       );
+      // WebKit may flatten a button's children out of the accessibility tree.
+      expect(screen.getByTestId("one-voice-agent-bar-start-icon")).toHaveAccessibleName(`${label}. Stop voice`);
       view.unmount();
     }
     expect(voicePhaseLabel("listening", { muted: true })).toBe("Muted");
     expect(
       voicePhaseLabel("asking", { speaking: true, halfDuplex: true }),
-    ).toBe("Tap to interrupt");
+    ).toBe("Speaking");
     expect(voicePhaseLabel("asking", { speaking: true })).toBe("One is asking");
+    // A model-end state can arrive before scheduled speaker audio drains.
+    expect(voicePhaseLabel("listening", { speaking: true, halfDuplex: true })).toBe("Speaking");
+    expect(voicePhaseLabel("listening", { speaking: false, halfDuplex: true })).toBe("Listening");
   });
 
   it("keeps the launcher identity on the primary control and wires the three actions", () => {
@@ -82,9 +88,11 @@ describe("VoiceStatePill", () => {
       "one_voice_agent_bar_start",
     );
     expect(primary).toHaveAttribute("data-agent-action", "voice");
-    expect(primary).toHaveAccessibleName("Interrupt One");
-    fireEvent.click(primary);
-    expect(props.onInterrupt).toHaveBeenCalledTimes(1);
+    expect(primary).toHaveAccessibleName("One is asking. Stop voice");
+    fireEvent.pointerDown(primary, { button: 0 });
+    fireEvent.click(primary, { detail: 1 });
+    expect(props.onStop).toHaveBeenCalledTimes(1);
+    expect(props.onInterrupt).not.toHaveBeenCalled();
 
     const mute = screen.getByTestId("one-voice-mute");
     expect(mute).toHaveAttribute("aria-pressed", "false");
@@ -97,18 +105,19 @@ describe("VoiceStatePill", () => {
       "one_voice_agent_bar_stop",
     );
     fireEvent.click(stop);
-    expect(props.onStop).toHaveBeenCalledTimes(1);
+    expect(props.onStop).toHaveBeenCalledTimes(2);
 
     for (const control of [primary, mute, stop])
       expect(control.className).toContain("h-11");
   });
 
-  it("uses the primary control to resume a paused session", () => {
-    const { props } = renderPill({ phase: "paused" });
+  it.each(["connecting", "paused", "executing"] as const)("stops a %s session instead of resuming or interrupting", (phase) => {
+    const { props } = renderPill({ phase });
     const primary = screen.getByTestId("one-voice-agent-bar-start-icon");
-    expect(primary).toHaveAccessibleName("Resume talking to One");
+    expect(primary).toHaveAccessibleName(`${voicePhaseLabel(phase)}. Stop voice`);
     fireEvent.click(primary);
-    expect(props.onResume).toHaveBeenCalledTimes(1);
+    expect(props.onStop).toHaveBeenCalledTimes(1);
+    expect(props.onResume).not.toHaveBeenCalled();
     expect(props.onInterrupt).not.toHaveBeenCalled();
   });
 

@@ -123,6 +123,10 @@ class FakeCircleService:
         self.cancel_result = True
         self.errors: dict[str, Exception] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        # The owner's connections as ``plan_direct_connection_adds`` classes
+        # them; anyone already in the circle reads as "member" automatically.
+        self.audience: list[dict[str, Any]] = []
+        self.member_limit = 100
 
     def _hit(self, method: str, **kwargs: Any) -> None:
         self.calls.append((method, kwargs))
@@ -296,6 +300,65 @@ class FakeCircleService:
                     }
                 )
         return dict(self.add_result)
+
+    def plan_direct_connection_adds(self, *, actor_user_id: str, circle_id: str):
+        self._hit("plan_direct_connection_adds", actor_user_id=actor_user_id, circle_id=circle_id)
+        row = self._stored(circle_id)
+        if row["role"] != "owner":
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_OWNER_REQUIRED",
+                "Only the Circle owner can add people to this Circle.",
+                status_code=403,
+            )
+        members = {m["userId"] for m in row["members"]}
+        return {
+            "circle": {
+                "id": circle_id,
+                "name": row["name"],
+                "kind": row["kind"],
+                "isSystem": bool(row.get("isSystem")),
+                "systemKind": row.get("systemKind"),
+                "memberLimit": self.member_limit,
+                "reservedCount": len(members),
+            },
+            "connections": [
+                {
+                    "userId": person["userId"],
+                    "displayName": person["displayName"],
+                    "status": "member"
+                    if person["userId"] in members
+                    else person.get("status", "addable"),
+                }
+                for person in self.audience
+            ],
+        }
+
+    def add_direct_connections(self, *, actor_user_id: str, circle_id: str, user_ids: list[str]):
+        self._hit(
+            "add_direct_connections",
+            actor_user_id=actor_user_id,
+            circle_id=circle_id,
+            user_ids=list(user_ids),
+        )
+        row = self._stored(circle_id)
+        names = {person["userId"]: person["displayName"] for person in self.audience}
+        added: list[str] = []
+        skipped: dict[str, str] = {}
+        for uid in sorted(set(user_ids)):
+            if uid in {m["userId"] for m in row["members"]}:
+                skipped[uid] = "already_member"
+                continue
+            row["members"].append(
+                {
+                    "userId": uid,
+                    "displayName": names.get(uid, uid),
+                    "role": "member",
+                    "relationship": "connected",
+                    "joinedAt": "2030-01-03T00:00:00+00:00",
+                }
+            )
+            added.append(uid)
+        return {"addedUserIds": added, "skippedUserIds": sorted(skipped), "skippedReasons": skipped}
 
     def list_member_invites(
         self, *, user_id: str, circle_id: str | None = None, direction: str = "incoming"
@@ -492,6 +555,9 @@ def test_catalog_policies_and_gateway_ids():
         # gateway already declares a person-list slot, so this binds rather than
         # minting a second action for the same effect.
         "add_circle_members": (ToolPolicy.confirm_voice, "location.add_to_circle"),
+        # The same effect again, with the audience read by the server instead of
+        # named by the model.
+        "add_all_connections": (ToolPolicy.confirm_voice, "location.add_to_circle"),
         "remove_circle_member": (ToolPolicy.confirm_tap, "location.remove_from_circle"),
         "leave_circle": (ToolPolicy.confirm_tap, "location.leave_circle"),
         "list_circle_invites": (ToolPolicy.read, "location.open_needs_review"),
@@ -685,12 +751,15 @@ def test_create_circle_created_and_remembered():
 def test_create_circle_already_exists_does_not_create():
     service = FakeCircleService()
     ctx = make_ctx(service, confirm_family=False)
+    _propose_circle(ctx, name="family")
     result = run("create_circle", ctx, name="family")
     assert result.status == "already_exists"
     assert result.circle.circle_id == FAMILY
     assert result.spoken_facts == ["You already have a circle called Family."]
     assert not [call for call in service.calls if call[0] == "create_circle"]
     assert ctx.entities.last_circle_id == FAMILY
+    # The name is settled, so no later proposal is held to it.
+    assert ctx.entities.circle_name_baseline is None
 
 
 def test_create_circle_rejects_bad_kind_and_maps_errors():
@@ -702,6 +771,452 @@ def test_create_circle_rejects_bad_kind_and_maps_errors():
     )
     result = run("create_circle", make_ctx(service), name="Zed")
     assert result.status == "rejected" and result.reason_code == "LOCATION_CIRCLE_NAME_INVALID"
+
+
+# -- create_circle keeps a word the person spelled ------------------------------------
+#
+# UAT: the person spelled "h u s s h" for HUSSH GARAGE V04 and the next card said
+# HUSH. The model declares a word the person spelled; the server keeps it for the
+# conversation and refuses a proposed name that drops it, asking instead.
+
+HUSSH_QUESTION = (
+    "You spelled HUSSH as H-U-S-S-H, but this name doesn't include it. Should the name use HUSSH?"
+)
+HUSSH_TO_HUSH = [{"old": "HUSSH", "new": "HUSH"}]
+V04_TO_V05 = [{"old": "V04", "new": "V05"}]
+
+
+def _propose_circle(ctx: ToolContext, executor: ToolExecutor | None = None, **args: Any):
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    executor = executor or ToolExecutor(pending_store=MemoryPendingStore())
+    return asyncio.run(executor.call(ctx, "create_circle", args))
+
+
+def test_create_circle_refuses_a_name_that_drops_a_spelled_word():
+    service = FakeCircleService()
+    ctx = make_ctx(service, confirm_family=False)
+    outcome = _propose_circle(ctx, name="HUSH GARAGE V04", spelled_words=["HUSSH"])
+    assert (outcome.result.status, outcome.result.reason_code) == (
+        "rejected",
+        "spelled_word_missing",
+    )
+    assert outcome.result.needs == "repeat_name"
+    assert outcome.result.spoken_facts == [HUSSH_QUESTION]
+    assert outcome.pending is None
+    assert "retire_open_proposal" not in outcome.result.public()
+    assert "retire_open_proposal" not in outcome.result.model_public()
+    # Defence in depth: a stored card whose name lost the word creates nothing.
+    ctx.prepared = {"spelled_words": ["HUSSH"]}
+    refused = run("create_circle", ctx, name="HUSH GARAGE V04")
+    assert (refused.status, refused.reason_code) == ("rejected", "spelled_word_missing")
+    assert not [call for call in service.calls if call[0] == "create_circle"]
+
+
+def test_create_circle_card_reads_back_each_spelled_word():
+    ctx = make_ctx(confirm_family=False)
+    outcome = _propose_circle(ctx, name="hussh garage V04", spelled_words=["HUSSH"])
+    assert outcome.result.status == "confirmation_required"
+    assert outcome.result.summary == (
+        "create a circle called hussh garage V04, with HUSSH spelled H-U-S-S-H"
+    )
+    assert outcome.pending.args["_prepared"] == {"spelled_words": ["HUSSH"]}
+    # Negative control: nothing spelled, and the card is today's sentence byte for byte.
+    plain = _propose_circle(make_ctx(confirm_family=False), name="Hiking", kind="friends")
+    assert plain.result.status == "confirmation_required"
+    assert plain.result.summary == summary("create_circle", ctx, name="Hiking", kind="friends")
+    assert plain.result.summary == "create a friends circle called Hiking"
+
+
+def test_create_circle_lets_the_person_change_a_spelled_word():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx = make_ctx(confirm_family=False)
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    first = _propose_circle(ctx, executor, name="HUSSH GARAGE", spelled_words=["HUSSH"])
+    assert first.result.status == "confirmation_required"
+    # A correction that leaves the kept word out without saying so is refused ...
+    dropped = _propose_circle(ctx, executor, name="HUSH GARAGE")
+    assert dropped.result.reason_code == "name_changed"
+    # ... while the person spelling the new word in its place changes it, with
+    # no second declaration needed.
+    changed = _propose_circle(ctx, executor, name="HUSH GARAGE", spelled_words=["HUSH"])
+    assert changed.result.status == "confirmation_required"
+    assert changed.result.summary.endswith(", with HUSH spelled H-U-S-H")
+
+
+def test_create_circle_forgets_the_spelling_once_the_circle_exists():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    service = FakeCircleService()
+    ctx = make_ctx(service, confirm_family=False)
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store)
+    card = _propose_circle(ctx, executor, name="HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=card.pending.id))
+    done = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.pending.id})
+    )
+    assert done.result.status == "created"
+    assert (
+        "create_circle",
+        {"owner_user_id": USER, "name": "HUSSH GARAGE V04", "kind": "other"},
+    ) in service.calls
+    assert ctx.entities.spelled_name_words == []
+    assert ctx.entities.circle_name_baseline is None
+    # Nothing is waiting to be corrected: a name sharing its words is not held to it.
+    alike = _propose_circle(ctx, executor, name="HUSSH GARAGE V05")
+    assert alike.result.status == "confirmation_required"
+    following = _propose_circle(ctx, executor, name="Book Club")
+    assert following.result.status == "confirmation_required"
+
+
+def test_a_card_from_before_a_word_was_spelled_creates_nothing():
+    """A confirm that lands on a card prepared before the person spelled a word
+    (or a reused duplicate) is refused at execution, not only at proposal."""
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    service = FakeCircleService()
+    ctx = make_ctx(service, confirm_family=False)
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store)
+    card = _propose_circle(ctx, executor, name="HUSH GARAGE")
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=card.pending.id))
+    tapped = asyncio.run(
+        store.confirm(user_id=USER, pending_action_id=card.pending.id, source="http")
+    )
+    refused = _propose_circle(ctx, executor, name="HUSH GARAGE", spelled_words=["HUSSH"])
+    assert refused.result.reason_code == "spelled_word_missing"
+
+    done = asyncio.run(executor.execute_pending(ctx, tapped))
+
+    assert (done.result.status, done.result.reason_code) == ("rejected", "spelled_word_missing")
+    assert done.result.spoken_facts == [
+        "Earlier you spelled HUSSH as H-U-S-S-H. "
+        "Is this a different circle, or should the name keep HUSSH?"
+    ]
+    assert not [call for call in service.calls if call[0] == "create_circle"]
+
+
+def test_a_spelled_word_lapses_three_minutes_after_a_proposal_last_needed_it(monkeypatch):
+    """An unrelated circle later in the conversation is not held to an old
+    spelling, while every proposal that keeps the word extends it."""
+    from datetime import datetime, timedelta, timezone
+
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    clock = [datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)]
+    monkeypatch.setattr(EntityContext, "_now", staticmethod(lambda: clock[0]))
+    ctx = make_ctx(confirm_family=False)
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    first = _propose_circle(ctx, executor, name="HUSSH GARAGE", spelled_words=["HUSSH"])
+    assert first.result.status == "confirmation_required"
+
+    clock[0] += timedelta(seconds=170)
+    kept = _propose_circle(ctx, executor, name="HUSSH GARAGE V04", changed_words=[{"new": "V04"}])
+    assert kept.result.status == "confirmation_required"
+    clock[0] += timedelta(seconds=170)
+    dropped = _propose_circle(ctx, executor, name="HUSH GARAGE V04")
+    assert dropped.result.reason_code == "name_changed"
+
+    clock[0] += timedelta(seconds=181)
+    unrelated = _propose_circle(ctx, executor, name="Book Club")
+    assert unrelated.result.status == "confirmation_required"
+    assert unrelated.result.summary == "create a circle called Book Club"
+
+
+# -- a correction changes only the words it declares ---------------------------------
+#
+# UAT: with HUSSH GARAGE V04 waiting, "only make it V05" became HUSH GARAGE V05. The
+# model had not declared HUSSH as spelled, so nothing protected it. The last name
+# that passed is the one the person is reviewing; a proposal sharing a word with it
+# corrects it and must declare each word it changes, or it is refused with a
+# question and the waiting card is retired.
+
+
+def _reviewing(name: str, **args: Any) -> tuple[ToolContext, ToolExecutor]:
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx = make_ctx(confirm_family=False)
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    card = _propose_circle(ctx, executor, name=name, **args)
+    assert card.result.status == "confirmation_required"
+    return ctx, executor
+
+
+def test_a_correction_cannot_change_an_undeclared_word_even_one_never_spelled():
+    ctx, executor = _reviewing("HUSSH GARAGE V04")
+
+    refused = _propose_circle(ctx, executor, name="HUSH GARAGE V05", changed_words=V04_TO_V05)
+
+    assert (refused.result.status, refused.result.reason_code) == ("rejected", "name_changed")
+    assert refused.result.needs == "repeat_name"
+    assert refused.result.spoken_facts == [
+        'This would also change "HUSSH" to "HUSH". Is that what you want?'
+    ]
+    assert refused.result.retire_open_proposal is True
+    assert refused.pending is None
+    # Negative controls: the declared change alone passes and HUSSH survives ...
+    kept = _propose_circle(ctx, executor, name="HUSSH GARAGE V05", changed_words=V04_TO_V05)
+    assert kept.result.status == "confirmation_required"
+    assert kept.result.summary == "create a circle called HUSSH GARAGE V05"
+    # ... and HUSSH changes too once that change is declared.
+    asked = _propose_circle(ctx, executor, name="HUSH GARAGE V05", changed_words=HUSSH_TO_HUSH)
+    assert asked.result.status == "confirmation_required"
+
+
+def test_the_refusal_names_every_word_the_correction_did_not_declare():
+    ctx, executor = _reviewing("HUSSH GARAGE V04")
+    both = _propose_circle(ctx, executor, name="HUSSH Garaz V4", changed_words=V04_TO_V05)
+    assert both.result.reason_code == "name_changed"
+    assert both.result.spoken_facts == [
+        'This would change "GARAGE V04" to "Garaz V4". Is that what you want?'
+    ]
+    moved = _propose_circle(ctx, executor, name="GARAGE HUSSH V04")
+    assert moved.result.reason_code == "name_changed"
+    assert moved.result.spoken_facts == [
+        'This would put the words in a different order: "GARAGE HUSSH V04". Is that what you want?'
+    ]
+
+
+@pytest.mark.parametrize(
+    ("waiting", "proposed", "declared", "refused"),
+    [
+        # Case, and a joiner inside a word, are not changes; a leading zero is.
+        ("HUSSH GARAGE V04", "hussh Garage V-04", [], False),
+        ("HUSSH GARAGE V04", "HUSSH GARAGE V4", [], True),
+        # A word added or removed is declared like any other change ...
+        ("HUSSH GARAGE", "HUSSH GARAGE V04", [], True),
+        ("HUSSH GARAGE", "HUSSH GARAGE V04", [{"new": "V04"}], False),
+        ("HUSSH GARAGE V04", "HUSSH V04", [], True),
+        ("HUSSH GARAGE V04", "HUSSH V04", [{"old": "GARAGE"}], False),
+        # ... including one more or one fewer of a repeated word, each declared
+        # once: one declared Go removes one Go (review NG-5).
+        ("Go Go Team", "Go Team", [], True),
+        ("Go Go Team", "Go Team", [{"old": "Go"}], False),
+        ("Go Go Team", "Team", [{"old": "Go"}], True),
+        ("Go Go Team", "Team", [{"old": "Go"}, {"old": "Go"}], False),
+        # A declared word that did not change is not an error.
+        ("HUSSH GARAGE V04", "HUSSH GARAGE V05", [*V04_TO_V05, {"old": "GARAGE"}], False),
+        # A move is declared like any other change (review NG-3): the moved word
+        # leaves one place and arrives in another. Naming a word as its own
+        # change declares nothing.
+        ("HUSSH GARAGE V04", "GARAGE HUSSH V04", [{"old": "HUSSH", "new": "HUSSH"}], True),
+        (
+            "HUSSH GARAGE V04",
+            "GARAGE HUSSH V04",
+            [{"old": "HUSSH GARAGE", "new": "GARAGE HUSSH"}],
+            False,
+        ),
+        ("HUSSH GARAGE V04", "GARAGE HUSSH V04", [{"old": "HUSSH"}, {"new": "HUSSH"}], False),
+        # A name sharing no word with the waiting one is a different circle ...
+        ("HUSSH GARAGE V04", "Book Club", [], False),
+        # ... unless a declared change names one of its words: then every other
+        # word is still held (review NG-2).
+        ("Hush Garage V04", "HUSSH Garaz V4", [{"old": "Hush", "new": "HUSSH"}], True),
+        ("GARAGE V04", "GARAZ V05", V04_TO_V05, True),
+        ("GARAGE V04", "GARAGE V05", V04_TO_V05, False),
+    ],
+)
+def test_a_correction_declares_every_word_it_changes(waiting, proposed, declared, refused):
+    ctx, executor = _reviewing(waiting)
+    outcome = _propose_circle(ctx, executor, name=proposed, changed_words=declared)
+    if refused:
+        assert (outcome.result.status, outcome.result.reason_code) == ("rejected", "name_changed")
+    else:
+        assert outcome.result.status == "confirmation_required"
+
+
+def test_a_newly_spelled_word_declares_the_word_it_replaces():
+    ctx, executor = _reviewing("Hush Garage V04")
+    spelled = _propose_circle(ctx, executor, name="HUSSH Garage V04", spelled_words=["HUSSH"])
+    assert spelled.result.status == "confirmation_required"
+    assert spelled.result.summary.endswith(", with HUSSH spelled H-U-S-S-H")
+    # Negative control: the spelling declares its own word, not the one beside it.
+    ctx, executor = _reviewing("Hush Garage V04")
+    beside = _propose_circle(ctx, executor, name="HUSSH Garaz V04", spelled_words=["HUSSH"])
+    assert beside.result.reason_code == "name_changed"
+
+
+def _kept_words(ctx: ToolContext) -> list[str]:
+    return [entry.word for entry in ctx.entities.spelled_name_words]
+
+
+def test_a_spelled_change_replaces_only_its_own_word():
+    """Review NG-1: a spelled word declared as a change's new word was also
+    counted as a spare replacement, so it covered a second, untouched word."""
+    hussh = [{"old": "Hush", "new": "HUSSH"}]
+    ctx, executor = _reviewing("Hush Garage V04")
+    # "No, H U S S H. Keep the rest." -- and GARAGE goes missing.
+    dropped = _propose_circle(
+        ctx, executor, name="HUSSH V04", spelled_words=["HUSSH"], changed_words=hussh
+    )
+    assert dropped.result.reason_code == "name_changed"
+    assert dropped.result.spoken_facts == [
+        'This would change "Hush Garage" to "HUSSH". Is that what you want?'
+    ]
+    # A kept spelled word is not given up for a change to the word beside it.
+    ctx, executor = _reviewing("HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    kayra = _propose_circle(
+        ctx,
+        executor,
+        name="KAYRA V04",
+        spelled_words=["KAYRA"],
+        changed_words=[{"old": "GARAGE", "new": "KAYRA"}],
+    )
+    assert kayra.result.reason_code == "name_changed"
+    assert "HUSSH" in _kept_words(ctx)
+    # Negative control: the same correction keeping the rest passes.
+    ctx, executor = _reviewing("Hush Garage V04")
+    kept = _propose_circle(
+        ctx, executor, name="HUSSH Garage V04", spelled_words=["HUSSH"], changed_words=hussh
+    )
+    assert kept.result.status == "confirmation_required"
+
+
+@pytest.mark.parametrize(
+    ("waiting", "kept", "proposed", "args"),
+    [
+        # "sorry, just one S, H U S H, the rest stays" -- and Garage goes missing.
+        (
+            "HUSSH Garage V04",
+            ["HUSSH"],
+            "HUSH V04",
+            {"spelled_words": ["HUSH"], "release_spelled_words": ["HUSSH"]},
+        ),
+        # The same respelling drops a second kept spelled word.
+        (
+            "MEERA HUSSH Club",
+            ["MEERA", "HUSSH"],
+            "HUSH Club",
+            {"spelled_words": ["HUSH"], "release_spelled_words": ["HUSSH"]},
+        ),
+        # A removal declared in changed_words pairs with its respelling the same way.
+        (
+            "Hush Garage V04",
+            [],
+            "HUSSH V04",
+            {"spelled_words": ["HUSSH"], "changed_words": [{"old": "Hush"}]},
+        ),
+    ],
+)
+def test_a_respelling_replaces_only_the_word_it_respells(waiting, kept, proposed, args):
+    """Verification of the review fixes: a released (or declared-removed) word
+    and the spelled word that replaced it were counted as two changes, so the
+    spelling also covered an untouched neighbour."""
+    ctx, executor = _reviewing(waiting, spelled_words=kept)
+    outcome = _propose_circle(ctx, executor, name=proposed, **args)
+    assert outcome.result.reason_code == "name_changed"
+    assert all(word in _kept_words(ctx) for word in kept)
+
+
+def test_the_respelling_itself_still_passes():
+    # Negative control for the rows above: the eval's own shape keeps the rest.
+    ctx, executor = _reviewing("HUSSH Garage V04", spelled_words=["HUSSH"])
+    outcome = _propose_circle(
+        ctx,
+        executor,
+        name="HUSH Garage V04",
+        spelled_words=["HUSH"],
+        release_spelled_words=["HUSSH"],
+    )
+    assert outcome.result.status == "confirmation_required"
+    assert _kept_words(ctx) == ["HUSH"]
+
+
+def test_a_declared_change_is_read_against_the_name_it_describes():
+    # "A B" on a card "Team A B" names two of its words, not a spelled "AB".
+    ctx, executor = _reviewing("Team A B")
+    dropped = _propose_circle(ctx, executor, name="Team", changed_words=[{"old": "A B"}])
+    assert dropped.result.status == "confirmation_required"
+    # A word the card had spelled, declared letter by letter, is released as
+    # that word, so the spelling check does not ask for it back.
+    ctx, executor = _reviewing("HUSSH GARAGE", spelled_words=["HUSSH"])
+    respelled = _propose_circle(
+        ctx, executor, name="HUSH GARAGE", changed_words=[{"old": "H U S S H", "new": "HUSH"}]
+    )
+    assert respelled.result.status == "confirmation_required"
+    assert "HUSSH" not in _kept_words(ctx)
+
+
+def test_a_refused_correction_gives_up_no_spelled_word():
+    """Review NG-4: a correction refused for an undeclared change had already
+    released HUSSH, so the next proposal could leave it out unasked."""
+    ctx, executor = _reviewing("HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    refused = _propose_circle(ctx, executor, name="GARAJ V04", spelled_words=["GARAJ"])
+    assert refused.result.reason_code == "name_changed"
+    assert _kept_words(ctx) == ["HUSSH", "GARAJ"]
+
+    nxt = _propose_circle(ctx, executor, name="HUSH GARAJ")
+
+    assert nxt.result.reason_code == "spelled_word_missing"
+
+
+def test_releasing_a_spelled_word_declares_its_removal_only():
+    """Review SEC-2: the tool description offers release_spelled_words as the
+    answer to name_changed, so a released word counts as a declared removal."""
+    ctx, executor = _reviewing("HUSSH Garage", spelled_words=["HUSSH"])
+    dropped = _propose_circle(ctx, executor, name="Garage", release_spelled_words=["HUSSH"])
+    assert dropped.result.status == "confirmation_required"
+    assert dropped.result.summary == "create a circle called Garage"
+    # Negative control: it declares no added word.
+    ctx, executor = _reviewing("HUSSH Garage", spelled_words=["HUSSH"])
+    added = _propose_circle(ctx, executor, name="Garage Club", release_spelled_words=["HUSSH"])
+    assert added.result.reason_code == "name_changed"
+
+
+def test_a_name_the_person_typed_is_theirs_and_becomes_the_one_to_correct():
+    ctx, executor = _reviewing("HUSSH GARAGE V04", spelled_words=["HUSSH"])
+    # Negative control: spoken, the same name changes two words it never declared.
+    spoken = _propose_circle(ctx, executor, name="Hush Garage V05")
+    assert spoken.result.reason_code == "name_changed"
+
+    ctx.typed_name = True
+    typed = _propose_circle(ctx, executor, name="Hush Garage V05")
+    assert typed.result.status == "confirmation_required"
+    assert typed.result.summary == "create a circle called Hush Garage V05"
+    assert ctx.entities.spelled_name_words == []
+
+    ctx.typed_name = False
+    retyped = _propose_circle(ctx, executor, name="Hush Garage V06")
+    assert retyped.result.reason_code == "name_changed"
+    declared = [{"old": "V05", "new": "V06"}]
+    assert (
+        _propose_circle(ctx, executor, name="Hush Garage V06", changed_words=declared).result.status
+        == "confirmation_required"
+    )
+
+
+def test_the_waiting_name_survives_a_reconnect_and_an_older_row_still_restores():
+    from hushh_mcp.one_voice.tools.base import restore_context
+
+    ctx, _ = _reviewing("HUSSH GARAGE V04")
+    stored = ctx.entities.model_dump(mode="json")
+
+    restored = restore_context(EntityContext, stored)
+    assert restored.circle_name_baseline == ctx.entities.circle_name_baseline
+    assert restored.circle_name_baseline.name == "HUSSH GARAGE V04"
+    older = {key: value for key, value in stored.items() if key != "circle_name_baseline"}
+    assert restore_context(EntityContext, older).circle_name_baseline is None
+    damaged = restore_context(
+        EntityContext, {**stored, "circle_name_baseline": {"name": 4, "at": "soon"}}
+    )
+    assert damaged.circle_name_baseline is None
+    assert AYESHA in damaged.people
+
+
+def test_changed_words_bounds_only_the_list_in_the_declaration():
+    """Vertex Live refuses a declaration with length bounds on array items."""
+    changed = spec("create_circle").declaration()["parameters_json_schema"]["properties"][
+        "changed_words"
+    ]
+    assert changed["maxItems"] == 8
+    assert set(changed["items"]["properties"]) == {"old", "new"}
+    assert changed["items"]["additionalProperties"] is False
+    for prop in changed["items"]["properties"].values():
+        assert not {"maxLength", "minLength"} & set(prop)
+    with pytest.raises(ValidationError):
+        circles.CreateCircleInput(name="X", changed_words=[{"old": "A" * 81}])
 
 
 def test_rename_circle_uses_confirmed_name_and_updates_entity():
@@ -1829,3 +2344,281 @@ def test_the_cooldown_the_service_reports_is_not_flattened_into_not_eligible():
     assert result.spoken_facts[-1] == (
         "Dev Kapoor left the Family circle recently, so I couldn't add them back yet."
     )
+
+
+# -- add_all_connections: the server decides who, one card binds exactly them -----------
+
+KABIR = "user-kabir"
+
+
+def _everyone_ctx():
+    """Family holds the owner and Priya. The owner's connections: Ayesha and
+    Kabir can join, Priya is already in, Dev left Family moments ago."""
+    service = FakeCircleService()
+    service.audience = [
+        {"userId": AYESHA, "displayName": "Ayesha Sharma"},
+        {"userId": KABIR, "displayName": "Kabir Singh"},
+        {"userId": PRIYA, "displayName": "Priya Nair"},
+        {"userId": DEV, "displayName": "Dev Kapoor", "status": "left_recently"},
+    ]
+    ctx = make_ctx(service, confirm_ayesha=False)
+    return ctx, service
+
+
+def _propose_everyone(ctx, executor):
+    outcome = asyncio.run(
+        executor.call(ctx, "add_all_connections", {"circle": {"circle_id": FAMILY}})
+    )
+    return outcome
+
+
+def _say_yes(executor, ctx, outcome):
+    asyncio.run(executor.pending.mark_shown(user_id=USER, pending_action_id=outcome.pending.id))
+    return asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": outcome.pending.id})
+    )
+
+
+def _writes(service):
+    return [
+        kwargs["user_ids"] for name, kwargs in service.calls if name == "add_direct_connections"
+    ]
+
+
+def test_add_all_shows_one_card_with_the_exact_counts_and_writes_nothing():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+
+    outcome = _propose_everyone(ctx, executor)
+
+    assert outcome.result.status == "confirmation_required" and outcome.result.tier == "voice"
+    assert outcome.result.summary == (
+        "add 2 of your 4 connections to the Family circle "
+        "(1 is already in it, 1 can't be added right now)"
+    )
+    assert _writes(service) == []
+    # The server, not the model, decided the audience: no lookup per person.
+    assert {name for name, _ in service.calls} == {"plan_direct_connection_adds"}
+    # The exact ids ride the server's private snapshot, never the card or the model.
+    stored = outcome.pending.args["_prepared"]
+    assert stored["user_ids"] == sorted([AYESHA, KABIR])
+    public = outcome.pending.public()
+    assert "_prepared" not in public["args"]
+    assert AYESHA not in str(outcome.result.model_public())
+
+
+def test_add_all_adds_exactly_the_reviewed_group_once():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    outcome = _propose_everyone(ctx, executor)
+
+    done = _say_yes(executor, ctx, outcome)
+    late = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": outcome.pending.id})
+    )
+
+    assert done.result.status == "added"
+    assert (done.result.added_count, done.result.already_member_count) == (2, 0)
+    assert done.result.spoken_facts == [
+        "Added 2 people to the Family circle: Ayesha Sharma and Kabir Singh."
+    ]
+    assert "location_circles" in done.result.ui_refresh
+    assert late.result.status == "not_pending"
+    assert _writes(service) == [sorted([AYESHA, KABIR])]
+
+
+def test_someone_who_connects_after_the_card_is_never_added_on_its_strength():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    outcome = _propose_everyone(ctx, executor)
+    service.audience.append({"userId": "user-new", "displayName": "New Person"})
+
+    done = _say_yes(executor, ctx, outcome)
+
+    assert done.result.status == "added"
+    assert _writes(service) == [sorted([AYESHA, KABIR])]
+    assert done.result.spoken_facts[-1] == (
+        "1 newer connection was not on the card, so I left them out."
+    )
+
+
+@pytest.mark.parametrize("change", ["disconnected", "left_recently"])
+def test_an_approved_person_who_can_no_longer_join_stops_the_whole_add(change):
+    """Negative control for the binding: the card no longer says what would
+    happen, so nothing is written and the person is asked again."""
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    outcome = _propose_everyone(ctx, executor)
+    if change == "disconnected":
+        service.audience = [p for p in service.audience if p["userId"] != KABIR]
+    else:
+        next(p for p in service.audience if p["userId"] == KABIR)["status"] = "left_recently"
+
+    done = _say_yes(executor, ctx, outcome)
+
+    assert done.result.status == "not_added"
+    assert done.result.reason_code == "audience_changed"
+    assert _writes(service) == []
+
+
+def test_without_room_for_everyone_nobody_is_added_and_no_card_is_shown():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    service.member_limit = 3  # two seats taken, one left, two people to add
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store)
+
+    outcome = _propose_everyone(ctx, executor)
+
+    assert outcome.result.status == "not_enough_room"
+    assert outcome.result.spoken_facts == [
+        "The Family circle only has room for 1 more, so I can't add all 2 as you asked. "
+        "Nobody was added."
+    ]
+    assert outcome.pending is None and store.rows == {}
+    assert _writes(service) == []
+
+
+@pytest.mark.parametrize(("is_system", "system_kind"), [(False, "trusted"), (True, "sms")])
+def test_trusted_and_the_sms_circle_are_never_filled_with_everyone(is_system, system_kind):
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    family = service._stored(FAMILY)
+    family["isSystem"], family["systemKind"] = is_system, system_kind
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store)
+
+    outcome = _propose_everyone(ctx, executor)
+
+    assert outcome.result.status == "unsupported"
+    assert outcome.result.reason_code == "managed_circle"
+    assert store.rows == {} and _writes(service) == []
+
+
+def test_nobody_left_to_add_is_an_answer_without_a_card():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    service.audience = [{"userId": PRIYA, "displayName": "Priya Nair"}]
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+
+    outcome = _propose_everyone(ctx, executor)
+
+    assert outcome.result.status == "no_one_to_add"
+    assert outcome.result.spoken_facts == [
+        "Everyone you're connected with is already in the Family circle."
+    ]
+    assert outcome.pending is None
+
+
+def test_only_the_owner_can_fill_a_circle_with_everyone():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    ctx.entities.remember_circle(
+        ConfirmedCircle(circle_id=WORK, name="Work Friends", kind="friends", confirmed_at=now_iso())
+    )
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+
+    outcome = asyncio.run(
+        executor.call(ctx, "add_all_connections", {"circle": {"circle_id": WORK}})
+    )
+
+    assert outcome.result.status == "rejected"
+    assert outcome.result.reason_code == "LOCATION_CIRCLE_OWNER_REQUIRED"
+    assert outcome.pending is None
+
+
+def test_the_model_cannot_name_the_audience():
+    tool = spec("add_all_connections")
+    assert set(tool.declaration()["parameters_json_schema"]["properties"]) == {"circle"}
+    with pytest.raises(ValidationError):
+        tool.input_model.model_validate(
+            {"circle": {"circle_id": FAMILY}, "people": [{"user_id": AYESHA}]}
+        )
+
+
+def test_without_the_reviewed_binding_nothing_is_added():
+    """A missing or altered snapshot is not an approval of anyone."""
+    ctx, service = _everyone_ctx()
+    ctx.prepared = {
+        "circle_id": FAMILY,
+        "user_ids": sorted([AYESHA, KABIR]),
+        "audience": "not-the-digest",
+    }
+
+    result = run("add_all_connections", ctx, circle={"circle_id": FAMILY})
+
+    assert (result.status, result.reason_code) == ("not_added", "review_required")
+    assert _writes(service) == []
+
+
+def test_a_refused_bulk_write_reports_nobody_added():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    outcome = _propose_everyone(ctx, executor)
+    service.errors["add_direct_connections"] = OneLocationCircleError(
+        "LOCATION_CIRCLE_INVITE_COOLDOWN", "Try again in an hour.", status_code=429
+    )
+
+    done = _say_yes(executor, ctx, outcome)
+
+    assert done.result.status == "rejected"
+    assert done.result.reason_code == "LOCATION_CIRCLE_INVITE_COOLDOWN"
+    assert getattr(done.result, "added_count", 0) == 0
+
+
+def test_a_spelling_the_schema_cannot_read_retires_the_card_it_corrected():
+    """UAT 2026-10-06: with the card for HUSH GARAGE V04 open, the model declared
+    "HUSSH GARAGE" as one spelled word. The schema refused the call and the old
+    card stayed confirmable, so a yes would have created the name the person had
+    just corrected. The refusal now retires that card and asks for the word."""
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    service = FakeCircleService()
+    ctx = make_ctx(service, confirm_family=False)
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store)
+    card = _propose_circle(ctx, executor, name="HUSH GARAGE V04")
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=card.pending.id))
+
+    bad = _propose_circle(ctx, executor, name="HUSSH GARAGE V04", spelled_words=["HUSSH GARAGE"])
+
+    assert (bad.result.status, bad.result.reason_code, bad.result.needs) == (
+        "rejected",
+        "invalid_spelling",
+        "repeat_name",
+    )
+    assert bad.result.spoken_facts == [
+        "I couldn't read how that was spelled. Which word did they spell? "
+        "Ask them to spell just that word."
+    ]
+    assert [row.id for row in bad.superseded] == [card.pending.id]
+    late_yes = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.pending.id})
+    )
+    assert late_yes.result.status == "not_pending"
+    assert not [call for call in service.calls if call[0] == "create_circle"]
+    # Negative control: a malformed call that declares no spelling gets the
+    # generic answer. The spelling question is asked only about a spelling ...
+    unspelled = _propose_circle(ctx, executor, name="")
+    assert unspelled.result.reason_code == "invalid_arguments"
+    # ... and only when the spelling is what failed (review NG-6): a readable
+    # spelling beside a bad kind is answered about the kind.
+    other = _propose_circle(
+        ctx, executor, name="HUSSH GARAGE V04", kind="work", spelled_words=["HUSSH"]
+    )
+    assert other.result.reason_code == "invalid_arguments"
+    assert other.result.spoken_facts == ["I'm missing kind for that."]

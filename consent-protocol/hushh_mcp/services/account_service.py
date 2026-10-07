@@ -118,9 +118,6 @@ class AccountService:
             "connection_voice_preferences": text(
                 "DELETE FROM connection_voice_preferences WHERE user_id = :user_id"
             ),
-            "gmail_owner_send_actions": text(
-                "DELETE FROM gmail_owner_send_actions WHERE user_id = :user_id"
-            ),
             "gmail_personal_information_request_preferences": text(
                 "DELETE FROM gmail_personal_information_request_preferences WHERE user_id = :user_id"
             ),
@@ -193,6 +190,11 @@ class AccountService:
             ),
             "pod_lifecycle_events": text(
                 "DELETE FROM pod_lifecycle_events WHERE user_id = :user_id"
+            ),
+            # Sealed arguments of connector calls awaiting review. A reset keeps the
+            # actor_profiles row, so the FK cascade alone would leave them behind.
+            "one_mcp_pending_calls": text(
+                "DELETE FROM one_mcp_pending_calls WHERE user_id = :user_id"
             ),
             "agent_chat_messages": text("DELETE FROM agent_chat_messages WHERE user_id = :user_id"),
             "agent_chat_conversations": text(
@@ -295,6 +297,9 @@ class AccountService:
             "kai_gmail_connections": text(
                 "DELETE FROM kai_gmail_connections WHERE user_id = :user_id"
             ),
+            "gmail_owner_send_actions": text(
+                "DELETE FROM gmail_owner_send_actions WHERE user_id = :user_id"
+            ),
             "kai_gmail_receipts": text("DELETE FROM kai_gmail_receipts WHERE user_id = :user_id"),
             "kai_gmail_sync_runs": text("DELETE FROM kai_gmail_sync_runs WHERE user_id = :user_id"),
             "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
@@ -319,6 +324,45 @@ class AccountService:
             ),
             "marketplace_recipient_keys": text(
                 "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
+            ),
+            "pkm_packets": text("DELETE FROM pkm_packets WHERE owner_user_id = :user_id"),
+            # A paid, undelivered packet is money owed back to the buyer: move it
+            # to refund_pending (the reconcile refunds it, then removes the row)
+            # and delete everything that carries no unsettled payment.
+            "pkm_packet_orders": text(
+                """
+                WITH settle AS (
+                  UPDATE pkm_packet_orders SET status = 'refund_pending', updated_at = NOW()
+                  WHERE (buyer_user_id = :user_id OR owner_user_id = :user_id)
+                    AND status = 'paid' AND owner_earning_status = 'none'
+                  RETURNING id
+                )
+                DELETE FROM pkm_packet_orders
+                WHERE (buyer_user_id = :user_id OR owner_user_id = :user_id)
+                  AND status <> 'refund_pending'
+                  AND NOT (status = 'paid' AND owner_earning_status = 'none')
+                """
+            ),
+            "directory_listing_claims": text(
+                "DELETE FROM directory_listing_claims WHERE user_id = :user_id"
+            ),
+            "pkm_credit_ledger": text("DELETE FROM pkm_credit_ledger WHERE user_id = :user_id"),
+            "pkm_owner_payout_accounts": text(
+                "DELETE FROM pkm_owner_payout_accounts WHERE user_id = :user_id"
+            ),
+            # The Stripe subscription id moves to an identity-free table so the
+            # work drain cancels it at Stripe: a deleted person is never billed.
+            "pkm_credit_subscriptions": text(
+                """
+                WITH moved AS (
+                  DELETE FROM pkm_credit_subscriptions WHERE user_id = :user_id
+                  RETURNING stripe_subscription_id, status
+                )
+                INSERT INTO pkm_credit_subscription_cancellations (stripe_subscription_id)
+                SELECT stripe_subscription_id FROM moved
+                WHERE stripe_subscription_id IS NOT NULL AND status <> 'canceled'
+                ON CONFLICT DO NOTHING
+                """
             ),
             "marketplace_opportunity_signals": text(
                 "DELETE FROM marketplace_opportunity_signals WHERE user_id = :user_id"
@@ -1503,6 +1547,7 @@ class AccountService:
             table_names=[
                 "one_action_directive_ledger",
                 "pod_lifecycle_events",
+                "one_mcp_pending_calls",
                 "agent_chat_messages",
                 "agent_chat_conversations",
                 "messages",
@@ -1513,6 +1558,9 @@ class AccountService:
                 # Retired intake still has historical mail records to erase.
                 "one_kyc_workflows",
                 "kai_gmail_connections",
+                # Sends ride vault_keys' ON DELETE CASCADE on a full deletion, but
+                # a reset keeps vault_keys: a scheduled send must not outlive it.
+                "gmail_owner_send_actions",
                 "kai_receipt_memory_artifacts",
                 "kai_analyze_runs",
                 "kai_run_state",
@@ -1534,6 +1582,12 @@ class AccountService:
                 "marketplace_delivery_envelopes",
                 "marketplace_access_requests",
                 "marketplace_recipient_keys",
+                "pkm_packets",
+                "pkm_packet_orders",
+                "directory_listing_claims",
+                "pkm_credit_ledger",
+                "pkm_credit_subscriptions",
+                "pkm_owner_payout_accounts",
                 "marketplace_opportunity_signals",
                 "trusted_device_challenges",
                 "trusted_device_authorizations",
@@ -1945,6 +1999,12 @@ class AccountService:
             "marketplace_delivery_envelopes": False,
             "marketplace_access_requests": False,
             "marketplace_recipient_keys": False,
+            "pkm_packets": False,
+            "pkm_packet_orders": False,
+            "directory_listing_claims": False,
+            "pkm_credit_ledger": False,
+            "pkm_credit_subscriptions": False,
+            "pkm_owner_payout_accounts": False,
             "marketplace_opportunity_signals": False,
             "one_referral_risk_reviews": False,
             "one_referral_events": False,
@@ -2081,6 +2141,7 @@ class AccountService:
                         "ria_business_contacts",
                         "ria_claim_dossiers",
                         "ria_license_verifications",
+                        "one_mcp_pending_calls",
                         "agent_chat_messages",
                         "agent_chat_conversations",
                         "messages",
@@ -2108,6 +2169,12 @@ class AccountService:
                         "marketplace_delivery_envelopes",
                         "marketplace_access_requests",
                         "marketplace_recipient_keys",
+                        "pkm_packets",
+                        "pkm_packet_orders",
+                        "directory_listing_claims",
+                        "pkm_credit_ledger",
+                        "pkm_credit_subscriptions",
+                        "pkm_owner_payout_accounts",
                         "marketplace_opportunity_signals",
                         "trusted_device_challenges",
                         "trusted_device_authorizations",

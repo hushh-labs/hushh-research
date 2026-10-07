@@ -165,6 +165,9 @@ async def test_needs_reply_does_not_fetch_invites_or_full_messages():
     assert result["coverage"]["unit"] == "threads"
     assert result["coverage"]["returned"] == 1
     assert result["coverage"]["assessed"] == 1
+    # A filtered set, not the front of the mailbox: "your newest conversations"
+    # would misdescribe threads chosen because they may need a reply.
+    assert result["coverage"]["scope"] == "needs_reply"
 
 
 async def test_list_recent_reads_newest_inbox_page_without_a_search_expression():
@@ -195,6 +198,8 @@ async def test_list_recent_reads_newest_inbox_page_without_a_search_expression()
     ]
     # The person asked for exactly the newest two; older mail is not an omission.
     assert result["truncated"] is False
+    # Negative control for the needs-reply scope: an unfiltered read stays "newest".
+    assert result["coverage"]["scope"] == "newest"
     serialized = json.dumps(result)
     assert "UNEXPECTED_BODY_MUST_NOT_LEAVE" not in serialized
     assert "message-1" not in serialized
@@ -327,6 +332,123 @@ async def test_late_result_suppressed_on_any_observation_change(mutation):
 
     with pytest.raises(GmailMetadataError, match="connection_changed"):
         await _reader(gmail, respond).read("search_inbox", {"query": "invoice"})
+
+
+@pytest.mark.parametrize("expected", ["other-account", "synthetic-account"])
+async def test_expected_account_fence_refuses_before_any_gmail_request(expected):
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        if request.url.path.endswith("/messages/m-1"):
+            return _response(_full_message("m-1", [_part("text/plain", "hello")]))
+        return _response({"messages": []})
+
+    reader = GmailMetadataReader(
+        gmail=_Gmail(),
+        user_id="owner",
+        require_access=_allowed,
+        transport=httpx.MockTransport(respond),
+        expect_account=expected,
+    )
+    arguments = {"message_ids": ["m-1"]}
+    if expected == "other-account":
+        # Ids resolved in another mailbox mean nothing here; no request may go out.
+        with pytest.raises(GmailMetadataError, match="source_changed"):
+            await reader.read("read_message_by_id", arguments)
+        assert calls == []
+        return
+    # Negative control: the account the ids came from proceeds to Gmail.
+    result = await reader.read("read_message_by_id", arguments)
+    assert len(calls) == 1
+    assert result["coverage"]["scope"] == "selected"
+
+
+def _reply_payload():
+    return {
+        "id": "m-1",
+        "threadId": "thread-1",
+        "internalDate": "1790000000000",
+        "labelIds": ["INBOX", "UNREAD"],
+        "payload": {
+            "headers": [
+                {"name": "From", "value": "Alice <alice@example.com>"},
+                {"name": "Reply-To", "value": "alice@example.com"},
+                {"name": "Subject", "value": "Project plan"},
+                {"name": "Message-ID", "value": "<plan-1@example.com>"},
+                {"name": "References", "value": "<root@example.com>"},
+            ]
+        },
+    }
+
+
+@pytest.mark.parametrize("expected", ["other-account", "synthetic-account"])
+async def test_reply_source_reads_only_routing_headers_in_the_offering_account(expected):
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return _response(_reply_payload())
+
+    reader = GmailMetadataReader(
+        gmail=_Gmail(),
+        user_id="owner",
+        require_access=_allowed,
+        transport=httpx.MockTransport(respond),
+        expect_account=expected,
+    )
+    if expected == "other-account":
+        # An id offered in one mailbox is never fetched from another.
+        with pytest.raises(GmailMetadataError, match="source_changed"):
+            await reader.reply_source("m-1")
+        assert calls == []
+        return
+    # Negative control: the offering account makes exactly one metadata request,
+    # for that message's routing headers and never its body.
+    assert await reader.reply_source("m-1") == _reply_payload()
+    assert len(calls) == 1
+    request = calls[0]
+    assert (request.method, request.url.host) == ("GET", "gmail.googleapis.com")
+    assert request.url.path == "/gmail/v1/users/me/messages/m-1"
+    assert request.url.params["format"] == "metadata"
+    assert request.url.params.get_list("metadataHeaders") == [
+        "From",
+        "Reply-To",
+        "To",
+        "Subject",
+        "Message-ID",
+        "References",
+    ]
+    assert request.url.params["fields"] == "id,threadId,internalDate,labelIds,payload/headers"
+
+
+@pytest.mark.parametrize(
+    "message_id",
+    ["", "../profile", "m-1/trash", "m 1", "m-1\n", "m" * 201, None, 7],
+    ids=["empty", "path", "subpath", "space", "trailing_newline", "too_long", "none", "number"],
+)
+async def test_reply_source_refuses_an_unusable_id_before_any_request(message_id):
+    reader = _reader(_Gmail(), lambda _: pytest.fail("provider called"))
+    with pytest.raises(GmailMetadataError, match="invalid_argument"):
+        await reader.reply_source(message_id)
+
+
+@pytest.mark.parametrize(
+    "provider,code",
+    [
+        (lambda: _response({"error": "private-provider-content"}, 404), "source_changed"),
+        (lambda: _response({**_reply_payload(), "id": "m-2"}), "invalid_response"),
+        (
+            lambda: _response({k: v for k, v in _reply_payload().items() if k != "threadId"}),
+            "invalid_response",
+        ),
+        (lambda: _response({**_reply_payload(), "threadId": "../thread"}), "invalid_response"),
+    ],
+    ids=["deleted", "another_message", "no_thread", "unusable_thread"],
+)
+async def test_reply_source_never_returns_a_message_other_than_the_one_requested(provider, code):
+    with pytest.raises(GmailMetadataError, match=code):
+        await _reader(_Gmail(), lambda _: provider()).reply_source("m-1")
 
 
 async def test_read_can_be_revalidated_after_interpretation():
@@ -469,6 +591,32 @@ def test_gmail_log_redaction_handles_httpx_urls_and_structured_provider_identifi
     assert redact_log_value(
         {"gmail_message_id": "private", "thread_id": "private", "query": "private"}
     ) == {"gmail_message_id": "[REDACTED]", "thread_id": "[REDACTED]", "query": "[REDACTED]"}
+
+
+def test_gmail_log_redaction_hides_draft_ids_in_httpx_urls():
+    # The drafts service reads users.drafts.get and sends users.drafts.send;
+    # httpx logs both URLs at INFO, and a draft id is a handle to the owner's
+    # unsent mail.
+    draft_url = httpx.URL(
+        "https://gmail.googleapis.com/gmail/v1/users/me/drafts/r-private-draft?format=full"
+    )
+    send_url = httpx.URL("https://gmail.googleapis.com/gmail/v1/users/me/drafts/send")
+    list_url = httpx.URL("https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=10")
+    record = logging.LogRecord(
+        "httpx",
+        logging.INFO,
+        "fixture",
+        1,
+        "HTTP %s %s %s",
+        (draft_url, send_url, list_url),
+        None,
+    )
+    SensitiveLogFilter().filter(record)
+    message = record.getMessage()
+    assert "r-private-draft" not in message
+    assert "/gmail/v1/users/me/drafts/[REDACTED]?format=full" in message
+    # Negative control: the list URL names no draft, so it stays readable.
+    assert "/gmail/v1/users/me/drafts?maxResults=10" in message
 
 
 async def test_provider_over_return_cannot_exceed_requested_limit():
@@ -695,6 +843,7 @@ class _ProposalDb:
 
     def __init__(self):
         self.rows = {}
+        self.executed_receipts = []
 
     def execute_raw(self, sql, params):
         from types import SimpleNamespace
@@ -719,6 +868,9 @@ class _ProposalDb:
             )
         if "SET status = 'failed'" in sql:
             self.rows[params["proposal_id"]]["status"] = "failed"
+        elif "SET status = 'executed'" in sql:
+            self.rows[params["proposal_id"]]["status"] = "executed"
+            self.executed_receipts.append(params["proposal_id"])
         elif "WHERE proposal_id" in sql:
             self.rows.pop(params["proposal_id"], None)
         return SimpleNamespace(data=[])
@@ -781,6 +933,7 @@ async def test_mailbox_change_runs_only_after_review_with_exact_labels(action, l
 
     result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert result == {"status": "executed", "action": action, "count": 2}
+    assert db.executed_receipts == [proposal["proposal_id"]]
     assert len(writes) == 1
     assert writes[0].url.path.endswith("/messages/batchModify")
     assert json.loads(writes[0].content) == {
@@ -839,6 +992,34 @@ async def test_unapproved_or_foreign_proposals_never_reach_gmail():
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert writes == []
     assert db.rows[proposal["proposal_id"]]["status"] == "failed"
+
+
+async def test_mailbox_receipt_outage_preserves_provider_success_and_prevents_replay():
+    class ReceiptOutage(_ProposalDb):
+        def execute_raw(self, sql, params):
+            if "SET status = 'executed'" in sql:
+                raise RuntimeError("receipt unavailable")
+            return super().execute_raw(sql, params)
+
+    db = ReceiptOutage()
+    writes = []
+    service = _mailbox(_ModifyGmail(), db, _mailbox_provider(writes))
+    proposal = await service.propose(
+        user_id="owner",
+        action="archive",
+        query="from:alice",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+    assert (await service.execute(user_id="owner", proposal_id=proposal["proposal_id"]))[
+        "status"
+    ] == "executed"
+    assert len(writes) == 1
+    with pytest.raises(GmailApiError, match="no longer available"):
+        await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert len(writes) == 1
 
 
 async def test_mailbox_change_without_modify_grant_asks_for_it_before_any_read(monkeypatch):

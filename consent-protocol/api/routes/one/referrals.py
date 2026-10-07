@@ -18,6 +18,27 @@ from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
 from api.referral_listener import get_referral_queue, release_referral_queue
+from hushh_mcp.services.one_referral_circle_service import (
+    CircleSelectionError,
+    get_active_circle_selection,
+    select_competition_circle,
+)
+from hushh_mcp.services.one_referral_display_handle_service import (
+    DisplayHandleError,
+    DisplayHandleTaken,
+    get_display_handle,
+    set_display_handle,
+)
+from hushh_mcp.services.one_referral_leaderboard_service import (
+    get_circle_leaderboard,
+    get_engagement_status,
+    get_individual_leaderboard,
+    get_milestone_progress,
+)
+from hushh_mcp.services.one_referral_program_settings_service import (
+    ProgramSettingsUnavailable,
+    get_active_program_settings,
+)
 from hushh_mcp.services.one_referral_service import (
     ReferralProgramDisabled,
     ReferralServiceError,
@@ -98,6 +119,127 @@ async def bind_referral_attribution(
     except Exception:
         logger.exception("[referrals] bind_failed")
         raise HTTPException(status_code=500, detail={"code": "REFERRAL_BIND_FAILED"})
+
+
+class SelectCircleRequest(BaseModel):
+    circle_id: str = Field(..., max_length=64)
+
+
+@router.get("/circle")
+async def referral_circle_selection(firebase_uid: str = Depends(require_firebase_auth)):
+    """This person's current referral-contest team, if any."""
+    selection = get_active_circle_selection(firebase_uid)
+    if selection is None:
+        return {"circle_id": None}
+    return {"circle_id": selection.circle_id, "selected_at": selection.selected_at.isoformat()}
+
+
+@router.post("/circle")
+async def select_referral_circle(
+    payload: SelectCircleRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Choose this person's one active referral-contest team.
+
+    Requires the caller already be an accepted member of that Location
+    Circle -- this endpoint grants no membership and changes no capacity.
+    """
+    try:
+        selection = select_competition_circle(firebase_uid, payload.circle_id)
+    except CircleSelectionError:
+        raise HTTPException(status_code=403, detail={"code": "REFERRAL_CIRCLE_NOT_A_MEMBER"})
+    except Exception:
+        logger.exception("[referrals] circle_selection_failed")
+        raise HTTPException(status_code=500, detail={"code": "REFERRAL_CIRCLE_SELECTION_FAILED"})
+    return {"circle_id": selection.circle_id, "selected_at": selection.selected_at.isoformat()}
+
+
+class SetHandleRequest(BaseModel):
+    handle: str = Field(..., max_length=32)
+
+
+@router.get("/handle")
+async def referral_display_handle(firebase_uid: str = Depends(require_firebase_auth)):
+    """This person's own chosen public leaderboard handle, if any set."""
+    return {"handle": get_display_handle(firebase_uid)}
+
+
+@router.post("/handle")
+async def set_referral_display_handle(
+    payload: SetHandleRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Choose or change this person's own public leaderboard handle.
+
+    Never derived from or compared against the account's real/account name --
+    accepting or rejecting a handle has nothing to do with what Firebase or
+    `actor_identity_cache` knows about this person.
+    """
+    try:
+        handle = set_display_handle(firebase_uid, payload.handle)
+    except DisplayHandleTaken:
+        raise HTTPException(status_code=409, detail={"code": "REFERRAL_HANDLE_TAKEN"})
+    except DisplayHandleError:
+        raise HTTPException(status_code=422, detail={"code": "REFERRAL_HANDLE_INVALID"})
+    except Exception:
+        logger.exception("[referrals] set_handle_failed")
+        raise HTTPException(status_code=500, detail={"code": "REFERRAL_HANDLE_FAILED"})
+    return {"handle": handle}
+
+
+@router.get("/leaderboard")
+async def referral_individual_leaderboard(
+    after_rank: int = 0,
+    limit: int = 20,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """One page of the latest published cumulative-ranking snapshot.
+
+    Points, not raw referral counts, and always from a published snapshot --
+    never a live aggregate the caller could use to probe exact real-time
+    standing. The caller's own row is included even when it falls outside
+    this page.
+    """
+    bounded_limit = max(1, min(limit, 50))
+    return get_individual_leaderboard(
+        limit=bounded_limit, after_rank=max(0, after_rank), viewer_user_id=firebase_uid
+    )
+
+
+@router.get("/circles/leaderboard")
+async def referral_circle_leaderboard(
+    limit: int = 20,
+    _firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Cumulative RAW qualified-referral count per contest team."""
+    return {"teams": get_circle_leaderboard(limit=max(1, min(limit, 50)))}
+
+
+@router.get("/milestones")
+async def referral_milestone_progress(firebase_uid: str = Depends(require_firebase_auth)):
+    """This person's lifetime milestone progress and earned merchandise."""
+    try:
+        settings = get_active_program_settings()
+    except ProgramSettingsUnavailable:
+        raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_SETTINGS_OFF"})
+    return get_milestone_progress(firebase_uid, settings_milestones=settings.milestones)
+
+
+@router.get("/engagement")
+async def referral_engagement_status(firebase_uid: str = Depends(require_firebase_auth)):
+    """This person's streak progress and whether a flash window is active now.
+
+    Display-only -- an award itself is always decided by the scoring worker,
+    never by this read.
+    """
+    try:
+        settings = get_active_program_settings()
+    except ProgramSettingsUnavailable:
+        raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_SETTINGS_OFF"})
+    program_timezone = str(settings.weekly_schedule.get("timezone") or "").strip() or "UTC"
+    return get_engagement_status(
+        firebase_uid, flash_windows=settings.flash_windows, program_timezone=program_timezone
+    )
 
 
 # Long enough that a quiet stream is not mistaken for a dead one by any proxy in

@@ -240,7 +240,21 @@
     "265_circle_chat.sql",
     "266_circle_chat_presentation.sql",
     "267_gmail_receipt_cache_read_only_cutover.sql",
-    "268_direct_message_feed_projection.sql"
+    "268_direct_message_feed_projection.sql",
+    "269_feed_agent_outcomes.sql",
+    "270_one_referral_gamification_settings.sql",
+    "271_one_referral_cumulative_scoring.sql",
+    "272_one_referral_circles_and_milestones.sql",
+    "273_one_referral_display_handles.sql",
+    "274_one_referral_weekly_awards.sql",
+    "275_scheduled_mail_send.sql",
+    "276_pkm_packets.sql",
+    "277_directory_listing_claims.sql",
+    "278_pkm_packet_orders.sql",
+    "279_pkm_credits.sql",
+    "280_pkm_owner_payouts.sql",
+    "281_one_mcp_pending_calls.sql",
+    "282_direct_message_actions.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -393,7 +407,8 @@
       "255_account_legal_acceptances.sql",
       "257_one_chat_onboarding_state.sql",
       "258_one_attention_ledger.sql",
-      "260_consent_outcome_delivery.sql"
+      "260_consent_outcome_delivery.sql",
+      "275_scheduled_mail_send.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -499,6 +514,20 @@
     "265_circle_chat.sql": "rollback/265_circle_chat.rollback.sql",
     "266_circle_chat_presentation.sql": "rollback/266_circle_chat_presentation.rollback.sql",
     "267_gmail_receipt_cache_read_only_cutover.sql": "rollback/267_gmail_receipt_cache_read_only_cutover.rollback.sql",
-    "268_direct_message_feed_projection.sql": "rollback/268_direct_message_feed_projection.rollback.sql"
+    "268_direct_message_feed_projection.sql": "rollback/268_direct_message_feed_projection.rollback.sql",
+    "269_feed_agent_outcomes.sql": "rollback/269_feed_agent_outcomes.rollback.sql",
+    "270_one_referral_gamification_settings.sql": "rollback/270_one_referral_gamification_settings.rollback.sql",
+    "271_one_referral_cumulative_scoring.sql": "rollback/271_one_referral_cumulative_scoring.rollback.sql",
+    "272_one_referral_circles_and_milestones.sql": "rollback/272_one_referral_circles_and_milestones.rollback.sql",
+    "273_one_referral_display_handles.sql": "rollback/273_one_referral_display_handles.rollback.sql",
+    "274_one_referral_weekly_awards.sql": "rollback/274_one_referral_weekly_awards.rollback.sql",
+    "275_scheduled_mail_send.sql": "rollback/275_scheduled_mail_send.rollback.sql",
+    "276_pkm_packets.sql": "rollback/276_pkm_packets.rollback.sql",
+    "277_directory_listing_claims.sql": "rollback/277_directory_listing_claims.rollback.sql",
+    "278_pkm_packet_orders.sql": "rollback/278_pkm_packet_orders.rollback.sql",
+    "279_pkm_credits.sql": "rollback/279_pkm_credits.rollback.sql",
+    "280_pkm_owner_payouts.sql": "rollback/280_pkm_owner_payouts.rollback.sql",
+    "281_one_mcp_pending_calls.sql": "rollback/281_one_mcp_pending_calls.rollback.sql",
+    "282_direct_message_actions.sql": "rollback/282_direct_message_actions.rollback.sql"
   }
 }

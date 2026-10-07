@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { useLayoutEffect, useState } from "react";
 
 import {
   act,
@@ -11,6 +12,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OneVoiceControl } from "@/components/one-voice/one-voice-control";
+import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary, useAgentDockFrame } from "@/components/agent/agent-dock";
+import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import type { ServerFrame } from "@/lib/one-voice/protocol";
@@ -95,6 +98,7 @@ function connect() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("PointerEvent", MouseEvent);
   harness.session = makeSession();
   harness.native = false;
   vi.mocked(navigateToAgentChat).mockClear();
@@ -104,9 +108,53 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("OneVoiceControl", () => {
+  it("retains one Agent Bar and the same draft input across text/voice presentation, then retires the route projection", () => {
+    let measuredFrame: HTMLDivElement | null = null;
+    function FrameProbe() {
+      const frame = useAgentDockFrame();
+      useLayoutEffect(() => { measuredFrame = frame; }, [frame]);
+      return null;
+    }
+    function Composer() {
+      const [draft, setDraft] = useState("");
+      return <AgentBarSurface embedded><textarea aria-label="Message One" value={draft} onChange={event => setDraft(event.target.value)} /></AgentBarSurface>;
+    }
+    function Dock({ chat, voice = false }: { chat: boolean; voice?: boolean }) {
+      return <AgentDockProvider>
+        <AgentDockVoiceBoundary><OneVoiceControl layout="slot" /></AgentDockVoiceBoundary>
+        <FrameProbe />
+        {chat ? <AgentDockPortal enabled visible={!voice}><Composer /></AgentDockPortal> : null}
+      </AgentDockProvider>;
+    }
+    const view = render(<Dock chat={false} />);
+    const bar = screen.getByTestId("one-voice-agent-bar");
+    const frame = view.container.querySelector("[data-agent-bar-shell]");
+    expect(measuredFrame).toBe(frame);
+    fireEvent.click(screen.getByRole("button", { name: "Type instead" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Type to One" }), { target: { value: "Voice-owned synthetic draft" } });
+    view.rerender(<Dock chat />);
+    expect(screen.queryByRole("textbox", { name: "Type to One" })).toBeNull();
+    const input = screen.getByRole("textbox", { name: "Message One" });
+    fireEvent.change(input, { target: { value: "Unsent synthetic draft" } });
+    expect(screen.queryByRole("button", { name: "Talk to One" })).toBeNull();
+    expect(view.container.querySelectorAll(".bottom-chrome-surface")).toHaveLength(1);
+    view.rerender(<Dock chat voice />);
+    expect(measuredFrame).toBe(frame); // The hidden form is never the occlusion frame.
+    expect(screen.getByRole("textbox", { name: "Type to One" })).toHaveValue("Voice-owned synthetic draft");
+    expect(screen.queryByRole("textbox", { name: "Message One" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Talk to One" })).toBeVisible();
+    view.rerender(<Dock chat />);
+    expect(screen.getByRole("textbox", { name: "Message One" })).toBe(input);
+    expect(input).toHaveValue("Unsent synthetic draft");
+    expect(screen.getByTestId("one-voice-agent-bar")).toBe(bar);
+    view.rerender(<Dock chat={false} />);
+    expect(screen.queryByRole("textbox", { name: "Message One", hidden: true })).toBeNull();
+    expect(screen.getByRole("button", { name: "Talk to One" })).toBeVisible();
+    expect(screen.getByTestId("one-voice-agent-bar")).toBe(bar);
+  });
   it("idles as the Talk to One pill with the launcher identity and starts a session on tap", () => {
     render(<OneVoiceControl layout="slot" />);
     const dock = screen.getByTestId("one-voice-agent-bar");
@@ -126,14 +174,33 @@ describe("OneVoiceControl", () => {
     );
     expect(start).toHaveAttribute("data-agent-action", "voice");
     expect(start).toHaveTextContent("Talk to One");
-    fireEvent.click(start);
+    fireEvent.pointerDown(start, { button: 0 });
+    fireEvent.click(start, { detail: 1 });
     expect(harness.session!.start).toHaveBeenCalledWith({
       source: "agent_bar",
     });
+    expect(harness.session!.start).toHaveBeenCalledOnce();
 
     expect(screen.queryByTestId("one-voice-panel")).toBeNull();
     expect(screen.queryByTestId("one-voice-stop")).toBeNull();
     expect(screen.queryByTestId("one-agent-chat-open")).toBeNull();
+  });
+
+  it("does not cancel a new session when the launch release click retargets its surface", () => {
+    vi.mocked(harness.session!.start).mockImplementation(async () => {
+      useVoiceSessionStore.getState().dispatch({ type: "connecting", conversationId: "conv_1" });
+    });
+    render(<OneVoiceControl layout="slot" />);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Talk to One" }), { button: 0 });
+    const dock = screen.getByTestId("one-voice-agent-bar");
+    expect(screen.getByRole("button", { name: /\. Stop voice$/ })).toBeInTheDocument();
+    // The pressed launcher was removed. Browser release/click can target
+    // the surviving common ancestor, rather than that retired button.
+    fireEvent.pointerUp(dock, { button: 0 });
+    fireEvent.click(dock, { detail: 1 });
+    expect(harness.session!.stop).not.toHaveBeenCalled();
+    fireEvent.pointerDown(dock, { button: 0 });
+    expect(harness.session!.stop).toHaveBeenCalledExactlyOnceWith("tap");
   });
 
   it("seats layout=fixed above the nav with the shared bottom variable", () => {
@@ -166,7 +233,8 @@ describe("OneVoiceControl", () => {
     fireEvent.click(screen.getByTestId("one-voice-mute"));
     expect(harness.session!.setMuted).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByTestId("one-voice-agent-bar-start-icon"));
-    expect(harness.session!.interrupt).toHaveBeenCalledTimes(1);
+    expect(harness.session!.stop).toHaveBeenCalledWith("tap");
+    expect(harness.session!.interrupt).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("one-voice-stop"));
     expect(harness.session!.stop).toHaveBeenCalledWith("tap");
     // The shell keeps the bottom chrome visible while a session runs.

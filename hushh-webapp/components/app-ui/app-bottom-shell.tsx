@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { AgentBar } from "@/components/agent/agent-bar";
+import { AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import {
   BOTTOM_CHROME_COLUMN_CLASSNAME,
   BOTTOM_CHROME_INSET_CLASSNAME,
@@ -21,7 +22,7 @@ import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigatio
 
 export type BottomShellModel = {
   navigationHidden: boolean;
-  /** Chat owns the primary text composer, so its idle voice launcher is omitted. */
+  /** Chat owns this same bar as its composer, including active voice controls. */
   agentBarHidden?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
@@ -41,10 +42,8 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
   const nativeBottomInset = useNativeNavigationBottomInset();
   const voiceActive = useAgentVoiceState((state) => state.active);
   const hidden = model.hidden && !command?.active && !voiceActive;
-  // A route may hide the idle launcher without interrupting a command already
-  // in progress. Active capture remains visible and cancellable.
-  const agentBarVisible =
-    !model.agentBarHidden || Boolean(command?.active) || voiceActive;
+  // The owner remains mounted above routes; Chat presents its active control
+  // in the composer slot, not a second overlapping shell launcher.
   const shellRef = useRef<HTMLDivElement | null>(null);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
   // AgentBar reads client-only auth and location-command state. Rendering its
@@ -68,7 +67,12 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     if (!shell) return;
     const root = document.documentElement;
     const publishHeight = () => {
-      const height = `${Math.ceil(shell.getBoundingClientRect().height)}px`;
+      // Chat reserves the composer separately. Publishing its height twice
+      // creates a feedback loop between transcript padding and shell layout.
+      const agentHeight = model.agentBarHidden
+        ? shell.querySelector("[data-bottom-shell-agent-slot]")?.getBoundingClientRect().height ?? 0
+        : 0;
+      const height = `${Math.ceil(shell.getBoundingClientRect().height - agentHeight)}px`;
       const navigationHeight = navigationSlotRef.current
         ? Math.ceil(navigationSlotRef.current.getBoundingClientRect().height)
         : 0;
@@ -101,6 +105,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         ref={shellRef}
         style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
+        data-agent-dock-chat={model.agentBarHidden || undefined}
         data-command-active={command?.active || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={
@@ -123,14 +128,12 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
               : BOTTOM_SCROLL_TRANSFORM,
           }}
         >
-          {agentBarVisible ? (
             <div
               data-bottom-shell-agent-slot
               className="flex w-full justify-center"
             >
-              {agentBarMounted ? <AgentBar layout="slot" /> : null}
+              {agentBarMounted ? <AgentDockVoiceBoundary><AgentBar layout="slot" /></AgentDockVoiceBoundary> : null}
             </div>
-          ) : null}
           <div
             ref={navigationSlotRef}
             data-bottom-shell-navigation-slot

@@ -57,7 +57,7 @@ that file for the full record; this table is the index.
 | --- | --- | --- | --- |
 | `actor_identity_state` | `personal_metadata` | `iam-consent-governance` | 5 tables |
 | `agent_chat_encrypted_memory` | `personal_encrypted` | `backend-agents-operons` | 2 tables |
-| `direct_message_relationship_state` | `personal_metadata` | `iam-consent-governance` | 2 tables |
+| `direct_message_relationship_state` | `personal_metadata` | `iam-consent-governance` | 3 tables |
 | `direct_message_encrypted_content` | `personal_encrypted` | `iam-consent-governance` | 1 table |
 | `consent_authority_audit` | `audit_regulated` | `iam-consent-governance` | 3 tables |
 | `consent_export_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
@@ -217,6 +217,8 @@ unless the delta is exactly the declared UAT overlay).
   `participant_b_user_id`, `created_at`, and `last_message_at`.
 - `direct_message_blocks`: directed `blocker_user_id` /
   `blocked_user_id`, opaque `id`, and `created_at`.
+- `direct_message_reactions`: one participant-scoped emoji per message; a
+  later selection replaces that participant's earlier reaction.
 - Both are relationship metadata. The active canonical `connections` pair and
   either directed block are checked in a locking database trigger before a new
   conversation or message write. Circle membership is not queried.
@@ -229,11 +231,15 @@ unless the delta is exactly the declared UAT overlay).
 - `content_ciphertext` (`text`)
 - `content_iv` (`text`)
 - `content_algorithm` (`text`)
-- `created_at` / `read_at` (`timestamp with time zone`)
+- `created_at` / `read_at` / `edited_at` (`timestamp with time zone`)
+- `reply_to_message_id` (`uuid`, same-conversation parent)
+- participant-only and global deletion timestamps
 
 Message text is AES-256-GCM ciphertext under the server-managed direct-message
 key; the ciphertext field includes the authentication tag. Conversation history
 remains visible but no new message can be written after disconnect or block.
+The sender can edit or tombstone a sent message for both participants; either
+participant can hide a message only from their own history.
 
 ## Core Application Functions Observed
 

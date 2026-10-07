@@ -16,10 +16,30 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from hushh_mcp.services import one_referral_service
 
 ATTRIBUTION_ID = "11111111-1111-1111-1111-111111111111"
 NOW = datetime(2026, 8, 25, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock(monkeypatch: pytest.MonkeyPatch):
+    """Pin `one_referral_service._now()` to the fixture's own `NOW`.
+
+    `bind_attribution` compares `attribution.expires_at` (built here as
+    `NOW + timedelta(days=30)`) against its own real-time `_now()` call. A
+    fixed `expires_at` next to an unfrozen wall clock is a test that passes
+    only until the real calendar catches up to the hardcoded date -- which is
+    exactly what happened: every test in this file started failing with
+    `{"status": "expired"}` once real time passed 2026-09-24. Freezing the
+    service's clock to the same `NOW` the fixtures are built from removes the
+    dependency on when the suite happens to run, rather than just moving the
+    hardcoded expiry further into the future and recreating the same bug on a
+    longer timer. `monkeypatch` reverts this automatically at test teardown.
+    """
+    monkeypatch.setattr(one_referral_service, "_now", lambda: NOW)
 
 
 class _Result:
@@ -139,3 +159,23 @@ def test_a_user_already_referred_by_someone_else_cannot_be_credited_twice():
         result = one_referral_service.bind_attribution(ATTRIBUTION_ID, "user_already_referred")
 
     assert result == {"status": "already_referred"}
+
+
+def test_an_expired_attribution_is_rejected_and_nothing_is_created():
+    """Was previously untested on purpose: the four tests above only ever
+    passed because real time happened to be before this attribution's expiry.
+    This pins the expiry check itself, independent of the frozen clock's
+    particular value."""
+    attribution = _pending_attribution(referrer_user_id="user_referrer")
+    attribution.expires_at = NOW - timedelta(days=1)
+    conn = _harness(
+        attribution=attribution, existing_relationship=False, predates_attribution=False
+    )
+
+    with patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = one_referral_service.bind_attribution(ATTRIBUTION_ID, "user_brand_new")
+
+    assert result == {"status": "expired"}
+    calls = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert not any("UPDATE one_referral_attributions" in sql for sql in calls)
+    assert not any("INSERT INTO one_referral_relationships" in sql for sql in calls)

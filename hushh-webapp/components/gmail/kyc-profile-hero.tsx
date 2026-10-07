@@ -32,7 +32,7 @@ export function KycProfileHero({ onPasteDetails }: { onPasteDetails: () => void 
       {/* Three items on one grid. Side by side, the copy and the action are
           centred as a pair by the two flexible rows, and the preview spans all
           four rows on the right. */}
-      <div className="grid w-full gap-6 overflow-hidden rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] bg-[radial-gradient(circle_at_88%_28%,var(--app-accent-tint),transparent_62%)] p-5 shadow-[var(--app-card-shadow-feature)] @lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] @lg:grid-rows-[1fr_auto_auto_1fr] @lg:gap-x-8 @lg:gap-y-0 @lg:p-8">
+      <div className="grid w-full gap-6 overflow-hidden rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--app-card-shadow-feature)] @lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] @lg:grid-rows-[1fr_auto_auto_1fr] @lg:gap-x-8 @lg:gap-y-0 @lg:p-8">
         <div className="min-w-0 @lg:col-start-1 @lg:row-start-2">
           <h2 id={titleId} className="text-foreground [--foundation-title2-size:clamp(1.75rem,8.2cqw,2.5rem)] [--foundation-title3-size:var(--foundation-title2-size)] [--foundation-title2-line:1.1] [--foundation-title3-line:1.1] [--foundation-title2-weight:800] [--foundation-title3-weight:800]">
             Build your{" "}<br />KYC profile

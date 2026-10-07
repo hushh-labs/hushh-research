@@ -83,7 +83,7 @@ export function measureTranscriptReveal(
     scrollHeight: transcript.scrollHeight,
     clientHeight: transcript.clientHeight,
     viewportTop: transcriptRect.top,
-    visibleBottom: Math.min(transcriptRect.bottom, overlayTop),
+    visibleBottom: Math.max(transcriptRect.top, Math.min(transcriptRect.bottom, overlayTop)),
     elementTop: elementRect.top,
     elementBottom: elementRect.bottom,
   };

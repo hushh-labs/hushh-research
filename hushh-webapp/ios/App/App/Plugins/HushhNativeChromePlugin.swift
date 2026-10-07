@@ -40,6 +40,13 @@ struct HushhNativeChromeState {
         let document: String
         let ownerEpoch: String
         let revision: Int
+        let controlId: String
+        init(document: String, ownerEpoch: String, revision: Int, controlId: String = "top-shell-back") {
+            self.document = document
+            self.ownerEpoch = ownerEpoch
+            self.revision = revision
+            self.controlId = controlId
+        }
     }
     private(set) var identity: Identity?
     private(set) var phase = "retired"
@@ -90,14 +97,16 @@ struct HushhNativeChromeState {
 }
 
 @available(iOS 26.0, *)
-private struct NativeBackButton: View {
+private struct NativeChromeButton: View {
     let label: String
+    let controlId: String
+    let symbol: String
     let theme: HushhNativeControlAppearance
     let action: () -> Void
     let layout: (CGSize) -> Void
     var body: some View {
         Button(action: action) {
-            Image(systemName: "chevron.backward")
+            Image(systemName: symbol)
                 .font(.body.weight(.semibold))
                 // Fill the proposed label size while retaining the 44pt host.
                 // The accessible control and edge hit area still require device proof.
@@ -108,8 +117,37 @@ private struct NativeBackButton: View {
         .tint(Color(uiColor: theme.accent))
         .buttonBorderShape(.circle)
         .accessibilityLabel(label)
-        .accessibilityIdentifier("top-shell-back")
+        .accessibilityIdentifier(controlId)
         .frame(width: 44, height: 44)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: ChromeLayoutSize.self, value: proxy.size)
+        })
+        .onPreferenceChange(ChromeLayoutSize.self, perform: layout)
+    }
+}
+
+/// Apple's segmented Picker, with no second selection store. React owns value.
+/// The 44pt host is a reservation, not proof of each system segment's hit region.
+/// Characterize large-control hit geometry on iPhone before family promotion.
+@available(iOS 26.0, *)
+private struct NativeAgentSurfaceSelector: View {
+    let selected: String
+    let width: CGFloat
+    let theme: HushhNativeControlAppearance
+    let action: (String) -> Void
+    let layout: (CGSize) -> Void
+    var body: some View {
+        Picker("Agent", selection: Binding(get: { selected }, set: action)) {
+            Text("Cloud").tag("one")
+                .accessibilityLabel("One, your cloud agent")
+            Text("Puppy").tag("puppy")
+                .accessibilityLabel("Puppy One, on your machine, with its own conversation")
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.large)
+        .tint(Color(uiColor: theme.accent))
+        .accessibilityIdentifier("chat-agent-surface")
+        .frame(width: width, height: 44)
         .background(GeometryReader { proxy in
             Color.clear.preference(key: ChromeLayoutSize.self, value: proxy.size)
         })
@@ -132,24 +170,35 @@ private final class ChromeHostingController: UIHostingController<AnyView> {
     }
 }
 
+private final class ChromeSlot {
+    var state = HushhNativeChromeState()
+    var hosting: ChromeHostingController?
+    var pendingLayout: CAPPluginCall?
+    var viewport = CGSize.zero
+    var sequence = 0
+    var choiceValue: String?
+}
+
 @objc(HushhNativeChromePlugin)
 final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     let identifier = "HushhNativeChromePlugin"
     let jsName = "HushhNativeChrome"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setCanvasAppearance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepare", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
     ]
-    private var state = HushhNativeChromeState()
-    private var hosting: ChromeHostingController?
-    private var pendingLayout: CAPPluginCall?
-    private var viewport = CGSize.zero
+    private var slots = [String: ChromeSlot]()
+    private var document: String?
+    private var retiredDocuments = Set<String>()
     private var observers = [NSObjectProtocol]()
     private var keyboardVisible = false
-    private var sequence = 0
+    // Reuse the existing monotonic document/retirement fence. A prior page's
+    // delayed appearance must not repaint the current document.
+    private var canvasState = HushhNativeChromeState()
 
     override func load() {
         DispatchQueue.main.async { [weak self] in
@@ -161,8 +210,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     guard let self else { return }
                     if note.name == UIResponder.keyboardWillShowNotification { self.keyboardVisible = true }
                     if note.name == UIResponder.keyboardWillHideNotification { self.keyboardVisible = false }
-                    // This pilot owns no popups. Additional families cannot be
-                    // enabled until their presented-controller retirement is proved.
+                    // Synchronously remove every owned control beneath privacy/IME.
                     self.invalidatePresentation()
                 })
             }
@@ -172,7 +220,47 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "families": self?.backAdmitted == true ? ["back"] : []])
+            var families = [String]()
+            if self?.backAdmitted == true {
+                families.append("back")
+                if self?.chatControlsAdmitted == true { families += ["history", "agent-surface"] }
+            }
+            call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
+                          "families": families, "canvasAppearance": true, "independentControls": true])
+        }
+    }
+
+    /// App-authored canvas only, including pages without admitted navigation.
+    /// Never restyle the window, alter WebView opacity or uncover privacy/maps.
+    @objc func setCanvasAppearance(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let document = call.getString("documentId"),
+                  !document.isEmpty, document.count <= 128,
+                  let revision = call.getInt("revision"), revision >= 0,
+                  revision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
+                  let color = HushhNativeControlAppearance.color(call.getString("backgroundHex")),
+                  color.cgColor.alpha == 1, let host = self.bridge?.viewController?.view,
+                  let webView = self.bridge?.webView else {
+                call.reject("NATIVE_CANVAS_INVALID_STATE"); return
+            }
+            let shield = HushhSessionPrivacyShield.shared
+            shield.observeDocument(document)
+            guard shield.acceptsDocument(document), !self.retiredDocuments.contains(document),
+                  self.canvasState.prepare(.init(document: document, ownerEpoch: "app-canvas", revision: revision)) else {
+                call.reject("NATIVE_CANVAS_STALE_STATE"); return
+            }
+            self.acceptDocument(document)
+            // Capacitor's bridge root can be the WebView itself. In that case
+            // respect the same transparency guard as its backing canvas.
+            if host !== webView { host.backgroundColor = color }
+            // Google Maps may own a transparent WebView. Preserve that mode;
+            // the opaque page's backing and overscroll canvas follow CSS.
+            if webView.isOpaque {
+                webView.backgroundColor = color
+                webView.scrollView.backgroundColor = color
+                webView.underPageBackgroundColor = color
+            }
+            call.resolve(["documentId": document, "revision": revision])
         }
     }
 
@@ -181,32 +269,48 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self else { return }
             guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
                   let parent = self.bridge?.viewController, let identity = self.identity(call),
-                  call.getString("kind") == "back", call.getBool("enabled") == true,
+                  let kind = call.getString("kind"), self.admits(kind, controlId: identity.controlId),
+                  call.getBool("enabled") == true,
                   let label = call.getString("label"), !label.isEmpty, label.count <= 80,
                   let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"),
                     accentHex: call.getString("accentHex"), foregroundHex: call.getString("foregroundHex")),
-                  let frame = self.frame(call), let bounds = self.viewport(call),
-                  self.backAdmitted, self.canPresent, self.state.prepare(identity) else {
+                  let frame = self.frame(call, kind: kind), let bounds = self.viewport(call),
+                  self.canPresent,
+                  kind != "agent-surface" || ["one", "puppy"].contains(call.getString("value") ?? "") else {
                 call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return
             }
             let shield = HushhSessionPrivacyShield.shared
             shield.observeDocument(identity.document)
             guard shield.acceptsDocument(identity.document),
+                  !self.retiredDocuments.contains(identity.document),
                   abs(parent.view.bounds.width - bounds.width) < 1,
                   abs(parent.view.bounds.height - bounds.height) < 1 else {
-                self.state.invalidate(); call.reject("NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE"); return
+                call.reject("NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE"); return
             }
-            self.removeHosting()
-            self.viewport = parent.view.bounds.size
+            self.acceptDocument(identity.document)
+            guard !self.slots.contains(where: { id, slot in
+                id != identity.controlId && slot.hosting?.view.frame.intersects(frame) == true
+            }) else { call.reject("NATIVE_CHROME_OVERLAPPING_CONTROLS"); return }
+            let slot = self.slot(identity.controlId)
+            guard slot.state.prepare(identity) else { call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return }
+            self.removeHosting(slot)
+            slot.viewport = parent.view.bounds.size
             var swiftUILayout = false
-            let controller = ChromeHostingController(rootView: AnyView(NativeBackButton(
-                label: label, theme: theme, action: { [weak self] in self?.requestChoice() },
-                layout: { [weak self] size in
-                    swiftUILayout = size == frame.size
-                    self?.hosting?.view.setNeedsLayout()
-                }
-            )))
-            self.hosting = controller
+            let layout: (CGSize) -> Void = { [weak slot] size in
+                swiftUILayout = size == frame.size
+                slot?.hosting?.view.setNeedsLayout()
+            }
+            let root: AnyView
+            if kind == "agent-surface" {
+                root = AnyView(NativeAgentSurfaceSelector(selected: call.getString("value") ?? "one", width: frame.width,
+                    theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout))
+            } else {
+                root = AnyView(NativeChromeButton(label: label, controlId: identity.controlId,
+                    symbol: kind == "back" ? "chevron.backward" : "line.3.horizontal", theme: theme,
+                    action: { [weak self] in self?.requestChoice(identity.controlId) }, layout: layout))
+            }
+            let controller = ChromeHostingController(rootView: root)
+            slot.hosting = controller
             controller.overrideUserInterfaceStyle = theme.style
             controller.view.backgroundColor = .clear
             controller.view.isHidden = true
@@ -221,12 +325,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             } else { parent.view.addSubview(controller.view) }
             controller.view.frame = frame
             controller.didMove(toParent: parent)
-            self.pendingLayout = call
-            controller.didLayout = { [weak self, weak controller] in
-                guard let self, let controller, self.hosting === controller,
-                      self.state.identity == identity, let pending = self.pendingLayout else { return }
+            slot.pendingLayout = call
+            controller.didLayout = { [weak self, weak slot, weak controller] in
+                guard let self, let slot, let controller, slot.hosting === controller,
+                      slot.state.identity == identity, let pending = slot.pendingLayout else { return }
                 guard swiftUILayout, controller.view.bounds.size == frame.size, controller.view.superview != nil else { return }
-                self.pendingLayout = nil
+                slot.pendingLayout = nil
                 controller.didLayout = nil
                 pending.resolve(self.payload(identity, phase: "prepared", frame: controller.view.frame))
             }
@@ -238,10 +342,11 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func activate(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard let identity = self.identity(call), self.canPresent, self.geometryIsCurrent,
-                  self.pendingLayout == nil, let hosting = self.hosting,
+            guard let identity = self.identity(call), let slot = self.slots[identity.controlId],
+                  self.canPresent, self.geometryIsCurrent(slot), self.document == identity.document,
+                  slot.pendingLayout == nil, let hosting = slot.hosting,
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
-                  self.state.activate(identity) else { call.reject("NATIVE_CHROME_ACTIVATE_REFUSED"); return }
+                  slot.state.activate(identity) else { call.reject("NATIVE_CHROME_ACTIVATE_REFUSED"); return }
             hosting.view.isHidden = false
             hosting.view.isUserInteractionEnabled = true
             hosting.view.accessibilityElementsHidden = false
@@ -252,10 +357,16 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func retire(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard let identity = self.identity(call), self.state.retire(identity, targetRevision: call.getInt("targetRevision")) else {
+            guard let identity = self.identity(call), !self.retiredDocuments.contains(identity.document),
+                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) else {
                 call.reject("NATIVE_CHROME_RETIRE_STALE"); return
             }
-            self.removeHosting()
+            self.acceptDocument(identity.document)
+            let slot = self.slot(identity.controlId)
+            guard slot.state.retire(identity, targetRevision: call.getInt("targetRevision")) else {
+                call.reject("NATIVE_CHROME_RETIRE_STALE"); return
+            }
+            self.removeHosting(slot)
             // Acknowledged only after touch, accessibility and child containment
             // have actually been removed. No owned popup exists in this family.
             call.resolve(self.payload(identity, phase: "retired"))
@@ -266,19 +377,24 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
-            let valid = self.identity(call).map {
-                self.state.confirm($0, sequence: call.getInt("sequence") ?? -1, latestSequence: self.sequence,
-                    allowed: self.canPresent && self.geometryIsCurrent && call.getInt("privacyGeneration") == privacy.generation)
-            } ?? false
+            var valid = false
+            if let identity = self.identity(call), let slot = self.slots[identity.controlId] {
+                valid = slot.state.confirm(identity, sequence: call.getInt("sequence") ?? -1, latestSequence: slot.sequence,
+                    allowed: self.canPresent && self.geometryIsCurrent(slot) && self.document == identity.document &&
+                    HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) &&
+                    call.getString("value") == slot.choiceValue && call.getInt("privacyGeneration") == privacy.generation)
+            }
             call.resolve(["valid": valid])
         }
     }
 
     func layoutControls() {
-        guard hosting != nil, !geometryIsCurrent else { return }
+        guard slots.values.contains(where: { $0.hosting != nil && !geometryIsCurrent($0) }) else { return }
         invalidatePresentation()
     }
-    private var geometryIsCurrent: Bool { bridge?.viewController?.view.bounds.size == viewport }
+    // Preserve the owning host's existing entrypoint while covering every slot.
+    func layoutBackControl() { layoutControls() }
+    private func geometryIsCurrent(_ slot: ChromeSlot) -> Bool { bridge?.viewController?.view.bounds.size == slot.viewport }
     private var backAdmitted: Bool {
         // Debug pilot only; release and iPad retain accepted controls until
         // their physical visual/accessibility acceptance has been recorded.
@@ -291,36 +407,76 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         return privacy.appIsActive && !privacy.shielded && !keyboardVisible
     }
-    private func requestChoice() {
-        guard canPresent, geometryIsCurrent, state.phase == "active", let identity = state.identity else { return }
-        sequence += 1
+    private var chatControlsAdmitted: Bool {
+        // Explicit Debug rehearsal opt-in; this is not promotion of an audited family.
+        #if DEBUG
+        return backAdmitted && ProcessInfo.processInfo.arguments.contains("--hushh-native-chat-chrome")
+        #else
+        return false
+        #endif
+    }
+    private func admits(_ kind: String, controlId: String) -> Bool {
+        if kind == "back" { return backAdmitted && controlId == "top-shell-back" }
+        return chatControlsAdmitted && ((kind == "history" && controlId == "chat-history-toggle") ||
+            (kind == "agent-surface" && controlId == "chat-agent-surface"))
+    }
+    private func slot(_ id: String) -> ChromeSlot {
+        if let slot = slots[id] { return slot }
+        let slot = ChromeSlot()
+        slots[id] = slot
+        return slot
+    }
+    private func acceptDocument(_ next: String) {
+        guard document != next else { return }
+        if let document {
+            retiredDocuments.insert(document)
+            invalidatePresentation()
+            slots.removeAll()
+        }
+        document = next
+    }
+    private func requestChoice(_ controlId: String, value: String? = nil) {
+        guard let slot = slots[controlId], canPresent, geometryIsCurrent(slot), slot.state.phase == "active",
+              let identity = slot.state.identity, document == identity.document,
+              HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) else { return }
+        guard controlId == "chat-agent-surface" ? ["one", "puppy"].contains(value ?? "") : value == nil else { return }
+        slot.sequence += 1
+        slot.choiceValue = value
         var event = payload(identity, phase: "active")
         event.removeValue(forKey: "phase")
-        event["sequence"] = sequence
+        event["sequence"] = slot.sequence
+        if let value { event["value"] = value }
         event["privacyGeneration"] = HushhSessionPrivacyShield.shared.snapshot().generation
         notifyListeners("choiceRequested", data: event)
     }
     private func invalidatePresentation() {
-        state.invalidate()
-        removeHosting()
+        for slot in slots.values {
+            slot.state.invalidate()
+            removeHosting(slot)
+        }
         notifyListeners("invalidated", data: [:])
     }
-    private func removeHosting() {
-        pendingLayout?.reject("NATIVE_CHROME_LAYOUT_RETIRED")
-        pendingLayout = nil
-        guard let hosting else { return }
+    private func removeHosting(_ slot: ChromeSlot) {
+        slot.pendingLayout?.reject("NATIVE_CHROME_LAYOUT_RETIRED")
+        slot.pendingLayout = nil
+        slot.choiceValue = nil
+        guard let hosting = slot.hosting else { return }
         hosting.didLayout = nil
         hosting.view.isUserInteractionEnabled = false
         hosting.view.accessibilityElementsHidden = true
         hosting.willMove(toParent: nil)
         hosting.view.removeFromSuperview()
         hosting.removeFromParent()
-        self.hosting = nil
+        slot.hosting = nil
     }
     private func identity(_ call: CAPPluginCall) -> HushhNativeChromeState.Identity? {
-        guard call.getString("controlId") == "top-shell-back", let document = call.getString("documentId"),
-              let owner = call.getString("ownerEpoch"), let revision = call.getInt("revision") else { return nil }
-        return .init(document: document, ownerEpoch: owner, revision: revision)
+        guard let controlId = call.getString("controlId"),
+              ["top-shell-back", "chat-history-toggle", "chat-agent-surface"].contains(controlId),
+              let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
+              let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
+              let revision = call.getInt("revision"), revision >= 0,
+              revision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return nil }
+        return .init(document: document, ownerEpoch: owner, revision: revision, controlId: controlId)
     }
     private func viewport(_ call: CAPPluginCall) -> CGSize? {
         guard let value = call.getObject("viewport"), let width = value["width"] as? Double,
@@ -328,17 +484,18 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
               width > 0, height > 0 else { return nil }
         return CGSize(width: width, height: height)
     }
-    private func frame(_ call: CAPPluginCall) -> CGRect? {
+    private func frame(_ call: CAPPluginCall, kind: String) -> CGRect? {
         guard let value = call.getObject("frame"), let x = value["x"] as? Double, let y = value["y"] as? Double,
               let width = value["width"] as? Double, let height = value["height"] as? Double,
               let viewport = viewport(call), [x, y, width, height].allSatisfy({ $0.isFinite }),
-              width == 44, height == 44, x >= 0, y >= 0,
+              (kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44),
+              height == 44, x >= 0, y >= 0,
               x + width <= viewport.width, y + height <= viewport.height else { return nil }
         return CGRect(x: x, y: y, width: width, height: height)
     }
     private func payload(_ identity: HushhNativeChromeState.Identity, phase: String, frame: CGRect? = nil) -> [String: Any] {
         var result: [String: Any] = ["documentId": identity.document, "ownerEpoch": identity.ownerEpoch,
-            "controlId": "top-shell-back", "revision": identity.revision, "phase": phase]
+            "controlId": identity.controlId, "revision": identity.revision, "phase": phase]
         if let frame { result["frame"] = ["x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height] }
         return result
     }

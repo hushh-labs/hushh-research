@@ -317,6 +317,10 @@ function pendingListResponse(entry: Record<string, unknown>) {
 
 /** Kushal's dinner request, as the pending list sends it today. */
 function foodRequestEntry() {
+  const now = Date.now();
+  const decisionDeadline = new Date(now);
+  decisionDeadline.setDate(decisionDeadline.getDate() + 7);
+
   return {
     id: "req_food",
     request_id: "req_food",
@@ -332,8 +336,10 @@ function foodRequestEntry() {
     counterpart_email: "kushal@example.com",
     reason: "Picking a place for our dinner together",
     // Numeric epoch string, exactly as the pending list serialises it.
-    issued_at: String(Date.now() - 60_000),
-    approval_timeout_at: new Date(new Date().getFullYear() + 1, 9, 5, 13, 51).getTime(), // never "Today"
+    issued_at: String(now - 60_000),
+    // Keep the deadline outside the current day: `formatDecideBy` deliberately
+    // says "Today" for a same-day deadline.
+    approval_timeout_at: decisionDeadline.getTime(),
     metadata: { expiry_hours: 168 },
   };
 }
@@ -1862,7 +1868,12 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
 
-  it("names a request plainly: when it was asked, when to decide, what and how long", async () => {
+  it("names a request plainly: when it was asked, when to decide, what and how long", async ({ onTestFinished }) => {
+    // Keep the deadline distinct from today in every runner timezone/calendar date.
+    // Only Date is mocked; async rendering and event timers remain real.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 1, 12));
+    onTestFinished(() => vi.useRealTimers());
     mocks.search = "tab=requests&requestId=req_food";
     mocks.sharePreviewState = {
       status: "ready",
@@ -1886,7 +1897,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     // The wire sends issued_at as a numeric string; it used to read
     // "Unavailable".
     expect(valueFor("Requested")).toMatch(/^Today, /);
-    expect(valueFor("Decide by")).toMatch(/^Oct 5/);
+    expect(valueFor("Decide by")).toMatch(/^[A-Z][a-z]{2} \d{1,2}(, \d{4})?$/);
     // The request carries the same name its access will.
     expect(valueFor("Access")).toBe("Food preferences");
     // One duration wording: the requester's card says "7 days", so the

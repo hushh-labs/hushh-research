@@ -30,7 +30,9 @@ import {
   buildKaiMarketRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { buildProfileConnectorsPaneHref, buildProfilePaneHref } from "@/lib/navigation/profile-pane";
 import { circleChatHref } from "@/lib/circle-chat/routes";
+import { CONNECT_CIRCLES_LIST_HREF } from "@/lib/navigation/connect-routes";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
 
@@ -303,6 +305,43 @@ function consentRowLabels(metadata: Record<string, unknown>): string[] {
  * One line per event_type. Wording lives here, not in the backend row, so
  * copy iterates via a frontend deploy rather than a migration.
  */
+const AGENT_OUTCOME_COPY: Record<string, readonly [string, string, string]> = {
+  calendar_action_failed: ["Calendar change needs review", "Open Calendar to check the event before trying again.", ROUTES.CALENDAR],
+  mail_mailbox_archive: ["Messages archived", "Your approved mailbox change finished.", ROUTES.GMAIL],
+  mail_mailbox_trash: ["Messages moved to trash", "Your approved mailbox change finished.", ROUTES.GMAIL],
+  mail_mailbox_add_label: ["Label added", "Your approved mailbox change finished.", ROUTES.GMAIL],
+  mail_mailbox_remove_label: ["Label removed", "Your approved mailbox change finished.", ROUTES.GMAIL],
+  mail_mailbox_mark_read: ["Messages marked as read", "Your approved mailbox change finished.", ROUTES.GMAIL],
+  mail_mailbox_mark_unread: ["Messages marked as unread", "Your approved mailbox change finished.", ROUTES.GMAIL],
+  mail_mailbox_failed: ["Mailbox change needs review", "Check Mail before trying again; some changes may have finished.", ROUTES.GMAIL],
+  connected_systems_mutation_succeeded: ["App change completed", "Your approved change finished.", ROUTES.CONNECTED_SYSTEMS],
+  connected_systems_mutation_partial: ["App change needs review", "The full outcome of your approved change could not be confirmed. Check the app before trying again.", ROUTES.CONNECTED_SYSTEMS],
+  connected_systems_disconnected: ["App disconnected", "One no longer has access to this app.", ROUTES.CONNECTED_SYSTEMS],
+  drive_search_completed: ["Drive search finished", "Return to your chat to review the search.", ROUTES.HOME],
+  drive_search_limited: ["Drive search reached a limit", "Return to your chat to review the search limit.", ROUTES.HOME],
+  drive_search_failed: ["Drive search needs another try", "Return to your chat to review or retry the search.", ROUTES.HOME],
+  drive_search_stopped: ["Drive search stopped", "The search ended before completion.", ROUTES.HOME],
+  drive_share_succeeded: ["Drive sharing completed", "Your approved file share finished.", ROUTES.HOME],
+  drive_share_failed: ["Drive sharing needs review", "Check Drive sharing before trying again.", ROUTES.HOME],
+  drive_share_unconfirmed: ["Drive sharing unconfirmed", "Check Drive before trying again; sharing may have succeeded.", ROUTES.HOME],
+  drive_trash_succeeded: ["Drive file moved to trash", "Your approved file change finished.", ROUTES.HOME],
+  drive_trash_failed: ["Drive file change needs review", "Check Drive before trying again.", ROUTES.HOME],
+  drive_trash_unconfirmed: ["Drive file change unconfirmed", "Check Drive before trying again; the change may have succeeded.", ROUTES.HOME],
+  drive_bulk_received: ["Drive files shared with you", "Open Profile to review files shared with you.", buildProfilePaneHref(ROUTES.ONE_HOME, null, { panel: "my-data", detail: null })],
+  drive_bulk_completed: ["Drive sharing finished", "Your approved sharing finished for all selected recipients.", ROUTES.HOME],
+  drive_bulk_partial: ["Drive sharing partly finished", "Some sharing outcomes could not be confirmed. Return to your chat to review the outcome before trying again.", ROUTES.HOME],
+  drive_bulk_failed: ["Drive sharing needs review", "Sharing could not be confirmed. Return to your chat to review the outcome before trying again.", ROUTES.HOME],
+  drive_bulk_stopped: ["Drive sharing stopped", "In-flight changes have settled. Review which files were shared.", ROUTES.HOME],
+  kai_analysis_failed: ["Analysis could not finish", "Open Kai to start another analysis.", buildKaiMarketRoute("analysis")],
+  kai_analysis_canceled: ["Analysis canceled", "The analysis ended before completion.", buildKaiMarketRoute("analysis")],
+  kai_import_completed: ["Statement parsing finished", "Open Kai to check your current import.", ROUTES.KAI_IMPORT],
+  kai_import_failed: ["Statement import could not finish", "Open Kai to import the statement again.", ROUTES.KAI_IMPORT],
+  kai_import_canceled: ["Statement import canceled", "The import ended before completion.", ROUTES.KAI_IMPORT],
+  consent_denied: ["Requested information declined", "You declined requested information.", buildConsentCenterHref("previous")],
+  consent_cancelled: ["Requested access withdrawn", "Requested access to information was withdrawn.", buildConsentCenterHref("previous")],
+  consent_timed_out: ["Requested access expired", "An unanswered part of this request expired.", buildConsentCenterHref("previous")],
+};
+
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
@@ -323,6 +362,16 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const iAskedForThis =
     metadataString(item.metadata, "feed_audience") === "requester";
 
+  const outcome = Object.prototype.hasOwnProperty.call(AGENT_OUTCOME_COPY, item.event_type)
+    ? AGENT_OUTCOME_COPY[item.event_type] : undefined;
+  if (outcome) {
+    const family = item.event_type.startsWith("calendar_") ? { icon: CalendarDays, domainLabel: "Calendar" }
+      : item.event_type.startsWith("mail_") ? { icon: Mail, domainLabel: "Mail" }
+        : item.event_type.startsWith("drive_") ? { icon: FileText, domainLabel: "Google Drive" }
+          : { icon, domainLabel };
+    return { ...family, label: outcome[0], description: outcome[1], href: outcome[2] };
+  }
+
   switch (item.event_type) {
     case "profile_discovery_queued":
       return { icon, domainLabel: "Public profile", label: "Building your profile", description: "A one-time public information search has started in the background.", href: ROUTES.ONE_PROFILE_DISCOVERY };
@@ -338,6 +387,51 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return { icon, domainLabel: "Public profile", label: "Your profile review is complete", description: "The one-time profile handoff is finished.", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_cancelled":
       return { icon, domainLabel: "Public profile", label: "Your profile search was cancelled", description: "No further public profile discovery will run for this handoff.", href: null };
+    case "connector_connected":
+    case "connector_reconnect_required":
+    case "connector_disconnected":
+      return {
+        icon, domainLabel,
+        label: item.actor_label || "Connected app",
+        description: item.event_type === "connector_connected" ? "Connected to One."
+          : item.event_type === "connector_reconnect_required" ? "Reconnect this app to keep using it in One."
+            : "Disconnected. One no longer has access.",
+        href: buildProfileConnectorsPaneHref(),
+      };
+    case "circle_invite_declined":
+    case "circle_invite_cancelled":
+    case "circle_member_left":
+    case "circle_membership_ended":
+    case "circle_deleted":
+      return {
+        icon, domainLabel,
+        label: metadataString(item.metadata, "circle_name") || "Circle",
+        description: item.event_type === "circle_invite_declined" ? (who === "Someone" ? "Your circle invitation was declined." : `${who} declined your circle invitation.`)
+          : item.event_type === "circle_invite_cancelled" ? "Your circle invitation was withdrawn."
+            : item.event_type === "circle_member_left" ? (who === "Someone" ? "A member left your circle." : `${who} left your circle.`)
+              : item.event_type === "circle_membership_ended" ? "Your membership in this circle ended."
+                : "This circle was deleted.",
+        href: CONNECT_CIRCLES_LIST_HREF,
+      };
+    case "drive_question_withdrawn":
+    case "drive_question_retry_required":
+      return {
+        icon: FileText, domainLabel: "Google Drive", label: "Drive question",
+        description: item.event_type === "drive_question_withdrawn" ? "The requester withdrew this question."
+          : "The question could not finish. Review it before allowing another try.",
+        href: buildConsentCenterHref(item.event_type === "drive_question_withdrawn" ? "previous" : "pending", {
+          requestId: documentShareNotificationSelection({type: "document_share_question",
+            request_id: metadataString(item.metadata, "request_id")}) || undefined,
+        }),
+      };
+    case "connection_withdrawn":
+      return {
+        icon: UserRound, domainLabel, label: who === "Someone" ? "Connection" : who,
+        person: counterpartPerson(item.metadata, who),
+        description: metadataBool(item.metadata, "actor_is_self") ? "You withdrew the connection request"
+          : "Withdrew the connection request",
+        href: ROUTES.CONNECT,
+      };
     // Consent rows are person-first like every other request in the Feed, and
     // name what was asked for in the same words as the "Needs you" row and the
     // decision sheet. They used to read "Someone requested Preferences.":
@@ -1015,6 +1109,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     }
     case "connected_systems_approved":
+      return {
+        icon, domainLabel, label: "App request approved",
+        description: "Your app request was approved.", href: ROUTES.CONNECTED_SYSTEMS,
+      };
     case "connected_systems_connected":
       return {
         icon,
@@ -1035,8 +1133,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon,
         domainLabel,
-        label: "Couldn't get your data",
-        description: "Something went wrong bringing it in.",
+        label: "App action needs review",
+        description: "Open Connected apps to review what happened.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     case "calendar_connected":

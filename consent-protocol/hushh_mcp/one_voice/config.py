@@ -22,6 +22,10 @@ ONE_VOICE_IDLE_CLOSE_SECONDS_ENV = "ONE_VOICE_IDLE_CLOSE_SECONDS"
 ONE_VOICE_DAILY_MINUTES_PER_USER_ENV = "ONE_VOICE_DAILY_MINUTES_PER_USER"
 ONE_VOICE_MAIL_READS_ENABLED_ENV = "ONE_VOICE_MAIL_READS_ENABLED"
 ONE_VOICE_MAIL_NARRATION_ENABLED_ENV = "ONE_VOICE_MAIL_NARRATION_ENABLED"
+ONE_VOICE_MAIL_REPLY_ENABLED_ENV = "ONE_VOICE_MAIL_REPLY_ENABLED"
+ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_ENV = "ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED"
+ONE_VOICE_MAIL_DRAFTS_ENABLED_ENV = "ONE_VOICE_MAIL_DRAFTS_ENABLED"
+MAIL_SCHEDULED_DRAIN_ENABLED_ENV = "MAIL_SCHEDULED_DRAIN_ENABLED"
 
 PROTOCOL_VERSION: Final = "one-voice-v1"
 
@@ -151,6 +155,51 @@ def voice_mail_narration_enabled() -> bool:
     return _clean(ONE_VOICE_MAIL_NARRATION_ENABLED_ENV).lower() in _TRUE_VALUES
 
 
+def voice_mail_reply_enabled() -> bool:
+    """Whether One may prepare a reply inside an email's own Gmail thread.
+
+    Unset means OFF, for the reason narration's switch does: a reply is new
+    capability, and it is the first voice path whose recipient is derived from a
+    message someone else wrote rather than from a confirmed connection. It is
+    also the kill switch for that path end to end -- the HTTP send of a reply
+    card already on screen re-checks it -- while ``read_mail``, ``open_mail``,
+    ``send_mail`` and the personal-information-request replies stay untouched.
+
+    Set ``ONE_VOICE_MAIL_REPLY_ENABLED=true`` to enable it.
+    """
+    return _clean(ONE_VOICE_MAIL_REPLY_ENABLED_ENV).lower() in _TRUE_VALUES
+
+
+def voice_mail_schedule_send_enabled() -> bool:
+    """Whether One may schedule an email to be sent later by the server.
+
+    Unset means OFF: a scheduled send is new capability, and it is the first
+    voice path whose delivery happens with no device present. It is also the kill
+    switch for scheduling. Listing and cancelling stay open while either this or
+    the drain switch is on, so a send that could still fire can always be stopped.
+    """
+    return _clean(ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_ENV).lower() in _TRUE_VALUES
+
+
+def voice_mail_drafts_enabled() -> bool:
+    """Whether One may list, open and send the owner's Gmail drafts.
+
+    Unset means OFF: sending a draft by voice is new capability. It is also the
+    kill switch for the drafts list, the draft open route and draft sends.
+    """
+    return _clean(ONE_VOICE_MAIL_DRAFTS_ENABLED_ENV).lower() in _TRUE_VALUES
+
+
+def voice_mail_scheduled_drain_enabled() -> bool:
+    """Whether the server drain that fires scheduled sends is switched on.
+
+    Unset means OFF. The voice tools read it too: with the drain off nothing
+    would ever send a scheduled email, so no new one is accepted, while the
+    owner can still list and cancel what is waiting and could fire later.
+    """
+    return _clean(MAIL_SCHEDULED_DRAIN_ENABLED_ENV).lower() in _TRUE_VALUES
+
+
 class OneVoiceMailAdmission:
     """Injectable facade over the predicates, so tests can hand a tool a double.
 
@@ -164,3 +213,15 @@ class OneVoiceMailAdmission:
 
     def mail_narration_enabled(self) -> bool:
         return voice_mail_narration_enabled()
+
+    def mail_reply_enabled(self) -> bool:
+        return voice_mail_reply_enabled()
+
+    def mail_schedule_send_enabled(self) -> bool:
+        return voice_mail_schedule_send_enabled()
+
+    def mail_drafts_enabled(self) -> bool:
+        return voice_mail_drafts_enabled()
+
+    def mail_scheduled_drain_enabled(self) -> bool:
+        return voice_mail_scheduled_drain_enabled()

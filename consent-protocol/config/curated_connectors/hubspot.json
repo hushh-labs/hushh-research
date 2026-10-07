@@ -1,0 +1,50 @@
+{
+  "version": "curated-connector.v1",
+  "connectorId": "hubspot",
+  "displayName": "HubSpot",
+  "description": "Connect HubSpot so Kai can read and act on your CRM contacts, deals, and companies.",
+  "mcpEndpoint": "https://mcp.hubspot.com/",
+  "oauth": {
+    "authorizeUrl": "https://mcp.hubspot.com/oauth/authorize/user",
+    "tokenUrl": "https://mcp.hubspot.com/oauth/v3/token",
+    "scopes": [],
+    "tokenEndpointAuth": "client_secret_post",
+    "clientIdEnv": "HUBSPOT_OAUTH_CLIENT_ID",
+    "clientSecretEnv": "HUBSPOT_OAUTH_CLIENT_SECRET"
+  },
+  "tools": {
+    "allowlist": [
+      "get_user_details",
+      "get_organization_details",
+      "discover_hubspot_schema",
+      "search_crm_objects",
+      "get_crm_objects",
+      "manage_crm_objects",
+      "search_properties",
+      "get_properties",
+      "manage_custom_properties",
+      "search_owners",
+      "query_crm_data",
+      "tool_guidance"
+    ],
+    "freeRead": [
+      "get_user_details",
+      "get_organization_details",
+      "discover_hubspot_schema",
+      "search_crm_objects",
+      "get_crm_objects",
+      "search_properties",
+      "get_properties",
+      "search_owners",
+      "query_crm_data",
+      "tool_guidance"
+    ]
+  },
+  "environments": {
+    "uat": {
+      "registeredRedirectUris": [
+        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+      ]
+    }
+  }
+}

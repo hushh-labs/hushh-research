@@ -24,6 +24,7 @@ export function SegmentedTabs({
   disabled = false,
   className,
   ariaLabel,
+  tabSetId,
   variant = "default",
 }: {
   value: string;
@@ -34,6 +35,8 @@ export function SegmentedTabs({
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
+  /** Link controlled workspace tabs to the shared SwipeViews panel identities. */
+  tabSetId?: string;
   /** Opt into the compact Location-style navigation presentation. */
   variant?: SegmentedTabsVariant;
 }) {
@@ -49,6 +52,7 @@ export function SegmentedTabs({
   return (
     <div
       role="tablist"
+      data-top-shell-tab-set={tabSetId}
       data-ui-role="segmented-tabs"
       data-ui-variant={variant}
       aria-label={ariaLabel}
@@ -87,6 +91,8 @@ export function SegmentedTabs({
             }}
             type="button"
             role="tab"
+            id={tabSetId ? `top-shell-${tabSetId}-tab-${option.value.replace(/[^a-zA-Z0-9_-]/g, "-")}` : undefined}
+            aria-controls={tabSetId ? `top-shell-${tabSetId}-panel-${option.value.replace(/[^a-zA-Z0-9_-]/g, "-")}` : undefined}
             aria-label={option.accessibleLabel}
             aria-selected={isActive}
             tabIndex={isActive ? 0 : -1}

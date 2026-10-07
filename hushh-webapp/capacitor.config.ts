@@ -69,7 +69,9 @@ const config: CapacitorConfig = {
     // the fixed chat overlay (header rises under the status bar, composer slides
     // under the keyboard). Turning it off removes that drift at its root.
     scrollEnabled: false,
-    backgroundColor: "#0e0e10",
+    // Use Capacitor's semantic system background before React commits. The
+    // shared status-bar owner then projects the actual app CSS canvas; never
+    // pin light-mode safe areas to a dark native backing color.
     scheme: "App",
   },
 

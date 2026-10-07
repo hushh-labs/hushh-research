@@ -29,6 +29,8 @@ import {
   CONTACT_INVITE_HEADER_CLASSNAME,
   CONTACT_INVITE_LIST_CLASSNAME,
   CONTACT_INVITE_LIST_TRAILING_INSET_CLASSNAME,
+  CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME,
+  CONTACT_INVITE_SECONDARY_ACTION_CLASSNAME,
   CONTACT_INVITE_SEARCH_CLASSNAME,
   CONTACT_INVITE_SURFACE_CLASSNAME,
   CONTACT_INVITE_TITLE_CLASSNAME,
@@ -339,15 +341,15 @@ export function ContactInvitationSheet({
                 </div>
               ) : null}
               {previewShare ? (
-                <div className="rounded-xl bg-muted/40 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="rounded-2xl bg-muted/40 px-4 py-3.5">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="break-words text-sm font-medium">
+                      <p className="break-words text-[15px] font-semibold leading-5">
                         {step === "queue"
                           ? previewCandidate?.displayName
                           : `Message preview for ${previewCandidate?.displayName}`}
                       </p>
-                      <p className="break-all text-xs text-muted-foreground">
+                      <p className="mt-0.5 break-all text-[13px] leading-[18px] text-muted-foreground">
                         {previewCandidate &&
                           selected[previewCandidate.id]?.value}
                       </p>
@@ -356,7 +358,7 @@ export function ContactInvitationSheet({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="min-h-11 shrink-0"
+                        className="-mr-2 -mt-1.5 min-h-11 shrink-0"
                         disabled={busy}
                         onClick={() => void act("copy")}
                       >
@@ -364,21 +366,27 @@ export function ContactInvitationSheet({
                       </Button>
                     ) : null}
                   </div>
+                  {/* The message sits under a hairline on its own padding-free
+                      box, so its first glyph aligns with the name above and
+                      nothing in the card can overlap it. */}
                   <textarea
                     aria-label={`Invitation message for ${previewCandidate?.displayName}`}
                     readOnly
-                    rows={5}
-                    className="w-full resize-y select-text rounded-md bg-transparent text-sm leading-relaxed focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                    rows={Math.min(
+                      8,
+                      invitationBody(previewShare).split("\n").length + 1,
+                    )}
+                    className="mt-3 block w-full resize-none select-text appearance-none rounded-none border-0 border-t border-border/70 bg-transparent p-0 pt-3 text-[15px] leading-6 [text-indent:0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
                     value={invitationBody(previewShare)}
                   />
                 </div>
               ) : null}
               {step === "review" ? (
-                <ul className="mt-3 divide-y divide-border">
+                <ul className="mt-2 divide-y divide-border">
                   {queue.map((candidate) => (
                     <li
                       key={candidate.id}
-                      className="flex items-center gap-3 py-3"
+                      className="flex items-center gap-3 py-2"
                     >
                       <button
                         type="button"
@@ -387,19 +395,19 @@ export function ContactInvitationSheet({
                         aria-pressed={previewCandidate?.id === candidate.id}
                         onClick={() => setPreviewId(candidate.id)}
                       >
-                        <p className="break-words text-sm font-medium">
+                        <p className="break-words text-[15px] font-semibold leading-5">
                           {candidate.displayName}
                         </p>
-                        <p className="break-all text-sm text-muted-foreground">
+                        <p className="break-all text-[13px] leading-[18px] text-muted-foreground">
                           {selected[candidate.id]?.value}
                         </p>
-                        <span className="text-xs text-primary underline">
+                        <span className="mt-0.5 block text-xs font-medium text-primary">
                           Preview message
                         </span>
                       </button>
                       <Button
                         variant="ghost"
-                        className="min-h-11"
+                        className="-mr-2 min-h-11 shrink-0 font-semibold"
                         aria-label={`Remove ${candidate.displayName}`}
                         onClick={() =>
                           setSelected((previous) => {
@@ -503,7 +511,7 @@ export function ContactInvitationSheet({
           <div className={CONTACT_INVITE_FOOTER_CLASSNAME}>
             {step === "select" ? (
               <Button
-                className="min-h-11 flex-1"
+                className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
                 disabled={!queue.length}
                 onClick={() => setStep("review")}
               >
@@ -512,14 +520,7 @@ export function ContactInvitationSheet({
             ) : step === "review" ? (
               <>
                 <Button
-                  variant="outline"
-                  className="min-h-11"
-                  onClick={() => setStep("select")}
-                >
-                  Back to selection
-                </Button>
-                <Button
-                  className="min-h-11 flex-1"
+                  className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
                   disabled={
                     !queue.length || !controller.share || controller.preparing
                   }
@@ -527,10 +528,20 @@ export function ContactInvitationSheet({
                 >
                   Continue with {queue.length} invitations
                 </Button>
+                <Button
+                  variant="ghost"
+                  className={CONTACT_INVITE_SECONDARY_ACTION_CLASSNAME}
+                  onClick={() => setStep("select")}
+                >
+                  Back to selection
+                </Button>
               </>
             ) : null}
             {step === "queue" ? (
-              <Button className="min-h-11 flex-1" onClick={finish}>
+              <Button
+                className={CONTACT_INVITE_PRIMARY_ACTION_CLASSNAME}
+                onClick={finish}
+              >
                 Done
               </Button>
             ) : null}

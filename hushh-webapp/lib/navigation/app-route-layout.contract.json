@@ -440,6 +440,41 @@
     }
   },
   {
+    "route": "/one/career",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/career/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.career",
+      "purpose": "Help the person understand and use the career screen through its generated controls.",
+      "screen": "one_career",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/career",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/location",
     "mode": "standard",
     "interactionLayerPolicy": {
@@ -915,6 +950,82 @@
       },
       "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
       "nextRoute": "/one/pkm/recent",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/pkm/location",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.pkm.location",
+      "purpose": "Help the person read saved places and visit details directly in Location memory.",
+      "screen": "pkm_location",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.one_pkm_location_home",
+      "happyPathActionIds": [
+        "route.one_pkm_location_home"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/pkm/location",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/pkm/location/detail",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.pkm.location.detail",
+      "purpose": "Help the person manage a selected Location memory detail through its verified controls.",
+      "screen": "pkm_location_detail",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.one_pkm_location_home",
+      "happyPathActionIds": [
+        "route.one_pkm_location_home"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/pkm/location/detail",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -3669,6 +3780,7 @@
   {
     "route": "/one/profile/connectors/oauth/return",
     "mode": "redirect",
+    "persistentChrome": "none",
     "exemptionReason": "OAuth callback completes an external connector's authorization and returns to Connectors in the Profile pane.",
     "voicePlaybook": {
       "playbookId": "route.profile.connectors.oauth.return",

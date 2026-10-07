@@ -268,7 +268,7 @@ describe("ConnectCirclesTab", () => {
     expect(smsCircle.querySelector("[data-one-sms-text-icon]")).toBeTruthy();
   });
 
-  it("keeps the SMS mark in the reference orange icon tile", async () => {
+  it("paints the SMS mark in the Location emergency red tile", async () => {
     mocks.listCircles.mockResolvedValue([
       circle("trusted", "Trusted", 20, "trusted"),
       circle("sms", "SMS Circle", 4, "sms"),
@@ -279,8 +279,9 @@ describe("ConnectCirclesTab", () => {
     const smsRow = await screen.findByTestId("connect-circle-sms");
     const mark = within(smsRow).getByText("SMS");
     const disc = mark.parentElement!;
-    // SMS identity remains explicit within the pastel reference tile.
-    expect(disc.className).toContain("bg-orange-50");
+    // Same tint and ink as the SMS mark on the Location "Save My Soul" row.
+    expect(disc.className).toContain("bg-[color:var(--app-destructive-tint)]");
+    expect(disc.className).toContain("text-[color:var(--app-destructive)]");
     expect(disc.className).toContain("rounded-2xl");
     expect(disc.className).toContain("size-12");
 
@@ -289,6 +290,15 @@ describe("ConnectCirclesTab", () => {
     const trusted = screen.getByTestId("connect-circle-trusted");
     expect(within(trusted).getByTestId("connect-circle-cluster")).toBeTruthy();
     expect(trusted.querySelector("svg")).not.toBeNull();
+  });
+
+  it("shows no empty member placeholder under a Trusted circle with nobody in it", async () => {
+    mocks.listCircles.mockResolvedValue([circle("trusted", "Trusted", 1, "trusted")]);
+
+    render(<ConnectCirclesTab />);
+
+    const trusted = await screen.findByTestId("connect-circle-trusted");
+    expect(within(trusted).queryByTestId("connect-circle-cluster")).toBeNull();
   });
 
   it("marks every SMS Circle on the list, not only the one you own", async () => {
@@ -640,13 +650,15 @@ describe("ConnectCirclesTab", () => {
     expect(joinHref).not.toContain("/one/location");
   });
 
-  it("stacks starter actions on narrow screens", async () => {
+  it("lays starter actions out as one primary over two equal secondary actions", async () => {
     render(<ConnectCirclesTab />);
 
     const starter = await screen.findByTestId("connect-circle-starter");
-    const actions = within(starter).getByText("Create circle").parentElement?.parentElement;
-    expect(actions?.className).toContain("flex-col");
-    expect(actions?.className).toContain("min-[440px]:flex-row");
+    const create = within(starter).getByTestId("connect-circle-create");
+    expect(create.className).toContain("w-full");
+    const secondary = within(starter).getByText("Find people").closest("div");
+    expect(secondary?.className).toContain("grid-cols-2");
+    expect(secondary).toContainElement(within(starter).getByTestId("connect-circle-join"));
   });
 
   it("names the tab explicitly on every navigation", async () => {

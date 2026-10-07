@@ -49,7 +49,13 @@ export type AgentConversationDispatchResult =
 
 let ownerReady = false;
 let queuedRequest: AgentConversationRequest | null = null;
+let routeHandoffRequest: {
+  pathname: string;
+  request: AgentConversationRequest;
+  expiresAt: number;
+} | null = null;
 const knownRequestIds = new Set<string>();
+const ROUTE_HANDOFF_TTL_MS = 15_000;
 
 function normalizedRequest(
   request: AgentConversationRequest = {},
@@ -92,6 +98,40 @@ export function requestAgentConversation(
   }
   dispatchRequest(normalized);
   return "dispatched";
+}
+
+/**
+ * Carry a Talk to One request across a client-side navigation without starting
+ * capture on the source screen. The request stays in memory, expires quickly,
+ * and is delivered by the persistent voice owner only after the target route
+ * has committed.
+ */
+export function requestAgentConversationAfterRoute(
+  pathname: string,
+  request: AgentConversationRequest = {},
+): void {
+  const targetPathname = pathname.trim();
+  if (!targetPathname.startsWith("/")) return;
+  routeHandoffRequest = {
+    pathname: targetPathname,
+    request: normalizedRequest(request),
+    expiresAt: Date.now() + ROUTE_HANDOFF_TTL_MS,
+  };
+}
+
+/** Deliver a pending route handoff only on its exact destination route. */
+export function dispatchAgentConversationAfterRoute(
+  pathname: string | null | undefined,
+): AgentConversationDispatchResult | null {
+  const pending = routeHandoffRequest;
+  if (!pending) return null;
+  if (Date.now() >= pending.expiresAt) {
+    routeHandoffRequest = null;
+    return null;
+  }
+  if (pathname !== pending.pathname) return null;
+  routeHandoffRequest = null;
+  return requestAgentConversation(pending.request);
 }
 
 /**
@@ -164,6 +204,7 @@ export function cancelAgentConversationRequest(
 export function resetAgentConversationBrokerForTests(): void {
   ownerReady = false;
   queuedRequest = null;
+  routeHandoffRequest = null;
   knownRequestIds.clear();
 }
 

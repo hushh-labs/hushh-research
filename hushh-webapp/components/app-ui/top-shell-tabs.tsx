@@ -41,9 +41,14 @@ function topShellTabDomId(
 export function TopShellTabs({
   tabSet,
   navigationMode = "replace",
+  onValueChange,
+  disabled = false,
 }: {
   tabSet: TopShellTabSet;
   navigationMode?: "push" | "replace";
+  /** Local workspaces keep their state in the mounted pager. */
+  onValueChange?: (value: string) => void;
+  disabled?: boolean;
 }) {
   const router = useRouter();
   const interactionIntents = useInteractionIntents();
@@ -73,7 +78,7 @@ export function TopShellTabs({
       ? tabSet.tabs.find((tab) => tab.href === activeIntent.target)?.value
       : null;
   }, [interactionIntents, tabSet.tabs, transitionMode]);
-  const selectedValue = optimisticValue ?? tabSet.activeValue;
+  const selectedValue = onValueChange ? tabSet.activeValue : optimisticValue ?? tabSet.activeValue;
   const activeIndex = Math.max(
     0,
     tabSet.tabs.findIndex((tab) => tab.value === selectedValue),
@@ -90,6 +95,7 @@ export function TopShellTabs({
   // (founder directive, 2026-09-22: Finance joined Connect and Consent). The
   // underline arm remains for the public knowledge tab sets only.
   const usesModuleSegmentedTabs =
+    tabSet.id === "wallet" ||
     tabSet.id === "location" ||
     tabSet.id === "connect" ||
     tabSet.id === "consent" ||
@@ -137,9 +143,13 @@ export function TopShellTabs({
   const selectIndex = useCallback(
     (index: number, focus: boolean) => {
       const tab = tabSet.tabs[index];
-      if (!tab) return;
+      if (!tab || disabled) return;
       if (focus) tabRefs.current[index]?.focus();
       if (tab.value === selectedValue) return;
+      if (onValueChange) {
+        onValueChange(tab.value);
+        return;
+      }
 
       // Move the shared compositor indicator at pointer/keyboard time. The
       // query-backed route remains the semantic authority, but it must not
@@ -182,6 +192,8 @@ export function TopShellTabs({
     },
     [
       navigationMode,
+      onValueChange,
+      disabled,
       router,
       selectedValue,
       shouldResetScrollOnSelection,
@@ -249,6 +261,7 @@ export function TopShellTabs({
               id={topShellTabDomId(tabSet, "tab", tab.value)}
               type="button"
               role="tab"
+              disabled={disabled}
               data-ui-role="agent-tab"
               data-voice-control-id={
                 tabSet.id === "ria" ? `ria_route_tab_${tab.value}` : undefined

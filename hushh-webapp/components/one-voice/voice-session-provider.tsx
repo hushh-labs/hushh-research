@@ -42,6 +42,7 @@ import {
   type AgentConversationRequest,
 } from "@/lib/agent/agent-voice-settings";
 import { readVoicePreferences } from "@/lib/agent/voice-preferences";
+import { readSpeakerphoneSafePreference } from "@/lib/one-voice/speakerphone-preferences";
 import {
   appInteractionCoordinator,
   type VoiceSessionLease,
@@ -63,8 +64,13 @@ import {
   decideHalfDuplex,
 } from "@/lib/one-voice/audio/half-duplex";
 import { bytesFromBase64 } from "@/lib/one-voice/audio/pcm";
-import { MailOpenError, openOfferedMail } from "@/lib/one-voice/mail-open";
+import {
+  MailOpenError,
+  openOfferedDraft,
+  openOfferedMail,
+} from "@/lib/one-voice/mail-open";
 import { LivePlaybackScheduler } from "@/lib/one-voice/audio/playback";
+import { performanceNow, SpeechEndProbe } from "@/lib/one-voice/performance";
 import { isFirebasePlaneTool } from "@/lib/one-voice/confirmation";
 import type {
   AppContextInput,
@@ -74,9 +80,11 @@ import type {
 import type {
   ClientStepRequestFrame,
   OsPermission,
+  PerfFrame,
   ServerFrame,
   UiDirectiveFrame,
 } from "@/lib/one-voice/protocol";
+import { NAME_EDIT_FEATURE } from "@/lib/one-voice/protocol";
 import {
   VOICE_UNAVAILABLE_MESSAGE,
   canAutoReconnect,
@@ -90,6 +98,7 @@ import {
   useVoiceSessionStore,
 } from "@/lib/one-voice/session-store";
 import type {
+  NameEditOutcome,
   VoiceError,
   VoiceSessionController,
   VoiceSessionEvent,
@@ -110,8 +119,13 @@ export interface VoiceLiveClientLike {
   connect(): Promise<void>;
   close(reason?: string): void;
   sendAudio(pcm16: Uint8Array): boolean;
+  sendPerf(metric: PerfFrame["metric"], durationMs: number, turnId?: string): boolean;
   sendText(text: string, requestId?: string): boolean;
   sendAppContext(context: AppContextInput): void;
+  /** Optional so older test doubles keep compiling; the real client has it. */
+  mailDeliveryResult?(deliveryRef: string, actionId: string): boolean;
+  /** Optional like mailDeliveryResult; sent only to a relay listing `name_edit`. */
+  nameEditSubmit?(pendingActionId: string, name: string, operationId: string): boolean;
   pendingShown(pendingActionId: string): boolean;
   confirm(
     pendingActionId: string,
@@ -155,6 +169,7 @@ export interface VoicePlaybackLike {
   flush(): void;
   fenceTurn(turnId: string): void;
   onSpeakingChanged(callback: (speaking: boolean) => void): () => void;
+  onPlaybackStarted(callback: (turnId: string) => void): () => void;
   close(): void;
 }
 
@@ -177,6 +192,8 @@ export type VoiceSessionDeps = {
   /** Runs a callback after the next paint (requestAnimationFrame by default). */
   afterPaint?: (callback: () => void) => void;
   now?: () => number;
+  /** Monotonic clock for measurement; injectable in focused tests. */
+  perfNow?: () => number;
   clientStepTimeoutMs?: number;
   directiveClaimMs?: number;
 };
@@ -404,10 +421,15 @@ type ClientStepEntry = {
 type LiveSession = {
   conversationId: string;
   isReconnect: boolean;
+  /** What this relay advertised in session.ready; empty until it does. */
+  features: Set<string>;
   client: VoiceLiveClientLike;
   capture: VoiceCaptureLike | null;
   captureReady: boolean;
   playback: VoicePlaybackLike;
+  speechEndProbe: SpeechEndProbe;
+  firstAudioReceivedAt: Map<string, number>;
+  measuredAudioTurns: Set<string>;
   audioContext: AudioContext | null;
   lease: VoiceSessionLease | null;
   gate: HalfDuplexGate | null;
@@ -446,7 +468,22 @@ type LiveSession = {
   confirmingPendingId: string | null;
   awaitingTypedRequestId: string | null;
   awaitingTypedRequestDeadlineAt: number | null;
+  /** Typed name edits awaiting their `name_edit.result`, by operation id. */
+  nameEdits: Map<string, NameEditWaiter>;
 };
+
+type NameEditWaiter = {
+  resolve: (outcome: NameEditOutcome) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+/** How long a typed name edit waits for the relay before the editor may retry. */
+export const NAME_EDIT_TIMEOUT_MS = 15_000;
+const NAME_EDIT_NOT_SENT = "That didn't go through. Please try again.";
+
+function nameEditRefusal(reasonCode: string, message: string): NameEditOutcome {
+  return { status: "rejected", reasonCode, message, pendingActionId: null };
+}
 
 type DirectiveContext = {
   pathname: string | null;
@@ -625,6 +662,10 @@ export function VoiceSessionProvider({
     [],
   );
   const now = useCallback(() => depsRef.current?.now?.() ?? Date.now(), []);
+  const perfNow = useCallback(
+    () => depsRef.current?.perfNow?.() ?? performanceNow(),
+    [],
+  );
   const readState = useCallback(
     (): VoiceSessionState => useVoiceSessionStore.getState().state,
     [],
@@ -632,13 +673,32 @@ export function VoiceSessionProvider({
 
   // -- app context ------------------------------------------------------------
 
+  // The mail row open on screen. A ref rather than state: nothing renders from
+  // it, it rides on every app_context this provider builds (each frame
+  // replaces the relay's whole screen context), and changing it resends one.
+  const activeMailRef = useRef<{
+    ordinal: number;
+    offerRevision: number;
+    conversationId: string;
+  } | null>(null);
+
   const sendAppContext = useCallback(() => {
     const session = sessionRef.current;
     if (!session || session.tornDown) return;
+    const activeMail = activeMailRef.current;
     const frame = buildAppContextFrame({
       runtime: runtimeRef.current,
       pathname: pathnameRef.current,
       osLocationPermission: osPermissionRef.current,
+      // Only in the conversation whose offer drew the row (a position means
+      // nothing against another conversation's list), and only to a relay that
+      // accepts the keys: an older one would refuse the whole frame.
+      activeMail:
+        activeMail &&
+        activeMail.conversationId === session.conversationId &&
+        session.features.has("active_mail")
+          ? activeMail
+          : null,
     });
     const { type: _type, ...context } = frame;
     void _type;
@@ -662,6 +722,12 @@ export function VoiceSessionProvider({
     session.directiveTimers.clear();
     if (session.pendingShownTimer !== null) clearTimeout(session.pendingShownTimer);
     session.pendingShownTimer = null;
+    // An edit the relay never answered is not an answer; the editor stays open.
+    for (const waiter of session.nameEdits.values()) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(nameEditRefusal("session_ended", NAME_EDIT_NOT_SENT));
+    }
+    session.nameEdits.clear();
     for (const unsubscribe of session.unsubscribes.splice(0)) {
       try {
         unsubscribe();
@@ -675,6 +741,9 @@ export function VoiceSessionProvider({
       // ignore
     }
     session.capture = null;
+    session.speechEndProbe.reset();
+    session.firstAudioReceivedAt.clear();
+    session.measuredAudioTurns.clear();
     try {
       session.playback.flush();
       session.playback.close();
@@ -789,7 +858,10 @@ export function VoiceSessionProvider({
         clearTimeout(reconnectRetryTimerRef.current);
         reconnectRetryTimerRef.current = null;
       }
-      if (openingRef.current) openingRef.current.cancelled = true;
+      if (openingRef.current) {
+        openingRef.current.cancelled = true;
+        openingRef.current = null;
+      }
       const session = sessionRef.current;
       traceVoiceSession("stop", {
         reason,
@@ -799,7 +871,11 @@ export function VoiceSessionProvider({
           session?.captureReady && session.capture?.isTrackLive?.() !== false,
         ),
       });
-      if (!session) return;
+      if (!session) {
+        // Stop must settle immediately even while the lazy client is loading.
+        dispatch({ type: "closed", code: 1000, reason: localCloseReason(reason), now: now() });
+        return;
+      }
       session.stoppedLocally = true;
       // The client reports its close synchronously; handleClose tears down.
       session.client.close(localCloseReason(reason));
@@ -812,7 +888,7 @@ export function VoiceSessionProvider({
         });
       }
     },
-    [handleClose],
+    [dispatch, handleClose, now],
   );
   const stopRef = useRef(stopSession);
   const pauseRef = useRef<(reason: string) => void>(() => undefined);
@@ -911,6 +987,10 @@ export function VoiceSessionProvider({
   const handleFrame = useCallback(
     (session: LiveSession, frame: ServerFrame) => {
       if (sessionRef.current !== session || session.tornDown) return;
+      const receivedAt = frame.type === "audio" ||
+        (frame.type === "transcript.input" && frame.final)
+        ? perfNow()
+        : null;
       const before = useVoiceSessionStore.getState().state;
       const origin = "turn_id" in frame && typeof frame.turn_id === "string"
         ? frame.turn_id
@@ -985,6 +1065,11 @@ export function VoiceSessionProvider({
       };
       switch (frame.type) {
         case "session.ready": {
+          session.features = new Set(
+            Array.isArray(frame.features)
+              ? frame.features.filter((item): item is string => typeof item === "string")
+              : [],
+          );
           sendAppContext();
           // The reducer renders the first re-listed card. If the server never
           // heard it was shown (its pending_action frame was lost to a
@@ -1000,6 +1085,14 @@ export function VoiceSessionProvider({
           return;
         }
         case "transcript.input":
+          if (frame.final && !staleOrigin) {
+            const duration = frame.request_id || session.paused
+              ? null
+              : session.speechEndProbe.takeDuration(receivedAt ?? perfNow());
+            if (duration !== null)
+              session.client.sendPerf("endpointing_client", duration, frame.turn_id);
+            else session.speechEndProbe.reset();
+          }
           if (
             store.state.activeInputTurnId === frame.turn_id &&
             before.activeInputTurnId !== frame.turn_id
@@ -1043,13 +1136,30 @@ export function VoiceSessionProvider({
             frame.origin_turn_id !== activeInputTurnId
           )
             return;
-          if (frame.narration === true) session.narrating = true;
+          const firstForTurn =
+            !session.measuredAudioTurns.has(frame.turn_id) &&
+            !session.firstAudioReceivedAt.has(frame.turn_id);
           try {
-            session.playback.enqueue(
-              bytesFromBase64(frame.data),
+            const pcm16 = bytesFromBase64(frame.data);
+            if (firstForTurn) {
+              session.firstAudioReceivedAt.set(frame.turn_id, receivedAt ?? perfNow());
+              if (session.firstAudioReceivedAt.size > 32) {
+                const oldest = session.firstAudioReceivedAt.keys().next().value;
+                if (oldest) session.firstAudioReceivedAt.delete(oldest);
+              }
+            }
+            const queued = session.playback.enqueue(
+              pcm16,
               frame.turn_id,
             );
+            // A rejected chunk has no playback-stop callback to reopen the mic.
+            if (queued && frame.narration === true)
+              session.narrating = true;
+            if (!queued && firstForTurn)
+              session.firstAudioReceivedAt.delete(frame.turn_id);
           } catch {
+            if (firstForTurn)
+              session.firstAudioReceivedAt.delete(frame.turn_id);
             // A malformed chunk is dropped; the next one schedules normally.
           }
           return;
@@ -1089,11 +1199,25 @@ export function VoiceSessionProvider({
         case "client_step.request":
           requestClientStep(session, frame);
           return;
+        case "name_edit.result": {
+          // Only the submission this session made; anything else is dropped.
+          const waiter = session.nameEdits.get(frame.operation_id);
+          if (!waiter) return;
+          session.nameEdits.delete(frame.operation_id);
+          clearTimeout(waiter.timer);
+          waiter.resolve({
+            status: frame.status === "accepted" ? "accepted" : "rejected",
+            reasonCode: frame.reason_code ?? null,
+            message: frame.message ?? null,
+            pendingActionId: frame.pending_action_id ?? null,
+          });
+          return;
+        }
         default:
           return;
       }
     },
-    [dispatch, now, requestClientStep, sendAppContext, settleDirective],
+    [dispatch, now, perfNow, requestClientStep, sendAppContext, settleDirective],
   );
 
   // -- capture ------------------------------------------------------------------
@@ -1119,6 +1243,11 @@ export function VoiceSessionProvider({
       )();
       session.capture = capture;
       session.captureReady = false;
+      // Begin conservatively before socket/playback can race microphone setup.
+      // Keep this same gate when selecting half duplex so no speaking edge or
+      // acoustic tail is lost during asynchronous capture startup.
+      session.gate ??= new HalfDuplexGate({ now: () => now() });
+      session.speechEndProbe.reset();
       capture.setMuted(mutedRef.current);
       let result: CaptureStartResult;
       try {
@@ -1139,7 +1268,18 @@ export function VoiceSessionProvider({
             if (session.gate && !session.gate.allows()) return;
             session.client.sendAudio(pcm16);
           },
-          onLevel: dispatchLevel,
+          onLevel: (level) => {
+            if (
+              sessionRef.current === session &&
+              !session.tornDown &&
+              !session.paused &&
+              !mutedRef.current &&
+              !session.narrating &&
+              (!session.gate || session.gate.allows())
+            ) session.speechEndProbe.observe(level, perfNow());
+            else session.speechEndProbe.reset();
+            dispatchLevel(level);
+          },
           onEnded: () => {
             if (
               sessionRef.current !== session ||
@@ -1191,17 +1331,17 @@ export function VoiceSessionProvider({
         });
       }
       session.captureReady = true;
-      const preference = depsRef.current?.halfDuplexPreference?.() ?? "auto";
+      const preference = depsRef.current?.halfDuplexPreference?.() ??
+        (readSpeakerphoneSafePreference(latest.current.user?.uid)
+          ? "speakerphone-safe" : "auto");
       const halfDuplex = decideHalfDuplex({
         echoCancellation: result.echoCancellation,
         forced: preference === "speakerphone-safe",
       });
-      session.gate = halfDuplex
-        ? new HalfDuplexGate({ now: () => now() })
-        : null;
+      if (!halfDuplex) session.gate = null;
       dispatch({ type: "half_duplex", enabled: halfDuplex });
     },
-    [dispatch, dispatchLevel, now],
+    [dispatch, dispatchLevel, now, perfNow],
   );
 
   // -- open ---------------------------------------------------------------------
@@ -1227,13 +1367,17 @@ export function VoiceSessionProvider({
       const session: LiveSession = {
         conversationId: input.conversationId,
         isReconnect: input.isReconnect,
+        features: new Set(),
         client: null as unknown as VoiceLiveClientLike,
         capture: null,
         captureReady: false,
         playback,
+        speechEndProbe: new SpeechEndProbe(),
+        firstAudioReceivedAt: new Map(),
+        measuredAudioTurns: new Set(),
         audioContext,
         lease: null,
-        gate: null,
+        gate: new HalfDuplexGate({ now: () => now() }),
         narrating: false,
         paused: false,
         pauseReason: null,
@@ -1251,6 +1395,7 @@ export function VoiceSessionProvider({
         confirmingPendingId: null,
         awaitingTypedRequestId: null,
         awaitingTypedRequestDeadlineAt: null,
+        nameEdits: new Map(),
       };
       const clientOptions: OneLiveClientOptions = {
         ticket: async () => {
@@ -1297,7 +1442,9 @@ export function VoiceSessionProvider({
           depsRef.current?.createClient ?? defaultCreateClient
         )(clientOptions);
       } catch (error) {
-        openingRef.current = null;
+        if (openingRef.current === opening) openingRef.current = null;
+        teardown(session, "client_unavailable");
+        if (opening.cancelled) return false;
         dispatch({
           type: "closed",
           code: 1000,
@@ -1307,14 +1454,14 @@ export function VoiceSessionProvider({
         dispatch({ type: "local_error", error: toVoiceError(error) });
         return false;
       }
-      openingRef.current = null;
+      if (openingRef.current === opening) openingRef.current = null;
       if (opening.cancelled || sessionRef.current) {
-        dispatch({
-          type: "closed",
-          code: 1000,
-          reason: localCloseReason("cancelled"),
-          now: now(),
-        });
+        // Release the early AudioContext/player without letting this stale
+        // attempt overwrite the state of a newer owner or session.
+        session.stoppedLocally = true;
+        session.closeHandled = true;
+        teardown(session, "cancelled");
+        session.client.close(localCloseReason("cancelled"));
         return false;
       }
       sessionRef.current = session;
@@ -1334,12 +1481,31 @@ export function VoiceSessionProvider({
       session.unsubscribes.push(
         playback.onSpeakingChanged((speaking) => {
           if (sessionRef.current !== session) return;
-          // The player reports silence once the queue has drained, tail included,
-          // so the mic reopens when the narration has actually stopped being
-          // audible rather than when the last chunk was handed over.
+          // The player reports silence after its queue drains. In half duplex,
+          // the retained gate adds the acoustic tail before reopening the mic.
           if (!speaking) session.narrating = false;
           session.gate?.onSpeaking(speaking);
           dispatch({ type: "speaking", speaking });
+        }),
+      );
+      session.unsubscribes.push(
+        playback.onPlaybackStarted((turnId) => {
+          if (sessionRef.current !== session || session.tornDown) return;
+          const receivedAt = session.firstAudioReceivedAt.get(turnId);
+          if (receivedAt === undefined) return;
+          session.firstAudioReceivedAt.delete(turnId);
+          session.measuredAudioTurns.add(turnId);
+          if (session.measuredAudioTurns.size > 128) {
+            const oldest = session.measuredAudioTurns.values().next().value;
+            if (oldest) session.measuredAudioTurns.delete(oldest);
+          }
+          // This is the first observed nonzero WebAudio output tick, within
+          // the scheduler's 50 ms cadence; hardware speaker latency is unknown.
+          session.client.sendPerf(
+            "audio_receive_to_audible",
+            Math.round(perfNow() - receivedAt),
+            turnId,
+          );
         }),
       );
 
@@ -1366,7 +1532,7 @@ export function VoiceSessionProvider({
         dispatch({ type: "resumed" });
       return true;
     },
-    [dispatch, handleClose, handleFrame, now, startCapture],
+    [dispatch, handleClose, handleFrame, now, perfNow, startCapture, teardown],
   );
 
   const resumeSession = useCallback(
@@ -1505,6 +1671,7 @@ export function VoiceSessionProvider({
       if (!session || session.tornDown) return;
       const wasPaused = session.paused;
       session.paused = true;
+      session.speechEndProbe.reset();
       session.pauseReason = reason;
       session.captureGeneration += 1;
       // A foreground capture may still be inside getUserMedia or worklet load.
@@ -1621,6 +1788,7 @@ export function VoiceSessionProvider({
         }
         return false;
       }
+      session.speechEndProbe.reset();
       session.narrating = false;
       session.playback.flush();
       const turnId = readState().turnId;
@@ -1737,6 +1905,7 @@ export function VoiceSessionProvider({
   useEffect(() => {
     // A different account never continues the previous conversation.
     conversationIdRef.current = null;
+    activeMailRef.current = null;
     stopRef.current("account_changed");
   }, [user?.uid]);
   useEffect(() => () => stopRef.current("unmount"), []);
@@ -1782,6 +1951,7 @@ export function VoiceSessionProvider({
     (muted: boolean) => {
       mutedRef.current = muted;
       sessionRef.current?.capture?.setMuted(muted);
+      if (muted) sessionRef.current?.speechEndProbe.reset();
       if (muted) dispatchLevel(0);
       dispatch({ type: "muted", muted });
     },
@@ -1886,6 +2056,72 @@ export function VoiceSessionProvider({
     [],
   );
 
+  const openDraft = useCallback(
+    async (input: {
+      ordinal: number;
+      offerRevision: number;
+      conversationId: string;
+    }) => {
+      // Same reasons as openMail: the token is read at tap time, and the
+      // conversation comes from the result that drew the row.
+      const token = latest.current.vaultOwnerToken;
+      if (!token) throw new MailOpenError("auth_missing");
+      return openOfferedDraft({
+        vaultOwnerToken: token,
+        conversationId: input.conversationId,
+        ordinal: input.ordinal,
+        offerRevision: input.offerRevision,
+      });
+    },
+    [],
+  );
+
+  const setActiveMail = useCallback(
+    (hint: { ordinal: number; offerRevision: number; conversationId: string } | null) => {
+      const current = activeMailRef.current;
+      if (
+        hint === current ||
+        (hint &&
+          current &&
+          hint.ordinal === current.ordinal &&
+          hint.offerRevision === current.offerRevision &&
+          hint.conversationId === current.conversationId)
+      ) {
+        return;
+      }
+      activeMailRef.current = hint;
+      sendAppContext();
+    },
+    [sendAppContext],
+  );
+
+  const reportMailDelivery = useCallback((deliveryRef: string, actionId: string) => {
+    const session = sessionRef.current;
+    // A relay that never listed the frame would answer it with a protocol error.
+    if (!session || session.tornDown || !session.features.has("mail_delivery")) return;
+    session.client.mailDeliveryResult?.(deliveryRef, actionId);
+  }, []);
+
+  const submitNameEdit = useCallback(
+    (pendingActionId: string, name: string): Promise<NameEditOutcome> => {
+      const session = sessionRef.current;
+      // A relay that never listed the frame would answer it with a protocol error.
+      if (!session || session.tornDown || !session.features.has(NAME_EDIT_FEATURE))
+        return Promise.resolve(nameEditRefusal("unavailable", NAME_EDIT_NOT_SENT));
+      const operationId = crypto.randomUUID();
+      if (!session.client.nameEditSubmit?.(pendingActionId, name, operationId))
+        return Promise.resolve(nameEditRefusal("not_sent", NAME_EDIT_NOT_SENT));
+      return new Promise<NameEditOutcome>((resolve) => {
+        const timer = setTimeout(() => {
+          session.nameEdits.delete(operationId);
+          resolve(nameEditRefusal("timeout", NAME_EDIT_NOT_SENT));
+        }, NAME_EDIT_TIMEOUT_MS);
+        session.nameEdits.set(operationId, { resolve, timer });
+      });
+    },
+    [],
+  );
+
   const cancelPending = useCallback(() => {
     const session = sessionRef.current;
     const current = readState();
@@ -1941,10 +2177,14 @@ export function VoiceSessionProvider({
       sendText,
       confirmPending,
       openMail,
+      openDraft,
       cancelPending,
       chooseCandidate,
       clearView,
       reportClientStep,
+      setActiveMail,
+      reportMailDelivery,
+      submitNameEdit,
     }),
     [
       enabled,
@@ -1956,10 +2196,14 @@ export function VoiceSessionProvider({
       sendText,
       confirmPending,
       openMail,
+      openDraft,
       cancelPending,
       chooseCandidate,
       clearView,
       reportClientStep,
+      setActiveMail,
+      reportMailDelivery,
+      submitNameEdit,
     ],
   );
 

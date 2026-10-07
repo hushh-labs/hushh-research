@@ -46,7 +46,6 @@ import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
-import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
@@ -60,6 +59,7 @@ import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-a
 import { AgentOwnerGate } from "@/components/agent/agent-owner-gate";
 import { OneVoiceReadinessProvider } from "@/lib/one-voice/readiness";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
+import { AgentDockProvider } from "@/components/agent/agent-dock";
 import { AmbientChromeController } from "@/components/app-ui/ambient-chrome-mask";
 import { resolveRiaRouteTabSet } from "@/lib/navigation/top-shell-tabs";
 import { Toaster } from "@/components/ui/sonner";
@@ -409,11 +409,12 @@ function AppShellFrame({ children }: ProvidersProps) {
   const bottomShellModel = useMemo(
     () => ({
       navigationHidden: hideBottomNavigation,
-      // The canonical Chat route already exposes its text composer. Keep the
-      // idle voice launcher out of that route's visual hierarchy while allowing
-      // an active command to remain visible and cancellable.
+      // Chat uses the retained Agent Dock; Messages owns its composer. Neither
+      // also shows the idle global voice launcher. Active commands remain cancellable.
       agentBarHidden:
-        isAuthenticated && !authLoading && pathname === ROUTES.HOME,
+        isAuthenticated &&
+        !authLoading &&
+        (pathname === ROUTES.HOME || pathname === ROUTES.ONE_MESSAGES),
       hidden: bottomChromeHidden,
     }),
     [
@@ -637,6 +638,7 @@ function AppShellFrame({ children }: ProvidersProps) {
             <AgentRuntimeStateProvider>
               <OneVoiceReadinessProvider>
                 <AgentOwnerGate>
+                  <AgentDockProvider>
                   <SiriOneVoiceHandoff />
                   <SiriOneRequestHandoff />
                   <SiriOneActionHandoff />
@@ -669,7 +671,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                   {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
                   {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
                   <AppProfileEdgeGesture enabled={profilePaneEnabled} />
-                  <AppChatHistoryEdgeGesture enabled={isCanonicalChatRoute} />
                   <AppBottomShell model={bottomShellModel} />
                   <ProfilePane
                     open={profilePaneOpen}
@@ -812,6 +813,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                       </Suspense>
                     </div>
                   </ContactInvitationSessionProvider>
+                  </AgentDockProvider>
                 </AgentOwnerGate>
               </OneVoiceReadinessProvider>
               {/*

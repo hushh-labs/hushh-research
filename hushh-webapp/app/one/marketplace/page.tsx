@@ -46,6 +46,9 @@ import {
   type SlicePricingInput,
 } from "@/lib/services/slice-pricing-service";
 import { MarketplaceChatPanel } from "@/components/one-marketplace/marketplace-chat-panel";
+import { isPacketDeliveryPayload } from "@/lib/one-marketplace/packet-delivery";
+import { PacketsPanel, type PacketDetailOption } from "@/components/one-marketplace/packets-panel";
+import { PayoutsCard } from "@/components/one-marketplace/payouts-card";
 import {
   OneMarketplaceService,
   type AvailableListing,
@@ -108,7 +111,7 @@ type DeliveryState =
   | { status: "loading" }
   | { status: "empty" }
   | { status: "error"; message: string }
-  | { status: "ready"; presentation: PkmSectionPreviewPresentation };
+  | { status: "ready"; presentations: PkmSectionPreviewPresentation[]; missing: string[] };
 
 function statusBadgeClass(status: MarketplaceRequest["status"]): string {
   const base = "rounded-full px-2 py-0.5 text-[11px] font-medium ";
@@ -158,6 +161,29 @@ function extractDeliveredValue(
     }
   }
   return rest;
+}
+
+/** A packet arrives as one envelope with a part per detail; show a card for each. */
+function buildDeliveryPresentations(
+  request: MarketplaceRequest,
+  envelope: MarketplaceEncryptedEnvelope,
+  decrypted: unknown,
+): { presentations: PkmSectionPreviewPresentation[]; missing: string[] } {
+  if (!isPacketDeliveryPayload(decrypted)) {
+    return { presentations: [buildDeliveryPresentation(request, envelope, decrypted)], missing: [] };
+  }
+  const presentations = decrypted.parts.map((part) => {
+    const { domain, topLevelScopePath } = parseDeliveryScope(part.scope, part.domain);
+    return buildPkmSectionPreviewPresentation({
+      domain: domain || part.domain,
+      domainTitle: part.domain,
+      permissionLabel: part.label,
+      permissionDescription: null,
+      topLevelScopePath,
+      value: extractDeliveredValue(part.payload, domain),
+    });
+  });
+  return { presentations, missing: decrypted.missing.map((m) => m.label) };
 }
 
 /** Build the safe-summary presentation for a decrypted delivered slice. */
@@ -580,10 +606,10 @@ function OneMarketplacePageImpl() {
           return;
         }
         const decrypted = await decryptMarketplaceEnvelope({ userId: user.uid, envelope });
-        const presentation = buildDeliveryPresentation(request, envelope, decrypted);
+        const { presentations, missing } = buildDeliveryPresentations(request, envelope, decrypted);
         setDeliveries((current) => ({
           ...current,
-          [request.id]: { status: "ready", presentation },
+          [request.id]: { status: "ready", presentations, missing },
         }));
       } catch (error) {
         setDeliveries((current) => ({
@@ -736,6 +762,18 @@ function OneMarketplacePageImpl() {
     }
     return out;
   }, [records]);
+
+  // Packet contents are references to these same sections, never values.
+  const packetDetails = useMemo<PacketDetailOption[]>(
+    () =>
+      sections.map((section) => ({
+        domain: section.domainKey,
+        scopeHandle: section.permission.scopeHandle ?? section.permission.topLevelScopePath,
+        label: section.permission.label,
+        domainTitle: section.domainTitle,
+      })),
+    [sections]
+  );
 
   const priceInput = useCallback(
     (section: Section): SlicePricingInput => ({
@@ -1084,6 +1122,8 @@ function OneMarketplacePageImpl() {
           {/* OWNER VIEW — the single consent-first control panel */}
           <div className="space-y-4">
               {bandControls}
+              <PacketsPanel token={token} details={packetDetails} />
+              <PayoutsCard token={token} />
               {sections.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
@@ -1302,8 +1342,17 @@ function OneMarketplacePageImpl() {
                             {delivery?.status === "loading" ? (
                               <div className="text-sm text-muted-foreground">Decrypting your slice…</div>
                             ) : delivery?.status === "ready" ? (
-                              <div className="rounded-xl border bg-muted/20 p-4">
-                                <PkmSectionPreview presentation={delivery.presentation} />
+                              <div className="space-y-3">
+                                {delivery.presentations.map((presentation, index) => (
+                                  <div key={index} className="rounded-xl border bg-muted/20 p-4">
+                                    <PkmSectionPreview presentation={presentation} />
+                                  </div>
+                                ))}
+                                {delivery.missing.length > 0 ? (
+                                  <p className="text-xs text-muted-foreground">
+                                    Not saved yet by the owner: {delivery.missing.join(", ")}
+                                  </p>
+                                ) : null}
                               </div>
                             ) : (
                               <div className="flex flex-wrap items-center justify-between gap-2">

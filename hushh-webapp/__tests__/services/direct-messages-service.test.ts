@@ -143,6 +143,69 @@ describe("DirectMessagesService", () => {
     ).rejects.toThrow("You can only message an accepted connection.");
   });
 
+  it("sends edit, deletion, and reaction actions through participant-scoped routes", async () => {
+    const ownMessage = {
+      ...conversation.latestMessage,
+      senderIsViewer: true,
+      reactions: [{ emoji: "😀", count: 1, reactedByViewer: true }],
+    };
+    apiFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: { ...ownMessage, content: "Edited" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ scope: "me", message: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: ownMessage }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    await DirectMessagesService.editMessage({
+      idToken: "firebase-token",
+      conversationId: "conversation-1",
+      messageId: "message-1",
+      content: " Edited ",
+    });
+    await DirectMessagesService.deleteMessage({
+      idToken: "firebase-token",
+      conversationId: "conversation-1",
+      messageId: "message-1",
+      scope: "me",
+    });
+    const reacted = await DirectMessagesService.reactToMessage({
+      idToken: "firebase-token",
+      conversationId: "conversation-1",
+      messageId: "message-1",
+      emoji: "😀",
+    });
+
+    expect(apiFetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/one/messages/conversations/conversation-1/messages/message-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(apiFetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/one/messages/conversations/conversation-1/messages/message-1?scope=me",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(apiFetch).toHaveBeenNthCalledWith(
+      3,
+      "/api/one/messages/conversations/conversation-1/messages/message-1/reaction",
+      expect.objectContaining({ method: "PUT" }),
+    );
+    expect(reacted.reactions).toEqual([{ emoji: "😀", count: 1, reactedByViewer: true }]);
+  });
+
   it("uses the authenticated metadata-only realtime stream", async () => {
     const response = new Response(null, { status: 200 });
     apiFetchStream.mockResolvedValue(response);

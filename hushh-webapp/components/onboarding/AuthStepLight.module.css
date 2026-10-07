@@ -38,12 +38,17 @@
   pointer-events: none;
 }
 
-.brandEmoji {
-  position: relative;
-  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 56px;
-  line-height: 1;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.25));
+.brandIcon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 56px;
+  height: 56px;
+  max-width: none;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  user-select: none;
 }
 
 :global(html:not(.dark)) .shell {
@@ -111,8 +116,8 @@
 
 :global(html:not(.dark)) .providerButton {
   position: relative;
-  height: 60px !important;
-  min-height: 60px;
+  height: 51px !important;
+  min-height: 51px;
   padding: 0 8px 0 20px !important;
   border: 1px solid #d8d9e3 !important;
   border-radius: 16px !important;
@@ -167,7 +172,7 @@
 :global(html:not(.dark)) .providerIcon {
   display: block;
   position: absolute;
-  top: 18px;
+  top: 14px;
   height: 23px;
   object-fit: cover;
 }
@@ -293,8 +298,8 @@
 }
 :global(html.dark) .providerButton {
   position: relative;
-  height: 60px !important;
-  min-height: 60px;
+  height: 51px !important;
+  min-height: 51px;
   padding: 0 !important;
   border: 1px solid #45454b !important;
   border-radius: 16px !important;
@@ -331,7 +336,7 @@
   display: block;
   position: absolute;
   left: calc(50% - 122px);
-  top: 12px;
+  top: 7px;
   width: 37px;
   height: 37px;
 }
@@ -339,7 +344,7 @@
   display: block;
   position: absolute;
   left: calc(50% - 127px);
-  top: 19px;
+  top: 14px;
   width: 46px;
   height: 23px;
   object-fit: cover;

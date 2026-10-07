@@ -518,6 +518,13 @@ async def open_offered_mail(
             status_code=409,
             detail={"code": "MAIL_OFFER_SUPERSEDED", "current_revision": offer.revision},
         )
+    if offer is not None and offer.mailbox == "drafts":
+        # The drafts list shares this offer slot. A draft opens through
+        # /draft/open; its id is never a message id to read here.
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "MAIL_OFFER_UNRESOLVED", "offered": 0},
+        )
     message_id = ctx.entities.offered_mail_message_id(payload.ordinal)
     if offer is None or message_id is None:
         # Expired, replaced, or a position that was never offered. A refusal, not
@@ -564,6 +571,89 @@ async def open_offered_mail(
     # One row, already bounded and label-capped by the reader. Returned as it was
     # projected: the surface renders it as text, never as markup.
     return {"message": items[0], "coverage": metadata.get("coverage")}
+
+
+# Drafts-service refusals, by code. Anything unlisted is a provider failure.
+_DRAFT_OPEN_ERRORS = {
+    "GMAIL_NOT_CONNECTED": 409,
+    "GMAIL_READ_PERMISSION_REQUIRED": 409,
+    "GMAIL_PERMISSION_DENIED": 403,
+    "GMAIL_ACCOUNT_CHANGED": 409,
+    "GMAIL_DRAFT_TOO_LARGE": 413,
+    "INVALID_DRAFT_ID": 400,
+}
+
+
+@router.post("/draft/open")
+async def open_offered_draft(
+    payload: MailOpenRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Show the owner the draft at a position One offered them.
+
+    The drafts twin of ``/mail/open``: no model runs, the position is resolved
+    against the offer this server minted and persisted, fenced to the Google
+    account the drafts were listed in, and read with the readonly grant. The
+    response carries the draft's text and headers for the owner's screen and no
+    provider id.
+    """
+    from hushh_mcp.one_voice.config import voice_mail_drafts_enabled, voice_mail_reads_enabled
+    from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+    from hushh_mcp.services.gmail_drafts_service import get_gmail_draft
+    from hushh_mcp.services.gmail_receipts_service import GmailApiError
+
+    user_id = str(token_data.get("user_id") or "").strip()
+    if not voice_mail_drafts_enabled():
+        raise HTTPException(status_code=403, detail={"code": "VOICE_MAIL_DRAFTS_DISABLED"})
+    if not voice_mail_reads_enabled():
+        raise HTTPException(status_code=403, detail={"code": "VOICE_MAIL_READS_DISABLED"})
+    if not connector_feature_enabled("gmail_chat_reads", user_id):
+        raise HTTPException(status_code=403, detail={"code": "MAIL_READS_UNAVAILABLE"})
+
+    ctx = await _tool_context_for(token_data, payload.conversation_id, None)
+    offer = ctx.entities.offered_mail
+    if offer is not None and offer.revision != payload.offer_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "MAIL_OFFER_SUPERSEDED", "current_revision": offer.revision},
+        )
+    is_drafts = offer is not None and offer.mailbox == "drafts"
+    draft_id = ctx.entities.offered_mail_message_id(payload.ordinal) if is_drafts else None
+    if offer is None or draft_id is None:
+        # Expired, never offered, or a mail list rather than drafts: a message id
+        # is not a draft id, and nothing is fetched to find out.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "MAIL_OFFER_UNRESOLVED",
+                "offered": len(offer.message_ids) if is_drafts and offer else 0,
+            },
+        )
+    try:
+        draft = await get_gmail_draft(
+            user_id=user_id, draft_id=draft_id, expect_account=offer.account
+        )
+    except GmailApiError as exc:
+        code = str(exc.code or "")
+        if code == "GMAIL_DRAFT_NOT_FOUND":
+            raise HTTPException(status_code=410, detail={"code": "DRAFT_GONE"}) from None
+        raise HTTPException(
+            status_code=_DRAFT_OPEN_ERRORS.get(code, 502),
+            detail={"code": code or "UNAVAILABLE"},
+        ) from None
+    # Text only, rendered as text by the surface. No draft, message or thread id.
+    return {
+        "draft": {
+            "to_label": draft.get("to_label"),
+            "to": list(draft.get("to_list") or []),
+            "cc": list(draft.get("cc_list") or []),
+            "bcc": list(draft.get("bcc_list") or []),
+            "subject": draft.get("subject"),
+            "body": draft.get("body_text"),
+            "body_truncated": bool(draft.get("body_truncated")),
+            "updated_at": draft.get("updated_at_iso"),
+        }
+    }
 
 
 @router.post("/pending-actions/{pending_action_id}/confirm")

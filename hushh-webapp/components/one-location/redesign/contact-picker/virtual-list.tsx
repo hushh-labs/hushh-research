@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useRef, type ReactNode } from "react";
+import { Fragment, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 
 import {
@@ -37,6 +37,7 @@ export function VirtualContactList<T>({
   scrollClassName,
   itemClassName,
   getItemRole,
+  scrollMode = "internal",
 }: {
   items: readonly T[];
   getKey: (item: T) => string;
@@ -75,13 +76,47 @@ export function VirtualContactList<T>({
    * byte-identical.
    */
   getItemRole?: (item: T) => string | undefined;
+  /** Page flows share the app scroll root instead of nesting a second scroller. */
+  scrollMode?: "internal" | "page";
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const virtualize = shouldVirtualizeList(items.length);
+  const [pageScroll, setPageScroll] = useState<{ root: HTMLElement; margin: number } | null>(null);
+  const measurePageScroll = useCallback(() => {
+    const list = scrollRef.current;
+    const root = scrollMode === "page"
+      ? list?.closest<HTMLElement>('[data-app-scroll-root="true"]')
+      : null;
+    if (!list || !root) {
+      setPageScroll((current) => current === null ? current : null);
+      return;
+    }
+    const margin = list.getBoundingClientRect().top - root.getBoundingClientRect().top
+      + root.scrollTop - root.clientTop;
+    setPageScroll((current) => current?.root === root && current.margin === margin
+      ? current : { root, margin });
+  }, [scrollMode]);
+
+  // Selection/search can move the list without resizing it. Measure after
+  // each commit, and observe ancestors for font, viewport and sibling changes.
+  useLayoutEffect(measurePageScroll);
+  useLayoutEffect(() => {
+    if (scrollMode !== "page" || !virtualize || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measurePageScroll);
+    for (let node: HTMLElement | null = scrollRef.current; node; node = node.parentElement) {
+      observer.observe(node);
+      if (node.matches('[data-app-scroll-root="true"]')) break;
+    }
+    return () => observer.disconnect();
+  }, [measurePageScroll, scrollMode, virtualize]);
+  const scrollMargin = pageScroll?.margin ?? 0;
 
   const virtualizer = useVirtualizer({
     count: virtualize ? items.length : 0,
-    getScrollElement: () => scrollRef.current,
+    enabled: scrollMode === "internal" || pageScroll !== null,
+    getScrollElement: () => scrollMode === "page" ? pageScroll?.root ?? null : scrollRef.current,
+    initialOffset: () => scrollMode === "page" ? pageScroll?.root.scrollTop ?? 0 : 0,
+    scrollMargin,
     estimateSize: () => CONTACT_ROW_HEIGHT_PX,
     // Five rows of runway on each side: enough that a fast flick never shows
     // blank space, small enough that a 100-person list still mounts ~15 rows.
@@ -113,6 +148,7 @@ export function VirtualContactList<T>({
     return (
       <Shell>
         <div
+          ref={scrollRef}
           data-testid={testId}
           data-no-auto-fade="true"
           aria-label={ariaLabel}
@@ -146,11 +182,11 @@ export function VirtualContactList<T>({
         aria-label={ariaLabel}
         role={ariaLabel ? "list" : undefined}
         className={cn(
-          "overflow-y-auto overscroll-contain",
+          scrollMode === "page" ? "overflow-visible" : "overflow-y-auto overscroll-contain",
           // Momentum scrolling in the Capacitor webview; without it a long
           // roster scrolls with a dead, non-native feel on iOS.
           "[-webkit-overflow-scrolling:touch]",
-          asCards ? scrollClassName : maxHeightClassName,
+          scrollMode === "internal" && (asCards ? scrollClassName : maxHeightClassName),
         )}
       >
         <div
@@ -175,7 +211,7 @@ export function VirtualContactList<T>({
                     ? itemClassName
                     : "border-b border-[color:var(--app-separator)] last:border-b-0",
                 )}
-                style={{ transform: `translateY(${virtualItem.start}px)` }}
+                style={{ transform: `translateY(${virtualItem.start - scrollMargin}px)` }}
               >
                 {renderItem(item)}
               </div>

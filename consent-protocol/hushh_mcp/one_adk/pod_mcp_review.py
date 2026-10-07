@@ -1,12 +1,21 @@
 """Preview an existing pod-native pending call without revealing it to the hub."""
 
-from hushh_mcp.one_adk.mcp_pending_call import pending_call_details, restore_pending_call
+from hushh_mcp.one_adk.mcp_pending_call import (
+    pending_call_details,
+    private_pending_call_scope,
+    restore_pending_call,
+)
 from hushh_mcp.one_adk.mcp_review_service import current_approval, review_tool
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.pod_mcp_approval import PodMcpTerms
 
 
 async def prepare_private_review(owner, connector_id, body):
+    with private_pending_call_scope():
+        return await _prepare_private_review(owner, connector_id, body)
+
+
+async def _prepare_private_review(owner, connector_id, body):
     await owner.require_access()
     if not body.pendingHandle or body.arguments or body.connectorConfiguration is None:
         raise ActionDirectiveAuthorityError("Review the pending private connector call.")
@@ -15,8 +24,8 @@ async def prepare_private_review(owner, connector_id, body):
     )
     if session is None:
         raise ActionDirectiveAuthorityError("Private conversation unavailable.")
-    pending = pending_call_details(session, body.pendingHandle)
-    restore_pending_call(session, body.pendingHandle)
+    pending = await pending_call_details(session, body.pendingHandle)
+    await restore_pending_call(session, body.pendingHandle)
     review = pending.get("review") or {}
     recorded = PodMcpTerms.model_validate(review.get("podReview"))
     if review.get("connectorId") != connector_id or pending["tool_name"] != body.toolName:

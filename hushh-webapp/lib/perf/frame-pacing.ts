@@ -437,8 +437,12 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
     const composer = document.querySelector(CHROME_COMPOSER);
     if (!nav || !composer) return;
     const navY = translateY(nav);
-    const composerY = translateY(composer);
-    if (navY === null || composerY === null) return;
+    const localComposerY = translateY(composer);
+    if (navY === null || localComposerY === null) return;
+    // The canonical dock now carries both controls in this same compositor
+    // stack. Include its inherited travel; an independent composer offset
+    // still produces divergence, rather than pretending containment is proof.
+    const composerY = localComposerY + (nav.contains(composer) ? navY : 0);
     const sync = (w.chromeSync ??= { samples: 0, max_divergence_px: 0 });
     sync.samples += 1;
     sync.max_divergence_px = Math.max(sync.max_divergence_px, round(Math.abs(navY - composerY)));

@@ -146,8 +146,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     
     /// Cold-launch continuity. iOS dismisses LaunchScreen.storyboard when this
     /// controller's first frame commits, but the WKWebView has not painted its
-    /// document yet; for that gap it shows `ios.backgroundColor` (#0e0e10), a
-    /// dark frame in light mode and a missing mark in both. A copy of the launch
+    /// document yet; its backing canvas initially follows the system appearance
+    /// until React projects the chosen app theme. A copy of the launch
     /// screen stays over it until the first document finishes loading. That
     /// document opens on its boot surface, which draws the same mark at the same
     /// place and size (components/app-ui/boot-surface.tsx; the WebKit layout

@@ -138,6 +138,9 @@ type SheetContentProps =
     showDragHandle?: boolean
     /** Optional surface-specific scrim treatment for a semantic app sheet. */
     overlayClassName?: string
+    /** Explicit presentation refs for an app-owned side-sheet gesture. */
+    contentRef?: React.RefCallback<HTMLDivElement>
+    overlayRef?: React.Ref<HTMLDivElement>
     /**
      * Renders the full-screen scrim behind the sheet. On by default, because a
      * sheet normally IS the whole task and everything behind it should be
@@ -167,6 +170,8 @@ function SheetContent(
     contentDragDismiss = true,
     showDragHandle,
     overlayClassName,
+    contentRef,
+    overlayRef,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -188,7 +193,11 @@ function SheetContent(
     open: sheet?.open ?? false,
     onOpenChange: sheet?.onOpenChange ?? (() => undefined),
   })
-  const nativeContentRef = useNativeNavigationOverlayRef(setSheetContentRef, showOverlay)
+  const composedContentRef = React.useCallback((node: HTMLDivElement | null) => {
+    setSheetContentRef(node)
+    contentRef?.(node)
+  }, [setSheetContentRef, contentRef])
+  const nativeContentRef = useNativeNavigationOverlayRef(composedContentRef, showOverlay)
   const shouldShowDragHandle =
     side === "bottom" && dragDismiss && (showDragHandle ?? true)
   const dragEnabled = side === "bottom" && dragDismiss
@@ -207,7 +216,7 @@ function SheetContent(
 
   return (
     <SheetPortal>
-      {showOverlay ? <SheetOverlay className={overlayClassName} /> : null}
+      {showOverlay ? <SheetOverlay ref={overlayRef} className={overlayClassName} /> : null}
       <SheetPrimitive.Content
         ref={nativeContentRef}
         data-slot="sheet-content"

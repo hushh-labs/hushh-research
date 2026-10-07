@@ -21,7 +21,8 @@ describe("Profile pane touch navigation", () => {
     document.documentElement.removeAttribute("data-app-profile-edge-active");
   });
 
-  it("opens from a broad leftward body swipe on the One surface", () => {
+  it.each(["/one", "/one/", "/one/index.html", "/"])("opens from a broad leftward body swipe on %s", (pathname) => {
+    navigation.pathname = pathname;
     const opened = vi.fn();
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);
     render(<AppProfileEdgeGesture enabled />);
@@ -54,7 +55,18 @@ describe("Profile pane touch navigation", () => {
     // pane, but it must not cancel the browser's own touch handling.
     const opened = vi.fn();
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);
-    render(<AppProfileEdgeGesture enabled />);
+    const registrations = vi.spyOn(window, "addEventListener");
+    const view = render(<AppProfileEdgeGesture enabled />);
+    for (const name of ["pointerdown", "pointermove", "pointerup", "touchstart", "touchmove", "touchend"]) {
+      const listeners = registrations.mock.calls.filter(([type]) => type === name);
+      expect(listeners).toHaveLength(1);
+      expect(listeners[0]).toEqual([name, expect.any(Function),
+        expect.objectContaining({ capture: true, passive: true })]);
+    }
+    for (const [name, , options] of registrations.mock.calls) {
+      if (/^(pointer|touch)/.test(name)) expect(options).not.toEqual(expect.objectContaining({ passive: false }));
+    }
+    registrations.mockRestore();
 
     fireEvent.touchStart(document, {
       touches: [{ identifier: 7, clientX: 320, clientY: 160 }],
@@ -67,7 +79,9 @@ describe("Profile pane touch navigation", () => {
         { identifier: 7, clientX: 200, clientY: 162 } as unknown as Touch,
       ],
     });
+    const cancellation = vi.spyOn(move, "preventDefault");
     document.dispatchEvent(move);
+    expect(cancellation).not.toHaveBeenCalled();
     expect(move.defaultPrevented).toBe(false);
     expect(
       document.documentElement.getAttribute("data-app-profile-edge-active"),
@@ -78,6 +92,7 @@ describe("Profile pane touch navigation", () => {
       timeStamp: 140,
     });
     expect(opened).toHaveBeenCalled();
+    view.unmount();
     window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
   });
 
@@ -117,6 +132,32 @@ describe("Profile pane touch navigation", () => {
     window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
   });
 
+  it("opens from an admitted roster link drag without stealing its tap or a nested control", () => {
+    const opened = vi.fn();
+    const clicked = vi.fn((event: React.MouseEvent) => event.preventDefault());
+    window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);
+    const view = render(<><AppProfileEdgeGesture enabled /><a data-profile-body-swipe="" href="/one/calendar" onClick={clicked}>Calendar<button type="button"><svg data-testid="nested-control" /></button></a></>);
+    const link = view.getByText("Calendar");
+    fireEvent.click(link);
+    expect(clicked).toHaveBeenCalledTimes(1);
+    clicked.mockClear();
+    const swipe = (target: Element) => {
+      fireEvent.touchStart(target, { touches: [{ identifier: 1, clientX: 320, clientY: 160 }] });
+      fireEvent.touchMove(target, { touches: [{ identifier: 1, clientX: 150, clientY: 162 }] });
+      fireEvent.touchEnd(target, { changedTouches: [{ identifier: 1, clientX: 140, clientY: 162 }] });
+    };
+    swipe(view.getByTestId("nested-control"));
+    expect(opened).not.toHaveBeenCalled();
+    swipe(link);
+    expect(opened).toHaveBeenCalledTimes(1);
+    fireEvent.click(link, { detail: 1 });
+    expect(clicked).not.toHaveBeenCalled();
+    fireEvent.click(link, { detail: 0 }); // Keyboard activation is never consumed.
+    expect(clicked).toHaveBeenCalledTimes(1);
+    view.unmount();
+    window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
+  });
+
   it("does not attach the Profile opener to dedicated Profile routes", () => {
     navigation.pathname = "/one/profile/account";
     const opened = vi.fn();
@@ -140,8 +181,8 @@ describe("Profile pane touch navigation", () => {
     window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
   });
 
-  it("leaves Finance and other One descendants to their own swipe surfaces", () => {
-    navigation.pathname = "/one/finance";
+  it.each(["/one/finance", "/one/finance/", "/one/finance/index.html"])("leaves %s to its own swipe surfaces", (pathname) => {
+    navigation.pathname = pathname;
     const opened = vi.fn();
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);
     const view = render(<AppProfileEdgeGesture enabled />);

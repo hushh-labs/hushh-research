@@ -383,10 +383,10 @@ Used by:
 | `SUPPORT_EMAIL_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Support recipient. Defaults to `ONE_EMAIL_ADDRESS`. |
 | `SUPPORT_EMAIL_TEST_TO` | `hushh_mcp/services/support_email_service.py` | Optional | Test recipient for non-production email verification. |
 | `SUPPORT_EMAIL_MODE` | `hushh_mcp/services/support_email_service.py` | Optional | `live` or `test`. Non-production defaults to `test` when `SUPPORT_EMAIL_TEST_TO` exists. |
-| `GMAIL_OAUTH_CLIENT_ID` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client id. Same key name across local, UAT, and production. |
-| `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_CLIENT_ID` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail connection and live receipt reads) | Gmail OAuth client id. Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail connection and live receipt reads) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail receipts and owner-approved send) | Environment-owned Gmail OAuth callback. It must equal `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return`; register that exact URI in the Google OAuth client for each environment. |
-| `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail connection and live receipt reads) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
 | `GOOGLE_OAUTH_CLIENT_ID` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Dedicated Google Calendar OAuth client id. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Dedicated Google Calendar OAuth client secret. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Must equal `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return`; register that exact URI in the Calendar OAuth client. |
@@ -411,6 +411,12 @@ Used by:
 | `SYNC_REMOTE_ENABLED` | deploy env (`deploy/backend.cloudbuild.yaml`) | No | Legacy deploy flag; currently not read by backend code |
 | `DEVELOPER_API_ENABLED` | `server.py`, `mcp_modules/config.py`, `api/developer_auth.py` | No | Enabled in both UAT and production; sourced from `BACKEND_RUNTIME_CONFIG_JSON`'s `developer_api_enabled` key via `hydrate_runtime_environment()`, not a literal Cloud Run env var |
 | `HUSSH_TECH_CLIENT_ENABLED` | `hushh_mcp/services/hushh_tech_client_service.py` | No | UAT-only cohort switch from `BACKEND_RUNTIME_CONFIG_JSON`; production is hard-disabled in code |
+| `ONE_VOICE_MAIL_REPLY_ENABLED` | `hushh_mcp/one_voice/config.py`, `api/routes/one/gmail_delivery.py` | No | One Voice reply-in-thread (`reply_mail` and the HTTP send of a reply card). Off unless set; `deploy-uat.yml` passes `--one-voice-mail-reply-enabled` (`vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT`, default `true`) and production passes `false`, so it arrives through `BACKEND_RUNTIME_CONFIG_JSON`'s `one_voice_mail_reply_enabled` key, not a literal Cloud Run env var |
+| `ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED` | `hushh_mcp/one_voice/config.py` | No | One Voice scheduled send (`schedule_mail`, `list_scheduled_mail`, `cancel_scheduled_mail`); also their kill switch. Off unless set; `deploy-uat.yml` passes `--one-voice-mail-schedule-send-enabled` (`vars.ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_UAT`, default `true`) and production passes `false`, through `BACKEND_RUNTIME_CONFIG_JSON`'s `one_voice_mail_schedule_send_enabled` key |
+| `ONE_VOICE_MAIL_DRAFTS_ENABLED` | `hushh_mcp/one_voice/config.py`, `api/routes/one/voice.py` | No | One Voice Gmail drafts (`list_drafts`, `open_draft`, `send_draft` and the draft open route); also their kill switch. Off unless set; `deploy-uat.yml` passes `--one-voice-mail-drafts-enabled` (`vars.ONE_VOICE_MAIL_DRAFTS_ENABLED_UAT`, default `true`) and production passes `false`, through `BACKEND_RUNTIME_CONFIG_JSON`'s `one_voice_mail_drafts_enabled` key |
+| `MAIL_SCHEDULED_DRAIN_ENABLED` | `api/routes/one/scheduled_mail_drain.py` | No | Opens `POST /api/one/email/scheduled/drain`, the Cloud Scheduler drain that delivers scheduled mail; the route answers 404 unless this is exactly `true`. Turning it off pauses delivery without withdrawing scheduling. `deploy-uat.yml` passes `--mail-scheduled-drain-enabled` (`vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT`, default `true`; the same variable pauses or resumes the `mail-scheduled-send-uat` job) and production passes `false`, through `BACKEND_RUNTIME_CONFIG_JSON`'s `mail_scheduled_drain_enabled` key |
+| `MAIL_SCHEDULED_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL` | `api/routes/one/scheduled_mail_drain.py` | No | Optional restatement of the hard-coded scheduler identity (`mail-scheduled-send@hushh-pda-uat.iam.gserviceaccount.com` in UAT/test/local, `mail-scheduled-send@hushh-pda.iam.gserviceaccount.com` in production). Any other value makes the drain answer 503; it cannot widen who may call it |
+| `MAIL_SCHEDULED_DRAIN_SCHEDULER_AUDIENCE` | `api/routes/one/scheduled_mail_drain.py` | No | Optional restatement of the hard-coded OIDC audience (`https://api.uat.hushh.ai` in UAT/test/local, `https://api.hushh.ai` in production). Any other value makes the drain answer 503 |
 | `HUSSH_TECH_DEVELOPER_APP_ID` | `api/routes/hushh_tech.py` | No | Exact UAT product registration id from `BACKEND_RUNTIME_CONFIG_JSON` |
 | `HUSSH_TECH_ALLOWED_AUDIENCE` | `hushh_mcp/services/hushh_tech_client_service.py` | No | Exact UAT product audience from `BACKEND_RUNTIME_CONFIG_JSON` |
 | `HUSSH_TECH_ALLOWED_REDIRECT_URIS` | `hushh_mcp/services/hushh_tech_client_service.py` | No | Exact UAT HTTPS callback allowlist from `BACKEND_RUNTIME_CONFIG_JSON` |
@@ -427,6 +433,15 @@ Used by:
 | `DEVELOPER_REGISTRY_JSON` | n/a (legacy) | Optional legacy | Legacy developer registry payload; no active backend reader |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py` (`/api/user/lookup`) | Optional | Self-serve developer token for stdio MCP and token-auth developer lookups. Not part of the normal hosted runtime bootstrap. |
 
+Live Gmail receipt read-through introduces no new credential or persistence
+configuration. It reuses the four `GMAIL_OAUTH_*` settings above, the existing
+encrypted per-owner connection, managed Vertex configuration for the
+manifest-owned Email receipt extractor, and `APP_SIGNING_KEY` for opaque source
+handle integrity. Do not add a browser/native receipt token, a receipt-storage
+secret, or a client-visible model credential. `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE`
+is presentation-only public configuration and must never carry any of those
+values.
+
 **Migrations/scripts:** Use **DB_*** only (same as runtime). `db/migrate.py` uses `db.connection.get_database_url()` and `get_database_ssl()`. No `DATABASE_URL` anywhere.
 
 ### Frontend (hushh-webapp)
@@ -434,6 +449,7 @@ Used by:
 | Variable | Where read | Required | Notes |
 |----------|------------|----------|--------|
 | `NEXT_PUBLIC_BACKEND_URL` | `lib/api/consent.ts`, `lib/config.ts`, api routes, etc. | Yes | Prod build: from Secret Manager `BACKEND_URL` |
+| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | `components/gmail/gmail-recent-receipts.tsx` | No | Public HTTPS image URL with exactly one `{domain}` placeholder. Receipt rows substitute only a reviewed canonical merchant domain; unset or invalid configuration uses the generic receipt icon. Never place a provider secret here. |
 | `NEXT_PUBLIC_FIREBASE_*` (6 base keys) | `lib/firebase/config.ts` | Yes | API key, auth domain, project ID, storage bucket, messaging sender ID, app ID |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | `lib/notifications/fcm-service.ts` | Yes (prod build) | Web FCM token registration; from Firebase Console. See [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md). |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | `lib/observability/env.ts` | Recommended | Active GA4 measurement ID for the deployed environment |
@@ -475,10 +491,10 @@ Used by:
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | ADC local/hosted | Yes | Local: env; Prod: Cloud Run env | Vertex routing; authentication comes from ADC. |
 | `GOOGLE_MAPS_API_KEY` | Yes (One Location maps) | Yes | Local: `.env`; Prod: Secret Manager | Server-side Places New, Geocoding, and Routes key; never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | No | No | Local: `hushh-webapp/.env.local`; Frontend runtime env | Optional Next.js proxy timeout for Agent chat SSE streams. Defaults to `120000`. |
-| `GMAIL_OAUTH_CLIENT_ID` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
-| `GMAIL_OAUTH_CLIENT_SECRET` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_CLIENT_ID` | Yes (Gmail connection and live receipt reads) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_CLIENT_SECRET` | Yes (Gmail connection and live receipt reads) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | Yes (Gmail receipts and owner-approved send) | Yes | Local: `.env`; Hosted: Secret Manager | Must equal the active environment origin plus `/one/profile/gmail/oauth/return`; local bootstrap explicitly restores the localhost callback after reading shared connector credentials. |
-| `GMAIL_OAUTH_TOKEN_KEY` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
+| `GMAIL_OAUTH_TOKEN_KEY` | Yes (Gmail connection and live receipt reads) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
 | `GOOGLE_OAUTH_CLIENT_ID` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Dedicated Calendar OAuth client id. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Dedicated Calendar OAuth client secret. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Must equal the active environment origin plus `/one/profile/google/oauth/return`. |
@@ -498,6 +514,7 @@ Used by:
 | `ONE_LOCATION_RETENTION_TOKEN` | Yes (hosted retention) | Yes | Secret Manager | Dedicated token for location retention purge. Do not reuse `ONE_EMAIL_WATCH_RENEW_TOKEN`. |
 | `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | Yes (hosted account deletion) | No | Hosted Cloud Run env | Exact backend-origin audience for the Google OIDC scheduler token. |
 | `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | Yes (hosted account deletion) | No | Hosted Cloud Run env | Exact dedicated scheduler service account; do not grant it project roles or reuse the runtime identity. |
+| `ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED` / `ONE_VOICE_MAIL_DRAFTS_ENABLED` / `MAIL_SCHEDULED_DRAIN_ENABLED` | No | No | UAT: `BACKEND_RUNTIME_CONFIG_JSON` (default `true`); production: pinned `false` | Voice scheduled send, voice Gmail drafts, and the scheduled-mail drain. Unset is off. The drain's scheduler identity and audience are hard-coded in `api/routes/one/scheduled_mail_drain.py`; the optional `MAIL_SCHEDULED_DRAIN_SCHEDULER_*` overrides may only restate them. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | Optional local/test override | No | Local/test env only | Auth defaults on; hosted environments require `ONE_LOCATION_RETENTION_TOKEN` even if this flag is set false. |
 | `ONE_LOCATION_READ_ONLY_STATE_ENABLED` | Hosted rollout gate | No | `BACKEND_RUNTIME_CONFIG_JSON` | Service semantic default remains `true` when absent. Hosted deploys explicitly default to `false`; only UAT may opt in, and its deploy fails unless `one-location-retention-purge-uat` is enabled and targets the exact 12-hour purge endpoint. |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | Optional non-production override | No | Local/UAT Cloud Run env | Use `uat_simulation` or `disabled`; omit from production because production is hard-disabled in code. |
@@ -533,6 +550,39 @@ One mailbox production caveats:
   evidence exposes only header presence and never the value. The scheduler
   authenticates with `X-Hushh-Maintenance-Token` set to the dedicated
   `ONE_LOCATION_RETENTION_TOKEN`; never print that header during verification.
+- One Voice scheduled mail is delivered by the UAT-only Cloud Scheduler job
+  `mail-scheduled-send-uat` (every minute, `Etc/UTC`), configured by
+  `deploy/gmail/setup_scheduled_mail_scheduler.sh` and verified by
+  `deploy-uat.yml` after release classification. It calls exactly
+  `POST https://api.uat.hushh.ai/api/one/email/scheduled/drain?limit=50` with a
+  Google OIDC token for the dedicated `mail-scheduled-send` service account
+  (no project roles, no stored credential). Production has no job and pins
+  `MAIL_SCHEDULED_DRAIN_ENABLED` to `false`. The repository variable
+  `vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT` (default `true`) is the single
+  source of truth for both the drain route and the job: the deploy passes it
+  to the scheduler step as `MAIL_SCHEDULED_DRAIN_ENABLED`. Anything other than
+  exactly `true` pauses an existing job (the step fails unless it reads back
+  `PAUSED`) and never creates one; `true` creates or updates the job, resumes
+  it if paused and fails unless it reads back `ENABLED`. To stop delivery, set
+  the variable to `false` and redeploy (any healthy UAT release applies it,
+  frontend-only included). A manual `gcloud scheduler jobs pause` works
+  immediately but is undone by the next UAT deploy while the variable is
+  `true`.
+- The drain's owner notifications (`mail_scheduled_sent`, `_failed`,
+  `_unknown`) carry `deep_link=/one/feed`. No web or native tap handler trusts
+  `deep_link`; every one of them sends these types to the Feed, which is where
+  the send outcome itself is projected. Every scheduled email the drain does
+  not send is recorded `failed` with a reason, so migration 252's trigger adds a
+  `mail_message_failed` Feed item even when notifications are off:
+  `schedule_window_passed` (due more than 24 hours ago, or the window closed
+  while it was armed), `recipient_disconnected`, `gmail_unavailable` (Gmail is
+  disconnected or needs re-auth; the notification asks the owner to reconnect
+  Gmail), `sender_changed` (a different Google account is connected now) and
+  `recipient_changed`. None is ever sent, and no notification offers a resend:
+  the owner can ask One to schedule it again. Every terminal scheduled row has
+  its sealed payload and subject cleared, and each drain run clears a bounded
+  batch of finished scheduled rows that still hold either. Account reset
+  deletes the owner's scheduled sends.
 - Account-deletion cleanup uses a dedicated Google OIDC scheduler identity and
   exact backend-origin audience. Never copy a reusable token into Cloud
   Scheduler headers or job metadata; the Scheduler service agent may mint only
@@ -577,6 +627,7 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 | Variable | Required | Secret | Where set | Notes |
 |----------|----------|--------|-----------|--------|
 | `NEXT_PUBLIC_BACKEND_URL` | Yes | No | Local: `.env.local`; Prod build: Secret Manager (BACKEND_URL) | Baked at build time |
+| `NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE` | No | No | Local/build-time public config | Optional HTTPS template with exactly one `{domain}` placeholder. It must contain no secret; unset or invalid configuration fails closed to the generic receipt icon. |
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | Yes | No | Local: `.env.local`; CI: dummy; Prod: build-arg | Public |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Yes | No | Same as above | |
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Yes | No | Same as above | |

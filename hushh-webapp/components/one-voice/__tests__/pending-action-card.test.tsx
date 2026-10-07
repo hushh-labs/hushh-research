@@ -470,3 +470,180 @@ describe("PendingActionCard", () => {
     ).toBeNull();
   });
 });
+
+describe("PendingActionCard Edit name", () => {
+  const circle = (overrides: Partial<PendingActionView> = {}) =>
+    pending({
+      pending_action_id: "11111111-aaaa-4bbb-8ccc-000000000001",
+      tool: "create_circle",
+      gateway_action_id: "location.create_circle",
+      summary: "create a friends circle called Hush Garage V4",
+      args: { name: "Hush Garage V4", kind: "friends" },
+      entities: [],
+      receiptToken: null,
+      ...overrides,
+    });
+  const accepted = {
+    status: "accepted" as const,
+    reasonCode: null,
+    message: null,
+    pendingActionId: "11111111-aaaa-4bbb-8ccc-000000000002",
+  };
+
+  it("offers Edit name only on an open create_circle card whose relay accepts it", () => {
+    const onEditName = vi.fn(async () => accepted);
+    const view = render(
+      <PendingActionCard
+        action={circle()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={onEditName}
+      />,
+    );
+    expect(screen.getByTestId("one-voice-edit-name")).toHaveTextContent("Edit name");
+    // No relay support (the panel passes no handler), another tool, or a
+    // settled card: no button.
+    view.rerender(
+      <PendingActionCard action={circle()} onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.queryByTestId("one-voice-edit-name")).toBeNull();
+    view.rerender(
+      <PendingActionCard
+        action={pending()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={onEditName}
+      />,
+    );
+    expect(screen.queryByTestId("one-voice-edit-name")).toBeNull();
+    view.rerender(
+      <PendingActionCard
+        action={circle({ resolvedStatus: "cancelled" })}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={onEditName}
+      />,
+    );
+    expect(screen.queryByTestId("one-voice-edit-name")).toBeNull();
+  });
+
+  it("opens an inline editor with the card's name, focused, and holds Confirm while it is open", () => {
+    render(
+      <PendingActionCard
+        action={circle()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={vi.fn(async () => accepted)}
+      />,
+    );
+    expect(screen.getByTestId("one-voice-pending-confirm")).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId("one-voice-edit-name"));
+
+    const input = screen.getByTestId("one-voice-name-edit-input");
+    expect(input).toHaveValue("Hush Garage V4");
+    expect(input).toHaveAccessibleName("Circle name");
+    expect(input).toHaveFocus();
+    expect(screen.getByTestId("one-voice-pending-confirm")).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "  HUSSH   GARAGE  V04 " } });
+    expect(screen.getByTestId("one-voice-name-edit-preview")).toHaveTextContent(
+      "HUSSH GARAGE V04",
+    );
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(screen.getByTestId("one-voice-name-edit-review")).toBeDisabled();
+  });
+
+  it("sends the collapsed name, and on a refusal keeps the editor open with the reason", async () => {
+    const onEditName = vi.fn(async () => ({
+      status: "rejected" as const,
+      reasonCode: "invalid_name",
+      message: "Keep the name to 80 characters or fewer.",
+      pendingActionId: null,
+    }));
+    render(
+      <PendingActionCard
+        action={circle()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={onEditName}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("one-voice-edit-name"));
+    fireEvent.change(screen.getByTestId("one-voice-name-edit-input"), {
+      target: { value: "  HUSSH   GARAGE  V04 " },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("one-voice-name-edit-review"));
+    });
+
+    expect(onEditName).toHaveBeenCalledExactlyOnceWith("HUSSH GARAGE V04");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Keep the name to 80 characters or fewer.",
+    );
+    expect(screen.getByTestId("one-voice-name-edit-input")).toHaveValue(
+      "  HUSSH   GARAGE  V04 ",
+    );
+    expect(screen.getByTestId("one-voice-pending-confirm")).toBeDisabled();
+  });
+
+  it("goes Back to the card with focus on Edit name and Confirm available again", () => {
+    render(
+      <PendingActionCard
+        action={circle()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={vi.fn(async () => accepted)}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("one-voice-edit-name"));
+    fireEvent.click(screen.getByTestId("one-voice-name-edit-back"));
+
+    expect(screen.queryByTestId("one-voice-name-edit-input")).toBeNull();
+    expect(screen.getByTestId("one-voice-edit-name")).toHaveFocus();
+    expect(screen.getByTestId("one-voice-pending-confirm")).not.toBeDisabled();
+  });
+
+  it("closes the editor when the relay replaces the card with the new one", async () => {
+    const onEditName = vi.fn(async () => accepted);
+    const view = render(
+      <PendingActionCard
+        action={circle()}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={onEditName}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("one-voice-edit-name"));
+    fireEvent.change(screen.getByTestId("one-voice-name-edit-input"), {
+      target: { value: "HUSSH GARAGE V04" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("one-voice-name-edit-review"));
+    });
+    // The old card resolved as cancelled; its Confirm never comes back.
+    view.rerender(
+      <PendingActionCard
+        action={circle({ resolvedStatus: "cancelled", status: "cancelled" })}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={onEditName}
+      />,
+    );
+    expect(screen.queryByTestId("one-voice-pending-confirm")).toBeNull();
+    view.rerender(
+      <PendingActionCard
+        action={circle({
+          pending_action_id: accepted.pendingActionId,
+          summary: "create a friends circle called HUSSH GARAGE V04",
+          args: { name: "HUSSH GARAGE V04", kind: "friends" },
+        })}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        onEditName={onEditName}
+      />,
+    );
+    expect(screen.queryByTestId("one-voice-name-edit-input")).toBeNull();
+    expect(screen.getByTestId("one-voice-pending-confirm")).not.toBeDisabled();
+    expect(screen.getByText("create a friends circle called HUSSH GARAGE V04")).toBeInTheDocument();
+  });
+});

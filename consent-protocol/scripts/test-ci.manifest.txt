@@ -9,8 +9,12 @@ tests/services/test_external_connector_google_oauth.py
 tests/services/test_external_mcp_connector_descriptor.py
 tests/test_configure_external_mcp_connector.py
 tests/services/test_external_connector_curated_oauth.py
+tests/services/test_external_connector_oauth_dispatch.py
+tests/services/test_curated_connector_manifest.py
+tests/services/test_curated_registry_drift.py
 tests/test_uat_connector_rollout_contract.py
 tests/services/test_external_connector_registry_ownership.py
+tests/services/test_external_connector_dev_overlay.py
 tests/test_drive_uat_registry_provisioning.py
 tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
@@ -57,6 +61,7 @@ tests/services/test_drive_suggestions.py
 tests/services/test_drive_suggestion_coverage.py
 tests/services/test_drive_suggestion_recency.py
 tests/services/test_document_review_authority_postgres.py
+tests/services/test_mcp_pending_call_postgres.py
 tests/services/test_drive_sharing_store.py
 tests/services/test_drive_sharing_retention.py
 tests/services/test_drive_permission_executor.py
@@ -95,6 +100,8 @@ tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
 tests/test_encrypted_blob_bounds.py
 tests/test_gmail_receipt_cache_cutover.py
+tests/services/test_gmail_receipt_live_service.py
+tests/test_gmail_receipt_live_routes.py
 tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
@@ -213,6 +220,28 @@ tests/test_contact_discovery_security.py
 tests/test_contact_sync_postgres_integration.py
 tests/services/test_actor_identity_service.py
 tests/services/test_connection_graph_service.py
+
+# Referral program: attribution integrity (self-referral, predates-link,
+# duplicate, expiry), the qualification pipeline (onboarding-completion is
+# the whole bar), the gamification foundation (program settings + weekly
+# reward round schedule, migration 270), cumulative scoring (base/flash/
+# streak points, the durable worker, leaderboard snapshots, migration 271),
+# and circles/milestones (team contest selection, event-time contribution
+# snapshots, lifetime entitlements, fulfillment foundation, migration 272).
+# Absent from this manifest means collect-only, not run.
+tests/services/test_one_referral_service_bind_attribution.py
+tests/services/test_one_referral_service_qualification.py
+tests/services/test_one_referral_program_settings_service.py
+tests/test_one_referral_scoring_points.py
+tests/services/test_one_referral_scoring_service.py
+tests/test_referral_scoring_drain_routes.py
+tests/test_one_referral_scoring_milestones.py
+tests/services/test_one_referral_circle_service.py
+tests/services/test_one_referral_rewards_service.py
+tests/test_one_referral_handle.py
+tests/services/test_one_referral_display_handle_service.py
+tests/services/test_one_referral_leaderboard_service.py
+tests/services/test_one_referral_weekly_award_service.py
 
 # One Location Circles, and the migration guards that protect them.
 #
@@ -483,8 +512,25 @@ tests/one_voice/test_relay_sos_lifecycle.py
 tests/one_voice/test_confirm_route_actor_proof.py
 tests/one_voice/test_tools_sharing.py
 tests/one_voice/test_tools_circles.py
+tests/one_voice/test_spelling.py
+tests/one_voice/test_relay_name_edit.py
 tests/one_voice/test_tools_sos.py
 tests/one_voice/test_tools_mail.py
+tests/one_voice/test_mail_send.py
+tests/one_voice/test_relay_mail_send.py
+tests/one_voice/test_live_mail_tool_selection_eval.py
+tests/one_voice/test_mail_reply.py
+tests/one_voice/test_relay_mail_reply.py
+# Mail delivery and read contracts the voice path relies on: one Send per
+# reviewed draft, no retry on an unknown outcome, nonpersisting personal-info
+# assessment, and narration off unless switched on.
+tests/services/test_gmail_delivery_service.py
+tests/test_one_gmail_delivery_routes.py
+tests/services/test_gmail_personal_information_request_service.py
+tests/services/test_voice_narration.py
+# Reply in the original thread: a derived recipient, subject and thread, the
+# opaque source reference, and the account and self-reply fences.
+tests/services/test_gmail_reply_source_service.py
 tests/one_voice/test_relay_external_content_isolation.py
 tests/one_voice/test_tools_profile.py
 tests/one_voice/test_tools_account_lifecycle.py
@@ -557,6 +603,20 @@ tests/test_one_output_privacy.py
 # A long paste travels as its own text/plain document part: the model reads it as a
 # named, delimited document and history restores it as a chip, not message text.
 tests/test_one_text_attachments.py
+tests/one_adk/test_mcp_oauth_storage.py
+tests/services/test_external_mcp_client.py
+tests/services/test_external_mcp_result.py
+tests/services/test_external_mcp_safe_logging.py
+tests/services/test_mcp_catalog_cache.py
+tests/services/test_mcp_connector_probe.py
+tests/services/test_mcp_public_http.py
+tests/services/test_google_calendar_mcp_service.py
+tests/services/test_google_gmail_mcp_service.py
+tests/test_registered_connector_keys.py
+tests/test_connector_crypto_profiles.py
+tests/test_external_mcp_schema_dialects.py
+tests/test_external_mcp_client_failure_logging.py
+tests/test_external_mcp_schema_evaluation_budget.py
 tests/test_one_turn_location.py
 
 # Owner standing style: closed schema, template-only prompt section, no authority.
@@ -571,6 +631,7 @@ tests/test_personal_agent_cloud_assignment.py
 # connector ids and review outcomes reach the browser wire.
 # A review ledger outage reads as "review unavailable", never a declined approval;
 # OAuth sign-in admits metadata a real (streaming) transport has not yet read.
+tests/test_one_run_errors.py
 tests/one_adk/test_mcp_oauth_connection.py
 # Returning to a chat restores its Activity rows and connect card from the turn's
 # own encrypted events, projecting only tool ids, outcome enums and opaque ids.
@@ -614,6 +675,10 @@ tests/test_consent_redaction.py
 tests/test_consent_outcome_delivery_postgres.py
 tests/test_consent_listener_notifications.py
 tests/test_feed_metadata_allowlist.py
+# Useful Feed outcomes: real source transitions, audience/privacy/dedupe and
+# canonical Kai terminal delivery/cleanup. PostgreSQL runs in the serial lane.
+tests/test_feed_agent_outcomes_postgres.py
+tests/test_kai_feed_outcomes.py
 # Wave 2 consent (CONTRACT-2, 2026-09-28). One sensitivity authority, deny by
 # default, on the catalog, request progress and the shared card (C7). A
 # sensitive value never reaches the model on the continuation path: the real
@@ -623,6 +688,8 @@ tests/test_feed_metadata_allowlist.py
 tests/test_scope_sensitivity.py
 tests/test_consent_sensitive_continuation.py
 tests/test_shared_with_me_card.py
+tests/test_curated_connector_deploy_wiring.py
+tests/test_provision_curated_connector.py
 
 # Restored 2026-10-02. Merge 0d514ebe2 (2026-09-16) silently dropped these from
 # the manifest while they still existed, so the architecture guards (deployment
@@ -987,3 +1054,33 @@ tests/test_pod_owner_feed.py
 
 tests/test_personal_agent_notification_checkpoint.py
 tests/test_pod_browser_azure_probe.py
+
+# Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
+# send-time rules, and the schedule/list/cancel tools against the sealed ledger.
+tests/test_scheduled_mail_send_migration.py
+tests/services/test_owner_time.py
+tests/one_voice/test_mail_schedule.py
+
+# One Voice scheduled mail: send-once drain, its OIDC route and the UAT-only scheduler.
+tests/services/test_scheduled_mail_drain.py
+tests/test_scheduled_mail_drain_routes.py
+tests/test_scheduled_mail_scheduler_contract.py
+
+# Gmail drafts by voice: list/open/send by position, the send gate and the
+# drafts grant, one ledger row per send, and the draft open route.
+tests/services/test_gmail_drafts_service.py
+tests/one_voice/test_mail_drafts.py
+tests/one_voice/test_draft_open_route.py
+
+# Scheduled mail and draft sends on real PostgreSQL (serial lane): 275 over 173
+# with its CHECKs and refused rollback, one row per schedule under concurrent
+# confirmations, cancel frees the key, the drain fires a due row once under
+# concurrent drains and never touches an immediate send (send_at IS NULL), and
+# one draft send (one retry after a refusal) per draft.
+tests/services/test_scheduled_mail_postgres.py
+
+tests/test_pkm_packets_and_directory_claims.py
+tests/test_pkm_packet_orders.py
+tests/test_pkm_credits.py
+tests/test_pkm_payouts.py
+tests/test_one_career_routes.py

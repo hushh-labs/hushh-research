@@ -167,6 +167,7 @@ def test_production_worker_accepts_only_exact_prod_identity(client, monkeypatch)
                         "oauth_deleted": 0,
                         "native_picker_deleted": 0,
                         "picker_sessions_deleted": 0,
+                        "mcp_pending_calls_deleted": 0,
                     }
                 )
             },
@@ -219,6 +220,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "oauth_deleted": 0,
             "native_picker_deleted": 1,
             "picker_sessions_deleted": 1,
+            "mcp_pending_calls_deleted": 0,
             "private_email": "must-not-leak@example.invalid",
         }
     )
@@ -239,6 +241,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
                 "bulk_shares": {"succeeded": 2, "private_file_id": "not-allowed"},
                 "notifications": {"settled": 1},
                 "refunds": {"succeeded": 1, "private_payment_id": "not-allowed"},
+                "packet_orders": {"refunded": 1, "private_order_id": "not-allowed"},
             },
         }
     )
@@ -259,6 +262,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "oauth_deleted": 0,
             "native_picker_deleted": 1,
             "picker_sessions_deleted": 1,
+            "mcp_pending_calls_deleted": 0,
         },
         "schema_version": "drive.work_drain.v1",
         "workers": {
@@ -269,9 +273,11 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "bulk_shares": {"succeeded": 2},
             "notifications": {"settled": 1},
             "refunds": {"succeeded": 1},
+            "packet_orders": {"refunded": 1},
         },
     }
     assert "no-store" in response.headers["Cache-Control"]
+    assert "private_order_id" not in response.text
     assert "private_request_id" not in response.text
     assert "must-not-leak" not in response.text
     purge.assert_awaited_once_with()
@@ -295,6 +301,7 @@ def test_route_accepts_only_fixed_authorized_stages(client, monkeypatch, stage):
                         "oauth_deleted": 0,
                         "native_picker_deleted": 0,
                         "picker_sessions_deleted": 0,
+                        "mcp_pending_calls_deleted": 0,
                     }
                 )
             },

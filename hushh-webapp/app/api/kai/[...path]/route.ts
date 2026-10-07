@@ -30,6 +30,10 @@ const GMAIL_RECEIPTS_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_RECEIPTS_TIMEOUT_MS",
 });
+const GMAIL_LIVE_RECEIPTS_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
+  developmentFloorMs: 75_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_LIVE_RECEIPTS_TIMEOUT_MS",
+});
 // Nudges do a bounded live inbox read after the Gmail shell has rendered. Give
 // that non-blocking panel enough time for Google to answer instead of turning a
 // healthy, merely slow mailbox into a false load failure.
@@ -54,6 +58,78 @@ const GMAIL_CONNECT_COMPLETE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
 });
 function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
+}
+
+function isLiveReceiptPath(path: string): boolean {
+  return path === "gmail/receipts/scan" || path === "gmail/receipts/detail";
+}
+
+const LIVE_RECEIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  GMAIL_RECEIPT_OWNER_REQUIRED:
+    "Receipt access requires the current vault owner.",
+  GMAIL_RECEIPT_VAULT_REQUIRED:
+    "Open your private vault before loading receipts.",
+  GMAIL_NOT_CONNECTED: "Connect Gmail before loading receipts.",
+  GMAIL_READ_PERMISSION_REQUIRED:
+    "Reconnect Gmail to grant email reading permission.",
+  GMAIL_REAUTH_REQUIRED: "Reconnect Gmail before loading receipts.",
+  GMAIL_CONNECTION_CHANGED:
+    "The Gmail connection changed. Retry the receipt request.",
+  GMAIL_RECEIPT_SCAN_IN_PROGRESS:
+    "A receipt scan is already running for this account.",
+  GMAIL_RECEIPT_NOT_FOUND: "The selected receipt is not available.",
+  GMAIL_RECEIPT_SCAN_TIMEOUT:
+    "The Gmail receipt scan timed out. Please try again.",
+  GMAIL_RECEIPT_DETAIL_TIMEOUT:
+    "The Gmail receipt detail timed out. Please try again.",
+  GMAIL_RECEIPT_EXTRACTION_TIMEOUT:
+    "Receipt extraction timed out. Please try again.",
+  GMAIL_PROVIDER_UNAVAILABLE:
+    "Gmail is temporarily unavailable. Please try again.",
+  GMAIL_RECEIPT_RESPONSE_TOO_LARGE:
+    "The bounded Gmail receipt response was too large.",
+  GMAIL_RECEIPT_INVALID_RESPONSE:
+    "Gmail returned an invalid receipt response.",
+  GMAIL_RECEIPT_EXTRACTION_INVALID:
+    "Receipt extraction returned an invalid result.",
+  GMAIL_RECEIPT_EXTRACTION_UNVERIFIED:
+    "Receipt extraction could not be verified from the message.",
+  GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE:
+    "Receipt extraction is temporarily unavailable.",
+  GMAIL_RECEIPT_UNAVAILABLE:
+    "Receipts are temporarily unavailable. Please try again.",
+};
+
+function withKaiJson(
+  requestId: string,
+  path: string,
+  body: unknown,
+  init?: ResponseInit,
+) {
+  const response = withRequestIdJson(requestId, body, init);
+  if (isLiveReceiptPath(path)) {
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
+    response.headers.set("Pragma", "no-cache");
+  }
+  return response;
+}
+
+function sanitizeLiveReceiptErrorPayload(
+  path: string,
+  value: unknown,
+): unknown {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const detail = (value as { detail?: unknown }).detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      const code = (detail as { code?: unknown }).code;
+      if (typeof code === "string" && LIVE_RECEIPT_ERROR_MESSAGES[code]) {
+        return {
+          detail: { code, message: LIVE_RECEIPT_ERROR_MESSAGES[code] },
+        };
+      }
+    }
+  }
+  return buildUpstreamFailurePayload(path, null);
 }
 
 function isUpstreamTimeoutError(error: unknown): boolean {
@@ -162,6 +238,22 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
     };
   }
 
+  if (path === "gmail/receipts/scan") {
+    return {
+      error: "Receipt scan unavailable",
+      message:
+        "We couldn't scan Mail for receipts right now. Please try again in a moment.",
+    };
+  }
+
+  if (path === "gmail/receipts/detail") {
+    return {
+      error: "Receipt detail unavailable",
+      message:
+        "We couldn't load that Mail receipt right now. Please try again in a moment.",
+    };
+  }
+
   if (path.startsWith("gmail/receipts/")) {
     return {
       error: "Receipts unavailable",
@@ -184,6 +276,9 @@ function resolveKaiUpstreamTimeoutMs(path: string): number | null {
   if (path.startsWith("gmail/status/")) {
     return GMAIL_STATUS_TIMEOUT_MS;
   }
+  if (isLiveReceiptPath(path)) {
+    return GMAIL_LIVE_RECEIPTS_TIMEOUT_MS;
+  }
   if (path.startsWith("gmail/receipts/")) {
     return GMAIL_RECEIPTS_TIMEOUT_MS;
   }
@@ -205,7 +300,18 @@ function resolveKaiUpstreamTimeoutMs(path: string): number | null {
   return null;
 }
 
-function summarizeProxyError(error: unknown): Record<string, unknown> {
+function summarizeProxyError(
+  error: unknown,
+  options?: { omitDetails?: boolean },
+): Record<string, unknown> {
+  if (options?.omitDetails) {
+    return {
+      name:
+        error && typeof error === "object" && "name" in error
+          ? String((error as { name?: unknown }).name || "Error")
+          : "Error",
+    };
+  }
   if (!(error instanceof Error)) {
     return { message: String(error) };
   }
@@ -319,6 +425,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers: headers,
       body: body,
+      cache: isLiveReceiptPath(path) ? "no-store" : undefined,
       // The callback page can close as soon as the provider hands control
       // back. Its single-use code exchange must still finish within the
       // bounded server timeout so the Gmail opener can recover from persisted
@@ -370,15 +477,28 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
           `[Kai API] request_id=${requestId} no_active_analyze_run status=${response.status}`
         );
       } else {
-        console.error(
-          `[Kai API] request_id=${requestId} upstream_status=${response.status} path=${path}`,
-          data
-        );
+        if (isLiveReceiptPath(path)) {
+          console.error(
+            `[Kai API] request_id=${requestId} upstream_status=${response.status} path=${path}`,
+          );
+        } else {
+          console.error(
+            `[Kai API] request_id=${requestId} upstream_status=${response.status} path=${path}`,
+            data,
+          );
+        }
       }
-      return withRequestIdJson(requestId, data, { status: response.status });
+      return withKaiJson(
+        requestId,
+        path,
+        isLiveReceiptPath(path)
+          ? sanitizeLiveReceiptErrorPayload(path, data)
+          : data,
+        { status: response.status },
+      );
     }
 
-    return withRequestIdJson(requestId, data);
+    return withKaiJson(requestId, path, data);
   } catch (error) {
     // AbortSignal.timeout() may surface as an AbortError with an "aborted"
     // message in some Node/Undici versions. Check timeout first or a server
@@ -386,36 +506,41 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (isUpstreamTimeoutError(error)) {
       console.error(
         `[Kai API] request_id=${requestId} upstream_timeout path=${path}`,
-        summarizeProxyError(error),
+        summarizeProxyError(error, { omitDetails: isLiveReceiptPath(path) }),
       );
-      return withRequestIdJson(
+      return withKaiJson(
         requestId,
+        path,
         buildUpstreamFailurePayload(path, error),
         { status: 504 },
       );
     }
 
     if (isClientAbortError(error)) {
-      console.info(`[Kai API] request_id=${requestId} client_aborted path=${path}`);
-      return withRequestIdJson(
+      console.info(
+        `[Kai API] request_id=${requestId} client_aborted path=${path}`,
+      );
+      return withKaiJson(
         requestId,
+        path,
         {
           error: "Request cancelled",
           message: "The request was cancelled.",
         },
-        { status: 499 }
+        { status: 499 },
       );
     }
 
     console.error(
       `[Kai API] request_id=${requestId} proxy_error path=${path}`,
-      summarizeProxyError(error)
+      summarizeProxyError(error, { omitDetails: isLiveReceiptPath(path) }),
     );
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
-    return withRequestIdJson(
+    return withKaiJson(
       requestId,
+      path,
       buildUpstreamFailurePayload(path, error),
-      { status: statusCode }
+      { status: statusCode },
     );
   }
 }

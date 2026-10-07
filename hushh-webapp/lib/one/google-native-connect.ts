@@ -60,7 +60,7 @@ export type GoogleConnectorConnectOptions = {
 
 async function prepareTransition(owner: string, client: NativeGoogleClient, capability: string, confirmed: boolean): Promise<GoogleConnectorTransition | GoogleConnectorTransitionReview> {
   const response = await ApiService.apiFetch('/api/one/google/connect/transition/prepare', {
-    method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Consent-Token': capability },
+    method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Hushh-Consent': capability },
     body: JSON.stringify({ user_id: owner, client_profile: client.profile, confirmed }),
   });
   const body: unknown = await response.json().catch(() => null);
