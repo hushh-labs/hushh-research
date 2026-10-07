@@ -6,6 +6,7 @@ import {
   FormEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -191,8 +192,9 @@ export function DirectMessagesPage() {
   const requestedConversationId = String(
     searchParams?.get("conversation") || "",
   ).trim();
-  const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
+  const [storedThread, setThread] = useState<ThreadState>(EMPTY_THREAD);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
+  const [settledReadScopes, setSettledReadScopes] = useState<readonly string[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -208,12 +210,49 @@ export function DirectMessagesPage() {
     scope: "me" | "everyone";
   } | null>(null);
   const loadGeneration = useRef(0);
-  const loadedRouteKey = useRef<string | null>(null);
+  const loadedReadScopes = useRef<readonly string[]>([]);
+  const operationGeneration = useRef(0);
+  const actionToastIds = useRef(new Set<number>());
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const invalidateThreadRead = useCallback(() => { ++loadGeneration.current; }, []);
+  const invalidateOperations = useCallback(() => {
+    ++operationGeneration.current;
+    for (const id of actionToastIds.current) morphyToast.dismiss(id);
+    actionToastIds.current.clear();
+  }, []);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const activeConversationId = thread.conversation?.id ?? null;
   const hasRouteSelection = Boolean(requestedPersonRef || requestedConversationId);
+  const selectedRouteKey = requestedPersonRef
+    ? `person:${requestedPersonRef}`
+    : requestedConversationId ? `conversation:${requestedConversationId}` : null;
+  const readScope = user && selectedRouteKey
+    ? JSON.stringify([user.uid, selectedRouteKey]) : null;
+  const isCurrentRead = readScope !== null && settledReadScopes.includes(readScope);
+  // React can render the new owner/selection before effect cleanup runs. Keep
+  // the old transcript and send authority concealed during that interval.
+  const thread = isCurrentRead ? storedThread : EMPTY_THREAD;
+  const activeConversationId = thread.conversation?.id ?? null;
+  const settleReadScope = useCallback((scope: string | null) => {
+    const scopes = scope ? [scope] : [];
+    loadedReadScopes.current = scopes;
+    setSettledReadScopes(scopes);
+  }, []);
+
+  useLayoutEffect(() => {
+    invalidateOperations();
+    setSending(false);
+    setLoadingOlder(false);
+    setOpenMessageMenu(null);
+    setActiveMessageActions(null);
+    setReplyingTo(null);
+    setEditingMessage(null);
+    setEditingContent("");
+    setDeleteRequest(null);
+    return invalidateOperations;
+  }, [invalidateOperations, readScope]);
+
+  useEffect(() => { setDraft(""); }, [user?.uid]);
 
   const openOneVoiceChat = useCallback(() => {
     requestAgentConversationAfterRoute(ROUTES.HOME);
@@ -229,19 +268,25 @@ export function DirectMessagesPage() {
         : requestedConversationId
           ? `conversation:${requestedConversationId}`
           : null;
+      const requestScope = requestKey ? JSON.stringify([user.uid, requestKey]) : null;
 
       // A route change must never leave the previous connection's messages
       // visible beneath a new header while the next history request is in flight.
       // Background refreshes of the same route keep the readable transcript.
-      if (!options?.preserveMessages && loadedRouteKey.current !== requestKey) {
-        loadedRouteKey.current = requestKey;
+      if (!requestScope || !loadedReadScopes.current.includes(requestScope)) {
+        loadedReadScopes.current = requestScope ? [requestScope] : [];
+        setSettledReadScopes([]);
         setMessages([]);
         setThread(EMPTY_THREAD);
       }
-      if (!options?.preserveMessages) setLoadingThread(true);
-      setThreadError(null);
+      if (!options?.preserveMessages) {
+        setLoadingThread(true);
+        setSettledReadScopes((current) => requestScope && current.includes(requestScope) ? current : []);
+        setThreadError(null);
+      }
       try {
         const idToken = await user.getIdToken();
+        if (generation !== loadGeneration.current) return;
         if (requestedPersonRef) {
           const peer = await DirectMessagesService.getConversationWithPerson({
             idToken,
@@ -259,6 +304,8 @@ export function DirectMessagesPage() {
               nextBefore: null,
             });
             setMessages([]);
+            settleReadScope(requestScope);
+            setThreadError(null);
             return;
           }
           const history = await DirectMessagesService.getConversationMessages({
@@ -279,6 +326,8 @@ export function DirectMessagesPage() {
             }),
           );
           setMessages(sortMessages(history.items));
+          settleReadScope(requestScope);
+          setThreadError(null);
           if (history.conversation.unreadCount > 0) {
             void DirectMessagesService.markConversationRead({
               idToken,
@@ -296,7 +345,7 @@ export function DirectMessagesPage() {
         }
 
         if (!requestedConversationId) {
-          loadedRouteKey.current = null;
+          loadedReadScopes.current = [];
           setThread(EMPTY_THREAD);
           setMessages([]);
           return;
@@ -315,6 +364,8 @@ export function DirectMessagesPage() {
           }),
         );
         setMessages(sortMessages(history.items));
+        settleReadScope(requestScope);
+        setThreadError(null);
         if (history.conversation.unreadCount > 0) {
           void DirectMessagesService.markConversationRead({
             idToken,
@@ -334,7 +385,6 @@ export function DirectMessagesPage() {
         // conversation with a large error panel. The next focus, SSE update,
         // or explicit refresh will retry while the cached thread stays usable.
         if (options?.preserveMessages) {
-          setThreadError(null);
           return;
         }
         if (requestedPersonRef) {
@@ -352,16 +402,18 @@ export function DirectMessagesPage() {
             ? "This connection is not available for messaging right now."
             : "Messages could not be loaded. Check your connection and try again.",
         );
+        settleReadScope(requestScope);
       } finally {
         if (generation === loadGeneration.current) setLoadingThread(false);
       }
     },
-    [requestedConversationId, requestedPersonRef, user],
+    [requestedConversationId, requestedPersonRef, settleReadScope, user],
   );
 
   useEffect(() => {
     if (!user) {
-      loadedRouteKey.current = null;
+      loadedReadScopes.current = [];
+      setSettledReadScopes([]);
       setThread(EMPTY_THREAD);
       setMessages([]);
       return;
@@ -371,7 +423,8 @@ export function DirectMessagesPage() {
   useEffect(() => {
     if (!user) return;
     void loadThread();
-  }, [loadThread, user]);
+    return invalidateThreadRead;
+  }, [invalidateThreadRead, loadThread, user]);
 
   const refresh = useCallback(() => {
     if (hasRouteSelection) void loadThread({ preserveMessages: true });
@@ -474,7 +527,16 @@ export function DirectMessagesPage() {
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
-  const visibleMessages = messages;
+  const visibleMessages = isCurrentRead ? messages : [];
+  const nativeTest = {
+    routeId: "/one/messages",
+    marker: "native-route-direct-messages",
+    authState: authLoading ? "pending" : user ? "authenticated" : "anonymous",
+    dataState: authLoading ? "loading" : !user ? "unavailable-valid"
+      : !isCurrentRead || loadingThread ? "loading"
+      : threadError ? "error" : visibleMessages.length ? "loaded" : "empty-valid",
+    errorCode: isCurrentRead && threadError ? "direct_messages_read" : null,
+  } as const;
 
   const backToConnections = () => {
     router.replace(ROUTES.CONNECT, { scroll: false });
@@ -483,6 +545,8 @@ export function DirectMessagesPage() {
   const sendDraft = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     if (!user || sending || !thread.canSend) return;
+    const generation = operationGeneration.current;
+    const isCurrentOperation = () => generation === operationGeneration.current;
     const content = draft;
     const recipientPersonRef = thread.peerPersonRef || requestedPersonRef;
     if (!recipientPersonRef) {
@@ -492,12 +556,14 @@ export function DirectMessagesPage() {
     setSending(true);
     try {
       const idToken = await user.getIdToken();
+      if (!isCurrentOperation()) return;
       const result = await DirectMessagesService.sendMessage({
         idToken,
         content,
         recipientPersonRef,
         replyToMessageId: replyingTo?.id,
       });
+      if (!isCurrentOperation()) return;
       setDraft("");
       setReplyingTo(null);
       setMessages((current) => mergeMessages(current, [result.message]));
@@ -519,19 +585,27 @@ export function DirectMessagesPage() {
       // The route becomes conversation-addressed after the first send. Keep
       // the optimistically rendered, server-returned record visible while the
       // matching history refresh resolves.
-      loadedRouteKey.current = `conversation:${result.conversation.id}`;
+      // Admit only this owner's exact source and destination during the
+      // navigation handoff. An unrelated route or a new owner cannot inherit
+      // either the retained transcript or its send authority.
+      const destinationScope = JSON.stringify([user.uid, `conversation:${result.conversation.id}`]);
+      const handoffScopes = readScope ? [readScope, destinationScope] : [destinationScope];
+      ++loadGeneration.current;
+      loadedReadScopes.current = handoffScopes;
+      setSettledReadScopes(handoffScopes);
       router.replace(
         buildDirectMessageRoute({ conversationId: result.conversation.id }),
         { scroll: false },
       );
     } catch {
+      if (!isCurrentOperation()) return;
       setDraft(content);
       morphyToast.error("Message could not be sent. Check your connection and try again.");
       // A 403/409 is authoritative: redraw the thread as read-only instead of
       // leaving a stale connected composer visible.
       void loadThread({ preserveMessages: true });
     } finally {
-      setSending(false);
+      if (isCurrentOperation()) setSending(false);
     }
   };
 
@@ -539,15 +613,19 @@ export function DirectMessagesPage() {
     const conversationId = thread.conversation?.id;
     const before = thread.nextBefore;
     if (!user || !conversationId || !before || loadingOlder) return;
+    const generation = operationGeneration.current;
+    const isCurrentOperation = () => generation === operationGeneration.current;
     setLoadingOlder(true);
     try {
       const idToken = await user.getIdToken();
+      if (!isCurrentOperation()) return;
       const history = await DirectMessagesService.getConversationMessages({
         idToken,
         conversationId,
         before,
         limit: 60,
       });
+      if (!isCurrentOperation()) return;
       setMessages((current) => mergeMessages(history.items, current));
       setThread(
         threadFromConversation(history.conversation, {
@@ -557,23 +635,39 @@ export function DirectMessagesPage() {
         }),
       );
     } catch {
+      if (!isCurrentOperation()) return;
       morphyToast.error("Older messages could not be loaded. Try again.");
     } finally {
-      setLoadingOlder(false);
+      if (isCurrentOperation()) setLoadingOlder(false);
     }
   };
 
   const replaceMessage = (updated: DirectMessage) => {
     setMessages((current) =>
-      current.map((message) => (message.id === updated.id ? updated : message)),
+      current.map((message) => (message.id === updated.id && message.conversationId === updated.conversationId ? updated : message)),
     );
+  };
+
+  const showActionToast = <T,>(operation: Promise<T>, generation: number, labels: { loading: string; success: string; error: string }) => {
+    let id: number;
+    const handle = morphyToast.promise(operation, {
+      ...labels,
+      isCurrent: () => generation === operationGeneration.current,
+      finally: () => { actionToastIds.current.delete(id); },
+    });
+    // Sonner's generated numeric handle is boxed with an unwrap method.
+    id = Number(handle);
+    if (Number.isFinite(id)) actionToastIds.current.add(id);
   };
 
   const startReply = (message: DirectMessage) => {
     setOpenMessageMenu(null);
     setActiveMessageActions(message.id);
     setReplyingTo(message);
-    requestAnimationFrame(() => composerRef.current?.focus());
+    const generation = operationGeneration.current;
+    requestAnimationFrame(() => {
+      if (generation === operationGeneration.current) composerRef.current?.focus();
+    });
   };
 
   const startEditing = (message: DirectMessage) => {
@@ -584,10 +678,13 @@ export function DirectMessagesPage() {
   };
 
   const saveEdit = () => {
-    if (!user || !editingMessage || !editingContent.trim()) return;
+    if (!user || !isCurrentRead || !editingMessage || editingMessage.conversationId !== activeConversationId || !editingContent.trim()) return;
     const message = editingMessage;
+    const generation = operationGeneration.current;
+    const isCurrentOperation = () => generation === operationGeneration.current;
     const operation = (async () => {
       const idToken = await user.getIdToken();
+      if (!isCurrentOperation()) throw new Error("Message action retired");
       return DirectMessagesService.editMessage({
         idToken,
         conversationId: message.conversationId,
@@ -596,11 +693,12 @@ export function DirectMessagesPage() {
       });
     })();
     void operation.then((updated) => {
+      if (!isCurrentOperation()) return;
       replaceMessage(updated);
       setEditingMessage(null);
       setEditingContent("");
     }).catch(() => undefined);
-    void morphyToast.promise(operation, {
+    showActionToast(operation, generation, {
       loading: "Saving message…",
       success: "Message edited",
       error: "Message could not be edited. Try again.",
@@ -608,9 +706,12 @@ export function DirectMessagesPage() {
   };
 
   const saveReaction = (message: DirectMessage, emoji: string) => {
-    if (!user) return;
+    if (!user || !isCurrentRead || message.conversationId !== activeConversationId) return;
+    const generation = operationGeneration.current;
+    const isCurrentOperation = () => generation === operationGeneration.current;
     const operation = (async () => {
       const idToken = await user.getIdToken();
+      if (!isCurrentOperation()) throw new Error("Message action retired");
       return DirectMessagesService.reactToMessage({
         idToken,
         conversationId: message.conversationId,
@@ -618,8 +719,10 @@ export function DirectMessagesPage() {
         emoji,
       });
     })();
-    void operation.then(replaceMessage).catch(() => undefined);
-    void morphyToast.promise(operation, {
+    void operation.then((updated) => {
+      if (isCurrentOperation()) replaceMessage(updated);
+    }).catch(() => undefined);
+    showActionToast(operation, generation, {
       loading: "Adding reaction…",
       success: "Reaction added",
       error: "Reaction could not be saved. Try again.",
@@ -627,10 +730,13 @@ export function DirectMessagesPage() {
   };
 
   const confirmDelete = () => {
-    if (!user || !deleteRequest) return;
+    if (!user || !isCurrentRead || !deleteRequest || deleteRequest.message.conversationId !== activeConversationId) return;
     const { message, scope } = deleteRequest;
+    const generation = operationGeneration.current;
+    const isCurrentOperation = () => generation === operationGeneration.current;
     const operation = (async () => {
       const idToken = await user.getIdToken();
+      if (!isCurrentOperation()) throw new Error("Message action retired");
       return DirectMessagesService.deleteMessage({
         idToken,
         conversationId: message.conversationId,
@@ -639,12 +745,13 @@ export function DirectMessagesPage() {
       });
     })();
     void operation.then((result) => {
+      if (!isCurrentOperation()) return;
       if (result.message) replaceMessage(result.message);
-      else setMessages((current) => current.filter((item) => item.id !== message.id));
+      else setMessages((current) => current.filter((item) => item.id !== message.id || item.conversationId !== message.conversationId));
       setDeleteRequest(null);
       setActiveMessageActions(null);
     }).catch(() => undefined);
-    void morphyToast.promise(operation, {
+    showActionToast(operation, generation, {
       loading: "Deleting message…",
       success: deleteRequest.scope === "everyone"
         ? "Message deleted for everyone"
@@ -655,7 +762,7 @@ export function DirectMessagesPage() {
 
   if (!user && !authLoading) {
     return (
-      <AppPageShell width="agent" fitContent>
+      <AppPageShell width="agent" fitContent nativeTest={nativeTest}>
         <section className={styles.unauthenticated}>
           <MessageCircle className="h-7 w-7" aria-hidden="true" />
           <h1>Messages</h1>
@@ -669,7 +776,7 @@ export function DirectMessagesPage() {
   }
 
   return (
-    <AppPageShell width="agent" fitContent={false}>
+    <AppPageShell width="agent" fitContent={false} nativeTest={nativeTest}>
       <section
         className={styles.page}
         data-one-chat-surface

@@ -2934,7 +2934,28 @@
       "page_file": "app/one/connect/page.tsx",
       "pathname": "/one/connect",
       "route_mode": "standard",
-      "semantic_routes": [],
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/connect?tab=circles",
+          "id": "connect.circles",
+          "lifecycle": "canonical",
+          "pathname": "/one/connect",
+          "query": {
+            "tab": "circles"
+          },
+          "tab_set": "connect"
+        },
+        {
+          "canonical_url": "/one/connect?tab=all",
+          "id": "connect.connections",
+          "lifecycle": "canonical",
+          "pathname": "/one/connect",
+          "query": {
+            "tab": "all"
+          },
+          "tab_set": "connect"
+        }
+      ],
       "voice": {
         "action_ids": [
           "connect.accept_request",
@@ -3198,7 +3219,28 @@
       "page_file": "app/one/gmail/page.tsx",
       "pathname": "/one/gmail",
       "route_mode": "standard",
-      "semantic_routes": [],
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/gmail?workspace=kyc",
+          "id": "mail.kyc",
+          "lifecycle": "canonical",
+          "pathname": "/one/gmail",
+          "query": {
+            "workspace": "kyc"
+          },
+          "tab_set": "gmail-workspace"
+        },
+        {
+          "canonical_url": "/one/gmail?workspace=receipts",
+          "id": "mail.receipts",
+          "lifecycle": "canonical",
+          "pathname": "/one/gmail",
+          "query": {
+            "workspace": "receipts"
+          },
+          "tab_set": "gmail-workspace"
+        }
+      ],
       "voice": {
         "action_ids": [
           "route.one_gmail_kyc",
@@ -3701,16 +3743,6 @@
       "pathname": "/one/location",
       "route_mode": "standard",
       "semantic_routes": [
-        {
-          "canonical_url": "/one/location?view=inbox",
-          "id": "location.inbox",
-          "lifecycle": "canonical",
-          "pathname": "/one/location",
-          "query": {
-            "view": "inbox"
-          },
-          "tab_set": "location"
-        },
         {
           "canonical_url": "/one/location?view=links",
           "id": "location.links",
@@ -6270,14 +6302,14 @@
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "9f022d8c7acf93d12e8dc96f8b39ff61c12e74f5c26f9a1ca9c62bd3bfdcc558",
     "agent_registry": "c7bb292dd2fa55d567ae320b172abb45e1b0dd14253a3abf804bcb5b2eccd29d",
-    "cache_manifest": "0ae2cec0e50625741e41ddb028bc53a8cb1168b7bdffd2b044fa60840e29f959",
+    "cache_manifest": "5a2a746ec16f52ffea440b50eeed6eed712369b386bcb405e7693d14273dcc97",
     "data_plane": "0053d501024ccc6c73f9c8ce73173370925e3b32de7e85e6bedea596a698caf0",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
     "route_index": "90bc6a59905e85fd4be1ecfc46011cdd259eaf6d85f2557b16c6439cb19ed9d9",
     "route_layout": "c5b99c3467712432a6dc966d9d908ba1a5a1a4a95685151d4feb9ddbb7654bcf",
-    "surface_map": "b4eb22232d8510d824d0093e0dc2f8190e311bba6eeceb908ecc651b7f85b4ee",
-    "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
+    "surface_map": "d56b248819c9374212579c8e2d4f267a990e00eaba4b63384221fedc75d37641",
+    "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -6289,7 +6321,7 @@
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
     "physical_routes": 151,
-    "semantic_routes": 14,
+    "semantic_routes": 17,
     "table_families": 99
   }
 }

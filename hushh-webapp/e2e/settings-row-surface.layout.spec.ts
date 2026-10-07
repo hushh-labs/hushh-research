@@ -345,6 +345,118 @@ for (const width of [393, 1440]) {
   });
 }
 
+for (const width of [320, 393, 834, 1440]) {
+  test(`navigation siblings preserve uniform readable full-row surfaces at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    const group = page.getByTestId("uniform-navigation");
+    const rows = group.getByTestId("settings-row");
+    const measure = () => rows.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+    const spread = (heights: number[]) => Math.max(...heights) - Math.min(...heights);
+    expect(spread(await measure())).toBeLessThanOrEqual(1);
+    for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
+    const originalHeight = (await measure())[0]!;
+    const walletGroups = ["active", "paused"].map((status) => page.getByTestId(`consumer-wallet-${status}`)
+      .getByTestId("settings-group").filter({ hasText: "Sharing controls" }));
+    const boundedGroups = [
+      ...["portfolio-source-add-group", "portfolio-import-source-options"].map((id) => page.getByTestId(id)),
+      ...walletGroups,
+    ];
+    async function verifyBoundedConsumers() {
+      for (const source of boundedGroups) {
+        const siblings = source.locator("[data-row-layout]");
+        const heights = await siblings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+        expect(heights.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
+        expect(spread(heights)).toBeLessThanOrEqual(1);
+        for (const row of await siblings.all()) {
+          expect(await contract(row)).toEqual([]);
+          expect(await row.evaluate((node) => {
+            const bounds = node.getBoundingClientRect();
+            return [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
+              .every((text) => {
+                const box = text.getBoundingClientRect();
+                return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+                  box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && text.scrollHeight <= text.clientHeight + 1;
+              });
+          })).toBe(true);
+        }
+      }
+      for (const wallet of walletGroups) {
+        expect(await wallet.locator("[data-row-layout]").count()).toBe(5);
+        const descriptions = await wallet.locator('[data-slot="settings-row-description"]').allTextContents();
+        expect(descriptions).toHaveLength(5);
+        expect(descriptions.every((text) => text.trim().length > 0)).toBe(true);
+      }
+    }
+    await verifyBoundedConsumers();
+    // Enlarged text makes two-line support copy grow rather than disappear.
+    await page.addStyleTag({ content: '[data-testid$="navigation"], [data-testid="portfolio-source-add-group"], [data-testid="portfolio-import-source-options"], [data-testid^="consumer-wallet-"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
+    await verifyBoundedConsumers();
+    expect(spread(await measure())).toBeLessThanOrEqual(1);
+    expect((await measure())[0]!).toBeGreaterThan(originalHeight);
+    for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
+    const description = group.locator('[data-slot="settings-row-description"]').last();
+    expect(await description.evaluate((node) => getComputedStyle(node).fontSize)).toBe("24px");
+    expect(await description.evaluate((node) => getComputedStyle(node).lineHeight)).toBe("32px");
+    expect(await description.evaluate((node) => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
+    for (const wallet of walletGroups) {
+      expect(await wallet.locator('[data-slot="settings-row-description"]').first().evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { fontSize: style.fontSize, lineHeight: style.lineHeight };
+      })).toEqual({ fontSize: "24px", lineHeight: "32px" });
+    }
+    for (const row of await rows.all()) {
+      expect(await row.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        return [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
+          .every((text) => {
+            const box = text.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+              box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+          });
+      }), "readable text remains inside its row, not clipped by an ancestor").toBe(true);
+    }
+    // The same mixed-content group without uniform sizing detects the defect.
+    const contentHeights = await page.getByTestId("content-navigation").getByTestId("settings-row")
+      .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+    expect(spread(contentHeights)).toBeGreaterThan(1);
+    await clearEvents(page);
+    await clickAt(page, rows.first(), "trailing");
+    expect(await events(page)).toEqual(["uniform:account"]);
+    await clearEvents(page);
+    await group.getByRole("switch", { name: "Synthetic security switch" }).click();
+    expect(await events(page)).toEqual(["uniform:switch"]);
+    for (const [index, status] of ["active", "paused"].entries()) {
+      const walletRows = walletGroups[index]!.locator("[data-row-layout]");
+      for (const [row, action] of ["preview", "edit", status === "active" ? "pause" : "resume", "rotate", "remove"].entries()) {
+        await clearEvents(page);
+        await clickAt(page, walletRows.nth(row), "trailing");
+        expect(await events(page)).toEqual([`wallet:${status}:${action}`]);
+      }
+    }
+  });
+}
+
+for (const width of [393, 834, 1440]) {
+  test(`detail Close has a reachable 44px target at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.getByRole("button", { name: "Open detail target" }).click();
+    const close = page.getByRole("button", { name: "Close detail panel", exact: true });
+    await expect(close).toBeVisible();
+    // Wait for the shared entrance, not a guessed sleep or hidden duplicate.
+    await close.click({ trial: true });
+    const box = (await close.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    const heading = page.getByRole("heading", { name: "Request details", exact: true });
+    const titleBox = (await heading.boundingBox())!;
+    expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(box.x + 1);
+    // The extra hit area must reach the real close handler, not just measure larger.
+    await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
+    await expect(close).toBeHidden();
+    await expect(heading).toBeHidden();
+  });
+}
+
 /**
  * Evidence captures, not assertions. Run with ROW_SHOTS_DIR and ROW_SHOTS_PHASE
  * to write the before/after screenshots the change was reviewed against.
@@ -361,6 +473,8 @@ for (const width of [393, 1440])
         "profile-settings": "consumer-profile-settings",
         "consent-center": "consumer-consent-center",
         "chat-card": "consumer-chat-card",
+        "wallet-active": "consumer-wallet-active",
+        "wallet-paused": "consumer-wallet-paused",
       };
       for (const [name, testId] of Object.entries(consumers)) {
         await page.getByTestId(testId).screenshot({

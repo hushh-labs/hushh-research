@@ -3078,7 +3078,7 @@ export default function ConnectPageClient() {
                     tabSetId={CONNECT_SURFACE_TAB_DEFINITION.id}
                     activeValue={surface}
                     options={CONNECT_SURFACE_TAB_DEFINITION.tabs}
-                    onSelectionCommit={commitSurface}
+                    onSelectionChange={commitSurface}
                     panelInset="none"
                     viewportMinHeight="fill"
                     heightMode="active"

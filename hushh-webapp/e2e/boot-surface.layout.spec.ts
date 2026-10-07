@@ -69,7 +69,15 @@ test.beforeAll(async () => {
           for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
       },
     }],
-    resolve: { alias: [{ find: "@", replacement: root }] },
+    resolve: { alias: [
+      ...[
+        "lib/services/vault-service", "lib/vault/vault-context",
+        "lib/services/vault-bootstrap-service", "lib/services/vault-method-service",
+        "lib/services/vault-method-prompt-local-service", "lib/services/vault-quick-unlock-trust-local-service",
+        "lib/vault/prf-auth", "lib/utils/native-download", "lib/utils/clipboard", "lib/testing/native-test",
+      ].map((name) => ({ find: `@/${name}`, replacement: path.join(root, "e2e/fixtures/boot-vault-services.ts") })),
+      { find: "@", replacement: root },
+    ] },
     define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
     build: {
       outDir, emptyOutDir: false,
@@ -446,11 +454,110 @@ test("hands the vault stage to the interactive unlock screen", async ({ page }) 
   const surface = page.locator("[data-boot-surface]");
   await expect(surface).toHaveAttribute("aria-hidden", "true");
   await expect(surface).toHaveCSS("pointer-events", "none");
-  const passphrase = page.getByLabel("Passphrase");
+  const passphrase = page.getByLabel("Vault passphrase");
+  const target = await passphrase.boundingBox();
+  expect(target!.height).toBeGreaterThanOrEqual(44);
   await passphrase.click();
   await expect(passphrase).toBeFocused();
   await shot(page, "handoff-vault-unlock-393-light");
 });
+
+for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834 }]) {
+  test(`real vault recovery remains reachable on tablet ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await open(page, { ...viewport, dark: false, native: true });
+    await settleIdle(page);
+    await page.evaluate(() => window.bootFixture.unlock(true));
+    const content = page.locator("[data-vault-flow-content]");
+    await expect(content).toHaveAttribute("data-vault-flow-step", "unlock");
+    await settleIdle(page);
+    const passphrase = page.getByLabel("Vault passphrase");
+    const visibility = page.getByRole("button", { name: "Show passphrase", exact: true });
+    const inputTarget = await passphrase.boundingBox();
+    const visibilityTarget = await visibility.boundingBox();
+    expect({
+      entry: inputTarget!.height >= 44,
+      visibility: visibilityTarget!.height >= 44 && visibilityTarget!.width >= 44,
+    }).toEqual({ entry: true, visibility: true });
+    // Measure the actual controls, not their larger decorative field shell.
+    // Edge taps must focus/toggle without submitting any credential.
+    await expect(passphrase).toHaveValue("");
+    await passphrase.evaluate((node) => node.blur());
+    await passphrase.click({ position: { x: 10, y: 4 } });
+    await expect(passphrase).toBeFocused();
+    await visibility.click({ position: { x: 4, y: 4 } });
+    await expect(passphrase).toHaveAttribute("type", "text");
+    await page.getByRole("button", { name: "Hide passphrase", exact: true }).click();
+    await expect(passphrase).toHaveAttribute("type", "password");
+    await expect(passphrase).toHaveValue("");
+    const surface = await page.locator("[data-vault-unlock-surface]").elementHandle();
+    const supportingText = content.locator("[data-vault-flow-header] p").first();
+    const originalTextSize = await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+    // Resize the same dialog through full tablet and split-window widths,
+    // including both sides of its responsive inset breakpoint. Rem-based
+    // supporting copy grows; pixel-sized headings are not Dynamic Type proof.
+    const sizes = [viewport, { width: 507, height: 834 }, { width: 639, height: 834 }, { width: 640, height: 834 }, viewport];
+    for (const { width, height, keyboard } of sizes.flatMap((size) => [0, 320, 0].map((keyboard) => ({ ...size, keyboard })))) {
+      await page.setViewportSize({ width, height });
+      await page.evaluate((height) => {
+        document.documentElement.style.setProperty("--kb-height", `${height}px`);
+        document.documentElement.style.fontSize = "20px";
+      }, keyboard);
+      expect(await surface!.evaluate((node) => node.isConnected)).toBe(true);
+      expect(await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThan(originalTextSize);
+      const resizedInput = await passphrase.boundingBox();
+      const resizedVisibility = await visibility.boundingBox();
+      expect(resizedInput!.height).toBeGreaterThanOrEqual(44);
+      expect(resizedVisibility!.height).toBeGreaterThanOrEqual(44);
+      expect(resizedVisibility!.width).toBeGreaterThanOrEqual(44);
+      const recovery = page.getByRole("button", { name: "Recovery key", exact: true });
+      await content.evaluate((node) => { node.scrollTop = 0; });
+      const scroll = await content.boundingBox();
+      const overflows = await content.evaluate((node) => node.scrollHeight > node.clientHeight);
+      if (keyboard === 320 && height === 834) expect(overflows).toBe(true);
+      await page.mouse.move(scroll!.x + scroll!.width / 2, scroll!.y + scroll!.height / 2);
+      if (overflows) {
+        // Negative control: programmatic reveal would pass overflow:hidden.
+        // A real wheel inside the scrollport must not pass that broken state.
+        await content.evaluate((node) => { node.style.overflowY = "hidden"; });
+        await page.mouse.wheel(0, 1000);
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }));
+        await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBe(0);
+        await content.evaluate((node) => { node.style.overflowY = ""; });
+        // Synchronize the fixture's deliberate overflow mutation before the
+        // next wheel. WebKit failed without this paint boundary.
+        await page.evaluate(() => new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }));
+        await page.mouse.wheel(0, 1000);
+        await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      }
+      const geometry = await page.evaluate(() => {
+        const scroll = document.querySelector<HTMLElement>("[data-vault-flow-content]")!;
+        const dialog = document.querySelector<HTMLElement>("[data-vault-unlock-surface]")!;
+        const box = scroll.getBoundingClientRect();
+        const surface = dialog.getBoundingClientRect();
+        const footer = [...scroll.querySelectorAll<HTMLButtonElement>("button")].filter((button) => ["Recovery key", "Sign out"].includes(button.textContent?.trim() ?? ""));
+        return {
+          centered: Math.abs(surface.left + surface.width / 2 - innerWidth / 2) <= 1,
+          horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
+          contained: footer.every((button) => {
+            const r = button.getBoundingClientRect();
+            return r.top >= box.top - 1 && r.bottom <= box.bottom + 1 &&
+              r.bottom <= innerHeight - Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-height")) + 1;
+          }),
+          targets: footer.length === 2 && footer.every((button) => button.getBoundingClientRect().height >= 44),
+        };
+      });
+      expect(geometry).toEqual({ centered: true, horizontalOverflow: false, contained: true, targets: true });
+      await recovery.click();
+      await expect(content).toHaveAttribute("data-vault-flow-step", "recovery");
+      await page.getByRole("button", { name: "Passphrase", exact: true }).click();
+      await expect(content).toHaveAttribute("data-vault-flow-step", "unlock");
+    }
+  });
+}
 
 test("reduced motion leaves a still surface that only fades", async ({ page }) => {
   await open(page, { width: 393, height: 852, dark: false, reduced: true });

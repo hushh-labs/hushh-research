@@ -1271,7 +1271,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         <ShellActionSurface
                           variant="avatar"
                           aria-label="Open Profile"
-                          onClick={() => requestProfilePaneOpen("tap")}
+                          onClick={(event) => requestProfilePaneOpen("tap", event.currentTarget)}
                         >
                           <Avatar className="h-8 w-8">
                             {effectiveAvatarUrl ? (

@@ -71,9 +71,10 @@ function SheetPortal({
 function SheetOverlay({
   className,
   ref,
+  nativeLayer,
   ...props
-}: React.ComponentProps<typeof SheetPrimitive.Overlay>) {
-  const overlayRef = useNativeNavigationOverlayRef(ref)
+}: React.ComponentProps<typeof SheetPrimitive.Overlay> & { nativeLayer?: string }) {
+  const overlayRef = useNativeNavigationOverlayRef(ref, true, nativeLayer)
   return (
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
@@ -116,6 +117,8 @@ function useSheetDragHandle(): SheetDragHandleProps | null {
 type SheetContentProps =
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
     side?: "top" | "right" | "bottom" | "left"
+    /** Authored owner, only for a native control belonging to this layer. */
+    nativeLayer?: string
     showCloseButton?: boolean
     /**
      * Enables the native-style downward drag dismissal used by mobile bottom
@@ -172,6 +175,7 @@ function SheetContent(
     overlayClassName,
     contentRef,
     overlayRef,
+    nativeLayer,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -197,7 +201,7 @@ function SheetContent(
     setSheetContentRef(node)
     contentRef?.(node)
   }, [setSheetContentRef, contentRef])
-  const nativeContentRef = useNativeNavigationOverlayRef(composedContentRef, showOverlay)
+  const nativeContentRef = useNativeNavigationOverlayRef(composedContentRef, showOverlay, nativeLayer)
   const shouldShowDragHandle =
     side === "bottom" && dragDismiss && (showDragHandle ?? true)
   const dragEnabled = side === "bottom" && dragDismiss
@@ -216,7 +220,7 @@ function SheetContent(
 
   return (
     <SheetPortal>
-      {showOverlay ? <SheetOverlay ref={overlayRef} className={overlayClassName} /> : null}
+      {showOverlay ? <SheetOverlay ref={overlayRef} className={overlayClassName} nativeLayer={nativeLayer} /> : null}
       <SheetPrimitive.Content
         ref={nativeContentRef}
         data-slot="sheet-content"
@@ -324,10 +328,12 @@ function SheetContent(
 SheetContent.displayName = SheetPrimitive.Content.displayName
 
 type BottomSheetDragState = {
+  pointerId: number
   startY: number
   lastY: number
   lastT: number
   fromContent?: boolean
+  interrupted?: boolean
   engaged: boolean
 }
 
@@ -348,24 +354,39 @@ function useBottomSheetDragDismiss({
 }) {
   const sheetContentRef = React.useRef<HTMLDivElement | null>(null)
   const dragRef = React.useRef<BottomSheetDragState | null>(null)
+  const settlementRef = React.useRef<number | null>(null)
+  const generationRef = React.useRef(0)
+  const previouslyEnabledRef = React.useRef(false)
+  const cancelSettlement = React.useCallback(() => {
+    generationRef.current += 1
+    if (settlementRef.current !== null) window.clearTimeout(settlementRef.current)
+    settlementRef.current = null
+  }, [])
   const setSheetContentRef = React.useCallback((node: HTMLDivElement | null) => {
     sheetContentRef.current = node
   }, [])
 
-  React.useEffect(() => {
-    if (!enabled || !open) return
+  React.useLayoutEffect(() => {
+    cancelSettlement()
+    dragRef.current = null
+    const previouslyEnabled = previouslyEnabledRef.current
+    previouslyEnabledRef.current = enabled
+    // Disabled bottom-sheet logic cannot erase a side drawer's owned drag.
+    if (!enabled && !previouslyEnabled) return cancelSettlement
     const surface = sheetContentRef.current
     if (!surface) return
     surface.style.transform = ""
     surface.style.transition = ""
     surface.style.animation = ""
     surface.style.willChange = ""
-  }, [enabled, open])
+    return cancelSettlement
+  }, [enabled, open, cancelSettlement])
 
   const finishDrag = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current
       const surface = sheetContentRef.current
+      if (drag && drag.pointerId !== event.pointerId) return
       dragRef.current = null
       if (!enabled || !drag || !surface) return
 
@@ -375,7 +396,7 @@ function useBottomSheetDragDismiss({
         // Pointer capture is best-effort on embedded and native web views.
       }
 
-      if (!drag.engaged) return
+      if (!drag.engaged && !drag.interrupted) return
 
       const distance = event.clientY - drag.startY
       const elapsed = Math.max(1, event.timeStamp - drag.lastT)
@@ -383,44 +404,57 @@ function useBottomSheetDragDismiss({
       const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150
       surface.style.transition = `transform ${duration}ms cubic-bezier(0.32,0.72,0,1)`
 
-      if (distance > 96 || velocity > 0.5) {
+      const cancelled = event.type === "pointercancel" || event.type === "lostpointercapture"
+      cancelSettlement()
+      const generation = generationRef.current
+      const schedule = (callback: () => void) => {
+        settlementRef.current = window.setTimeout(() => {
+          settlementRef.current = null
+          if (generationRef.current === generation) callback()
+        }, duration)
+      }
+      if (!cancelled && (distance > 96 || velocity > 0.5)) {
         // Keep the direct transform until Radix begins its close lifecycle.
         // Clearing it first lets the completed entry animation flash back in.
         surface.style.transform = "translate3d(0, 100%, 0)"
-        window.setTimeout(() => onOpenChange(false), duration)
+        schedule(() => onOpenChange(false))
         return
       }
 
       surface.style.transform = "translate3d(0, 0, 0)"
-      window.setTimeout(() => {
+      schedule(() => {
         surface.style.transform = ""
         surface.style.transition = ""
         surface.style.willChange = ""
         // Preserve the settled open state rather than replaying the entry animation.
         surface.style.animation = "none"
-      }, duration)
+      })
     },
-    [enabled, onOpenChange],
+    [enabled, onOpenChange, cancelSettlement],
   )
 
   const onHandlePointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!enabled) return
+      if (!enabled || !open || event.button !== 0) return
+      const interrupted = settlementRef.current !== null
+      cancelSettlement()
       dragRef.current = {
+        pointerId: event.pointerId,
         startY: event.clientY,
         lastY: event.clientY,
         lastT: event.timeStamp,
         engaged: false,
+        interrupted,
       }
     },
-    [enabled],
+    [enabled, open, cancelSettlement],
   )
 
   const onHandlePointerMove = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current
       const surface = sheetContentRef.current
-      if (!enabled || !drag || !surface) return
+      if (!enabled || !drag || !surface || drag.pointerId !== event.pointerId) return
 
       const delta = Math.max(0, event.clientY - drag.startY)
       if (!drag.engaged) {
@@ -445,8 +479,10 @@ function useBottomSheetDragDismiss({
 
   const onContentPointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!enabled || event.button !== 0 || dragRef.current?.engaged) return
+      if (!enabled || !open || event.button !== 0 || dragRef.current?.engaged) return
+      cancelSettlement()
       dragRef.current = {
+        pointerId: event.pointerId,
         startY: event.clientY,
         lastY: event.clientY,
         lastT: event.timeStamp,
@@ -454,14 +490,14 @@ function useBottomSheetDragDismiss({
         engaged: false,
       }
     },
-    [enabled],
+    [enabled, open, cancelSettlement],
   )
 
   const onContentPointerMove = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current
       const surface = sheetContentRef.current
-      if (!enabled || !drag || !surface || !drag.fromContent) return
+      if (!enabled || !drag || !surface || !drag.fromContent || drag.pointerId !== event.pointerId) return
 
       if (!drag.engaged) {
         const movedDown = event.clientY - drag.startY

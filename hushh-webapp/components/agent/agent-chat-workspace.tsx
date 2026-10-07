@@ -242,7 +242,7 @@ import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { AgentDockPortal, useAgentDockFrame, useAgentDockHost } from "@/components/agent/agent-dock";
-import { NativeChatChrome, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
+import { NativeChatChrome, NativeHistoryClose, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
@@ -2445,6 +2445,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   } = useVault();
   const vaultSessionEpoch = snapshotVaultSessionEpoch();
   const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, vaultSessionEpoch);
+  // Authority changes retire chrome; a selector's value uses ordered updates.
+  const chatChromeContext = `${pathname}:${isVaultUnlocked}:${vaultSessionEpoch}`;
   // Chat history is sealed with a key derived from this; read it at call time so
   // history requests never capture a stale (or locked) vault.
   const vaultKeyRef = useRef<string | null>(vaultKey);
@@ -2831,12 +2833,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyChromeRef = useRef<NativeChatChromeHandle | null>(null);
   const agentSurfaceFocusRef = useRef<HTMLButtonElement | null>(null);
-  const historyWasOpen = useRef(false);
-  useEffect(() => {
-    const dismissed = historyWasOpen.current && !isHistoryDrawerOpen;
-    historyWasOpen.current = isHistoryDrawerOpen;
-    if (dismissed) void historyChromeRef.current?.restoreFocus();
-  }, [isHistoryDrawerOpen]);
+  const historyPrefersNativeFocus = useRef(false);
+  const restoreHistoryFocus = useCallback(() => {
+    void historyChromeRef.current?.restoreFocus(historyPrefersNativeFocus.current);
+  }, []);
   const historyDrawerFallbackRef = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
     // Next.js can hide and preserve this route instead of unmounting it.
@@ -8457,6 +8457,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // header's hamburger-to-cross sits under the panel; the panel carries its
       // own close control instead of leaving a modal with no visible way out.
       hideCloseButton={false}
+      closeControl={isHistoryDrawerOpen && onClose ? <NativeHistoryClose owner={renderedWorkspaceOwnerId}
+        context={`${chatChromeContext}:${agentSurface}`} onClose={onClose} /> : undefined}
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
@@ -8603,11 +8605,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         )}
       >
         <AgentConnectionsDrawer
+          presentationKey={`${pathname}:${renderedWorkspaceOwnerId}:${agentSurface}:${isVaultUnlocked}`}
           gestureSurfaceRef={transcriptRef}
           gestureEnabled={isCanonicalChatRoute && hasChatAccess && !isPuppySurface}
-          onGestureOpen={toggleHistoryDrawer}
+          onGestureOpen={() => { historyPrefersNativeFocus.current = true; toggleHistoryDrawer(); }}
           triggerRef={historyDrawerTriggerRef}
           fallbackFocusRef={historyDrawerFallbackRef}
+          onRestoreHistoryFocus={restoreHistoryFocus}
           open={isHistoryDrawerOpen}
           onOpenChange={handleHistoryDrawerOpenChange}
           mode={drawerMode}
@@ -8650,18 +8654,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 fixed navigation in place. */}
             <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
               pendingAttention={driveReviewsPending}
-              context={`${pathname}:${isVaultUnlocked}:${agentSurface}`}
-              // History and Close must be one presentation through the entire
-              // drawer lifecycle. The native History-only pilot cannot own
-              // the modal's Close action yet; retain the coherent web control
-              // rather than swap materials or bypass overlay isolation.
-              eligible={false}
-              onActivate={toggleHistoryDrawer} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
+              context={`${chatChromeContext}:${agentSurface}`}
+              eligible={isVaultUnlocked && !isHistoryDrawerOpen}
+              style={{ visibility: isHistoryDrawerOpen ? "hidden" : undefined }}
+              onActivate={() => { historyPrefersNativeFocus.current = true; toggleHistoryDrawer(); }} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
               className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
             <ShellActionSurface
               variant="icon"
+              id="one-chat-history-trigger"
               ref={historyDrawerFallbackRef}
               onClick={(event) => {
+                historyPrefersNativeFocus.current = false;
                 historyDrawerTriggerRef.current = event.currentTarget;
                 toggleHistoryDrawer();
               }}
@@ -8806,7 +8809,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 word removes nothing from a screen reader.
               */}
               <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
-                context={`${pathname}:${isVaultUnlocked}:${agentSurface}`}
+                context={chatChromeContext}
                 eligible={isCanonicalChatRoute && hasChatAccess && !isHistoryDrawerOpen}
                 value={agentSurface} onValueChange={(next) => {
                   if (next === "puppy") enterPuppySurface();
@@ -8851,7 +8854,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 variant="avatar"
                 data-testid="profile-open-button"
                 aria-label="Open Profile"
-                onClick={() => requestProfilePaneOpen("tap")}
+                onClick={(event) => requestProfilePaneOpen("tap", event.currentTarget)}
               >
                 <Avatar className="h-8 w-8">
                   {userAvatarUrl ? (

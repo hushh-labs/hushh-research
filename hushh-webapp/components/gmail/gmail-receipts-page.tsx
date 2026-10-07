@@ -4,9 +4,7 @@ import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-c
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
-
-
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { usePathname } from "next/navigation";
 import { Loader2, Lock, RefreshCw } from "@/components/icons";
@@ -388,6 +386,7 @@ export default function GmailReceiptsPage({
     useState<GmailOAuthPopupAttempt | null>(null);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const receiptsRef = useRef<ReceiptListItem[]>([]);
+  const receiptReadsClosedRef = useRef(false);
   const receiptLoadSequenceRef = useRef(0);
   const receiptScanAbortRef = useRef<AbortController | null>(null);
   const receiptScanPromiseRef = useRef<Promise<boolean | null> | null>(null);
@@ -398,15 +397,29 @@ export default function GmailReceiptsPage({
   const autoReceiptSummaryKeyRef = useRef<string | null>(null);
   const gmailPopupRef = useRef<Window | null>(null);
   const gmailOwnerIdRef = useRef<string | null>(user?.uid ?? null);
-  gmailOwnerIdRef.current = user?.uid ?? null;
   const sealedReceiptAccessRef = useRef({
     isUnlocked: isVaultUnlocked,
     ownerToken: vaultOwnerToken,
   });
-  sealedReceiptAccessRef.current = {
-    isUnlocked: isVaultUnlocked,
-    ownerToken: vaultOwnerToken,
-  };
+  useLayoutEffect(() => {
+    const owner = user?.uid ?? null;
+    const previousAccess = sealedReceiptAccessRef.current;
+    if (gmailOwnerIdRef.current !== owner || previousAccess.ownerToken !== vaultOwnerToken || previousAccess.isUnlocked !== isVaultUnlocked) {
+      receiptLoadSequenceRef.current += 1;
+      receiptScanAbortRef.current?.abort();
+      receiptScanAbortRef.current = null;
+      receiptScanPromiseRef.current = null;
+      if (gmailOwnerIdRef.current !== owner) receiptReadsClosedRef.current = false;
+    }
+    gmailOwnerIdRef.current = owner;
+    sealedReceiptAccessRef.current = { isUnlocked: isVaultUnlocked, ownerToken: vaultOwnerToken };
+  }, [user?.uid, vaultOwnerToken, isVaultUnlocked]);
+  useEffect(() => {
+    setLoadingReceipts(false);
+    setReceiptScanInProgress(false);
+    setReceiptScanProgress(null);
+  }, [user?.uid, vaultOwnerToken, isVaultUnlocked]);
+  useEffect(() => { setGmailActionBusy(null); }, [user?.uid]);
   const resolvedInitialWorkspace =
     journeyVariant === "onboarding"
       ? "receipts"
@@ -458,7 +471,7 @@ export default function GmailReceiptsPage({
 
   const runReceiptScan = useCallback(
     async (nextPage: number): Promise<boolean | null> => {
-      if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked) return false;
+      if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked || receiptReadsClosedRef.current) return null;
       const startPage = Math.max(
         1,
         Math.min(RECEIPT_SCAN_MAX_PAGES, Math.trunc(nextPage)),
@@ -479,6 +492,7 @@ export default function GmailReceiptsPage({
           currentAccess.isUnlocked &&
           currentAccess.ownerToken === loadOwnerToken &&
           receiptLoadSequenceRef.current === loadSequence &&
+          !receiptReadsClosedRef.current &&
           isVaultSessionEpochCurrent(loadVaultEpoch)
         );
       };
@@ -699,6 +713,7 @@ export default function GmailReceiptsPage({
     receiptLoadSequenceRef.current += 1;
     receiptScanAbortRef.current?.abort();
     receiptScanAbortRef.current = null;
+    receiptScanPromiseRef.current = null;
     receiptsRef.current = [];
     setReceipts([]);
     setPage(1);
@@ -706,6 +721,8 @@ export default function GmailReceiptsPage({
     setTotal(0);
     setReceiptScanReachedLimit(false);
     setLoadingReceipts(false);
+    setReceiptScanInProgress(false);
+    setReceiptScanProgress(null);
     setReceiptListReady(false);
     setReceiptListError(null);
     setReceiptSyncFeedback(null);
@@ -869,6 +886,9 @@ export default function GmailReceiptsPage({
   ]);
 
   const isConnected = gmail.presentation.isConnected;
+  useEffect(() => {
+    if (isConnected) receiptReadsClosedRef.current = false;
+  }, [isConnected, user?.uid]);
   const loadingStatus = gmail.loadingStatus;
   const receiptStorageReadOnly =
     gmail.status?.receipt_storage_mode === "legacy_read_only";
@@ -1380,6 +1400,18 @@ export default function GmailReceiptsPage({
 
   const handleDisconnectGmail = useCallback(async () => {
     if (!user?.uid) return;
+    // Revoke local read admission before starting disconnect, not after an
+    // old read has had a chance to repopulate the cleared collection.
+    receiptLoadSequenceRef.current += 1;
+    receiptScanAbortRef.current?.abort();
+    receiptScanAbortRef.current = null;
+    receiptReadsClosedRef.current = true;
+    setLoadingReceipts(false);
+    setReceiptScanInProgress(false);
+    setReceiptScanProgress(null);
+    const owner = user.uid;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const isCurrentOwner = () => gmailOwnerIdRef.current === owner && isVaultSessionEpochCurrent(vaultEpoch);
 
     try {
       setGmailActionBusy("disconnect");
@@ -1404,6 +1436,8 @@ export default function GmailReceiptsPage({
           },
         )
         .unwrap();
+      if (!isCurrentOwner()) return;
+      receiptLoadSequenceRef.current += 1;
       clearCachedGmailReceipts(user.uid);
       receiptsRef.current = [];
       setReceipts([]);
@@ -1415,28 +1449,28 @@ export default function GmailReceiptsPage({
       setReceiptMemorySaveState("idle");
       setReceiptMemoryMessage(null);
       setShowDisconnectConfirm(false);
-    } catch (error) {
-      console.error("[ProfileReceiptsPage] Failed to disconnect Gmail:", error);
+    } catch {
+      if (!isCurrentOwner()) return;
+      receiptReadsClosedRef.current = false;
+      console.warn("MAIL_DISCONNECT_FAILED");
     } finally {
-      setGmailActionBusy(null);
+      if (isCurrentOwner()) setGmailActionBusy(null);
     }
   }, [gmail, user?.uid]);
 
   const handleSyncNow = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!user?.uid || !receiptSyncAvailable || receiptReadsClosedRef.current) return;
+    // The ref closes the double-click window before React re-renders.
+    if (!isConnected || receiptScanInProgress || loadingReceipts || receiptScanAbortRef.current) return;
+    const owner = user.uid;
+    const accountKey = receiptAccountKeyRef.current;
+    const ownerToken = vaultOwnerToken;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const sequence = receiptLoadSequenceRef.current + 1;
+    const isCurrent = () => gmailOwnerIdRef.current === owner && receiptAccountKeyRef.current === accountKey &&
+      sealedReceiptAccessRef.current.ownerToken === ownerToken && sealedReceiptAccessRef.current.isUnlocked &&
+      receiptLoadSequenceRef.current === sequence && !receiptReadsClosedRef.current && isVaultSessionEpochCurrent(vaultEpoch);
     try {
-      // The ref closes the double-click window before React re-renders.
-      if (
-        !isConnected ||
-        receiptScanInProgress ||
-        loadingReceipts ||
-        receiptScanAbortRef.current
-      ) {
-        return;
-      }
-      if (!receiptSyncAvailable) {
-        return;
-      }
       setReceiptScanInProgress(true);
       setReceiptSyncFeedback({
         message: "Looking through your recent purchases…",
@@ -1451,19 +1485,20 @@ export default function GmailReceiptsPage({
           ? cached.page + 1
           : 1,
       );
-      if (loaded === null) return;
+      if (loaded === null || !isCurrent()) return;
       if (!loaded) throw new Error("Receipt scan did not complete.");
       setReceiptSyncFeedback({
         message: "Receipts updated.",
         tone: "success",
       });
       toast.success("Receipts updated");
-    } catch (error) {
-      console.error("[ProfileReceiptsPage] Failed to start Gmail sync:", error);
+    } catch {
+      if (!isCurrent()) return;
+      console.warn("MAIL_RECEIPT_SCAN_FAILED");
       const message = "Couldn’t finish scanning your receipts.";
       setReceiptSyncFeedback({ message, tone: "error" });
     } finally {
-      setReceiptScanInProgress(false);
+      if (isCurrent()) setReceiptScanInProgress(false);
     }
   }, [
     isConnected,
@@ -1473,6 +1508,7 @@ export default function GmailReceiptsPage({
     receiptScanInProgress,
     receiptSyncAvailable,
     user?.uid,
+    vaultOwnerToken,
   ]);
 
   const progressPercent = receiptScanProgress

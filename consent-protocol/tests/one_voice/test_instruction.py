@@ -6,13 +6,17 @@ tool list the model reads is the one the executor serves.
 
 from __future__ import annotations
 
+import runpy
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from hushh_mcp.one_voice import instruction
 from hushh_mcp.one_voice.tools import location_state, registry
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
+from hushh_mcp.services import owner_time
 
 RESUME = "resume_device_location_updates"
 PAUSE = "pause_device_location_updates"
@@ -197,6 +201,48 @@ def test_owner_clock_sits_between_the_context_line_and_the_tool_list():
     fallback = _build(now=now)
     assert "The owner's local time is 2026-10-05 14:06:55 UTC — Monday" in fallback
     assert "Asia/Calcutta" not in fallback
+
+
+def test_instruction_budget_is_calendar_stable_but_rejects_payload_growth(monkeypatch, capsys):
+    """The same tree failed core after UTC midnight changed Monday to Tuesday.
+
+    Only the benchmark clock is fixed: live instructions must retain the real
+    weekday, and growth of the authored payload must still fail the cap.
+    """
+    script = Path(__file__).resolve().parents[3] / "scripts" / "one_voice_instruction_budget.py"
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    benchmark = runpy.run_path(str(script))
+    current = datetime(2026, 10, 5, 14, 6, 55, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return current.astimezone(tz) if tz else current.replace(tzinfo=None)
+
+    monkeypatch.setattr(owner_time, "datetime", Clock)
+    samples = []
+    for day, weekday in ((5, "Monday"), (6, "Tuesday"), (7, "Wednesday")):
+        current = datetime(2026, 10, day, 14, 6, 55, tzinfo=timezone.utc)
+        samples.append(benchmark["measure"]())
+        assert f"UTC — {weekday}" in _build()
+    assert all(sample == samples[0] for sample in samples), (
+        "benchmark metrics changed with the wall clock"
+    )
+
+    monkeypatch.setattr(sys, "argv", [str(script), "--check"])
+    assert benchmark["main"]() == 0
+    capsys.readouterr()
+    config = instruction.voice_head_config()
+    monkeypatch.setattr(
+        instruction,
+        "voice_head_config",
+        lambda: {
+            **config,
+            "instruction": str(config["instruction"]) + "\nExtra authored instruction.",
+        },
+    )
+    assert benchmark["main"]() == 1
+    assert "One Voice performance budget exceeded" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("resumed", [True, False])

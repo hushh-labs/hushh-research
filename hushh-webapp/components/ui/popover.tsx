@@ -26,6 +26,7 @@ function PopoverTrigger({
 }
 
 function PopoverContent({
+  ref,
   className,
   align = "center",
   sideOffset = 4,
@@ -41,6 +42,7 @@ function PopoverContent({
   const modal = React.useContext(ModalPopoverContext)
   const showBackdrop = withBackdrop ?? modal
   const overlayRef = useNativeNavigationOverlayRef<HTMLDivElement>()
+  const contentRef = useNativeNavigationOverlayRef<HTMLDivElement>(ref)
   return (
     <PopoverPrimitive.Portal>
       {/*
@@ -62,6 +64,7 @@ function PopoverContent({
           />
         ) : null}
         <PopoverPrimitive.Content
+          ref={contentRef}
           data-slot="popover-content"
           align={align}
           sideOffset={sideOffset}

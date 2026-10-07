@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { useEffect } from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EmblaCarouselType } from "embla-carousel";
@@ -11,7 +11,7 @@ import {
   clampSwipePosition,
   measureFillViewportMinHeight,
 } from "@/lib/morphy-ux/ui/swipe-views";
-import { requestTopShellTabSelection } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import { requestTopShellTabSelection, useTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({
   selectedIndex: 0,
@@ -19,6 +19,8 @@ const embla = vi.hoisted(() => ({
   scrollTo: vi.fn<(index: number) => void>(),
   reInit: vi.fn(),
   listeners: new Map<string, () => void>(),
+  registrations: new Map<string, Set<() => void>>(),
+  api: null as Record<string, unknown> | null,
   ref: vi.fn(),
   rootNode: null as HTMLElement | null,
   options: null as Record<string, unknown> | null,
@@ -28,9 +30,7 @@ const embla = vi.hoisted(() => ({
 vi.mock("embla-carousel-react", () => ({
   default: (options: Record<string, unknown>) => {
     embla.options = options;
-    return [
-      embla.ref,
-      {
+    embla.api ??= {
         selectedScrollSnap: () => embla.selectedIndex,
         scrollProgress: () => embla.scrollProgress,
         scrollTo: embla.scrollTo,
@@ -38,13 +38,18 @@ vi.mock("embla-carousel-react", () => ({
         rootNode: () => embla.rootNode ?? document.body,
         ...(embla.engine ? { internalEngine: () => embla.engine } : {}),
         on: (event: string, listener: () => void) => {
-          embla.listeners.set(event, listener);
+          const handlers = embla.registrations.get(event) ?? new Set<() => void>();
+          handlers.add(listener);
+          embla.registrations.set(event, handlers);
+          embla.listeners.set(event, () => handlers.forEach((handler) => handler()));
         },
-        off: (event: string) => {
-          embla.listeners.delete(event);
+        off: (event: string, listener: () => void) => {
+          const handlers = embla.registrations.get(event);
+          handlers?.delete(listener);
+          if (!handlers?.size) embla.listeners.delete(event);
         },
-      },
-    ];
+      };
+    return [embla.ref, embla.api];
   },
 }));
 
@@ -75,6 +80,8 @@ describe("SwipeViews", () => {
     embla.scrollTo.mockClear();
     embla.reInit.mockClear();
     embla.listeners.clear();
+    embla.registrations.clear();
+    embla.api = null;
     embla.rootNode = document.createElement("div");
     embla.options = null;
     embla.engine = undefined;
@@ -197,19 +204,42 @@ describe("SwipeViews", () => {
       dragThreshold: 6,
     });
 
-    // Resize watching stays ON so a stale container measurement can correct
-    // itself, but is scoped to the container: per-slide entries (streaming
-    // content changing height) must not re-trigger the horizontal engine.
-    const watchResize = embla.options?.watchResize as (
-      api: { containerNode: () => Element },
-      entries: { target: Element }[],
-    ) => boolean;
-    expect(typeof watchResize).toBe("function");
-    const containerNode = document.createElement("div");
-    const slideNode = document.createElement("div");
-    const apiStub = { containerNode: () => containerNode };
-    expect(watchResize(apiStub, [{ target: containerNode }])).toBe(true);
-    expect(watchResize(apiStub, [{ target: slideNode }])).toBe(false);
+    // The shared geometry reconciler is the sole resize owner; its real width
+    // and drag behavior is covered below, not a duplicate Embla observer.
+    expect(embla.options?.watchResize).toBe(false);
+  });
+
+  it("reports the incoming target before compositor travel when captured bounds are stale", () => {
+    let target = -400;
+    embla.selectedIndex = 1;
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800],
+      limit: { min: -784, max: 0 },
+      target: { get: () => target },
+      offsetLocation: { get: () => -400 },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const onSelectionChange = vi.fn();
+    render(
+      <SwipeViews
+        tabSetId="stale-release"
+        activeValue="second"
+        options={[...OPTIONS, { value: "third", label: "Third" }]}
+        onSelectionChange={onSelectionChange}
+      >
+        <div>First</div>
+        <div>Second</div>
+        <div>Third</div>
+      </SwipeViews>,
+    );
+    target = 0;
+    embla.selectedIndex = 0;
+    act(() => embla.listeners.get("select")?.());
+    expect(onSelectionChange).toHaveBeenLastCalledWith("first");
+    target = -800;
+    embla.selectedIndex = 1; // A stale Counter cannot represent the third snap.
+    act(() => embla.listeners.get("select")?.());
+    expect(onSelectionChange).toHaveBeenLastCalledWith("third");
   });
 
   it("repairs a terminal WebKit snap residual without changing a live in-range drag", () => {
@@ -243,6 +273,43 @@ describe("SwipeViews", () => {
     expect(scrollBody.seek).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    { rendered: -802, destination: 0, boundary: -800 },
+    { rendered: 2, destination: -800, boundary: 0 },
+  ])("preserves an inward tab destination while clamping residual edge motion at $boundary", ({ rendered, destination, boundary }) => {
+    const vector = () => {
+      let value = 0;
+      return { get: () => value, set: (next: number) => { value = next; } };
+    };
+    const target = vector(), location = vector(), previousLocation = vector(), offsetLocation = vector();
+    const translate = { to: vi.fn() };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800], limit: { min: -800, max: 0 },
+      target, location, previousLocation, offsetLocation, translate,
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    render(<SwipeViews tabSetId="edge-retarget" activeValue="first" options={[...OPTIONS, { value: "third", label: "Third" }]}>
+      <div>Saved</div><div>Add</div><div>Sharing</div>
+    </SwipeViews>);
+    // A new tab target is legal even while the previous motion overshoots.
+    target.set(destination);
+    offsetLocation.set(rendered);
+    act(() => embla.listeners.get("scroll")?.());
+    expect(target.get()).toBe(destination);
+    expect(offsetLocation.get()).toBe(boundary);
+    expect(location.get()).toBe(boundary);
+    expect(previousLocation.get()).toBe(boundary);
+    expect(translate.to).toHaveBeenLastCalledWith(boundary);
+
+    // Outward targets still clamp; preserving a destination must not remove
+    // the empty-space protection at either end of the workspace.
+    target.set(rendered);
+    offsetLocation.set(rendered);
+    act(() => embla.listeners.get("scroll")?.());
+    expect(target.get()).toBe(boundary);
+    expect(offsetLocation.get()).toBe(boundary);
+  });
+
   it("starts pane motion immediately when the shared top tab is pressed", () => {
     render(
       <SwipeViews tabSetId="instant" activeValue="first" options={OPTIONS}>
@@ -255,6 +322,53 @@ describe("SwipeViews", () => {
 
     expect(embla.scrollTo).toHaveBeenCalledWith(1);
   });
+
+  it.each(["tap", "route"] as const)(
+    "retargets an early outgoing animation when the %s selects its still-visible pane",
+    (selectionSource) => {
+      let target = 0;
+      let rendered = 0;
+      embla.engine = {
+        slideRects: [{ width: 400 }, { width: 400 }],
+        scrollSnaps: [0, -400],
+        limit: { min: -400, max: 0 },
+        target: { get: () => target, set: (next: number) => { target = next; } },
+        offsetLocation: { get: () => rendered },
+        animation: { start: vi.fn() },
+      } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+      const onSelectionChange = vi.fn();
+      const onSelectionCommit = vi.fn();
+      const panels = [<div key="first">Cards</div>, <div key="second">Add</div>];
+      const view = render(
+        <SwipeViews tabSetId="reverse-early" activeValue={selectionSource === "tap" ? "first" : "second"}
+          options={OPTIONS} onSelectionChange={onSelectionChange} onSelectionCommit={onSelectionCommit}>
+          {panels}
+        </SwipeViews>,
+      );
+      // Cards is still the rounded visual pane, but the compositor is heading
+      // toward Add. A return to Cards must cancel that pending destination.
+      target = -400;
+      rendered = -40;
+      embla.selectedIndex = 1;
+      embla.scrollTo.mockClear();
+      if (selectionSource === "tap") {
+        act(() => requestTopShellTabSelection("reverse-early", "first"));
+      } else {
+        view.rerender(
+          <SwipeViews tabSetId="reverse-early" activeValue="first" options={OPTIONS}
+            onSelectionChange={onSelectionChange} onSelectionCommit={onSelectionCommit}>
+            {panels}
+          </SwipeViews>,
+        );
+      }
+      expect(embla.scrollTo).toHaveBeenCalledWith(0);
+      expect(Math.abs(target)).toBe(0);
+      rendered = target;
+      act(() => embla.listeners.get("settle")?.());
+      expect(onSelectionChange).not.toHaveBeenCalled();
+      expect(onSelectionCommit).toHaveBeenLastCalledWith("first");
+    },
+  );
 
   it("keeps the shared tab progress attached to the pane through snap settle", () => {
     const view = render(
@@ -285,24 +399,34 @@ describe("SwipeViews", () => {
   });
 
   it("does not reset underline progress when optimistic selection updates mid-drag", () => {
+    function OwnershipProbe() {
+      const state = useTopShellTabSwipeState("optimistic");
+      return <span data-testid="pager-owner">{String(state.pagerOwned)}</span>;
+    }
     const view = render(
+      <>
       <SwipeViews tabSetId="optimistic" activeValue="first" options={OPTIONS}>
         <div>first panel content</div>
         <div>second panel content</div>
-      </SwipeViews>,
+      </SwipeViews>
+      <OwnershipProbe />
+      </>
     );
 
-    embla.listeners.get("pointerDown")?.();
+    act(() => embla.listeners.get("pointerDown")?.());
     embla.scrollProgress = 0.48;
     embla.listeners.get("scroll")?.();
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
 
     view.rerender(
+      <>
       <SwipeViews tabSetId="optimistic" activeValue="second" options={OPTIONS}>
         <div>first panel content</div>
         <div>second panel content</div>
-      </SwipeViews>,
+      </SwipeViews>
+      <OwnershipProbe />
+      </>
     );
 
     expect(
@@ -310,6 +434,9 @@ describe("SwipeViews", () => {
         "--top-shell-tab-swipe-optimistic-position",
       ),
     ).toBe("0.48");
+    expect(screen.getByTestId("pager-owner")).toHaveTextContent("true");
+    act(() => embla.listeners.get("settle")?.());
+    expect(screen.getByTestId("pager-owner")).toHaveTextContent("false");
   });
 
   it("keeps inset panel content and shadows inside the page gutter", () => {
@@ -381,12 +508,13 @@ describe("SwipeViews", () => {
     const onSelectionChange = vi.fn();
     const options = [...OPTIONS, { value: "third", label: "Sharing" }];
     const rendered = { get: () => 0 };
+    let target = 0;
     embla.engine = {
       slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
       scrollSnaps: [0, -400, -800],
       limit: { min: -800, max: 0 },
       offsetLocation: rendered,
-      target: { get: () => -400, set: vi.fn() },
+      target: { get: () => target, set: (next: number) => { target = next; } },
     } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
     render(
       <SwipeViews tabSetId="memory-select" activeValue="first" options={options} onSelectionChange={onSelectionChange}>
@@ -394,6 +522,7 @@ describe("SwipeViews", () => {
       </SwipeViews>,
     );
 
+    target = -400;
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
     expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith("second");
@@ -460,13 +589,13 @@ describe("SwipeViews", () => {
     });
 
     it("re-initialises when the container width changes with no window resize", () => {
-      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockReturnValue({
-        width: 800,
-      } as DOMRect);
+      let width = 800;
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
       renderPager();
       embla.reInit.mockClear();
 
-      emitWidth(785); // scrollbar appears; window.innerWidth never changes
+      width = 785;
+      emitWidth(width); // scrollbar appears; window.innerWidth never changes
 
       expect(embla.reInit).toHaveBeenCalledTimes(1);
     });
@@ -481,6 +610,35 @@ describe("SwipeViews", () => {
       emitWidth(800); // taller content, identical width
 
       expect(embla.reInit).not.toHaveBeenCalled();
+    });
+
+    it("defers changed width during a drag and reconciles it once after settlement", () => {
+      let width = 800;
+      const frames = new Map<number, FrameRequestCallback>();
+      let sequence = 0;
+      globalThis.requestAnimationFrame = (callback) => { frames.set(++sequence, callback); return sequence; };
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
+      renderPager();
+      const flush = () => {
+        const pending = [...frames.values()]; frames.clear();
+        pending.forEach((callback) => callback(0));
+      };
+      flush();
+      embla.reInit.mockClear();
+      embla.listeners.get("pointerDown")?.();
+      width = 785;
+      emitWidth(width); flush();
+      expect(embla.reInit).not.toHaveBeenCalled();
+      embla.scrollProgress = 0.4;
+      embla.listeners.get("scroll")?.();
+      embla.listeners.get("pointerUp")?.(); flush();
+      expect(embla.reInit).not.toHaveBeenCalled();
+      embla.selectedIndex = 1;
+      embla.listeners.get("select")?.();
+      embla.listeners.get("settle")?.(); flush();
+      expect(embla.reInit).toHaveBeenCalledTimes(1);
+      emitWidth(width); flush();
+      expect(embla.reInit).toHaveBeenCalledTimes(1);
     });
 
     it("does not snap a tapped tab back while route state catches up, but still repairs changed geometry", () => {

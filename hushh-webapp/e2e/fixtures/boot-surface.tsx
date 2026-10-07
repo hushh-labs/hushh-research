@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 
 import { BootRouteCommitted, BootSurface } from "../../components/app-ui/boot-surface";
 import { HushhLoader } from "../../components/app-ui/hushh-loader";
+import { VaultUnlockDialog } from "../../components/vault/vault-unlock-dialog";
+import { setVaultFixtureHint } from "./boot-vault-services";
 import type { BootStage, BootState } from "../../lib/boot/boot-sequence";
 import {
   getBootSurfaceState,
@@ -16,8 +18,8 @@ import {
  *
  * - `set(stage)` holds one stage (a guard waiting);
  * - `set("chat")` resolves to the first usable screen;
- * - `set("unlock")` resolves to the vault's interactive hard gate, painted at
- *   the sheet tier exactly as `VaultUnlockDialog` paints it.
+ * - `set("unlock")` resolves to the real vault hard gate. Fixture-only aliases
+ *   replace information/operation boundaries, never its layout or controls.
  *
  * `legacy(stage)` instead renders the sequence the app shipped before: one
  * `HushhLoader` per guard, each its own screen in its own box (`min-h-[60vh]`
@@ -35,6 +37,7 @@ declare global {
   interface Window {
     bootFixture: {
       set: (stage: BootStage | "chat" | "unlock") => void;
+      unlock: (unavailableQuickMethod: boolean) => void;
       legacy: (stage: LegacyStage) => void;
       state: () => BootState;
       /** Every phase the store has entered, in order. */
@@ -82,16 +85,18 @@ function ChatScreen() {
 
 function UnlockGate() {
   return (
-    <div data-testid="vault-unlock-gate" className="fixed inset-0 bg-background" style={{ zIndex: 711 }}>
-      <form
-        className="mx-auto mt-24 flex max-w-sm flex-col gap-3 px-4"
-        style={{ position: "relative", zIndex: 712 }}
-        onSubmit={(event) => event.preventDefault()}
-      >
-        <h1 className="text-xl font-semibold text-foreground">Unlock One</h1>
-        <input aria-label="Passphrase" className="h-11 rounded-full border px-4" />
-      </form>
-    </div>
+    <VaultUnlockDialog
+      user={{ uid: "layout-fixture", email: "layout@example.invalid", providerData: [{ providerId: "google.com" }] } as Parameters<typeof VaultUnlockDialog>[0]["user"]}
+      open
+      surfaceVariant="hard_gate"
+      dismissible={false}
+      allowVaultCreation={false}
+      enableGeneratedDefault={false}
+      title="Unlock required"
+      description="Unlock your vault before continuing."
+      onSuccess={() => { throw new Error("Layout fixture must not unlock"); }}
+      onSignOut={() => { throw new Error("Layout fixture must not sign out"); }}
+    />
   );
 }
 
@@ -142,6 +147,10 @@ subscribeBootSurface(() => {
 
 window.bootFixture = {
   set: (stage) => setView({ mode: "new", stage }),
+  unlock: (unavailableQuickMethod) => {
+    setVaultFixtureHint(unavailableQuickMethod);
+    setView({ mode: "new", stage: "unlock" });
+  },
   legacy: (stage) => setView({ mode: "legacy", stage }),
   state: () => getBootSurfaceState(),
   phases,

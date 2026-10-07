@@ -219,7 +219,7 @@ export function PortfolioSourceSwitcher({
 
       {/* Every way in, on this screen, whatever is active. */}
       {onManageConnections || onImportStatement ? (
-        <SettingsGroup title="Add a source" separatorInset testId="portfolio-source-add-group">
+        <SettingsGroup title="Add a source" rowSizing="uniform" separatorInset testId="portfolio-source-add-group">
           {onManageConnections ? (
             <SettingsRow
               icon={Building2}
@@ -237,7 +237,7 @@ export function PortfolioSourceSwitcher({
               icon={Upload}
               iconTone="accent"
               title={activeSource === "statement" && hasStatementSnapshots ? "Import another statement" : "Upload a statement"}
-              description="PDF or CSV from your brokerage; editable once imported."
+              description="PDF or CSV; editable after import."
               onClick={onImportStatement}
               disabled={interactionBusy}
               chevron

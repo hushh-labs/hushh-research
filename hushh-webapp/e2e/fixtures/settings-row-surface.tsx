@@ -19,6 +19,7 @@ import {
   UserIcon as User,
 } from "../../components/icons";
 import {
+  AdaptiveDetailSurface,
   SettingsGroup,
   SettingsRow,
 } from "../../components/app-ui/settings-ui";
@@ -26,6 +27,10 @@ import { ConsentScopeNestedList } from "../../components/consent/consent-scope-n
 import { ConsentScopeList } from "../../components/consent/consent-scope-list";
 import { Switch } from "../../components/ui/switch";
 import { MaterialRipple } from "../../lib/morphy-ux/material-ripple";
+import { PortfolioSourceSwitcher } from "../../components/kai/portfolio-source-switcher";
+import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
+import { WalletCardManage } from "../../components/wallet-card/wallet-card-manage";
+import type { WalletCardRecord } from "../../lib/services/wallet-card-service";
 import type { ConsentScopeItem } from "../../lib/consent/consent-scope-items";
 
 declare global {
@@ -285,6 +290,48 @@ function LegacySplitRow() {
   );
 }
 
+function DetailTarget() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section>
+      <button type="button" onClick={() => setOpen(true)}>Open detail target</button>
+      <AdaptiveDetailSurface
+        open={open}
+        onOpenChange={setOpen}
+        title="Request details"
+        mobilePresentation="fullscreen"
+      >
+        <p>Review this synthetic request.</p>
+      </AdaptiveDetailSurface>
+    </section>
+  );
+}
+
+function UniformNavigation({ uniform = true }: { uniform?: boolean }) {
+  return <SettingsGroup title="Navigation" separatorInset rowSizing={uniform ? "uniform" : "content"}
+    testId={uniform ? "uniform-navigation" : "content-navigation"}>
+    <SettingsRow icon={User} title="Account" chevron onClick={() => record("uniform:account")} />
+    <SettingsRow asChild icon={Bell} title="Preferences" description="Theme and accent" chevron>
+      <a href="#preferences">Preferences</a>
+    </SettingsRow>
+    <SettingsRow icon={Lock} title="Security" description="Review your vault methods and trusted devices."
+      chevron onClick={() => record("uniform:security")}
+      trailing={<Switch aria-label="Synthetic security switch" checked onCheckedChange={() => record("uniform:switch")} />} />
+  </SettingsGroup>;
+}
+
+function WalletManagement({ status }: { status: "active" | "paused" }) {
+  const card: WalletCardRecord = {
+    passSerial: null, status, shareTokenVersion: 1, cardPayload: {},
+    displayName: null, headline: null, avatarUrl: null, expiresAt: null,
+    createdAt: null, updatedAt: null, revokedAt: null, lastScannedAt: null, scanCount: 0,
+  };
+  return <section data-testid={`consumer-wallet-${status}`}>
+    <WalletCardManage card={card} shareLink={null} applePassSupported={false} busyAction={null}
+      onAction={(action) => record(`wallet:${status}:${action}`)} />
+  </section>;
+}
+
 function Fixture() {
   return (
     <main className="min-h-dvh space-y-8 bg-[color:var(--app-grouped-background,var(--background))] p-4 text-foreground">
@@ -293,6 +340,18 @@ function Fixture() {
       <ConsentCenterList />
       <ChatRequestCard />
       <LegacySplitRow />
+      <DetailTarget />
+      <UniformNavigation />
+      <UniformNavigation uniform={false} />
+      <section data-testid="consumer-finance-sources">
+        <PortfolioSourceSwitcher activeSource="statement" availableSources={["statement", "plaid"]}
+          onSourceChange={async () => undefined} onManageConnections={() => record("finance:connect")}
+          onImportStatement={() => record("finance:import")} />
+        <PortfolioImportView onFileSelect={() => undefined} onSkip={() => undefined}
+          onConnectPlaid={() => record("finance:connect")} onPreloadSchema={() => record("finance:sample")} />
+      </section>
+      <WalletManagement status="active" />
+      <WalletManagement status="paused" />
     </main>
   );
 }

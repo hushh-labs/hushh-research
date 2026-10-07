@@ -198,6 +198,7 @@ export { SegmentedTabs };
 type SettingsPresentation = {
   separatorInset?: boolean;
   density?: "compact" | "comfortable";
+  rowSizing?: "content" | "uniform";
 };
 
 const SettingsPresentationContext = createContext<SettingsPresentation>({});
@@ -210,10 +211,11 @@ const SettingsPresentationContext = createContext<SettingsPresentation>({});
 export function SettingsPresentationProvider({
   separatorInset,
   density,
+  rowSizing,
   children,
 }: SettingsPresentation & { children: ReactNode }) {
   return (
-    <SettingsPresentationContext.Provider value={{ separatorInset, density }}>
+    <SettingsPresentationContext.Provider value={{ separatorInset, density, rowSizing }}>
       {children}
     </SettingsPresentationContext.Provider>
   );
@@ -260,6 +262,7 @@ export function SettingsGroup({
   embedded = false,
   density,
   separatorInset,
+  rowSizing,
   className,
   headingClassName,
   shellClassName,
@@ -312,6 +315,9 @@ export function SettingsGroup({
    * preserves the existing full-width `divide-y` for all other consumers.
    */
   separatorInset?: boolean;
+  /** Bounded navigation groups share the tallest readable sibling height.
+   * Information-heavy lists retain content sizing; neither policy clips text. */
+  rowSizing?: "content" | "uniform";
   className?: string;
   /**
    * Tunes the heading block's own spacing.
@@ -342,6 +348,7 @@ export function SettingsGroup({
     separatorInset ?? presentation.separatorInset ?? false;
   const resolvedDensity =
     density ?? presentation.density ?? (embedded ? "compact" : "comfortable");
+  const resolvedRowSizing = rowSizing ?? presentation.rowSizing ?? "content";
   const shell = (
     <div
       data-ui-role="grouped-card"
@@ -362,6 +369,7 @@ export function SettingsGroup({
       <div
         className={cn(
           "relative isolate",
+          resolvedRowSizing === "uniform" && "grid auto-rows-fr",
           resolvedSeparatorInset
             ? "group/settings-list"
             : "divide-y divide-border/60",
@@ -369,6 +377,7 @@ export function SettingsGroup({
         )}
         id={contentId}
         data-inset-separators={resolvedSeparatorInset ? "true" : undefined}
+        data-settings-row-sizing={resolvedRowSizing}
       >
         {children}
       </div>
@@ -438,6 +447,7 @@ export function SettingsGroup({
       <SettingsPresentationProvider
         separatorInset={resolvedSeparatorInset}
         density={resolvedDensity}
+        rowSizing={resolvedRowSizing}
       >
         {shell}
       </SettingsPresentationProvider>
@@ -555,6 +565,7 @@ export function SettingsRow({
           : "group-data-[inset-separators=true]/settings-list:after:left-0 group-data-[inset-separators=true]/settings-list:after:right-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-transparent",
+    presentation.rowSizing === "uniform" && "h-full",
     resolvedDensity === "compact" && "[--settings-row-py:8px]",
     layout === "person" &&
       "[--settings-row-px:16px] [--settings-row-py:12px] [--settings-row-gap:12px] [--settings-row-stack-indent:52px]",
@@ -723,6 +734,7 @@ export function SettingsRow({
   // and as indented as one without.
   const rowGridClassName = cn(
     "relative isolate grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left",
+    presentation.rowSizing === "uniform" && "h-full",
     resolvedDensity === "compact" ? "min-h-[48px]" : "min-h-[60px]",
     layout === "person" && "min-h-[72px]",
     shouldStackTrailing
@@ -997,7 +1009,7 @@ export function AdaptiveDetailSurface({
       aria-label="Close detail panel"
       onClick={() => onOpenChange(false)}
       className={cn(
-        "group absolute right-4 top-4 z-20 isolate inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full",
+        "group absolute right-4 top-4 z-20 isolate inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-full",
         "border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]",
         "transition-[transform,color,background-color] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -1087,7 +1099,7 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-8 pb-2 pr-14 text-left sm:px-5 sm:pt-6 sm:pb-3 sm:pr-14">
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-8 pb-2 pr-16 text-left sm:px-5 sm:pt-6 sm:pb-3 sm:pr-16">
             <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0 text-left">

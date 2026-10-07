@@ -10,6 +10,12 @@ import {
 } from "@/lib/navigation/profile-routes";
 
 export const PROFILE_PANE_OPEN_EVENT = "hushh:profile-pane-open";
+// Presentation only: a preview neither admits Profile nor changes URL/focus.
+export const PROFILE_PANE_PREVIEW_EVENT = "hushh:profile-pane-preview";
+export type ProfilePanePreview = { phase: "drag" | "cancel" | "commit"; distance: number };
+export function previewProfilePane(detail: ProfilePanePreview) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PROFILE_PANE_PREVIEW_EVENT, { detail }));
+}
 export const PROFILE_PANE_QUERY = "profile_pane";
 export const PROFILE_PANE_PANEL_QUERY = "profile_panel";
 export const PROFILE_PANE_DETAIL_QUERY = "profile_detail";
@@ -460,6 +466,8 @@ export type ProfilePaneOpenResult = "opening" | "already_open" | "unavailable";
 
 export type ProfilePaneOpenDetail = {
   source: ProfilePaneOpenSource;
+  /** Transient authored opener, not inferred DOM or persisted state. */
+  returnFocus?: HTMLElement;
   /** Called synchronously by the shell listener with what it did. */
   onResult?: (result: ProfilePaneOpenResult) => void;
 };
@@ -474,6 +482,7 @@ export type ProfilePaneOpenDetail = {
  */
 export function requestProfilePaneOpen(
   source: ProfilePaneOpenSource = "tap",
+  returnFocus?: HTMLElement,
 ): ProfilePaneOpenResult | null {
   if (typeof window === "undefined") return null;
   let result: ProfilePaneOpenResult | null = null;
@@ -481,6 +490,7 @@ export function requestProfilePaneOpen(
     new CustomEvent<ProfilePaneOpenDetail>(PROFILE_PANE_OPEN_EVENT, {
       detail: {
         source,
+        returnFocus,
         onResult: (value) => {
           result = value;
         },

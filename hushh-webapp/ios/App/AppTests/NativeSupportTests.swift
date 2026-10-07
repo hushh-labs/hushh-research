@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
@@ -24,6 +25,60 @@ final class NativeSupportTests: XCTestCase {
         )
         XCTAssertEqual(audit.vaultPassphrase, "synthetic-passphrase")
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
+    }
+
+    @MainActor
+    func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() {
+        let plugin = HushhNativeChromePlugin()
+        plugin.load()
+        let ready = expectation(description: "Native lifecycle observers registered")
+        DispatchQueue.main.async { ready.fulfill() }
+        wait(for: [ready], timeout: 1)
+        let notifications = NotificationCenter.default
+        notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible)
+        notifications.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible, "The closing keyboard still owns presentation until completion")
+        notifications.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertFalse(plugin.keyboardVisible)
+        // Reopening interrupts an older dismissal. Its late completion cannot
+        // admit controls beneath the newly visible keyboard.
+        notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        notifications.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        notifications.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible)
+        notifications.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        notifications.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertFalse(plugin.keyboardVisible)
+    }
+
+    @MainActor
+    func testHiddenSegmentedPickerReportsItsReservedGeometryBeforeInteraction() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass family requires iOS 26") }
+        let measured = expectation(description: "Actual SwiftUI geometry equals the reserved slot")
+        measured.assertForOverFulfill = false
+        let theme = HushhNativeControlAppearance(appearance: "light", accentHex: "#007aff", foregroundHex: "#222222")!
+        let host = UIHostingController(rootView: NativeAgentSurfaceSelector(selected: "one", width: 88,
+            theme: theme, action: { _ in XCTFail("Hidden preparation cannot choose a value") },
+            layout: { size in if size == CGSize(width: 88, height: 44) { measured.fulfill() } }))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let parent = UIViewController()
+        window.rootViewController = parent
+        window.isHidden = false
+        defer { window.isHidden = true }
+        parent.addChild(host)
+        host.view.isHidden = true
+        host.view.isUserInteractionEnabled = false
+        host.safeAreaRegions = []
+        parent.view.addSubview(host.view)
+        host.view.frame = CGRect(x: 280, y: 60, width: 88, height: 44)
+        host.didMove(toParent: parent)
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        wait(for: [measured], timeout: 2)
+        XCTAssertEqual(host.view.bounds.size, CGSize(width: 88, height: 44))
+        XCTAssertFalse(host.view.isUserInteractionEnabled)
     }
 
     func testNativeControlAppearanceRejectsMalformedProjectionAndDecodesCSSAlphaLast() {
@@ -56,19 +111,108 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: false)) // privacy/overlay guard
         XCTAssertTrue(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true))
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true))
-        let next = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-b", revision: 2)
+        let replacement = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 2)
+        XCTAssertFalse(state.prepareBackReplacement(replacement, previousRevision: 0))
+        XCTAssertFalse(state.prepareBackReplacement(.init(document: "a", ownerEpoch: "owner-b", revision: 2), previousRevision: 1))
+        XCTAssertFalse(state.prepareBackReplacement(.init(document: "b", ownerEpoch: "owner-a", revision: 2), previousRevision: 1))
+        XCTAssertEqual(state.identity, first) // Refusal must not overwrite the predecessor.
+        XCTAssertTrue(state.prepareBackReplacement(replacement, previousRevision: 1))
+        XCTAssertFalse(state.confirm(first, sequence: 2, latestSequence: 2, allowed: true))
+        XCTAssertFalse(state.confirm(replacement, sequence: 2, latestSequence: 2, allowed: true))
+        XCTAssertTrue(state.activate(replacement))
+        let next = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-b", revision: 3)
         XCTAssertTrue(state.prepare(next))
         XCTAssertFalse(state.activate(first))
         XCTAssertTrue(state.activate(next))
         XCTAssertFalse(state.retire(.init(document: "a", ownerEpoch: "owner-a", revision: 100), targetRevision: 1))
         XCTAssertEqual(state.phase, "active") // old failure cannot remove a replacement
         XCTAssertFalse(state.confirm(first, sequence: 2, latestSequence: 2, allowed: true))
-        XCTAssertTrue(state.retire(.init(document: "a", ownerEpoch: "owner-b", revision: 3)))
+        XCTAssertTrue(state.retire(.init(document: "a", ownerEpoch: "owner-b", revision: 4)))
         XCTAssertFalse(state.prepare(next)) // late uncertain preparation cannot resurrect a retired view
         XCTAssertTrue(state.prepare(.init(document: "b", ownerEpoch: "owner-b", revision: 1)))
         XCTAssertFalse(state.prepare(.init(document: "a", ownerEpoch: "owner-a", revision: 99)))
         state.invalidate()
         XCTAssertFalse(state.activate(next))
+    }
+
+    func testNativeChromeUpdatesFenceOldChoicesWithoutReplacingTheInstallation() {
+        var state = HushhNativeChromeState()
+        let identity = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 1)
+        XCTAssertTrue(state.prepare(identity))
+        XCTAssertFalse(state.update(identity, sequence: 1))
+        XCTAssertTrue(state.activate(identity))
+        XCTAssertTrue(state.update(identity, sequence: 2))
+        XCTAssertFalse(state.update(identity, sequence: 1))
+        XCTAssertEqual(state.identity, identity)
+        XCTAssertFalse(state.confirm(identity, sequence: 1, latestSequence: 1, allowed: true))
+        XCTAssertFalse(state.confirm(identity, sequence: 1, latestSequence: 1, allowed: true, updateSequence: 1))
+        XCTAssertTrue(state.confirm(identity, sequence: 1, latestSequence: 1, allowed: true, updateSequence: 2))
+        XCTAssertFalse(state.confirm(identity, sequence: 1, latestSequence: 1, allowed: true, updateSequence: 2))
+        state.invalidate()
+        XCTAssertFalse(state.update(identity, sequence: 3))
+    }
+
+    func testPublicPreferenceConfigurationRejectsUnknownValuesAndAuthoredOptions() {
+        for value in ["light", "dark", "system"] {
+            XCTAssertNotNil(HushhChromeConfiguration.parse(kind: "appearance", value: value, options: nil, minimum: nil, maximum: nil))
+        }
+        let accent = HushhChromeConfiguration.parse(kind: "accent", value: "blue",
+            options: [["value": "unknown", "label": "Untrusted label"]], minimum: nil, maximum: nil)
+        XCTAssertEqual(accent?.options.map(\.value), ["blue", "gold"])
+        for kind in ["appearance", "accent"] {
+            for value: String? in [nil, "unknown"] {
+                XCTAssertNil(HushhChromeConfiguration.parse(kind: kind, value: value, options: nil, minimum: nil, maximum: nil))
+            }
+        }
+    }
+
+    func testRejectedChromePreparationPreservesActiveOptionsAndDateBounds() {
+        var state = HushhNativeChromeState()
+        var configuration = HushhChromeConfiguration()
+        let active = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 20)
+        let admitted = HushhChromeConfiguration.parse(kind: "selection", value: "current",
+            options: [["value": "current", "label": "Current"]], minimum: nil, maximum: nil)
+        XCTAssertTrue(configuration.prepare(active, parsed: admitted, state: &state))
+        XCTAssertTrue(state.activate(active))
+        let stale = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 19)
+        let replacement = HushhChromeConfiguration.parse(kind: "selection", value: "stale",
+            options: [["value": "stale", "label": "Stale"]], minimum: nil, maximum: nil)
+        XCTAssertFalse(configuration.prepare(stale, parsed: replacement, state: &state))
+        XCTAssertEqual(configuration.options.map(\.value), ["current"])
+        XCTAssertEqual(state.identity, active)
+        XCTAssertEqual(state.phase, "active")
+
+        let dateIdentity = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 21)
+        let date = HushhChromeConfiguration.parse(kind: "date", value: "2026-10-05", options: nil,
+            minimum: "2026-10-01", maximum: "2026-10-31")
+        XCTAssertTrue(configuration.prepare(dateIdentity, parsed: date, state: &state))
+        XCTAssertTrue(state.activate(dateIdentity))
+        let bounds = configuration.dateBounds
+        let invalid = HushhChromeConfiguration.parse(kind: "date", value: "2026-02-30", options: nil,
+            minimum: "2026-10-01", maximum: "2026-10-31")
+        let newer = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 22)
+        XCTAssertNil(invalid)
+        XCTAssertFalse(configuration.prepare(newer, parsed: invalid, state: &state))
+        XCTAssertEqual(configuration.dateBounds, bounds)
+        XCTAssertEqual(state.identity, dateIdentity)
+        XCTAssertEqual(state.phase, "active")
+    }
+
+    func testNativeNavigationRequiresCompleteBundledTemplateArtwork() throws {
+        let items = try XCTUnwrap(HushhNativeNavigationArtwork.items())
+        XCTAssertEqual(items.map(\.accessibilityIdentifier), HushhNativeNavigationState.tabs.map { "one-native-tab-\($0)" })
+        for item in items {
+            for image in [item.image, item.selectedImage] {
+                let image = try XCTUnwrap(image)
+                XCTAssertEqual(image.renderingMode, .alwaysTemplate)
+                XCTAssertEqual(image.size, CGSize(width: 24, height: 24))
+            }
+        }
+        // Negative control: one missing state must prevent native admission,
+        // not produce a blank tab or silently restore a different SF glyph.
+        XCTAssertNil(HushhNativeNavigationArtwork.items { name in
+            name == "HushhNav-connect-selected" ? nil : UIImage(named: name)
+        })
     }
 
     func testNativeNavigationRejectsStaleUnknownAndRetiredDocumentStates() {
@@ -282,6 +426,7 @@ final class NativeSupportTests: XCTestCase {
     func testNativeUiFlowConfigurationRequiresExplicitTestMode() {
         let ordinaryLaunch = NativeTestConfiguration(arguments: [
             "App",
+            "--hushh-vault-layout-diagnostics",
             "-UITestRunUiFlows", "true",
             "-UITestUiFlowRunId", "ios-run-1",
         ])
@@ -293,6 +438,9 @@ final class NativeSupportTests: XCTestCase {
         ])
 
         XCTAssertFalse(ordinaryLaunch.enabled)
+        XCTAssertFalse(ordinaryLaunch.autoReviewerLogin)
+        XCTAssertNil(ordinaryLaunch.vaultPassphrase)
+        XCTAssertNil(ordinaryLaunch.expectedUserId)
         XCTAssertFalse(ordinaryLaunch.runUiFlows)
         XCTAssertNil(ordinaryLaunch.uiFlowRunId)
         XCTAssertTrue(testLaunch.enabled)
@@ -465,6 +613,30 @@ final class NativeSupportTests: XCTestCase {
                 appIsActive: true
             )
         )
+    }
+
+    func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {
+        var state = HushhSessionPrivacyState()
+        let normal = state.beginPresentationRetirement()
+        XCTAssertTrue(state.completePresentationRetirement(normal))
+        XCTAssertFalse(state.shouldPublishRetirementCompletion,
+                       "Normal popup dismissal must not invalidate its pending choice")
+        let first = state.beginPresentationRetirement()
+        let second = state.beginPresentationRetirement()
+        state.protectForAppInactive()
+        XCTAssertTrue(state.shouldPublishRetirementCompletion,
+                      "Shielded retirement must republish validation after actual dismissal")
+        state.markAppActive()
+        let generation = state.generation
+        XCTAssertFalse(state.completeSessionValidation(generation: generation, appIsActive: true))
+        XCTAssertFalse(state.completePresentationRetirement(UUID()))
+        XCTAssertTrue(state.completePresentationRetirement(first))
+        XCTAssertFalse(state.completePresentationRetirement(first))
+        XCTAssertFalse(state.completeSessionValidation(generation: generation, appIsActive: true))
+        XCTAssertTrue(state.shielded)
+        XCTAssertTrue(state.completePresentationRetirement(second))
+        XCTAssertTrue(state.completeSessionValidation(generation: generation, appIsActive: true))
+        XCTAssertFalse(state.shielded)
     }
 
     func testSessionPrivacyStatePreservesBackgroundDebtThroughTransientInactivity() {

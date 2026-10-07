@@ -50,6 +50,7 @@ type AgentHistorySidebarProps = {
   collapsed?: boolean;
   mode?: "desktop" | "mobile";
   hideCloseButton?: boolean;
+  closeControl?: ReactNode;
   /**
    * Which agent is on screen beside this list.
    *
@@ -176,6 +177,7 @@ export function AgentHistorySidebar({
   collapsed = false,
   mode = "desktop",
   hideCloseButton = false,
+  closeControl,
   surface = "one",
   onClose,
   onToggleCollapsed,
@@ -526,7 +528,7 @@ export function AgentHistorySidebar({
                 ) : null}
               </div>
               {onClose && !hideCloseButton ? (
-                <Button
+                closeControl ?? <Button
                   type="button"
                   variant="ghost"
                   size="icon"

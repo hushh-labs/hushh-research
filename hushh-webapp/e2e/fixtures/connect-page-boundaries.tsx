@@ -4,7 +4,7 @@
 // network are replaced, and the network answers on a timer the spec controls
 // through <html data-*> attributes, so the page loads in the same order it
 // does for a person: shell first, then connections, then circles.
-import React, { createContext, useEffect } from "react";
+import React, { createContext, useEffect, useSyncExternalStore } from "react";
 import { ConnectCirclesTab as ProductionCirclesTab } from "../../components/connect/circles/connect-circles-tab";
 
 const noop = () => {};
@@ -17,10 +17,24 @@ const after = <T,>(ms: number, value: T) =>
   new Promise<T>((resolve) => window.setTimeout(() => resolve(value), ms));
 
 // ---- routing ----------------------------------------------------------------
-const router = { replace: noop, push: (href: string) => { document.body.dataset.lastNavigation = href; }, prefetch: noop, back: noop, refresh: noop };
+function subscribeToRoute(listener: () => void) {
+  window.addEventListener("popstate", listener);
+  return () => window.removeEventListener("popstate", listener);
+}
+function navigate(href: string) {
+  document.body.dataset.lastNavigation = href;
+  window.history.pushState({}, "", href);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+const router = { replace: noop, push: navigate, prefetch: noop, back: noop, refresh: noop };
 export const useRouter = () => router;
 export const usePathname = () => "/one/connect";
-export const useSearchParams = () => new URLSearchParams();
+export function useSearchParams() {
+  // The production tab owner reads ?tab=. A signal-only router cannot test
+  // its real Connections/Circles selection or inactive-pane accessibility.
+  const search = useSyncExternalStore(subscribeToRoute, () => window.location.search, () => "");
+  return new URLSearchParams(search);
+}
 
 // ---- identity ---------------------------------------------------------------
 const user = {

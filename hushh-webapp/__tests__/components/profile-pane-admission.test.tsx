@@ -1,6 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
+import { previewProfilePane } from "@/lib/navigation/profile-pane";
 
 const vault = vi.hoisted(() => ({ isVaultUnlocked: false }));
 const url = vi.hoisted(() => ({
@@ -42,6 +44,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -69,10 +72,47 @@ function pull(type: string, target: Element, x: number, y: number, time: number)
   fireEvent(target, event);
 }
 
+it("keeps the drag preview inert and does not mount protected Profile content before admission", () => {
+  vi.useFakeTimers();
+  vault.isVaultUnlocked = true;
+  const change = vi.fn();
+  const view = render(<ProfilePane open={false} owner="owner-a" onOpenChange={change} />);
+  const preview = view.container.querySelector<HTMLElement>("[data-profile-preview]")!;
+  Object.defineProperty(preview, "offsetWidth", { value: 390 });
+  act(() => previewProfilePane({ phase: "drag", distance: 80 }));
+  expect(preview.hidden).toBe(false);
+  expect(preview.style.transform).toBe("translate3d(310px,0,0)");
+  expect(preview).toHaveAttribute("inert");
+  expect(preview).toHaveAttribute("aria-hidden", "true");
+  expect(profilePage.renders).toBe(0);
+  expect(change).not.toHaveBeenCalled();
+  act(() => previewProfilePane({ phase: "commit", distance: 80 }));
+  act(() => vi.advanceTimersByTime(500));
+  expect(preview.hidden).toBe(true); // An unadmitted request cannot strand a shell.
+  act(() => previewProfilePane({ phase: "drag", distance: 90 }));
+  view.rerender(<ProfilePane open={false} owner="owner-b" onOpenChange={change} />);
+  expect(preview.hidden).toBe(true);
+  expect(profilePage.renders).toBe(0);
+});
+
 it("tracks an owned Profile close without moving the page and commits exactly once", () => {
+  vi.useFakeTimers();
   vault.isVaultUnlocked = true;
   const close = vi.fn();
-  const view = render(<ProfilePane open onOpenChange={close} />);
+  const computedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((node) => {
+    const style = computedStyle(node);
+    return new Proxy(style, { get: (target, key) => key === "animationName" && node.getAttribute("data-slot") === "sheet-content"
+      ? node.getAttribute("data-state") === "closed" ? "profile-pull-exit" : "sheet-surface-enter"
+      : Reflect.get(target, key, target) });
+  });
+  let reopen = () => {};
+  function ControlledPane() {
+    const [open, setOpen] = useState(true);
+    useLayoutEffect(() => { reopen = () => setOpen(true); }, []);
+    return <ProfilePane open={open} onOpenChange={(next) => { close(next); setOpen(next); }} />;
+  }
+  const view = render(<ControlledPane />);
   const panel = screen.getByTestId("profile-pane");
   Object.defineProperty(panel, "offsetWidth", { value: 390 });
   const title = screen.getByRole("heading");
@@ -88,8 +128,43 @@ it("tracks an owned Profile close without moving the page and commits exactly on
   pull("touchend", title, 205, 153, 240);
   expect(close).toHaveBeenCalledExactlyOnceWith(false);
   expect(panel.dataset.profilePull).toBe("exit");
+  expect(panel).toHaveAttribute("data-state", "closed");
+  expect(panel.style.getPropertyValue("--profile-pull-x")).toBe("50px");
+  act(() => reopen());
+  expect(panel).toHaveAttribute("data-state", "open");
+  expect(panel.style.transform).toBe("translate3d(0px, 0, 0)");
+  act(() => vi.advanceTimersByTime(200));
+  expect(panel).not.toHaveAttribute("data-profile-pull");
+  expect(panel.style.transform).toBe("");
   view.unmount();
   expect(panel.style.transform).toBe("");
+});
+
+it("freezes a re-grab at its current rendered position before the next movement", () => {
+  vi.useFakeTimers();
+  vault.isVaultUnlocked = true;
+  const close = vi.fn();
+  const view = render(<ProfilePane open onOpenChange={close} />);
+  const panel = screen.getByTestId("profile-pane");
+  Object.defineProperty(panel, "offsetWidth", { value: 390 });
+  const title = screen.getByRole("heading");
+  pull("touchstart", title, 100, 150, 0);
+  pull("touchmove", title, 125, 151, 120);
+  pull("touchend", title, 125, 151, 240);
+  const computedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((node) => {
+    const style = computedStyle(node);
+    return node === panel ? new Proxy(style, { get: (target, key) => key === "transform"
+      ? "matrix(1, 0, 0, 1, 12, 0)" : Reflect.get(target, key, target) }) : style;
+  });
+  pull("touchstart", title, 100, 150, 250);
+  expect(panel.style.transform).toBe("translate3d(12px, 0, 0)");
+  expect(panel.style.transition).toBe("none");
+  act(() => vi.advanceTimersByTime(500));
+  expect(panel.style.transform).toBe("translate3d(12px, 0, 0)");
+  pull("touchcancel", title, 100, 150, 260);
+  expect(close).not.toHaveBeenCalled();
+  view.unmount();
 });
 
 it("keeps Profile scroll, fields, horizontal rails and nested dialogs outside the close gesture", () => {
@@ -156,8 +231,11 @@ it("anchors the custom close button and keeps the nested back control separate",
   render(<ProfilePane open onOpenChange={onOpenChange} />);
 
   const close = screen.getByRole("button", { name: "Close Profile" });
-  expect(close.style.right).toBe("max(1rem, env(safe-area-inset-right, 0px))");
-  expect(close.getAttribute("style")).not.toContain("left:");
+  const slot = close.closest<HTMLElement>('[data-native-chrome-slot="profile-close"]')!;
+  expect(slot.style.right).toBe(
+    "max(1rem, env(safe-area-inset-right, 0px))",
+  );
+  expect(slot.style.left).toBe("");
   expect(screen.getByRole("button", { name: "Back in Profile" })).toBeTruthy();
 
   fireEvent.click(close);
@@ -174,6 +252,37 @@ it("names the software updates panel in the visible sheet header", () => {
     screen.getByRole("heading", { name: "Software updates" }),
   ).toBeTruthy();
   url.query = "profile_pane=1&profile_panel=preferences";
+});
+
+it("focuses the Profile heading rather than pinning Close and returns only to the current owner's opener", async () => {
+  vault.isVaultUnlocked = true;
+  url.query = "profile_pane=1";
+  let replaceOwner = () => {};
+  function FocusPane() {
+    const [open, setOpen] = useState(false);
+    const [owner, setOwner] = useState("owner-a");
+    const returnFocus = useRef<{ owner: string; target: HTMLElement } | null>(null);
+    useLayoutEffect(() => { replaceOwner = () => setOwner("owner-b"); }, []);
+    return <>
+      <button onClick={(event) => {
+        returnFocus.current = { owner, target: event.currentTarget }; setOpen(true);
+      }}>Open authored Profile</button>
+      <ProfilePane open={open} owner={owner} onOpenChange={setOpen} returnFocusRef={returnFocus} />
+    </>;
+  }
+  render(<FocusPane />);
+  const opener = screen.getByRole("button", { name: "Open authored Profile" });
+  fireEvent.click(opener);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Profile" })).toHaveFocus());
+  expect(screen.getByRole("button", { name: "Close Profile" })).not.toHaveFocus();
+  fireEvent.click(screen.getByRole("button", { name: "Close Profile" }));
+  await waitFor(() => expect(opener).toHaveFocus());
+  fireEvent.click(opener);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Profile" })).toHaveFocus());
+  act(() => replaceOwner());
+  fireEvent.click(screen.getByRole("button", { name: "Close Profile" }));
+  await waitFor(() => expect(screen.queryByTestId("profile-pane")).toBeNull());
+  expect(opener).not.toHaveFocus(); // A stale owner's close cannot steal focus.
 });
 
 it("holds the open location while the pane closes, so the exit is one motion", () => {

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { ChevronLeft } from "@/components/icons";
 import { usePathname } from "next/navigation";
 
-import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
+import { previewProfilePane, requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 
 const BACK_GESTURE_RESERVED_WIDTH_PX = 28;
@@ -121,6 +121,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
     const reset = () => {
       gesture = null;
       setIndicator(root, { active: false });
+      previewProfilePane({ phase: "cancel", distance: 0 });
     };
 
     const begin = (params: Omit<ProfileBodyGesture, "axis">) => {
@@ -134,6 +135,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
 
     const move = (x: number, y: number, event: Event) => {
       if (!gesture) return;
+      if (hasBlockingOverlay() || document.visibilityState === "hidden") { reset(); return; }
       const deltaX = x - gesture.startX;
       const deltaY = y - gesture.startY;
       const horizontal = Math.abs(deltaX);
@@ -153,6 +155,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
       if (gesture.axis !== "horizontal") return;
 
       consume(event);
+      previewProfilePane({ phase: "drag", distance: Math.abs(deltaX) });
       // No preventDefault: the window listeners are passive so scrolling
       // never waits on this handler (see app-edge-back-gesture.tsx for the
       // WebKit reasoning). `touch-pan-y` on the scroll root already refuses
@@ -178,6 +181,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
       const elapsed = Math.max(1, timestamp - current.startedAt);
       const velocity = horizontal / elapsed;
       const shouldOpen =
+        !hasBlockingOverlay() && document.visibilityState !== "hidden" &&
         current.axis === "horizontal" &&
         deltaX < 0 &&
         horizontal > vertical * DIRECTION_RATIO &&
@@ -185,7 +189,9 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
           velocity >= COMMIT_VELOCITY_PX_PER_MS);
 
       if (current.axis === "horizontal") consume(event);
-      reset();
+      gesture = null;
+      setIndicator(root, { active: false });
+      previewProfilePane({ phase: shouldOpen ? "commit" : "cancel", distance: horizontal });
       if (shouldOpen) {
         if (current.link) suppressedClick = { link: current.link, expires: performance.now() + 800 };
         requestProfilePaneOpen("native_swipe");
@@ -275,6 +281,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
     };
     const touchMove = (event: TouchEvent) => {
       if (gesture?.input !== "touch") return;
+      if (event.touches.length !== 1) return reset();
       const touch = touchForGesture(event.touches);
       if (!touch) return reset();
       move(touch.clientX, touch.clientY, event);
@@ -292,6 +299,9 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
     };
 
     window.addEventListener("click", suppressCommittedLinkClick, true);
+    window.addEventListener("blur", reset);
+    window.addEventListener("resize", reset);
+    document.addEventListener("visibilitychange", reset);
     window.addEventListener("pointerdown", pointerStart, {
       capture: true,
       passive: true,
@@ -321,6 +331,9 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
 
     return () => {
       reset();
+      window.removeEventListener("blur", reset);
+      window.removeEventListener("resize", reset);
+      document.removeEventListener("visibilitychange", reset);
       window.removeEventListener("click", suppressCommittedLinkClick, true);
       window.removeEventListener("pointerdown", pointerStart, true);
       window.removeEventListener("pointermove", pointerMove, true);
