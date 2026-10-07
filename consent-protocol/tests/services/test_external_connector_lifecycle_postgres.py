@@ -388,12 +388,13 @@ async def test_secret_rotation_and_disconnect_advance_authority_generation(lifec
 @pytest.mark.asyncio
 async def test_instagram_publication_claim_is_owner_generation_bound_and_durable(lifecycle):
     # Replay the production migration in this fixture's isolated schema. The
-    # source explicitly names public; changing only that schema qualifier here
-    # keeps the real SQL and constraint behavior while avoiding shared state.
+    # source explicitly names public; changing that schema qualifier here keeps
+    # the real SQL and constraint behavior while avoiding shared state. Escape
+    # percent signs for the DBAPI so PostgreSQL's format('%I', ...) stays literal.
     schema = sql(lifecycle, "SELECT current_schema()").scalar_one()
     migration = (MIGRATIONS / "284_instagram_publication_claims.sql").read_text()
     with lifecycle.db.engine.connect() as connection:
-        connection.exec_driver_sql(migration.replace("public.", f'"{schema}".'))
+        connection.exec_driver_sql(migration.replace("public.", f'"{schema}".').replace("%", "%%"))
     sql(
         lifecycle,
         """INSERT INTO external_mcp_connectors
@@ -436,7 +437,7 @@ async def test_instagram_oembed_budget_is_atomic_across_postgres_connections(lif
     schema = sql(lifecycle, "SELECT current_schema()").scalar_one()
     migration = (MIGRATIONS / "285_instagram_oembed_request_budgets.sql").read_text()
     with lifecycle.db.engine.connect() as connection:
-        connection.exec_driver_sql(migration.replace("public.", f'"{schema}".'))
+        connection.exec_driver_sql(migration.replace("public.", f'"{schema}".').replace("%", "%%"))
 
     budget = InstagramOEmbedBudget(db=lifecycle.db)
     admitted = await asyncio.gather(*(budget.reserve() for _ in range(24)))
