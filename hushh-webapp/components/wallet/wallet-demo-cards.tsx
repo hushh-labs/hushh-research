@@ -38,7 +38,10 @@ function demoFor(cardId: string) {
 export function WalletDemoCardFace({ summary, profile }: { summary: WalletCardSummary; profile?: WalletDemoProfile | null }) {
   const demo = demoFor(summary.cardId);
   if (!demo) return <WalletCardFace summary={summary} collection />;
-  const profileArtwork = summary.cardId === "demo-0" ? profile : null;
+  // All supplied card artwork represents the same user's wallet identity. Keep
+  // the artwork-specific finish and layout, but overlay the live profile name
+  // and profile QR on every card variant (Profile, Referral, and NWS).
+  const profileArtwork = profile;
   return (
     <div className={`${styles.face} ${styles[demo.finish]}`} data-demo-card="true">
       <div className="@container w-full">

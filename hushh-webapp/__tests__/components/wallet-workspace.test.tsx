@@ -111,13 +111,13 @@ describe("WalletWorkspace at scale", () => {
     const workspace = render(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
     await act(async () => { completions[0]!({ card: { cardPayload: { full_name: "Saved owner A" } }, shareUrl: null }); });
-    expect(await screen.findByText("Saved owner A")).toBeVisible();
+    expect(await screen.findAllByText("Saved owner A")).toHaveLength(3);
 
     authMock.user = { uid: "owner_b", displayName: "Public owner B" };
     workspace.rerender(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
     expect(screen.queryByText("Saved owner A")).toBeNull();
-    expect(screen.getByText("Public owner B")).toBeVisible();
+    expect(screen.getAllByText("Public owner B")).toHaveLength(3);
 
     authMock.user = { uid: "user_1", displayName: "Public owner A" };
     workspace.rerender(<WalletWorkspace />);
@@ -147,12 +147,12 @@ describe("WalletWorkspace at scale", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
       expect(completions).toHaveLength(3);
       await act(async () => { completions[2]!({ card: { cardPayload: { full_name: "Current profile" } }, shareUrl: null }); });
-      expect(screen.getByText("Current profile")).toBeVisible();
+      expect(screen.getAllByText("Current profile")).toHaveLength(3);
       await act(async () => {
         completions[0]!({ card: { cardPayload: { full_name: "Old initial profile" } }, shareUrl: null });
         completions[1]!({ card: { cardPayload: { full_name: "Old polled profile" } }, shareUrl: null });
       });
-      expect(screen.getByText("Current profile")).toBeVisible();
+      expect(screen.getAllByText("Current profile")).toHaveLength(3);
       expect(screen.queryByText("Old initial profile")).toBeNull();
       expect(screen.queryByText("Old polled profile")).toBeNull();
     } finally { vi.useRealTimers(); }

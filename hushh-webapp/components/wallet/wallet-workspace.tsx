@@ -828,7 +828,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready && activeTab === "sharing" ? <WalletSharing key={renderedOwnerId} /> : null}
+            {ready && activeTab === "sharing" ? <WalletSharing key={renderedOwnerId} profile={demoProfile} /> : null}
           </div>
           </SwipeViews>
           </div>

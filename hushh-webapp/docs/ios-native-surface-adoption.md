@@ -1403,3 +1403,23 @@ draft loss; a later admission observes the public session-recovery screen.
 Corrected cold preparation reaches the ordinary vault gate and normal unlock
 passes once. This is a new preparation, not continuity of the failed session.
 Corrected warm acceptance and physical qualification remain separate gates.
+
+Corrected `a9dd0b1b9` preparation subsequently yields four warm passes: Back,
+Preferences, the Profile settings stack and Wallet tab/draft continuity. History
+reopen/hit-region and Cloud/Puppy handoffs report zero sampled missing frames.
+Chat remains failed at keyboard isolation: its History AX element still exists
+when the keyboard is observed. Layout-probe evidence was not enabled in that
+preparation; neither product causality nor full-batch acceptance is established.
+
+The next main refresh (`ae3f73b09`) retains Consent same-state navigation,
+independent summary/list availability and responsive date selection, plus
+profile artwork on all three illustrative cards. Its Sharing profile-loader
+copy fails the locked-read negative control. Sharing now consumes the existing
+workspace's current-owner projection instead of starting a second read/cadence;
+locked rendering removes its projected name and QR. The workspace's owner and
+latest-request fences remain authoritative. Incoming artwork captions are
+repaired for encoding, without changing card proportions or native admission.
+The deferred date grid also fails a held-scheduler negative control: a day from
+the previous year can commit while the selector already shows the new year.
+Pending cells are now disabled and their commit handler rejects the stale grid;
+selectors stay responsive and current-grid selection remains accepted.

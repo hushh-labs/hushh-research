@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import styles from "./wallet-sharing.module.css";
 import { WALLET_DEMO_CARDS, WalletDemoCardFace } from "./wallet-demo-cards";
+import type { WalletDemoProfile } from "./wallet-demo-cards";
 import { CONSENT_ACTION_COMPLETE_EVENT, CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { loadWalletSharing, walletSharingKind } from "@/lib/services/wallet-sharing-service";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
@@ -26,7 +27,7 @@ function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export function WalletSharing() {
+export function WalletSharing({ profile }: { profile?: WalletDemoProfile | null }) {
   const { user } = useAuth();
   const { vaultKey } = useVault();
   const actions = useConsentActions({ userId: user?.uid });
@@ -37,6 +38,11 @@ export function WalletSharing() {
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [duration, setDuration] = useState(24);
   const [state, setState] = useState<SharingState | null>(null);
+  // The workspace owns the current-owner read and its generation fences.
+  // Sharing consumes that projection, never a second protected profile loader.
+  const demoProfile = vaultKey && profile
+    ? profile
+    : { displayName: user?.displayName?.trim() || null, shareUrl: null };
   const [revision, setRevision] = useState(0);
 
   const reviewTrigger = useRef<HTMLButtonElement | null>(null);
@@ -143,7 +149,7 @@ export function WalletSharing() {
       <h2 className="ui-text-section-title">Your cards.<br />Your control.</h2>
       <p>You choose who can access your Wallet information.</p>
       <figure className={styles.heroCard}>
-        <WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} />
+        <WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} profile={demoProfile} />
         <figcaption>Illustrative card · Your saved details stay private</figcaption>
       </figure>
     </section>
