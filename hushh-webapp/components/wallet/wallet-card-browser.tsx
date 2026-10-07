@@ -148,7 +148,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     const next = collection[index + (dx < 0 ? 1 : -1)];
     if (next) choose(next.cardId);
   };
-  const dock = <nav aria-label="Wallet card switcher" className={styles.dock} data-testid="wallet-card-switcher">
+  const dock = <nav aria-label="Wallet card switcher" className={`${styles.dock} sr-only`} data-testid="wallet-card-switcher">
     <Button variant="ghost" size="compact" aria-pressed={mode === "all"} disabled={isBusy} onClick={showAll} className={styles.allButton}>All <span>({collection.length})</span></Button>
     <div className={styles.thumbnails} data-swipe-views-horizontal-scroll>
       {collection.map((card, cardIndex) => <button key={card.cardId} type="button" disabled={isBusy} aria-label={`Open ${card.nickname || cardNetworkLabel(card.brand)}, ending ${card.last4}`} aria-pressed={mode === "card" && selected.cardId === card.cardId} onClick={() => choose(card.cardId)} className={styles.thumbnailButton}>
@@ -158,7 +158,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     <Button variant="secondary" size="compact" disabled={isBusy} aria-label="Add a card" onClick={onAdd} className={styles.plus}><Plus aria-hidden="true" className="size-5" /></Button>
   </nav>;
   return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
-    <h2 className={`${styles.title} ui-text-section-title`}>Your cards</h2>
+    <h2 className="sr-only">Your cards</h2>
     {mode === "all" ? <>
       <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} scrollReveal showActions={false} showDetailsLink />
       <div className={styles.quickActions}>

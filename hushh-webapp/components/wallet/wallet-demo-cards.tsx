@@ -34,7 +34,15 @@ export function WalletDemoCardFace({ summary }: { summary: WalletCardSummary }) 
   if (!demo) return <WalletCardFace summary={summary} collection />;
   return (
     <div className={`${styles.face} ${styles[demo.finish]}`} data-demo-card="true">
-      <WalletCardFace summary={summary} collection revealed={{ pan: demo.number, cardholderName: "Alex Morgan" }} />
+      <div className="@container w-full">
+        <div data-testid="wallet-card-face" data-revealed="true" className={styles.artworkFrame}>
+          <iframe
+            title={`${demo.name} Agent One card`}
+            src={`/wallet/agent-one-card-${summary.cardId === "demo-0" ? "profile" : summary.cardId === "demo-1" ? "referral" : "nws"}.html?v=2`}
+            className={styles.htmlArtwork}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -69,3 +77,7 @@ export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
     </section>
   );
 }
+
+
+
+
