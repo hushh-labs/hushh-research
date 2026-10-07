@@ -1,7 +1,7 @@
 {
-  "displayName": "[Managed] Backend P95 Latency High",
+  "displayName": "[Managed] DB Pool Wait P95 High",
   "documentation": {
-    "content": "P95 duration for bounded short-read GET routes crossed 2 seconds; streaming requests are excluded.",
+    "content": "P95 backend request pool wait exceeds 100 ms for 10 minutes.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
@@ -9,13 +9,13 @@
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "ops"
+    "scope": "capacity"
   },
   "conditions": [
     {
-      "displayName": "Short-read p95 > 2s (10m)",
+      "displayName": "Pool wait p95 > 100ms (10m)",
       "conditionThreshold": {
-        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_short_read_duration_ms\"",
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_db_pool_wait_ms\"",
         "aggregations": [
           {
             "alignmentPeriod": "300s",
@@ -24,7 +24,7 @@
           }
         ],
         "comparison": "COMPARISON_GT",
-        "thresholdValue": 2000,
+        "thresholdValue": 100,
         "duration": "600s",
         "trigger": {
           "count": 1

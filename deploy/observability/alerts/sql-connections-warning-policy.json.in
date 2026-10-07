@@ -1,0 +1,35 @@
+{
+  "displayName": "[Managed] Cloud SQL Connections Warning",
+  "documentation": {
+    "content": "Cloud SQL PostgreSQL connections across database labels exceed 700; inspect deployment overlap and pool use.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "capacity"
+  },
+  "conditions": [
+    {
+      "displayName": "Connections > 700 (5m)",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloudsql_database\" AND resource.label.\"database_id\"=\"__PROJECT_ID__:__SQL_INSTANCE__\" AND metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_MAX",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 700,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ]
+}
