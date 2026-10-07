@@ -45,6 +45,7 @@ REFUSED = "AGENT_PRIVATE_RUNTIME_REQUIRED"
 INLINE_ROUTES = {
     ("POST", "/api/one/a2a/message"),
     ("POST", "/api/one/email/information-requests/scan-enabled"),
+    ("POST", "/api/one/email/scheduled/drain"),
     ("POST", "/api/one/pod/specialist/{name}/read"),
     (WEBSOCKET, "/api/one/puppy/relay"),
     ("POST", "/api/one/agent-chat"),

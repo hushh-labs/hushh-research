@@ -1290,9 +1290,12 @@ def _endpoint_auth_boundary(route: Any) -> str:
         str(getattr(getattr(dependency, "call", None), "__name__", ""))
         for dependency in dependencies
     }
-    if "require_vault_owner_token" in names:
+    # These exact placement guards retain the underlying authentication
+    # dependency and additionally refuse private owners on hub content routes.
+    # This catalog label never admits an owner or binds an executable action.
+    if names & {"require_vault_owner_token", "hub_content_owner"}:
         return "vault_owner"
-    if "require_firebase_auth" in names:
+    if names & {"require_firebase_auth", "hub_content_firebase"}:
         return "firebase_auth"
     return "not_declared"
 
@@ -1339,9 +1342,12 @@ def _discover_service_api_endpoints_from_router(
 def _source_auth_boundary(node: ast.AST) -> str:
     """Read a declared auth dependency from a route source fallback."""
     names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
-    if "require_vault_owner_token" in names:
+    # These exact placement guards retain the underlying authentication
+    # dependency and additionally refuse private owners on hub content routes.
+    # This catalog label never admits an owner or binds an executable action.
+    if names & {"require_vault_owner_token", "hub_content_owner"}:
         return "vault_owner"
-    if "require_firebase_auth" in names:
+    if names & {"require_firebase_auth", "hub_content_firebase"}:
         return "firebase_auth"
     return "not_declared"
 

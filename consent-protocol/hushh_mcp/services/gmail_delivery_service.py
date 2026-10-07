@@ -36,6 +36,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from fastapi import HTTPException
 
 from db.connection import get_pool
 from hushh_mcp.agents.email.runtime import EMAIL_DRAFT_SCHEMA, run_email_gene
@@ -52,6 +53,11 @@ from hushh_mcp.services.google_drive_blob_attachment_service import (
     MAX_BLOB_BYTES,
     DriveBlobDescriptor,
     GoogleDriveBlobAttachmentService,
+)
+from hushh_mcp.services.owner_placement_guard import (
+    HOSTING_UNAVAILABLE,
+    PRIVATE_RUNTIME_REQUIRED,
+    admit_hub_content,
 )
 from hushh_mcp.services.owner_time import SCHEDULE_HORIZON_DAYS, SCHEDULE_MIN_LEAD_SECONDS
 
@@ -953,6 +959,15 @@ class GmailDeliveryService:
                 send_payload["threadId"] = reply_context.thread_id
             timeout = httpx.Timeout(20.0, connect=8.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
+                try:
+                    await admit_hub_content(user_id, "gmail_send_dispatch")
+                except HTTPException as exc:
+                    detail = exc.detail if isinstance(exc.detail, dict) else {}
+                    raise GmailApiError(
+                        "Agent hosting no longer admits this send.",
+                        status_code=exc.status_code,
+                        code=str(detail.get("code") or HOSTING_UNAVAILABLE),
+                    ) from None
                 provider_attempted = True
                 response = await client.post(
                     _GMAIL_SEND_URL,
@@ -1028,9 +1043,29 @@ class GmailDeliveryService:
             await self._set_outcome_unknown(action_id=action_id, error_code="provider_transport")
             return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
         except GmailApiError as exc:
-            await self._set_terminal(
-                action_id=action_id, state="failed", error_code="gmail_unavailable"
-            )
+            if exc.code == HOSTING_UNAVAILABLE and not provider_attempted:
+                # No request was sent. Restore only this claimed envelope;
+                # unknown placement does not erase it or invent an outcome.
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """UPDATE gmail_owner_send_actions
+                           SET state = 'prepared', sending_at = NULL, updated_at = NOW(),
+                               attempt_count = GREATEST(attempt_count -
+                                   CASE WHEN send_at IS NULL THEN 0 ELSE 1 END, 0)
+                           WHERE action_id = $1 AND user_id = $2 AND state = 'sending'
+                             AND envelope_hmac = $3""",
+                        action_id,
+                        user_id,
+                        envelope_hmac,
+                    )
+            else:
+                await self._set_terminal(
+                    action_id=action_id,
+                    state="failed",
+                    error_code="private_runtime_required"
+                    if exc.code == PRIVATE_RUNTIME_REQUIRED
+                    else "gmail_unavailable",
+                )
             raise GmailDeliveryError(
                 exc.code or "GMAIL_NOT_READY", str(exc), status_code=exc.status_code
             ) from exc

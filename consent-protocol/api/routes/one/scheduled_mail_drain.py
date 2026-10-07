@@ -27,6 +27,7 @@ from hushh_mcp.services.gmail_scheduled_drain import (
     drain_scheduled_mail,
     safe_scheduled_drain_result,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_inline
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,7 @@ async def _require_scheduler_oidc(request: Request) -> None:
 
 
 @router.post("/email/scheduled/drain")
+@hub_content_inline("scheduled_mail_each_owner")
 async def drain_scheduled_mail_route(
     response: Response,
     limit: int = Query(default=50, ge=1, le=MAX_DRAIN_LIMIT),

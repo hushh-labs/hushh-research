@@ -31,6 +31,15 @@ from hushh_mcp.services.google_drive_blob_attachment_service import (
     ResolvedDriveBlob,
 )
 
+
+@pytest.fixture(autouse=True)
+def shared_placement(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard as guard
+
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+
+
 _BLOB = b"private attachment\n"
 _BINDING = "b" * 64
 _ACCOUNT_LABEL = "owner@example.com"

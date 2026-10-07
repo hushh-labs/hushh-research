@@ -51,6 +51,9 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/career/resume/parse
+POST /api/one/email/scheduled/drain
+POST /api/one/voice/draft/open
 POST /api/kai/analyze
 GET /api/kai/analyze/run/active
 POST /api/kai/analyze/run/start
@@ -170,6 +173,27 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
+GET /api/one/credits
+POST /api/one/credits/subscribe
+POST /api/one/credits/cancel
+GET /api/one/directory-claims/me
+POST /api/one/directory-claims
+DELETE /api/one/directory-claims/me
+PATCH,DELETE /api/one/messages/conversations/{conversation_id}/messages/{message_id}
+PUT /api/one/messages/conversations/{conversation_id}/messages/{message_id}/reaction
+POST /api/one/packet-orders
+POST /api/one/packet-orders/credits
+GET /api/one/packet-orders/{order_id}
+GET /api/one/payouts
+POST /api/one/payouts/onboard
+GET,POST /api/one/packets
+PATCH,DELETE /api/one/packets/{packet_id}
+GET,POST /api/one/referrals/circle
+GET,POST /api/one/referrals/handle
+GET /api/one/referrals/leaderboard
+GET /api/one/referrals/circles/leaderboard
+GET /api/one/referrals/milestones
+GET /api/one/referrals/engagement
 POST /api/one/capabilities/execute
 GET /api/one/commands/location/circle-name/active
 POST /api/one/commands/location/circle-name/{run_id}/submit

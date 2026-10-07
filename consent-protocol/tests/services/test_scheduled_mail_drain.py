@@ -27,6 +27,15 @@ from hushh_mcp.services import gmail_scheduled_drain as drain
 from hushh_mcp.services.gmail_delivery_service import GmailDeliveryService, normalize_draft
 from hushh_mcp.services.gmail_scheduled_drain import drain_scheduled_mail
 
+
+@pytest.fixture(autouse=True)
+def shared_placement(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard as guard
+
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+
+
 NOW = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
 OWNER = "owner-uid"
 RECIPIENT = "priya-uid"
@@ -246,6 +255,12 @@ class _Conn:
             if row is not None and row["state"] in _TERMINAL:
                 _update(row, query)
             return None
+        if query == drain._DEFER_ARMED_SQL:
+            row = self._owned(args[0], args[1])
+            if row is not None and row["state"] == "prepared" and row["sending_at"] is None:
+                row["attempt_count"] = max(0, row["attempt_count"] - 1)
+                row["updated_at"] = NOW
+            return None
         if query == drain._READ_STATE_SQL:
             if self.ledger.fail_statement == query:
                 raise RuntimeError("read-back unavailable")
@@ -257,7 +272,14 @@ class _Conn:
                 return None
             row["notified_at"] = NOW
             return {"recipient_display": row["recipient_display"]}
-        # The unchanged GmailDeliveryService.execute() statements.
+        if "SET state = 'prepared', sending_at = NULL" in query:
+            row = self._owned(args[0], args[1])
+            if row is not None and row["state"] == "sending" and row["envelope_hmac"] == args[2]:
+                row.update(state="prepared", sending_at=None, updated_at=NOW)
+                if row["send_at"] is not None:
+                    row["attempt_count"] = max(0, row["attempt_count"] - 1)
+            return None
+        # The GmailDeliveryService.execute() statements.
         if "SET state = 'expired'" in query:
             row = self._owned(args[0], args[1])
             if row is not None and row["state"] == "prepared" and row["expires_at"] <= NOW:
@@ -873,3 +895,90 @@ async def test_limit_and_deadline_bound_a_run(harness):
 
     with pytest.raises(ValueError):
         await _drain(h, limit=101)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["byoc", "pending", "hussh_pods", "unplaced", "unknown"])
+async def test_private_or_unknown_scheduled_owner_never_opens_mail(harness, monkeypatch, mode):
+    from unittest.mock import Mock
+
+    from hushh_mcp.services import owner_placement_guard as guard
+
+    h = harness
+    original = copy.deepcopy(_schedule(h, "placement-refused"))
+    opened = Mock(wraps=h.service.open_schedule_payload)
+    h.service.open_schedule_payload = opened
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value=mode))
+    result = await _drain(h)
+    opened.assert_not_called()
+    assert h.executed == [] and h.gmail.posts == [] and h.pushes == []
+    if mode == "unknown":
+        assert h.ledger.row("placement-refused") == original
+        assert result["failed"] == []
+    else:
+        row = h.ledger.row("placement-refused")
+        assert (row["state"], row["safe_error_code"]) == ("failed", "private_runtime_required")
+        assert row["payload_sealed"] is None and row["subject"] is None
+        assert drain._CLAIM_NOTIFICATION_SQL not in h.ledger.statements
+
+
+@pytest.mark.asyncio
+async def test_refused_first_row_does_not_starve_shared_scheduled_owner(harness, monkeypatch):
+    from hushh_mcp.services import owner_placement_guard as guard
+
+    h = harness
+    _schedule(h, "private-first", user_id="private-owner", send_at=NOW - timedelta(minutes=2))
+    _schedule(h, "shared-second")
+
+    async def placement(owner):
+        return "byoc" if owner == "private-owner" else "shared"
+
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", placement)
+    result = await _drain(h)
+    assert h.executed == ["shared-second"] and len(h.gmail.posts) == 1
+    assert result["failed"] == ["private-first"] and result["sent"] == ["shared-second"]
+    assert len(h.pushes) == 1 and h.pushes[0][0] == OWNER
+
+
+@pytest.mark.asyncio
+async def test_scheduled_owner_moving_during_sender_lookup_refuses_delivery(harness, monkeypatch):
+    from hushh_mcp.services import owner_placement_guard as guard
+
+    h = harness
+    _schedule(h, "moves-before-arm")
+
+    async def moved_sender(**_kwargs):
+        monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value="byoc"))
+        return SENDER
+
+    h.service.current_sender_sub = moved_sender
+    result = await _drain(h)
+    assert h.executed == [] and h.gmail.posts == [] and h.pushes == []
+    assert result["failed"] == ["moves-before-arm"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["byoc", "unknown"])
+async def test_scheduled_owner_moving_during_token_resolution_never_posts(
+    harness, monkeypatch, mode
+):
+    from hushh_mcp.services import owner_placement_guard as guard
+
+    h = harness
+    _schedule(h, "moves-before-post")
+
+    async def token(**_kwargs):
+        monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value=mode))
+        return "synthetic-send-token"
+
+    h.service.gmail_service.get_send_access_token = token
+    result = await _drain(h)
+    assert h.gmail.posts == [] and h.pushes == [] and result["sent"] == []
+    row = h.ledger.row("moves-before-post")
+    if mode == "unknown":
+        assert row["state"] == "prepared" and row["sending_at"] is None
+        assert row["attempt_count"] == 0
+        assert row["payload_sealed"] is not None and row["subject"] == SUBJECT
+        assert result["failed"] == [] and result["outcome_unknown"] == []
+    else:
+        assert row["state"] == "failed" and row["safe_error_code"] == "private_runtime_required"

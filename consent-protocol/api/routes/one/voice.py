@@ -587,7 +587,7 @@ _DRAFT_OPEN_ERRORS = {
 @router.post("/draft/open")
 async def open_offered_draft(
     payload: MailOpenRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Show the owner the draft at a position One offered them.
 
