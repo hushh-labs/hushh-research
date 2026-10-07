@@ -197,6 +197,7 @@ export function waitForOAuthPopup(input: {
   cancelSignal?: AbortSignal;
   matches: (value: unknown) => boolean;
   storageValue: (event: StorageEvent) => unknown;
+  observeClose?: boolean;
   onFinish?: (reason: "settled" | "closed" | "expired" | "aborted") => void;
 }): Promise<void> {
   if (
@@ -216,6 +217,7 @@ export function waitForOAuthPopup(input: {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
+      window.clearInterval(closeTimer);
       window.removeEventListener("message", message);
       window.removeEventListener("storage", storage);
       input.signal.removeEventListener("abort", abort);
@@ -253,6 +255,17 @@ export function waitForOAuthPopup(input: {
     // The callback's redacted message/storage event, explicit cancellation,
     // owner-session abort, or bounded expiry are the only completion signals.
     const timer = window.setTimeout(() => finish("expired"), Math.max(0, input.expiresAt - Date.now()));
+    let closedSince: number | null = null;
+    // Curated providers do not currently sever the opener's browsing context.
+    // Give their callback's storage event time to arrive before reconciling a
+    // closed window. Closure itself never claims a successful connection.
+    const closeTimer = input.observeClose ? window.setInterval(() => {
+      try {
+        if (!input.popup.closed) { closedSince = null; return; }
+        closedSince ??= Date.now();
+        if (Date.now() - closedSince >= 1500) finish("closed");
+      } catch { /* A detached proxy must keep waiting for settlement or expiry. */ }
+    }, 500) : undefined;
     window.addEventListener("message", message);
     window.addEventListener("storage", storage);
     input.signal.addEventListener("abort", abort, { once: true });

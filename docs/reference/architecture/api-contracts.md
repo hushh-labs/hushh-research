@@ -2505,3 +2505,12 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+### Curated connector popup closure reconciliation
+
+Curated connector popup waits observe closure after a 1.5-second callback-event
+grace period and then reconcile authenticated status; closure never proves success.
+Drive continues waiting for its redacted settlement, cancellation or expiry because
+Google's COOP can make a live popup appear closed. A throwing curated WindowProxy
+also falls back to settlement/expiry. Providers introducing COOP require explicit
+acceptance of their popup policy before relying on closure observation.
