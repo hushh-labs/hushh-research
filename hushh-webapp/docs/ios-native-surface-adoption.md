@@ -1332,3 +1332,35 @@ incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,
 Wallet and continuity contracts pass 105 checks. These results retain their
 source identities; later heads still need canonical core and exact-head CI.
+
+### Wallet navigation and current-candidate admission — 2026-10-07
+
+The UAT-backed `b57bd1023` simulator candidate passes ordinary reviewer unlock
+and warm native Preferences, but its Wallet admission fails before the tab
+journey. Sanitized geometry establishes that Cards is enabled but above the
+viewport (`y = -50`), not that the vault input or backend failed. Its CI also
+fails Wallet/Location header-position parity. The nearest browser negative
+control reproduces the hidden tabs before any locator action can scroll them
+back into view.
+
+Wallet now uses the page's existing top position for entry, card selection and
+All cards instead of aligning its body above the authored title and tabs.
+The Wallet content region uses non-scrollable horizontal clipping: a separate
+Chromium negative control measured focus scrolling that region by 16px and
+clipping the first tab after All cards. No new scroll, route or gesture owner
+is introduced. Card artwork, reveal authority and real card proportions remain.
+
+The corrected source passes 24 focused Chromium/WebKit cases and 34 nearest
+Wallet unit tests, plus typecheck and targeted lint. Title/tab visibility stays
+strict; the artwork check directly proves exact rectangle containment, fixed
+chrome clearance and input hit points, avoiding WebKit's fractional rounded-mask
+intersection quantization without a tolerance or expanded product clip boundary.
+Actual loaded-artwork pointer clicks, swipes and wheel scrolling remain required.
+A stale visible-heading class assertion is removed; panel alignment remains.
+
+These source results are not the corrected installed-candidate result. Fresh
+combined-head builds, core, CI and warm Wallet admission are still required.
+Both physical devices remain paired but unavailable over Wi-Fi, with no observed
+discoverable endpoint or usable tunnel. Cached device metadata and signing
+profiles do not prove transport. iPad, accessibility, visual continuity and
+Release performance qualification remain open; no native family is promoted.

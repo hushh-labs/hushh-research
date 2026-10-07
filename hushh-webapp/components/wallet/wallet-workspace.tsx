@@ -567,7 +567,7 @@ export function WalletWorkspace() {
       fitContent
       className="relative isolate [--app-page-content-bottom-gap:0px]"
     >
-      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
+      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-clip">
         <div
           className={WALLET_COLUMN}
           data-wallet-hub

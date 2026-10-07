@@ -18,6 +18,12 @@ const SAMPLE_STATEMENTS = [
 
 type PreviewAction = "Payment" | "Statement" | "Rewards" | "Autopay" | "Card offers";
 
+function scrollToWorkspaceStart(element: HTMLElement | null) {
+  // The page owns the title, tabs and top-shell clearance. Aligning the card
+  // body to the viewport hides that navigation, including after All cards.
+  element?.closest<HTMLElement>("[data-app-scroll-root]")?.scrollTo({ top: 0, behavior: "instant" });
+}
+
 /** These are illustrations only. No payment service or saved-card records enter this view. */
 function DemoActivity({ cardId, onPreview }: { cardId: string; onPreview: (action: PreviewAction) => void }) {
   const index = WALLET_DEMO_CARDS.findIndex((card) => card.cardId === cardId);
@@ -62,46 +68,26 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   const content = useRef<HTMLDivElement>(null);
   const gesture = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
-    const element = content.current;
-    const root = element?.closest<HTMLElement>("[data-app-scroll-root]");
-    if (!active || !element || !root) return;
-    // On short windows, bring the card workspace above the persistent bottom shelf.
-    const observer = new ResizeObserver(() => {
-      const top = root.scrollTop + element.getBoundingClientRect().top - root.getBoundingClientRect().top - 16;
-      if (root.scrollHeight - root.clientHeight < top) return;
-      root.scrollTo({ top: Math.max(0, top), behavior: "instant" });
-      observer.disconnect();
-    });
-    observer.observe(root.firstElementChild ?? element);
-    observer.observe(element);
-    return () => observer.disconnect();
+    if (active) scrollToWorkspaceStart(content.current);
   }, [active]);
   const selected = collection.find((card) => card.cardId === (demo ? demoId : selectedCardId)) ?? collection[0];
   if (!selected) return null;
   const index = collection.indexOf(selected);
   const isBusy = disabled || Boolean(busyCardId);
-  const goToTop = () => {
-    const element = content.current;
-    const root = element?.closest<HTMLElement>("[data-app-scroll-root]");
-    if (!element || !root) return;
-    const top = Math.max(0, Math.min(root.scrollHeight - root.clientHeight,
-      root.scrollTop + element.getBoundingClientRect().top - root.getBoundingClientRect().top - 12));
-    root.scrollTo({ top, behavior: "instant" });
-  };
   const choose = (id: string) => {
     if (isBusy) return;
     setPreviewAction(null);
     if (demo) setDemoId(id);
     else onSelect(id);
     setMode("card");
-    goToTop();
+    scrollToWorkspaceStart(content.current);
   };
   const showAll = () => {
     if (isBusy) return;
     setMode("all");
     setPreviewAction(null);
     onOverview();
-    goToTop();
+    scrollToWorkspaceStart(content.current);
   };
   const finishSwipe = (event: TouchEvent) => {
     const start = gesture.current;

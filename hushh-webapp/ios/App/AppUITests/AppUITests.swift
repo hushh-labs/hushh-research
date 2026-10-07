@@ -1901,11 +1901,16 @@ final class AppUITests: XCTestCase {
                     return true
                 }
                 let introduction = web.buttons["Continue"].firstMatch
+                func diagnoseWalletTabs() {
+                    let cards = tab("Cards"), frame = cards.exists ? cards.frame : .zero
+                    print("WALLET_TAB_DIAG exists=\(cards.exists) enabled=\(cards.exists && cards.isEnabled) hittable=\(cards.exists && cards.isHittable) x=\(Int(frame.minX)) y=\(Int(frame.minY)) width=\(Int(frame.width)) height=\(Int(frame.height))")
+                }
                 let admission = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                     (tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable) ||
                     (introduction.exists && introduction.isEnabled && introduction.isHittable)
                 }, object: web)
                 guard XCTWaiter.wait(for: [admission], timeout: 15) == .completed else {
+                    diagnoseWalletTabs()
                     XCTFail("WORKSPACE_WALLET_ADMISSION_UNOBSERVED"); return
                 }
                 if !tab("Cards").exists {
@@ -1916,6 +1921,7 @@ final class AppUITests: XCTestCase {
                     tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable
                 }, object: web)
                 guard XCTWaiter.wait(for: [cardsReady], timeout: 15) == .completed else {
+                    diagnoseWalletTabs()
                     XCTFail("WORKSPACE_WALLET_NOT_READY"); return
                 }
                 guard tab("Cards").isSelected else {
