@@ -428,8 +428,9 @@ unchanged resize notifications rebuilt layout-confirmed controls, and Profile
 Close reapplied the outer sheet's settlement on every inner-stack change. Exact
 frame/viewport comparison now preserves unchanged leases only while still
 admitted; inert/clipped ancestors and real movement still invalidate. Profile
-Close uses the outer pane's settled identity, while Back/content retain their
-stack-bound contexts. Identical active acknowledged updates no longer advance
+Close uses the outer pane's settled identity. Profile Back now shares that
+fixed-header admission while retaining its stack-bound action context; content
+controls still wait for inner-stack settlement. Identical active acknowledged updates no longer advance
 the update fence; pending changes/reverts remain ordered. Four nearest regressions
 failed the prior source; current focused tests pass, including owner replacement
 and clipping negative controls. These changes do **not** eliminate deliberate
@@ -1266,6 +1267,33 @@ concealed. Active strict takeover and uncertain-predecessor cleanup remain
 unchanged. The source regression checks and `75085fa28` device receipts are
 different evidence: the later inactive-cleanup change needs its own candidate
 and exact-head verification.
+
+The same ownership tests additionally reproduce late active-preparation and
+listener-setup failure removing another mount's successful installation. Recovery
+now removes only its owned uncertain revision, or a vacant slot, and always
+releases partially installed listeners. A successful delayed removal also cannot
+resume admission over a newer installation: the existing revision fence is
+rechecked before minting the next lease. All these negative controls fail the
+unguarded paths; they are source evidence, not physical appearance proof.
+
+Normal inner Profile navigation previously delayed Back admission for 300ms
+despite its header living outside the sliding content. The optional version-2
+`profileBackReplacement` capability now reuses only the same Profile Back host,
+document, owner, label and exact geometry; its location-bound authority expires
+before fresh activation. Shell Back and Profile Back cannot exchange identities.
+Old wrappers use strict retirement; entry/drag, changed geometry, privacy, nested
+overlays, uncertainty and unmount still remove the owned presentation. The nearest
+Profile and handoff tests cover retained headers, expired choices and failed
+replacement recovery. The physical stack test now requires observed host/frame
+counters during Security → Vault methods → Security. Identical presentation also
+retains the SwiftUI root when its focus request is unused; a previously used
+focus object still resets for the new lease's focus sequence. Fresh identity,
+noninteractive/AX quarantine and activation remain required. Debug counters
+distinguish root rebinding from host retention; neither proves uninterrupted
+glass pixels. Until that latest product
+passes, the prior `75085fa28` interaction receipts do not prove this change.
+Chat/One/Connect still have different authored header controls; this bounded fix
+does not establish one continuous native presentation across every route.
 
 Native focus return also hard-retired an already-active stationary History
 control before requesting focus. The acknowledged focus path now reuses only

@@ -69,7 +69,8 @@ struct HushhNativeChromeState {
         return true
     }
     mutating func prepareBackReplacement(_ next: Identity, previousRevision: Int) -> Bool {
-        prepareReplacement(next, previousRevision: previousRevision, controlId: "top-shell-back")
+        guard ["top-shell-back", "profile-back"].contains(next.controlId) else { return false }
+        return prepareReplacement(next, previousRevision: previousRevision, controlId: next.controlId)
     }
     mutating func prepareHistoryReplacement(_ next: Identity, previousRevision: Int) -> Bool {
         prepareReplacement(next, previousRevision: previousRevision, controlId: "chat-history-toggle")
@@ -335,6 +336,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     #if DEBUG
     private var backContinuity: NativeBackContinuityProbe?
     private var historyContinuity: NativeBackContinuityProbe?
+    private var profileBackContinuity: NativeBackContinuityProbe?
     #endif
 
     override func load() {
@@ -346,6 +348,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 self.backContinuity = NativeBackContinuityProbe(host: host)
                 if self.chatControlsAdmitted {
                     self.historyContinuity = NativeBackContinuityProbe(host: host, identifier: "native-history-continuity")
+                    self.profileBackContinuity = NativeBackContinuityProbe(host: host, identifier: "native-profile-back-continuity")
                 }
             }
             #endif
@@ -409,6 +412,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "families": families, "canvasAppearance": true, "independentControls": true,
                           "inPlaceUpdates": true,
                           "backReplacement": self?.backAdmitted == true,
+                          "profileBackReplacement": self?.chatControlsAdmitted == true,
                           "historyReplacement": self?.chatControlsAdmitted == true,
                           "focusReturn": true,
                           "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&
@@ -528,6 +532,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             #if DEBUG
             if kind == "back" { self.backContinuity?.installed(controller.view) }
             if kind == "history" { self.historyContinuity?.installed(controller.view) }
+            if kind == "profile-back" { self.profileBackContinuity?.installed(controller.view) }
             #endif
             slot.pendingLayout = call
             controller.didLayout = { [weak self, weak slot, weak controller] in
@@ -548,7 +553,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     /// noninteractive and accessibility-hidden until fresh activation. Normal
     /// retire acknowledgements continue to prove physical removal.
     @objc func prepareBackReplacement(_ call: CAPPluginCall) {
-        prepareReplacement(call, kind: "back", controlId: "top-shell-back")
+        // Additive v2 capability; an ordinary Back lease never becomes Profile
+        // Back. Keep each family's own slot, owner and fresh action revision.
+        if call.getString("kind") == "profile-back" {
+            prepareReplacement(call, kind: "profile-back", controlId: "profile-back")
+        } else {
+            prepareReplacement(call, kind: "back", controlId: "top-shell-back")
+        }
     }
     @objc func prepareHistoryReplacement(_ call: CAPPluginCall) {
         prepareReplacement(call, kind: "history", controlId: "chat-history-toggle")
@@ -573,20 +584,26 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   !self.retiredDocuments.contains(identity.document) else {
                 call.reject("NATIVE_CHROME_REPLACEMENT_REFUSED"); return
             }
-            let accepted = kind == "back"
+            let accepted = kind == "back" || kind == "profile-back"
                 ? slot.state.prepareBackReplacement(identity, previousRevision: previousRevision)
                 : slot.state.prepareHistoryReplacement(identity, previousRevision: previousRevision)
             guard accepted else { call.reject("NATIVE_CHROME_REPLACEMENT_REFUSED"); return }
+            // Route authority lives in state, not the SwiftUI root. Avoid
+            // rebinding an identical presentation while keeping focus-sequence
+            // reset for a previously used focus object on the new JS lease.
+            let retainRoot = slot.presentation == presentation && slot.focus.sequence == 0
             hosting.view.isUserInteractionEnabled = false
             hosting.view.accessibilityElementsHidden = true
             slot.choiceValue = nil
-            slot.focus = ChromeFocusRequest()
             slot.presentation = presentation
-            hosting.overrideUserInterfaceStyle = presentation.theme.style
-            hosting.rootView = AnyView(NativeChromeButton(label: kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
-                symbol: self.symbol(kind, expanded: presentation.expanded), theme: presentation.theme,
-                action: { [weak self] in self?.activateControl(identity.controlId) },
-                layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
+            if !retainRoot {
+                slot.focus = ChromeFocusRequest()
+                hosting.overrideUserInterfaceStyle = presentation.theme.style
+                hosting.rootView = AnyView(NativeChromeButton(label: kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
+                    symbol: self.symbol(kind, expanded: presentation.expanded), theme: presentation.theme,
+                    action: { [weak self] in self?.activateControl(identity.controlId) },
+                    layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
+            }
             hosting.view.layoutIfNeeded()
             // The already-qualified host is unchanged. A moved/detached view
             // cannot claim layout acknowledgement or retain this presentation.
@@ -596,8 +613,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("NATIVE_CHROME_LAYOUT_UNCONFIRMED"); return
             }
             #if DEBUG
-            if kind == "back" { self.backContinuity?.replaced(hosting.view) }
-            if kind == "history" { self.historyContinuity?.replaced(hosting.view) }
+            if kind == "back" { self.backContinuity?.replaced(hosting.view, rootUpdated: !retainRoot) }
+            if kind == "history" { self.historyContinuity?.replaced(hosting.view, rootUpdated: !retainRoot) }
+            if kind == "profile-back" { self.profileBackContinuity?.replaced(hosting.view, rootUpdated: !retainRoot) }
             #endif
             call.resolve(self.payload(identity, phase: "prepared", frame: hosting.view.frame))
         }
@@ -617,6 +635,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             #if DEBUG
             if slot.kind == "back" { self.backContinuity?.activated() }
             if slot.kind == "history" { self.historyContinuity?.activated() }
+            if slot.kind == "profile-back" { self.profileBackContinuity?.activated() }
             #endif
             call.resolve(self.payload(identity, phase: "active"))
         }
@@ -888,6 +907,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         #if DEBUG
         if slot.kind == "back" { backContinuity?.removed() }
         if slot.kind == "history" { historyContinuity?.removed() }
+        if slot.kind == "profile-back" { profileBackContinuity?.removed() }
         #endif
         hosting.didLayout = nil
         hosting.view.isUserInteractionEnabled = false
@@ -944,6 +964,7 @@ private final class NativeBackContinuityProbe: NSObject {
     private var admittedFrame: CGRect?
     private var expected = false
     private var installs = 0, removals = 0, replacements = 0, sampledFrames = 0, missingFrames = 0
+    private var rootUpdates = 0
 
     init(host: UIView, identifier: String = "native-back-continuity") {
         super.init()
@@ -965,8 +986,9 @@ private final class NativeBackContinuityProbe: NSObject {
 
     func installed(_ view: UIView) { control = view; admittedFrame = view.frame; installs = min(installs + 1, 100_000); publish() }
     func activated() { expected = true; publish() }
-    func replaced(_ view: UIView) {
+    func replaced(_ view: UIView, rootUpdated: Bool) {
         if control !== view { missingFrames = min(missingFrames + 1, 100_000) }
+        if rootUpdated { rootUpdates = min(rootUpdates + 1, 100_000) }
         replacements = min(replacements + 1, 100_000); publish()
     }
     func removed() {
@@ -985,7 +1007,7 @@ private final class NativeBackContinuityProbe: NSObject {
         if sampledFrames % 10 == 0 { publish() }
     }
     private func publish() {
-        let values = ["installs": installs, "removals": removals, "replacements": replacements,
+        let values = ["installs": installs, "removals": removals, "replacements": replacements, "rootUpdates": rootUpdates,
                       "sampledFrames": sampledFrames, "missingFrames": missingFrames]
         guard let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return }

@@ -44,6 +44,8 @@ export type NativeChromeCapabilities = {
   independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean;
   /** Same-owner, same-frame stationary Back only; retirement still means removal. */
   backReplacement?: boolean;
+  /** Same-owner, same-frame Profile Back; never inherits shell Back's slot. */
+  profileBackReplacement?: boolean;
   /** Same-mounted-owner History only, never a relocation to the drawer's Close. */
   historyReplacement?: boolean;
 };
@@ -245,9 +247,10 @@ export class NativeChromeLease {
   /** Compare before reserving a revision: ordinary preparation must be newer
    * than the removal tombstone, not merely newer than its predecessor. */
   canReplaceBackWith(projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
-    return this.canReplaceWith("back", projection, ownerEpoch, context);
+    const kind = this.projection.kind;
+    return (kind === "back" || kind === "profile-back") && this.canReplaceWith(kind, projection, ownerEpoch, context);
   }
-  private canReplaceWith(kind: "back" | "history", projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+  private canReplaceWith(kind: "back" | "profile-back" | "history", projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
     return projection.kind === kind && this.projection.kind === kind &&
       nativeDocumentId() === this.projection.documentId && ownerEpoch === this.projection.ownerEpoch &&
       projection.label === this.projection.label && context !== this.context && this.sameGeometry(projection);

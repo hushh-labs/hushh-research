@@ -245,9 +245,9 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     setHeldLocation(paneState.location);
   }
   const location = paneState.open ? paneState.location : heldLocation;
-  // Close owns the outer pane, not its inner stack. Its fixed header slot and
-  // operation do not change when a settings panel slides underneath it.
-  // Back/content retain their location-bound settlement and action context.
+  // Both header slots belong to the outer pane, not its sliding inner stack.
+  // Back keeps location-bound action authority without an artificial admission
+  // delay on each settings change. Content controls still wait for settlement.
   const panePresentationKey = JSON.stringify([owner, pathname, open, isVaultUnlocked]);
   const presentationKey = JSON.stringify([owner, pathname, profilePaneLocationKey(location), open, isVaultUnlocked]);
   useEffect(() => {
@@ -350,7 +350,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
                 label="Back in Profile"
                 focusRef={backRef}
                 context={`${pathname}:${profilePaneLocationKey(location)}`}
-                eligible={open && stationaryKey === presentationKey}
+                eligible={open && paneStationaryKey === panePresentationKey}
                 onActivate={() => popProfilePaneLocation(pathname, searchParams)}
                 className="-ml-4 flex size-11 shrink-0 items-center justify-center"
               >

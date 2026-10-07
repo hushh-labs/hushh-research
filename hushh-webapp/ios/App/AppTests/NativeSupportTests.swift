@@ -129,6 +129,25 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(state.activate(historyNext))
         XCTAssertTrue(state.confirm(historyNext, sequence: 3, latestSequence: 3, allowed: true))
         XCTAssertFalse(state.confirm(historyNext, sequence: 3, latestSequence: 3, allowed: true))
+
+        let profile = HushhNativeChromeState.Identity(document: "e", ownerEpoch: "owner-a", revision: 1,
+                                                     controlId: "profile-back")
+        let profileNext = HushhNativeChromeState.Identity(document: "e", ownerEpoch: "owner-a", revision: 2,
+                                                         controlId: "profile-back")
+        XCTAssertTrue(state.prepare(profile))
+        XCTAssertFalse(state.prepareBackReplacement(profileNext, previousRevision: 1)) // not active
+        XCTAssertTrue(state.activate(profile))
+        XCTAssertFalse(state.prepareBackReplacement(.init(document: "e", ownerEpoch: "owner-a", revision: 2),
+                                                    previousRevision: 1)) // shell cannot inherit Profile's slot
+        XCTAssertFalse(state.prepareBackReplacement(.init(document: "e", ownerEpoch: "owner-b", revision: 2,
+            controlId: "profile-back"), previousRevision: 1))
+        XCTAssertFalse(state.prepareHistoryReplacement(profileNext, previousRevision: 1))
+        XCTAssertEqual(state.identity, profile)
+        XCTAssertTrue(state.prepareBackReplacement(profileNext, previousRevision: 1))
+        XCTAssertFalse(state.confirm(profile, sequence: 4, latestSequence: 4, allowed: true))
+        XCTAssertFalse(state.confirm(profileNext, sequence: 4, latestSequence: 4, allowed: true))
+        XCTAssertTrue(state.activate(profileNext))
+        XCTAssertTrue(state.confirm(profileNext, sequence: 4, latestSequence: 4, allowed: true))
     }
 
     func testNativeChromeUpdatesFenceOldChoicesWithoutReplacingTheInstallation() {

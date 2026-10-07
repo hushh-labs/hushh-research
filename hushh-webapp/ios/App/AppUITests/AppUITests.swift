@@ -732,7 +732,7 @@ final class AppUITests: XCTestCase {
         func counters() -> [String: Int]? {
             guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8),
                   let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
-                  Set(packet.keys) == Set(["installs", "removals", "replacements", "sampledFrames", "missingFrames"])
+                  Set(packet.keys) == Set(["installs", "removals", "replacements", "rootUpdates", "sampledFrames", "missingFrames"])
             else { return nil }
             return packet
         }
@@ -810,6 +810,7 @@ final class AppUITests: XCTestCase {
             guard let after = counters() else { XCTFail("NATIVE_BACK_MEASUREMENTS_UNAVAILABLE"); return }
             XCTAssertEqual(after["installs"], before["installs"], "Route transition rebuilt the native host")
             XCTAssertEqual(after["removals"], before["removals"], "Route transition removed the native host")
+            XCTAssertEqual(after["rootUpdates"], before["rootUpdates"], "Unchanged Back presentation rebound its SwiftUI root")
             XCTAssertEqual(after["missingFrames"], before["missingFrames"], "Route transition hid or detached the native control")
             XCTAssertEqual(back.frame, originalFrame)
             XCTAssertFalse(domBack.exists, "Replacement exposed a duplicate DOM Back")
@@ -882,7 +883,7 @@ final class AppUITests: XCTestCase {
         func historyCounters() -> [String: Int]? {
             guard historyProbe.exists, let json = historyProbe.value as? String, let data = json.data(using: .utf8),
                   let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
-                  Set(packet.keys) == Set(["installs", "removals", "replacements", "sampledFrames", "missingFrames"])
+                  Set(packet.keys) == Set(["installs", "removals", "replacements", "rootUpdates", "sampledFrames", "missingFrames"])
             else { return nil }
             return packet
         }
@@ -1676,6 +1677,15 @@ final class AppUITests: XCTestCase {
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
         let close = app.buttons["Close Profile"].firstMatch
+        let nativeExpected = ProcessInfo.processInfo.environment["HUSHH_EXPECT_PROFILE_BACK_NATIVE"] == "true"
+        let profileProbe = app.buttons["native-profile-back-continuity"].firstMatch
+        func profileCounters() -> [String: Int]? {
+            guard profileProbe.exists, let json = profileProbe.value as? String, let data = json.data(using: .utf8),
+                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
+                  Set(packet.keys) == Set(["installs", "removals", "replacements", "rootUpdates", "sampledFrames", "missingFrames"])
+            else { return nil }
+            return packet
+        }
         defer {
             if close.exists && close.isHittable { close.tap() }
             self.perfTapNav(app, label: "Chat")
@@ -1699,7 +1709,6 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable, "PROFILE_BACK_UNAVAILABLE")
             XCTAssertEqual(back.frame.width, 44, accuracy: 1)
             XCTAssertEqual(back.frame.height, 44, accuracy: 1)
-            let nativeExpected = ProcessInfo.processInfo.environment["HUSHH_EXPECT_PROFILE_BACK_NATIVE"] == "true"
             let native = app.buttons["profile-back"].firstMatch
             if nativeExpected {
                 XCTAssertTrue(native.waitForExistence(timeout: 10) && native.isHittable, "PROFILE_BACK_NATIVE_NOT_ADMITTED")
@@ -1719,11 +1728,30 @@ final class AppUITests: XCTestCase {
             if label == "Security & privacy" {
                 let vault = row("Vault methods")
                 XCTAssertTrue(vault.waitForExistence(timeout: 10) && vault.isHittable)
+                let originalFrame = app.buttons["profile-back"].firstMatch.frame
+                let before = profileCounters()
+                if nativeExpected { XCTAssertNotNil(before, "PROFILE_BACK_MEASUREMENTS_UNAVAILABLE") }
                 vault.tap() // View only: no enrollment or authentication change.
                 assertBack()
                 app.buttons["Back in Profile"].firstMatch.tap()
                 XCTAssertTrue(vault.waitForExistence(timeout: 10))
                 assertBack()
+                if nativeExpected, let before {
+                    let retained = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                        guard let after = profileCounters() else { return false }
+                        return after["replacements", default: 0] >= before["replacements", default: 0] + 2 &&
+                            after["sampledFrames", default: 0] > before["sampledFrames", default: 0]
+                    }, object: profileProbe)
+                    XCTAssertEqual(XCTWaiter.wait(for: [retained], timeout: 10), .completed,
+                                   "PROFILE_BACK_REPLACEMENT_NOT_OBSERVED")
+                    let after = profileCounters()
+                    XCTAssertEqual(after?["installs"], before["installs"], "Inner Profile navigation rebuilt the native host")
+                    XCTAssertEqual(after?["removals"], before["removals"], "Inner Profile navigation removed the native host")
+                    XCTAssertEqual(after?["rootUpdates"], before["rootUpdates"], "Unchanged Profile Back rebound its SwiftUI root")
+                    XCTAssertEqual(after?["missingFrames"], before["missingFrames"], "Inner Profile navigation hid or displaced Back")
+                    XCTAssertEqual(app.buttons["profile-back"].firstMatch.frame, originalFrame)
+                    print("PROFILE_BACK_REPLACEMENT_CONTINUITY inner_stack_retained_host_observed_frames")
+                }
             }
             app.buttons["Back in Profile"].firstMatch.tap()
             returnToRoot()
