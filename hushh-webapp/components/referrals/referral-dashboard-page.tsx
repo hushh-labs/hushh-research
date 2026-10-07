@@ -577,7 +577,15 @@ function YouTab({
             const v = lb.viewer ?? lb.entries.find((e) => e.is_viewer) ?? null;
             return v ? `#${v.rank}` : "—";
           })}
-          sub={statSub(leaderboardRes, (lb) => (lb.stale ? "Updating" : "Latest standings"))}
+          sub={statSub(leaderboardRes, (lb) => {
+            // A nonzero ledger balance (its own, separately-loaded tile) can
+            // exist with no published rank at all: not yet ranked, or no
+            // snapshot has published since this account joined. That is an
+            // honest "unranked" state, not an error and not a zero.
+            const v = lb.viewer ?? lb.entries.find((e) => e.is_viewer) ?? null;
+            if (!v) return "Not yet ranked";
+            return lb.stale ? "Updating" : "Latest standings";
+          })}
           onRetry={leaderboardRes.status === "error" ? onRetryLeaderboard : undefined}
         />
         <StatTile
