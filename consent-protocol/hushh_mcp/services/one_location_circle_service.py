@@ -5302,6 +5302,7 @@ class OneLocationCircleService:
         status: str,
         _connection: Any = None,
         _emit_notifications: bool = True,
+        _reciprocal_trusted: bool = False,
     ) -> None:
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
@@ -5380,6 +5381,40 @@ class OneLocationCircleService:
                         "Circle member not found.",
                         status_code=404,
                     )
+                # Trusted membership is a mutual designation: removing a
+                # person from the owner's Trusted Circle removes the owner
+                # from that person's Trusted Circle as well. The connection
+                # remains intact; only the two Trusted memberships change.
+                if (
+                    not _reciprocal_trusted
+                    and status == "removed"
+                    and circle_row.get("system_kind") == "trusted"
+                ):
+                    counterpart = _first(
+                        conn.execute(
+                            text(
+                                """
+                                SELECT id::text AS circle_id
+                                FROM one_location_circles
+                                WHERE owner_user_id = :owner_user_id
+                                  AND system_kind = 'trusted'
+                                  AND status = 'active'
+                                FOR UPDATE
+                                """
+                            ),
+                            {"owner_user_id": target_user_id},
+                        )
+                    )
+                    if counterpart:
+                        self._end_membership(
+                            actor_user_id=target_user_id,
+                            circle_id=str(counterpart["circle_id"]),
+                            target_user_id=owner_user_id,
+                            status="removed",
+                            _connection=conn,
+                            _emit_notifications=_emit_notifications,
+                            _reciprocal_trusted=True,
+                        )
                 if circle_row.get("system_kind") == "sms":
                     _record_sms_membership_event(
                         conn,

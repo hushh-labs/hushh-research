@@ -1,4 +1,4 @@
-# Trusted Circle Drive request payment gate
+# Drive request payment gate
 
 ## Visual Context
 
@@ -23,15 +23,13 @@ sequenceDiagram
 
 ## User story
 
-Manish can be asleep while Chris, a verified member of Manish's Trusted Circle,
-asks Manish's private agent for documents. With Manish's live Google Drive
-connection and background preparation enabled, the private agent searches under
-the existing owner authority, freezes the
-first nonempty shareable batch, and puts a **Pay $10** item in Chris's Feed. Chris
-pays through Stripe Checkout. A verified Stripe webhook records payment, then the
-Drive worker resumes its existing exact-file Google Viewer grant flow. Chris sees
-only confirmed grants. Manish does not receive a per-request consent screen for
-this `trusted_auto` path; turning background preparation off stops new work.
+For a Trusted Circle request, the private agent searches under the existing owner
+authority, freezes the first nonempty shareable batch, and puts a **Pay $10** item
+in the requester's Feed. After Stripe confirms payment, the Drive worker resumes
+the exact-file grant flow without another owner approval. For a non-trusted
+request, the owner first approves the request in Consent Center; only then does
+the requester receive the same payment step. Files are never shared before a
+successful payment.
 
 The fee is **one USD 10.00 charge per request**, independent of document count or
 the number of progressive 25-file batches. No payment item is created when the
@@ -40,16 +38,6 @@ behavior because `payment_required` defaults to false and is set only on new
 eligible requests while the rollout switch is on. The selected-file indexing
 lane and the owner-reviewed question lane are outside this gate.
 
-Request-bound searches hand each committed Drive page to the batch orchestrator
-before reading the next page. Each immutable batch contains at most 25 files;
-a sparse page or final remainder is handed off immediately. The first nonempty
-batch creates the single payment item. Once paid, committed batches can queue
-for sharing while discovery continues. A payment or restart wake drains those
-committed results before starting another search slice. An interrupted handoff
-retains its saved cursor and frozen batch; it does not restart discovery or
-create another charge. The existing recipient view refreshes confirmed results
-during discovery and paginates them in groups of 25.
-
 The payment layer exposes only opaque workflow identifiers to Stripe. The
 existing live Drive search still runs on the backend with Manish's delegated
 Google access and server-readable encrypted metadata. It should not be described
@@ -57,21 +45,19 @@ as end-to-end or strict cryptographic zero knowledge of the Drive documents.
 
 ## Authority and state
 
-1. The trusted-auto request is created with `payment_required=true` only when
-   `DRIVE_REQUEST_PAYMENTS_ENABLED=true`. The original Trusted Circle, verified
-   identity, live connection, owner preference, and request-expiry checks remain.
+1. A new eligible request is created with `payment_required=true` only when
+   `DRIVE_REQUEST_PAYMENTS_ENABLED=true`. Trusted-auto requests retain the
+   existing Trusted Circle, verified identity, live connection, owner preference,
+   and request-expiry checks. Non-trusted requests remain owner-gated until
+   Consent Center approval.
 2. Preparation freezes at least one shareable file before it creates the single
    request-bound payment order and durable requester Feed event. Owner-private
    filenames, request wording, contents, Google IDs, and email addresses stay out
    of the payment order, Stripe metadata, webhook logs, and push notification.
 3. Only the authenticated requester may create or reuse a Stripe-hosted Checkout
    Session. Checkout uses fixed `usd` and `1000` cents and a server-selected
-   return origin. New Checkout sessions use Stripe's Dashboard payment-method
-   configuration. If a pending attempt used the retired `payment_method_types`
-   parameter, recovery first replays its original idempotent payload. It reuses
-   any cached session; only a definitive rejection of that parameter permits a
-   retry under a stable versioned key. A success URL is an indication to refresh
-   status, never proof of payment.
+   return origin. A success URL is an indication to refresh status, never proof
+   of payment.
 4. The public webhook verifies Stripe's signature on the raw request body,
    matches its session, amount, currency, request ID, and opaque payer binding to
    the stored order, and settles once. Replayed or out-of-order events cannot
@@ -90,36 +76,6 @@ as end-to-end or strict cryptographic zero knowledge of the Drive documents.
    durable refund Feed update after Stripe confirms success. A payment arriving
    after authority is lost is held for the same reconciliation path.
 
-### Concurrent Google credential refresh
-
-Parallel file jobs can encounter `refresh_in_progress` while another job renews
-the owner's Google credential. The sharing worker treats that exact OAuth 409
-as temporary contention: it waits briefly for the refresh, rechecks current
-authority, and uses the refreshed credential only for the same connection
-generation. Persistent contention returns to the durable retry schedule.
-It must not become a terminal "not shared" result after one attempt. A provider
-write with an uncertain outcome still follows read-only reconciliation.
-
-The regression runs the production OAuth adapter and Google permission adapter
-with a controlled provider transport, reproducing two simultaneous file jobs
-and one expired credential. It verifies one token refresh, one necessary grant,
-and recognition of the other file's existing access. This protects the race
-that service-level adapter stubs previously missed.
-
-### Recovering a partial request
-
-The existing retry operation can reopen a completed progressive request marked
-`partial`, retaining its paid order, frozen files, recipient and approval source.
-Only skipped effects that never reached a provider write and have no receipt or
-active lease can be requeued. Current payment, dates, trust/background authority,
-connection generation, expiry and review digest are checked again. Confirmed
-files and uncertain provider writes are excluded from this retry.
-
-The request revision continues to bind its search and sibling batches. Recovery
-increments the retried batch revision; a later terminal transition emits a fresh
-outcome event for Feed and notifications without replacing those authority
-bindings. This recovery does not create another payment order or charge.
-
 ## Configuration and rollout
 
 The backend deployment has a fail-closed `DRIVE_REQUEST_PAYMENTS_ENABLED` switch.
@@ -134,7 +90,10 @@ origin. The backend refuses Checkout if these values are absent or mismatched.
    (signature secret for the UAT endpoint). Give the backend runtime service
    account access. Register the public
    `/api/payments/stripe/webhook` endpoint in the same Stripe test account for
-   `checkout.session.completed` and `checkout.session.async_payment_succeeded`.
+   `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and
+   `checkout.session.expired`. The service also treats the stored provider expiry
+   timestamp as authoritative, so an expired checkout cannot keep a payment push
+   alive while its expiry event is delayed.
    Never put a Stripe key, webhook secret, document metadata, or a live Checkout
    URL in GitHub variables, build substitutions, logs, or client code.
 2. Deploy migration 262 and backend/frontend code with the switch off. Confirm
@@ -143,14 +102,15 @@ origin. The backend refuses Checkout if these values are absent or mismatched.
    concurrency check below passes against PostgreSQL. After that check and
    Stripe test secrets are ready, enable the governed UAT deploy. It refuses to turn
    on without both project secrets.
-3. Exercise a fresh Manish/Chris Trusted Circle request with background
-   preparation on: no files produces no payment; a frozen nonempty batch produces
-   one Pay $10 Feed item; before payment, no Google ACL or recipient link exists;
-   a test payment settles by webhook and resumes grants; a browser return alone
-   changes nothing. Repeat with replayed webhooks, two devices, multiple batches,
-   expired/cancelled requests, zero-delivery refunds, notification delivery
-   failure, and background off. The private Drive worker also needs the UAT
-   Stripe secrets so its scheduled sharing drain can reconcile refunds.
+3. Exercise both paths with a fresh request: no files produces no payment; a
+   frozen nonempty batch produces one concise payment Feed item; non-trusted
+   requests stay blocked until the owner approves; before payment, no Google ACL
+   or recipient link exists; a test payment settles by webhook and resumes grants;
+   a browser return alone changes nothing. Repeat with replayed webhooks, two
+   devices, multiple requests, expired/cancelled requests, zero-delivery refunds,
+   notification delivery failure, and background off. The private Drive worker
+   also needs the UAT Stripe secrets so its scheduled sharing drain can reconcile
+   refunds.
 4. Production remains off until its live Drive worker/scheduler and the same
    acceptance path work. Put the production `sk_live_` key and the production
    endpoint's `whsec_` secret in `hushh-pda` Secret Manager, register the public
