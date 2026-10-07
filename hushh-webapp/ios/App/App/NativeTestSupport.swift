@@ -773,7 +773,8 @@ final class NativeVaultLayoutProbe {
                             "cssInset", "kbOpen", "kbResizes", "surfaceTop", "surfaceMaxHeight",
                             "scrollTopEdge", "scrollBottomEdge", "clientHeight", "scrollHeight", "scrollTop",
                             "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
-                            "unlockHits", "unlockClicks", "unlockAccepted"])
+                            "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
+                            "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -821,6 +822,21 @@ final class NativeVaultLayoutProbe {
         kbOpen: root.classList.contains('kb-open'), kbResizes: root.classList.contains('kb-resizes'),
         unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted
       };
+      // Public interaction admission only. Never read the editor's value,
+      // selection contents, transcript, account identity or arbitrary DOM.
+      const chats = document.querySelectorAll('textarea[aria-label="Message One"]');
+      result.chatCount = chats.length;
+      if (chats.length === 1) {
+        const editor = chats[0];
+        const rect = editor.getBoundingClientRect();
+        Object.assign(result, {
+          chatFocused: document.activeElement === editor,
+          chatDisabled: editor.disabled,
+          chatInert: Boolean(editor.closest('[inert]')),
+          chatHit: editor.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+          chatWidth: rect.width, chatHeight: rect.height
+        });
+      }
       const surface = surfaces.length === 1 ? surfaces[0] : null;
       const scroll = surface?.querySelector('[data-vault-flow-content]');
       const recovery = scroll?.querySelector('[data-testid="vault-use-recovery-key-escape"]');

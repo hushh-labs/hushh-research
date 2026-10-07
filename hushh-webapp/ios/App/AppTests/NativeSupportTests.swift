@@ -3,6 +3,18 @@ import SwiftUI
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    #if DEBUG
+    @MainActor
+    func testNativeContinuityStillObservesNewFramesAndGapsAfterALongWarmSession() {
+        let probe = NativeBackContinuityProbe(host: UIView())
+        for _ in 0..<100_000 { probe.recordFrame(isMissing: false) }
+        let baseline = probe.sampledFrames
+        probe.recordFrame(isMissing: true)
+        XCTAssertEqual(probe.sampledFrames - baseline, 1, "A long warm session must still prove fresh sampling")
+        XCTAssertEqual(probe.missingFrames, 1, "A newly missing control must remain observable")
+    }
+    #endif
+
     @MainActor
     func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() {
         let plugin = HushhNativeChromePlugin()

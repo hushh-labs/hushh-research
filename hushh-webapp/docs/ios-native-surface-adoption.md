@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-06.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-07.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -97,6 +97,13 @@ another navigation stack, WebView, session, or information store.
   clipped geometry, inactive retained panes and nested overlays retire admission;
   native restoration waits for settlement and acknowledged layout. Release/iPad
   enablement and physical acceptance remain separate gates.
+
+  Opt-in Debug continuity counters retain fresh frame/gap deltas past 100,000
+  frames; the earlier saturation could stop an otherwise warm rehearsal.
+  The existing public layout probe also reports Chat focus, inert/disabled state
+  and hit geometry as booleans/numbers. It never reads draft values or transcript
+  content, changes focus, or submits an operation. These diagnostics distinguish
+  keyboard admission from native retirement; they are not visual acceptance.
 
   Other bounded public candidates include Location link duration, RIA tier
   filter and rows-per-page. Location's activity-range control is currently

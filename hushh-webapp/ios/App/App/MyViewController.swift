@@ -145,7 +145,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 startNativeTestPolling(on: webView)
             }
             #if DEBUG
-            if !nativeTestConfig.enabled && ProcessInfo.processInfo.arguments.contains("--hushh-vault-layout-diagnostics") {
+            if ProcessInfo.processInfo.arguments.contains("--hushh-vault-layout-diagnostics") {
                 vaultLayoutProbe = NativeVaultLayoutProbe(host: view, webView: webView)
             }
             #endif

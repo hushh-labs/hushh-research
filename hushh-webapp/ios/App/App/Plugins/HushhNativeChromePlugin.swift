@@ -952,7 +952,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
 #if DEBUG
 /// Opt-in physical continuity evidence, never routing or protected content.
 /// Counters distinguish actual retained UIKit hosts from hidden DOM fallbacks.
-private final class NativeBackContinuityProbe: NSObject {
+final class NativeBackContinuityProbe: NSObject {
     private final class FrameTarget: NSObject {
         weak var probe: NativeBackContinuityProbe?
         @objc func sample() { probe?.sample() }
@@ -963,7 +963,8 @@ private final class NativeBackContinuityProbe: NSObject {
     private weak var control: UIView?
     private var admittedFrame: CGRect?
     private var expected = false
-    private var installs = 0, removals = 0, replacements = 0, sampledFrames = 0, missingFrames = 0
+    private var installs = 0, removals = 0, replacements = 0
+    private(set) var sampledFrames = 0, missingFrames = 0
     private var rootUpdates = 0
 
     init(host: UIView, identifier: String = "native-back-continuity") {
@@ -987,7 +988,7 @@ private final class NativeBackContinuityProbe: NSObject {
     func installed(_ view: UIView) { control = view; admittedFrame = view.frame; installs = min(installs + 1, 100_000); publish() }
     func activated() { expected = true; publish() }
     func replaced(_ view: UIView, rootUpdated: Bool) {
-        if control !== view { missingFrames = min(missingFrames + 1, 100_000) }
+        if control !== view { missingFrames += 1 }
         if rootUpdated { rootUpdates = min(rootUpdates + 1, 100_000) }
         replacements = min(replacements + 1, 100_000); publish()
     }
@@ -998,11 +999,15 @@ private final class NativeBackContinuityProbe: NSObject {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         label.accessibilityElementsHidden = !privacy.appIsActive || privacy.shielded
         guard expected, privacy.appIsActive, !privacy.shielded else { return }
-        sampledFrames = min(sampledFrames + 1, 100_000)
-        if control?.window == nil || control?.superview == nil || control?.isHidden != false ||
-            control?.alpha != 1 || control?.frame != admittedFrame || control?.bounds.size != CGSize(width: 44, height: 44) {
-            missingFrames = min(missingFrames + 1, 100_000)
-        }
+        recordFrame(isMissing: control?.window == nil || control?.superview == nil || control?.isHidden != false ||
+            control?.alpha != 1 || control?.frame != admittedFrame || control?.bounds.size != CGSize(width: 44, height: 44))
+    }
+    func recordFrame(isMissing: Bool) {
+        // A warm 60 Hz session passes 100,000 frames in under half an hour.
+        // Saturation makes fresh-sample checks impossible and hides new gaps.
+        // These opt-in, numeric-only Int counters retain monotonic deltas.
+        sampledFrames += 1
+        if isMissing { missingFrames += 1 }
         // Sampling never updates SwiftUI or the route; only this 1pt probe.
         if sampledFrames % 10 == 0 { publish() }
     }

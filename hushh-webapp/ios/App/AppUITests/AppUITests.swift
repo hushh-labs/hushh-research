@@ -906,6 +906,7 @@ final class AppUITests: XCTestCase {
             guard history.exists && history.isHittable, let activated = historyCounters() else {
                 XCTFail("NATIVE_HISTORY_MEASUREMENTS_UNAVAILABLE"); return nil
             }
+            print("NATIVE_HISTORY_SAMPLE frames=\(activated["sampledFrames", default: 0]) missing=\(activated["missingFrames", default: 0])")
             var sampled: [String: Int]?
             let fresh = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 guard history.exists && history.isHittable, let packet = historyCounters(),
@@ -1119,8 +1120,22 @@ final class AppUITests: XCTestCase {
                              "History transition was not sampled")
         XCTAssertEqual(afterSurface["missingFrames"], beforeSurface["missingFrames"], "History moved or vanished during an admitted handoff")
         print("NATIVE_HISTORY_CONTINUITY retained_switches=2 missing_delta=0")
+        func reportComposerAdmission(_ stage: String) {
+            let probe = app.buttons["native-vault-layout"].firstMatch
+            guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8),
+                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            let keys = Set(["chatCount", "chatFocused", "chatDisabled", "chatInert", "chatHit",
+                            "chatWidth", "chatHeight", "nativeGuideHeight", "nativeBottomSafeArea", "cssInset", "kbOpen"])
+            let values = packet.filter { keys.contains($0.key) && $0.value is NSNumber }
+            guard let encoded = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
+                  let result = String(data: encoded, encoding: .utf8) else { return }
+            print("NATIVE_CHAT_FOCUS stage=\(stage) packet=\(result)")
+        }
+        reportComposerAdmission("before")
         composer.tap() // No typeText: preserve the complete existing draft.
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "Keyboard did not open")
+        let keyboardAppeared = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+        reportComposerAdmission("after")
+        XCTAssertTrue(keyboardAppeared, "Keyboard did not open")
         XCTAssertFalse(nativeHistory.exists, "Native History appeared over the keyboard")
         awaitAbsent(selector, "Native selector remained accessible over the keyboard")
         blurThroughAuthoredTitle()
