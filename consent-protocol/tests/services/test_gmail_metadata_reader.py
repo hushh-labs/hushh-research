@@ -907,7 +907,15 @@ def _mailbox_provider(writes, labels=None):
         ("add_label", "Starred", ["STARRED"], []),
     ],
 )
-async def test_mailbox_change_runs_only_after_review_with_exact_labels(action, label, add, remove):
+async def test_mailbox_change_runs_only_after_review_with_exact_labels(
+    action, label, add, remove, monkeypatch
+):
+    # Opaque random proposals can legitimately contain a short provider-ID
+    # substring. Reproduce that collision without making privacy depend on luck.
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_mailbox_actions.secrets.token_urlsafe",
+        lambda _: "synthetic_m-1_m-2_confirmation",
+    )
     writes = []
     labels = [
         {"id": "Label_7", "name": "Receipts", "type": "user"},
@@ -929,7 +937,17 @@ async def test_mailbox_change_runs_only_after_review_with_exact_labels(action, l
     # Proposing resolves and stores targets; Gmail is not changed yet.
     assert proposal["status"] == "confirmation_required"
     assert writes == []
-    assert "m-1" not in json.dumps(proposal)
+
+    def assert_private_targets_absent(packet):
+        serialized = json.dumps(packet)
+        assert all(json.dumps(identity) not in serialized for identity in ["m-1", "m-2"])
+
+    assert_private_targets_absent(proposal)
+    # Negative control: a raw provider target in the public preview still fails.
+    leaked = deepcopy(proposal)
+    leaked["preview"]["message_ids"] = ["m-1", "m-2"]
+    with pytest.raises(AssertionError):
+        assert_private_targets_absent(leaked)
 
     result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert result == {"status": "executed", "action": action, "count": 2}
