@@ -47,7 +47,8 @@ ${script.slice(boundary)}`], {
       encoding: "utf8",
       env: {...process.env, HUSHH_UI_TEST_REVIEWER_UID: "synthetic", HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: "synthetic", REVIEWER_VAULT_PASSPHRASE: "synthetic"},
     });
-    expect(result.status).not.toBe(0);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
     expect(result.stdout).not.toContain("RUNNER_CALLED");
   });
 

@@ -554,6 +554,13 @@ jobs:
           protocol-dir: ./consent-protocol
           sync-dev-group: "false"
 
+      # Native reviewer-resolution contracts execute the authored Zsh runner;
+      # Ubuntu does not guarantee that interpreter is preinstalled.
+      - name: Install Zsh for native runner contracts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y zsh
+
       - name: Run the full Vitest suite and contract verifiers
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
