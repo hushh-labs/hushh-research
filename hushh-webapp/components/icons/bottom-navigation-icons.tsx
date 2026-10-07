@@ -30,7 +30,7 @@ function variant(glyph: string, weight: string): ComponentType<CanonicalIconProp
 export const BOTTOM_NAVIGATION_ICONS = Object.fromEntries(
   Object.entries(definitions).map(([key, definition]) => [key, {
     icon: variant(definition.glyph, definition.weight),
-    activeIcon: definition.weight === definition.selectedWeight ? undefined : variant(definition.glyph, definition.selectedWeight),
+    activeIcon: variant(definition.glyph, definition.selectedWeight),
   }]),
 ) as Record<BottomNavigationIconKey, {
   icon: ComponentType<CanonicalIconProps>;
