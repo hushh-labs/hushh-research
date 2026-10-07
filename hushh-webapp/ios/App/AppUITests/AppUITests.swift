@@ -1518,6 +1518,36 @@ final class AppUITests: XCTestCase {
                 // the label itself or the protected page's hierarchy.
                 let vocabulary = element.label.lowercased()
                 print("NATIVE_AUDIT_ROLE scroll=\(vocabulary.contains("scroll")) top=\(vocabulary.contains("top")) status=\(vocabulary.contains("status")) web=\(vocabulary.contains("web"))")
+                // Attribute only exact source-authored public copy. Coordinates
+                // alone cannot identify an issue, and a matched passive label
+                // does not waive it. Unknown labels/hierarchies stay in memory.
+                let publicCopy = [
+                    ("cards_manage", "Manage the cards available to your Wallet."),
+                    ("cards_empty", "No cards added yet."),
+                    ("example_caption", "Example cards"),
+                    ("add_scan", "Scan a card or enter its details below."),
+                    ("add_encryption", "Encrypted on this device. Never enters chat."),
+                    ("sharing_control", "You choose who can access your Wallet information."),
+                    ("sharing_caption", "Illustrative card · Your saved details stay private"),
+                ]
+                for (candidate, copy) in publicCopy {
+                    let matches = web.staticTexts.matching(NSPredicate(format: "label == %@", copy))
+                    let count = matches.count
+                    let labelMatches = element.label == copy
+                    print("NATIVE_AUDIT_PUBLIC_COPY candidate=\(candidate) count=\(min(count, 2)) issue_matches=\(labelMatches)")
+                    guard count == 1 else { continue }
+                    let match = matches.firstMatch
+                    guard match.exists else { continue }
+                    let frame = match.frame
+                    guard [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite && abs($0) <= 100000 }),
+                          frame.width > 0, frame.height > 0 else { continue }
+                    let issueFrame = element.frame
+                    let frameMatches = abs(frame.minX - issueFrame.minX) <= 1 &&
+                        abs(frame.minY - issueFrame.minY) <= 1 &&
+                        abs(frame.width - issueFrame.width) <= 1 &&
+                        abs(frame.height - issueFrame.height) <= 1
+                    print("NATIVE_AUDIT_PUBLIC_COPY_FRAME candidate=\(candidate) frame_matches=\(frameMatches) hittable=\(match.isHittable) x=\(Int(frame.minX)) y=\(Int(frame.minY)) width=\(Int(frame.width)) height=\(Int(frame.height))")
+                }
                 return !element.identifier.isEmpty && element.identifier != "top-shell-back" &&
                     !element.frame.intersects(back.frame)
             }
