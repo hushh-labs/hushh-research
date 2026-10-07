@@ -407,25 +407,32 @@ export function NativeChatChrome(props: Props) {
     if (!supported) return;
     let cancelled = false;
     let owned: NativeChromeLease | null = null;
+    let inactive = false;
     const previous = replacementCandidate.current;
     replacementCandidate.current = null;
+    const retiring = lease.current;
     lease.current?.invalidate();
     void (async () => {
       let stage: "retire" | "prepare" = "retire";
       try {
         const { theme, expanded, value, props } = current.current;
+        inactive = !allowed || !theme || !canAct() || heldFocus.current || !slot.current;
         let geometry = allowed && theme && canAct() && !heldFocus.current && slot.current &&
           !slot.current.contains(document.activeElement) ? measureNativeChromeGeometry(slot.current, kind) : null;
         const replacing = historyReplacement && props.kind === "history" && previous && theme && geometry &&
           previous.canReplaceHistoryWith({ kind: "history", expanded, label: "Chat history", enabled: true, ...theme, ...geometry }, epoch, context);
         if (!replacing) {
           reportRehearsal(stage, "pending");
-          await retireNativeChrome(epoch, undefined, controlId);
+          // An inactive retained instance owns only its previous installation,
+          // not a newer authored control sharing this presentation slot.
+          if (inactive) {
+            if (retiring) await retireOwnedNativeChrome(retiring.projection);
+          } else await retireNativeChrome(epoch, undefined, controlId);
           if (cancelled) return;
         }
         setPrepared(null);
         if (!allowed || !theme || !canAct() || heldFocus.current || !slot.current) {
-          setHidden(false);
+          setHidden(hasOutstandingNativeChrome(controlId));
           nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "not-admitted"); return;
         }
@@ -469,12 +476,15 @@ export function NativeChatChrome(props: Props) {
         reportRehearsal(stage, "rejected", rehearsalFailureCode(error));
         owned?.invalidate();
         try {
-          // Refusal can leave the predecessor installed; uncertainty can leave
-          // either revision. Only this current reconciler owns removal here.
-          await retireNativeChrome(epoch, undefined, controlId);
+          // Active refusal/uncertainty retains strict recovery. An inactive
+          // predecessor cannot acquire another installation through failure.
+          if (inactive) { if (retiring) await retireOwnedNativeChrome(retiring.projection); }
+          else await retireNativeChrome(epoch, undefined, controlId);
           if (!cancelled) {
-            setHidden(false);
-            restorePendingDomFocus();
+            const occupied = hasOutstandingNativeChrome(controlId);
+            setHidden(occupied);
+            if (!occupied) restorePendingDomFocus();
+            else { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
           }
         }
         catch {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { createRef, useEffect, useRef, useState } from "react";
 import { NativeChromeLease, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, retireOwnedNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
@@ -289,15 +289,15 @@ describe("native chrome presentation lease", () => {
   });
 
   function ChatHarness({ kind = "history", value = "one", pendingAttention = 0, owner = "synthetic-owner",
-    context = "/one/chat:vault-epoch", onAction = vi.fn(), handle, suppressed = false }: {
+    context = "/one/chat:vault-epoch", onAction = vi.fn(), handle, suppressed = false, eligible = true }: {
     kind?: "history" | "agent-surface"; value?: "one" | "puppy"; pendingAttention?: number;
     owner?: string; context?: string; onAction?: (value?: "one" | "puppy") => void;
     handle?: ReturnType<typeof createRef<NativeChatChromeHandle>>;
-    suppressed?: boolean;
+    suppressed?: boolean; eligible?: boolean;
   }) {
     useSessionChromeSuppression(suppressed);
     const focusRef = useRef<HTMLButtonElement>(null);
-    const common = { owner, context, eligible: true, className: "chat-slot", focusRef, ref: handle };
+    const common = { owner, context, eligible, className: "chat-slot", focusRef, ref: handle };
     const fallback = <button ref={focusRef}>Authored {kind}</button>;
     return kind === "history"
       ? <NativeChatChrome {...common} kind="history" pendingAttention={pendingAttention} onActivate={onAction}>{fallback}</NativeChatChrome>
@@ -806,9 +806,9 @@ describe("native chrome presentation lease", () => {
     }
   });
 
-  function Harness({ context = "/one/profile/security", owner = "synthetic-owner", suppressed = false, onBack = vi.fn() }) {
+  function Harness({ context = "/one/profile/security", owner = "synthetic-owner", suppressed = false, onBack = vi.fn(), eligible = true }) {
     useSessionChromeSuppression(suppressed);
-    return <NativeShellBack label="Go back" onBack={onBack} owner={owner} context={context} eligible />;
+    return <NativeShellBack label="Go back" onBack={onBack} owner={owner} context={context} eligible={eligible} />;
   }
   function measureSlot() {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -816,9 +816,9 @@ describe("native chrome presentation lease", () => {
     });
   }
 
-  function retainedControl(kind: "back" | "history", context: string, action = vi.fn(), owner = "synthetic-owner", suppressed = false) {
-    return kind === "back" ? <Harness context={context} owner={owner} onBack={action} suppressed={suppressed} />
-      : <ChatHarness context={context} owner={owner} onAction={action} suppressed={suppressed} />;
+  function retainedControl(kind: "back" | "history", context: string, action = vi.fn(), owner = "synthetic-owner", suppressed = false, eligible = true) {
+    return kind === "back" ? <Harness context={context} owner={owner} onBack={action} suppressed={suppressed} eligible={eligible} />
+      : <ChatHarness context={context} owner={owner} onAction={action} suppressed={suppressed} eligible={eligible} />;
   }
   function admitReplacement(kind: "back" | "history") {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [kind], independentControls: true,
@@ -902,7 +902,7 @@ describe("native chrome presentation lease", () => {
     expect(bridge.activate).toHaveBeenCalledOnce();
   });
 
-  it.each(["back", "history"] as const)("does not remove a newer mounted %s control when its predecessor unmounts", async (kind) => {
+  it.each(["back", "history"] as const)("does not remove a newer mounted %s control when its predecessor becomes inactive or unmounts", async (kind) => {
     measureSlot();
     admitReplacement(kind);
     const oldAction = vi.fn(), currentAction = vi.fn();
@@ -912,6 +912,11 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
     const currentControl = bridge.prepare.mock.calls.at(-1)![0];
     const removals = bridge.retire.mock.calls.length;
+    previous.rerender(retainedControl(kind, "previous", oldAction, "synthetic-owner", false, false));
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.retire).toHaveBeenCalledTimes(removals);
+    expect(within(previous.container).getByRole("button", { hidden: true })).not.toBeVisible();
+    expect(hasOutstandingNativeChrome(currentControl.controlId)).toBe(true);
     previous.unmount();
     await act(async () => { await Promise.resolve(); });
     expect(bridge.retire).toHaveBeenCalledTimes(removals);
@@ -926,6 +931,30 @@ describe("native chrome presentation lease", () => {
     expect(oldAction).not.toHaveBeenCalled();
     currentView.unmount();
     await waitFor(() => expect(hasOutstandingNativeChrome(currentControl.controlId)).toBe(false));
+
+    // The predecessor's own removal can fail after a newer mount takes over.
+    // Recovery must not turn that delayed failure into unqualified removal.
+    const waiting = render(retainedControl(kind, "waiting", oldAction));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(3));
+    const removal = deferred<ChromeAcknowledgement>();
+    bridge.retire.mockReturnValueOnce(removal.promise);
+    const beforeRemoval = bridge.retire.mock.calls.length;
+    waiting.rerender(retainedControl(kind, "waiting", oldAction, "synthetic-owner", false, false));
+    await waitFor(() => expect(bridge.retire).toHaveBeenCalledTimes(beforeRemoval + 1));
+    const latestView = render(retainedControl(kind, "latest", currentAction));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(4));
+    const latestControl = bridge.prepare.mock.calls.at(-1)![0];
+    const beforeFailure = bridge.retire.mock.calls.length;
+    await act(async () => { removal.reject(new Error("NATIVE_CHROME_ACK_UNCERTAIN")); });
+    expect(bridge.retire).toHaveBeenCalledTimes(beforeFailure);
+    expect(within(waiting.container).getByRole("button", { hidden: true })).not.toBeVisible();
+    expect(hasOutstandingNativeChrome(latestControl.controlId)).toBe(true);
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...latestControl, sequence: 1, updateSequence: 0, privacyGeneration: 0 }));
+    await waitFor(() => expect(currentAction).toHaveBeenCalledTimes(2));
+    expect(oldAction).not.toHaveBeenCalled();
+    waiting.unmount();
+    latestView.unmount();
+    await waitFor(() => expect(hasOutstandingNativeChrome(latestControl.controlId)).toBe(false));
   });
 
   it.each(["back", "history"] as const)("cannot retire a newer %s after an older handoff fails late", async (kind) => {

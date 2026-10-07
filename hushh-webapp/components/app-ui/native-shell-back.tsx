@@ -107,10 +107,12 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     if (!supported) return;
     let cancelled = false;
     let owned: NativeChromeLease | null = null;
+    let inactive = false;
     const activeEpoch = epoch;
     const wasFocused = document.activeElement === button.current;
     const previous = replacementCandidate.current;
     replacementCandidate.current = null;
+    const retiring = lease.current;
     lease.current?.invalidate();
     void (async () => {
       try {
@@ -118,17 +120,21 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         const geometry = allowed && theme && document.visibilityState !== "hidden" && slot.current
           ? measureNativeChromeGeometry(slot.current, "back") : null;
         const projection = geometry && theme ? { kind: "back" as const, label, enabled: true, ...theme, ...geometry } : null;
+        inactive = !projection;
         const replacing = backReplacement && previous && projection && previous.canReplaceBackWith(projection, activeEpoch, context);
         if (!replacing) {
           // Uncertainty, owner, overlay or actual geometry changes require
           // removal. Cached capability never authorizes keeping a stale view.
-          await retireNativeChrome(activeEpoch);
+          // Inactive cleanup cannot take authority from a newer mounted slot.
+          if (projection) await retireNativeChrome(activeEpoch);
+          else if (retiring) await retireOwnedNativeChrome(retiring.projection);
           if (cancelled) return;
         }
         setPrepared(null);
         if (!projection) {
-          setHidden(false);
-          if (wasFocused) button.current?.focus({ preventScroll: true });
+          const occupied = hasOutstandingNativeChrome();
+          setHidden(occupied);
+          if (!occupied && wasFocused) button.current?.focus({ preventScroll: true });
           return;
         }
         const next = new NativeChromeLease(projection, activeEpoch, context, inPlaceUpdates);
@@ -139,10 +145,13 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         if (cancelled || (owned && lease.current !== owned)) return;
         owned?.invalidate();
         // Uncertainty is recoverable only by a confirmed removal, never a replay.
-        // Refused replacement can leave the predecessor installed; timeout can
-        // leave either revision. This still-current reconciler owns the slot,
-        // so prove removal of whichever remains before exposing web controls.
-        try { await retireNativeChrome(activeEpoch); if (!cancelled) setHidden(false); }
+        // Active refusal/timeout retains strict recovery. An inactive
+        // predecessor still owns only its own uncertain installation.
+        try {
+          if (inactive) { if (retiring) await retireOwnedNativeChrome(retiring.projection); }
+          else await retireNativeChrome(activeEpoch);
+          if (!cancelled) setHidden(hasOutstandingNativeChrome());
+        }
         catch { if (!cancelled) setHidden(true); console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
       }
     })();

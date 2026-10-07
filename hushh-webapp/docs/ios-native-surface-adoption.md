@@ -1237,12 +1237,17 @@ Independent review catches a separate retirement-wait geometry race: the strict
 path remeasures after acknowledgement; a deferred removal with a DOM-only move
 fails the stale measurement. SwiftUI's single Button uses an explicit bounded
 interaction shape; no duplicate tap recognizer or inferred web action is added.
-The existing physical journey is extended with guarded center/cardinal edge
-presses and a separate Debug History display-link probe across One/Puppy
-changes. These new device assertions are authored, not yet physical proof;
-host/frame continuity cannot establish uninterrupted glass pixels. The earlier
-automation-authorization failure still requires observed OS admission before
-another device batch; it is not a vault-passphrase failure.
+The signed production-backed Debug `75085fa28` iPhone candidate passes the
+guarded center/cardinal edge presses for History, owned Close and Profile Close,
+including five Profile reopen cycles. Its One/Puppy/One changes retain the
+History host with no sampled missing frames; keyboard retirement and return
+also pass without a second blur or account reset. Native Appearance/Accent
+selection, cancellation and reopening, plus the Account/Preferences/Security/
+Vault methods/Support stack, pass separate warm journeys. Bidirectional body
+drawer gestures, Mail with its real software keyboard, Memory's Saved/Add/
+Sharing swipes and Connect's Circles/Connections tabs also pass. The explicit Debug
+launch opt-in is preparation, not continuity evidence. Host/frame receipts
+still cannot establish uninterrupted glass pixels or Release frame pacing.
 
 The same review exposes an independent teardown boundary: an older mounted
 control could untargetedly remove a newer installation sharing its control ID.
@@ -1251,7 +1256,16 @@ outstanding document, instance epoch and revision. Its own uncertain handoff
 still removes either native revision; another installation is untouched. The
 actual A/B mounting test fails both older Back and History cleanup paths and
 requires the replacement to remain actionable, then retire on its own unmount.
-This does not qualify other automatic inactive reconciliation or device pixels.
+This does not qualify other asynchronous recovery paths or device pixels.
+
+The same A/B case also reproduces inactive reconciliation retiring the newer
+mount, both normally and after an owned removal fails late. Back and the generic
+chrome wrapper now restrict inactive cleanup and its recovery to the existing
+installation-ownership guard; an occupied newer slot keeps the older fallback
+concealed. Active strict takeover and uncertain-predecessor cleanup remain
+unchanged. The source regression checks and `75085fa28` device receipts are
+different evidence: the later inactive-cleanup change needs its own candidate
+and exact-head verification.
 
 Native focus return also hard-retired an already-active stationary History
 control before requesting focus. The acknowledged focus path now reuses only
@@ -1264,8 +1278,14 @@ boundary: a delayed focus response from a displaced installation could expose
 its DOM fallback beneath the replacement. The same test reproduces that
 outcome and requires stale-slot/document focus to settle false, preserve the
 fallback quarantine and leave the replacement actionable without removal.
-These source checks do not replace current-candidate iPhone center/edge press,
-appearance continuity, accessibility or Release performance evidence.
+These source checks do not replace appearance, accessibility or Release
+performance evidence. The `75085fa28` theme journey passes light status/header
+matching on Chat/One/Connect/Feed, then fails the hit-region audit on Wallet's
+source-authored helper copy. Dark-mode steps are not reached and the issue is
+not waived. Isolated simulator diagnostics associate the recurring plain-root
+appearance warning with the temporary hidden-selector fixture: the geometry
+fixture reproduces it, while a state-only comparator does not. Exact teardown
+causality and product presenter acceptance remain unverified.
 
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
