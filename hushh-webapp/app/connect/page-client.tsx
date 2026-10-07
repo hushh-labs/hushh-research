@@ -2919,8 +2919,9 @@ export default function ConnectPageClient() {
       ref={directoryMenuRef}
       data-testid="connect-directory-menu-anchor"
       // The 44px tap target centres a ~20px label, so 12px of it is blank
-      // below "People". Pull the description up; the hit area is unchanged.
-      className="relative -mb-3"
+      // below "People". Pull the description up by 8px, leaving a 4px breath;
+      // the hit area is unchanged.
+      className="relative -mb-2"
     >
       {useWebDirectoryPopover ? (
         <Popover open={directoryMenuOpen} onOpenChange={setDirectoryMenuOpen}>
@@ -3286,7 +3287,7 @@ export default function ConnectPageClient() {
                                   trailing={
                                     <span
                                       className={cn(
-                                        "flex shrink-0 items-center justify-end gap-3 whitespace-nowrap",
+                                        "flex shrink-0 items-center justify-end gap-0 whitespace-nowrap",
                                         CONNECT_ROW_TRAILING_CLASSNAME,
                                       )}
                                     >
