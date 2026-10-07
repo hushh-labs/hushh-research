@@ -303,7 +303,7 @@ def test_rule_thirteen_addresses_a_reply_by_the_email_it_answers():
         "email open on screen"
     ) in rule
     assert "never resolve_person or send_mail for a reply" in rule
-    assert '"Email Priya" or "write to Priya" is send_mail' in rule
+    assert '"Email Priya" or "write to Priya" is compose_mail' in rule
     assert "never pick one from a name" in rule
     assert "Forwarding, reply-all, a new subject and attachments are not possible here" in rule
     # Live eval: "reply all ... say thanks everyone" became a sender-only

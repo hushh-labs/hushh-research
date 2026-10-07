@@ -2,7 +2,7 @@
 
 /** Keeps a reviewed mail draft alive across voice dock and route changes. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@/components/icons";
 
@@ -16,7 +16,12 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import {
   parseMailDeliveryRef,
+  parseMailDraftBinding,
+  parseMailDraftOutcome,
   parseOpenMailDraftStepPayload,
+  parseReviewedMailDraftStep,
+  type MailDraftBinding,
+  type ReviewedMailDraftStep,
 } from "@/lib/one-voice/mail-draft-step";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import {
@@ -40,6 +45,11 @@ type OpenMailDraft = {
   reply: ReplyBinding | null;
   /** Correlates this card's Send with the voice session that opened it. */
   deliveryRef: string | null;
+  binding?: MailDraftBinding | null;
+  review?: ReviewedMailDraftStep | null;
+  invalidated?: boolean;
+  reviewError?: string | null;
+  recoveryCode?: string | null;
 };
 type MailDelivery = {
   id: string;
@@ -49,8 +59,10 @@ type MailDelivery = {
   verbatimInitialBody: boolean;
   reply: ReplyBinding | null;
   deliveryRef: string | null;
-  status: "sending" | "sent" | "failed" | "outcome_unknown";
+  status: "sending" | "sent" | "failed" | "outcome_unknown" | "cancelled";
   error: string | null;
+  binding?: MailDraftBinding | null;
+  review?: ReviewedMailDraftStep | null;
 };
 /** A Send in flight: the card it came from and the action it prepared. */
 type DeliveryAttempt = { deliveryRef: string | null; actionId: string | null };
@@ -77,6 +89,17 @@ function newAttemptId(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function reviewRecovery(reasonCode: string | null) {
+  switch (reasonCode) {
+    case "GMAIL_SEND_DISABLED": return { message: "Turn on Gmail sending to continue. Your draft is still here.", action: "Enable sending" };
+    case "GMAIL_NOT_CONNECTED": return { message: "Connect Gmail to send this email. Your draft is still here.", action: "Connect Gmail" };
+    case "GMAIL_SEND_PERMISSION_REQUIRED":
+    case "GMAIL_RECONNECT_REQUIRED": return { message: "Reconnect Gmail and allow sending, then review this draft again.", action: "Reconnect Gmail" };
+    case "GMAIL_SENDER_CHANGED": return { message: "The sending account changed. Review this draft again.", action: null };
+    default: return { message: "Check the recipients, subject, and message to continue.", action: null };
+  }
+}
+
 export function OneVoiceMailDraftBridge() {
   const { user } = useAuth();
   const voice = useOptionalVoiceSession();
@@ -96,6 +119,68 @@ export function OneVoiceMailDraftBridge() {
   // Keyed by attempt, so a slow Send that finishes after a newer one started is
   // still reported with its own action, and never lends it to the newer one.
   const attemptsRef = useRef(new Map<string, DeliveryAttempt>());
+  const closedDraftsRef = useRef(new Set<string>());
+  const deliveryRef = useRef<MailDelivery | null>(null);
+  const voiceRef = useRef(voice);
+  useLayoutEffect(() => { deliveryRef.current = mailDelivery; }, [mailDelivery]);
+  useLayoutEffect(() => { voiceRef.current = voice; }, [voice]);
+  const editsRef = useRef<{
+    version: number;
+    latest: EmailDraft | null;
+    inFlight: { operationId: string; version: number } | null;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ version: 0, latest: null, inFlight: null, timer: null });
+
+  const submitLatestEdit = useCallback(() => {
+    const current = draftRef.current;
+    const edits = editsRef.current;
+    if (!current?.binding || !edits.latest || edits.inFlight || closedDraftsRef.current.has(current.binding.draftRef)) return;
+    const operationId = newAttemptId();
+    const draft = edits.latest;
+    const plainBody = draft.body.trim().startsWith("<") && draft.body.includes(">") ? richEmailPlainText(draft.body) : draft.body;
+    if (Array.from(draft.subject).length > 256 || Array.from(plainBody).length > 4000 ||
+        [draft.to, draft.cc, draft.bcc].some((field) => Array.from(field ?? "").length > 16000)) {
+      setMailDraft((shown) => shown?.id === current.id ? { ...shown,
+        reviewError: "Shorten the draft to continue. The subject allows 256 characters and the message allows 4,000." } : shown);
+      return;
+    }
+    edits.inFlight = { operationId, version: edits.version };
+    const sent = voiceRef.current?.reportMailDraftChange?.({
+      draft_ref: current.binding.draftRef, revision: current.binding.revision, operation_id: operationId,
+      draft: { to: draft.to, cc: draft.cc, bcc: draft.bcc, subject: draft.subject, body: plainBody },
+    });
+    if (!sent) {
+      edits.inFlight = null;
+      setMailDraft((shown) => shown?.id === current.id ? { ...shown, reviewError: "Reconnect to voice to review these changes." } : shown);
+    }
+  }, []);
+
+  const revokeReview = useCallback((closed: boolean, draft?: EmailDraft) => {
+    const current = draftRef.current ?? (deliveryRef.current?.status === "sending" ? deliveryRef.current : null);
+    if (!current?.binding) return;
+    const binding = current.binding;
+    if (draftRef.current) draftRef.current = { ...draftRef.current, invalidated: true, ...(draft ? { draft } : {}) };
+    setMailDraft((shown) => shown?.id === current.id ? { ...shown, invalidated: true, reviewError: null } : shown);
+    const edits = editsRef.current;
+    if (edits.timer) clearTimeout(edits.timer);
+    if (closed) {
+      closedDraftsRef.current.add(binding.draftRef);
+      edits.latest = null;
+      edits.inFlight = null;
+    } else if (draft) {
+      edits.latest = draft;
+      edits.version += 1;
+      edits.timer = setTimeout(submitLatestEdit, 250);
+    }
+    // Invalidate on the first keystroke; only complete snapshots advance the
+    // server revision. One request at a time keeps later typing on that revision.
+    voiceRef.current?.reportMailDraftChange?.({
+      draft_ref: binding.draftRef,
+      revision: binding.revision,
+      operation_id: newAttemptId(),
+      ...(closed ? { closed: true } : {}),
+    });
+  }, [submitLatestEdit]);
 
   useEffect(() => {
     setHost(document.body);
@@ -113,6 +198,107 @@ export function OneVoiceMailDraftBridge() {
 
   useVoiceToolEffects({
     onClientStep: (step, report) => {
+      if (step.kind === "mail_draft_outcome") {
+        const outcome = parseMailDraftOutcome(step.payload);
+        const current = draftRef.current ?? deliveryRef.current;
+        if (outcome?.status === "needs_input") {
+          if (outcome.reasonCode === "VOICE_APPROVAL_SUPERSEDED" && current?.binding &&
+              current.ownerUid === user?.uid && !closedDraftsRef.current.has(outcome.draftRef) &&
+              current.binding.draftRef === outcome.draftRef && current.binding.revision === outcome.revision &&
+              outcome.actionId !== null && current.review?.actionId === outcome.actionId) {
+            const next: OpenMailDraft = { ...current, review: null, invalidated: true, recoveryCode: null,
+              reviewError: "Review the current email again. Nothing was sent." };
+            draftRef.current = next;
+            deliveryRef.current = null;
+            setMailDelivery(null);
+            setMailDraft(next);
+            report("ok", { draft_ref: outcome.draftRef, revision: outcome.revision, action_id: outcome.actionId });
+            return;
+          }
+          const pending = editsRef.current.inFlight;
+          if (!current?.binding || current.ownerUid !== user?.uid || closedDraftsRef.current.has(outcome.draftRef) ||
+              current.binding.draftRef !== outcome.draftRef || !pending || pending.operationId !== outcome.operationId ||
+              outcome.revision < current.binding.revision || !draftRef.current) {
+            report("failed", { reason: "stale_review" }); return;
+          }
+          const newerEdits = editsRef.current.version > pending.version;
+          editsRef.current.inFlight = null;
+          const next = { ...draftRef.current, binding: { draftRef: outcome.draftRef, revision: outcome.revision },
+            review: null, invalidated: true, recoveryCode: outcome.reasonCode, reviewError: reviewRecovery(outcome.reasonCode).message };
+          draftRef.current = next;
+          setMailDraft(next);
+          report("ok", { draft_ref: outcome.draftRef, revision: outcome.revision });
+          if (newerEdits) submitLatestEdit();
+          return;
+        }
+        if (!outcome || !current?.binding || current.ownerUid !== user?.uid ||
+            current.binding.draftRef !== outcome.draftRef || current.binding.revision !== outcome.revision ||
+            (outcome.status !== "cancelled" && current.review?.actionId !== outcome.actionId)) {
+          report("failed", { reason: "stale_review" });
+          return;
+        }
+        const next: MailDelivery = {
+          ...current, id: `voice:${outcome.actionId}`, status: outcome.status, error: null,
+        };
+        deliveryRef.current = next;
+        setMailDelivery(next);
+        draftRef.current = null;
+        setMailDraft(null);
+        report("ok", { draft_ref: outcome.draftRef, revision: outcome.revision, action_id: outcome.actionId });
+        return;
+      }
+      if (step.kind === "review_mail_draft") {
+        if (handledStepsRef.current.has(step.stepId)) return;
+        handledStepsRef.current.add(step.stepId);
+        const review = parseReviewedMailDraftStep(step.payload);
+        const current = draftRef.current;
+        if (!review) { report("failed", { reason: "invalid_mail_draft" }); return; }
+        if (!user?.uid || !isVaultUnlocked || document.visibilityState !== "visible") {
+          report("failed", { reason: !user?.uid ? "owner_unavailable" : !isVaultUnlocked ? "vault_locked" : "surface_backgrounded" });
+          return;
+        }
+        const edits = editsRef.current;
+        const pending = edits.inFlight;
+        if (current?.binding?.draftRef === review.draftRef && pending) {
+          if (pending.operationId !== review.operationId || review.revision <= current.binding.revision) {
+            report("failed", { reason: "stale_review" }); return;
+          }
+          edits.inFlight = null;
+          if (edits.version > pending.version) {
+            const next = { ...current, binding: { draftRef: review.draftRef, revision: review.revision }, review: null, invalidated: true };
+            draftRef.current = next;
+            setMailDraft(next);
+            report("failed", { reason: "superseded_edit" });
+            submitLatestEdit();
+            return;
+          }
+        } else if (review.operationId || (current?.invalidated && current.binding?.draftRef === review.draftRef)) {
+          report("failed", { reason: "stale_review" }); return;
+        }
+        if (closedDraftsRef.current.has(review.draftRef) || (review.ready && Date.parse(review.expiresAt) <= Date.now()) ||
+            (current && (current.binding?.draftRef !== review.draftRef ||
+              current.binding.revision > review.revision ||
+              (current.binding.revision === review.revision && (current.invalidated || Boolean(current.review)))))) {
+          report("failed", { reason: "stale_review" }); return;
+        }
+        const next: OpenMailDraft = {
+          id: `${review.draftRef}:${review.revision}`, ownerUid: user.uid,
+          draft: review.draft, recipientName: review.draft.to || "selected recipients",
+          verbatimInitialBody: true, reply: null, deliveryRef: review.deliveryRef,
+          binding: { draftRef: review.draftRef, revision: review.revision }, review, invalidated: false,
+          reviewError: review.ready ? null : reviewRecovery(review.reasonCode).message,
+          recoveryCode: review.reasonCode,
+        };
+        if (edits.timer) clearTimeout(edits.timer);
+        edits.latest = null;
+        edits.inFlight = null;
+        previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        draftRef.current = next;
+        reportsRef.current.set(next.id, report);
+        setMailDelivery(null);
+        setMailDraft(next);
+        return;
+      }
       if (step.kind !== "open_mail_draft" || handledStepsRef.current.has(step.stepId)) return;
       handledStepsRef.current.add(step.stepId);
       const parsed = parseOpenMailDraftStepPayload(step.payload);
@@ -146,6 +332,7 @@ export function OneVoiceMailDraftBridge() {
             }
           : null,
         deliveryRef: parseMailDeliveryRef(step.payload),
+        binding: parseMailDraftBinding(step.payload),
       };
       previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       draftRef.current = next;
@@ -161,9 +348,15 @@ export function OneVoiceMailDraftBridge() {
     const report = reportsRef.current.get(mailDraft.id);
     if (!report) return;
     reportsRef.current.delete(mailDraft.id);
-    const mounted = Boolean(surfaceRef.current?.querySelector('[data-testid="one-email-draft-card"]'));
+    const mounted = Boolean(surfaceRef.current?.querySelector('[data-testid="one-email-draft-card"]')) &&
+      (!mailDraft.binding || document.visibilityState === "visible") && !mailDraft.invalidated;
     if (mounted) surfaceRef.current?.focus({ preventScroll: true });
-    report(mounted ? "ok" : "failed", mounted ? { mounted: true } : { reason: "draft_not_mounted" });
+    report(mounted ? "ok" : "failed", mounted ? {
+      mounted: true,
+      ...(mailDraft.review?.ready ? {
+        draft_ref: mailDraft.review.draftRef, revision: mailDraft.review.revision, action_id: mailDraft.review.actionId,
+      } : mailDraft.binding ? { draft_ref: mailDraft.binding.draftRef, revision: mailDraft.binding.revision } : {}),
+    } : { reason: "draft_not_mounted" });
     if (!mounted) {
       draftRef.current = null;
       setMailDraft(null);
@@ -173,13 +366,15 @@ export function OneVoiceMailDraftBridge() {
   useEffect(() => {
     const reports = reportsRef.current;
     return () => {
+      revokeReview(true);
       for (const report of reports.values()) report("failed", { reason: "surface_unmounted" });
       reports.clear();
     };
-  }, []);
+  }, [revokeReview]);
 
   useEffect(() => {
     if (ownerRef.current === (user?.uid ?? null)) return;
+    revokeReview(true);
     ownerRef.current = user?.uid ?? null;
     for (const report of reportsRef.current.values()) report("failed", { reason: "owner_changed" });
     reportsRef.current.clear();
@@ -190,12 +385,13 @@ export function OneVoiceMailDraftBridge() {
     setMailDraft(null);
     setMailDelivery(null);
     setVaultDialogOpen(false);
-  }, [user?.uid]);
+  }, [revokeReview, user?.uid]);
 
   useEffect(() => {
     const wasUnlocked = wasVaultUnlockedRef.current;
     wasVaultUnlockedRef.current = isVaultUnlocked;
     if (!wasUnlocked || isVaultUnlocked) return;
+    revokeReview(true);
     for (const report of reportsRef.current.values()) report("failed", { reason: "vault_locked" });
     reportsRef.current.clear();
     handledStepsRef.current.clear();
@@ -203,7 +399,15 @@ export function OneVoiceMailDraftBridge() {
     setMailDraft(null);
     setMailDelivery(null);
     setVaultDialogOpen(false);
-  }, [isVaultUnlocked]);
+  }, [isVaultUnlocked, revokeReview]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") revokeReview(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [revokeReview]);
 
   const getMailAuth = useCallback(async () => {
     if (!user || !isVaultUnlocked || (tokenExpiresAt && Date.now() >= tokenExpiresAt)) return null;
@@ -214,6 +418,7 @@ export function OneVoiceMailDraftBridge() {
   }, [getVaultOwnerToken, isVaultUnlocked, tokenExpiresAt, user]);
 
   const dismissDraft = () => {
+    revokeReview(true);
     draftRef.current = null;
     setMailDraft(null);
     const previousFocus = previousFocusRef.current;
@@ -232,6 +437,8 @@ export function OneVoiceMailDraftBridge() {
       verbatimInitialBody: Boolean(openDraft?.verbatimInitialBody && reviewedDraft.body === openDraft.draft.body),
       reply: openDraft?.reply ?? null,
       deliveryRef: openDraft?.deliveryRef ?? null,
+      binding: openDraft?.binding,
+      review: openDraft?.review,
       status: "sending",
       error: null,
     });
@@ -285,6 +492,9 @@ export function OneVoiceMailDraftBridge() {
       verbatimInitialBody: mailDelivery.verbatimInitialBody,
       reply: mailDelivery.reply,
       deliveryRef: mailDelivery.deliveryRef,
+      binding: mailDelivery.binding,
+      review: null,
+      invalidated: Boolean(mailDelivery.binding),
     };
     draftRef.current = next;
     setMailDraft(next);
@@ -331,7 +541,7 @@ export function OneVoiceMailDraftBridge() {
               }
               onPrepared?.(prepared.actionId);
               onSendRequestStarted?.();
-              const sent = await EmailDeliveryService.send({ ...auth, actionId: prepared.actionId, draft: bound });
+              const sent = await EmailDeliveryService.send({ ...auth, actionId: prepared.actionId, draft: bound, senderToken: prepared.senderToken });
               return { outcomeUnknown: sent.outcomeUnknown };
             },
           }
@@ -373,9 +583,23 @@ export function OneVoiceMailDraftBridge() {
                 onSent={onMailSent}
                 onSendFailed={onMailSendFailed}
                 onDeliveryPrepared={onDeliveryPrepared}
+                reviewedSend={visibleDraft.review?.ready ? visibleDraft.review : null}
+                canSendReviewed={() => Boolean(visibleDraft.binding && !closedDraftsRef.current.has(visibleDraft.binding.draftRef) &&
+                  ownerRef.current === visibleDraft.ownerUid && wasVaultUnlockedRef.current && document.visibilityState === "visible")}
+                sendUnavailable={Boolean(visibleDraft.binding && (!visibleDraft.review?.ready || visibleDraft.invalidated))}
+                onDraftEdit={visibleDraft.binding ? (draft) => revokeReview(false, draft) : undefined}
                 sourceBoundReply={replyAdapter}
                 sourceBoundEnvelope={visibleDraft.reply?.envelope ?? null}
               />
+              {visibleDraft.reviewError ? (
+                <div role="status" className="flex flex-wrap items-center gap-2 px-3 pb-2 text-sm text-muted-foreground">
+                  <span>{visibleDraft.reviewError}</span>
+                  {reviewRecovery(visibleDraft.recoveryCode ?? null).action ? (
+                    <a className="font-medium text-primary underline" href="/one/gmail">{reviewRecovery(visibleDraft.recoveryCode ?? null).action}</a>
+                  ) : null}
+                  <button type="button" className="font-medium text-primary underline" onClick={() => revokeReview(false, draftRef.current?.draft)}>Review again</button>
+                </div>
+              ) : null}
             </div>
           ) : null}
           {visibleDelivery ? (
@@ -388,10 +612,11 @@ export function OneVoiceMailDraftBridge() {
               <span className="min-w-0 flex-1">
                 {visibleDelivery.status === "sending" ? (deliveryIsReply ? "Sending reply…" : "Sending mail…") :
                   visibleDelivery.status === "sent" ? (deliveryIsReply ? "Reply sent in the original thread." : "Mail sent.") :
+                    visibleDelivery.status === "cancelled" ? "Mail cancelled." :
                     visibleDelivery.status === "outcome_unknown" ? "Delivery could not be confirmed. Check Sent Mail before trying again." :
                       visibleDelivery.error || (deliveryIsReply ? "The reply could not be sent." : "Mail could not be sent.")}
               </span>
-              {visibleDelivery.status === "failed" ? (
+              {visibleDelivery.status === "failed" && !visibleDelivery.binding ? (
                 <button type="button" className="shrink-0 font-semibold text-[color:var(--app-accent)]" onClick={reopenFailedDraft}>
                   Review draft
                 </button>

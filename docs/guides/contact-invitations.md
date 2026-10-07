@@ -44,8 +44,11 @@ migration. Older native binaries can still share/copy without the new composer.
 - Google People reads remain browser-only using the existing read-only scope.
   Email collection is flag-gated. Browser email capability is probed before
   the picker tap; the picker itself is never delayed by a capability await.
-- Session generations invalidate reads, referral preparation and old toast
-  actions on dismissal, resync, account change, route change, flag disable or
+- Contact-sync outcome toasts report connected and invitable counts without an
+  invitation action. Invitations start from the results drawer's “Invite contacts”
+  action; partial-sync recovery actions remain available in the toast.
+- Session generations invalidate reads, referral preparation and pending
+  handoffs on dismissal, resync, account change, route change, flag disable or
   session-provider unmount. Selection and destinations survive search,
   pagination and review/back within that session. The account/route-scoped
   provider also retains the current step and pending handoff while authentication

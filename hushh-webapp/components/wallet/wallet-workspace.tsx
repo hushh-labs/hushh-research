@@ -60,6 +60,7 @@ import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handof
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
+import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
 import { prefersReducedMotion } from "@/lib/morphy-ux/gsap";
@@ -80,6 +81,7 @@ import {
   walletViewReducer,
 } from "@/lib/wallet/wallet-view-state";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+
 
 
 const WALLET_TABS = [
@@ -680,7 +682,7 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser
+            <WalletCardBrowser ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId}
               cards={cards}
               selectedCardId={selectedDeckCardId}
@@ -796,7 +798,7 @@ export function WalletWorkspace() {
           />
         ) : null}
       </AppPageContentRegion>
-      <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className="sticky bottom-0 z-20 mx-auto w-full max-w-[460px] pb-3 pt-2" data-testid="wallet-card-dock-host" />
+      <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto w-full max-w-[820px] border-t border-border bg-[var(--app-card-surface-default-solid)] px-2 py-1 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-[var(--app-bottom-shell-height,132px)] after:bg-[var(--app-card-surface-default-solid)] after:content-['']")} data-testid="wallet-card-dock-host" />
     </AppPageShell>
   );
 }

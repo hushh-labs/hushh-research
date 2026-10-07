@@ -1,10 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 
 const streamMocks = vi.hoisted(() => ({ nativeStreamFetch: vi.fn() }));
+const apiMocks = vi.hoisted(() => ({ apiJson: vi.fn() }));
 
 vi.mock("@/lib/services/native-sse-fetch", () => streamMocks);
+vi.mock("@/lib/services/api-client", () => apiMocks);
 
 import { GmailInformationRequestsService } from "@/lib/services/gmail-information-requests-service";
+
+describe("GmailInformationRequestsService reviewed reply delivery", () => {
+  const input = { firebaseIdToken: "firebase-token", vaultOwnerToken: "vault-owner-token", workflowId: "workflow-1", body: "Exact reply" };
+  it("retains the prepared sender binding and requires a matching verified send outcome", async () => {
+    apiMocks.apiJson.mockResolvedValueOnce({ action_id: "action-1", expires_at: null, sender_token: "sender-binding", preview: {
+      to: ["recipient@example.com"], cc: [], bcc: [], subject: "Re: Request", gmail_thread_id: "thread-1",
+    } });
+    const prepared = await GmailInformationRequestsService.prepareReply({ ...input, idempotencyKey: "unit-test-key" });
+    expect(prepared.senderToken).toBe("sender-binding");
+    apiMocks.apiJson.mockResolvedValueOnce({ action_id: "action-1", state: "sent" });
+    await expect(GmailInformationRequestsService.sendReply({ ...input, actionId: prepared.actionId, senderToken: prepared.senderToken }))
+      .resolves.toEqual({ state: "sent", outcomeUnknown: false });
+    expect(apiMocks.apiJson).toHaveBeenLastCalledWith("/api/one/email/send", expect.objectContaining({ body: JSON.stringify({
+      action_id: "action-1", sender_token: "sender-binding", body: "Exact reply", html_body: null, source_workflow_id: "workflow-1",
+    }) }));
+    for (const response of [{}, { state: "sent" }, { action_id: "other", state: "sent" }, { action_id: "action-1", state: "sent", outcome_unknown: true }]) {
+      apiMocks.apiJson.mockResolvedValueOnce(response);
+      await expect(GmailInformationRequestsService.sendReply({ ...input, actionId: "action-1", senderToken: "sender-binding" }))
+        .resolves.toEqual({ state: "outcome_unknown", outcomeUnknown: true });
+    }
+  });
+});
 
 function streamResponse(...chunks: string[]): Response {
   const encoder = new TextEncoder();

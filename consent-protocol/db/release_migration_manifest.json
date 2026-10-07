@@ -253,7 +253,8 @@
     "279_pkm_credits.sql",
     "280_pkm_owner_payouts.sql",
     "281_one_mcp_pending_calls.sql",
-    "282_direct_message_actions.sql"
+    "282_direct_message_actions.sql",
+    "283_gmail_send_grant_generation.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -407,7 +408,8 @@
       "257_one_chat_onboarding_state.sql",
       "258_one_attention_ledger.sql",
       "260_consent_outcome_delivery.sql",
-      "275_scheduled_mail_send.sql"
+      "275_scheduled_mail_send.sql",
+      "283_gmail_send_grant_generation.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -526,6 +528,7 @@
     "279_pkm_credits.sql": "rollback/279_pkm_credits.rollback.sql",
     "280_pkm_owner_payouts.sql": "rollback/280_pkm_owner_payouts.rollback.sql",
     "281_one_mcp_pending_calls.sql": "rollback/281_one_mcp_pending_calls.rollback.sql",
-    "282_direct_message_actions.sql": "rollback/282_direct_message_actions.rollback.sql"
+    "282_direct_message_actions.sql": "rollback/282_direct_message_actions.rollback.sql",
+    "283_gmail_send_grant_generation.sql": "rollback/283_gmail_send_grant_generation.rollback.sql"
   }
 }

@@ -4,6 +4,8 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -1969,3 +1971,49 @@ async def test_a_request_with_no_nameable_field_is_still_a_request(monkeypatch):
     assert assessment.confidence == pytest.approx(0.93)
     assert assessment.requested_domains == ("identity",)
     assert assessment.requested_fields == ()
+
+
+async def test_dedicated_reply_path_preserves_prepared_sender_review(monkeypatch):
+    prepared = {
+        "action_id": "reviewed-action",
+        "state": "prepared",
+        "sender_token": "opaque-sender-review",
+    }
+    sent = {"action_id": "reviewed-action", "state": "sent"}
+    delivery = SimpleNamespace(
+        prepare=AsyncMock(return_value=prepared), execute=AsyncMock(return_value=sent)
+    )
+    service = PersonalGmailInformationRequestService(delivery_service=delivery)
+    draft = {"to": ["verify@example.com"], "subject": "Re: KYC", "body": "Approved details"}
+    reply = GmailReplyContext(thread_id="original-thread")
+    monkeypatch.setattr(
+        service,
+        "resolve_reply_delivery",
+        AsyncMock(side_effect=[(dict(draft), reply), (dict(draft), reply)]),
+    )
+    monkeypatch.setattr(service, "record_reply_delivery", AsyncMock(return_value=sent))
+    result = await service.prepare_reply(
+        user_id="owner",
+        workflow_id="workflow",
+        body=draft["body"],
+        html_body=None,
+        idempotency_key="reviewed-key-123456",
+    )
+    assert result["sender_token"] == prepared["sender_token"]
+    await service.send_reply(
+        user_id="owner",
+        workflow_id="workflow",
+        action_id=result["action_id"],
+        body=draft["body"],
+        html_body=None,
+        sender_token=result["sender_token"],
+    )
+    delivery.execute.assert_awaited_once_with(
+        user_id="owner",
+        action_id="reviewed-action",
+        draft_payload={**draft, "sender_token": prepared["sender_token"]},
+        reply_context=reply,
+    )
+    service.record_reply_delivery.assert_awaited_once_with(
+        user_id="owner", workflow_id="workflow", result=sent
+    )

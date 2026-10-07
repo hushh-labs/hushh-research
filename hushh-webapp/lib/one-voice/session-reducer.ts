@@ -118,7 +118,9 @@ export type ToolResultTone = "success" | "neutral" | "failure" | "pending";
  * `location_updates_pending` keep their pinned failure tone (their screens
  * render the interim state themselves and the panel hides the card).
  */
-const PENDING_STATUSES = new Set<string>([SOS_GRANTS_CREATED, "draft_open_requested"]);
+const PENDING_STATUSES = new Set<string>([
+  SOS_GRANTS_CREATED, "draft_open_requested", "review_requested", "review_pending", "sending",
+]);
 
 /**
  * Outcomes that are neither done nor failed, whatever the frame's `ok` says.
@@ -134,6 +136,8 @@ export const NEUTRAL_OUTCOME_STATUSES = new Set<string>([
   "already_sent",
   "already_sending",
   "not_sent",
+  "needs_input",
+  "outcome_unknown",
 ]);
 
 /** An armed-but-unsent outcome: neither success nor failure yet. */

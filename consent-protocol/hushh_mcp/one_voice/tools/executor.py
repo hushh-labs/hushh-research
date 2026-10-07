@@ -266,11 +266,11 @@ class ToolExecutor:
         try:
             parsed = spec.input_model.model_validate(args or {})
         except ValidationError as exc:
-            missing = sorted({str(err.get("loc", ("?",))[0]) for err in exc.errors()})
+            missing = sorted({str((err.get("loc") or ("?",))[0]) for err in exc.errors()})
             facts = [f"I'm missing {', '.join(missing) or 'a detail'} for that."]
             if name in {"send_mail", "reply_mail", "schedule_mail"}:
                 too_long = {
-                    str(err.get("loc", ("?",))[0])
+                    str((err.get("loc") or ("?",))[0])
                     for err in exc.errors()
                     if err.get("type") == "string_too_long"
                 }

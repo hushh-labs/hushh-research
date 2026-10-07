@@ -92,3 +92,77 @@ export function parseMailDeliveryRef(payload: unknown): string | null {
   const value = record(payload)?.delivery_ref;
   return typeof value === "string" && DELIVERY_REF_RE.test(value) ? value : null;
 }
+
+export type MailDraftBinding = { draftRef: string; revision: number };
+export type ReviewedMailDraftStep = MailDraftBinding & {
+  draft: { to: string; cc: string; bcc: string; subject: string; body: string };
+  deliveryRef: string | null;
+  operationId: string | null;
+  reasonCode: string | null;
+} & ({ ready: true; actionId: string; expiresAt: string; senderToken: string; senderLabel: string } |
+  { ready: false; actionId: null; expiresAt: null; senderToken: null; senderLabel: null });
+
+export function parseMailDraftBinding(payload: unknown): MailDraftBinding | null {
+  const value = record(payload);
+  if (typeof value?.draft_ref !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(value.draft_ref) ||
+      typeof value.revision !== "number" || !Number.isSafeInteger(value.revision) || value.revision < 1) return null;
+  return { draftRef: value.draft_ref, revision: value.revision };
+}
+
+/** A versioned private review, with a service-prepared action and sender binding. */
+export function parseReviewedMailDraftStep(payload: unknown): ReviewedMailDraftStep | null {
+  const value = record(payload);
+  const binding = parseMailDraftBinding(payload);
+  const draft = record(value?.draft);
+  const prepared = record(value?.prepared);
+  if (!binding || !draft) return null;
+  if (Object.keys(draft).some((key) => !["to", "cc", "bcc", "subject", "body"].includes(key))) return null;
+  const { to, subject, body } = draft;
+  const cc = draft.cc ?? "";
+  const bcc = draft.bcc ?? "";
+  if (typeof to !== "string" || typeof cc !== "string" || typeof bcc !== "string" ||
+      typeof subject !== "string" || !within(subject, MAX_SUBJECT_CHARS) || /[\r\n]/.test(subject) ||
+      typeof body !== "string" || !within(body, MAX_BODY_CHARS) ||
+      [to, cc, bcc].some((field) => !within(field, 16000))) return null;
+  const base = {
+    ...binding, draft: { to, cc, bcc, subject, body }, deliveryRef: parseMailDeliveryRef(payload),
+    operationId: typeof value?.operation_id === "string" ? value.operation_id : null,
+    reasonCode: typeof value?.reason_code === "string" ? value.reason_code : null,
+  };
+  if (value?.prepared === null) return { ...base, ready: false, actionId: null, expiresAt: null, senderToken: null, senderLabel: null };
+  if (!prepared || !body.trim()) return null;
+  const recipients = [to, cc, bcc].flatMap((role) => role ? role.split(",").map((email) => email.trim()) : []);
+  if (!recipients.length || recipients.length > 50 || recipients.some((email) => !within(email, MAX_TO_CHARS) || !EMAIL_RE.test(email))) return null;
+  if (prepared.state !== "prepared" || typeof prepared.action_id !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(prepared.action_id) ||
+      typeof prepared.expires_at !== "string" || !Number.isFinite(Date.parse(prepared.expires_at)) ||
+      typeof prepared.sender_token !== "string" || !prepared.sender_token || prepared.sender_token.length > 8192 ||
+      typeof prepared.sender_label !== "string" || !prepared.sender_label.trim() ||
+      !within(prepared.sender_label, MAX_TO_CHARS) || /[\x00-\x1f\x7f]/.test(prepared.sender_label)) return null;
+  return {
+    ...base, ready: true,
+    actionId: prepared.action_id,
+    expiresAt: prepared.expires_at,
+    senderToken: prepared.sender_token,
+    senderLabel: prepared.sender_label,
+  };
+}
+
+export type MailDraftOutcome = MailDraftBinding & {
+  actionId: string | null;
+  operationId: string | null;
+  reasonCode: string | null;
+  status: "sent" | "failed" | "outcome_unknown" | "sending" | "cancelled" | "needs_input";
+};
+
+export function parseMailDraftOutcome(payload: unknown): MailDraftOutcome | null {
+  const value = record(payload);
+  const binding = parseMailDraftBinding(payload);
+  if (!binding || !value ||
+      !["sent", "failed", "outcome_unknown", "sending", "cancelled", "needs_input"].includes(String(value.status))) return null;
+  const actionId = typeof value.action_id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value.action_id) ? value.action_id : null;
+  if (!["needs_input", "cancelled"].includes(String(value.status)) && !actionId) return null;
+  return { ...binding, actionId, status: value.status as MailDraftOutcome["status"],
+    reasonCode: typeof value.reason_code === "string" ? value.reason_code : null,
+    operationId: typeof value.operation_id === "string" ? value.operation_id : null };
+}

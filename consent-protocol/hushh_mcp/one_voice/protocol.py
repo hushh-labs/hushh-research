@@ -26,7 +26,7 @@ PROTOCOL_VERSION = "one-voice-v1"
 # A client sends the matching keys or frames only when its relay lists them, so
 # a newer app never has a whole frame refused by an older or rolled-back relay.
 # "name_edit": the typed Edit name on an open create_circle card.
-RELAY_FEATURES: tuple[str, ...] = ("active_mail", "mail_delivery", "name_edit")
+RELAY_FEATURES: tuple[str, ...] = ("active_mail", "mail_delivery", "name_edit", "mail_draft_review")
 INPUT_MIME = "audio/pcm;rate=16000"
 OUTPUT_MIME = "audio/pcm;rate=24000"
 MAX_AUDIO_FRAME_B64_CHARS = 1_000_000
@@ -64,6 +64,11 @@ NOT_OK_STATUSES = frozenset(
         "firebase_proof_required",
         "scope_review_required",
         "draft_open_requested",
+        "review_requested",
+        "review_pending",
+        "needs_input",
+        "outcome_unknown",
+        "sending",
         "draft_open_unconfirmed",
         _DRAFT_SEND_UNCONFIRMED,
         # A scheduled-mail cancel that did not cancel anything, and a scheduled
@@ -166,6 +171,24 @@ class ClientStepResultFrame(_Frame):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class MailDraftFields(_Frame):
+    to: str = Field(default="", max_length=16000)
+    cc: str = Field(default="", max_length=16000)
+    bcc: str = Field(default="", max_length=16000)
+    subject: str = Field(default="", max_length=256)
+    body: str = Field(default="", max_length=4000)
+
+
+class MailDraftChangedFrame(_Frame):
+    type: Literal["mail_draft.changed"]
+    draft_ref: str = Field(min_length=16, max_length=64)
+    revision: int = Field(ge=1, le=10000)
+    operation_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    # Validate private fields after the issued edit envelope has revoked old authority.
+    draft: Any = None
+    closed: bool = False
+
+
 class MailDeliveryResultFrame(_Frame):
     """The device says a review card's Send finished. Never what happened.
 
@@ -237,6 +260,7 @@ ClientFrame = Annotated[
     | CandidateChooseFrame
     | ClientStepResultFrame
     | MailDeliveryResultFrame
+    | MailDraftChangedFrame
     | UiSettledFrame
     | InterruptFrame
     | PingFrame

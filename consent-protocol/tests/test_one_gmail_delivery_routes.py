@@ -117,16 +117,27 @@ def test_prepare_accepts_one_drive_reference_and_returns_reviewable_descriptor()
 
 def test_send_passes_opaque_attachment_token_to_owner_service():
     token = "opaque-token" * 4
+    sender_token = "sealed-sender-review" * 4
     service = MagicMock()
     service.execute = AsyncMock(return_value={"action_id": "action", "state": "sent"})
     with patch.object(module, "get_gmail_delivery_service", return_value=service):
         response = TestClient(_app()).post(
             "/api/one/email/send",
-            json={**_envelope(), "action_id": "action", "attachment_token": token},
+            json={
+                **_envelope(),
+                "action_id": "action",
+                "attachment_token": token,
+                "sender_token": sender_token,
+                "draft_ref": "voice-review",
+                "revision": 2,
+            },
         )
     assert response.status_code == 200
     assert service.execute.await_args.kwargs["user_id"] == "firebase-user"
     assert service.execute.await_args.kwargs["draft_payload"]["attachment_token"] == token
+    assert service.execute.await_args.kwargs["draft_payload"]["sender_token"] == sender_token
+    assert service.execute.await_args.kwargs["draft_payload"]["draft_ref"] == "voice-review"
+    assert service.execute.await_args.kwargs["draft_payload"]["revision"] == 2
 
 
 def test_save_gmail_draft_is_explicit_and_rejects_attachments():
@@ -198,6 +209,7 @@ def test_source_bound_delivery_uses_the_common_routes_without_trusting_the_brows
                 "to": "attacker@example.com",
                 "action_id": "action",
                 "source_workflow_id": "workflow-1",
+                "sender_token": "sealed-source-sender" * 4,
             },
         )
 
@@ -216,6 +228,10 @@ def test_source_bound_delivery_uses_the_common_routes_without_trusting_the_brows
     assert delivery.prepare.await_args.kwargs["reply_context"] is reply_context
     assert delivery.execute.await_args.kwargs["draft_payload"]["to"] == ["verified@example.com"]
     assert delivery.execute.await_args.kwargs["reply_context"] is reply_context
+    assert (
+        delivery.execute.await_args.kwargs["draft_payload"]["sender_token"]
+        == "sealed-source-sender" * 4
+    )
     assert source.record_reply_delivery.await_args.kwargs == {
         "user_id": "firebase-user",
         "workflow_id": "workflow-1",

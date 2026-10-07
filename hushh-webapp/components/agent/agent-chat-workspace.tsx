@@ -8150,6 +8150,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       firebaseIdToken,
                       vaultOwnerToken,
                       actionId: prepared.actionId,
+                      senderToken: prepared.senderToken,
                       draft: {
                         ...sourceBoundDraft,
                         body,

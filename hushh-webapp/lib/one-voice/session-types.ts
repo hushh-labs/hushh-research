@@ -10,6 +10,7 @@ import type { OpenedDraft, OpenedMailMessage } from "@/lib/one-voice/mail-open";
 import type {
   CandidatePublic,
   EntityCardPayload,
+  MailDraftChange,
   PendingActionPublic,
   ServerFrame,
   ToolResultPublic,
@@ -256,6 +257,7 @@ export type VoiceSessionController = {
    * used. Carries no outcome on purpose; the relay re-reads the send action.
    */
   reportMailDelivery?: (deliveryRef: string, actionId: string) => void;
+  reportMailDraftChange?: (change: MailDraftChange) => boolean;
   /**
    * Replace an open create_circle card with a name the person typed. Resolves
    * with the relay's `name_edit.result` for this submission, or a local

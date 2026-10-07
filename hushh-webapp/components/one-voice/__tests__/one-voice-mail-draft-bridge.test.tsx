@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { verbatimEmailHtmlFromText } from "@/components/agent/email-rich-text";
 import { OneVoiceMailDraftBridge } from "@/components/one-voice/one-voice-mail-draft-bridge";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
+import type { MailDraftChange } from "@/lib/one-voice/protocol";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import {
   EmailDeliveryError,
@@ -20,7 +21,7 @@ const harness = vi.hoisted(() => ({
   sendFailure: null as { message: string; code: string | null } | null,
   reviewedBody: null as string | null,
   realCard: false,
-  voice: null as { reportMailDelivery: (deliveryRef: string, actionId: string) => void } | null,
+  voice: null as { reportMailDelivery: (deliveryRef: string, actionId: string) => void; reportMailDraftChange: (change: MailDraftChange) => boolean } | null,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: harness.user }) }));
@@ -129,6 +130,28 @@ const boundReply: EmailDraft = {
 };
 
 const reportMailDelivery = vi.fn<(deliveryRef: string, actionId: string) => void>();
+const reportMailDraftChange = vi.fn<(change: MailDraftChange) => boolean>();
+
+const DRAFT_REF = "draft_reference_1234";
+function reviewedPayload(revision = 1, operationId?: string) {
+  return {
+    draft_ref: DRAFT_REF, revision, operation_id: operationId,
+    draft: { to: "jhumma@example.com", cc: "", bcc: "", subject: "Demo tomorrow", body: "Tomorrow - I'll send the demo.\nThanks!" },
+    prepared: { action_id: `action-${revision}`, state: "prepared", expires_at: new Date(Date.now() + 60_000).toISOString(), sender_token: `sender-${revision}`, sender_label: "owner@example.com" },
+    delivery_ref: DELIVERY_REF,
+  };
+}
+function reviewStep(payload: Record<string, unknown> = reviewedPayload(), kind = "review_mail_draft") {
+  const report = vi.fn();
+  act(() => useVoiceSessionStore.getState().emitClientStep({
+    stepId: `step-${crypto.randomUUID()}`, kind, payload, timeoutS: 30,
+  }, report));
+  return report;
+}
+
+function draftSubmissions() {
+  return reportMailDraftChange.mock.calls.map(([change]) => change).filter((change) => change.draft);
+}
 
 function enableRealCard() {
   harness.realCard = true;
@@ -166,7 +189,8 @@ beforeEach(() => {
   harness.reviewedBody = null;
   harness.realCard = false;
   reportMailDelivery.mockReset();
-  harness.voice = { reportMailDelivery };
+  reportMailDraftChange.mockReset().mockReturnValue(true);
+  harness.voice = { reportMailDelivery, reportMailDraftChange };
   vi.mocked(EmailDeliveryService.prepare).mockReset();
   vi.mocked(EmailDeliveryService.send).mockReset();
   vi.mocked(EmailDeliveryService.saveGmailDraft).mockReset();
@@ -175,6 +199,181 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("OneVoiceMailDraftBridge", () => {
+  it("retains an unprepared draft with an enable-sending action and never acknowledges send readiness", async () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    const report = reviewStep({ ...reviewedPayload(), prepared: null, reason_code: "GMAIL_SEND_DISABLED" });
+    expect(report).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true, draft_ref: DRAFT_REF, revision: 1 });
+    expect(screen.getByRole("textbox", { name: "Subject" })).toHaveValue("Demo tomorrow");
+    expect(screen.getByRole("link", { name: "Enable sending" })).toHaveAttribute("href", "/one/gmail");
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Review again" }));
+    await waitFor(() => expect(draftSubmissions()).toHaveLength(1));
+    const prepared = reviewedPayload(2, draftSubmissions()[0].operation_id);
+    const ready = reviewStep(prepared);
+    expect(ready).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true, draft_ref: DRAFT_REF, revision: 2, action_id: "action-2" });
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeEnabled();
+    expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps oversized text local and permits a correction without waiting for an invalid frame", async () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    fireEvent.change(screen.getByRole("textbox", { name: "Subject" }), { target: { value: "s".repeat(257) } });
+    await screen.findByText(/Shorten the draft to continue/);
+    expect(draftSubmissions()).toHaveLength(0);
+    expect(screen.getByRole("textbox", { name: "Subject" })).toHaveValue("s".repeat(257));
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Subject" }), { target: { value: "Corrected" } });
+    await waitFor(() => expect(draftSubmissions()).toHaveLength(1));
+    expect(draftSubmissions()[0]).toMatchObject({ revision: 1, draft: { subject: "Corrected" } });
+  });
+
+  it("acknowledges the exact mounted review without private fields and sends that prepared action on tap", async () => {
+    enableRealCard();
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({ actionId: "action-1", messageId: null, outcomeUnknown: false });
+    render(<OneVoiceMailDraftBridge />);
+    const report = reviewStep();
+    expect(report).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true, draft_ref: DRAFT_REF, revision: 1, action_id: "action-1" });
+    expect(screen.getByTestId("one-email-reviewed-sender")).toHaveTextContent("owner@example.com");
+    expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
+    await waitFor(() => expect(EmailDeliveryService.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      actionId: "action-1", senderToken: "sender-1", draftRef: DRAFT_REF, revision: 1,
+      draft: { ...reviewedPayload().draft, htmlBody: undefined },
+    })));
+    expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Mail sent.");
+  });
+
+  it("invalidates immediately and coalesces newer typing across delayed review responses", async () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    fireEvent.change(screen.getByRole("textbox", { name: "Subject" }), { target: { value: "First edit" } });
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
+    expect(reportMailDraftChange).toHaveBeenLastCalledWith({ draft_ref: DRAFT_REF, revision: 1, operation_id: expect.any(String) });
+    await waitFor(() => expect(draftSubmissions()).toHaveLength(1));
+    const first = draftSubmissions()[0];
+    fireEvent.change(screen.getByRole("textbox", { name: "Subject" }), { target: { value: "Newest edit" } });
+    const stalePayload = reviewedPayload(2, first.operation_id);
+    stalePayload.draft.subject = "First edit";
+    const staleReport = reviewStep(stalePayload);
+    expect(staleReport).toHaveBeenCalledExactlyOnceWith("failed", { reason: "superseded_edit" });
+    expect(screen.getByRole("textbox", { name: "Subject" })).toHaveValue("Newest edit");
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
+    expect(draftSubmissions()).toHaveLength(2);
+    const latest = draftSubmissions()[1];
+    expect(latest).toMatchObject({ revision: 2, draft: { subject: "Newest edit" } });
+    const latestPayload = reviewedPayload(3, latest.operation_id);
+    latestPayload.draft.subject = "Newest edit";
+    const finalReport = reviewStep(latestPayload);
+    expect(finalReport).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true, draft_ref: DRAFT_REF, revision: 3, action_id: "action-3" });
+    expect(screen.getByRole("textbox", { name: "Subject" })).toHaveValue("Newest edit");
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeEnabled();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps invalid input editable and uses the returned revision for the next correction", async () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    fireEvent.change(screen.getByRole("textbox", { name: "To", exact: true }), { target: { value: "unfinished" } });
+    await waitFor(() => expect(draftSubmissions()).toHaveLength(1));
+    const first = draftSubmissions()[0];
+    const report = vi.fn();
+    act(() => useVoiceSessionStore.getState().emitClientStep({ stepId: "invalid-draft-outcome", kind: "mail_draft_outcome",
+      payload: { draft_ref: DRAFT_REF, revision: 2, operation_id: first.operation_id, status: "needs_input" }, timeoutS: 30 }, report));
+    expect(report).toHaveBeenCalledExactlyOnceWith("ok", { draft_ref: DRAFT_REF, revision: 2 });
+    expect(screen.getByRole("textbox", { name: "To", exact: true })).toHaveValue("unfinished");
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "To", exact: true }), { target: { value: "corrected@example.com" } });
+    await waitFor(() => expect(draftSubmissions()).toHaveLength(2));
+    expect(draftSubmissions()[1]).toMatchObject({ revision: 2, draft: { to: "corrected@example.com" } });
+  });
+
+  it("revokes a backgrounded review while showing the exact action's verified uncertain result", () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    const oldVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    try {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      expect(reportMailDraftChange).toHaveBeenLastCalledWith({ draft_ref: DRAFT_REF, revision: 1, operation_id: expect.any(String), closed: true });
+      expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
+      const report = vi.fn();
+      act(() => useVoiceSessionStore.getState().emitClientStep({ stepId: "late-outcome", kind: "mail_draft_outcome", payload: {
+        draft_ref: DRAFT_REF, revision: 1, action_id: "action-1", status: "outcome_unknown",
+      }, timeoutS: 30 }, report));
+      expect(report).toHaveBeenCalledExactlyOnceWith("ok", { draft_ref: DRAFT_REF, revision: 1, action_id: "action-1" });
+      expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Check Sent Mail before trying again.");
+      expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+    } finally {
+      if (oldVisibility) Object.defineProperty(document, "visibilityState", oldVisibility);
+      else Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
+  it("stops a tapped Send if the surface backgrounds while owner authentication is pending", async () => {
+    enableRealCard();
+    const token = deferred<string>();
+    harness.user!.getIdToken = () => token.promise;
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
+    const oldVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    try {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      expect(reportMailDraftChange).toHaveBeenLastCalledWith({ draft_ref: DRAFT_REF, revision: 1, operation_id: expect.any(String), closed: true });
+      await act(async () => token.resolve("firebase-token"));
+      expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+      expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Review this draft again before sending.");
+    } finally {
+      if (oldVisibility) Object.defineProperty(document, "visibilityState", oldVisibility);
+      else Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
+  it("shows a spoken send result only for the exact mounted prepared action", () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    const outcome = (actionId: string) => {
+      const report = vi.fn();
+      act(() => useVoiceSessionStore.getState().emitClientStep({ stepId: `outcome-${actionId}`, kind: "mail_draft_outcome", payload: {
+        draft_ref: DRAFT_REF, revision: 1, action_id: actionId, status: "sent",
+      }, timeoutS: 30 }, report));
+      return report;
+    };
+    expect(outcome("wrong-action")).toHaveBeenCalledWith("failed", { reason: "stale_review" });
+    expect(screen.getByTestId("one-email-draft-card")).toBeInTheDocument();
+    expect(outcome("action-1")).toHaveBeenCalledWith("ok", { draft_ref: DRAFT_REF, revision: 1, action_id: "action-1" });
+    expect(screen.queryByTestId("one-email-draft-card")).toBeNull();
+    expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Mail sent.");
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
+  it("retains the exact draft for fresh review when newer speech cancels approval before sending", () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    const report = vi.fn();
+    act(() => useVoiceSessionStore.getState().emitClientStep({ stepId: "superseded-approval", kind: "mail_draft_outcome", payload: {
+      draft_ref: DRAFT_REF, revision: 1, action_id: "action-1", status: "needs_input", reason_code: "VOICE_APPROVAL_SUPERSEDED",
+    }, timeoutS: 30 }, report));
+    expect(report).toHaveBeenCalledExactlyOnceWith("ok", { draft_ref: DRAFT_REF, revision: 1, action_id: "action-1" });
+    expect(screen.getByRole("textbox", { name: "Subject" })).toHaveValue("Demo tomorrow");
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
+    expect(screen.getByText("Review the current email again. Nothing was sent.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review again" })).toBeEnabled();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
   it("acknowledges only after a card mounts in a body portal, outside hidden bottom chrome", () => {
     render(<div data-app-bottom-shell style={{ visibility: "hidden" }}><OneVoiceMailDraftBridge /></div>);
     const report = openDraft();

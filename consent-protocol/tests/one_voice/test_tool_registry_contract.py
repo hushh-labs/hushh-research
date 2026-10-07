@@ -263,6 +263,10 @@ def test_voice_mail_is_exactly_read_open_access_and_a_reviewed_draft():
     declared = {item["name"] for item in registry.declarations()}
     mail_tools = {name for name in declared if "mail" in name}
     assert mail_tools == {
+        "compose_mail",
+        "edit_mail_draft",
+        "send_reviewed_mail",
+        "get_mail_draft_status",
         "get_mail_access",
         "read_mail",
         "open_mail",
@@ -273,6 +277,8 @@ def test_voice_mail_is_exactly_read_open_access_and_a_reviewed_draft():
         "cancel_scheduled_mail",
     }
     assert {name for name in declared if "draft" in name} == {
+        "edit_mail_draft",
+        "get_mail_draft_status",
         "list_drafts",
         "open_draft",
         "send_draft",

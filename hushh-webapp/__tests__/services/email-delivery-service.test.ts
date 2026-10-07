@@ -104,7 +104,7 @@ describe("EmailDeliveryService", () => {
           source_account_label: "Connected Drive account",
         },
       }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ message_id: "sent-1" }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ state: "sent", action_id: "drive-action", message_id: "sent-1" }), { status: 200 }));
     const auth = { firebaseIdToken: "firebase-token", vaultOwnerToken: "vault-owner-token" };
     const draft = {
       to: "pat@example.com", cc: "", bcc: "", subject: "Brief", body: "See attachment",
@@ -122,8 +122,7 @@ describe("EmailDeliveryService", () => {
     expect(sendBody.attachment_token).toBe("sealed-review-token");
     expect(sendBody).not.toHaveProperty("drive_attachment");
     expect(sendBody).not.toHaveProperty("driveFileId");
-    // A send answer without a recorded action yields no id to report.
-    expect(sent).toMatchObject({ actionId: null, messageId: "sent-1" });
+    expect(sent).toMatchObject({ actionId: "drive-action", messageId: "sent-1" });
   });
 
   it("binds a reply by its sealed source ref alone on prepare and send, and returns the recorded send action", async () => {
@@ -231,7 +230,7 @@ describe("EmailDeliveryService", () => {
     });
   });
 
-  it("maps a disabled Gmail delivery connection to a safe reconnect error", async () => {
+  it("directs a disabled Gmail sender to enable sending without reconnecting", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(
       new Response(JSON.stringify({ detail: { code: "GMAIL_SEND_DISABLED", message: "do not expose" } }), {
         status: 409,
@@ -247,9 +246,29 @@ describe("EmailDeliveryService", () => {
       }),
     ).rejects.toMatchObject<Partial<EmailDeliveryError>>({
       code: "GMAIL_SEND_DISABLED",
-      message: "Reconnect Mail to finish enabling mail sending.",
-      needsGmailReconnect: true,
+      message: "Turn on Gmail sending to continue. Your draft is still here.",
+      needsGmailReconnect: false,
+      needsGmailSendingEnabled: true,
     });
+  });
+
+  it("requires a sent state and matching action before reporting success", async () => {
+    for (const response of [
+      {}, { action_id: ACTION_ID }, { state: "prepared", action_id: ACTION_ID },
+      { state: "sent", action_id: "another-action" },
+      { state: "sent", action_id: ACTION_ID, outcome_unknown: true },
+    ]) {
+      vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify(response), { status: 200 }));
+      await expect(EmailDeliveryService.send({ ...AUTH, draft: replyDraft(), actionId: ACTION_ID }))
+        .rejects.toMatchObject({ code: "EMAIL_ACTION_OUTCOME_UNKNOWN" });
+    }
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({ state: "sent", action_id: ACTION_ID }), { status: 200 }));
+    await expect(EmailDeliveryService.send({ ...AUTH, draft: replyDraft(), actionId: ACTION_ID, senderToken: "bound-sender", draftRef: "draft_reference_1234", revision: 2 }))
+      .resolves.toMatchObject({ actionId: ACTION_ID, outcomeUnknown: false, messageId: null });
+    expect(requestBody(5)).toMatchObject({ sender_token: "bound-sender", draft_ref: "draft_reference_1234", revision: 2 });
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({ state: "outcome_unknown", action_id: ACTION_ID }), { status: 200 }));
+    await expect(EmailDeliveryService.send({ ...AUTH, draft: replyDraft(), actionId: ACTION_ID }))
+      .resolves.toMatchObject({ outcomeUnknown: true });
   });
 
   it("distinguishes Gmail authorization failures from owner authorization and temporary outages", async () => {

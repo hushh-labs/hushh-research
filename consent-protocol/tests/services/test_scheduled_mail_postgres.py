@@ -143,7 +143,12 @@ class _Gmail:
     async def assert_send_ready(self, *, user_id: str) -> None:
         return None
 
-    async def get_send_access_token(self, *, user_id: str) -> str:
+    async def send_grant_identity(self, *, user_id: str) -> dict[str, Any]:
+        return {"google_sub": self.sub, "grant_generation": 0, "account_label": "owner@example.com"}
+
+    async def get_send_access_token(self, *, user_id: str, expected_sender=None) -> str:
+        if expected_sender is not None:
+            assert expected_sender == await self.send_grant_identity(user_id=user_id)
         return "send-token"
 
     async def get_compose_access_token(self, *, user_id: str) -> str:
@@ -429,6 +434,134 @@ async def test_migration_275_applies_over_173_holds_its_checks_and_guards_rollba
 
 
 # --- (b) schedule_send and cancel_scheduled_send ------------------------------
+
+
+async def test_sender_generation_migration_invalidates_authority_not_token_refresh(bare_db):
+    await bare_db.execute(M275)
+    await bare_db.execute("""CREATE TABLE kai_gmail_connections (
+        user_id TEXT PRIMARY KEY, google_sub TEXT, scope_csv TEXT, status TEXT,
+        revoked BOOLEAN, send_enabled BOOLEAN, token_updated_at TIMESTAMPTZ
+    )""")
+    migration = (MIGRATIONS / "283_gmail_send_grant_generation.sql").read_text()
+    await bare_db.execute(migration)
+    await bare_db.execute(migration)
+    await bare_db.execute("""INSERT INTO kai_gmail_connections
+        (user_id, google_sub, scope_csv, status, revoked, send_enabled)
+        VALUES ('owner', 'account', 'send', 'connected', FALSE, TRUE)""")
+
+    async def generation():
+        return await bare_db.fetchval(
+            "SELECT send_grant_generation FROM kai_gmail_connections WHERE user_id='owner'"
+        )
+
+    assert await generation() == 0
+    await bare_db.execute(
+        "UPDATE kai_gmail_connections SET token_updated_at=NOW() WHERE user_id='owner'"
+    )
+    assert await generation() == 0
+    await bare_db.execute(
+        "UPDATE kai_gmail_connections SET send_enabled=FALSE WHERE user_id='owner'"
+    )
+    assert await generation() == 1
+    await bare_db.execute(
+        "UPDATE kai_gmail_connections SET send_enabled=TRUE WHERE user_id='owner'"
+    )
+    assert await generation() == 2
+    # OAuth reconnect explicitly advances even when account/scope stay equal.
+    await bare_db.execute(
+        "UPDATE kai_gmail_connections SET send_grant_generation=send_grant_generation+1 WHERE user_id='owner'"
+    )
+    assert await generation() == 3
+    await bare_db.execute(
+        "INSERT INTO gmail_owner_send_actions (action_id, user_id, envelope_hmac, idempotency_hmac, recipient_count, state, expires_at) "
+        "VALUES ('live-review', $1, 'h1', 'i1', 1, 'prepared', NOW() + INTERVAL '10 minutes'), "
+        "('sent-history', $1, 'h2', 'i2', 1, 'sent', NOW())",
+        OWNER,
+    )
+    await bare_db.execute(
+        (MIGRATIONS / "rollback/283_gmail_send_grant_generation.rollback.sql").read_text()
+    )
+    assert await bare_db.fetchval("SELECT COUNT(*) FROM kai_gmail_connections") == 1
+    assert (
+        await bare_db.fetchval(
+            "SELECT state FROM gmail_owner_send_actions WHERE action_id='live-review'"
+        )
+        == "cancelled"
+    )
+    assert (
+        await bare_db.fetchval(
+            "SELECT state FROM gmail_owner_send_actions WHERE action_id='sent-history'"
+        )
+        == "sent"
+    )
+    await bare_db.execute(migration)
+    assert await generation() == 0
+    assert (
+        await bare_db.fetchval(
+            "SELECT state FROM gmail_owner_send_actions WHERE action_id='live-review'"
+        )
+        == "cancelled"
+    )
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_reviewed_immediate_send_and_cancel_share_one_atomic_claim(
+    ledger, gmail_http, cancel
+):
+    service = _service()
+    payload = {
+        "to": ADDRESS,
+        "subject": SUBJECT,
+        "body": BODY,
+        "draft_ref": "review",
+        "revision": 1,
+    }
+    # Race creation itself, before any action row exists.
+    initial = await asyncio.gather(
+        *[
+            service.prepare(
+                user_id=OWNER, draft_payload=payload, idempotency_key="immediate-review-one"
+            )
+            for _ in range(3)
+        ]
+    )
+    prepared = initial[0]
+    assert all(item["action_id"] == prepared["action_id"] for item in initial)
+    retries = await asyncio.gather(
+        *[
+            service.prepare(
+                user_id=OWNER, draft_payload=payload, idempotency_key="immediate-review-one"
+            )
+            for _ in range(2)
+        ]
+    )
+    assert all(item["action_id"] == prepared["action_id"] for item in retries)
+    assert await ledger.fetchval("SELECT COUNT(*) FROM gmail_owner_send_actions") == 1
+    payload["sender_token"] = prepared["sender_token"]
+
+    async def send():
+        return await service.execute(
+            user_id=OWNER, action_id=prepared["action_id"], draft_payload=payload
+        )
+
+    rival = (
+        service.cancel_prepared(user_id=OWNER, action_id=prepared["action_id"])
+        if cancel
+        else send()
+    )
+    outcomes = await asyncio.gather(send(), rival, return_exceptions=True)
+    row = await _row(ledger, prepared["action_id"])
+    assert len(gmail_http.posts) <= 1
+    if row["state"] == "sent":
+        assert len(gmail_http.posts) == 1
+        assert (await send())["state"] == "sent"
+        assert len(gmail_http.posts) == 1
+    else:
+        assert cancel and row["state"] == "cancelled"
+        assert len(gmail_http.posts) == 0
+        assert any(isinstance(item, dict) and item.get("cancelled") is True for item in outcomes)
+        with pytest.raises(GmailDeliveryError):
+            await send()
 
 
 async def test_schedule_send_replay_is_idempotent_and_concurrent_calls_store_one_row(ledger):

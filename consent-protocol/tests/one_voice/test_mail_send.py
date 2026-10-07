@@ -12,6 +12,7 @@ import pytest
 
 from hushh_mcp.one_voice import private_pending
 from hushh_mcp.one_voice.tools import mail, registry
+from hushh_mcp.one_voice.tools import mail_recipients as recipients
 from hushh_mcp.one_voice.tools.base import ToolPolicy
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
 from hushh_mcp.services import action_gateway
@@ -20,6 +21,164 @@ from tests.one_voice.fakes import MemoryPendingStore
 from tests.one_voice.test_tools_people import AISHA, AYESHA, OWNER, ConnectionsDouble, make_ctx
 
 MESSAGE = "I will send the demo tomorrow. Please check it when you can."
+
+
+@pytest.mark.asyncio
+async def test_recipient_sources_preserve_spelled_addresses_and_normalize_roles(mail_harness):
+    ctx, _connections, _executor = mail_harness
+    address = recipients.RecipientSource.model_validate(
+        {
+            "kind": "address",
+            "role": "bcc",
+            "address_parts": [
+                {"type": "spelled", "characters": list("annika.g+test")},
+                {"type": "literal", "text": "@example.com"},
+            ],
+        }
+    )
+    assert address.address == "annika.g+test@example.com"
+    assert "address_parts" not in address.model_dump()
+    result = await recipients.resolve_recipient_sources(
+        ctx,
+        [
+            address,
+            recipients.RecipientSource(
+                kind="address", address="ANNIKA.G+TEST@example.com", role="to"
+            ),
+            recipients.RecipientSource(kind="address", address="other@example.com", role="cc"),
+        ],
+    )
+    assert isinstance(result, recipients.ResolvedRecipients)
+    assert result.draft_fields() == {
+        "to": ["annika.g+test@example.com"],
+        "cc": ["other@example.com"],
+        "bcc": [],
+    }
+    assert (result.source_count, result.recipient_count, result.duplicate_count) == (3, 2, 1)
+    assert all("@" not in binding for binding in result.bindings)
+    restored = recipients.ResolvedRecipients.model_validate(result.model_dump(mode="json"))
+    assert await recipients.revalidate_recipient_sources(ctx, restored) == result
+    from dataclasses import replace
+
+    foreign = await recipients.revalidate_recipient_sources(
+        ctx=replace(ctx, user_id="other-owner"), prepared=restored
+    )
+    assert foreign.reason_code == "recipient_changed"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"kind": "address", "address": "a@example.com", "person": {"user_id": AYESHA}},
+        {"kind": "self", "address": "not-self@example.com"},
+        {"kind": "connection"},
+        {"kind": "address", "address_parts": [{"type": "spelled"}]},
+        {"kind": "address", "address_parts": [{"type": "spelled", "characters": ["a", "nn"]}]},
+        {
+            "kind": "address",
+            "address": "other@example.com",
+            "address_parts": [{"type": "literal", "text": "one@example.com"}],
+        },
+    ],
+)
+def test_recipient_source_rejects_ambiguous_or_incomplete_fields(bad):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        recipients.RecipientSource.model_validate(bad)
+
+
+@pytest.mark.asyncio
+async def test_connection_recipients_read_once_and_recheck_the_frozen_address(mail_harness):
+    ctx, connections, executor = mail_harness
+    source = recipients.RecipientSource(kind="connection", person={"user_id": AYESHA})
+    refused = await recipients.resolve_recipient_sources(ctx, [source])
+    assert refused.reason_code == "person_not_confirmed"
+    await _confirm_ayesha(ctx, executor)
+    connections.calls.clear()
+    result = await recipients.resolve_recipient_sources(
+        ctx, [source, source.model_copy(update={"role": "cc"})]
+    )
+    assert isinstance(result, recipients.ResolvedRecipients)
+    assert [call for call in connections.calls if call[0] == "list_connections"] == [
+        ("list_connections", OWNER)
+    ]
+    assert result.to == ("ayesha@example.com",) and result.cc == ()
+    row = next(row for row in connections.connections if row["userId"] == AYESHA)
+    row["email"] = "changed@example.com"
+    changed = await recipients.revalidate_recipient_sources(ctx, result)
+    assert changed.reason_code == "recipient_changed"
+    assert changed.retire_open_proposal is True
+    assert "changed@example.com" not in repr(changed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("email", "reason"),
+    [
+        (None, "recipient_address_missing"),
+        ("bad", "recipient_address_invalid"),
+        ("one@example.com,two@example.com", "recipient_address_ambiguous"),
+        ("one@example.com\r\nBcc: surprise@example.com", "recipient_address_invalid"),
+    ],
+)
+async def test_address_recovery_does_not_invent_a_destination(mail_harness, email, reason):
+    ctx, connections, executor = mail_harness
+    await _confirm_ayesha(ctx, executor)
+    row = next(row for row in connections.connections if row["userId"] == AYESHA)
+    row["email"] = email
+    result = await recipients.resolve_recipient_sources(
+        ctx,
+        [
+            recipients.RecipientSource(kind="connection", person={"user_id": AYESHA}),
+        ],
+    )
+    assert result.reason_code == reason
+    assert result.retire_open_proposal is True
+
+
+@pytest.mark.asyncio
+async def test_self_uses_the_selected_gmail_account_and_binds_its_grant(mail_harness):
+    ctx, _connections, _executor = mail_harness
+    identity = {
+        "google_sub": "sender-sub",
+        "grant_generation": 1,
+        "account_label": "me@example.com",
+    }
+    gmail = SimpleNamespace(
+        send_grant_identity=AsyncMock(side_effect=lambda **_kwargs: dict(identity))
+    )
+    ctx.services["gmail"] = gmail
+    result = await recipients.resolve_recipient_sources(
+        ctx, [recipients.RecipientSource(kind="self")]
+    )
+    assert isinstance(result, recipients.ResolvedRecipients)
+    assert result.to == ("me@example.com",)
+    gmail.send_grant_identity.assert_awaited_once_with(user_id=OWNER)
+    identity["grant_generation"] = 2
+    refused = await recipients.revalidate_recipient_sources(ctx, result)
+    assert refused.reason_code == "recipient_changed"
+
+
+@pytest.mark.asyncio
+async def test_complete_connection_audience_counts_are_not_the_people_page(mail_harness):
+    ctx, connections, _executor = mail_harness
+    connections.connections = [
+        {"userId": f"person-{i}", "email": f"person-{i}@example.com"} for i in range(25)
+    ] + [
+        {"userId": "duplicate", "email": "person-0@example.com"},
+        {"userId": "missing", "email": None},
+        {"userId": "invalid", "email": "bad"},
+        {"userId": "ambiguous", "email": "a@example.com,b@example.com"},
+    ]
+    result = await recipients.inspect_connection_audience(ctx)
+    assert result.source_count == 29
+    assert result.eligible_count == 26
+    assert result.distinct_mailboxes == 25 and result.duplicate_count == 1
+    assert (result.missing_count, result.invalid_count, result.ambiguous_count) == (1, 1, 1)
+    assert result.within_send_limit is True
+    assert "@" not in result.model_dump_json()
+    assert not ctx.entities.people
 
 
 @pytest.fixture

@@ -598,6 +598,134 @@
     },
     {
       "circle_args": [],
+      "description": "Compose a new email for private review; never sends. Preserve dictated message and blank subject. Recipients are confirmed connections, explicit dictated addresses or self, with explicit To/Cc/Bcc roles. Missing fields remain in this draft for edit_mail_draft. For future times use schedule_mail.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "compose_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Message",
+            "type": "string"
+          },
+          "recipients": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "address": {
+                  "default": "",
+                  "maxLength": 320,
+                  "title": "Address",
+                  "type": "string"
+                },
+                "address_parts": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "characters": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "title": "Characters",
+                        "type": "array"
+                      },
+                      "text": {
+                        "default": "",
+                        "title": "Text",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "literal",
+                          "spelled"
+                        ],
+                        "title": "Type",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 16,
+                  "title": "Address Parts",
+                  "type": "array"
+                },
+                "kind": {
+                  "enum": [
+                    "connection",
+                    "address",
+                    "self"
+                  ],
+                  "title": "Kind",
+                  "type": "string"
+                },
+                "person": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "description": "A canonical person reference. Only ids, never names.",
+                      "properties": {
+                        "user_id": {
+                          "description": "Canonical user id from resolve_person/confirm_person.",
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "title": "User Id",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "user_id"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "role": {
+                  "default": "to",
+                  "enum": [
+                    "to",
+                    "cc",
+                    "bcc"
+                  ],
+                  "title": "Role",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "title": "Recipients",
+            "type": "array"
+          },
+          "subject": {
+            "default": "",
+            "maxLength": 256,
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Confirm the circle the person meant. Only accepts an id offered by the most recent resolve_circle or list_circles call. Required before any circle mutation.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_circles",
@@ -1036,6 +1164,177 @@
     },
     {
       "circle_args": [],
+      "description": "Edit only supplied fields of the issued email draft/revision, or cancel it. Preserves other fields and revokes old send review; never sends.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "edit_mail_draft",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "cancel": {
+            "default": false,
+            "title": "Cancel",
+            "type": "boolean"
+          },
+          "draft_ref": {
+            "maxLength": 64,
+            "minLength": 16,
+            "title": "Draft Ref",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "recipients": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "address": {
+                      "default": "",
+                      "maxLength": 320,
+                      "title": "Address",
+                      "type": "string"
+                    },
+                    "address_parts": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "characters": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "title": "Characters",
+                            "type": "array"
+                          },
+                          "text": {
+                            "default": "",
+                            "title": "Text",
+                            "type": "string"
+                          },
+                          "type": {
+                            "enum": [
+                              "literal",
+                              "spelled"
+                            ],
+                            "title": "Type",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "type": "object"
+                      },
+                      "maxItems": 16,
+                      "title": "Address Parts",
+                      "type": "array"
+                    },
+                    "kind": {
+                      "enum": [
+                        "connection",
+                        "address",
+                        "self"
+                      ],
+                      "title": "Kind",
+                      "type": "string"
+                    },
+                    "person": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "description": "A canonical person reference. Only ids, never names.",
+                          "properties": {
+                            "user_id": {
+                              "description": "Canonical user id from resolve_person/confirm_person.",
+                              "maxLength": 128,
+                              "minLength": 1,
+                              "title": "User Id",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "user_id"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "role": {
+                      "default": "to",
+                      "enum": [
+                        "to",
+                        "cc",
+                        "bcc"
+                      ],
+                      "title": "Role",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Recipients"
+          },
+          "revision": {
+            "maximum": 10000,
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subject"
+          }
+        },
+        "required": [
+          "draft_ref",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Read a circle's name, kind, member count, ownership and allowed actions (add, rename, delete, leave). No argument reads the circle on screen.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_circles",
@@ -1140,7 +1439,7 @@
     },
     {
       "circle_args": [],
-      "description": "Answer whether you can see the person's mail at all: whether their Gmail is connected, needs reconnecting, or is switched off for you. Use this for a question about access or capability -- 'can you see my email', 'is my Gmail connected', 'do you have access to my inbox'. Does not open the mailbox and returns no messages. The person's Hushh profile email is a different fact and never answers this: get_profile reports the address on their account, not whether a mailbox is connected. Use read_mail only when they want what their mail says.",
+      "description": "Check Gmail read/send readiness without reading messages. Read access does not prove sending is enabled. Report the returned mode, blocked reason and recovery; capability is not send approval. get_profile's email proves neither. Use read_mail only for mailbox contents.",
       "firebase_plane": false,
       "gateway_action_id": "email.chat.turn",
       "name": "get_mail_access",
@@ -1148,6 +1447,30 @@
         "additionalProperties": false,
         "description": "Nothing to ask. Whose mailbox is already decided by the owner token.",
         "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read the current issued email draft reference, revision and send state; does not authorize or retry sending.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "get_mail_draft_status",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "draft_ref": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Draft Ref",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "person_args": [],
@@ -2785,6 +3108,40 @@
       "result_statuses": [
         "draft_open_requested"
       ],
+      "tier": "voice",
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Request final send approval for the exact rendered email draft/revision. Only confirmation of this send-specific review delivers it; identity or draft-open approval never sends.",
+      "firebase_plane": true,
+      "gateway_action_id": "email.chat.turn",
+      "name": "send_reviewed_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "draft_ref": {
+            "maxLength": 64,
+            "minLength": 16,
+            "title": "Draft Ref",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 10000,
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "draft_ref",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [],
       "tier": "voice",
       "ui_refresh": []
     },

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseMailDeliveryRef,
+  parseMailDraftOutcome,
+  parseReviewedMailDraftStep,
   parseOpenMailDraftStepPayload,
 } from "@/lib/one-voice/mail-draft-step";
 
@@ -19,6 +21,40 @@ const SEALED = "nX4-qL9_c2VhbGVkLXJlcGx5LXNvdXJjZQ";
 const SOURCE_MAIL_REF = `rs1.${SEALED}`;
 /** Shaped like the relay's `secrets.token_urlsafe(18)`. */
 const DELIVERY_REF = "Zx9_aB-3cD4eF5gH6iJ7kL8m";
+
+describe("versioned mail review", () => {
+  const review = () => ({
+    draft_ref: DELIVERY_REF, revision: 2, operation_id: "typed-edit-1", delivery_ref: DELIVERY_REF,
+    draft: { to: "jhumma@example.com", cc: "other@example.com", subject: "Exact - subject", body: "Exact - body.\n" },
+    prepared: { action_id: "action-2", state: "prepared", expires_at: "2030-01-01T00:00:00Z", sender_token: "sealed-sender", sender_label: "owner@example.com" },
+  });
+
+  it("keeps exact fields, version, and prepared sender binding", () => {
+    expect(parseReviewedMailDraftStep(review())).toMatchObject({
+      draftRef: DELIVERY_REF, revision: 2, operationId: "typed-edit-1", senderToken: "sealed-sender", actionId: "action-2",
+      draft: { to: "jhumma@example.com", cc: "other@example.com", bcc: "", body: "Exact - body.\n" },
+    });
+  });
+
+  it("refuses incomplete, unprepared, or oversized reviews", () => {
+    for (const payload of [
+      { ...review(), revision: 0 },
+      { ...review(), revision: 1.5 },
+      { ...review(), draft: { ...review().draft, thread_id: "guessed-thread" } },
+      { ...review(), draft: { ...review().draft, cc: "bad-address" } },
+      { ...review(), draft: { ...review().draft, body: "x".repeat(4001) } },
+      { ...review(), prepared: { ...review().prepared, sender_token: "" } },
+      { ...review(), prepared: { ...review().prepared, state: "sent" } },
+    ]) expect(parseReviewedMailDraftStep(payload)).toBeNull();
+  });
+
+  it("permits corrective input without a prepared action but requires exact action for delivery", () => {
+    expect(parseMailDraftOutcome({ draft_ref: DELIVERY_REF, revision: 3, operation_id: "edit-2", status: "needs_input" }))
+      .toMatchObject({ revision: 3, operationId: "edit-2", actionId: null, status: "needs_input" });
+    expect(parseMailDraftOutcome({ draft_ref: DELIVERY_REF, revision: 2, status: "sent" })).toBeNull();
+    expect(parseMailDraftOutcome({ draft_ref: DELIVERY_REF, revision: 2, action_id: "action-2", status: "invented" })).toBeNull();
+  });
+});
 
 /** The reply step exactly as the relay sends it: the binding inside `draft`. */
 const reply = () => ({
