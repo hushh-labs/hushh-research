@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { User } from "firebase/auth";
 import { Share2, Users, Trophy, Gift, ListChecks, ChevronRight } from "lucide-react";
 
 import {
@@ -34,22 +35,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "rewards", label: "Rewards" },
   { key: "rules", label: "Rules" },
 ];
-
-type LoadState = "loading" | "ready" | "error";
-
-type DashboardData = {
-  summary: ReferralSummary;
-  /** Live sum of the points ledger -- independent of the published
-   * leaderboard snapshot, so it is correct before a snapshot exists or
-   * while the viewer sits outside the latest one. */
-  points: number;
-  leaderboard: LeaderboardPage;
-  circleLeaderboard: CircleLeaderboardEntry[];
-  milestones: MilestoneProgress;
-  engagement: EngagementStatus;
-  challenge: WeeklyChallenge;
-  circle: CircleSelection;
-};
 
 function fmt(value: number): string {
   return value.toLocaleString("en-IN");
@@ -89,61 +74,181 @@ function useCountdown(cutoffIso: string | null): string | null {
   return label;
 }
 
+/**
+ * Loading/ready/error for one independently-fetched piece of the dashboard.
+ *
+ * Every section of this page -- points, the leaderboard, milestones, the
+ * weekly countdown, engagement, circle standing -- is its own resource with
+ * its own status and its own retry. One section failing (the leaderboard,
+ * say) must never hide or zero out a DIFFERENT section that loaded fine
+ * (points, say): that was the exact bug a single page-wide load()/state pair
+ * produced.
+ */
+type Res<T> =
+  | { status: "loading" }
+  | { status: "ready"; data: T }
+  | { status: "error" };
+
+/**
+ * Fetch one resource, independently retryable, isolated per signed-in
+ * account.
+ *
+ * `seqRef` is bumped on every call to `load` (an explicit retry, or the
+ * effect re-running because `user` changed). A response from a superseded
+ * call -- the previous account's, or an earlier retry's -- is dropped by the
+ * sequence check rather than applied, which is what keeps an account switch
+ * from ever showing a stale balance under the new account's name while the
+ * fresh read is still in flight.
+ */
+function useReferralResource<T>(
+  user: User | null | undefined,
+  fetcher: (idToken: string) => Promise<T>,
+): [Res<T>, () => void] {
+  const [res, setRes] = useState<Res<T>>({ status: "loading" });
+  const seqRef = useRef(0);
+  const fetcherRef = useRef(fetcher);
+  fetcherRef.current = fetcher;
+  const userRef = useRef(user);
+  userRef.current = user;
+
+  const load = useCallback(() => {
+    const seq = ++seqRef.current;
+    setRes({ status: "loading" });
+    void (async () => {
+      try {
+        const current = userRef.current;
+        if (!current) throw new Error("not signed in");
+        const idToken = await current.getIdToken();
+        const data = await fetcherRef.current(idToken);
+        if (seq !== seqRef.current) return;
+        setRes({ status: "ready", data });
+      } catch {
+        if (seq !== seqRef.current) return;
+        setRes({ status: "error" });
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    load();
+    // Re-running on `user?.uid` (not just `user`) is deliberate: it is the
+    // one value that actually identifies "a different signed-in account",
+    // so an account switch always restarts every resource from `loading`
+    // rather than risk reusing a Firebase User object another account's
+    // code path still holds a reference to.
+  }, [load, user?.uid]);
+
+  return [res, load];
+}
+
+/** Loading/error text for a small inline stat, never a numeric fallback. */
+function statText<T>(res: Res<T>, onReady: (data: T) => string): string {
+  if (res.status === "loading") return "…";
+  if (res.status === "error") return "—";
+  return onReady(res.data);
+}
+
+function statSub<T>(res: Res<T>, onReady: (data: T) => string): string {
+  if (res.status === "loading") return "Loading";
+  if (res.status === "error") return "Unable to load";
+  return onReady(res.data);
+}
+
+/** A section-level loading/error/ready switch, with its own retry. */
+function Section<T>({
+  res,
+  onRetry,
+  retryLabel,
+  children,
+}: {
+  res: Res<T>;
+  onRetry: () => void;
+  retryLabel: string;
+  children: (data: T) => React.ReactNode;
+}) {
+  if (res.status === "loading") {
+    return (
+      <div className="flex min-h-[20vh] items-center justify-center text-sm text-muted-foreground">
+        Loading…
+      </div>
+    );
+  }
+  if (res.status === "error") {
+    return (
+      <div className="flex min-h-[20vh] flex-col items-center justify-center gap-3 text-center">
+        <p className="text-sm text-muted-foreground">Unable to load {retryLabel}.</p>
+        <Button variant="muted" onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+  return <>{children(res.data)}</>;
+}
+
 export function ReferralDashboardPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>("you");
   const [board, setBoard] = useState<"individual" | "circles">("individual");
-  const [state, setState] = useState<LoadState>("loading");
-  const [data, setData] = useState<DashboardData | null>(null);
 
-  const requestSeq = useRef(0);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  // `summary` is the only hard gate on the page shell: the invite link and
+  // referral counts it carries are the minimum the page can mean anything
+  // without. Every other read is its own resource below, decoupled so a
+  // failure in one (the leaderboard, say) can never hide or zero out a
+  // DIFFERENT one that loaded fine (points, say).
+  const [summaryRes, reloadSummary] = useReferralResource(user, (idToken) =>
+    ReferralService.getSummary({ idToken }),
+  );
+  const [pointsRes, reloadPoints] = useReferralResource(user, (idToken) =>
+    ReferralService.getPoints({ idToken }).then((r) => r.points),
+  );
+  const [leaderboardRes, reloadLeaderboard] = useReferralResource(user, (idToken) =>
+    ReferralService.getLeaderboard({ idToken, limit: 10 }),
+  );
+  const [circleLeaderboardRes, reloadCircleLeaderboard] = useReferralResource(user, (idToken) =>
+    ReferralService.getCircleLeaderboard({ idToken }).then((r) => r.teams),
+  );
+  const [milestonesRes, reloadMilestones] = useReferralResource(user, (idToken) =>
+    ReferralService.getMilestones({ idToken }),
+  );
+  const [engagementRes, reloadEngagement] = useReferralResource(user, (idToken) =>
+    ReferralService.getEngagement({ idToken }),
+  );
+  const [challengeRes, reloadChallenge] = useReferralResource(user, (idToken) =>
+    ReferralService.getChallenge({ idToken }),
+  );
+  const [circleRes, reloadCircle] = useReferralResource(user, (idToken) =>
+    ReferralService.getCircleSelection({ idToken }),
+  );
 
-  const load = useCallback(async () => {
-    const seq = ++requestSeq.current;
-    setState((prev) => (prev === "ready" ? prev : "loading"));
-    try {
-      if (!user) throw new Error("not signed in");
-      const idToken = await user.getIdToken();
-      const [summary, points, leaderboard, circleLeaderboard, milestones, engagement, challenge, circle] =
-        await Promise.all([
-          ReferralService.getSummary({ idToken }),
-          ReferralService.getPoints({ idToken }).then((r) => r.points),
-          ReferralService.getLeaderboard({ idToken, limit: 10 }),
-          ReferralService.getCircleLeaderboard({ idToken }).then((r) => r.teams),
-          ReferralService.getMilestones({ idToken }),
-          ReferralService.getEngagement({ idToken }),
-          ReferralService.getChallenge({ idToken }),
-          ReferralService.getCircleSelection({ idToken }),
-        ]);
-      // A loading or error state is handled by `state`, never by a numeric
-      // fallback here -- `points` either carries the real ledger sum from a
-      // successful read, or the whole load() call rejects into the catch
-      // block below and the page renders its error state instead.
-      if (!mounted.current || seq !== requestSeq.current) return;
-      setData({ summary, points, leaderboard, circleLeaderboard, milestones, engagement, challenge, circle });
-      setState("ready");
-    } catch {
-      if (!mounted.current || seq !== requestSeq.current) return;
-      setState("error");
-    }
-  }, [user]);
+  const reloadAll = useCallback(() => {
+    reloadSummary();
+    reloadPoints();
+    reloadLeaderboard();
+    reloadCircleLeaderboard();
+    reloadMilestones();
+    reloadEngagement();
+    reloadChallenge();
+    reloadCircle();
+  }, [
+    reloadSummary,
+    reloadPoints,
+    reloadLeaderboard,
+    reloadCircleLeaderboard,
+    reloadMilestones,
+    reloadEngagement,
+    reloadChallenge,
+    reloadCircle,
+  ]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const { connected } = useReferralStream(user, load);
+  // A pushed "something changed" doorbell re-reads everything: the server
+  // never says WHICH resource changed, and re-fetching eight already-cheap
+  // reads is simpler than guessing.
+  const { connected } = useReferralStream(user, reloadAll);
 
   useEffect(() => {
     const refreshIfVisible = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") reloadAll();
     };
     const interval = connected ? null : window.setInterval(refreshIfVisible, 30_000);
     document.addEventListener("visibilitychange", refreshIfVisible);
@@ -153,10 +258,14 @@ export function ReferralDashboardPage() {
       document.removeEventListener("visibilitychange", refreshIfVisible);
       window.removeEventListener("focus", refreshIfVisible);
     };
-  }, [connected, load]);
+  }, [connected, reloadAll]);
 
-  const link = data?.summary.link ?? "";
-  const countdown = useCountdown(data?.challenge.active ? data.challenge.cutoff_at : null);
+  const link = summaryRes.status === "ready" ? summaryRes.data.link : "";
+  const countdown = useCountdown(
+    challengeRes.status === "ready" && challengeRes.data.active
+      ? challengeRes.data.cutoff_at
+      : null,
+  );
 
   const onCopy = useCallback(async () => {
     if (!link) return;
@@ -182,7 +291,7 @@ export function ReferralDashboardPage() {
     }
   }, [link, onCopy]);
 
-  if (state === "loading" || !data) {
+  if (summaryRes.status === "loading") {
     return (
       <DashboardShell dataState="loading">
         <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
@@ -192,16 +301,18 @@ export function ReferralDashboardPage() {
     );
   }
 
-  if (state === "error" || !data) {
+  if (summaryRes.status === "error") {
     return (
       <DashboardShell dataState="unavailable-valid">
         <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
           <p className="text-sm text-muted-foreground">Unable to load. Check your connection.</p>
-          <Button onClick={() => void load()}>Try again</Button>
+          <Button onClick={reloadSummary}>Try again</Button>
         </div>
       </DashboardShell>
     );
   }
+
+  const summary = summaryRes.data;
 
   return (
     <DashboardShell
@@ -210,15 +321,24 @@ export function ReferralDashboardPage() {
         <TabBar
           tab={tab}
           onChange={setTab}
-          whatsAppHref={`https://wa.me/?text=${encodeURIComponent(
-            `Join me on Hushh One for the weekly referral challenge: ${link}`,
-          )}`}
         />
       }
     >
       {tab === "you" ? (
         <YouTab
-          data={data}
+          summary={summary}
+          pointsRes={pointsRes}
+          onRetryPoints={reloadPoints}
+          leaderboardRes={leaderboardRes}
+          onRetryLeaderboard={reloadLeaderboard}
+          circleLeaderboardRes={circleLeaderboardRes}
+          onRetryCircleLeaderboard={reloadCircleLeaderboard}
+          engagementRes={engagementRes}
+          onRetryEngagement={reloadEngagement}
+          challengeRes={challengeRes}
+          onRetryChallenge={reloadChallenge}
+          circleRes={circleRes}
+          onRetryCircle={reloadCircle}
           countdown={countdown}
           onSeeStandings={() => setTab("standings")}
           link={link}
@@ -227,9 +347,18 @@ export function ReferralDashboardPage() {
         />
       ) : null}
       {tab === "standings" ? (
-        <StandingsTab data={data} board={board} onBoardChange={setBoard} />
+        <StandingsTab
+          leaderboardRes={leaderboardRes}
+          onRetryLeaderboard={reloadLeaderboard}
+          circleLeaderboardRes={circleLeaderboardRes}
+          onRetryCircleLeaderboard={reloadCircleLeaderboard}
+          board={board}
+          onBoardChange={setBoard}
+        />
       ) : null}
-      {tab === "rewards" ? <RewardsTab data={data} /> : null}
+      {tab === "rewards" ? (
+        <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} />
+      ) : null}
       {tab === "rules" ? <RulesTab /> : null}
     </DashboardShell>
   );
@@ -276,7 +405,6 @@ function TabBar({
 }: {
   tab: TabKey;
   onChange: (tab: TabKey) => void;
-  whatsAppHref: string;
 }) {
   return (
     <div
@@ -324,39 +452,64 @@ function Card({
 }
 
 function YouTab({
-  data,
+  summary,
+  pointsRes,
+  onRetryPoints,
+  leaderboardRes,
+  onRetryLeaderboard,
+  circleLeaderboardRes,
+  onRetryCircleLeaderboard,
+  engagementRes,
+  onRetryEngagement,
+  challengeRes,
+  onRetryChallenge,
+  circleRes,
+  onRetryCircle,
   countdown,
   onSeeStandings,
   link,
   onCopy,
   onShare,
 }: {
-  data: DashboardData;
+  summary: ReferralSummary;
+  pointsRes: Res<number>;
+  onRetryPoints: () => void;
+  leaderboardRes: Res<LeaderboardPage>;
+  onRetryLeaderboard: () => void;
+  circleLeaderboardRes: Res<CircleLeaderboardEntry[]>;
+  onRetryCircleLeaderboard: () => void;
+  engagementRes: Res<EngagementStatus>;
+  onRetryEngagement: () => void;
+  challengeRes: Res<WeeklyChallenge>;
+  onRetryChallenge: () => void;
+  circleRes: Res<CircleSelection>;
+  onRetryCircle: () => void;
   countdown: string | null;
   onSeeStandings: () => void;
   link: string;
   onCopy: () => void;
   onShare: () => void;
 }) {
-  const { summary, points, leaderboard, circleLeaderboard, circle, engagement, challenge } = data;
-  const viewer = leaderboard.viewer ?? leaderboard.entries.find((e) => e.is_viewer) ?? null;
-  // `get_team_rankings` returns rows already ordered by contribution_count
-  // DESC; rank is the 1-based position in that order, not a server field.
-  const myCircleIndex = circle.circle_id
-    ? circleLeaderboard.findIndex((t) => t.circle_id === circle.circle_id)
-    : -1;
-  const myCircle = myCircleIndex >= 0 ? circleLeaderboard[myCircleIndex] : null;
-  const myCircleRank = myCircleIndex >= 0 ? myCircleIndex + 1 : null;
-
   const weekProgress = useMemo(() => {
-    if (!challenge.active || !challenge.week_started_at || !challenge.cutoff_at) return null;
-    const start = new Date(challenge.week_started_at).getTime();
-    const end = new Date(challenge.cutoff_at).getTime();
+    if (challengeRes.status !== "ready" || !challengeRes.data.active) return null;
+    const { week_started_at, cutoff_at } = challengeRes.data;
+    if (!week_started_at || !cutoff_at) return null;
+    const start = new Date(week_started_at).getTime();
+    const end = new Date(cutoff_at).getTime();
     const now = Date.now();
     const totalDays = Math.max(1, Math.round((end - start) / 86_400_000));
     const elapsedDays = Math.min(totalDays, Math.max(0, (now - start) / 86_400_000));
     return { totalDays, elapsedDays };
-  }, [challenge]);
+  }, [challengeRes]);
+
+  const challengeHeadline =
+    challengeRes.status === "loading"
+      ? { label: "Weekly challenge", value: "…" }
+      : challengeRes.status === "error"
+        ? { label: "Weekly challenge", value: "Unable to load" }
+        : challengeRes.data.active
+          ? { label: "Weekly challenge ends in", value: countdown ?? "—" }
+          : { label: "Weekly challenge", value: "Not yet scheduled" };
 
   return (
     <>
@@ -365,11 +518,20 @@ function YouTab({
           <div>
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <span className="relative inline-flex size-1.5 rounded-full bg-[var(--app-accent)]" />
-              {challenge.active ? "Weekly challenge ends in" : "Weekly challenge"}
+              {challengeHeadline.label}
             </p>
             <p className="font-mono text-3xl font-semibold tabular-nums text-foreground">
-              {challenge.active ? countdown ?? "—" : "Not yet scheduled"}
+              {challengeHeadline.value}
             </p>
+            {challengeRes.status === "error" ? (
+              <Button
+                variant="muted"
+                className="mt-2"
+                onClick={onRetryChallenge}
+              >
+                Try again
+              </Button>
+            ) : null}
           </div>
           <div className="flex gap-2">
             <Button variant="muted" onClick={onSeeStandings}>
@@ -403,17 +565,31 @@ function YouTab({
       </Card>
 
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Your points" value={fmt(points)} sub="Recorded total" />
+        <StatTile
+          label="Your points"
+          value={statText(pointsRes, (p) => fmt(p))}
+          sub={statSub(pointsRes, () => "Recorded total")}
+          onRetry={pointsRes.status === "error" ? onRetryPoints : undefined}
+        />
         <StatTile
           label="Published rank"
-          value={viewer ? `#${viewer.rank}` : "—"}
-          sub={leaderboard.stale ? "Updating" : "Latest standings"}
+          value={statText(leaderboardRes, (lb) => {
+            const v = lb.viewer ?? lb.entries.find((e) => e.is_viewer) ?? null;
+            return v ? `#${v.rank}` : "—";
+          })}
+          sub={statSub(leaderboardRes, (lb) => (lb.stale ? "Updating" : "Latest standings"))}
+          onRetry={leaderboardRes.status === "error" ? onRetryLeaderboard : undefined}
         />
-        <StatTile label="Referrals" value={fmt(summary.qualified_count)} sub={`${summary.in_progress_count} in progress`} />
+        <StatTile
+          label="Referrals"
+          value={fmt(summary.qualified_count)}
+          sub={`${summary.in_progress_count} in progress`}
+        />
         <StatTile
           label="Day streak"
-          value={String(engagement.streak.current_run_days)}
-          sub={`best run is ${engagement.streak.run_length_days} days`}
+          value={statText(engagementRes, (e) => String(e.streak.current_run_days))}
+          sub={statSub(engagementRes, (e) => `best run is ${e.streak.run_length_days} days`)}
+          onRetry={engagementRes.status === "error" ? onRetryEngagement : undefined}
         />
       </dl>
 
@@ -487,27 +663,15 @@ function YouTab({
           <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             Your circle
           </p>
-          {circle.circle_id ? (
-            <>
-              <p className="mt-1 text-lg font-semibold">
-                {myCircle?.circle_name ?? "Selected circle"}
-              </p>
-              <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Team rank</dt>
-                  <dd className="font-medium">{myCircleRank ? `#${myCircleRank}` : "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Team referrals</dt>
-                  <dd className="font-medium">{myCircle ? fmt(myCircle.contribution_count) : "—"}</dd>
-                </div>
-              </dl>
-            </>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              You have not chosen a referral-contest team yet.
-            </p>
-          )}
+          <Section res={circleRes} onRetry={onRetryCircle} retryLabel="your circle">
+            {(circle) => (
+              <CircleCardBody
+                circle={circle}
+                circleLeaderboardRes={circleLeaderboardRes}
+                onRetryCircleLeaderboard={onRetryCircleLeaderboard}
+              />
+            )}
+          </Section>
           <div className="mt-4 rounded-[12px] bg-[var(--app-grouped-background)] p-3">
             <p className="text-xs font-semibold text-muted-foreground">Circle Wars · Preview</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -521,27 +685,99 @@ function YouTab({
   );
 }
 
-function StatTile({ label, value, sub }: { label: string; value: string; sub: string }) {
+function CircleCardBody({
+  circle,
+  circleLeaderboardRes,
+  onRetryCircleLeaderboard,
+}: {
+  circle: CircleSelection;
+  circleLeaderboardRes: Res<CircleLeaderboardEntry[]>;
+  onRetryCircleLeaderboard: () => void;
+}) {
+  if (!circle.circle_id) {
+    return (
+      <p className="mt-2 text-sm text-muted-foreground">
+        You have not chosen a referral-contest team yet.
+      </p>
+    );
+  }
+  return (
+    <Section
+      res={circleLeaderboardRes}
+      onRetry={onRetryCircleLeaderboard}
+      retryLabel="your team's standing"
+    >
+      {(teams) => {
+        // `get_team_rankings` returns rows already ordered by
+        // contribution_count DESC; rank is the 1-based position in that
+        // order, not a server field.
+        const index = teams.findIndex((t) => t.circle_id === circle.circle_id);
+        const myCircle = index >= 0 ? teams[index] : null;
+        return (
+          <>
+            <p className="mt-1 text-lg font-semibold">
+              {myCircle?.circle_name ?? "Selected circle"}
+            </p>
+            <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <dt className="text-xs text-muted-foreground">Team rank</dt>
+                <dd className="font-medium">{index >= 0 ? `#${index + 1}` : "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Team referrals</dt>
+                <dd className="font-medium">{myCircle ? fmt(myCircle.contribution_count) : "—"}</dd>
+              </div>
+            </dl>
+          </>
+        );
+      }}
+    </Section>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  sub,
+  onRetry,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  onRetry?: () => void;
+}) {
   return (
     <Card className="flex flex-col gap-0.5">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="text-2xl font-semibold tabular-nums">{value}</dd>
       <dd className="text-xs text-muted-foreground">{sub}</dd>
+      {onRetry ? (
+        <button
+          onClick={onRetry}
+          className="mt-1 self-start text-xs font-medium text-[var(--app-accent)]"
+        >
+          Try again
+        </button>
+      ) : null}
     </Card>
   );
 }
 
 function StandingsTab({
-  data,
+  leaderboardRes,
+  onRetryLeaderboard,
+  circleLeaderboardRes,
+  onRetryCircleLeaderboard,
   board,
   onBoardChange,
 }: {
-  data: DashboardData;
+  leaderboardRes: Res<LeaderboardPage>;
+  onRetryLeaderboard: () => void;
+  circleLeaderboardRes: Res<CircleLeaderboardEntry[]>;
+  onRetryCircleLeaderboard: () => void;
   board: "individual" | "circles";
   onBoardChange: (board: "individual" | "circles") => void;
 }) {
-  const { leaderboard, circleLeaderboard } = data;
-
   return (
     <Card>
       <div className="flex items-center justify-between gap-3">
@@ -564,44 +800,54 @@ function StandingsTab({
       </div>
 
       {board === "individual" ? (
-        leaderboard.entries.length === 0 ? (
-          <EmptyBoard note={leaderboard.stale ? "Standings have not published yet." : "No entries yet."} />
-        ) : (
-          <ol className="mt-4 divide-y divide-border">
-            {leaderboard.entries.map((entry) => (
-              <li
-                key={entry.rank}
-                className={
-                  "flex items-center gap-3 py-2.5 text-sm " +
-                  (entry.is_viewer ? "font-semibold text-[var(--app-accent)]" : "")
-                }
-              >
-                <span className="w-6 text-right text-muted-foreground">{entry.rank}</span>
-                <span className="flex-1 truncate">{entry.handle}</span>
-                <span className="tabular-nums">{fmt(entry.points)}</span>
-              </li>
-            ))}
-            {leaderboard.viewer && !leaderboard.entries.some((e) => e.is_viewer) ? (
-              <li className="flex items-center gap-3 py-2.5 text-sm font-semibold text-[var(--app-accent)]">
-                <span className="w-6 text-right">{leaderboard.viewer.rank}</span>
-                <span className="flex-1 truncate">{leaderboard.viewer.handle}</span>
-                <span className="tabular-nums">{fmt(leaderboard.viewer.points)}</span>
-              </li>
-            ) : null}
-          </ol>
-        )
-      ) : circleLeaderboard.length === 0 ? (
-        <EmptyBoard note="No circle standings yet." />
+        <Section res={leaderboardRes} onRetry={onRetryLeaderboard} retryLabel="the individual standings">
+          {(leaderboard) =>
+            leaderboard.entries.length === 0 ? (
+              <EmptyBoard note={leaderboard.stale ? "Standings have not published yet." : "No entries yet."} />
+            ) : (
+              <ol className="mt-4 divide-y divide-border">
+                {leaderboard.entries.map((entry) => (
+                  <li
+                    key={entry.rank}
+                    className={
+                      "flex items-center gap-3 py-2.5 text-sm " +
+                      (entry.is_viewer ? "font-semibold text-[var(--app-accent)]" : "")
+                    }
+                  >
+                    <span className="w-6 text-right text-muted-foreground">{entry.rank}</span>
+                    <span className="flex-1 truncate">{entry.handle}</span>
+                    <span className="tabular-nums">{fmt(entry.points)}</span>
+                  </li>
+                ))}
+                {leaderboard.viewer && !leaderboard.entries.some((e) => e.is_viewer) ? (
+                  <li className="flex items-center gap-3 py-2.5 text-sm font-semibold text-[var(--app-accent)]">
+                    <span className="w-6 text-right">{leaderboard.viewer.rank}</span>
+                    <span className="flex-1 truncate">{leaderboard.viewer.handle}</span>
+                    <span className="tabular-nums">{fmt(leaderboard.viewer.points)}</span>
+                  </li>
+                ) : null}
+              </ol>
+            )
+          }
+        </Section>
       ) : (
-        <ol className="mt-4 divide-y divide-border">
-          {circleLeaderboard.map((team, index) => (
-            <li key={team.circle_id} className="flex items-center gap-3 py-2.5 text-sm">
-              <span className="w-6 text-right text-muted-foreground">{index + 1}</span>
-              <span className="flex-1 truncate">{team.circle_name}</span>
-              <span className="tabular-nums">{fmt(team.contribution_count)}</span>
-            </li>
-          ))}
-        </ol>
+        <Section res={circleLeaderboardRes} onRetry={onRetryCircleLeaderboard} retryLabel="the circle standings">
+          {(teams) =>
+            teams.length === 0 ? (
+              <EmptyBoard note="No circle standings yet." />
+            ) : (
+              <ol className="mt-4 divide-y divide-border">
+                {teams.map((team, index) => (
+                  <li key={team.circle_id} className="flex items-center gap-3 py-2.5 text-sm">
+                    <span className="w-6 text-right text-muted-foreground">{index + 1}</span>
+                    <span className="flex-1 truncate">{team.circle_name}</span>
+                    <span className="tabular-nums">{fmt(team.contribution_count)}</span>
+                  </li>
+                ))}
+              </ol>
+            )
+          }
+        </Section>
       )}
     </Card>
   );
@@ -611,89 +857,99 @@ function EmptyBoard({ note }: { note: string }) {
   return <p className="mt-6 text-center text-sm text-muted-foreground">{note}</p>;
 }
 
-function RewardsTab({ data }: { data: DashboardData }) {
-  const { milestones } = data;
-  const earnedKeys = new Set(milestones.earned.map((m) => m.milestone_key));
-  const next = milestones.next_milestone;
-
-  return (
-    <>
-      {next ? (
-        <Card>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Your next reward</p>
-              <h3 className="text-lg font-semibold">{next.reward}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {milestones.lifetime_qualified_count} referrals so far ·{" "}
-                {Math.max(0, next.threshold - milestones.lifetime_qualified_count)} more to go
-              </p>
-            </div>
-            <Gift className="size-10 text-[var(--app-accent)]" aria-hidden="true" />
-          </div>
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                {fmt(next.progress)} / {fmt(next.threshold)} referrals
-              </span>
-              <span>Next milestone</span>
-            </div>
-            <Progress
-              value={(next.progress / next.threshold) * 100}
-              className="mt-1.5"
-              indicatorClassName="bg-[var(--app-accent)]"
-            />
-          </div>
-        </Card>
-      ) : (
-        <Card>
-          <p className="text-sm font-medium">All milestones earned. Incredible work.</p>
-        </Card>
-      )}
-
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Milestones</h3>
-        <p className="text-xs text-muted-foreground">
-          {milestones.earned.length} of {REWARD_LADDER.length} unlocked
-        </p>
-      </div>
-      <ol className="grid gap-3 sm:grid-cols-2">
-        {REWARD_LADDER.map((entry) => {
-          const earned = earnedKeys.has(entry.key);
-          const isNext = next?.milestone_key === entry.key;
-          return (
-            <li key={entry.key}>
-              <Card className={earned ? "border-[var(--app-accent)]/40" : undefined}>
-                <div className="flex items-center justify-between">
-                  <Trophy
-                    className={
-                      "size-6 " + (earned ? "text-[var(--app-accent)]" : "text-muted-foreground")
-                    }
-                    aria-hidden="true"
-                  />
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {earned ? "Unlocked" : isNext ? "Up next" : "Milestone"}
-                  </span>
-                </div>
-                <h4 className="mt-2 font-semibold">{entry.reward}</h4>
-                <p className="text-xs text-muted-foreground">
-                  {earned ? `Unlocked at ${entry.threshold}` : `${fmt(entry.threshold)} referrals`}
-                </p>
-              </Card>
-            </li>
-          );
-        })}
-      </ol>
-    </>
-  );
-}
-
 const REWARD_LADDER = [
   { key: "voucher_10", threshold: 10, reward: "₹250 Amazon voucher" },
   { key: "earbuds_100", threshold: 100, reward: "Wireless earbuds, worth ₹10,000" },
   { key: "airpods_500", threshold: 500, reward: "Apple AirPods, worth ₹30,000" },
   { key: "iphone_10000", threshold: 10000, reward: "iPhone" },
 ];
+
+function RewardsTab({
+  milestonesRes,
+  onRetry,
+}: {
+  milestonesRes: Res<MilestoneProgress>;
+  onRetry: () => void;
+}) {
+  return (
+    <Section res={milestonesRes} onRetry={onRetry} retryLabel="your reward progress">
+      {(milestones) => {
+        const earnedKeys = new Set(milestones.earned.map((m) => m.milestone_key));
+        const next = milestones.next_milestone;
+        return (
+          <>
+            {next ? (
+              <Card>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Your next reward</p>
+                    <h3 className="text-lg font-semibold">{next.reward}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {milestones.lifetime_qualified_count} referrals so far ·{" "}
+                      {Math.max(0, next.threshold - milestones.lifetime_qualified_count)} more to go
+                    </p>
+                  </div>
+                  <Gift className="size-10 text-[var(--app-accent)]" aria-hidden="true" />
+                </div>
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>
+                      {fmt(next.progress)} / {fmt(next.threshold)} referrals
+                    </span>
+                    <span>Next milestone</span>
+                  </div>
+                  <Progress
+                    value={(next.progress / next.threshold) * 100}
+                    className="mt-1.5"
+                    indicatorClassName="bg-[var(--app-accent)]"
+                  />
+                </div>
+              </Card>
+            ) : (
+              <Card>
+                <p className="text-sm font-medium">All milestones earned. Incredible work.</p>
+              </Card>
+            )}
+
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Milestones</h3>
+              <p className="text-xs text-muted-foreground">
+                {milestones.earned.length} of {REWARD_LADDER.length} unlocked
+              </p>
+            </div>
+            <ol className="grid gap-3 sm:grid-cols-2">
+              {REWARD_LADDER.map((entry) => {
+                const earned = earnedKeys.has(entry.key);
+                const isNext = next?.milestone_key === entry.key;
+                return (
+                  <li key={entry.key}>
+                    <Card className={earned ? "border-[var(--app-accent)]/40" : undefined}>
+                      <div className="flex items-center justify-between">
+                        <Trophy
+                          className={
+                            "size-6 " + (earned ? "text-[var(--app-accent)]" : "text-muted-foreground")
+                          }
+                          aria-hidden="true"
+                        />
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {earned ? "Unlocked" : isNext ? "Up next" : "Milestone"}
+                        </span>
+                      </div>
+                      <h4 className="mt-2 font-semibold">{entry.reward}</h4>
+                      <p className="text-xs text-muted-foreground">
+                        {earned ? `Unlocked at ${entry.threshold}` : `${fmt(entry.threshold)} referrals`}
+                      </p>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ol>
+          </>
+        );
+      }}
+    </Section>
+  );
+}
 
 function RulesTab() {
   return (
