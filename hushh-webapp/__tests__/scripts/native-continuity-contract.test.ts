@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 import {
@@ -28,10 +28,27 @@ describe("native cold-audit and continuity contract", () => {
     const assignments = execFileSync(process.execPath, [join(root, "scripts/testing/export-reviewer-test-env.mjs")], {
       encoding: "utf8", env: environment,
     });
-    const value = execFileSync("bash", ["-c", `${assignments}\nprintf '%s' "$REVIEWER_VAULT_PASSPHRASE"`], {
+    const value = execFileSync("bash", ["-c", `unset REVIEWER_VAULT_PASSPHRASE\n${assignments}\nprintf '%s' "$REVIEWER_VAULT_PASSPHRASE"`], {
       encoding: "utf8", env: environment,
     });
     expect(value).toBe(synthetic);
+  });
+
+  it("stops native execution if reviewer resolution fails despite inherited credentials", () => {
+    const script = source("scripts/native/ios-device-ui-test.sh");
+    const boundary = script.indexOf("\n(\n  # Load only for execution.");
+    expect(boundary).toBeGreaterThan(-1);
+    const result = spawnSync("zsh", ["-c", `set -eu
+COMMON_FLAGS=()
+TEST_FILTER=synthetic
+node() { return 23; }
+run_xcodebuild_with_log() { print -r -- RUNNER_CALLED; }
+${script.slice(boundary)}`], {
+      encoding: "utf8",
+      env: {...process.env, HUSHH_UI_TEST_REVIEWER_UID: "synthetic", HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: "synthetic", REVIEWER_VAULT_PASSPHRASE: "synthetic"},
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).not.toContain("RUNNER_CALLED");
   });
 
   const destructiveAudits = [

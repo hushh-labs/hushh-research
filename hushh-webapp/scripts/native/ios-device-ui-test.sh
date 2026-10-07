@@ -120,7 +120,9 @@ echo "==> XCUITest UI interaction flows on device ($TEST_FILTER)"
 (
   # Load only for execution. An external `env NAME=value` would expose the
   # assignments as process arguments; shell exports remain in child memory.
-  eval "$(node ./scripts/testing/export-reviewer-test-env.mjs)"
+  reviewer_exports="$(node ./scripts/testing/export-reviewer-test-env.mjs)" || exit 1
+  eval "$reviewer_exports"
+  unset reviewer_exports
   if [[ -z "${HUSHH_UI_TEST_REVIEWER_UID}" || -z "${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE}" ]]; then
     echo "Missing reviewer identity for device UI automation." >&2
     exit 1
