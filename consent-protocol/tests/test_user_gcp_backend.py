@@ -62,7 +62,11 @@ def test_bootstrap_plan_is_least_privilege_and_keyless():
     assert plan["federation"]["impersonation"]["role"] == "roles/iam.serviceAccountTokenCreator"
     assert plan["federation"]["impersonation"]["token_lifetime"] == "900s"
     # Hushh gets ONLY run.invoker on the pod — no broad standing grant.
-    invoker = [b for b in plan["iam"] if b["role"] == "roles/run.invoker"]
+    invoker = [
+        b
+        for b in plan["iam"]
+        if b["role"] == "roles/run.invoker" and b["member"].startswith("consent-plane@")
+    ]
     assert len(invoker) == 1
     assert invoker[0]["member"] == "consent-plane@hushh.iam.gserviceaccount.com"
     # The pod SA is decrypter + bucket-scoped only (least privilege).
@@ -71,17 +75,25 @@ def test_bootstrap_plan_is_least_privilege_and_keyless():
     assert "roles/owner" not in roles and "roles/editor" not in roles
 
 
-def test_bootstrap_plan_includes_metadata_only_mail_trigger():
+def test_bootstrap_plan_includes_metadata_only_mail_trigger(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CONNECTOR_OAUTH_PROJECT", "oauth-developer-project")
     plan = _backend().render_bootstrap_plan(_spec())
     # The whole mail-event trigger lives inside the user's project (BYOC).
     kinds = {r["type"] for r in plan["resources"]}
     assert {"pubsub_topic", "pubsub_subscription", "cloud_scheduler_job"} <= kinds
-    members = {(b["member"], b["role"]) for b in plan["iam"]}
-    # Gmail's push SA may publish into the user's OWN topic; the pod pulls its wakes.
+    members = {(b["member"], b["role"]) for b in plan["gmailNotifications"]["operatorIam"]}
+    # Gmail's push SA may publish into the user's OWN topic; the subscription pushes to
+    # the agent's own URL (pod_gmail_push_config), so no pull subscriber grant exists.
     assert ("gmail-api-push@system.gserviceaccount.com", "roles/pubsub.publisher") in members
-    subs = [b for b in plan["iam"] if b["role"] == "roles/pubsub.subscriber"]
-    assert len(subs) == 1
-    assert subs[0]["member"].endswith("@acme-user-proj.iam.gserviceaccount.com")
+    (sub,) = [
+        r
+        for r in plan["resources"]
+        if r["type"] == "pubsub_subscription" and r["id"].endswith("-direct-sub")
+    ]
+    assert "push to your agent's own URL" in sub["delivery"]
+    assert sub["on"].startswith("projects/oauth-developer-project/topics/")
+    legacy = [r for r in plan["resources"] if r.get("legacyOnly")]
+    assert {r["type"] for r in legacy} == {"pubsub_topic", "pubsub_subscription"}
     # It is a doorbell: metadata only, body opened by the pod, Hushh out of the path.
     mt = plan["mail_trigger"]
     assert "metadata only" in mt["carries"].lower() and "body" in mt["carries"].lower()
@@ -259,6 +271,95 @@ async def test_discover_is_none_in_plan_mode():
     # Plan mode holds no impersonated client; there is nothing to discover.
     planned = UserGcpBackend(user_project="acme", live=False)
     assert await planned.discover("ha1abc") is None
+
+
+@pytest.mark.parametrize("missing", ["project", "checkpoint"])
+async def test_notification_prerequisite_absence_preserves_core_service(monkeypatch, missing):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("GOOGLE_CONNECTOR_OAUTH_PROJECT", "oauth-developer-project")
+    spec = SimpleNamespace(on_notification_checkpoint=lambda *_args: None)
+    if missing == "project":
+        monkeypatch.delenv("GOOGLE_CONNECTOR_OAUTH_PROJECT")
+    else:
+        spec.on_notification_checkpoint = None
+    observed = {"metadata": {"uid": "core-service-uid"}}
+    service, metadata = await _backend()._configure_gmail_delivery(
+        object(), spec, service=observed, expected_uid="core-service-uid"
+    )
+    assert service is observed
+    assert metadata["status"] == "unavailable"
+    assert metadata["reason"] == (
+        "oauth_developer_project_unconfigured"
+        if missing == "project"
+        else "owner_operation_checkpoint_unavailable"
+    )
+
+
+@pytest.mark.parametrize("recreated_after_iam", [False, True])
+async def test_notification_invoker_receipt_requires_same_incarnation_after_iam(
+    monkeypatch, recreated_after_iam
+):
+    from copy import deepcopy
+    from dataclasses import replace
+
+    from hushh_mcp.services.user_gcp_bootstrap import UserGcpBootstrap
+
+    monkeypatch.setenv("GOOGLE_CONNECTOR_OAUTH_PROJECT", "oauth-developer-project")
+    backend = UserGcpBackend(
+        user_project="acme-user-proj",
+        bootstrap_sa="bootstrap@acme-user-proj.iam.gserviceaccount.com",
+    )
+    checkpoints = []
+    spec = replace(_spec(), on_notification_checkpoint=lambda *args: checkpoints.append(args))
+    service = backend.render_deploy_config(spec)
+    service["metadata"]["uid"] = "admitted-uid"
+    service["status"] = {"url": "https://one-pod-ha1abc234def.run.app"}
+    inventory = backend._apply_gmail_runtime_env(service, spec, service["status"]["url"])
+    calls = []
+
+    def configure(_self, _plan, *, verify_only=False, **_kwargs):
+        calls.append("verify" if verify_only else "configure")
+        return {
+            **inventory,
+            "watchJob": "projects/acme-user-proj/locations/us-central1/jobs/one-mail-watch",
+            "watchJobDisposition": "updated",
+            "watchJobIdentity": {
+                "name": "projects/acme-user-proj/locations/us-central1/jobs/one-mail-watch"
+            },
+        }
+
+    class Client:
+        def _headers(self):
+            return {"Authorization": "Bearer inert-fixture"}
+
+        def set_invoker_binding(self, name, member, *, expected_uid):
+            assert expected_uid == "admitted-uid"
+            calls.append("iam")
+            return {"bindings": [{"role": "roles/run.invoker", "members": [member]}]}
+
+        def get_service(self, name):
+            observed = deepcopy(service)
+            if recreated_after_iam:
+                observed["metadata"]["uid"] = "replacement-uid"
+            return observed
+
+    monkeypatch.setattr(UserGcpBootstrap, "configure_notification_delivery", configure)
+    if recreated_after_iam:
+        with pytest.raises(RuntimeError, match="incarnation changed"):
+            await backend._configure_gmail_delivery(
+                Client(), spec, service=service, expected_uid="admitted-uid"
+            )
+        assert calls == ["verify", "iam"]
+        assert checkpoints == [("intent", "gmail_direct_invoker", [])]
+    else:
+        _observed, metadata = await backend._configure_gmail_delivery(
+            Client(), spec, service=service, expected_uid="admitted-uid"
+        )
+        assert metadata["status"] == "ready"
+        assert calls == ["verify", "iam", "configure"]
+        assert checkpoints[-1][0:2] == ("observed", "gmail_direct_invoker")
+        assert checkpoints[-1][2][0]["configurationObservation"]["serviceUid"] == "admitted-uid"
 
 
 # -- the boot verdict in the live path ---------------------------------------------

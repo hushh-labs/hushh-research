@@ -110,6 +110,58 @@ steps:
           echo "Unable to access Google Contacts OAuth client configuration."
           exit 1
         fi
+
+        # Native public-client pins are a dev pilot. Missing configuration keeps
+        # its feature unavailable; permission failures must not masquerade as absence.
+        native_config_dir="/workspace/.google-native-connectors"
+        mkdir -p "$${native_config_dir}"
+        chmod 700 "$${native_config_dir}"
+        native_names=(
+          NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID
+          NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID
+          NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI
+          NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED
+        )
+        for name in "$${native_names[@]}"; do
+          : > "$${native_config_dir}/$${name}"
+          chmod 600 "$${native_config_dir}/$${name}"
+        done
+        printf '%s' false > "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED"
+        if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+          for name in "$${native_names[@]}"; do
+            target="$${native_config_dir}/$${name}"
+            if gcloud secrets versions access latest --secret="$${name}" --project="$PROJECT_ID" \
+              > "$${target}" 2> "$${google_contacts_secret_error}"; then
+              value="$$(tr -d '\r\n' < "$${target}")"
+              case "$${name}" in
+                *_CLIENT_ID)
+                  [[ "$${value}" =~ ^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$ ]] || {
+                    echo "Invalid native Google public-client configuration: $${name}." >&2; exit 1;
+                  } ;;
+                *_REDIRECT_URI)
+                  [[ "$${value}" == "com.hussh.app:/oauth2redirect" ]] || {
+                    echo "Invalid native Google redirect configuration." >&2; exit 1;
+                  } ;;
+                *_DEV_ENABLED)
+                  [[ "$${value}" == "true" || "$${value}" == "false" ]] || {
+                    echo "Invalid native Google dev gate configuration." >&2; exit 1;
+                  } ;;
+              esac
+              printf '%s' "$${value}" > "$${target}"
+            elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}"; then
+              : > "$${target}"
+              echo "Optional native Google configuration $${name} is absent; keeping that feature unavailable."
+            else
+              echo "Unable to access native Google public-client configuration: $${name}." >&2
+              exit 1
+            fi
+          done
+          if [[ ! -s "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID" \
+            || ! -s "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI" \
+            || ! -s "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED" ]]; then
+            printf '%s' false > "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED"
+          fi
+        fi
     id: "resolve-google-contacts-client-config"
     secretEnv:
       - "APP_FRONTEND_ORIGIN_VAL"
@@ -189,7 +241,12 @@ steps:
         fi
         PASSKEY_RP_ID="$$(cat "$${passkey_rp_id_file}")"
         GOOGLE_CONTACTS_CLIENT_ID_VAL="$$(cat "$${google_contacts_client_id_file}")"
-        trap 'rm -f "$${google_contacts_client_id_file}" "$${passkey_rp_id_file}"' EXIT
+        native_config_dir="/workspace/.google-native-connectors"
+        GOOGLE_IOS_CONNECTOR_CLIENT_ID_VAL="$$(cat "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID")"
+        GOOGLE_ANDROID_CONNECTOR_CLIENT_ID_VAL="$$(cat "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID")"
+        GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI_VAL="$$(cat "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI")"
+        GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED_VAL="$$(cat "$${native_config_dir}/NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED")"
+        trap 'rm -f "$${google_contacts_client_id_file}" "$${passkey_rp_id_file}"; rm -rf "$${native_config_dir}"' EXIT
 
         # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
         # so an unchanged package-lock turns dependency install into a cache hit. First
@@ -226,6 +283,10 @@ steps:
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
           --build-arg "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$$GOOGLE_CONTACTS_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID=$$GOOGLE_IOS_CONNECTOR_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID=$$GOOGLE_ANDROID_CONNECTOR_CLIENT_ID_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI=$$GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI_VAL" \
+          --build-arg "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED=$$GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED_VAL" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL \
           -f hushh-webapp/Dockerfile \

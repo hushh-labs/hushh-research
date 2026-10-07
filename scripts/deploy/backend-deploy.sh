@@ -557,6 +557,10 @@ consent_audit_signing_alg=""
 consent_audit_ed25519_kid=""
 dev_consent_audit_private_secret=""
 dev_consent_audit_public_keys_secret=""
+owner_feed_signing_alg=""
+owner_feed_ed25519_kid=""
+dev_owner_feed_private_secret=""
+dev_owner_feed_public_keys_secret=""
 # The hosted-pod-tier opt-in, and the two flags that were built, tested, and then
 # enabled in no lane at all. Same `set -u` pre-initialisation rule as everything
 # above: assigned only inside the dev block.
@@ -800,6 +804,15 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   else
     echo "Consent audit chain: signing secrets absent; receipts will NOT be written." >&2
   fi
+  if gcloud secrets describe OWNER_FEED_ED25519_PRIVATE_KEY --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud secrets describe OWNER_FEED_ED25519_PUBLIC_KEYS --project="$PROJECT_ID" >/dev/null 2>&1; then
+    owner_feed_signing_alg="ed25519"
+    owner_feed_ed25519_kid="hushh-owner-feed-dev-1"
+    dev_owner_feed_private_secret="OWNER_FEED_ED25519_PRIVATE_KEY"
+    dev_owner_feed_public_keys_secret="OWNER_FEED_ED25519_PUBLIC_KEYS"
+  else
+    echo "Owner feeds: independent signing secrets absent; feeds remain unavailable." >&2
+  fi
 fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
@@ -848,6 +861,17 @@ append_optional_env "CONSENT_AUDIT_SIGNING_ALG" "${consent_audit_signing_alg}"
 append_optional_env "CONSENT_AUDIT_ED25519_KID" "${consent_audit_ed25519_kid}"
 append_optional_secret "${dev_consent_audit_private_secret}" "CONSENT_AUDIT_ED25519_PRIVATE_KEY"
 append_optional_secret "${dev_consent_audit_public_keys_secret}" "CONSENT_AUDIT_ED25519_PUBLIC_KEYS"
+# Independent hub metadata authority. Only the public map is projected to pods.
+append_optional_env "OWNER_FEED_SIGNING_ALG" "${owner_feed_signing_alg}"
+append_optional_env "OWNER_FEED_ED25519_KID" "${owner_feed_ed25519_kid}"
+append_optional_secret "${dev_owner_feed_private_secret}" "OWNER_FEED_ED25519_PRIVATE_KEY"
+append_optional_secret "${dev_owner_feed_public_keys_secret}" "OWNER_FEED_ED25519_PUBLIC_KEYS"
+if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
+    GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT; do
+    append_optional_secret "${connector_pin}" "${connector_pin}"
+  done
+fi
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a
 # deploy log or a service description. append_optional_secret probes Secret Manager

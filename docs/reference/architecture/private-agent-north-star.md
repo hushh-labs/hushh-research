@@ -12,9 +12,11 @@ what moves. Do not optimise around the current implementation.
 
 ```mermaid
 flowchart TB
-  subgraph WAS["Shared runtime — supported current topology"]
+  U0["Unplaced owner<br/>choose a hosting tier"]
+  subgraph WAS["Shared runtime — explicit owner choice"]
     S1["Shared compute<br/>provided by Hussh"] --> S2["Owner-scoped sessions and<br/>consented information"]
   end
+  U0 -->|"record Shared choice"| S1
   subgraph IS["The end state — Private Agent One"]
     P1["One isolated pod per person"] --> P2["Persistent memory<br/>that survives restarts"]
     P1 --> P3["Orchestration + sub-agents<br/>running inside the boundary"]
@@ -28,6 +30,7 @@ flowchart TB
   IS --- HOW
   HOW --> D1["Hussh Pods: provisioning disabled<br/>(dedicated instance direction)"]
   HOW --> D2["the person's own<br/>GCP project"]
+  HOW --> D3["the person's own<br/>Azure subscription"]
   D1 -->|"future: verified migration<br/>with owner approval"| D2
 ```
 
@@ -99,6 +102,7 @@ never "hussh cannot read that pod."
 | Path | Compute | Model credential |
 |---|---|---|
 | **A. User-owned GCP** | the person's own GCP project | their own Vertex ADC |
+| **B. Owner-cloud Azure** | the person's own Azure subscription, subject to admission gates | sealed owner AI selection with verified provider authority |
 | **C. Hussh-hosted (provisioning disabled)** | proposed dedicated instance per person in a Hussh GCP project | turn-bounded credential, or their own key |
 
 > **Superseded (founder directive, 2026-08-25).** This section previously read "**the
@@ -115,8 +119,11 @@ never "hussh cannot read that pod."
 The current hosting choices are Shared, owner-project GCP (BYOC) and the person's own
 Azure subscription (owner-cloud Azure, founder decision 2026-10-02). Hussh Pods
 remains disabled. Existing assigned pods and pending provisioning must be preserved;
-a missing assignment means Shared only when setup is not pending. Shared is a managed
-runtime, not a dedicated private pod.
+an owner with no current placement or setup intent is `unplaced`. Shared requires a recorded owner choice newer
+than the last detach; pending or unreadable placement never falls back to Shared.
+This is enforced by `personal_agent_hosting.py` and `owner_hosting_choice.py` with
+parked dev migration955. Shared is a managed runtime, not a dedicated private pod;
+source checks do not prove that migration or placement behavior is deployed.
 
 BYOC uses keyless, short-lived service-account impersonation on GCP, and on Azure the
 person's own one-time sign-in plus a federated, secretless Hussh identity that can
@@ -127,6 +134,58 @@ gate in `deployment-standard.md` gains live evidence
 (`docs/reference/architecture/byoc-azure.md`). One person runs one active agent: a
 second cloud holds a synced standby, never a second writer
 (`docs/future/personal-agent/STANDBY-SYNC.md`).
+
+### Owner-direct setup and Google connectors — qualified source status
+
+Direct setup requires the exact owner/pod binding, the machine wall's exact denial
+body, health and origin-specific CORS checks before endpoint publication. Public
+ingress alone establishes none of these. Connector and AI credential writes then
+require the pod's own app-role owner session before reading or opening an envelope;
+a hub-relayed consent token cannot authorize them. Source owners are
+`pod_external_ingress_admission.py`, `pod_ingress.py` and `pod_owner_door.py`.
+
+Private native Google connection uses public-client PKCE, seals the one-time code
+and verifier to the owner pod, and redeems the code there. Web/QR handoff carries
+only a connector intent: no owner identifier, pod address, code, token or verifier.
+It grants no authority. `google-native-connect.ts`, `google-connector-intent.ts`
+and `pod_connectors.py` own this contract; native provider and device acceptance
+remain separate evidence.
+
+Google revocation affects every client on the same OAuth project/account grant.
+The legacy-to-private native transition now fences the existing credential rows,
+requires owner confirmation of that impact, and confirms old-grant revocation
+before opening fresh authorization. The pod admits the signed transition against
+the current pod key/placement epoch, drops affected token caches and refreshes
+each exact credential ID/generation before redeeming the new code. Only Google's
+`invalid_grant` retires that old grant; a provider outage blocks fresh redemption,
+and timestamps do not establish grant loss. Completion clears only the unchanged
+legacy snapshot.
+`google_connector_transition.py`, its store, `pod_connectors.py`,
+`pod_connector_tokens.py`, `pod_connector_connect.py` and `google-native-connect.ts`
+establish this source ordering. Provider revocation,
+native callbacks and live recovery remain separate acceptance gates.
+
+Gmail watch topics belong to the configured `GOOGLE_CONNECTOR_OAUTH_PROJECT`;
+the owner notification project holds the direct push subscription, push identity
+and retained dead-letter resources. Delivery targets the exact pod HTTPS origin
+with dedicated OIDC identity and subscription checks. Azure requires an explicit
+Google notification project and identity in addition to Azure hosting authority.
+There is no polling fallback or model invocation on every notification. Sealed
+pending work and pagination checkpoints precede acknowledgement; unfinished work
+returns 503. Daily renewal uses the authenticated maintenance tick, not a sleeping
+process. `pod_gmail_doorbell.py`, `pod_gmail_push_config.py` and
+`user_gcp_bootstrap.py` establish these source contracts. Parked dev migration 956
+and `pod_notification_checkpoint.py` bind notification mutations to the existing
+owner operation; their integration, deployment and live resource/IAM readbacks
+remain acceptance gates. Missing prerequisites report notifications unavailable
+while preserving independently verified core pod availability.
+
+The hub's signed owner feeds project declared platform metadata and publication
+summaries (`pod_owner_feed_envelope.py`); sealing does not make hub-generated
+information unknown to the hub. Private connector credentials, provider reads,
+derived observations and model processing belong inside the owner pod, subject
+to their own consent. Neither a metadata feed nor an identifier-only Gmail ring
+authorizes a private read or model processing.
 
 ### The hosted production tier — the conditions, each testable
 
@@ -282,7 +341,7 @@ revision-bound judge receipt for completion assertions, not this summary table.
 | **Identity** | the pod proves which person's agent it is, in any project | Per-person service-account and X25519 identity wiring exist. Current live identity after replacement is a separate assertion. |
 | **Capability** | the full agent ecosystem runs inside the pod | In-process agents/tools and transitional scoped hub-read doors exist. Registry or import presence alone does not prove consented specialist execution inside a deployed pod. |
 | **Persistence** | memory survives restarts and compounds | Sealed-log hydration and memory-provider integration exist; earlier simulation reported recall across two restarts. Current compute-replacement, restore and provider-memory proof remain separate. |
-| **Portability** | same image and contracts across managed, owner-project GCP and owner-cloud Azure | The same image boots on Azure (measured 2026-10-02); supported migration, key custody and complete cleanup need evidence per placement. AWS is not implemented. |
+| **Portability** | same image and contracts across managed, owner-project GCP and owner-cloud Azure | The same image boots on Azure (measured 2026-10-02). A disposable native sandbox retry on 2026-10-06 reached the provider and created the sandbox, then refused egress; sandbox and outer resource-group deletion were confirmed. This does not prove owner-information execution or a private bridge. Supported migration and key custody need evidence per placement. AWS is not implemented. |
 | **Economics** | cost per person far below value per person | Scale-to-zero configuration and liveness policy reduce avoidable work. They do not measure billed cost or establish a cost target. |
 
 Persistence is a named requirement because the target is a persistent private agent.

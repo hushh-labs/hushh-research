@@ -156,6 +156,12 @@ class PodSpec:
         default=None, repr=False, compare=False
     )
 
+    # Phase-first, synchronous authority port called only off the event loop.
+    # Intent must be durable before a notification provider mutation begins.
+    on_notification_checkpoint: Optional[Callable[[str, str, list[dict[str, Any]]], None]] = (
+        dataclass_field(default=None, repr=False, compare=False)
+    )
+
     # -- the two axes, per person -----------------------------------------------
     #
     # WHERE this person's pod runs, and WHOSE model credential it uses. Until these

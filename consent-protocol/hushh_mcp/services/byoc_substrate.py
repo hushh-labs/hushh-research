@@ -84,12 +84,62 @@ def _mail_creation_identity(
     identity: dict[str, Any] = {"name": expected_name}
     if resource_type == "pubsub_topic":
         return identity
+    if resource_type == "cloud_scheduler_job" and "httpTarget" in value:
+        from urllib.parse import urlsplit
+
+        target = value.get("httpTarget")
+        if not isinstance(target, dict) or "pubsubTarget" in value:
+            return None
+        oidc = target.get("oidcToken")
+        uri = target.get("uri")
+        if not isinstance(oidc, dict) or not isinstance(uri, str):
+            return None
+        parsed = urlsplit(uri)
+        origin = f"https://{parsed.netloc}"
+        email = oidc.get("serviceAccountEmail")
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path != "/api/one/pod/maintenance/tick"
+            or target.get("httpMethod") != "POST"
+            or oidc.get("audience") != origin
+            or not isinstance(email, str)
+            or re.fullmatch(
+                rf"[a-z][a-z0-9-]{{4,28}}@{re.escape(matched.group(1))}\.iam\.gserviceaccount\.com",
+                email,
+            )
+            is None
+            or any(
+                not isinstance(value.get(key), str) or not 1 <= len(value[key]) <= 128
+                for key in ("schedule", "timeZone")
+            )
+        ):
+            return None
+        return {
+            **identity,
+            "schedule": value["schedule"],
+            "timeZone": value["timeZone"],
+            "httpTarget": {
+                "uri": uri,
+                "httpMethod": "POST",
+                "oidcToken": {"audience": origin, "serviceAccountEmail": email},
+            },
+        }
     target = value.get("pubsubTarget") if resource_type == "cloud_scheduler_job" else None
     topic = target.get("topicName") if isinstance(target, dict) else value.get("topic")
     if (
         not isinstance(topic, str)
         or re.fullmatch(
-            rf"projects/{re.escape(matched.group(1))}/topics/[A-Za-z0-9_.~-]{{1,255}}", topic
+            (
+                r"projects/[a-z][a-z0-9-]{4,61}[a-z0-9]/topics/[A-Za-z0-9_.~-]{1,255}"
+                if resource_type == "pubsub_subscription"
+                else rf"projects/{re.escape(matched.group(1))}/topics/[A-Za-z0-9_.~-]{{1,255}}"
+            ),
+            topic,
         )
         is None
     ):
@@ -311,6 +361,7 @@ class SubstrateReceipt:
     resource_observations: list[dict[str, Any]] = field(default_factory=list)
     planned_bindings: list[dict[str, str]] | None = None
     binding_observations: list[dict[str, Any]] = field(default_factory=list)
+    capabilities: dict[str, Any] = field(default_factory=dict)
 
     @property
     def failed_steps(self) -> list[dict[str, Any]]:
@@ -327,6 +378,8 @@ class SubstrateReceipt:
             "grantRef": self.grant_ref,
             "applied": self.applied,
         }
+        if self.capabilities:
+            record["capabilities"] = self.capabilities
         if self.planned_resources:
             # Preserve types for future reconciliation, never provider bodies or
             # a claim that a planned resource was exclusively created.
@@ -607,6 +660,7 @@ class HushhFederatedSubstrate:
                 plan,
                 dry_run=self._dry_run,
                 on_step=getattr(spec, "on_substrate_step", None),
+                notification_checkpoint=getattr(spec, "on_notification_checkpoint", None),
             )
         except BootstrapError:
             return SubstrateReceipt(
@@ -669,12 +723,15 @@ class HushhFederatedSubstrate:
         )
         steps = raw_steps if valid_steps else []
         failures = [step for step in steps if step.get("ok") is not True or step.get("skipped")]
+        core_failures = [
+            step for step in failures if step.get("capability") != "gmail_notifications"
+        ]
         applied = (
             outcome.get("dryRun") is False
-            and outcome.get("ok") is True
+            and (outcome.get("coreOk") is True or outcome.get("ok") is True)
             and outcome.get("project") == self._project
             and valid_steps
-            and not failures
+            and not core_failures
         )
         receipt = SubstrateReceipt(
             applied=applied,
@@ -685,6 +742,7 @@ class HushhFederatedSubstrate:
             planned_bindings=planned_bindings,
             grant_ref=grant_ref,
             steps=steps,
+            capabilities=dict(outcome.get("capabilities") or {}),
             resource_observations=[
                 step["resourceObservation"]
                 for step in steps

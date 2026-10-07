@@ -14,19 +14,17 @@ Three artefacts, one authority.
 
 2. **The challenge and proof** have the shape of ``trusted_device_service`` proof of
    possession (``signing_payload`` / ``verify_challenge``): a nonce the pod minted, a
-   canonical JSON payload the subject signs with its P-256 key, verify first and
-   consume only after. The payload carries ``purpose="pod-session-admission"``, this
-   pod's key id and the current incarnation epoch, so a proof produced for another
-   pod or another incarnation is unknown here by construction.
+   canonical JSON payload the subject signs with its P-256 key, verify first, consume
+   after. The payload carries ``purpose="pod-session-admission"``, this pod's key id
+   and the incarnation epoch, so another pod's or incarnation's proof is unknown here.
 
 3. **The session** is an HMAC-SHA256 over canonical claims under a key derived from
-   the pod's DEK with its own HKDF label, twelve hours, verified statelessly and
-   then checked live against the tombstones and the recorded version. It carries the
-   role from the binding and nothing else can change it.
+   the pod's DEK with its own HKDF label, twelve hours, verified statelessly, then
+   checked live against the tombstones and the recorded version. Its role is the
+   binding's, which nothing else can change.
 
-A hub consent token is never local authority. It has a different prefix, a different
-key and a different meaning, and the verifier refuses it by shape before it looks at
-anything else.
+A hub consent token is never local authority: a different prefix, key and meaning,
+refused by shape before the verifier looks at anything else.
 """
 
 from __future__ import annotations
@@ -78,14 +76,22 @@ SCOPE_POD_STATUS = "pod.status"
 SCOPE_POD_REVOKE = "pod.revoke"
 SCOPE_POD_UPGRADE = "pod.upgrade"
 SCOPE_PUPPY_INFERENCE = "puppy.inference"
+SCOPE_POD_ACT = "pod.act"  # confirm a change the agent prepared (pod_actions.py)
+SCOPE_BROWSER_INVOKE = "browser.invoke"
+SCOPE_BROWSER_OBSERVE = "browser.observe"
+SCOPE_BROWSER_CONTROL = "browser.control"
 APP_SCOPES: tuple[str, ...] = (
     "files.read",
     "files.manage",
+    SCOPE_POD_ACT,
     SCOPE_PKM_READ,
     SCOPE_POD_CONFIG,
     SCOPE_POD_STATUS,
     SCOPE_POD_REVOKE,
     SCOPE_POD_UPGRADE,
+    SCOPE_BROWSER_INVOKE,
+    SCOPE_BROWSER_OBSERVE,
+    SCOPE_BROWSER_CONTROL,
 )
 DEVICE_SCOPES: tuple[str, ...] = ()
 DEVICE_INFERENCE_SCOPES: tuple[str, ...] = (SCOPE_PUPPY_INFERENCE,)

@@ -1,3 +1,5 @@
+import { ownerContentIsPrivate } from './private-agent-specialist-chat';
+import { privateGoogleStatus, disconnectPrivateGoogle, confirmPrivateGoogleAction, requireSharedGoogleExchange, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { ApiService } from "@/lib/services/api-service";
 import type { GoogleConnectionStatus } from "@/lib/services/google-connection-service";
 
@@ -76,6 +78,10 @@ export class GoogleCalendarService {
     idToken: string,
     userId: string,
   ): Promise<GoogleCalendarStatus> {
+    if (await ownerContentIsPrivate()) {
+      const value = await privateGoogleStatus('calendar');
+      return { configured: true, connected: value.status === 'connected' && value.capabilities.read, status: value.status === 'absent' ? 'disconnected' : value.status === 'connected' && !value.capabilities.read ? 'needs_reauth' : value.status, access_level: value.accessLevel, scope_csv: '' };
+    }
     const response = await ApiService.apiFetch(
       `/api/one/calendar/status/${encodeURIComponent(userId)}`,
       {
@@ -94,6 +100,7 @@ export class GoogleCalendarService {
     userId: string;
     accessLevel: "read" | "manage";
   }): Promise<OAuthStart> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       "/api/one/calendar/connect/start",
       {
@@ -121,6 +128,7 @@ export class GoogleCalendarService {
     code: string;
     state: string;
   }): Promise<GoogleCalendarStatus> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       "/api/one/calendar/connect/complete",
       {
@@ -147,6 +155,7 @@ export class GoogleCalendarService {
     idToken: string;
     accessLevel: "read" | "manage";
   }): Promise<NativeOAuthStart> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       "/api/one/calendar/connect/native/start",
       {
@@ -178,6 +187,7 @@ export class GoogleCalendarService {
     serverAuthCode: string;
     state: string;
   }): Promise<GoogleCalendarStatus> {
+    await requireSharedGoogleExchange();
     if (!params.state.trim()) {
       throw new Error("Restart the Google connection to continue.");
     }
@@ -208,6 +218,10 @@ export class GoogleCalendarService {
     idToken: string,
     userId: string,
   ): Promise<GoogleCalendarStatus> {
+    if (await ownerContentIsPrivate()) {
+      await disconnectPrivateGoogle('calendar');
+      return this.status(idToken, userId);
+    }
     const response = await ApiService.apiFetch("/api/one/calendar/disconnect", {
       method: "POST",
       headers: {
@@ -229,6 +243,11 @@ export class GoogleCalendarService {
     userId: string;
     proposalId: string;
   }): Promise<CalendarExecution> {
+    if (await ownerContentIsPrivate()) {
+      const value = await confirmPrivateGoogleAction(params.proposalId, 'calendar');
+      if (!['create', 'reschedule', 'cancel'].includes(String(value.action)) || !value.event || typeof value.event !== 'object') throw new Error('Your agent could not confirm the Calendar outcome.');
+      return value as CalendarExecution;
+    }
     const response = await ApiService.apiFetch(
       "/api/one/calendar/proposals/execute",
       {
@@ -269,6 +288,7 @@ export class GoogleCalendarService {
     startAt: string;
     endAt: string;
   }): Promise<CalendarEventsResponse> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('This Calendar event list');
     const response = await ApiService.apiFetch("/api/one/calendar/events", {
       method: "POST",
       headers: {

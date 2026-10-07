@@ -73,6 +73,33 @@ flowchart TB
 
 ## Canonical 3-environment contract
 
+### Dev owner-cloud connectors and metadata feeds
+
+Native Google connectors use separate public-client pins:
+`GOOGLE_IOS_CONNECTOR_CLIENT_ID`, `GOOGLE_ANDROID_CONNECTOR_CLIENT_ID`,
+`GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI` and `GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED`.
+The frontend compiles the corresponding `NEXT_PUBLIC_*` values. Register the
+exact native redirect; Android requires the approved custom-scheme development
+opt-in and remains disabled outside dev. Absent configuration means unavailable,
+not fallback to the Shared web OAuth client. `GOOGLE_CONNECTOR_OAUTH_PROJECT`
+identifies the verified developer project that owns the Gmail watch topic;
+the subscription and its push identity belong to the same owner Google project.
+An Azure pod additionally needs a verified Google notification project.
+
+Hub metadata feeds and incarnation-bound consent revocations use an independent
+`OWNER_FEED` Ed25519 namespace. Mint through the existing operator command:
+`consent-protocol/scripts/ops/mint_consent_ed25519_key.py --namespace owner-feed --project <dev-project>`.
+The hub mounts `OWNER_FEED_ED25519_PRIVATE_KEY` and the public map through Secret
+Manager; only `OWNER_FEED_ED25519_PUBLIC_KEYS` reaches owner pods. The dev deploy
+pins `OWNER_FEED_ED25519_KID=hushh-owner-feed-dev-1` and enables signing only when
+both secrets exist. Rotation requires moving the signing kid and retaining
+verification keys for unexpired statements. Missing keys leave feeds unavailable;
+neither consent-token nor audit keys substitute for this authority.
+
+These variables establish configuration, not live native OAuth, push delivery or
+private custody. Feeds carry only canonical consent metadata, public directory
+records and owner-published listings; private observations remain inside the pod.
+
 1. Backend environment identity is `ENVIRONMENT` and must be one of: `development`, `uat`, `production`.
 2. Frontend environment identity is `NEXT_PUBLIC_APP_ENV` and must be one of: `development`, `uat`, `production`.
 3. Legacy frontend fallback keys are read-only compatibility paths for one release cycle:

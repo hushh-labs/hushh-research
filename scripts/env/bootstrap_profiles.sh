@@ -907,6 +907,11 @@ hydrate_backend_cloud_reference() {
   set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_CLIENT_ID" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_CLIENT_SECRET" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_REDIRECT_URI" "false" "$cache_file"
+  for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
+    GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT \
+    OWNER_FEED_SIGNING_ALG OWNER_FEED_ED25519_KID OWNER_FEED_ED25519_PUBLIC_KEYS; do
+    set_secret_key_or_cached "$file" "$profile" "$project" "$connector_pin" "false" "$cache_file"
+  done
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_TOKEN_KEY" "false" "$cache_file" GOOGLE_OAUTH_TOKEN_KEY GMAIL_OAUTH_TOKEN_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "OPENAI_API_KEY" "false" "$cache_file"
   # Managed Omni Gateway credentials are only materialized into the ignored,
@@ -1053,6 +1058,10 @@ hydrate_frontend_cloud() {
   # Contacts is an environment-isolated, staged browser capability. Hydrate a
   # configured project without making an intentionally dark project noisy.
   local google_contacts_client_id=""
+  for connector_pin in NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
+    NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED; do
+    set_secret_key_or_cached "$file" "$profile" "$project" "$connector_pin" "false" "$cache_file"
+  done
   if google_contacts_client_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" "$cache_file")"; then
     upsert_env_value "$file" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" "$google_contacts_client_id"
   else

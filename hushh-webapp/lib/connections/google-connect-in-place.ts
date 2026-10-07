@@ -1,5 +1,7 @@
 "use client";
 
+import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import { Capacitor } from "@capacitor/core";
 
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
@@ -23,6 +25,7 @@ import {
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import type { GoogleConnectorConnectOptions } from '@/lib/one/google-native-connect';
 
 /**
  * Connects a Google capability without navigating the current window, so the
@@ -42,6 +45,11 @@ export type InPlaceConnectOutcome =
   | "connected"
   /** Cancelled, dismissed, expired, or the permission was not granted. */
   | "not_connected"
+  /** The web displayed an intent-only phone handoff. */
+  | "phone_handoff"
+  | "unlock_required"
+  | "cleanup_unconfirmed"
+  | "window_blocked"
   /** Starting or completing the connection failed. */
   | "failed"
   /** The caller's lifetime ended or the owner changed; do not touch the UI. */
@@ -54,7 +62,7 @@ export type InPlaceConnectStart = {
    * `blocked`: both popup and tab were refused; nothing was started.
    * `unsupported`: this capability cannot be granted on this platform.
    */
-  surface: "window" | "native" | "blocked" | "unsupported";
+  surface: "window" | "native" | "blocked" | "unsupported" | "checking";
   result: Promise<InPlaceConnectOutcome>;
 };
 
@@ -65,13 +73,15 @@ export type InPlaceConnectOwner = {
   providerData?: ReadonlyArray<{ providerId: string }>;
 };
 
-type ConnectControls = {
+export type ConnectControls = {
   /** Ends the attempt without a UI update (unmount, account switch). */
   signal?: AbortSignal;
   /** The person's explicit "Cancel sign-in"; ends quietly as not connected. */
   cancelSignal?: AbortSignal;
   /** Re-checked after every await; false makes the outcome `stale`. */
   isCurrent?: () => boolean;
+  vaultOwnerCapability?: string | null;
+  confirmLegacyTransition?: GoogleConnectorConnectOptions['confirmLegacyTransition'];
 };
 
 const WINDOW_WAIT_LIMIT_MS = 10 * 60_000;
@@ -125,10 +135,25 @@ async function fenced(
   }
 }
 
+/** A private native grant is read back; web publishes only a phone intent. */
+async function connectPrivate(connector: 'gmail' | 'calendar', current: () => boolean, controls: ConnectControls): Promise<boolean | 'phone_handoff' | 'unlock_required' | 'cleanup_unconfirmed'> {
+  if (!current() || controls.cancelSignal?.aborted) return false;
+  const { connectGoogleConnector } = await import('@/lib/one/google-native-connect');
+  if (!current() || controls.cancelSignal?.aborted) return false;
+  const outcome = await connectGoogleConnector(connector, { isCurrent: () => current() && !controls.cancelSignal?.aborted,
+    vaultOwnerCapability: controls.vaultOwnerCapability, confirmLegacyTransition: controls.confirmLegacyTransition });
+  if (!current() || controls.cancelSignal?.aborted) return false;
+  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector); return 'phone_handoff'; }
+  if (!outcome.ok && outcome.code === 'PRIVATE_AGENT_UNLOCK_REQUIRED') return 'unlock_required';
+  if (!outcome.ok && outcome.code !== 'SIGN_IN_CANCELLED') throw new Error('Google connection could not be completed.');
+  if (outcome.ok && outcome.legacyCleanup === 'unconfirmed') return 'cleanup_unconfirmed';
+  return outcome.ok;
+}
+
 /**
  * Gmail sending (`send`) or mailbox organisation (`modify`) on top of the
- * existing grant. Scopes and callback URI are unchanged; `modify` is web-only,
- * because the native Google sign-in plugins do not request gmail.modify.
+ * existing grant. Shared uses the existing provider flow. Private native connections use
+ * public-client PKCE and request management access for drafts and sending.
  */
 export function connectGmailInPlace(
   input: ConnectControls & {
@@ -148,10 +173,19 @@ export function connectGmailInPlace(
       : status.modify_permission_granted === true);
 
   if (Capacitor.isNativePlatform()) {
-    if (purpose === "modify")
-      return started("unsupported", async () => "not_connected");
     return started("native", () =>
       fenced(input, () => undefined, async (current) => {
+        const privateAgent = await ownerContentIsPrivate();
+        if (!current()) return 'stale';
+        if (privateAgent) {
+          const connection = await connectPrivate('gmail', current, input);
+          if (typeof connection === 'string') return connection;
+          if (!connection) return 'not_connected';
+          if (!current()) return 'stale';
+          const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: owner.uid, force: true });
+          return granted(status) ? 'connected' : 'not_connected';
+        }
+        if (purpose === 'modify') return 'not_connected';
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
         const before = await GmailReceiptsService.getStatus({
@@ -197,10 +231,18 @@ export function connectGmailInPlace(
     purpose === "send" ? "send" : "read",
   );
   const popup = openGmailOAuthPopup(attempt);
-  if (!popup) return started("blocked", async () => "not_connected");
+  if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
+    const privateAgent = await ownerContentIsPrivate();
+    if (!current()) return 'stale';
+    if (privateAgent) { const result = await connectPrivate('gmail', current, input); return typeof result === 'string' ? result : 'not_connected'; }
+    return 'window_blocked';
+  }));
   return started("window", () =>
     fenced(input, () => popup.close(), async (current) => {
       try {
+        const privateAgent = await ownerContentIsPrivate();
+        if (!current()) return 'stale';
+        if (privateAgent) { popup.close(); const result = await connectPrivate('gmail', current, input); return typeof result === 'string' ? result : 'not_connected'; }
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
         const loginHint = owner.providerData?.some(
@@ -267,6 +309,15 @@ export function connectCalendarInPlace(
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
       fenced(input, () => undefined, async (current) => {
+        const privateAgent = await ownerContentIsPrivate();
+        if (!current()) return 'stale';
+        if (privateAgent) {
+          const connection = await connectPrivate('calendar', current, input);
+          if (typeof connection === 'string') return connection;
+          if (!connection) return 'not_connected';
+          if (!current()) return 'stale';
+          return granted(await GoogleCalendarService.status(await owner.getIdToken(), owner.uid)) ? 'connected' : 'not_connected';
+        }
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
         const start = await GoogleCalendarService.startNativeConnect({
@@ -296,10 +347,18 @@ export function connectCalendarInPlace(
     accessLevel,
   });
   const popup = openGoogleOAuthPopup(attempt);
-  if (!popup) return started("blocked", async () => "not_connected");
+  if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
+    const privateAgent = await ownerContentIsPrivate();
+    if (!current()) return 'stale';
+    if (privateAgent) { const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
+    return 'window_blocked';
+  }));
   return started("window", () =>
     fenced(input, () => popup.close(), async (current) => {
       try {
+        const privateAgent = await ownerContentIsPrivate();
+        if (!current()) return 'stale';
+        if (privateAgent) { popup.close(); const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
         // A popup callback settles to this window; it never routes to the
         // onboarding setup page.
         clearCalendarSetupOAuthReturn();
@@ -346,20 +405,32 @@ export type InPlaceConnectKind = "gmail_send" | "gmail_modify" | "calendar";
 /** The chat's one line of feedback for each finished in-place connect. */
 export function inPlaceConnectCopy(
   kind: InPlaceConnectKind,
-  outcome: "connected" | "not_connected" | "failed",
+  outcome: Exclude<InPlaceConnectOutcome, 'stale'>,
 ): string {
   const copy: Record<InPlaceConnectKind, Record<typeof outcome, string>> = {
     gmail_send: {
+      unlock_required: 'Unlock your vault, then connect Gmail again.',
+      cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',
+      window_blocked: "Allow popups to connect Gmail, then try again.",
+      phone_handoff: "Finish connecting Gmail on your phone, then return to review your message.",
       connected: "Gmail sending enabled. Review your message, then send.",
       not_connected: "Gmail sending was not enabled.",
       failed: "Could not enable Gmail sending. Try again.",
     },
     gmail_modify: {
+      unlock_required: 'Unlock your vault, then connect Gmail again.',
+      cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',
+      window_blocked: "Allow popups to change Gmail permissions, then try again.",
+      phone_handoff: "Finish connecting Gmail on your phone, then ask your private agent again.",
       connected: "Gmail changes allowed. Ask One again to organize your mailbox.",
       not_connected: "Gmail changes were not allowed.",
       failed: "Unable to request Gmail permission. Please try again.",
     },
     calendar: {
+      unlock_required: 'Unlock your vault, then connect Calendar again.',
+      cleanup_unconfirmed: 'Calendar connected. The previous Google connection still needs verification.',
+      window_blocked: "Allow popups to connect Calendar, then try again.",
+      phone_handoff: "Finish connecting Calendar on your phone, then ask your private agent again.",
       connected: "Google Calendar connected. Ask One again to continue.",
       not_connected: "Google Calendar was not connected.",
       failed: "Unable to request Google Calendar permission.",

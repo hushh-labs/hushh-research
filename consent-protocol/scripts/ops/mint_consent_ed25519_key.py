@@ -56,6 +56,11 @@ AUDIT_PUBLIC_SECRET = "CONSENT_AUDIT_ED25519_PUBLIC_KEYS"  # noqa: S105 - a secr
 NAMESPACES: dict[str, tuple[str, str, str]] = {
     "consent": (PRIVATE_SECRET, PUBLIC_SECRET, DEFAULT_KID),
     "audit": (AUDIT_PRIVATE_SECRET, AUDIT_PUBLIC_SECRET, AUDIT_DEFAULT_KID),
+    "owner-feed": (
+        "OWNER_FEED_ED25519_PRIVATE_KEY",
+        "OWNER_FEED_ED25519_PUBLIC_KEYS",
+        "hushh-owner-feed-dev-1",
+    ),
 }
 
 
@@ -123,7 +128,7 @@ def main() -> int:
         "--namespace",
         choices=sorted(NAMESPACES),
         default="consent",
-        help="Which keypair: consent tokens (default) or the consent-audit chain.",
+        help="Independent signing authority: consent, audit, or owner-feed.",
     )
     parser.add_argument("--kid", default=None, help="Key id (default: the namespace's own).")
     parser.add_argument(

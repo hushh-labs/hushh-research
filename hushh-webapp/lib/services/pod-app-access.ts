@@ -1,4 +1,5 @@
 import { AuthService } from "./auth-service";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import type { OwnerPodTransport, PinnedEndpoint, PodSessionRecord } from "./owner-pod-endpoint";
 import {
   PodNotReachedError,
@@ -29,14 +30,42 @@ const OWNER_POD_ROUTES = new Set([
   "turn/cancel",
   "puppy/models",
   "ai-selection",
+  "actions/gmail/proposals",
+  "browser/capability",
+  "browser/tasks",
+]);
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+/**
+ * Parameterised agent routes, one exact pattern each, mirroring the pod's own
+ * app-surface list (consent-protocol/api/middlewares/pod_ingress.py).
+ */
+const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
+  /^actions\/(gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}\/confirm$/,
+  /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
+  /^connectors\/(gmail|calendar|drive|contacts)$/,
+  /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
+  /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/,
+  // Settings' tool refresh and connector login, for owner-registered connectors only.
+  /^agent-chat\/connectors\/custom_[0-9a-f]{32}\/mcp\/(catalog|oauth\/(begin|complete|cancel))$/,
+  // Messages typed while a reply runs, and stop.
+  /^agent-chat\/runs\/[A-Za-z0-9_-]{1,256}\/(queue|stop)$/,
+  /^agent-chat\/runs\/[A-Za-z0-9_-]{1,256}\/queue\/[A-Za-z0-9_-]{8,64}$/,
+  // Voice and typed command proposals checkpointed in the agent.
+  new RegExp(`^agent-chat/proposals/${UUID}(/settle)?$`),
+];
+const OWNER_POD_AGENT_ROUTES = new Set([
+  "agent-chat",
+  "agent-chat/capabilities",
+  "agent-chat/feedback",
+  "agent-chat/proposals",
+  "agent-chat/proposals/typed",
 ]);
 
 /** The only pod routes this app reaches directly. */
 function isOwnerPodRoute(route: string): boolean {
-  if (OWNER_POD_ROUTES.has(route)) return true;
-  return route === "agent-chat" || route === "agent-chat/capabilities" ||
-    /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/.test(route) ||
-    /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/.test(route);
+  if (OWNER_POD_ROUTES.has(route) || OWNER_POD_AGENT_ROUTES.has(route)) return true;
+  return OWNER_POD_ROUTE_PATTERNS.some((pattern) => pattern.test(route));
 }
 
 export async function ownerPodRequest(
@@ -44,7 +73,11 @@ export async function ownerPodRequest(
   init: RequestInit,
   ports: AccessPorts,
   expectedHushhId?: string,
+  expectedUserId?: string,
+  expectedVaultEpoch?: number,
 ): Promise<Response> {
+  const vaultEpoch = expectedVaultEpoch ?? snapshotVaultSessionEpoch();
+  if (!isVaultSessionEpochCurrent(vaultEpoch)) throw new Error("POD_VAULT_SESSION_CHANGED");
   const refuseCancelled = () => {
     if (init.signal?.aborted)
       throw init.signal.reason ?? new DOMException("Agent request cancelled", "AbortError");
@@ -55,6 +88,7 @@ export async function ownerPodRequest(
     throw new Error("POD_APP_ROUTE_REFUSED");
   const uid = AuthService.getCurrentUser()?.uid;
   if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+  if (expectedUserId && expectedUserId !== uid) throw new Error("POD_OWNER_CHANGED");
   const ownerPod = await import("./owner-pod-endpoint");
   const transport = await ports.transport();
   const chatTurn = route === "agent-chat" && init.method?.toUpperCase() === "POST";
@@ -91,6 +125,33 @@ export async function ownerPodRequest(
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.session}`);
   const method = (init.method ?? "GET").toUpperCase();
+  if (route.startsWith("browser/")) {
+    const read = route === "browser/capability" ||
+      /^browser\/tasks\/browser_[a-f0-9]{32}(\/frame)?$/.test(route);
+    const scope = read ? "browser.observe" : route === "browser/tasks" ? "browser.invoke" : "browser.control";
+    if (session.role !== "app" || !session.scopes.includes(scope) ||
+        method !== (read ? "GET" : "POST")) {
+      throw new Error("POD_BROWSER_REQUEST_REFUSED");
+    }
+  }
+  if (route.startsWith("actions/") &&
+      (session.role !== "app" || !session.scopes.includes("pod.act") || method !== "POST")) {
+    throw new Error("POD_ACTION_REQUEST_REFUSED");
+  }
+  if (/^connectors\/(gmail|calendar|drive|contacts)$/.test(route)) {
+    if (!['GET', 'PUT', 'DELETE'].includes(method) ||
+        (method !== 'PUT' && body !== undefined && body !== null) ||
+        session.role !== 'app' || !session.scopes.includes(method === 'GET' ? 'pod.status' : 'pod.config')) {
+      throw new Error('POD_CONNECTOR_REQUEST_REFUSED');
+    }
+    if (method === 'PUT') {
+      if (typeof body !== 'string') throw new Error('POD_CONNECTOR_REQUEST_REFUSED');
+      const { sealConnectorCredentialRequestBody } = await import('@/lib/one/connector-credential-seal');
+      body = await sealConnectorCredentialRequestBody(body, route.slice('connectors/'.length),
+        { userId: uid, endpoint, session, transport });
+      if (AuthService.getCurrentUser()?.uid !== uid) throw new Error('POD_OWNER_CHANGED');
+    }
+  }
   if (route === "ai-selection" && (method !== "GET" && method !== "DELETE" || (body !== undefined && body !== null))) {
     // The plaintext selection is sealed HERE, to the hub-signed key of exactly
     // the pod this request is addressed to. Any body on this route must be a
@@ -102,6 +163,10 @@ export async function ownerPodRequest(
   }
   refuseCancelled();
   const request: RequestInit = { ...init, credentials: "omit", body, headers, cache: "no-store" };
+  if (/^connectors\/(gmail|calendar|drive|contacts)$/.test(route) && method === "PUT" &&
+      !isVaultSessionEpochCurrent(vaultEpoch)) {
+    throw new Error("POD_VAULT_SESSION_CHANGED");
+  }
   const response = chatTurn
     ? await sendChatTurn(endpoint.url, request, ports.fetch)
     : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
@@ -354,7 +419,14 @@ export async function usesOwnerPod(hosting: () => Promise<{ hostingMode?: string
   if (!usePod) {
     const status = await hosting();
     if (status.hostingMode === "byoc") usePod = true;
-    else if (status.hostingMode !== "shared") throw new Error("AGENT_PRIVATE_RUNTIME_REQUIRED");
+    else if (status.hostingMode !== "shared") {
+      // The placement travels with the refusal so the copy can name the next step.
+      const mode = /^[a-z_]{1,32}$/.test(String(status.hostingMode ?? "")) ? status.hostingMode : "unknown";
+      throw Object.assign(new Error("AGENT_PRIVATE_RUNTIME_REQUIRED"), {
+        code: `AGENT_PRIVATE_RUNTIME_REQUIRED:${mode}`,
+        hostingMode: mode,
+      });
+    }
   }
   if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
   return usePod;

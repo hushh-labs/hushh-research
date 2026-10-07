@@ -824,6 +824,7 @@ class PersonalGmailInformationRequestService:
         include_recent_inbox: bool = False,
         on_progress: ScanProgressCallback | None = None,
     ) -> dict[str, Any]:
+        await GmailReceiptsService._require_hub_content(user_id, "gmail_personal_monitor")
         monitor_state = await self._monitor_state(user_id=user_id)
         expected_generation = int(monitor_state.get("monitoring_generation") or 0)
         trace_kyc_debug(
@@ -874,8 +875,8 @@ class PersonalGmailInformationRequestService:
 
         monitor_history_id = _text(monitor_state.get("monitor_history_id"))
         if not monitor_history_id:
-            monitor_history_id = await self.gmail_service.capture_personal_inbox_monitor_history_id(
-                user_id=user_id
+            monitor_history_id = await self._monitor_provider_read(
+                user_id, self.gmail_service.capture_personal_inbox_monitor_history_id
             )
             checkpointed = await self._set_monitor_checkpoint(
                 user_id=user_id,
@@ -900,8 +901,9 @@ class PersonalGmailInformationRequestService:
                     next_page_token,
                     high_water_history_id,
                     next_message_offset,
-                ) = await self.gmail_service.list_personal_inbox_monitor_history_page(
-                    user_id=user_id,
+                ) = await self._monitor_provider_read(
+                    user_id,
+                    self.gmail_service.list_personal_inbox_monitor_history_page,
                     start_history_id=monitor_history_id,
                     page_token=_text(monitor_state.get("monitor_cursor")) or None,
                     message_offset=int(monitor_state.get("monitor_message_offset") or 0),
@@ -911,10 +913,8 @@ class PersonalGmailInformationRequestService:
             except GmailApiError as exc:
                 if exc.status_code != 404:
                     raise
-                monitor_history_id = (
-                    await self.gmail_service.capture_personal_inbox_monitor_history_id(
-                        user_id=user_id
-                    )
+                monitor_history_id = await self._monitor_provider_read(
+                    user_id, self.gmail_service.capture_personal_inbox_monitor_history_id
                 )
                 checkpointed = await self._set_monitor_checkpoint(
                     user_id=user_id,
@@ -1003,8 +1003,9 @@ class PersonalGmailInformationRequestService:
             (
                 messages,
                 next_page_token,
-            ) = await self.gmail_service.list_personal_inbox_monitor_page(
-                user_id=user_id,
+            ) = await self._monitor_provider_read(
+                user_id,
+                self.gmail_service.list_personal_inbox_monitor_page,
                 # Setup intentionally uses one newest-first page only. History
                 # is the durable, incremental source for every later scan.
                 page_token=None,
@@ -1087,6 +1088,14 @@ class PersonalGmailInformationRequestService:
             "retry_pending": True,
         }
 
+    @staticmethod
+    async def _monitor_provider_read(user_id: str, operation: Any, **kwargs: Any) -> Any:
+        """A placement change during a provider wait stops the next content step."""
+        await GmailReceiptsService._require_hub_content(user_id, "gmail_personal_monitor")
+        result = await operation(user_id=user_id, **kwargs)
+        await GmailReceiptsService._require_hub_content(user_id, "gmail_personal_monitor")
+        return result
+
     async def _classify_messages(
         self,
         *,
@@ -1127,6 +1136,7 @@ class PersonalGmailInformationRequestService:
                         message=message,
                         expected_generation=expected_generation,
                     )
+                await GmailReceiptsService._require_hub_content(user_id, "gmail_personal_monitor")
                 recorded = await self._record_scan_state(
                     user_id=user_id,
                     gmail_message_id=message_id,
@@ -1151,6 +1161,14 @@ class PersonalGmailInformationRequestService:
                     "processing.classification_failed",
                     error_type=type(exc).__name__,
                     error_code=exc.code,
+                )
+                return None, True
+            except GmailApiError as exc:
+                if exc.code in {"AGENT_PRIVATE_RUNTIME_REQUIRED", "AGENT_HOSTING_UNAVAILABLE"}:
+                    raise
+                logger.warning(
+                    "gmail.personal_information_request.classification_failed error=%s",
+                    type(exc).__name__,
                 )
                 return None, True
             except Exception as exc:  # noqa: BLE001 - one bad provider item must not stop the batch
@@ -1252,12 +1270,19 @@ class PersonalGmailInformationRequestService:
         started_at = time.monotonic()
         bounded = max(1, min(int(max_users or 20), _BACKGROUND_USER_LIMIT))
         rows = await self._claim_enabled_users(max_users=bounded)
+        from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
         async def _scan_owner(row: dict[str, Any]) -> bool:
             user_id = _text(row.get("user_id"))
             lease_id = _text(row.get("lease_id"))
             expected_generation = int(row.get("monitoring_generation") or 0)
             try:
+                if not user_id:
+                    raise ValueError("monitor lease has no owner")
+                # Scheduler identity authorizes maintenance, never an owner's
+                # content. Re-read each claimed owner's current placement before
+                # scan_recent can obtain messages or invoke the classifier.
+                await admit_hub_content(user_id, "gmail_personal_information_request_scan")
                 await asyncio.wait_for(
                     self.scan_recent(
                         user_id=user_id,
@@ -1265,6 +1290,7 @@ class PersonalGmailInformationRequestService:
                     ),
                     timeout=_BACKGROUND_SCAN_TIMEOUT_SECONDS,
                 )
+                await admit_hub_content(user_id, "gmail_personal_information_request_scan")
                 await self._finish_scan_lease(
                     user_id=user_id,
                     lease_id=lease_id,
@@ -1917,7 +1943,9 @@ class PersonalGmailInformationRequestService:
         if not message_id or not thread_id:
             trace_kyc_debug("processing.message_invalid")
             return None
+        await GmailReceiptsService._require_hub_content(user_id, "gmail_personal_monitor")
         classification = await self._classify(message)
+        await GmailReceiptsService._require_hub_content(user_id, "gmail_personal_monitor")
         trace_kyc_debug(
             "classifier.completed",
             message_ref=kyc_message_ref(message_id),
@@ -1953,6 +1981,7 @@ class PersonalGmailInformationRequestService:
                 )
                 if not self._monitoring_matches(preference, expected_generation):
                     return None
+                await GmailReceiptsService._require_hub_content(user_id, "gmail_personal_monitor")
                 row = await conn.fetchrow(
                     """
                     INSERT INTO gmail_personal_information_requests (

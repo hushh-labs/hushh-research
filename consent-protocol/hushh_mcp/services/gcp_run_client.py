@@ -198,7 +198,9 @@ class GcpRunClient:
         r.raise_for_status()
         return dict(r.json())
 
-    def set_invoker_binding(self, name: str, member: str) -> dict[str, Any]:
+    def set_invoker_binding(
+        self, name: str, member: str, *, expected_uid: Optional[str] = None
+    ) -> dict[str, Any]:
         """Allow exactly ``member`` to invoke this pod. Read-modify-write, never blind.
 
         **Read-modify-write, not overwrite.** ``setIamPolicy`` replaces the whole
@@ -227,7 +229,11 @@ class GcpRunClient:
                 "publicly invokable"
             )
 
+        if expected_uid is not None:
+            self.require_service_uid(self.get_service(name), expected_uid)
         policy = self.get_iam_policy(name)
+        if expected_uid is not None:
+            self.require_service_uid(self.get_service(name), expected_uid)
         bindings = [dict(b) for b in (policy.get("bindings") or [])]
         for binding in bindings:
             if binding.get("role") == _INVOKER_ROLE:
@@ -248,26 +254,33 @@ class GcpRunClient:
         # racing writer's change would be overwritten with no error.
         if policy.get("etag"):
             body["policy"]["etag"] = policy["etag"]
+        elif expected_uid is not None:
+            raise RuntimeError("Cloud Run IAM concurrency version unavailable")
+
+        if expected_uid is not None:
+            self.require_service_uid(self.get_service(name), expected_uid)
 
         r = requests.post(
             self._iam_url(name, "setIamPolicy"), headers=self._headers(), json=body, timeout=30
         )
         r.raise_for_status()
+        if expected_uid is not None:
+            self.require_service_uid(self.get_service(name), expected_uid)
         logger.info("gcp_run.invoker_bound service=%s", name)
         return dict(r.json())
 
     def grant_public_invoker(self, name: str, *, direct_ingress_axis: str) -> dict[str, Any]:
         """Bind ``allUsers`` as ``run.invoker`` on ONE pod, for the direct-ingress axis only.
 
-        This is deliberately a different method from ``set_invoker_binding``, whose
-        refusal of ``allUsers`` stands untouched. A pod on ``PodSpec.ingress = direct``
-        is dialled by its owner's browser and device with no Google identity, so the
-        service must be invokable by anyone and the pod's own ``PodIngressPolicy`` is
-        the lock on its machine routes. The caller names the axis explicitly so a
-        stray call cannot reach this by accident, and ``pod_ingress_mode`` has already
-        refused the axis outside the dev lane before any renderer gets here.
+        Deliberately not ``set_invoker_binding``, whose refusal of ``allUsers`` stands.
+        A direct pod is dialled by its owner's app with no Google identity, so anyone
+        may invoke it and the pod's ``PodIngressPolicy`` wall locks its machine routes.
+        Two callers: provisioning on ``PodSpec.ingress = direct`` (``pod_ingress_mode``
+        refuses the managed tier off dev) and ``owner_direct_widen``, which grants it
+        BEFORE setting ingress ``all`` so an org-policy refusal changes nothing. The
+        axis is named explicitly so a stray call cannot reach this by accident.
 
-        Read-modify-write with the etag, exactly like the member binding.
+        Read-modify-write with the etag, exactly like the member binding. Idempotent.
         """
         import requests  # type: ignore[import-untyped]
 

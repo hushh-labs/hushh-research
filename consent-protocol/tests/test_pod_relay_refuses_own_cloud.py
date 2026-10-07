@@ -3,8 +3,10 @@
 An agent in the person's own cloud (``user_gcp``, ``user_azure``) is chatted with
 browser to agent. The old relay doors (``/turn`` and conversation close) accepted the
 message, history, decrypted records and model key in plaintext, so for those owners
-they must refuse BEFORE a grant is minted or a pod is dialled. Hussh-hosted pods
-(``gcp``) are reached only through the hub, so the same doors keep working for them.
+they must refuse BEFORE a grant is minted or a pod is dialled. At the route, the hub
+content guard (``hub_content_firebase``) now refuses every private placement, Hussh
+Pods (``gcp``) included: Hussh Pods chat is direct only. The core functions below keep
+their row-level refusal as a backstop.
 """
 
 from __future__ import annotations
@@ -154,7 +156,22 @@ async def test_a_non_owner_still_gets_the_single_not_authorized_answer():
     assert exc.value.status_code == 403
 
 
-async def test_a_hussh_hosted_pod_still_answers_through_the_hub():
+def test_the_turn_and_close_routes_admit_through_the_hub_content_guard():
+    """Route level: Hussh Pods owners are refused here too (409 with hostingMode
+    ``hussh_pods``); tests/test_hub_content_routes_guarded.py calls each route."""
+    from fastapi.routing import APIRoute
+
+    from hushh_mcp.services.owner_placement_guard import hub_content_firebase
+
+    for endpoint in (pod_relay.relay_pod_turn_route, pod_relay.relay_pod_conversation_close_route):
+        route = next(r for r in pod_relay.router.routes if getattr(r, "endpoint", None) is endpoint)
+        assert isinstance(route, APIRoute)
+        assert hub_content_firebase in [d.call for d in route.dependant.dependencies]
+
+
+async def test_the_core_relay_backstop_is_specific_to_own_cloud_rows():
+    """The core function's row backstop refuses only own-cloud targets; a ``gcp`` row
+    passes it. The route never reaches this for a Hussh Pods owner (guard above)."""
     grants, pod = _Grants(), _Pod()
     result = await _turn("gcp", grants=grants, pod=pod)
     assert result["text"] == "hello"

@@ -80,6 +80,7 @@ async def pod_tick(
     # the pod's configuration record (`memory_bank_rebuild_on_tick`) and by the
     # recorded provider consent; a pod without a bank reports and does nothing.
     report = await memory_bank_rebuild_job()
+    gmail = await gmail_notification_job()
     logger.info(
         "pod_maintenance.tick email=%s memory_bank_rebuild=%s",
         getattr(identity, "email", "<none>"),
@@ -89,7 +90,26 @@ async def pod_tick(
         "ok": True,
         "work": "memory_bank_rebuild" if report.get("outcome") == "rebuilt" else "none",
         "memoryBankRebuild": report,
+        "gmailNotifications": gmail,
     }
+
+
+async def gmail_notification_job(*, doorbell: Any = None) -> dict[str, Any]:
+    """Renew an opted-in watch and continue bounded durable notification work."""
+    from hushh_mcp.services.pod_gmail_doorbell import pod_gmail_doorbell
+    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+
+    if not owner_cloud_agent():
+        return {"status": "disabled"}
+    try:
+        bell = doorbell if doorbell is not None else pod_gmail_doorbell()
+        watch = await bell.renew_if_due()
+        if watch.get("status") not in {"watching", "watch_current"}:
+            return watch
+        return await bell.catch_up()
+    except Exception as exc:  # noqa: BLE001 - failed work remains durable for bounded retry
+        logger.info("pod_maintenance.gmail_deferred reason=%s", type(exc).__name__)
+        return {"status": "deferred", "code": "GMAIL_NOTIFICATION_UNAVAILABLE"}
 
 
 async def memory_bank_rebuild_job(

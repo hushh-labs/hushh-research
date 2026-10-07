@@ -276,6 +276,12 @@ _service: GmailMailboxActions | None = None
 
 
 def get_gmail_mailbox_actions() -> GmailMailboxActions:
+    """The hub's actions; inside an owner-cloud agent, the agent's own (``pod_gmail_mailbox``)."""
+    from hushh_mcp.services.pod_gmail_mailbox import pod_mailbox_actions
+
+    pod = pod_mailbox_actions()
+    if pod is not None:
+        return pod
     global _service
     if _service is None:
         _service = GmailMailboxActions()

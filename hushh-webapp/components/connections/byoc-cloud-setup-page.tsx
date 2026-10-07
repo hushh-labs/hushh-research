@@ -9,22 +9,18 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
-import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
 import { ByocSetupFailedCard } from "@/components/connections/byoc-setup-failed-card";
 import { AzureFreeTrialNote, SetupStageChecklist } from "@/components/connections/byoc-setup-stage-checklist";
+import { HostingChoiceCards, type HostingChoice } from "@/components/connections/hosting-choice-cards";
 import {
-  HostingChoiceCards,
-  type HostingChoice,
-  type HostingChoiceOption,
-} from "@/components/connections/hosting-choice-cards";
+  AttachBlockedCard,
+  ConnectingToAgentCard,
+  ConsentPendingCard,
+  DirectIngressBlockedCard,
+  HusshPodsPausedCard,
+  hostingOptionsFor,
+} from "@/components/connections/hosting-placement-cards";
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
-import {
-  DedicatedHostingRowIcon,
-  OwnCloudRowIcon,
-  PauseRowIcon,
-  SharedHostingRowIcon,
-} from "@/components/icons";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -38,6 +34,15 @@ import {
   setupJobProvider,
   setupRetryFor,
 } from "@/lib/one/cloud-setup-stages";
+import {
+  consentPendingEntry,
+  directIngressBlocker,
+  readHostingMode,
+  retryDirectIngress,
+  retryOwnerCloudAttach,
+  type DirectIngressBlocker,
+  type HostingMode,
+} from "@/lib/one/hosting-placement";
 import {
   isAzureHomeSelectable,
   isOwnerCloudTarget,
@@ -54,8 +59,8 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
  * `/one/setup/cloud` — where a person's private agent gets somewhere to live.
  *
  * This step chooses the hosting placement independently of AI provider access.
- * Shared is the default when the server confirms no pod assignment or pending
- * setup; BYOC and the gated Hussh Pods path are explicit alternatives.
+ * Nothing is a default: a person with no placement (`unplaced`) picks a tier, and
+ * Shared is recorded only when chosen. An own cloud runs to "Connecting" until direct.
  *
  * The owner signs in to their cloud once: Google for a Google Cloud project,
  * Microsoft for an Azure subscription. The server creates or verifies the home,
@@ -105,9 +110,10 @@ export function ByocCloudSetupPage() {
   > | null>(null);
   const [sharedChosen, setSharedChosen] = useState(false);
   const [sharedSaving, setSharedSaving] = useState(false);
-  const [hostingMode, setHostingMode] = useState<
-    "shared" | "byoc" | "hussh_pods" | "pending" | "unknown" | null
-  >(null);
+  const [hostingMode, setHostingMode] = useState<HostingMode | null>(null);
+  // Lifecycle state and the hub's typed org-policy blocker, for the direct path.
+  const [agentState, setAgentState] = useState<string | null>(null);
+  const [directBlocker, setDirectBlocker] = useState<DirectIngressBlocker | null>(null);
   const [hostingStatusChecked, setHostingStatusChecked] = useState(false);
   const [reservedProjectId, setReservedProjectId] = useState<string | null>(null);
   // Which owner cloud the registry names, so a reserved or assigned Azure home
@@ -156,9 +162,11 @@ export function ByocCloudSetupPage() {
     void ApiService.getPersonalAgentStatus()
       .then((status) => {
         if (cancelled) return;
-        const mode = status.hostingMode ?? "unknown";
+        const mode = readHostingMode(status.hostingMode);
         const provider = ownerCloudProvider(status.deploymentTarget);
         setHostingMode(mode);
+        setAgentState(status.state ?? null);
+        setDirectBlocker(directIngressBlocker(status));
         setOwnerProvider(provider);
         setHostingStatusChecked(true);
         const unassignedByoc =
@@ -191,6 +199,12 @@ export function ByocCloudSetupPage() {
       cancelled = true;
     };
   }, [user?.uid, agentStatusNonce]);
+  const refreshAgent = useCallback(() => setAgentStatusNonce((value) => value + 1), []);
+  // A recorded job is read once; an attach outcome (attachBlocked) needs both re-read.
+  const refreshAttach = useCallback(() => {
+    refreshAgent();
+    setSetupPollNonce((value) => value + 1);
+  }, [refreshAgent]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -383,6 +397,7 @@ export function ByocCloudSetupPage() {
       const result = await ApiService.selectSharedHosting();
       setHostingMode(result.hostingMode);
       setSharedChosen(true);
+      setJob(null); // a begun setup's intent is cleared by the choice
       if (user?.uid) {
         await PreVaultUserStateService.bootstrapState(user.uid, {
           force: true,
@@ -390,7 +405,7 @@ export function ByocCloudSetupPage() {
       }
     } catch {
       setError(
-        "We could not confirm that no pod is assigned yet. Your existing setup is unchanged; refresh and try again.",
+        "We could not switch you to Hussh Shared. Your existing setup is unchanged; refresh and try again.",
       );
     } finally {
       setSharedSaving(false);
@@ -416,47 +431,9 @@ export function ByocCloudSetupPage() {
     choice ?? (sharedConfirmed ? "shared" : null);
   // Azure is named only on a build where it can actually be chosen.
   const azureSelectable = isAzureHomeSelectable();
-  const hostingOptions: HostingChoiceOption[] = [
-    // Your own cloud leads: it is the private agent Hussh is built around.
-    {
-      value: "own",
-      icon: OwnCloudRowIcon,
-      title: "Bring your own cloud",
-      description: azureSelectable
-        ? "Your agent runs in your own Google Cloud Platform or Microsoft Azure account. You own it and pay for it."
-        : "Your agent runs in your own Google Cloud Platform account. You own it and pay for it.",
-      supporting: (
-        <>
-          <GoogleCloudLogo decorative className="h-4" />
-          {azureSelectable ? <MicrosoftAzureLogo decorative className="h-4 w-4" /> : null}
-        </>
-      ),
-      supportingDecorative: true,
-      testId: "cloud-tier-own",
-    },
-    {
-      value: "shared",
-      icon: SharedHostingRowIcon,
-      title: "Hussh Shared",
-      description: "Start right away. Your private information stays locked to you.",
-      supporting: "Not a dedicated agent. You can move to your own cloud later.",
-      testId: "cloud-tier-shared-option",
-    },
-    {
-      value: "hosted",
-      icon: DedicatedHostingRowIcon,
-      title: "Hussh Pods",
-      description: "A dedicated agent we run for you.",
-      supporting: hostedUnderMaintenance ? (
-        <>
-          <PauseRowIcon size={14} color="currentColor" aria-hidden="true" />
-          Paused for maintenance
-        </>
-      ) : undefined,
-      unavailable: hostedUnderMaintenance,
-      testId: "cloud-tier-hosted",
-    },
-  ];
+  const hostingOptions = hostingOptionsFor({ azureSelectable, hostedUnderMaintenance });
+  const consentIntent = consentPendingEntry(job);
+  const attachBlocked = (job as { attachBlocked?: string | null } | null)?.attachBlocked ?? null;
   // The one commit under the cards. Shared keeps its two ids: the confirm on a
   // confirmed Shared state, and the plain pick where Shared is not yet the default.
   const hostingCommit =
@@ -553,6 +530,14 @@ export function ByocCloudSetupPage() {
                 : handleProjectNamed(retry.projectId))
             }
           />
+        ) : consentIntent && !authorized ? (
+          <ConsentPendingCard
+            entry={consentIntent}
+            busy={saving || azureSignIn.starting || sharedSaving}
+            onContinue={consentIntent.provider === "azure" ? () => void startAzureSetup()
+              : consentIntent.project ? () => void handleProjectNamed(consentIntent.project) : null}
+            onChooseShared={() => void chooseShared()}
+          />
         ) : (!checked || !hostingStatusChecked) && !checkTimedOut && !authorized ? (
           <p
             className="text-sm text-[var(--app-text-secondary)]"
@@ -561,6 +546,9 @@ export function ByocCloudSetupPage() {
           >
             Checking your agent home…
           </p>
+        ) : hostingMode === "byoc" && directBlocker ? (
+          <DirectIngressBlockedCard blocker={directBlocker}
+            onRetry={() => void retryDirectIngress().finally(refreshAgent)} />
         ) : connectedBefore ? (
           // Revisit: the cloud is recorded and proven; first-time setup cannot move an assigned pod.
           <div
@@ -576,15 +564,10 @@ export function ByocCloudSetupPage() {
             <AzureFreeTrialNote stages={job?.stages} />
           </div>
         ) : recordedReservedProject ? (
-          <div
-            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
-            data-testid="byoc-reserved-project-recorded"
-          >
-            <p className="text-sm font-semibold">Your cloud is connected</p>
-            <p className="text-sm text-[var(--app-text-secondary)]">
-              {reservedProjectId} is ready. Finish model setup to start your private agent.
-            </p>
-          </div>
+          // The recorded home attaches by itself; a stop is shown with its typed reason.
+          attachBlocked ? <AttachBlockedCard code={attachBlocked}
+            onRetry={() => void retryOwnerCloudAttach().finally(refreshAttach)} />
+            : <ConnectingToAgentCard onRefresh={refreshAttach} />
         ) : reservedProjectId && setupStatusReadOk && job === null ? (
           <div
             className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
@@ -622,6 +605,8 @@ export function ByocCloudSetupPage() {
               Refresh status
             </button>
           </div>
+        ) : hostingMode === "pending" && (agentState === "provisioning" || agentState === "connecting") ? (
+          <ConnectingToAgentCard onRefresh={refreshAttach} />
         ) : hostingMode === "pending" ? (
           <div
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
@@ -634,15 +619,7 @@ export function ByocCloudSetupPage() {
             </p>
           </div>
         ) : hostingMode === "hussh_pods" ? (
-          <div
-            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
-            data-testid="hussh-pods-assigned"
-          >
-            <p className="text-sm font-semibold">Hussh Pods is assigned to your account</p>
-            <p className="text-sm text-[var(--app-text-secondary)]">
-              Your existing pod remains in place. New Hussh Pods assignments are currently paused.
-            </p>
-          </div>
+          <HusshPodsPausedCard />
         ) : hostingMode === "unknown" || hostingMode === null ? (
           <div
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"

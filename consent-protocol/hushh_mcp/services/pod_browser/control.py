@@ -46,6 +46,26 @@ class BrowserControl:
         self._agent_started = clock()
         self._last_activity = clock()
         self._initialized = False
+        self._frame: BrowserFrame | None = None
+        self._revision = 1
+        self._outcome_uncertain = False
+
+    @property
+    def outcome_uncertain(self) -> bool:
+        return self._outcome_uncertain
+
+    @property
+    def revision(self) -> int:
+        return self._revision
+
+    @property
+    def control_owner(self) -> Literal["agent", "owner", "stopped", "uncertain"]:
+        return self._mode
+
+    @property
+    def latest_frame(self) -> BrowserFrame | None:
+        """Memory-only owner preview; never a model observation grant."""
+        return self._frame
 
     @property
     def control_epoch(self) -> int:
@@ -79,6 +99,18 @@ class BrowserControl:
             await self._check()
             if actor != self._mode or action.control_epoch != self._epoch:
                 raise BrowserRefused("BROWSER_CONTROL_CHANGED")
+            if actor != "owner" and action.focus_existing:
+                raise BrowserRefused("BROWSER_OWNER_INPUT_REQUIRED")
+            if any(
+                value is not None and value >= bound
+                for value, bound in (
+                    (action.x, 1280),
+                    (action.y, 720),
+                    (action.destination_x, 1280),
+                    (action.destination_y, 720),
+                )
+            ):
+                raise BrowserRefused("BROWSER_COORDINATES_INVALID")
             if action.sequence != self.next_sequence:
                 raise BrowserRefused("BROWSER_ACTION_REPLAY")
             if not self._initialized:
@@ -112,12 +144,17 @@ class BrowserControl:
                 await self._check()
                 if effect:
                     await self._authority.settle_dispatch(self.binding, action, uncertain=False)
+                self._frame = frame
+                self._revision += 1
                 return frame
             except BaseException as exc:
                 if isinstance(exc, BrowserRefused) and exc.code == "BROWSER_OUTCOME_UNCERTAIN":
+                    self._outcome_uncertain = True
                     if self._mode != "stopped":
                         self._mode = "uncertain"
+                        self._revision += 1
                 if effect:
+                    self._outcome_uncertain = True
                     if self._mode != "stopped":
                         self._mode = "uncertain"
                     # Keep the initial journal authoritative if settlement also
@@ -145,6 +182,7 @@ class BrowserControl:
                 self._active_seconds += max(0.0, self._clock() - self._agent_started)
             self._mode = "owner"
             self._epoch += 1
+            self._revision += 1
             self._last_activity = self._clock()
             return self._epoch
 
@@ -203,9 +241,11 @@ class BrowserControl:
                 raise BrowserRefused("BROWSER_FRAME_MISMATCH")
             await self._check()
             self._sequence = action.sequence
+            self._frame = frame
             self._mode = "agent"
             self._agent_started = self._clock()
             self._epoch += 1
+            self._revision += 1
             self._last_activity = self._clock()
             return frame
 
@@ -215,6 +255,8 @@ class BrowserControl:
         # remain in the owning journal.
         self._mode = "stopped"
         self._epoch += 1
+        self._revision += 1
+        self._frame = None
         await self._executor.close()
         async with self._lock:
             self._initialized = False
@@ -225,6 +267,8 @@ class BrowserControl:
                 return False
             self._mode = "stopped"
             self._epoch += 1
+            self._revision += 1
+            self._frame = None
             await self._executor.close()
             self._initialized = False
             return True

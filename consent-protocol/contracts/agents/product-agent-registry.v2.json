@@ -4078,9 +4078,15 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "f7521b5a7e3fbddf9a92b94dca0bce2647d99edfe6f23b6864cbdc184cf9f74a",
+      "system_instruction_sha256": "f85fb856880c669c22cb2b55a0667ea5e6f831eb985ae487113f04c264964ac8",
       "telemetry_namespace": "agent.one",
       "tools": [
+        {
+          "description": "Delegate one explicit owner-authorized browser task to the qualified native private-pod specialist; return task metadata only, with private model/screen and website reviews handled in the owner UI.",
+          "name": "start_browser_task",
+          "py_func": "hushh_mcp.one_adk.computer_use_agent.start_browser_task",
+          "required_scope": "browser.invoke"
+        },
         {
           "description": "Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.",
           "name": "inspect_private_connectors",

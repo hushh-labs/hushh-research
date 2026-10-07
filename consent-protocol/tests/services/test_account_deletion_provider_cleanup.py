@@ -6,9 +6,11 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 from hushh_mcp.services import account_deletion_provider_cleanup as cleanup
+from hushh_mcp.services import pod_google_oauth
 from hushh_mcp.services.account_deletion_provider_cleanup import (
     ProviderCredentialSnapshot,
     release_provider_grants_after_erasure,
@@ -187,9 +189,9 @@ def gmail(monkeypatch) -> GmailReceiptsService:
 async def test_gmail_erasure_stops_a_live_watch_before_revoking(gmail, monkeypatch):
     order: list[str] = []
     post_json = AsyncMock(side_effect=lambda url, **_: order.append(url) or {})
-    post_form = AsyncMock(side_effect=lambda url, data, headers=None: order.append(url) or {})
+    post_form = AsyncMock(side_effect=lambda url, data: (order.append(url) or 200, {}))
     monkeypatch.setattr(gmail, "_http_post_json", post_json)
-    monkeypatch.setattr(gmail, "_http_post_form", post_form)
+    monkeypatch.setattr(pod_google_oauth, "http_post", post_form)
 
     outcome = await gmail.stop_watch_and_revoke_for_erasure(
         _gmail_row(gmail, access_expires_in=timedelta(minutes=30), watch_status="active")
@@ -209,7 +211,7 @@ async def test_gmail_erasure_refreshes_an_expired_access_token_for_stop(gmail, m
     post_json = AsyncMock(return_value={})
     monkeypatch.setattr(gmail, "_refresh_access_token", refresh)
     monkeypatch.setattr(gmail, "_http_post_json", post_json)
-    monkeypatch.setattr(gmail, "_http_post_form", AsyncMock(return_value={}))
+    monkeypatch.setattr(pod_google_oauth, "http_post", AsyncMock(return_value=(200, {})))
 
     outcome = await gmail.stop_watch_and_revoke_for_erasure(
         _gmail_row(gmail, access_expires_in=timedelta(minutes=-5), watch_status="active")
@@ -220,21 +222,34 @@ async def test_gmail_erasure_refreshes_an_expired_access_token_for_stop(gmail, m
     assert outcome["gmail_watch"] == "stopped"
 
 
-async def test_gmail_erasure_reports_failures_without_raising(gmail, monkeypatch):
-    monkeypatch.setattr(gmail, "_http_post_json", AsyncMock(side_effect=RuntimeError("503")))
-    monkeypatch.setattr(gmail, "_http_post_form", AsyncMock(side_effect=RuntimeError("503")))
+@pytest.mark.parametrize("status,body", [(302, {}), (503, {"error": "invalid_token"})])
+async def test_gmail_erasure_reports_failures_without_raising(gmail, monkeypatch, status, body):
+    requests = []
+
+    def provider(request):
+        requests.append(request)
+        return httpx.Response(
+            status, headers={"Location": "https://accounts.google.com/signin"}, json=body
+        )
+
+    original_client = httpx.AsyncClient
+    transport = httpx.MockTransport(provider)
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kwargs: original_client(transport=transport, **kwargs)
+    )
 
     outcome = await gmail.stop_watch_and_revoke_for_erasure(
         _gmail_row(gmail, access_expires_in=timedelta(minutes=30), watch_status="active")
     )
 
     assert outcome == {"gmail_watch": "failed", "gmail_grant": "failed"}
+    assert len(requests) == 2, "a watch redirect and grant failure never count as cleanup"
 
 
 async def test_gmail_erasure_skips_stop_when_no_watch_is_live(gmail, monkeypatch):
     post_json = AsyncMock()
     monkeypatch.setattr(gmail, "_http_post_json", post_json)
-    monkeypatch.setattr(gmail, "_http_post_form", AsyncMock(return_value={}))
+    monkeypatch.setattr(pod_google_oauth, "http_post", AsyncMock(return_value=(200, {})))
     row = _gmail_row(gmail, access_expires_in=timedelta(minutes=30), watch_status="expired")
     row["watch_expiration_at"] = (datetime.now(UTC) - timedelta(days=1)).isoformat()
 

@@ -355,6 +355,19 @@ class _Registry(Protocol):
         evidence: dict,
     ) -> bool: ...
 
+    async def notification_checkpoint_admission_ready(self) -> bool: ...
+
+    async def publish_notification_checkpoint(
+        self,
+        *,
+        user_id: str,
+        kind: str,
+        attempt_id: str,
+        operation_id: str,
+        expected_generation: int,
+        checkpoint: dict,
+    ) -> dict | None: ...
+
     async def upsert(
         self,
         *,
@@ -934,6 +947,46 @@ class PersonalAgentProvisioningService:
             # orchestrator never names a provider to decide -- which is what keeps this
             # file passing tests/test_deployment_boundary_holds.py.
             substrate = self._substrate_for(spec)
+            # Rendering is pure. Keep the callback bound to this operation before
+            # the substrate's first notification mutation, then pin UID from its
+            # immutable creation acknowledgement inside the registry port.
+            notification_backend = self._backend_for(spec)
+            renderer = getattr(notification_backend, "render_bootstrap_plan", None)
+            target_for = getattr(notification_backend, "provision_target_for", None)
+            notification_ready = getattr(
+                self._registry, "notification_checkpoint_admission_ready", None
+            )
+            if (
+                callable(renderer)
+                and callable(target_for)
+                and notification_ready is not None
+                and await notification_ready()
+            ):
+                from hushh_mcp.services.pod_notification_checkpoint import (
+                    bind_notification_checkpoint,
+                )
+
+                def acknowledge_provision_notification(result: dict) -> None:
+                    nonlocal substrate_receipt
+                    # Keep the later host publication from overwriting an admitted
+                    # Scheduler creation receipt with the earlier bootstrap inventory.
+                    substrate_receipt = result["inventory"]
+
+                spec = replace(
+                    spec,
+                    on_notification_checkpoint=bind_notification_checkpoint(
+                        registry=self._registry,
+                        owner_loop=owner_loop,
+                        user_id=user_id,
+                        spec=spec,
+                        renderer=renderer,
+                        service=target_for(spec).get("service", ""),
+                        kind="provision",
+                        attempt_id=reservation["attemptId"],
+                        operation_id=reservation["attemptId"],
+                        acknowledge=acknowledge_provision_notification,
+                    ),
+                )
             receipt = await substrate.ensure(spec)
             substrate_receipt = receipt.as_record() if receipt.resource_ids else None
             await _record("provisioning", next_phase="substrate")
@@ -1875,6 +1928,46 @@ class PersonalAgentProvisioningService:
         owner_loop = asyncio.get_running_loop()
         persisted_acknowledgement: dict[str, Any] | None = None
 
+        renderer = getattr(backend, "render_bootstrap_plan", None)
+        notification_ready = getattr(
+            self._registry, "notification_checkpoint_admission_ready", None
+        )
+        if (
+            callable(renderer)
+            and approval_operation_id
+            and notification_ready is not None
+            and await notification_ready()
+        ):
+            from hushh_mcp.services.pod_notification_checkpoint import bind_notification_checkpoint
+
+            def acknowledge_notification(result: dict) -> None:
+                nonlocal claimed_metadata, claimed_row
+                # Called on the owner loop by the port below. Only this admitted
+                # checkpoint/inventory can advance our existing upgrade snapshot.
+                claimed_metadata = {
+                    **claimed_metadata,
+                    "notificationCheckpoint": result["checkpoint"],
+                    "substrateReceipt": result["inventory"],
+                }
+                claimed_row = {**claimed_row, "backend_metadata": dict(claimed_metadata)}
+
+            spec = replace(
+                spec,
+                on_notification_checkpoint=bind_notification_checkpoint(
+                    registry=self._registry,
+                    owner_loop=owner_loop,
+                    user_id=user_id,
+                    spec=spec,
+                    renderer=renderer,
+                    service=row["external_agent_id"],
+                    kind="upgrade",
+                    attempt_id=spec.upgrade_attempt_id or "",
+                    operation_id=approval_operation_id,
+                    previous=claimed_metadata.get("notificationCheckpoint"),
+                    acknowledge=acknowledge_notification,
+                ),
+            )
+
         if files_capability is not None:
             from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
 
@@ -2638,6 +2731,9 @@ class PersonalAgentProvisioningService:
         reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
         snapshot = reservation.get("registrySnapshot") or {}
         inventory = (snapshot.get("backend_metadata") or {}).get("substrateReceipt")
+        effective = getattr(self._registry, "effective_erasure_substrate_inventory", None)
+        if effective is not None:
+            inventory = await effective(reservation=reservation)
         retain = getattr(self._registry, "retain_erasure_substrate_inventory", None)
         if (
             not current
@@ -2900,24 +2996,44 @@ class PersonalAgentProvisioningService:
                 for item in inventory.get("plannedResources", [])
                 if isinstance(item, dict) and item.get("type") == kind
             ]
-            if len(planned) != 1:
+            if not 1 <= len(planned) <= 1024 or len({item.get("id") for item in planned}) != len(
+                planned
+            ):
                 raise RuntimeError("mail erasure inventory unresolved")
-            captured = [
-                item
-                for item in inventory.get("resourceObservations", [])
-                if isinstance(item, dict)
-                and item.get("type") == kind
-                and item.get("id") == planned[0].get("id")
-                and item.get("disposition") == "created"
-            ]
-            if len(captured) != 1:
-                raise RuntimeError("mail erasure creation evidence unavailable")
-            observations.append(captured[0])
+            for resource in planned:
+                captured = [
+                    item
+                    for item in inventory.get("resourceObservations", [])
+                    if isinstance(item, dict)
+                    and item.get("type") == kind
+                    and item.get("id") == resource.get("id")
+                    and item.get("disposition") == "created"
+                ]
+                if len(captured) != 1:
+                    raise RuntimeError("mail erasure creation evidence unavailable")
+                observations.append(captured[0])
 
         for observation in observations:
             kind = observation["type"]
 
-            async def append(stage: str, raw: dict, *, kind: str = kind) -> bool:
+            resource_id = observation["id"]
+
+            def resource_state(
+                saved: dict, *, kind: str = kind, resource_id: str = resource_id
+            ) -> dict:
+                state = saved.get("mailErasure", {}).get(kind, {})
+                if resource_id in state.get("resources", {}):
+                    return state["resources"][resource_id]
+                if (
+                    state.get("admission", {}).get("resourceObservation", {}).get("id")
+                    == resource_id
+                ):
+                    return {key: value for key, value in state.items() if key != "resources"}
+                return {}
+
+            async def append(
+                stage: str, raw: dict, *, kind: str = kind, resource_state=resource_state
+            ) -> bool:
                 nonlocal reservation
                 if stage == "admission":
                     await self._revoke_reserved_runtime_writer(user_id=user_id)
@@ -2944,7 +3060,7 @@ class PersonalAgentProvisioningService:
                     or observed.get("status") != "suspended"
                     or saved.get("ownerId") != user_id
                     or saved.get("attemptId") != attempt
-                    or saved.get("mailErasure", {}).get(kind, {}).get(stage) != receipt
+                    or resource_state(saved).get(stage) != receipt
                 ):
                     return False
                 reservation = saved
@@ -2956,7 +3072,7 @@ class PersonalAgentProvisioningService:
                 )
 
             states = {}
-            for stage, receipt in reservation.get("mailErasure", {}).get(kind, {}).items():
+            for stage, receipt in resource_state(reservation).items():
                 if (
                     not isinstance(receipt, dict)
                     or receipt.get("ownerId") != user_id

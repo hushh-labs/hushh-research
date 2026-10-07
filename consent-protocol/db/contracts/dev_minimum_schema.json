@@ -3,6 +3,8 @@
   "expected_migration_version": 268,
   "migration_version_policy": "minimum",
   "required_functions": [
+    "publish_personal_agent_notification_checkpoint",
+    "notification_checkpoint_admission_ready",
     "block_gmail_receipt_cache_writes",
     "project_calendar_mail_feed",
     "ensure_drive_share_management_context",

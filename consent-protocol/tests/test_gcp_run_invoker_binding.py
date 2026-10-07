@@ -150,6 +150,28 @@ def test_an_already_bound_member_writes_nothing(client, monkeypatch):
     assert fake.posted == []
 
 
+@pytest.mark.parametrize("changed_at", [None, 1, 2, 3])
+def test_uid_bound_grant_refuses_recreated_service(client, monkeypatch, changed_at):
+    """A supplied UID is checked against provider reads, never echoed as proof."""
+    fake = _install(monkeypatch, {"bindings": [], "etag": "e1"})
+    reads = 0
+
+    def observe(_name):
+        nonlocal reads
+        uid = "original" if changed_at is None or reads < changed_at else "replacement"
+        reads += 1
+        return {"metadata": {"uid": uid}}
+
+    monkeypatch.setattr(client, "get_service", observe)
+    if changed_at is None:
+        client.set_invoker_binding("one-pod-abc", HUB, expected_uid="original")
+        assert len(fake.posted) == 1
+        return
+    with pytest.raises(RuntimeError, match="incarnation"):
+        client.set_invoker_binding("one-pod-abc", HUB, expected_uid="original")
+    assert len(fake.posted) == (1 if changed_at == 3 else 0)
+
+
 def test_iam_uses_the_admin_surface_not_the_knative_one(client, monkeypatch):
     """There is no IAM verb under /apis/serving.knative.dev — a wrong base URL here
     would 404 at provision time, in the one code path nobody exercises locally."""

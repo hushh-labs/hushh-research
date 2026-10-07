@@ -169,6 +169,7 @@ class BrowserInformation:
         model: str,
         transport: str,
         allowed_origins: tuple[str, ...],
+        task_goal: str | None = None,
     ) -> dict:
         if (
             not 1 <= len(allowed_origins) <= 20
@@ -185,6 +186,10 @@ class BrowserInformation:
             "origins": [public_origin(origin) for origin in allowed_origins],
             "screen_processing": True,
         }
+        if task_goal is not None:
+            if not isinstance(task_goal, str) or not 1 <= len(task_goal) <= 4096:
+                raise BrowserRefused("BROWSER_PROCESSING_TERMS_INVALID")
+            terms["task_goal"] = task_goal
         await self._consent.require(binding, "model_process", terms)
         # Recheck source revisions after approval and refuse a changed projection.
         if values != await self._read(binding, fields):
@@ -240,6 +245,7 @@ class BrowserModelProcessing:
     model_name: str
     transport: str
     allowed_origins: tuple[str, ...]
+    task_goal: str | None = private_field(default=None, repr=False)
 
     async def require(self) -> dict:
         return await self.information.for_model(
@@ -248,4 +254,5 @@ class BrowserModelProcessing:
             model=self.model_name,
             transport=self.transport,
             allowed_origins=self.allowed_origins,
+            task_goal=self.task_goal,
         )

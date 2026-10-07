@@ -19,6 +19,7 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     release_provider_grants_after_erasure,
     snapshot_provider_credentials_in_transaction,
 )
+from hushh_mcp.services.byoc_setup_intent import is_untouched_intent
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_ATTESTATION_SQL,
@@ -1065,7 +1066,7 @@ class AccountService:
             and not has_external_coordinates
         )
         if (
-            byoc_row is not None
+            (byoc_row is not None and not is_untouched_intent(byoc_row.get("job")))
             or migration_row is not None
             or has_pending_deprovision
             or not demonstrably_unprovisioned

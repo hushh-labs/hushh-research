@@ -64,15 +64,39 @@ async def test_a_refused_attach_never_fails_the_recorded_setup():
 
 
 async def test_setup_marks_the_cloud_step_then_attaches(monkeypatch):
+    """Both clouds finish through ``finish_recorded_setup``: marker first, then attach."""
     order: list[str] = []
 
     async def marker(user_id):
         order.append(f"marker:{user_id}")
 
-    async def attach(user_id):
-        order.append(f"attach:{user_id}")
+    class _Registry:
+        async def get(self, _user_id):
+            order.append("registry")
+            return {"status": "pending", "deployment_target": "user_azure"}
 
-    monkeypatch.setattr("api.routes.one.runtime._write_cloud_setup_marker", marker)
-    monkeypatch.setattr(owner_cloud_attach, "attach_after_setup", attach)
-    await byoc_azure._finish_recorded_setup("owner")
-    assert order == ["marker:owner", "attach:owner"]
+    async def ready(*_args, **_kwargs):
+        return None
+
+    async def note(user_id, *, job_id="", code=""):
+        order.append(f"note:{code or 'started'}")
+
+    monkeypatch.setattr("hushh_mcp.services.owner_hosting_choice.write_cloud_setup_marker", marker)
+    monkeypatch.setattr(owner_cloud_attach, "attach_blocker", ready)
+    service = _Service()
+    status = await owner_cloud_attach.finish_recorded_setup(
+        "owner",
+        job_id="job-1",
+        identities=_Identities(VERIFIED),
+        service=service,
+        registry=_Registry(),
+        setup_jobs=object(),
+        note=note,
+    )
+    assert status == "connecting"
+    assert order == ["marker:owner", "registry", "note:started"]
+
+
+def test_azure_setup_no_longer_carries_its_own_finish():
+    """The Azure route wires the shared finish; a private copy would drift from Google's."""
+    assert not hasattr(byoc_azure, "_finish_recorded_setup")

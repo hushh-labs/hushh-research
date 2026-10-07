@@ -66,6 +66,9 @@ DETACHED_COORDINATES = [
     "user_cloud_authorized_at", "user_cloud_tenant_id", "user_cloud_subscription_id",
     "user_cloud_resource_group", "url", "provisioned_at",
 ]  # fmt: skip
+#: Notification cleanup custody keeps the full public placement and its receipts
+#: together. Ordinary standbys retain the existing coordinate-only snapshot.
+NOTIFICATION_CUSTODY_COORDINATES = ["user_id", "hushh_id", *PLACEMENT_FIELDS, "provisioned_at"]
 #: Placement metadata may not carry person-level, lifecycle or address keys.
 _FORBIDDEN_METADATA = frozenset(
     {"erasure", "upgradeLease", "detachedPlacements", "url", "provisionAttempt"}
@@ -206,7 +209,7 @@ class PersonalAgentStandbyStore:
     async def remove_standby(
         self, user_id: str, observed: Mapping[str, Any], reason: str
     ) -> Optional[dict]:
-        """Forget the standby, keeping only where it ran under ``detachedPlacements``.
+        """Detach the standby, preserving notification custody when present.
 
         Refused (None) while the primary is under erasure or mid-provision: the standby
         must be removed before the person's erasure is reserved, never during it.
@@ -216,7 +219,14 @@ class PersonalAgentStandbyStore:
         if not text:
             raise StandbyRefused("removing a standby needs a stated reason")
         params = {**fence, "user_id": str(user_id or "").strip(), "reason": text}
-        return await self._one(sql.REMOVE_SQL, {**params, "coordinates": DETACHED_COORDINATES})
+        return await self._one(
+            sql.REMOVE_SQL,
+            {
+                **params,
+                "coordinates": DETACHED_COORDINATES,
+                "custody_coordinates": NOTIFICATION_CUSTODY_COORDINATES,
+            },
+        )
 
     async def claim_sync_lease(
         self, user_id: str, observed: Mapping[str, Any], lease_id: str, cooldown_seconds: int

@@ -82,6 +82,13 @@ def hushh_tool(scope: str, name: Optional[str] = None):
                 from hushh_mcp.services.pod_consent_client import require_owner_scope
 
                 exact_scope = scope.value if hasattr(scope, "value") else str(scope)
+                if exact_scope == "agent.nav.review":
+                    from hushh_mcp.services.pod_owner_read_ports import OwnerFeedConsentCenterPort
+
+                    port = ctx.service_ports.get("consent_center")
+                    if isinstance(port, OwnerFeedConsentCenterPort):
+                        await port.authorize_owner_tool(ctx.user_id, ctx.consent_token)
+                        return
                 await require_owner_scope(
                     ctx.scope_tokens.get(exact_scope, ctx.consent_token),
                     expected_scope=exact_scope,

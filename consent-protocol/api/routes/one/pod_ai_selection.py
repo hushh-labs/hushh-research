@@ -8,7 +8,7 @@ selection, with no fallback (``pod_turn_target.owner_selected_turn``).
 ``DELETE`` clears it; ``GET`` reports it. No response, log line or error ever
 carries the key.
 
-Only the owner's own door opens these: this pod's app-role session, never a
+Only the owner's own door (``pod_owner_door``) opens these: this pod's app-role session, never a
 hub-relayed consent token. Anyone holding the pod's public key can seal an envelope,
 so a hub-admitted write could swap in a key the owner never chose and quietly send
 their prompts to someone else's account; a hub token is refused with 403 here even
@@ -30,7 +30,8 @@ from typing import Any, Awaitable, Callable, Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from api.routes.one import pod_memory as _memory
+from api.routes.one.pod_owner_door import admit_owner_local as _admit_owner_local
+from api.routes.one.pod_owner_door import owner_local_door as _owner_local_door
 from hushh_mcp.services.pod_commit_log import PodLogConflict, PodLogFenced
 
 logger = logging.getLogger(__name__)
@@ -61,48 +62,6 @@ def _gemini_default() -> str:
     from api.routes.one.pod_turn import _resolve_model  # noqa: PLC0415
 
     return _resolve_model()[1]
-
-
-async def _admit_owner_local(
-    consent_token: str, *, verifier: Any, session: Optional[dict], scope: str
-) -> dict:
-    """The memory doors' admission, minus the hub door (see the module docstring)."""
-    if not (consent_token or "").strip():
-        raise HTTPException(status_code=401, detail="consent token required")
-    if session is None:
-        raise HTTPException(status_code=403, detail={"code": "OWNER_SESSION_REQUIRED"})
-    return await _memory._admit_owner(
-        consent_token, verifier=verifier, session=session, scope=scope
-    )
-
-
-async def _owner_local_door(
-    x_consent_token: Optional[str], authorization: Optional[str], *, scope: str, held: bool
-) -> dict[str, Any]:
-    """Resolve the owner-local session; a hub token is refused, not merely ignored."""
-    from api.routes.one import pod_turn as _turn  # noqa: PLC0415
-    from api.routes.one.pod_session import _refuse, bearer, verified_session  # noqa: PLC0415
-    from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
-        ROLE_APP,
-        PodSessionRefused,
-    )
-
-    _turn._require_enabled()
-    if str(x_consent_token or "").strip():
-        raise HTTPException(status_code=403, detail={"code": "OWNER_SESSION_REQUIRED"})
-    if not bearer(authorization):
-        return {"consent_token": ""}
-    authority, claims = verified_session(authorization, role=ROLE_APP, scope=scope)
-    if held:
-        try:
-            await authority.require_held()
-        except PodSessionRefused as exc:
-            raise _refuse(exc) from exc
-    return {
-        "consent_token": authority.local_token(claims),
-        "verifier": authority.local_verifier(claims),
-        "session": claims,
-    }
 
 
 async def _envelope(request: Request) -> Any:

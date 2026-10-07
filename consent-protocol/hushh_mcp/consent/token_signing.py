@@ -34,7 +34,8 @@ uses it declares a :class:`SigningNamespace` naming its own env vars, and the
 namespaces are deliberately disjoint: holding the consent-token signing key must
 not let anyone sign anything else.
 
-Two namespaces exist today. ``CONSENT_TOKENS`` is the original. ``CONSENT_AUDIT``
+Three namespaces exist today. ``CONSENT_TOKENS`` is the original; ``OWNER_FEED``
+(below) signs what the hub tells a person's own agent. ``CONSENT_AUDIT``
 signs the tamper-evident audit chain, and it exists because that chain was signed
 with ``APP_SIGNING_KEY`` -- the key that MINTS consent tokens. Under AU-10 that is
 not non-repudiation, it is self-attestation: anyone who could verify the ledger
@@ -105,6 +106,19 @@ CONSENT_AUDIT = SigningNamespace(
     kid_env="CONSENT_AUDIT_ED25519_KID",
     public_keys_env="CONSENT_AUDIT_ED25519_PUBLIC_KEYS",
     default_kid="hushh-audit-1",
+)
+
+#: Hub-to-pod statements a pod must be able to check and nothing else may make:
+#: the signed owner feed (location, consent center, marketplace and command reads)
+#: and the signed consent revocation list. Its own key on purpose: a pod verifying
+#: these holds only the public half, and holding the consent-token key must not let
+#: anyone speak for the hub to a person's agent. Always signed strictly asymmetric.
+OWNER_FEED = SigningNamespace(
+    alg_env="OWNER_FEED_SIGNING_ALG",
+    private_key_env="OWNER_FEED_ED25519_PRIVATE_KEY",
+    kid_env="OWNER_FEED_ED25519_KID",
+    public_keys_env="OWNER_FEED_ED25519_PUBLIC_KEYS",
+    default_kid="hushh-owner-feed-1",
 )
 
 _TAG = "ed25519."

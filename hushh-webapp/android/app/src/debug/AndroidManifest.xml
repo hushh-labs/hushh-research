@@ -2,6 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <activity android:name=".MainActivity">
+            <!-- Google Android custom-scheme OAuth is enabled only for dev proof. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.hussh.app" android:path="/oauth2redirect" />
+            </intent-filter>
             <!-- Debug-only dev App Link claim; see the note in src/main. Paths
                  must stay identical to the main autoVerify filter. -->
             <intent-filter android:autoVerify="true">

@@ -2,9 +2,13 @@
 
 ## Status
 
-Reviewed 2026-09-10. This folder owns future direction and dated design/evidence snapshots, not current deployment instructions.
+Reviewed against source 2026-10-06. This folder owns future direction and dated
+design/evidence snapshots, not current deployment instructions.
 
-**Start with the [owner-pod direct-runtime handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md).** It records the inspected revisions, current hub dependencies, proposed app ↔ owner pod ↔ Puppy path, and remaining acceptance checks. The direct path is planned, not shipped.
+**Start with the [owner-pod direct-runtime handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md).** It records dated revisions, the proposed app ↔ owner pod ↔ Puppy
+path and remaining acceptance checks. Owner-direct source contracts now exist;
+general deployment, native connector acceptance and notification IAM/readiness
+still require revision-bound evidence in the canonical north star.
 
 Current requirements and qualified implementation evidence belong in the [private-agent north star](../../reference/architecture/private-agent-north-star.md). Completion assertions belong to [the existing pod ledger](../../../config/pod-completion-ledger.yaml); no old milestone checkmark grants current pass credit.
 

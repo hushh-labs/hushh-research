@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
+from fastapi import HTTPException
 from websockets.asyncio.client import connect
 
 from api.routes.one.pod_live_authority import HubVoiceAuthority
@@ -28,6 +29,7 @@ from api.routes.one.pod_relay import (
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.action_directive_ledger import get_action_directive_store
+from hushh_mcp.services.owner_placement_guard import HOSTING_UNAVAILABLE, admit_hub_content
 from hushh_mcp.services.personal_agent_grant_service import (
     PERSONAL_AGENT_ID,
     PersonalAgentGrantService,
@@ -95,6 +97,9 @@ async def admit_private_live(user_id: str) -> HubLiveAdmission:
     _require_enabled()
     if not user_id:
         raise PermissionError("private voice owner required")
+    # The courier would carry a private owner's voice through the hub. The guard admits
+    # only Shared owners, who have no pod, so this door stays closed (hub_route_classes).
+    await admit_hub_content(user_id, "live_courier")
     registry = PersonalAgentRegistryRepo()
     row = await registry.get(user_id)
     if _owner_binding_denials(row, None):
@@ -135,6 +140,23 @@ class PodSocket:
 
     async def close(self, code: int = 1000, reason: str | None = None) -> None:
         await self.socket.close(code=code, reason=reason or "")
+
+
+async def courier_admitted(browser: Any, user_id: str) -> bool:
+    """Admit the ticket's owner to the live courier through the hub content guard.
+
+    A refused owner's socket closes with the guard's code as the reason (1008), so the
+    frontend learns why without the hub reading a single frame of their voice."""
+    try:
+        await admit_hub_content(user_id, "adk_live")
+    except HTTPException as refused:
+        detail: dict[str, Any] = refused.detail if isinstance(refused.detail, dict) else {}
+        try:
+            await browser.close(code=1008, reason=str(detail.get("code") or HOSTING_UNAVAILABLE))
+        except Exception:
+            pass
+        return False
+    return True
 
 
 async def relay_private_live(browser: Any, *, user_id: str) -> None:

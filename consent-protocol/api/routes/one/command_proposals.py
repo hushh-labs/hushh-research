@@ -56,10 +56,11 @@ from hushh_mcp.services.location_command_workflow import (
     start_command_workflow,
     workflow_command_descriptor,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 
-def require_private_runtime(token: dict = Depends(require_vault_owner_token)) -> dict:
-    """Authenticate before declining shared-runtime proposal execution."""
+def require_pod_process(token: dict = Depends(require_vault_owner_token)) -> dict:
+    """Authenticate, then refuse unless this process is a pod (model-run steps live there)."""
     if not pod_mode():
         raise HTTPException(
             status_code=409,
@@ -280,7 +281,6 @@ async def _assess(
         raise HTTPException(
             422, "One could not prepare a valid Location plan. Please try again."
         ) from None
-
     except APIError:
         raise HTTPException(
             503, "Location understanding is temporarily unavailable. Please try again."
@@ -299,7 +299,7 @@ async def _proposal_plan(
     saved_observations: list[LocationObservation] | None = None,
 ) -> LocationPlan:
     if payload.semantic is None:
-        require_private_runtime(token)
+        require_pod_process(token)
         if payload.query is None:
             raise HTTPException(422, detail={"code": "COMMAND_QUERY_REQUIRED"})
         return await _assess(
@@ -360,10 +360,8 @@ async def prepare_command(token: dict = Depends(require_vault_owner_token)):
 
 
 @router.post("/api/one/transcriptions")
-async def transcribe(
-    payload: TranscriptionRequest, token: dict = Depends(require_vault_owner_token)
-):
-    require_private_runtime(token)
+async def transcribe(payload: TranscriptionRequest, token: dict = Depends(hub_content_owner)):
+    require_pod_process(token)
     try:
         return {
             "transcript": await LocationCommandBrain(
@@ -383,7 +381,7 @@ async def transcribe(
 
 
 @router.post("/api/one/agent-chat/proposals")
-async def propose(payload: ProposalRequest, token: dict = Depends(require_vault_owner_token)):
+async def propose(payload: ProposalRequest, token: dict = Depends(hub_content_owner)):
     user, command = str(token["user_id"]), str(payload.request_id)
     existing = await _checkpoints.get(user, command)
     if existing:
@@ -403,9 +401,7 @@ async def propose(payload: ProposalRequest, token: dict = Depends(require_vault_
 
 
 @router.post("/api/one/agent-chat/proposals/typed")
-async def propose_typed(
-    payload: TypedProposalRequest, token: dict = Depends(require_vault_owner_token)
-):
+async def propose_typed(payload: TypedProposalRequest, token: dict = Depends(hub_content_owner)):
     """An already typed invocation uses identical validation and effect authority."""
     user, command = str(token["user_id"]), str(payload.request_id)
     existing = await _checkpoints.get(user, command)
@@ -448,14 +444,14 @@ async def _create_proposal(user: str, command: str, plan: LocationPlan):
 
 
 @router.get("/api/one/action-proposals")
-async def list_commands(token: dict = Depends(require_vault_owner_token)):
+async def list_commands(token: dict = Depends(hub_content_owner)):
     states = await _checkpoints.list(str(token["user_id"]))
     return {"commands": [_public(state) for state in states if state.get("capsule")]}
 
 
 @router.get("/api/one/action-proposals/{proposal_id}")
 async def get_command(
-    proposal_id: str, response: Response, token: dict = Depends(require_vault_owner_token)
+    proposal_id: str, response: Response, token: dict = Depends(hub_content_owner)
 ):
     from hushh_mcp.services.location_command_reads import LocationCommandReadService
 
@@ -484,7 +480,7 @@ async def get_command(
 
 @router.post("/api/one/action-proposals/{proposal_id}/resolve")
 async def resolve(
-    proposal_id: str, payload: ResolveRequest, token: dict = Depends(require_vault_owner_token)
+    proposal_id: str, payload: ResolveRequest, token: dict = Depends(hub_content_owner)
 ):
     user = str(token["user_id"])
     state = await _load(user, proposal_id)
@@ -536,7 +532,7 @@ async def resolve(
 
 @router.put("/api/one/action-proposals/{proposal_id}/checkpoint")
 async def checkpoint(
-    proposal_id: str, payload: CheckpointRequest, token: dict = Depends(require_vault_owner_token)
+    proposal_id: str, payload: CheckpointRequest, token: dict = Depends(hub_content_owner)
 ):
     user = str(token["user_id"])
     state = await _load(user, proposal_id)
@@ -876,16 +872,14 @@ async def _admission(user: str, proposal_id: str, payload: StepRequest, *, renew
 
 
 @router.post("/api/one/action-proposals/{proposal_id}/admit")
-async def admit(
-    proposal_id: str, payload: StepRequest, token: dict = Depends(require_vault_owner_token)
-):
+async def admit(proposal_id: str, payload: StepRequest, token: dict = Depends(hub_content_owner)):
     admission, _, _, _ = await _admission(str(token["user_id"]), proposal_id, payload)
     return admission
 
 
 @router.post("/api/one/action-proposals/{proposal_id}/resume")
 async def resume(
-    proposal_id: str, payload: ResumeRequest, token: dict = Depends(require_vault_owner_token)
+    proposal_id: str, payload: ResumeRequest, token: dict = Depends(hub_content_owner)
 ):
     admission, _, _, _ = await _admission(str(token["user_id"]), proposal_id, payload, renew=True)
     return admission
@@ -893,7 +887,7 @@ async def resume(
 
 @router.post("/api/one/action-proposals/{proposal_id}/confirm")
 async def confirm(
-    proposal_id: str, payload: ConfirmationRequest, token: dict = Depends(require_vault_owner_token)
+    proposal_id: str, payload: ConfirmationRequest, token: dict = Depends(hub_content_owner)
 ):
     user = str(token["user_id"])
     admission, _, action, context = await _admission(user, proposal_id, payload)
@@ -917,9 +911,7 @@ async def confirm(
 
 
 @router.post("/api/one/action-proposals/{proposal_id}/claim")
-async def claim(
-    proposal_id: str, payload: ClaimRequest, token: dict = Depends(require_vault_owner_token)
-):
+async def claim(proposal_id: str, payload: ClaimRequest, token: dict = Depends(hub_content_owner)):
     user = str(token["user_id"])
     admission, state, action, context = await _admission(user, proposal_id, payload)
     if admission["status"] not in {"ready", "needs_confirmation", "simulate"}:
@@ -1003,7 +995,7 @@ async def claim(
 
 @router.post("/api/one/action-proposals/{proposal_id}/execute")
 async def execute(
-    proposal_id: str, payload: ClaimRequest, token: dict = Depends(require_vault_owner_token)
+    proposal_id: str, payload: ClaimRequest, token: dict = Depends(hub_content_owner)
 ):
     user = str(token["user_id"])
     admission, state, action, context = await _admission(user, proposal_id, payload)
@@ -1056,7 +1048,7 @@ async def execute(
 
 @router.post("/api/one/action-proposals/{proposal_id}/settle")
 async def settle(
-    proposal_id: str, payload: SettlementRequest, token: dict = Depends(require_vault_owner_token)
+    proposal_id: str, payload: SettlementRequest, token: dict = Depends(hub_content_owner)
 ):
     user = str(token["user_id"])
     state = await _load(user, proposal_id)
@@ -1163,7 +1155,7 @@ async def settle(
 
 
 @router.delete("/api/one/action-proposals/{proposal_id}")
-async def cancel(proposal_id: str, token: dict = Depends(require_vault_owner_token)):
+async def cancel(proposal_id: str, token: dict = Depends(hub_content_owner)):
     user = str(token["user_id"])
     state = await _load(user, proposal_id)
     try:

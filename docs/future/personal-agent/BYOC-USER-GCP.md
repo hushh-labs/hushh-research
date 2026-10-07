@@ -1,8 +1,8 @@
-# BYOC — the pod in the user's own GCP (Workload Identity Federation)
+# BYOC — historical owner-project GCP design
 
 > **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
 
-> **Status:** in pursuit, dev-branch only. The **adapter seam is built and inert**
+> **Historical status:** in pursuit, dev-branch only. The **adapter seam is built and inert**
 > (`user_gcp_backend.py`, `UserGcpBackend`, `PERSONAL_AGENT_BACKEND=user_gcp`);
 > plan-mode renders the pod + a bootstrap plan but makes **no call into any user
 > project**. Live is gated on `HUSSH_USER_GCP_LIVE` + a completed WIF bootstrap
@@ -13,6 +13,28 @@
 ## Visual Context
 
 Canonical visual owner: [personal-agent Visual Map](./README.md).
+
+## Current correction (source inspected 2026-10-06)
+
+The current adapter uses short-lived impersonation of the owner's bootstrap
+account; a standing, revocable IAM grant is not an exported key and is not a
+one-time grant. Shared requires explicit owner placement; absence is `unplaced`.
+Owner-direct setup verifies the pod wall and exact binding, then credential writes
+require the pod's app-role owner session. The old WIF and hub-only sketches below
+remain historical, not bootstrap instructions.
+
+Private Google connectors use native public-client PKCE with code/verifier sealed
+to the pod. Web/QR carries intent only. The source legacy-to-private transition now
+confirms project/account-wide old-grant revocation before fresh native authorization
+and requires pod transition admission before redemption. It drops token caches and
+refreshes exact credential IDs/generations; only `invalid_grant` retires an old
+grant. Provider outages block fresh redemption; timestamps do not prove grant loss.
+Live provider/native acceptance remains unproved. Gmail's topic is in the OAuth developer
+project; direct OIDC delivery uses an owner-project subscription and retained DLQ.
+Azure needs an explicit Google notification project/identity adapter. No polling
+fallback is provided. Notification mutations require the existing owner operation's
+checkpoint, whose parked migration 956 and live IAM/resource acceptance are still
+conditional. See the [canonical qualified status](../../reference/architecture/private-agent-north-star.md#owner-direct-setup-and-google-connectors--qualified-source-status).
 
 ## What it is
 

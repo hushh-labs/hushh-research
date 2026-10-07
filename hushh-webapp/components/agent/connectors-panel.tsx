@@ -75,6 +75,8 @@ import {
 } from "@/lib/agent/drive-oauth-chat-recovery";
 import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
+import { PrivateGoogleConnectorsPanel } from '@/components/connections/private-google-connectors-panel';
+import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 
 type Props = {
   open: boolean;
@@ -349,6 +351,20 @@ export function ConnectorsPanel(props: Props) {
   // Discard all local state on account switch or lock; don't display the prior
   // owner's account labels, pending selection or status on the new session.
   const { vaultOwnerToken } = useVault();
+  const [resolvedPlacement, setPlacement] = useState<{ owner: string; mode: 'shared' | 'private' | 'unavailable' } | null>(null);
+  const placement = resolvedPlacement?.owner === user?.uid ? resolvedPlacement?.mode : null;
+  useEffect(() => {
+    let active = true;
+    if (!props.open || !user?.uid) return;
+    void ownerContentIsPrivate().then((privateAgent) => {
+      if (active) setPlacement({ owner: user.uid, mode: privateAgent ? 'private' : 'shared' });
+    }, () => { if (active) setPlacement({ owner: user.uid, mode: 'unavailable' }); });
+    return () => { active = false; };
+  }, [props.open, user?.uid]);
+  if (!props.open) return null;
+  if (placement === null) return <p role="status" className="p-4 text-sm">Checking where your agent runs…</p>;
+  if (placement === 'unavailable') return <p role="status" className="p-4 text-sm">Your agent's hosting could not be verified. Try again.</p>;
+  if (placement === 'private') return <PrivateGoogleConnectorsPanel key={`${user?.uid}:${Boolean(vaultOwnerToken)}`} {...props} />;
   return (
     <OwnerConnectorsPanel
       key={`${user?.uid ?? "signed-out"}:${Boolean(vaultOwnerToken)}`}
@@ -1489,7 +1505,11 @@ function OwnerConnectorsPanel({
       setCalendarBusy(false);
       if (outcome === "connected") calendar.refresh();
       setCalendarMessage(
-        outcome === "connected"
+        outcome === "window_blocked"
+          ? OAUTH_WINDOW_BLOCKED_COPY
+          : outcome === "phone_handoff"
+            ? "Finish connecting Calendar on your phone, then check its connection here."
+            : outcome === "connected"
           ? "Calendar connected."
           : outcome === "failed"
             ? "Could not finish Calendar connection. Try again."

@@ -359,6 +359,40 @@ async def promote_external_ingress(
     return bool(getattr(response, "data", None))
 
 
+async def promote_internal_to_external(
+    db: Any, *, user_id: str, hushh_id: str, service_uid: str, url: str
+) -> bool:
+    """Record a hub-only Google agent as public by construction, after it was widened.
+
+    ``owner_direct_widen`` writes this only once the public invoker is bound and
+    Cloud Run ingress is ``all`` on this exact service. It never writes ``direct``:
+    heartbeat admission still has to verify the wall, health, preflight and IAM
+    before endpoint publication. Bound to the same owner, service incarnation and
+    address; a blocker, an erasure or an update in flight refuses it.
+    """
+    response = await asyncio.to_thread(
+        db.execute_raw,
+        """
+        UPDATE personal_agent_registry
+        SET backend_metadata = jsonb_set(
+            coalesce(backend_metadata, '{}'::jsonb) - 'directIngressWiden',
+            '{ingress}', '"external"'::jsonb, true
+        )
+        WHERE user_id = :user_id AND hushh_id = :hushh_id
+          AND deployment_target = 'user_gcp' AND status = 'provisioned'
+          AND backend_metadata->>'serviceUid' = :service_uid
+          AND backend_metadata->>'url' = :url
+          AND backend_metadata->>'ingress' = 'internal'
+          AND NOT (backend_metadata ? 'erasure')
+          AND NOT (backend_metadata ? 'directIngressBlocker')
+          AND backend_metadata->>'upgradeLease' IS NULL
+        RETURNING user_id
+        """,
+        {"user_id": user_id, "hushh_id": hushh_id, "service_uid": service_uid, "url": url},
+    )
+    return bool(getattr(response, "data", None))
+
+
 async def record_direct_ingress_observed(
     db: Any,
     *,

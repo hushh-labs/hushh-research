@@ -136,6 +136,7 @@ from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instr
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.owner_style import owner_style_instruction, propose_style_settings
 from hushh_mcp.one_adk.pending_email_draft import pending_email_draft_instruction
+from hushh_mcp.one_adk.pod_connector_tools import owner_cloud_agent, pod_connector_roster
 from hushh_mcp.one_adk.queued_input import club_queued_input
 from hushh_mcp.one_adk.registered_mcp_toolset import (
     RegisteredMcpToolset,
@@ -148,6 +149,7 @@ from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
     specialist_label,
 )
+from hushh_mcp.one_adk.specialist_focus import specialist_focus_instruction as focus_instruction
 from hushh_mcp.one_adk.turn_location import get_my_location
 from hushh_mcp.one_adk.web_search import instruction_for_head, web_search_tools
 from hushh_mcp.one_adk.workspace_mcp_tools import (
@@ -824,10 +826,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
 
 
 def _one_runtime_instruction(context: Any) -> str:
-    """Inject bounded server-sanitized route, layer, and action guidance.
+    """Inject bounded server-sanitized route, layer, action and specialist-focus guidance.
 
-    Built once per model step; its build time goes to the turn timing line.
-    """
+    Built once per model step; its build time goes to the turn timing line."""
     started_at = time.perf_counter()
     try:
         state_getter = getattr(getattr(context, "state", None), "get", None)
@@ -865,7 +866,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         if mail_admitted
         else "\n\nMAIL READ ADMISSION: disabled. Do not call ask_email_agent or claim inbox access."
     )
-    if mail_admitted and not pod_mode():
+    if mail_admitted and (not pod_mode() or owner_cloud_agent()):
         mail_instruction += (
             "When the person's own request asks to archive, label or unlabel, mark read or "
             "unread, or move emails to Trash, call propose_gmail_mailbox_change with the "
@@ -1012,7 +1013,7 @@ def _compose_one_runtime_instruction(context: Any) -> str:
     )
     # The owner's Settings choices: a trusted style channel, separate from the
     # recalled-memory packet above, rendered only from server templates.
-    style_instruction = owner_style_instruction(state_getter)
+    style_instruction = owner_style_instruction(state_getter) + focus_instruction(state_getter)
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
         return (
@@ -2492,8 +2493,7 @@ def _one_roster_tools(
         suggest_follow_ups,
         react_to_message,
     ]
-    if not pod_mode():
-        tools.append(propose_gmail_mailbox_change)
+    tools.extend(pod_connector_roster() if pod_mode() else [propose_gmail_mailbox_change])
     if _CRM_PRODUCT_AVAILABLE:
         tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)
     tools.insert(
@@ -2531,6 +2531,14 @@ def _one_roster_tools(
 
         files_manifest = _load_product_agent_manifest("agent_files")
         tools.append(AgentTool(agent=build_files_agent(files_manifest, model=text_model)))
+    if pod_mode():
+        from hushh_mcp.one_adk.computer_use_agent import (
+            browser_task_hand_available,
+            start_browser_task,
+        )
+
+        if browser_task_hand_available():
+            tools.append(start_browser_task)
     return tools
 
 

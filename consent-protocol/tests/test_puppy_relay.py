@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -18,6 +21,30 @@ from api.routes.one.puppy_relay import (
 class _HeadersSocket:
     def __init__(self, headers: dict[str, str]) -> None:
         self.headers = headers
+
+
+async def test_byoc_device_cannot_open_legacy_hub_content_socket(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="byoc")
+    )
+    monkeypatch.setattr(
+        relay,
+        "validate_token_with_db",
+        AsyncMock(
+            return_value=(
+                True,
+                "ok",
+                SimpleNamespace(user_id="owner-a", agent_id="device:trusted-a"),
+            )
+        ),
+    )
+    eligible = AsyncMock(side_effect=AssertionError("must refuse before granting hub relay"))
+    monkeypatch.setattr(relay, "_puppy_eligible_byoc_owner", eligible)
+    assert await relay._admit(_HeadersSocket({"authorization": "Bearer synthetic"})) is None
+    eligible.assert_not_awaited()
 
 
 class _RelaySocket:

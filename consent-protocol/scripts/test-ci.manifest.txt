@@ -952,3 +952,38 @@ tests/test_azure_registry_prune.py
 
 # Pod cost meter prices cold starts at the boosted CPU Google bills (2026-10-06)
 tests/test_measure_pod_cost_counts_startup_boost.py
+
+# Owner-cloud admission, connector custody and direct notification boundaries.
+tests/test_account_deletion_with_setup_intent_postgres.py
+tests/test_byoc_hub_blocked_proof.py
+tests/test_google_recorded_setup_is_ready_postgres.py
+tests/test_hosting_choice_backfill_postgres.py
+tests/test_hosting_placement_unplaced.py
+tests/test_hub_content_routes_guarded.py
+tests/test_owner_cloud_attach_after_record.py
+tests/test_owner_cloud_attach_retry.py
+tests/test_owner_direct_widen.py
+tests/test_owner_direct_widen_postgres.py
+tests/test_personal_agent_direct_ingress_route.py
+tests/test_phone_verify_resume_runs_in_background.py
+tests/test_pod_action_proposals.py
+tests/test_pod_actions.py
+tests/test_pod_agent_chat_connectors.py
+tests/test_pod_agent_chat_runs.py
+tests/test_pod_command_proposals.py
+tests/test_pod_connector_advert.py
+tests/test_pod_connector_credential_seal.py
+tests/test_pod_connector_doors.py
+tests/test_pod_connector_shared_grant.py
+tests/test_pod_connector_tokens.py
+tests/test_pod_custody_mcp.py
+tests/test_pod_drive_local.py
+tests/test_pod_external_ingress_admission_strict.py
+tests/test_pod_gmail_doorbell.py
+tests/test_pod_gmail_local.py
+tests/test_pod_gmail_push_config.py
+tests/test_pod_local_consent.py
+tests/test_pod_owner_feed.py
+
+tests/test_personal_agent_notification_checkpoint.py
+tests/test_pod_browser_azure_probe.py

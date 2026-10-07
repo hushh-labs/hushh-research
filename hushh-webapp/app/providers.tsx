@@ -39,6 +39,7 @@ import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-actio
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
 import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
 import { AccountLifecycleStepBridge } from "@/components/profile/account-lifecycle-step-bridge";
+import { NativePrivateGoogleConnectorHandoff } from '@/components/connections/native-private-google-connector-handoff';
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
@@ -826,6 +827,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   here: it needs the vault-owner token this provider holds and
                   must work from Home, not only with Profile mounted. */}
               <AccountLifecycleStepBridge />
+              <NativePrivateGoogleConnectorHandoff />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
         </VaultProvider>

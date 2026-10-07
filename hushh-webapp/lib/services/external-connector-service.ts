@@ -1,9 +1,8 @@
+import { requireSharedGoogleExchange } from './private-google-connections';
 import { BACKEND_URL } from "@/lib/config";
 import { ApiService } from "@/lib/services/api-service";
-import {
-  projectCustomConnectorTurnConfigurations,
-  type CustomConnectorConfiguration,
-} from "@/lib/connections/custom-connector-schema";
+import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
+import { connectorSettingsRequest } from "@/lib/services/private-connector-transport";
 import {
   parseMcpCallApproval, parseMcpCallPreview,
   type McpCallApproval, type McpCallPreview, type McpCallReviewReference,
@@ -261,7 +260,7 @@ export class ExternalConnectorService {
   }): Promise<unknown> {
     const current = () => !input.signal.aborted && input.isEffectCurrent();
     if (!/^custom_[a-f0-9]{32}$/.test(input.connectorId) || !current()) throw new Error("Your connection changed.");
-    const response = await ApiService.apiFetch(`/api/connectors/${input.connectorId}/mcp/oauth/${input.operation}`, {
+    const response = await connectorSettingsRequest(input.connectorId, `mcp/oauth/${input.operation}`, {
       method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
       headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
       body: JSON.stringify(input.payload),
@@ -281,7 +280,7 @@ export class ExternalConnectorService {
     if (!current()) throw new Error("Your vault session changed.");
     const configuration = projectCustomConnectorTurnConfigurations([input.configuration])[0];
     if (!configuration) throw new Error("Enable this connector before refreshing.");
-    const response = await ApiService.apiFetch(`/api/connectors/${encodeURIComponent(configuration.connectorId)}/mcp/catalog`, {
+    const response = await connectorSettingsRequest(configuration.connectorId, "mcp/catalog", {
       method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
       headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
       body: JSON.stringify({ connectorConfiguration: configuration }),
@@ -426,6 +425,7 @@ export class ExternalConnectorService {
   }
 
   static async overview(vaultOwnerToken: string): Promise<ConnectorOverview> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch("/api/connectors", {
       method: "GET",
       headers: authHeaders(vaultOwnerToken),
@@ -446,6 +446,7 @@ export class ExternalConnectorService {
     apiKey: string;
     accountLabel?: string;
   }): Promise<{ status: string; connectorId: string }> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.connectorId)}/connect/api-key`,
       {
@@ -477,6 +478,7 @@ export class ExternalConnectorService {
     attemptId?: string;
     connectorId?: string;
   }> {
+    await requireSharedGoogleExchange();
     return withOAuthStartDeadline(async (signal) => {
       const response = await ApiService.apiFetch(
         `/api/connectors/${encodeURIComponent(input.connectorId)}/connect/oauth/start`,
@@ -503,6 +505,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<PendingNativeDriveAttempt | null> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       "/api/connectors/oauth/native/pending",
       {
@@ -523,6 +526,7 @@ export class ExternalConnectorService {
     attemptId: string;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<{ status: string; connectorId: string }> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch("/api/connectors/oauth/native/finalize", {
         method: "POST",
@@ -545,6 +549,7 @@ export class ExternalConnectorService {
     expiresAt: string;
     attemptId: string;
   }> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch(
         "/api/connectors/google_drive/picker/native/start",
@@ -565,6 +570,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<PendingNativeDrivePicker | null> {
+    await requireSharedGoogleExchange();
     const payload = await readJsonOrThrow<{
       pending?: PendingNativeDrivePicker | null;
     }>(
@@ -587,6 +593,7 @@ export class ExternalConnectorService {
     backgroundProcessing?: boolean;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<{ documents: DriveDocument[] }> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch(
         "/api/connectors/google_drive/picker/native/confirm",
@@ -613,6 +620,7 @@ export class ExternalConnectorService {
     attemptId: string;
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<void> {
+    await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
         "/api/connectors/google_drive/picker/native/cancel",
@@ -634,6 +642,7 @@ export class ExternalConnectorService {
     state: string;
     code: string;
   }): Promise<{ status: string; connectorId: string }> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       "/api/connectors/oauth/complete",
       {
@@ -656,6 +665,7 @@ export class ExternalConnectorService {
     connectorId: string;
     revocationOutcome?: string;
   }> {
+    await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.connectorId)}/disconnect`,
       {
@@ -672,6 +682,7 @@ export class ExternalConnectorService {
     code: string;
     attemptId: string;
   }): Promise<{ status: string; connectorId: string }> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch("/api/connectors/oauth/complete/web", {
         method: "POST",
@@ -692,6 +703,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     origin: string,
   ): Promise<DrivePickerSession> {
+    await requireSharedGoogleExchange();
     return readJsonOrThrow(
       await ApiService.apiFetch("/api/connectors/google_drive/picker/session", {
         method: "POST",
@@ -710,6 +722,7 @@ export class ExternalConnectorService {
     fileIds: string[],
     backgroundProcessing = false,
   ): Promise<DriveDocument[]> {
+    await requireSharedGoogleExchange();
     const result = await readJsonOrThrow<{ documents: DriveDocument[] }>(
       await ApiService.apiFetch(
         "/api/connectors/google_drive/documents/select",
@@ -734,6 +747,7 @@ export class ExternalConnectorService {
   }
 
   static async documents(vaultOwnerToken: string): Promise<DriveDocument[]> {
+    await requireSharedGoogleExchange();
     const result = await readJsonOrThrow<{ documents: DriveDocument[] }>(
       await ApiService.apiFetch("/api/connectors/google_drive/documents", {
         method: "GET",
@@ -744,6 +758,7 @@ export class ExternalConnectorService {
   }
 
   static async liveBackground(vaultOwnerToken: string): Promise<boolean> {
+    await requireSharedGoogleExchange();
     const result = await readJsonOrThrow<{ enabled: unknown }>(
       await ApiService.apiFetch("/api/connectors/google_drive/live/background", {
         method: "GET",
@@ -760,6 +775,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     enabled: boolean,
   ): Promise<boolean> {
+    await requireSharedGoogleExchange();
     const result = await readJsonOrThrow<{ enabled: unknown }>(
       await ApiService.apiFetch("/api/connectors/google_drive/live/background", {
         method: "POST",
@@ -779,6 +795,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     documentId: string,
   ): Promise<void> {
+    await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
         `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}`,
@@ -799,6 +816,7 @@ export class ExternalConnectorService {
     documentId: string,
     enabled: boolean,
   ): Promise<void> {
+    await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
         `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}/processing`,
@@ -822,6 +840,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     documentId: string,
   ): Promise<void> {
+    await requireSharedGoogleExchange();
     await readJsonOrThrow(
       await ApiService.apiFetch(
         `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}/sync`,

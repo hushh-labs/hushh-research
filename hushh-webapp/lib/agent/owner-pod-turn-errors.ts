@@ -53,6 +53,45 @@ const BROWSER_NETWORK_FAILURES = new Set([
   "NetworkError when attempting to fetch resource.",
 ]);
 
+/**
+ * Where the person's agent runs decides what a refusal means. The hub answers
+ * AGENT_PRIVATE_RUNTIME_REQUIRED with the placement it read (owner_placement_guard.py),
+ * and the direct path says the same before any request exists. Each placement has
+ * one fixed sentence; an unrecognised one gets the generic sentence.
+ */
+const PRIVATE_RUNTIME = /^AGENT_PRIVATE_RUNTIME_REQUIRED(?::([a-z_]{1,32}))?$/;
+const PLACEMENT_MESSAGES: Readonly<Record<string, string>> = {
+  byoc: "Your agent runs in your own cloud. Open chat again so this device can reach it directly.",
+  pending: "Your agent is still being set up in your cloud. Chat opens here as soon as it is ready.",
+  hussh_pods:
+    "Hussh Pods is paused for now. Open Hosting in Settings to move your agent to your own cloud or choose Shared.",
+  unplaced: "Choose where your agent runs to start chatting. Open Hosting in Settings to pick a home for it.",
+};
+const PRIVATE_RUNTIME_GENERIC =
+  "Your agent runs privately. Open Hosting in Settings to check where it runs, then try again.";
+const HOSTING_UNVERIFIED = "Your agent hosting could not be verified. Try again shortly.";
+
+/** The fixed sentence for a placement refusal, or null when the code is not one. */
+export function placementRefusalMessage(code: string): string | null {
+  if (code === "AGENT_HOSTING_UNAVAILABLE") return HOSTING_UNVERIFIED;
+  const match = PRIVATE_RUNTIME.exec(code);
+  if (!match) return null;
+  return (match[1] && PLACEMENT_MESSAGES[match[1]]) || PRIVATE_RUNTIME_GENERIC;
+}
+
+/**
+ * A refusal body's code, carrying the hub's placement word for a private-runtime
+ * refusal (`AGENT_PRIVATE_RUNTIME_REQUIRED:pending`). Only a bounded lower-case
+ * word is carried; anything else leaves the bare code.
+ */
+export function refusalCode(detail: Record<string, unknown> | null, fallback = ""): string {
+  const code = detail && typeof detail.code === "string" ? detail.code : fallback;
+  const mode = detail?.hostingMode;
+  return code === "AGENT_PRIVATE_RUNTIME_REQUIRED" && typeof mode === "string" && /^[a-z_]{1,32}$/.test(mode)
+    ? `${code}:${mode}`
+    : code;
+}
+
 const CONNECTION_REFUSAL = /^(?:ENDPOINT_UNAVAILABLE|BINDING_UNAVAILABLE|POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):[A-Za-z0-9_]+$/;
 const ENDPOINT_PIN_REFUSAL = /^ENDPOINT_(?:MALFORMED|VERSION_REGRESSION|CHANGED_WITHOUT_VERSION_BUMP|OWNER_OR_ENVIRONMENT_CHANGED)$/;
 
@@ -78,6 +117,8 @@ export function ownerPodTurnErrorMessage(message: string, code?: string): string
   const connectionCode = code || message.trim();
   const fixed = FIXED_MESSAGES[connectionCode];
   if (fixed) return fixed;
+  const placement = placementRefusalMessage(connectionCode);
+  if (placement) return placement;
   if (CONNECTION_REFUSAL.test(connectionCode) || ENDPOINT_PIN_REFUSAL.test(connectionCode)) return NOT_ESTABLISHED;
   const grantsRefusal = chatGrantsRefusalMessage(connectionCode, message);
   if (grantsRefusal) return grantsRefusal;

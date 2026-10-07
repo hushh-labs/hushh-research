@@ -68,7 +68,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from api.routes.one.pod_capabilities import ai_selection_advert
+from api.routes.one.pod_capabilities import ai_selection_advert, connectors_advert
 from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
@@ -119,6 +119,9 @@ async def record_pod_heartbeat(
     # A pod beating is up and warm: the moment to verify public-by-construction
     # ingress for owner-direct chat. Bounded, never raises, and a no-op unless due.
     await (admitter or admit_external_ingress_if_due)(row)
+    from hushh_mcp.services.owner_direct_widen import schedule_widen_if_due
+
+    schedule_widen_if_due(str(row.get("user_id") or ""), row=row)
     # THE TOMBSTONE COURIER. An owner who revoked a device while their pod was
     # unreachable left a signed intent with the hub; the beat is the one moment the
     # pod reliably reaches the hub, so it collects them here and reports back which
@@ -129,7 +132,69 @@ async def record_pod_heartbeat(
     pending = await _collect_pending_tombstones(request, repo, row, hushh_id=hushh_id)
     if pending:
         result["pendingTombstones"] = pending
+    revocations = await _consent_revocations(request, repo, row, verified)
+    if revocations is not None:
+        result["consentRevocations"] = revocations
     return result
+
+
+async def _consent_revocations(request: Request, repo: Any, row: dict, verified: Any) -> Any:
+    """Metadata only, for the current signed primary and its held incarnation.
+
+    The signed epoch is the pod's claim, not workload attestation. The recipient
+    checks it against its current storage lease before installing or using it.
+    Missing keys/ledger evidence leaves the previous snapshot to expire closed.
+    """
+    if not verified.signed or verified.standby:
+        return None
+    from hushh_mcp.services.compute_backend import is_owner_cloud_target
+    from hushh_mcp.services.pod_access_audit import resolve_serving_owner_hushh_id
+    from hushh_mcp.services.pod_consent_revocation import (
+        RevocationBinding,
+        build_consent_revocation_list,
+    )
+    from hushh_mcp.services.pod_session_authority import expected_environment
+
+    try:
+        payload = await request.json()
+        binding = RevocationBinding.from_mapping(payload.get("consentIncarnation"))
+        if (
+            binding.hushh_id != verified.hushh_id
+            or binding.environment != expected_environment()
+            or binding.pod_key_id != row.get("pod_key_id")
+            or row.get("pod_signing_key_id") != verified.key_id
+            or row.get("status") != "provisioned"
+            or not row.get("external_agent_id")
+            or not row.get("user_id")
+            or not is_owner_cloud_target(row.get("deployment_target"))
+        ):
+            return None
+        owner = str(row["user_id"])
+        if await resolve_serving_owner_hushh_id(owner, registry=repo) != verified.hushh_id:
+            return None
+        signed = await build_consent_revocation_list(owner, verified.hushh_id, binding=binding)
+        current = await repo.get_by_hushh_id(verified.hushh_id)
+        # The signing query can yield: replacement, erasure or placement changes
+        # must not deliver the old primary's snapshot after that boundary.
+        if not current or any(
+            current.get(field) != row.get(field)
+            for field in (
+                "user_id",
+                "status",
+                "deployment_target",
+                "pod_key_id",
+                "pod_signing_key_id",
+                "external_agent_id",
+                "placement_epoch",
+            )
+        ):
+            return None
+        if await resolve_serving_owner_hushh_id(owner, registry=repo) != verified.hushh_id:
+            return None
+        return signed
+    except Exception as exc:  # noqa: BLE001 - optional metadata must not kill the beat
+        logger.info("pod_heartbeat.revocations_unavailable reason=%s", type(exc).__name__)
+        return None
 
 
 async def _collect_pending_tombstones(
@@ -202,6 +267,9 @@ async def _read_self_report(request: Request) -> Optional[dict]:
     advert = ai_selection_advert(payload.get("aiSelection"))
     if advert is not None:
         report["aiSelection"] = advert
+    connectors = connectors_advert(payload.get("connectors"))
+    if connectors is not None:
+        report["connectors"] = connectors
     return report or None
 
 

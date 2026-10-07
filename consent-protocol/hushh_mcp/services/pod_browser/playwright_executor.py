@@ -192,7 +192,8 @@ class SandboxedPlaywrightExecutor:
                 case "hover":
                     await page.mouse.move(_argument(action.x), _argument(action.y))
                 case "type":
-                    await page.mouse.click(_argument(action.x), _argument(action.y))
+                    if not action.focus_existing:
+                        await page.mouse.click(_argument(action.x), _argument(action.y))
                     if action.clear_before_typing:
                         await page.keyboard.press("ControlOrMeta+A")
                         await page.keyboard.press("Backspace")

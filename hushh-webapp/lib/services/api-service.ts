@@ -3658,7 +3658,7 @@ export class ApiService {
     cloudProject?: string | null;
     cloudRegion?: string | null;
     deploymentTarget?: string | null;
-    hostingMode?: "shared" | "byoc" | "hussh_pods" | "pending" | "unknown";
+    hostingMode?: "shared" | "byoc" | "hussh_pods" | "pending" | "unknown" | "unplaced";
     credentialMode?: string | null;
     runningImage?: string | null;
     targetImage?: string | null;
@@ -4036,9 +4036,44 @@ export class ApiService {
   /** Exact app routes only; content never falls back to the shared hub. */
   static async ownerPodRequest(path: string, init: RequestInit = {}, streaming = false,
     onChatAdmission?: (hushhId: string) => void, expectedHushhId?: string): Promise<Response> {
+    const uid = AuthService.getCurrentUser()?.uid;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
     const access = await import("./pod-app-access");
     const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
-    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission }, expectedHushhId);
+    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission }, expectedHushhId, uid, vaultEpoch);
+  }
+
+  /** Public identity only, after signed endpoint verification and app admission. */
+  static async getComputerUseAdmission(signal?: AbortSignal): Promise<{
+    ownerId: string; podId: string; environment: string;
+  } | null> {
+    const uid = AuthService.getCurrentUser()?.uid;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    if (!uid || signal?.aborted) throw new Error("BROWSER_OWNER_UNAVAILABLE");
+    const current = () => {
+      if (signal?.aborted || AuthService.getCurrentUser()?.uid !== uid || !isVaultSessionEpochCurrent(vaultEpoch)) {
+        throw new Error("BROWSER_OWNER_CHANGED");
+      }
+    };
+    const access = await import("./pod-app-access");
+    current();
+    if (!(await access.usesOwnerPod(() => this.getPersonalAgentStatus({ signal })))) return null;
+    current();
+    const ownerPod = await import("./owner-pod-endpoint");
+    current();
+    const transport = await this.ownerPodTransport();
+    current();
+    const pin = await ownerPod.loadPinnedEndpoint(uid);
+    current();
+    if (!pin) await ownerPod.refreshEndpointFromHub(uid, transport);
+    current();
+    const connection = await ownerPod.currentPodConnection(uid, transport);
+    current();
+    if (connection.session.role !== "app") {
+      throw new Error("BROWSER_OWNER_CHANGED");
+    }
+    return { ownerId: uid, podId: connection.endpoint.hushhId, environment: connection.endpoint.environment };
   }
 
   static async getPuppyDirectModels(hushhId: string, deviceId: string, vaultOwnerToken: string, signal?: AbortSignal, onAgentAnswered?: () => void): Promise<{

@@ -1,6 +1,8 @@
 import { apiJson } from "@/lib/services/api-client";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
+import { ownerContentIsPrivate, privateAgentSpecialistTurn } from "@/lib/services/private-agent-specialist-chat";
 import { type PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
+import type { KycScopedExportPackage } from "@/lib/services/one-kyc-client-zk-service";
 import { type MarketplaceEncryptedEnvelope } from "@/lib/one-marketplace/encryption";
 
 /** A durable Information Marketplace access request (migration 075). */
@@ -21,6 +23,7 @@ export interface MarketplaceRequest {
   resolvedAt?: string | null;
   /** Set once a sealed slice envelope has been delivered (migration 079). */
   latestEnvelopeId?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 /**
@@ -132,6 +135,10 @@ export class OneMarketplaceService {
     message: string;
     conversationId?: string | null;
   }): Promise<InformationChatResponse> {
+    // A private agent answers its own owner; the question never reaches the hub.
+    if (await ownerContentIsPrivate()) {
+      return privateAgentSpecialistTurn({ focus: "information", ...params });
+    }
     return apiJson<InformationChatResponse>("/api/one/information/chat", {
       method: "POST",
       headers: {
@@ -185,8 +192,8 @@ export class OneMarketplaceService {
   static async getDelivery(params: {
     vaultOwnerToken: string;
     requestId: string;
-  }): Promise<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null }> {
-    return apiJson<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null }>(
+  }): Promise<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null; encryptedExport?: KycScopedExportPackage | null }> {
+    return apiJson<{ request: MarketplaceRequest; envelope: MarketplaceEncryptedEnvelope | null; encryptedExport?: KycScopedExportPackage | null }>(
       `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/delivery`,
       { headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
@@ -207,10 +214,17 @@ export class OneMarketplaceService {
   static async requestListing(params: {
     vaultOwnerToken: string;
     listingId: string;
+    durationSeconds?: number;
+    purpose?: string;
+    connectorKeyId?: string;
+    idempotencyKey?: string;
   }): Promise<MarketplaceRequest> {
     const res = await apiJson<{ request: MarketplaceRequest }>(
       `/api/one/marketplace/available/${encodeURIComponent(params.listingId)}/request`,
-      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
+      { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: params.durationSeconds === undefined ? undefined : JSON.stringify({ duration_seconds: params.durationSeconds, purpose: params.purpose,
+          connector_key_id: params.connectorKeyId, idempotency_key: params.idempotencyKey }),
+      },
     );
     return res.request;
   }

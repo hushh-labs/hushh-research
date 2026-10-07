@@ -1,4 +1,4 @@
-# The control-plane split — the hub is the only door to a pod, and it keeps nothing
+# Historical control-plane split — the hub-mediated pod design
 
 > **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
 
@@ -12,6 +12,15 @@
 ## Visual Context
 
 Canonical visual owner: [personal-agent Visual Map](./README.md).
+
+**Current correction (source inspected 2026-10-06).** Owner-direct app and connector
+doors now exist behind exact pod admission and local owner-session checks. The hub
+is not the only door. Its signed owner feeds project declared platform metadata
+and publication summaries; private provider observations and credentials belong
+at the owner pod. Sealing a hub projection does not prove the hub never saw it, and
+access-audit persistence remains best-effort. The reset decision and relay diagram
+below record their original period; they are neither a current migration procedure
+nor evidence of complete erasure. Use the [canonical qualified status](../../reference/architecture/private-agent-north-star.md#owner-direct-setup-and-google-connectors--qualified-source-status).
 
 ## What the split means
 

@@ -1,3 +1,4 @@
+import { requireSharedGoogleExchange } from './private-google-connections';
 import { ApiService } from "@/lib/services/api-service";
 import {
   snapshotValidatedAuthSessionOwner,
@@ -36,6 +37,8 @@ export class GoogleConnectionService {
       );
     if (!isEffectCurrent())
       throw new DOMException("The connection session changed.", "AbortError");
+    await requireSharedGoogleExchange();
+    if (!isEffectCurrent()) throw new DOMException("The connection session changed.", "AbortError");
     const response = await ApiService.apiFetch(
       "/api/one/google/connect/complete",
       {

@@ -15,6 +15,7 @@ import pytest
 
 from api.routes.one import pod_heartbeat
 from hushh_mcp.services import pod_external_ingress_admission as admission
+from hushh_mcp.services.pod_wall import POD_WALL_NOT_FOUND_BODY
 
 ORIGIN = "https://dev.one.hushh.ai"
 URL = "https://ca-hussh-one-pod.example.eastus2.azurecontainerapps.io"
@@ -40,7 +41,9 @@ def _pod(wall: int = 404, allow_origin: str | None = ORIGIN, preflight: int = 20
     def handle(request: httpx.Request) -> httpx.Response:
         seen.append((request.method, request.url.path))
         if request.method == "GET" and request.url.path == "/pod/info":
-            return httpx.Response(wall)
+            return httpx.Response(wall, content=POD_WALL_NOT_FOUND_BODY)
+        if request.method == "GET" and request.url.path == "/health":
+            return httpx.Response(200)
         if request.method == "OPTIONS":
             headers = {"access-control-allow-origin": allow_origin} if allow_origin else {}
             return httpx.Response(preflight, headers=headers)
@@ -68,7 +71,11 @@ async def test_a_verified_external_pod_is_promoted_to_direct(recorded):
     assert await admission.admit_external_ingress_if_due(
         _row(), client=client, db=object(), origin=ORIGIN
     )
-    assert seen == [("GET", "/pod/info"), ("OPTIONS", "/api/one/pod/session/challenge")]
+    assert seen == [
+        ("GET", "/pod/info"),
+        ("GET", "/health"),
+        ("OPTIONS", "/api/one/pod/session/challenge"),
+    ]
     [fields] = recorded
     assert {k: fields[k] for k in ("user_id", "hushh_id", "pod_key_id", "service_uid", "url")} == {
         "user_id": "owner",

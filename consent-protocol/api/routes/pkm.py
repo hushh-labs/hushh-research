@@ -106,6 +106,7 @@ from api.routes.pkm_routes_shared import (
 )
 from hushh_mcp.pricing import SlicePricingInput, compute_suggested_price
 from hushh_mcp.services.domain_contracts import validate_dynamic_top_level_domain
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 from hushh_mcp.services.pkm_mutation_contracts import (
@@ -440,7 +441,7 @@ async def get_user_scopes(
 @router.post("/get-context", response_model=StockContextResponse)
 async def get_stock_context(
     request: StockContextRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     return await _get_stock_context(request, token_data)
 
@@ -597,7 +598,7 @@ async def _generate_pkm_memory_proposals(
 @router.post("/memory/proposals", response_model=PKMAgentLabStructureResponse)
 async def propose_pkm_memory(
     request: PKMAgentLabStructureRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
     x_pkm_ingestion_id: str | None = Header(default=None, alias="X-PKM-Ingestion-Id"),
     x_pkm_chunk_index: int | None = Header(default=None, alias="X-PKM-Chunk-Index"),
 ):
@@ -608,9 +609,8 @@ async def propose_pkm_memory(
         ingestion_id=x_pkm_ingestion_id,
         chunk_index=x_pkm_chunk_index,
     )
-    # An explicit failed-stage signal is not a semantic "nothing to save"
-    # decision. Keep the developer-lab diagnostic contract unchanged, but
-    # product consumers must receive a retryable failure instead of HTTP 200.
+    # An explicit failed-stage signal is not a semantic "nothing to save" decision. Keep the
+    # developer-lab diagnostic contract; product consumers get a retryable failure, not 200.
     if not proposal.preview_cards and "preview_generation_failed" in (
         proposal.validation_hints or []
     ):
@@ -627,7 +627,7 @@ async def propose_pkm_memory(
 @router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)
 async def preview_pkm_structure(
     request: PKMAgentLabStructureRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Local developer-lab compatibility route; product callers use memory/proposals."""
     environment = (

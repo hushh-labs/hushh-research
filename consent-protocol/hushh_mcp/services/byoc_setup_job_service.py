@@ -331,13 +331,15 @@ async def run_setup_job(
     repo: ByocSetupJobRepo | None = None,
     settle_delays: tuple[float, ...] | None = None,
     files_enabled: bool = False,
+    on_recorded: Callable[[], Awaitable[Any]] | None = None,
 ) -> None:
     """The chain, with one durable stage record per transition.
 
-    Every Google-facing step is injected so the route wires the real authorizer
-    and tests wire fakes; the ordering and the record-keeping live here and
-    nowhere else. Errors carry the authorizer's typed message into the record
-    verbatim -- the same words the synchronous route used to raise.
+    Every Google-facing step is injected (the route wires the real authorizer, tests
+    wire fakes); ordering and record-keeping live here. Errors carry the authorizer's
+    typed message into the record verbatim. ``on_recorded`` runs once the job is
+    recorded (``owner_cloud_attach.finish_recorded_setup``), outside the record's
+    error handling, so it can never turn a recorded setup into a failed one.
     """
     from hushh_mcp.services.byoc_oauth_authorizer import ByocAuthorizeError
 
@@ -359,6 +361,7 @@ async def run_setup_job(
         owner_task = asyncio.current_task()
         if owner_task is not None:
             owner_task.add_done_callback(lambda _: pulse_task.cancel())
+    recorded = False
     try:
         await jobs.advance(user_id=user_id, job_id=job_id, stage="creating_project")
         await asyncio.to_thread(
@@ -445,19 +448,11 @@ async def run_setup_job(
             )
 
         await jobs.finish(user_id=user_id, job_id=job_id, status="recorded")
+        recorded = True
     except JobSuperseded:
         logger.info("byoc_setup_job.superseded user=%s job=%s", user_id, job_id)
     except ByocAuthorizeError as exc:
-        try:
-            await jobs.finish(
-                user_id=user_id,
-                job_id=job_id,
-                status="failed",
-                error_code=exc.code,
-                error_message=str(exc),
-            )
-        except JobSuperseded:
-            pass
+        await _record_failure(jobs, user_id, job_id, exc.code, str(exc))
     except Exception as exc:  # noqa: BLE001 - the record must never die silently
         detail = getattr(exc, "detail", None)
         if isinstance(detail, dict) and detail.get("code"):
@@ -467,31 +462,28 @@ async def run_setup_job(
             logger.info(
                 "byoc_setup_job.refused user=%s job=%s code=%s", user_id, job_id, detail["code"]
             )
-            try:
-                await jobs.finish(
-                    user_id=user_id,
-                    job_id=job_id,
-                    status="failed",
-                    error_code=str(detail["code"]),
-                    error_message=str(detail.get("message") or "The cloud step was refused."),
-                )
-            except JobSuperseded:
-                pass
+            message = str(detail.get("message") or "The cloud step was refused.")
+            await _record_failure(jobs, user_id, job_id, str(detail["code"]), message)
             return
         logger.exception("byoc_setup_job.unexpected user=%s job=%s", user_id, job_id)
-        try:
-            await jobs.finish(
-                user_id=user_id,
-                job_id=job_id,
-                status="failed",
-                error_code="UNEXPECTED",
-                error_message=(
-                    "Something unexpected stopped the setup. Everything already done "
-                    "is kept; press Try again."
-                ),
-            )
-        except JobSuperseded:
-            pass
+        await _record_failure(jobs, user_id, job_id, "UNEXPECTED", _UNEXPECTED_MESSAGE)
+    if recorded and on_recorded is not None:
+        await on_recorded()
+
+
+_UNEXPECTED_MESSAGE = (
+    "Something unexpected stopped the setup. Everything already done is kept; press Try again."
+)
+
+
+async def _record_failure(jobs: Any, user_id: str, job_id: str, code: str, message: str) -> None:
+    """Finish the job as failed with a typed refusal; a newer attempt wins silently."""
+    try:
+        await jobs.finish(
+            user_id=user_id, job_id=job_id, status="failed", error_code=code, error_message=message
+        )
+    except JobSuperseded:
+        pass
 
 
 def new_job_id() -> str:

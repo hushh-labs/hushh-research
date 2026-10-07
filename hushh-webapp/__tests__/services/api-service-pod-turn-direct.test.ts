@@ -82,6 +82,7 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
 }));
 
 import { ApiService } from "@/lib/services/api-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 const POD_URL = "https://one-pod-owner-abc.a.run.app";
@@ -146,6 +147,19 @@ describe("ApiService owner-direct pod path", () => {
     resolve("synthetic-token");
     await expect(request).rejects.toMatchObject({ name: "AbortError" });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a vault lock during dynamic transport import before any admission or dispatch", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue({ ...SESSION, scopes: ["browser.observe"] });
+    mockFetch.mockResolvedValue(json({}));
+    const pending = ApiService.ownerPodRequest("browser/capability", { method: "GET" });
+    advanceVaultSessionEpoch();
+    await expect(pending).rejects.toThrow();
+    expect(ownerPodMocks.loadPinnedEndpoint).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    await ApiService.ownerPodRequest("browser/capability", { method: "GET" });
+    expect(mockFetch).toHaveBeenCalledOnce();
   });
 
   it.each([false, true])("routes chat/history through pod admission without hub fallback (stream=%s)", async (streaming) => {

@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+const placement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: placement }));
+
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch } }));
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 
 describe("native Google attempt state", () => {
-  beforeEach(() => apiFetch.mockReset());
+  beforeEach(() => { placement.mockResolvedValue(false); apiFetch.mockReset(); });
 
   it("rejects an older server without bound state before native sign-in", async () => {
     apiFetch.mockResolvedValue(

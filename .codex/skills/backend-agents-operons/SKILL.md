@@ -59,6 +59,7 @@ Non-owned surfaces:
 5. Separate portable shared-runtime corrections from pod wiring before any ADK worktree transfer. Registration or local synthetic tests alone do not establish pod completion.
 6. For Computer Use, read `consent-protocol/docs/reference/private-browser-runtime.md`. Keep the withheld specialist disabled until exact cloud isolation, native model transport, authority and ephemeral-screen gates pass; never substitute an unsandboxed executor or a second approval ledger.
 7. Browser PKM selection requires independent model-processing and website-disclosure consent. Use the existing scoped-export and action-ledger ports; keep remembered sign-in state outside ADK context. The browser runtime reference owns manual login, Forget and recovery restrictions.
+8. Native pod Google grants require exact project/account lifecycle handling: confirm project-wide revocation before fresh authorization, then remove fenced legacy hub credentials without revoking the new grant. Connector credentials, tool reviews and notification work keep their existing owners; metadata feeds cannot carry private observations. Read the dev pod runbook for notification checkpoint and native-client prerequisites.
 
 ## Handoff Rules
 

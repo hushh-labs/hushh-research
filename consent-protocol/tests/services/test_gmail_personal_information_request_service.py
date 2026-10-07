@@ -26,6 +26,68 @@ from hushh_mcp.services.gmail_personal_information_request_service import (
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
 
 
+@pytest.fixture(autouse=True)
+def _shared_legacy_monitor_owner(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    async def resolve(owner):
+        return "shared" if owner == "owner" else "unknown"
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+
+
+async def test_scheduled_monitor_admits_each_owner_before_reading_content(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    modes = {
+        "shared-owner": "shared",
+        "byoc-owner": "byoc",
+        "hosted-owner": "hussh_pods",
+        "pending-owner": "pending",
+        "unplaced-owner": "unplaced",
+        "unknown-owner": "unknown",
+        "unreadable-owner": "unreadable",
+    }
+    observed, scanned, finished = [], [], {}
+
+    async def resolve(user_id):
+        observed.append(user_id)
+        if modes[user_id] == "unreadable":
+            raise RuntimeError("placement unavailable")
+        return modes[user_id]
+
+    service = PersonalGmailInformationRequestService()
+
+    async def claim(**_k):
+        return [
+            {"user_id": owner, "lease_id": owner + "-lease", "monitoring_generation": 1}
+            for owner in [*modes, ""]
+        ]
+
+    async def scan(*, user_id, **_k):
+        scanned.append(user_id)
+        assert user_id in observed, "placement must be checked before provider/classifier access"
+        return {}
+
+    async def finish(*, user_id, completed, **_k):
+        finished[user_id] = completed
+
+    async def purge():
+        return 0, 0
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_claim_enabled_users", claim)
+    monkeypatch.setattr(service, "scan_recent", scan)
+    monkeypatch.setattr(service, "_finish_scan_lease", finish)
+    monkeypatch.setattr(service, "_purge_expired_metadata", purge)
+    result = await service.scan_enabled_users()
+    assert scanned == ["shared-owner"], "private or unknown placement must never read content"
+    assert finished == {owner: owner == "shared-owner" for owner in [*modes, ""]}
+    assert result["completed_users"] == 1 and result["failed_users"] == len(modes)
+
+
 def _message(*, body: str = "Please provide your passport number.") -> dict[str, object]:
     import base64
 
@@ -44,6 +106,48 @@ def _message(*, body: str = "Please provide your passport number.") -> dict[str,
             "body": {"data": encoded},
         },
     }
+
+
+async def test_monitor_discards_provider_response_after_placement_changes(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    mode, calls = "shared", []
+
+    async def resolve(_owner):
+        return mode
+
+    class GmailService:
+        async def capture_personal_inbox_monitor_history_id(self, **_kwargs):
+            return "synthetic-history"
+
+        async def list_personal_inbox_monitor_page(self, **_kwargs):
+            nonlocal mode
+            calls.append("provider")
+            mode = "byoc"
+            return [_message()], None
+
+    service = PersonalGmailInformationRequestService(gmail_service=GmailService())
+
+    async def monitor_state(**_kwargs):
+        return {"monitoring_generation": 1, "classifier_policy_version": 2}
+
+    async def checkpoint(**_kwargs):
+        return True
+
+    async def classify(**_kwargs):
+        calls.append("classifier")
+        raise AssertionError(
+            "provider content must not reach the classifier after private placement"
+        )
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_monitor_state", monitor_state)
+    monkeypatch.setattr(service, "_set_monitor_checkpoint", checkpoint)
+    monkeypatch.setattr(service, "_classify_messages", classify)
+    with pytest.raises(GmailApiError) as refusal:
+        await service.scan_recent(user_id="owner")
+    assert refusal.value.code == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    assert calls == ["provider"]
 
 
 def test_classifier_result_requires_high_confidence_and_normalizes_domains():

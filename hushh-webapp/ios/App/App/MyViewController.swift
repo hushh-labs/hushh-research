@@ -199,6 +199,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // Register all Hushh native plugins
         // These must match the jsName in each plugin's CAPBridgedPlugin protocol
         bridge?.registerPluginInstance(HushhAuthPlugin())
+        bridge?.registerPluginInstance(GoogleConnectorAuthPlugin())
         bridge?.registerPluginInstance(HushhVaultPlugin())
         bridge?.registerPluginInstance(HushhConsentPlugin())
         bridge?.registerPluginInstance(KaiPlugin())

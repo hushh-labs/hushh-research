@@ -16,6 +16,7 @@ from hushh_mcp.services.gmail_receipts_service import (
     ReceiptCandidate,
     _parse_iso,
 )
+from tests.google_oauth_test_support import TransactionEngine
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +28,15 @@ def _enable_legacy_sync_path_for_compatibility_tests(monkeypatch):
         "receipt_storage_writes_enabled",
         lambda: True,
     )
+    from hushh_mcp.services import owner_placement_guard
+
+    async def shared_fixture_owner(user_id):
+        # These synthetic legacy owners explicitly use Shared. Unknown owners
+        # retain the production refusal; private-boundary cases override this seam.
+        return "shared" if user_id in {"user_123", "user-123"} else "unknown"
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", shared_fixture_owner)
 
 
 def _candidate(**overrides):
@@ -45,6 +55,213 @@ def _candidate(**overrides):
     for key, value in overrides.items():
         setattr(base, key, value)
     return base
+
+
+@pytest.mark.parametrize(
+    "mode", ["byoc", "hussh_pods", "pending", "unplaced", "unknown", "unreadable"]
+)
+async def test_machine_gmail_paths_refuse_private_or_unknown_owners_before_provider(
+    monkeypatch, mode
+):
+    from hushh_mcp.services import owner_placement_guard
+
+    service = GmailReceiptsService()
+    updates, provider_calls, dispatched = [], [], []
+    owner = "private-owner"
+
+    async def resolve(_owner):
+        if mode == "unreadable":
+            raise RuntimeError("unreadable")
+        return mode
+
+    async def execute(sql, params=None):
+        updates.append((sql, params or {}))
+        if "SELECT run_id, user_id" in sql:
+            return SimpleNamespace(data=[{"run_id": "private-run", "user_id": owner}])
+        if "SELECT user_id" in sql:
+            return SimpleNamespace(data=[{"user_id": owner}])
+        return SimpleNamespace(data=[])
+
+    def provider(*_a, **_k):
+        provider_calls.append(True)
+        raise AssertionError("private provider/credential access")
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_execute_raw_async", execute)
+    monkeypatch.setattr(service, "_fetch_connection_row", provider)
+    monkeypatch.setattr(service, "_refresh_access_token", provider)
+    monkeypatch.setattr(service, "_register_watch", provider)
+    monkeypatch.setattr(service, "_dispatch_sync_run", lambda **kwargs: dispatched.append(kwargs))
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row_by_email",
+        lambda **_k: {
+            "user_id": owner,
+            "status": "connected",
+            "revoked": False,
+        },
+    )
+    refusal_code = (
+        "AGENT_PRIVATE_RUNTIME_REQUIRED"
+        if mode in owner_placement_guard.PRIVATE_MODES
+        else "AGENT_HOSTING_UNAVAILABLE"
+    )
+    assert (await service.queue_sync(user_id=owner, trigger_source="manual"))[
+        "reason"
+    ] == refusal_code
+    with pytest.raises(GmailApiError) as refusal:
+        await service.reconcile_connection(user_id=owner)
+    assert refusal.value.code == refusal_code
+    with pytest.raises(GmailApiError):
+        await service._ensure_access_token(user_id=owner)
+    await service._run_sync_worker(run_id="private-run", user_id=owner)
+    await service._resume_queued_sync_runs()
+    await service._run_scheduled_sync_once()
+    push = await service.handle_push_notification(
+        {"emailAddress": "owner@example.invalid", "historyId": "2"}
+    )
+    assert push == {"accepted": True, "handled": False, "reason": refusal_code}
+    assert not provider_calls and not dispatched
+    terminals = [params for sql, params in updates if "status IN ('queued', 'running')" in sql]
+    assert len(terminals) == 2
+    assert all(
+        item["user_id"] == owner
+        and item["status"]
+        == ("canceled" if mode in owner_placement_guard.PRIVATE_MODES else "failed")
+        for item in terminals
+    )
+    retired = [params for sql, params in updates if "auto_sync_enabled = FALSE" in sql]
+    assert bool(retired) == (mode in owner_placement_guard.PRIVATE_MODES)
+
+
+@pytest.mark.parametrize("changed_after", [None, "credential", "listing", "metadata", "model"])
+async def test_active_worker_rechecks_placement_after_await_before_next_content_step(
+    monkeypatch, changed_after
+):
+    from hushh_mcp.services import owner_placement_guard
+
+    service = GmailReceiptsService()
+    mode, calls, updates = "shared", [], []
+
+    async def resolve(_owner):
+        return mode
+
+    async def execute(sql, params=None):
+        updates.append((sql, params or {}))
+        if "RETURNING run_id" in sql:
+            return SimpleNamespace(data=[{"run_id": "active-run"}])
+        return SimpleNamespace(data=[])
+
+    def returned(stage, value):
+        nonlocal mode
+        calls.append(stage)
+        if changed_after == stage:
+            mode = "byoc"
+        return value
+
+    async def credential(**_k):
+        return returned("credential", ("synthetic-access", {}))
+
+    async def listing(**_k):
+        return returned("listing", {"messages": [{"id": "message-1"}]})
+
+    async def metadata(**_k):
+        return returned("metadata", [{"id": "message-1"}])
+
+    async def model(*_a, **_k):
+        return returned("model", {"is_receipt": True, "confidence": 1})
+
+    async def persist(**_k):
+        calls.append("persist")
+        return True
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_execute_raw_async", execute)
+    monkeypatch.setattr(service, "_ensure_access_token", credential)
+    monkeypatch.setattr(service, "_list_messages", listing)
+    monkeypatch.setattr(service, "_get_message_metadata_batch", metadata)
+    monkeypatch.setattr(service, "_candidate_from_message", lambda _m: _candidate())
+    monkeypatch.setattr(
+        service, "_classify_candidate", lambda _c: {"is_receipt": False, "needs_llm": True}
+    )
+    monkeypatch.setattr(service, "_llm_extract_candidate", model)
+    monkeypatch.setattr(
+        service, "_extract_receipt_fields", lambda **_k: {"merchant_name": "Published merchant"}
+    )
+    monkeypatch.setattr(service, "_upsert_receipt", persist)
+    monkeypatch.setattr(service, "_is_connection_sync_active", lambda **_k: True)
+    monkeypatch.setattr(service, "_is_run_sync_active", lambda **_k: True)
+    monkeypatch.setattr(service, "_next_backfill_window", lambda **_k: None)
+    await service._run_sync_worker(run_id="active-run", user_id="user_123")
+    stages = ["credential", "listing", "metadata", "model", "persist"]
+    assert calls == (stages if changed_after is None else stages[: stages.index(changed_after) + 1])
+    if changed_after is None:
+        assert any("status = 'completed'" in sql for sql, _params in updates)
+    else:
+        assert any(params.get("status") == "canceled" for _sql, params in updates)
+        assert not any("status = 'completed'" in sql for sql, _params in updates)
+
+
+async def test_retiring_a_verified_private_cohort_keeps_shared_scheduler_work_reachable(
+    monkeypatch,
+):
+    from hushh_mcp.services import owner_placement_guard
+
+    service = GmailReceiptsService()
+    scheduled, active = [], {**{f"private-{i}": True for i in range(50)}, "user_123": True}
+
+    async def resolve(owner):
+        return "byoc" if owner.startswith("private-") else "shared"
+
+    async def execute(sql, params=None):
+        if "SELECT user_id" in sql:
+            return SimpleNamespace(
+                data=[{"user_id": owner} for owner, enabled in active.items() if enabled][:50]
+            )
+        if "auto_sync_enabled = FALSE" in sql:
+            active[params["user_id"]] = False
+        return SimpleNamespace(data=[])
+
+    async def reconcile(*, user_id, **_k):
+        scheduled.append(user_id)
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_execute_raw_async", execute)
+    monkeypatch.setattr(service, "reconcile_connection", reconcile)
+    await service._run_scheduled_sync_once()
+    assert not scheduled
+    await service._run_scheduled_sync_once()
+    assert scheduled == ["user_123"] and active["user_123"] is True
+
+
+async def test_refresh_response_is_discarded_when_owner_moves_to_private_runtime(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    service = GmailReceiptsService()
+    mode, calls = "shared", []
+
+    async def resolve(_owner):
+        return mode
+
+    async def refresh(**_kwargs):
+        nonlocal mode
+        calls.append("refresh")
+        mode = "byoc"
+        return {"access_token": "synthetic-renewed-access"}
+
+    def encrypt(_token):
+        calls.append("encrypt")
+        raise AssertionError("a private owner credential must not be persisted in the hub")
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolve)
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda **_k: {"status": "connected"})
+    monkeypatch.setattr(service, "_decrypt_token", lambda *_a: "synthetic-token")
+    monkeypatch.setattr(service, "_refresh_access_token", refresh)
+    monkeypatch.setattr(service, "_encrypt_token", encrypt)
+    with pytest.raises(GmailApiError) as refusal:
+        await service._ensure_access_token(user_id="user_123")
+    assert refusal.value.code == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    assert calls == ["refresh"]
 
 
 def test_state_token_round_trip():
@@ -756,6 +973,7 @@ async def test_complete_connect_persists_bootstrap_queue_before_deferring_remote
     class _CaptureDb:
         def __init__(self):
             self.calls = []
+            self.engine = TransactionEngine(self)
 
         def execute_raw(self, sql, params=None):
             self.calls.append((sql, params))
@@ -885,6 +1103,9 @@ async def test_complete_connect_reports_success_when_only_bootstrap_queueing_fai
     monkeypatch.setattr(service, "get_status", _get_status)
 
     class _CaptureDb:
+        def __init__(self):
+            self.engine = TransactionEngine(self)
+
         def execute_raw(self, sql, params=None):
             if "INSERT INTO kai_gmail_connections" in sql:
                 return SimpleNamespace(data=[{"user_id": "user_123"}])
@@ -1558,8 +1779,21 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
     active_run_queries: list[tuple[str, dict | None]] = []
 
     class _CaptureDb:
+        def __init__(self):
+            self.engine = TransactionEngine(self)
+
         def execute_raw(self, sql, params=None):
             active_run_queries.append((sql, params))
+            if "SELECT * FROM kai_gmail_connections" in sql:
+                return SimpleNamespace(
+                    data=[
+                        {
+                            "refresh_token_ciphertext": None,
+                            "refresh_token_iv": None,
+                            "refresh_token_tag": None,
+                        }
+                    ]
+                )
             if "SELECT run_id" in sql and "kai_gmail_sync_runs" in sql:
                 return SimpleNamespace(
                     data=[

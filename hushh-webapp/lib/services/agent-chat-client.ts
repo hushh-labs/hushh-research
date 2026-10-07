@@ -55,7 +55,7 @@ import {
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
-import { ownerPodTurnErrorMessage } from "@/lib/agent/owner-pod-turn-errors";
+import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
 
 export type AgentChatMessage = {
@@ -1034,7 +1034,7 @@ async function readError(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => null)) as unknown;
   const record = asRecord(payload);
   const detailRecord = record ? asRecord(record.detail) : null;
-  const code = detailRecord ? readString(detailRecord, "code") : record ? readString(record, "code") : "";
+  const code = refusalCode(detailRecord, record ? readString(record, "code") : "");
   const detail = detailRecord
     ? readString(detailRecord, "message")
     : record
@@ -1129,6 +1129,8 @@ export async function streamAgentChat(input: {
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
   screenContext?: Record<string, unknown> | null;
+  /** The specialist tab this turn came from; steers One's first choice, grants nothing. */
+  specialistFocus?: "email" | "location" | "information" | "finance";
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{
@@ -1913,6 +1915,7 @@ export async function streamAgentChat(input: {
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.feedAttention ? { feedAttention: { itemId: input.feedAttention.itemId } } : {}),
+        ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
         // Only the native app asks the server for a "One replied" push when it
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),
@@ -2043,14 +2046,9 @@ export function createQueuedInputPorts(getVaultOwnerToken: () => string | null):
   const call = async (path: string, init: RequestInit = {}): Promise<Record<string, unknown>> => {
     const token = getVaultOwnerToken();
     if (!token) throw new Error("Vault access expired.");
-    const response = await ApiService.apiFetch(path, {
-      ...init,
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
-      },
-    });
+    // Own-cloud owners reach their agent; only a Shared owner's queue is on the hub.
+    const response = await ApiService.agentChatRequest(path, { ...init, cache: "no-store",
+      headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}) } });
     if (!response.ok) throw new Error(await readError(response));
     return ((await response.json()) ?? {}) as Record<string, unknown>;
   };
@@ -2385,7 +2383,7 @@ export async function getAgentChatFeedback(input: {
     // Through the platform-aware transport like every sibling call: a bare
     // relative fetch resolves against the app's own static files in the
     // native shell, so ratings never reached the backend on the phones.
-    const response = await ApiService.apiFetch(
+    const response = await ApiService.agentChatRequest(
       `/api/one/agent-chat/feedback?conversation_id=${encodeURIComponent(input.conversationId)}`,
       {
         headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
@@ -2417,7 +2415,7 @@ export async function setAgentChatFeedback(input: {
   /** Flags the answer for team review; the backend records it as "down". */
   reportReason?: AgentResponseReportReason;
 }): Promise<void> {
-  const response = await ApiService.apiFetch("/api/one/agent-chat/feedback", {
+  const response = await ApiService.agentChatRequest("/api/one/agent-chat/feedback", {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${input.vaultOwnerToken}`,

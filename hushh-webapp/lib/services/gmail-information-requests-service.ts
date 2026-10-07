@@ -1,7 +1,15 @@
+import { ownerContentIsPrivate } from './private-agent-specialist-chat';
+import { PrivateGoogleUnsupportedError } from './private-google-connections';
 import type { KycReplyAuthorizationV1 } from "@/lib/personal-knowledge-model/mutation-plan";
-import { apiJson } from "@/lib/services/api-client";
+import { apiJson as sharedApiJson } from "@/lib/services/api-client";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
+
+/** Source-bound business replies need a private workflow, never a shared fallback. */
+async function apiJson<T>(...args: Parameters<typeof sharedApiJson>): Promise<T> {
+  if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Gmail information requests');
+  return sharedApiJson<T>(...args);
+}
 
 export type GmailInformationRequestPreference = {
   user_id: string;
@@ -222,6 +230,7 @@ export class GmailInformationRequestsService {
     signal?: AbortSignal;
     handlers: GmailInformationRequestScanStreamHandlers;
   }): Promise<GmailInformationRequestScan> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Gmail information requests');
     const response = await nativeStreamFetch(
       "/api/one/email/information-requests/scan/stream",
       {

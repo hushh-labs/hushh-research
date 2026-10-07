@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -117,6 +118,102 @@ def test_image_build_config_never_deploys() -> None:
     assert not any("${_SKIP_IMAGE_BUILD}" in body for body in bodies)
     assert "_SKIP_IMAGE_BUILD" not in config["substitutions"]
     assert "--push" in bodies[-1]
+
+
+@pytest.mark.parametrize(
+    ("lane", "native_result", "expected_code", "enabled"),
+    [
+        ("dev", "configured", 0, "true"),
+        ("dev", "missing", 0, "false"),
+        ("dev", "denied", 1, None),
+        ("uat", "configured", 0, "false"),
+        ("production", "configured", 0, "false"),
+    ],
+)
+def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
+    tmp_path: Path, lane: str, native_result: str, expected_code: int, enabled: str | None
+) -> None:
+    """Run the real resolver/build bodies; absence must differ from denied access."""
+    config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text(encoding="utf-8"))
+    values = {name: str(value) for name, value in config["substitutions"].items()}
+    values.update({"_DEPLOY_ENV": lane, "_APP_ENV": lane})
+    client = "123456789012-synthetic.apps.googleusercontent.com"
+    trace = tmp_path / "secret-names"
+    pins = {
+        "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID": client,
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID": client,
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI": "com.hussh.app:/oauth2redirect",
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED": "true",
+    }
+    cases = []
+    for name, value in pins.items():
+        if native_result == "configured":
+            command = f"printf '%s' {shlex.quote(value)}"
+        else:
+            error = "NOT_FOUND" if native_result == "missing" else "PERMISSION_DENIED"
+            command = f"echo '{error}: synthetic refusal' >&2; return 1"
+        cases.append(f"{name}) {command} ;;")
+    guard = (
+        "gcloud() { local secret=''; for arg in \"$@\"; do "
+        'case "$arg" in --secret=*) secret="${arg#--secret=}" ;; esac; done; '
+        f'printf "%s\\n" "$secret" >> {shlex.quote(str(trace))}; '
+        'case "$secret" in '
+        f"NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID) printf '%s' {shlex.quote(client)} ;; "
+        + " ".join(cases)
+        + " *) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;; esac; };\n"
+    )
+    resolver = _substitute(
+        _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
+    )
+    resolver = resolver.replace("$$", "$").replace("/workspace", str(tmp_path))
+    origin = {"dev": "dev.one.hushh.ai", "uat": "uat.one.hushh.ai", "production": "one.hushh.ai"}[
+        lane
+    ]
+    result = _run(
+        guard + resolver,
+        env={"APP_FRONTEND_ORIGIN_VAL": f"https://{origin}", "PROJECT_ID": "synthetic-project"},
+    )
+    assert result.returncode == expected_code, result.stderr
+    assert client not in result.stdout + result.stderr
+    assert "UNEXPECTED_CLOUD_COMMAND" not in result.stdout + result.stderr
+    requested = trace.read_text().splitlines()
+    if lane != "dev":
+        assert requested == ["NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID"]
+    if expected_code:
+        assert "Unable to access native Google" in result.stderr
+        return
+    directory = tmp_path / ".google-native-connectors"
+    assert (directory / "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED").read_text() == enabled
+    if native_result == "missing" or lane != "dev":
+        assert (directory / "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID").read_text() == ""
+
+    # The actual Docker command consumes these resolved pins, without echoing them.
+    capture = tmp_path / "docker-args"
+    build_guard = (
+        "gcloud() { return 0; };\n"
+        "docker() { if [ \"$1 $2\" = 'buildx build' ]; then "
+        f"printf '%s\\n' \"$@\" > {shlex.quote(str(capture))}; fi; }};\n"
+    )
+    build = _substitute(_body(_steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]), values)
+    build = build.replace("$$", "$").replace("/workspace", str(tmp_path))
+    environment = {
+        name: "synthetic"
+        for name in _steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]["secretEnv"]
+    }
+    environment.update(
+        {"APP_FRONTEND_ORIGIN_VAL": f"https://{origin}", "PROJECT_ID": "synthetic-project"}
+    )
+    built = _run(build_guard + build, env=environment)
+    assert built.returncode == 0, built.stderr
+    args = capture.read_text().splitlines()
+    assert f"NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED={enabled}" in args
+    expected_client = client if lane == "dev" and native_result == "configured" else ""
+    for name in (
+        "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID",
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID",
+    ):
+        assert f"{name}={expected_client}" in args
+    assert client not in built.stdout + built.stderr
 
 
 @pytest.mark.parametrize(

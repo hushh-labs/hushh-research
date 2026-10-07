@@ -262,7 +262,7 @@ class GcpBackend:
         Hushh cannot read it. Exact Confidential-Space annotation values are
         validated at live-enablement; the shape here is the deploy contract.
         """
-        from hushh_mcp.consent.token_signing import public_verification_keys
+        from hushh_mcp.consent.token_signing import OWNER_FEED, public_verification_keys
 
         name = _service_name(spec.hushh_id)
         dedicated = spec.tier == TIER_DEDICATED
@@ -434,6 +434,22 @@ class GcpBackend:
                     "name": "CONSENT_ED25519_PUBLIC_KEYS",
                     "value": json.dumps(public_verification_keys(), separators=(",", ":")),
                 },
+                {
+                    "name": "OWNER_FEED_ED25519_PUBLIC_KEYS",
+                    "value": json.dumps(
+                        public_verification_keys(OWNER_FEED), separators=(",", ":")
+                    ),
+                },
+                *[
+                    {"name": name, "value": _env(name) or ""}
+                    for name in (
+                        "GOOGLE_IOS_CONNECTOR_CLIENT_ID",
+                        "GOOGLE_ANDROID_CONNECTOR_CLIENT_ID",
+                        "GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI",
+                        "GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED",
+                        "GOOGLE_CONNECTOR_OAUTH_PROJECT",
+                    )
+                ],
                 {
                     "name": "HUSHH_DEPLOY_ENV",
                     "value": _env("HUSHH_DEPLOY_ENV") or _env("ENVIRONMENT") or "",

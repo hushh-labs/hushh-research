@@ -113,6 +113,7 @@ from hushh_mcp.services.live_voice_context import (
     record_completed_action,
     record_failed_action,
 )
+from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_inline
 
 logger = logging.getLogger(__name__)
 
@@ -470,6 +471,7 @@ class OneAdkRelaySessionResponse(BaseModel):
 
 @router.post("/relay-session", response_model=OneAdkRelaySessionResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
+@hub_content_inline("adk_relay_session")
 async def create_one_adk_relay_session(
     request: Request,
     authorization: Optional[str] = Header(default=None),
@@ -481,6 +483,7 @@ async def create_one_adk_relay_session(
             detail="One voice is not enabled.",
         )
     uid = await resolve_optional_uid(authorization)
+    await admit_hub_content(uid, "adk_relay_session")  # 409 for a private owner, before a ticket
     if uid:
         from api.routes.one.pod_live_relay import admit_private_live
 
@@ -488,24 +491,17 @@ async def create_one_adk_relay_session(
             async with asyncio.timeout(30.0):
                 await admit_private_live(uid)
         except Exception as exc:
-            # The reason was discarded here, and the cost was real: a release
-            # verifier reported this 503 for eleven consecutive dev deploys and
-            # no log anywhere said which of admission's preconditions failed --
-            # no registry row, no pod URL, an unreachable pod, or the timeout.
-            # The client-facing detail is deliberately unchanged: the caller
-            # still learns only that voice is unavailable.
+            # A release verifier reported this 503 for eleven dev deploys with no
+            # log saying which precondition failed (registry row, pod URL, an
+            # unreachable pod, the timeout). The caller still learns only that
+            # voice is unavailable.
             #
-            # ON THE ARGS PATH, NOT `extra=`, and both halves of that matter.
-            # The serving formatter is the plain one `server.py` installs and
-            # gunicorn does not replace, so it renders `%(message)s` and nothing
-            # else: fields passed through `extra` are carried on the record and
-            # never printed, which would have made this line a no-op wearing the
-            # shape of a fix. And `SensitiveLogFilter` rewrites `record.msg` and
-            # `record.args` only, so `extra` is also the one path that skips
-            # redaction -- reachable here, because a database failure reaches
-            # this handler with the bound parameters inside its own str().
-            # No uid: the reason is what was missing, and the owner is already
-            # identified by the request.
+            # ON THE ARGS PATH, NOT `extra=`: the serving formatter (server.py,
+            # not replaced by gunicorn) renders only `%(message)s`, so `extra`
+            # fields are never printed, and `SensitiveLogFilter` rewrites only
+            # `record.msg` and `record.args`, so `extra` also skips redaction,
+            # which matters because a database failure carries its bound
+            # parameters in its str(). No uid: the request identifies the owner.
             logger.warning(
                 "one.adk.relay_session.admission_refused reason=%s detail=%s",
                 type(exc).__name__,
@@ -554,6 +550,7 @@ def _event_audio_parts(event: Any) -> list[dict[str, Any]]:
 
 
 @router.websocket("/live")
+@hub_content_inline("adk_live")
 async def one_adk_live_relay(websocket: WebSocket) -> None:
     """Bridge the browser wire protocol onto Runner.run_live."""
     await websocket.accept()
@@ -583,9 +580,10 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         await _close_quietly(websocket, code=1008, reason="Voice relay ticket is expired.")
         return
     if uid:
-        from api.routes.one.pod_live_relay import relay_private_live
+        from api.routes.one.pod_live_relay import courier_admitted, relay_private_live
 
-        await relay_private_live(websocket, user_id=uid)
+        if await courier_admitted(websocket, uid):
+            await relay_private_live(websocket, user_id=uid)
         return
     if persona_tier in {"signed_locked", "signed_unlocked"}:
         await _close_quietly(websocket, code=1008, reason=_PRIVATE_VOICE_UNAVAILABLE)

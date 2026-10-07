@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -38,6 +38,7 @@ class _State:
     runtime_epoch: str = ""
     fence_record: dict[str, Any] | None = None
     hydrated: bool = False
+    drain_hooks_complete: bool = True
 
 
 def pod_incarnation() -> str:
@@ -78,6 +79,21 @@ class PodUpgradeAdmission:
         self._log_resolver = log_resolver
         # A restart invalidates receipts issued by the previous runtime.
         self._runtime_epoch = str(runtime_epoch or uuid4().hex).strip()[:256]
+        self._drain_hooks: dict[str, dict[str, Callable[[], Awaitable[None]]]] = {}
+
+    def register_drain(
+        self, *, incarnation: str, name: str, callback: Callable[[], Awaitable[None]]
+    ) -> None:
+        """Trusted runtime lifecycle hook, invoked after the durable update fence.
+
+        Hooks close resource-backed work; its existing turn permits remain held
+        until close and sealed state commit both succeed. Registration is not
+        caller-provided authority and cannot replace a live runtime's hook.
+        """
+        hooks = self._drain_hooks.setdefault(incarnation, {})
+        if name in hooks and hooks[name] != callback:
+            raise PodUpgradeAdmissionRefused("pod lifecycle hook already registered")
+        hooks[name] = callback
 
     def _log(self) -> Any:
         if self._log_resolver is not None:
@@ -112,7 +128,7 @@ class PodUpgradeAdmission:
                 f"pod lifecycle durable append unavailable: {type(exc).__name__}"
             ) from exc
         self._record_cursor(record)
-        return record
+        return dict(record)
 
     async def _cursor(self) -> dict[str, Any]:
         log = self._log()
@@ -185,7 +201,7 @@ class PodUpgradeAdmission:
                 return
             state.active = max(0, state.active - 1)
             if state.active == 0:
-                if state.draining and state.receipt is None:
+                if state.draining and state.drain_hooks_complete and state.receipt is None:
                     state.receipt = await self._persist_idle(state)
                 self._condition.notify_all()
 
@@ -233,6 +249,10 @@ class PodUpgradeAdmission:
             state.operation_id = operation
             state.draining = True
             state.runtime_epoch = self._runtime_epoch
+            callbacks = tuple(self._drain_hooks.get(key, {}).values())
+            if callbacks:
+                state.drain_hooks_complete = False
+                state.receipt = None
             if state.fence_record is None:
                 state.fence_record = await self._append_marker(
                     "pod_upgrade_fence",
@@ -242,8 +262,17 @@ class PodUpgradeAdmission:
                         "runtimeEpoch": self._runtime_epoch,
                     },
                 )
-            if state.active == 0:
+            if state.active == 0 and state.drain_hooks_complete:
                 state.receipt = await self._persist_idle(state)
+        # A browser close releases a turn permit; running under _condition
+        # would deadlock release_turn and could hide an unconfirmed shutdown.
+        for callback in callbacks:
+            await callback()
+        async with self._condition:
+            state.drain_hooks_complete = True
+            if state.active == 0 and state.receipt is None:
+                state.receipt = await self._persist_idle(state)
+            self._condition.notify_all()
             return self._snapshot(state)
 
     async def status(self, *, incarnation: str) -> dict[str, Any]:
@@ -261,11 +290,14 @@ class PodUpgradeAdmission:
             state = self._states.get(key)
             if state is None or state.operation_id != operation_id or not state.draining:
                 raise PodUpgradeAdmissionRefused("upgrade handoff is not active")
-            if timeout > 0 and state.active:
+            if timeout > 0 and (state.active or not state.drain_hooks_complete):
                 await asyncio.wait_for(
-                    self._condition.wait_for(lambda: state.active == 0), timeout=timeout
+                    self._condition.wait_for(
+                        lambda: state.active == 0 and state.drain_hooks_complete
+                    ),
+                    timeout=timeout,
                 )
-            if state.active == 0 and state.receipt is None:
+            if state.active == 0 and state.drain_hooks_complete and state.receipt is None:
                 state.receipt = await self._persist_idle(state)
             return self._snapshot(state)
 
@@ -275,7 +307,7 @@ class PodUpgradeAdmission:
             state = self._states.get(key)
             if state is None or state.operation_id != operation_id:
                 raise PodUpgradeAdmissionRefused("upgrade handoff does not match this pod")
-            if state.active:
+            if state.active or not state.drain_hooks_complete:
                 raise PodUpgradeAdmissionRefused("active pod work has not finished")
             await self._append_marker(
                 "pod_upgrade_release",
@@ -290,6 +322,7 @@ class PodUpgradeAdmission:
             state.receipt = None
             state.active = 0
             state.fence_record = None
+            state.drain_hooks_complete = True
             return self._snapshot(state)
 
     def _snapshot(self, state: _State) -> dict[str, Any]:

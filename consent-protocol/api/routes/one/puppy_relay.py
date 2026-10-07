@@ -22,13 +22,14 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from redis import asyncio as redis_asyncio
 
 from api.middleware import require_firebase_auth
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.compute_backend import is_owner_cloud_target
+from hushh_mcp.services.owner_placement_guard import hub_content_inline
 from hushh_mcp.services.trusted_device_service import TrustedDeviceService
 
 logger = logging.getLogger(__name__)
@@ -380,6 +381,12 @@ async def _admit(websocket: WebSocket) -> tuple[str, str, str] | None:
         return None
     user_id = str(claims.user_id)
     device_id = agent.removeprefix("device:")
+    from hushh_mcp.services.owner_placement_guard import admit_hub_content
+
+    try:
+        await admit_hub_content(user_id, "puppy_relay")
+    except HTTPException:
+        return None
     if not await _puppy_eligible_byoc_owner(user_id, device_id):
         return None
     return user_id, device_id, token
@@ -687,6 +694,7 @@ async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str)
 
 
 @router.websocket("/relay")
+@hub_content_inline("puppy_relay")
 async def puppy_relay(websocket: WebSocket) -> None:
     admitted = await _admit(websocket)
     if admitted is None:

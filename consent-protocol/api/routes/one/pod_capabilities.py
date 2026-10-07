@@ -22,6 +22,10 @@ from deployment topology the hub already renders, or from what the platform sets
   silence is how the app knows to offer the owner an update before asking for a key.
   The heartbeat carries the same object to the hub, which keeps it only after
   ``ai_selection_advert`` has checked its shape.
+* **connectors** is one status word per Google connector the agent holds a login for
+  itself (``pod_connector_credentials``). It rides only on the heartbeat to the hub,
+  never on the anonymous ``/pod/info``, and the hub keeps it only after
+  ``connectors_advert`` has checked its shape.
 """
 
 from __future__ import annotations
@@ -150,6 +154,39 @@ def ai_selection_advert(value: Any) -> dict[str, Any] | None:
     return {"version": version, "providers": list(dict.fromkeys(providers))}
 
 
+CONNECTORS_VERSION = 1
+_CONNECTOR_NAMES = ("gmail", "calendar", "drive", "contacts")
+_CONNECTOR_STATES = frozenset({"connected", "needs_reauth", "absent"})
+
+
+def connectors_capability() -> dict[str, Any] | None:
+    """This agent's own connector states for the heartbeat; None while unreadable."""
+    from hushh_mcp.services.pod_connector_credentials import connector_states  # noqa: PLC0415
+
+    states = connector_states()
+    return None if states is None else {"version": CONNECTORS_VERSION, "states": states}
+
+
+def connectors_advert(value: Any) -> dict[str, Any] | None:
+    """A pod's self-reported ``connectors``, re-shaped, or None when it is not one.
+
+    Exactly a positive integer version and one word per known connector, each of
+    ``connected``, ``needs_reauth`` or ``absent``. Nothing else survives: no account,
+    no scope, no time. A malformed advert reads as no advert, never a partial one.
+    """
+    if not isinstance(value, dict):
+        return None
+    version = value.get("version")
+    states = value.get("states")
+    if type(version) is not int or not 1 <= version <= 1000 or not isinstance(states, dict):
+        return None
+    if set(states) != set(_CONNECTOR_NAMES):
+        return None
+    if not all(isinstance(word, str) and word in _CONNECTOR_STATES for word in states.values()):
+        return None
+    return {"version": version, "states": {name: states[name] for name in _CONNECTOR_NAMES}}
+
+
 def observed_ai_selection(backend_metadata: Any) -> dict[str, Any] | None:
     """The advert the running pod last reported (``observed``), or None for an older one."""
     observed = backend_metadata.get("observed") if isinstance(backend_metadata, dict) else None
@@ -175,6 +212,8 @@ def pod_capabilities() -> dict[str, Any]:
 __all__ = [
     "ai_selection_advert",
     "ai_selection_capability",
+    "connectors_advert",
+    "connectors_capability",
     "observed_ai_selection",
     "own_model_provider",
     "pod_capabilities",

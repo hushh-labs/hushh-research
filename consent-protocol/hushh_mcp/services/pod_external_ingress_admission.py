@@ -4,16 +4,21 @@ Every owner cloud whose pod is public by construction records ``ingress: "extern
 Azure always, and a Google own-cloud pod built on the direct axis (Cloud Run ingress
 ``all`` with an ``allUsers`` invoker, ``owner_direct_ingress``). Its owner talks to the
 pod directly, and the hub publishes that endpoint only after ``directReadiness`` is
-recorded. Only a hub-only (``internal``) pod still needs the operator step to widen
-(dev-pod-first-light runbook). An ``external`` pod has nothing to open, so the hub
-runs the same checks itself on a live beat, whatever the provider:
+recorded. A hub-only (``internal``) Google pod is first widened by the hub itself
+(``owner_direct_widen``), which records it ``external``. An ``external`` pod has
+nothing to open, so the hub runs the same checks itself on a live beat, whatever the
+provider:
 
 - the row is the owner's provisioned pod with its key recorded, which the hub
   pulled from this exact URL, so the address is proven to serve this pod;
-- the machine-route wall refuses a caller with no identity (``/pod/info`` 401, 403
-  or 404, never served);
+- the machine-route wall refuses a caller with no identity with the pod's own
+  answer: ``/pod/info`` 404 with exactly ``POD_WALL_NOT_FOUND_BODY``. A Cloud Run IAM
+  403 or any other 404 is not the wall, it is something in front of the pod;
+- an anonymous ``/health`` answers 200, so the pod itself is publicly reachable;
 - a browser preflight from the app's own origin is allowed, with that exact origin
-  echoed back.
+  echoed back;
+- for a Google pod, the live service read with the owner's bootstrap identity is the
+  same incarnation, has ingress ``all`` and grants ``allUsers`` the invoker role.
 
 Only then does one compare-and-set promote ``external`` to ``direct`` together with
 the readiness receipt, bound to the same key, service and URL. Any failure leaves
@@ -28,14 +33,15 @@ from typing import Any, Optional
 
 import httpx
 
-from hushh_mcp.services.compute_backend import is_owner_cloud_target
+from hushh_mcp.services.compute_backend import BACKEND_USER_GCP, is_owner_cloud_target
+from hushh_mcp.services.pod_wall import POD_WALL_NOT_FOUND_BODY, POD_WALL_STATUS
 
 logger = logging.getLogger(__name__)
 
 EXTERNAL_INGRESS = "external"
 _WALL_PATH = "/pod/info"
+_HEALTH_PATH = "/health"
 _PREFLIGHT_PATH = "/api/one/pod/session/challenge"
-_WALL_REFUSALS = frozenset({401, 403, 404})
 _TIMEOUT_SECONDS = 5.0
 
 
@@ -80,8 +86,13 @@ def _app_origin() -> str:
 async def _ingress_holds(client: Any, url: str, origin: str) -> Optional[str]:
     """None when the wall and the app's preflight both hold, else the failed check."""
     wall = await client.get(f"{url}{_WALL_PATH}")
-    if wall.status_code not in _WALL_REFUSALS:
+    if wall.status_code != POD_WALL_STATUS:
         return f"wall_{wall.status_code}"
+    if wall.content != POD_WALL_NOT_FOUND_BODY:
+        return "wall_body"
+    health = await client.get(f"{url}{_HEALTH_PATH}")
+    if health.status_code != 200:
+        return f"health_{health.status_code}"
     preflight = await client.request(
         "OPTIONS",
         f"{url}{_PREFLIGHT_PATH}",
@@ -98,12 +109,28 @@ async def _ingress_holds(client: Any, url: str, origin: str) -> Optional[str]:
     return None
 
 
+async def _cloud_holds(row: dict, due: dict[str, str], cloud_check: Any) -> Optional[str]:
+    """For a Google pod, the live IAM and ingress read back; None when they hold."""
+    if _clean(row.get("deployment_target")) != BACKEND_USER_GCP:
+        return None
+    if cloud_check is None:
+        from hushh_mcp.services.owner_direct_widen import (  # noqa: PLC0415
+            google_public_ingress_failure as cloud_check,
+        )
+    metadata = row.get("backend_metadata") or {}
+    service = _clean(metadata.get("service"))
+    if not service:
+        return "iam_no_service"
+    return await cloud_check(row, service=service, service_uid=due["service_uid"])
+
+
 async def admit_external_ingress_if_due(
     row: Optional[dict],
     *,
     client: Any = None,
     db: Any = None,
     origin: Optional[str] = None,
+    cloud_check: Any = None,
 ) -> bool:
     """Verify and record owner-direct readiness for an external-ingress pod."""
     due = admission_due(row)
@@ -119,6 +146,8 @@ async def admit_external_ingress_if_due(
                 failed = await _ingress_holds(owned, due["url"], app_origin)
         else:
             failed = await _ingress_holds(client, due["url"], app_origin)
+        if not failed and row is not None:
+            failed = await _cloud_holds(row, due, cloud_check)
     except Exception as exc:  # noqa: BLE001 - an unreachable pod is retried next beat
         logger.info("pod_external_ingress.unreachable %s", type(exc).__name__)
         return False

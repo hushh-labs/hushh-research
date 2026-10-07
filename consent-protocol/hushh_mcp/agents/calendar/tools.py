@@ -20,6 +20,7 @@ from hushh_mcp.services.google_calendar_service import (
     get_google_calendar_service,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.pod_google_connections import calendar_reads_via_door, calendar_turn_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -97,11 +98,9 @@ def _handle_connection_error(
 async def _serve_via_door(
     tool_context: ToolContext, calendar_read: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
-    """Read the requested calendar operation through the existing consented door."""
-    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
-
-    if not pod_mode():
-        return None
+    """Read through the consented door in a hosted pod; None means read locally."""
+    if not calendar_reads_via_door():
+        return await calendar_turn_refusal(tool_context)  # owner cloud: owner session only
     if calendar_read is not None:
         from hushh_mcp.services.pod_data_door import CalendarReadOptions
 
@@ -401,9 +400,7 @@ async def _propose(
     payload: dict[str, Any],
     tool_context: ToolContext,
 ) -> dict[str, Any]:
-    from hushh_mcp.runtime_settings import pod_mode
-
-    if pod_mode():
+    if calendar_reads_via_door() or await calendar_turn_refusal(tool_context):
         return {
             "status": "runtime_unavailable",
             "message": "Prepare and confirm calendar changes in the owner app.",

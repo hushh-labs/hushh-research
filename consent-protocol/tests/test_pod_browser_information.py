@@ -67,6 +67,162 @@ async def test_model_factory_rejects_custom_transport_and_unverified_native_mode
     assert "click_at" in {tool.name for tool in tools}
 
 
+async def test_native_adk_task_keeps_authored_instruction_png_and_finish_output(monkeypatch):
+    """Real pinned ADK/Gemini preprocessing, synthetic provider response only."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from google.adk.models import Gemini
+    from google.genai import types
+
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+    from hushh_mcp.services.pod_browser.adk_task import NativeAdkBrowserModel
+    from hushh_mcp.services.pod_browser.information import (
+        BrowserInformation,
+        BrowserModelProcessing,
+    )
+
+    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
+    monkeypatch.setenv("ADK_TELEMETRY_IGNORE_RUN_CONFIG", "false")
+    manifest = ManifestLoader.load(
+        str(Path(__file__).resolve().parents[1] / "hushh_mcp/agents/computer_use/agent.yaml")
+    )
+    consent = _BrowserConsent()
+    runtime = control()
+    process = BrowserModelProcessing(
+        BrowserInformation(SimpleNamespace(), consent),
+        runtime.binding,
+        (),
+        "gemini-3.7-flash",
+        readiness().model_transport,
+        ("https://example.com",),
+        "Review the requested public page.",
+    )
+    consent.approve(
+        "model_process",
+        {
+            "fields": [],
+            "values": {},
+            "model": process.model_name,
+            "transport": process.transport,
+            "origins": list(process.allowed_origins),
+            "screen_processing": True,
+            "task_goal": process.task_goal,
+        },
+    )
+    requests = []
+
+    async def generate(**request):
+        requests.append(request)
+        name, args = (
+            ("open_web_browser", {})
+            if len(requests) == 1
+            else (
+                "finish_task",
+                {"outcome": "completed", "summary": "The requested page was reviewed."},
+            )
+        )
+        return types.GenerateContentResponse(
+            candidates=[
+                types.Candidate(
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part(function_call=types.FunctionCall(name=name, args=args))],
+                    ),
+                    finish_reason=types.FinishReason.STOP,
+                )
+            ]
+        )
+
+    client = SimpleNamespace(
+        vertexai=False, aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    )
+    model = Gemini(model=process.model_name)
+    # Supply only a synthetic HTTP client; all native ADK tool/model adaptation runs.
+    model.__dict__["api_client"] = client
+    result = await NativeAdkBrowserModel(manifest, model).run(
+        control=runtime, processing=process, goal="Review the requested public page."
+    )
+    assert result.outcome == "completed" and len(requests) == 2
+    assert requests[0]["config"].system_instruction is None  # native Computer Use behaviour
+    assert any(tool.computer_use for tool in requests[0]["config"].tools)
+    assert manifest.system_instruction in "\n".join(
+        part.text or "" for content in requests[0]["contents"] for part in content.parts or []
+    )
+    frames = [
+        media.inline_data
+        for content in requests[1]["contents"]
+        for part in content.parts or []
+        if part.function_response
+        for media in part.function_response.parts or []
+        if media.inline_data
+    ]
+    assert frames and frames[0].mime_type == "image/png"
+    assert (
+        runtime.control_owner == "agent"
+    )  # runner closes ephemeral tools, lifecycle stays runtime-owned
+
+    from google.adk.runners import Runner
+
+    async def unconfirmed_model_close(_runner):
+        raise OSError("synthetic model close failure")
+
+    with monkeypatch.context() as cleanup:
+        cleanup.setattr(Runner, "close", unconfirmed_model_close)
+        with pytest.raises(BrowserRefused, match="MODEL_STOP_UNCONFIRMED"):
+            await NativeAdkBrowserModel(manifest, model).run(
+                control=runtime, processing=process, goal="Review the requested public page."
+            )
+    await runtime.stop()
+
+    with pytest.raises(BrowserRefused, match="PROCESSING_TERMS_MISMATCH"):
+        await NativeAdkBrowserModel(manifest, model).run(
+            control=runtime, processing=process, goal="An unapproved changed goal."
+        )
+
+    monkeypatch.setenv("ADK_TELEMETRY_IGNORE_RUN_CONFIG", "true")
+    monkeypatch.setenv("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "true")
+    with pytest.raises(BrowserRefused, match="TELEMETRY_CONTENT_REFUSED"):
+        await NativeAdkBrowserModel(manifest, model).run(
+            control=runtime, processing=process, goal="Review the requested public page."
+        )
+    assert len(requests) == 3
+
+
+def test_session_review_display_never_exports_sign_in_values():
+    from hushh_mcp.services.pod_browser.task_authority import owner_review
+    from hushh_mcp.services.pod_browser.task_contracts import BrowserReviewOffer
+
+    offer = BrowserReviewOffer(
+        review_id="opaque_review",
+        purpose="session_remember",
+        terms={
+            "site": "opaque_site",
+            "generation": 1,
+            "origins": ["https://example.com"],
+            "state": {
+                "cookies": [{"value": "private-login-token"}],
+                "origins": [
+                    {
+                        "origin": "https://example.com",
+                        "localStorage": [{"value": "private-storage-token"}],
+                    }
+                ],
+            },
+        },
+    )
+    assert "private-login-token" in str(offer.terms)  # negative control: complete authority terms
+    shown = owner_review(offer)
+    assert shown.terms == {
+        "site": "opaque_site",
+        "generation": 1,
+        "origins": ["https://example.com"],
+        "cookie_count": 1,
+        "storage_item_count": 1,
+    }
+    assert "token" not in str(shown.terms)
+
+
 async def test_selected_pkm_needs_processing_and_distinct_exact_website_disclosure():
     from hushh_mcp.services.pod_browser.information import BrowserInformation, InformationField
 

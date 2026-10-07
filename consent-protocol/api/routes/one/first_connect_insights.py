@@ -13,8 +13,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from api.middlewares.chat_key import require_vault_owner_chat_key
 from hushh_mcp.services.first_connect_insights_service import offer_first_connect_insights
+from hushh_mcp.services.owner_placement_guard import hub_content_chat_owner
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/one", tags=["Agent One"])
@@ -24,7 +24,7 @@ _NO_STORE = {"Cache-Control": "private, no-store"}
 
 @router.post("/first-connect-insights")
 async def first_connect_insights(
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ) -> JSONResponse:
     user_id = str(token.get("user_id") or "")
     consent_token = str(token.get("token") or "")

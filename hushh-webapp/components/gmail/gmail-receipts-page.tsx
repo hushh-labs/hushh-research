@@ -1,5 +1,12 @@
 "use client";
 
+import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
+import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
+import { snapshotVaultSessionEpoch } from '@/lib/vault/session-epoch';
+import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
+
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -416,6 +423,7 @@ export default function GmailReceiptsPage({
   const pathname = usePathname();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, snapshotVaultSessionEpoch());
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -928,11 +936,36 @@ export default function GmailReceiptsPage({
   const preserveGmailModify = gmail.status?.modify_permission_granted === true;
   const handleConnectGmail = useCallback((purpose: "read" | "send" = "read"): Promise<boolean> => {
     if (!user?.uid || gmailActionBusy !== null) return Promise.resolve(false);
+    const operationOwner = user.uid;
+    const privateConnect = async (): Promise<boolean | null> => {
+      const privateAgent = await ownerContentIsPrivate();
+      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!privateAgent) return null;
+      if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) { toast.error('Unlock your vault to connect Google.'); return false; }
+      const outcome = await connectGoogleConnector('gmail', {
+        vaultOwnerCapability: vaultOwnerToken,
+        confirmLegacyTransition: confirmTransition,
+        isCurrent: () => gmailOwnerIdRef.current === operationOwner,
+      });
+      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!outcome.ok) {
+        if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('gmail');
+        else toast.error(connectRefusalMessage(outcome.code, 'Gmail'));
+        return false;
+      }
+      const current = await refreshGmailStatus({ force: true });
+      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (current?.connected) toast.success('Gmail connected to your private agent.');
+      return current?.connected === true;
+    };
+
 
     if (Capacitor.isNativePlatform()) {
       setGmailActionBusy("connect");
       return (async () => {
         try {
+          const privateOutcome = await privateConnect();
+          if (privateOutcome !== null) return privateOutcome;
           // The normal Gmail workspace has no setup state to persist. Do not
           // leave its trusted popup on a placeholder while an unrelated
           // onboarding read waits on the database.
@@ -1036,6 +1069,13 @@ export default function GmailReceiptsPage({
 
     return (async () => {
       try {
+        if (await ownerContentIsPrivate()) {
+          popup?.close();
+          gmailPopupRef.current = null; setGmailPopupAttempt(null);
+          clearGmailOAuthPopupAttempt();
+          try { return (await privateConnect()) ?? false; } finally { setGmailActionBusy(null); }
+        }
+        if (gmailOwnerIdRef.current !== operationOwner) { popup?.close(); setGmailActionBusy(null); return false; }
         const journey =
           journeyVariant === "onboarding"
             ? await PreVaultUserStateService.bootstrapState(user.uid, {
@@ -1123,7 +1163,7 @@ export default function GmailReceiptsPage({
         return false;
       }
     })();
-  }, [gmailActionBusy, journeyVariant, preserveGmailModify, refreshGmailStatus, user]);
+  }, [confirmTransition, gmailActionBusy, journeyVariant, preserveGmailModify, refreshGmailStatus, user, vaultKey, vaultOwnerToken, isVaultUnlocked]);
 
   const handleEnableGmailSend = useCallback(() => {
     void handleConnectGmail("send");
@@ -1940,6 +1980,7 @@ export default function GmailReceiptsPage({
               : "empty-valid",
       }}
     >
+      {transitionDialog}
       <AppPageHeaderRegion className={journeyVariant === "workspace" ? "mx-auto max-w-[820px]" : undefined}>
         <PageHeader
           title="Mail"

@@ -88,6 +88,7 @@ class BrowserAction(StrictContract):
     text: str | None = Field(default=None, max_length=4096, repr=False)
     press_enter: bool = False
     clear_before_typing: bool = True
+    focus_existing: bool = False
     direction: Literal["up", "down", "left", "right"] | None = None
     magnitude: int | None = Field(default=None, ge=1, le=2000)
     keys: tuple[str, ...] = ()
@@ -103,7 +104,11 @@ class BrowserAction(StrictContract):
             "keys": {"keys"},
             "drag": {"x", "y", "destination_x", "destination_y"},
         }.get(self.operation, set())
-        optional = {"press_enter", "clear_before_typing"} if self.operation == "type" else set()
+        optional = (
+            {"press_enter", "clear_before_typing", "focus_existing"}
+            if self.operation == "type"
+            else set()
+        )
         if self.operation == "scroll":
             optional = {"x", "y"}
             if (self.x is None) != (self.y is None):

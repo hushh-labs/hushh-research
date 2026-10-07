@@ -72,8 +72,12 @@ def _mail(call: dict, body: dict, kind: str) -> dict:
         return {}
     if kind == "cloud_scheduler_job" and (
         any(identity[key] != requested.get(key) for key in ("schedule", "timeZone"))
-        or identity["pubsubTarget"]["topicName"]
-        != requested.get("pubsubTarget", {}).get("topicName")
+        or (
+            identity.get("httpTarget") != requested.get("httpTarget")
+            if "httpTarget" in identity
+            else identity["pubsubTarget"]["topicName"]
+            != requested.get("pubsubTarget", {}).get("topicName")
+        )
     ):
         return {}
     return _created(kind, name.rsplit("/", 1)[-1], identity)
@@ -90,7 +94,7 @@ def qualify_created_resource(
     step = call["step"]
     if step == "cmek_bucket":
         return _bucket(call, body)
-    if step in {"pod_service_account", "files_worker_account"}:
+    if step in {"pod_service_account", "files_worker_account", "mail_push_account"}:
         return _account(call, body, project)
     if step == "kms_key":
         return _key(call, body)
@@ -109,6 +113,8 @@ def qualify_created_resource(
     kind = {
         "mail_topic": "pubsub_topic",
         "mail_subscription": "pubsub_subscription",
+        "mail_dead_letter_topic": "pubsub_topic",
+        "mail_dead_letter_subscription": "pubsub_subscription",
         "watch_renew_job": "cloud_scheduler_job",
     }.get(step)
     return _mail(call, body, kind) if kind else {}

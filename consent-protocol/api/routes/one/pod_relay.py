@@ -1,18 +1,17 @@
 """The hub's owner doors to a pod, and the turns they must never carry.
 
-An own-cloud agent (``user_gcp``, ``user_azure``) is chatted with browser to agent:
-the hub only issues body-less ``/chat-grants``. ``/turn`` and the conversation-close
-door refuse those owners with 409 ``AGENT_PRIVATE_RUNTIME_REQUIRED`` before a grant is
-minted or a pod dialled, so the hub cannot carry their words, records or model key.
-Both stay open for Hussh-hosted pods (``gcp``): ``internal`` ingress, hub-only invoker.
+Content reaches the hub only for a Shared owner (no pod): ``/turn`` and conversation
+close admit through ``hub_content_firebase``, so every private placement gets 409 before
+a grant or a dial (``_refuse_own_cloud`` is a row backstop). Own-cloud AND Hussh Pods
+chat is direct only, never through the hub; the hub issues body-less chat-grants.
 
 Every door applies three fail-closed guards, in order: an authenticated owner
 (``require_firebase_auth``); ownership of THIS HusshID, audited either way on the
 POD_ACCESS ledger (``PodAccessAuditService.authorize_owner_read``); and the hub calling
 the pod as itself (``run.invoker``), so no shared secret crosses the boundary.
 The address comes only from the row the hub wrote; missing hub identity refuses before
-network access; redirects are refused as a safe 502, so a pod response cannot forward
-the owner's projection, model credential or consent grant elsewhere.
+network access; redirects are a safe 502, so a pod response does not forward the
+owner's projection, model credential or consent grant elsewhere.
 404 while ``PERSONAL_AGENT_ENABLED`` is off, like every personal-agent surface.
 """
 
@@ -29,6 +28,7 @@ from api.middleware import require_firebase_auth
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.runtime_settings import personal_agent_enabled, pod_data_door_enabled
 from hushh_mcp.services.compute_backend import is_owner_cloud_target
+from hushh_mcp.services.owner_placement_guard import hub_content_firebase
 from hushh_mcp.services.personal_agent_grant_service import PersonalAgentDisabledError
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_access_audit import (
@@ -69,7 +69,7 @@ def _require_enabled() -> None:
 
 
 def _refuse_own_cloud(row: dict) -> None:
-    """Own-cloud chat is browser to agent; the hub never carries its content."""
+    """Backstop behind the route guard: own-cloud content never reaches the hub."""
     if is_owner_cloud_target(row.get("deployment_target")):
         raise HTTPException(409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
 
@@ -421,6 +421,13 @@ def _not_ready(status: str) -> HTTPException:
 
 async def issue_pod_data_door_grants(user_id: str, *, door_grants: Any = None) -> dict[str, str]:
     """Separate invocation/read grants shared by text and Live pod transports."""
+    from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+
+    mode = await get_owner_hosting_mode(user_id)
+    if mode in {"byoc", "pending", "unplaced", "hussh_pods"}:
+        return {}
+    if mode != "shared":
+        raise HTTPException(503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
     data_door_grants: dict[str, str] = {}
     from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
 
@@ -801,7 +808,7 @@ async def relay_pod_turn_route(
     request: Request,
     payload: PodTurnRelayRequest = Body(...),
     hushh_id: str = Path(..., min_length=1, max_length=128),
-    user_id: str = Depends(require_firebase_auth),
+    user_id: str = Depends(hub_content_firebase),
 ) -> dict:
     """Run one turn on this person's own pod."""
     return await relay_pod_turn(
@@ -1013,7 +1020,7 @@ async def relay_pod_conversation_close_route(
     payload: PodConversationCloseRelayRequest = Body(default=PodConversationCloseRelayRequest()),
     hushh_id: str = Path(..., min_length=1, max_length=128),
     conversation_id: str = Path(..., min_length=1, max_length=128),
-    user_id: str = Depends(require_firebase_auth),
+    user_id: str = Depends(hub_content_firebase),
 ) -> dict:
     """The person left the chat: let their pod review it on the conversation's model."""
     return await relay_pod_conversation_close(

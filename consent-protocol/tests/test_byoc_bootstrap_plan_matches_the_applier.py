@@ -32,14 +32,12 @@ _APPLIED_ELSEWHERE = {
 #: Roles the plan declares that NOTHING binds, anywhere. Each is a feature that is
 #: advertised to a person and cannot work. Kept as an explicit, named list rather than a
 #: silent omission so that shrinking it is a deliberate act.
-_ADVERTISED_BUT_UNWIRED = {
-    # The BYOC mail doorbell. `render_bootstrap_plan` creates the topic, the
-    # subscription and the daily watch-renewal job; no applier binds either role, so
-    # Gmail cannot publish into the topic and the pod cannot pull from the
-    # subscription. The resources exist and the feature is dead.
-    "roles/pubsub.publisher",
-    "roles/pubsub.subscriber",
-}
+_ADVERTISED_BUT_UNWIRED: set[str] = set()
+# Empty since 2026-10-06. It held the BYOC mail doorbell's two Pub/Sub roles, which the
+# plan advertised and nothing bound. Gmail's publisher grant is now a bootstrap step
+# (`iam_gmail_publisher_on_topic`), and the subscription pushes to the agent's own URL
+# (`pod_gmail_push_config.arm_gmail_push`), so the pull subscriber grant is gone from
+# the plan rather than left as a promise.
 
 
 def _plan():
@@ -243,3 +241,28 @@ def test_the_bootstrap_grants_the_run_agent_reader_on_that_repo() -> None:
     assert "cloudresourcemanager.googleapis.com" in lookup["url"]
     assert "serverless-robot-prod" in lookup["member_template"]
     assert "{value}" in lookup["member_template"]
+
+
+def test_gmail_may_publish_into_only_the_owner_specific_oauth_topic(monkeypatch) -> None:
+    monkeypatch.setenv("GOOGLE_CONNECTOR_OAUTH_PROJECT", "oauth-developer-project")
+    """The doorbell's one grant: Gmail's publisher, on that topic, merged not overwritten."""
+    (step,) = [c for c in _calls() if c["step"] == "iam_gmail_publisher_on_topic"]
+    assert step["kind"] == "merge_binding" and step["depends_on"] == "oauth_mail_topic"
+    assert step["authority"] == "oauth_developer_project"
+    assert step["bindings"][0] == {
+        "role": "roles/pubsub.publisher",
+        "members": ["serviceAccount:gmail-api-push@system.gserviceaccount.com"],
+    }
+    assert (
+        "/projects/oauth-developer-project/topics/one-mail-ha1-abc:setIamPolicy"
+        in step["write_url"]
+    )
+    _, plan = _plan()
+    assert [b for b in plan["iam"] if b["role"] == "roles/pubsub.subscriber"] == [
+        {
+            "member": "the project's Pub/Sub service agent",
+            "role": "roles/pubsub.subscriber",
+            "on": "one-mail-ha1-abc-direct-sub",
+            "note": "consume source delivery for bounded dead-letter forwarding",
+        }
+    ]

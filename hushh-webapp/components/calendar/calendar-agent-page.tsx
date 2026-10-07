@@ -1,5 +1,12 @@
 "use client";
 
+import { useVault } from '@/lib/vault/vault-context';
+import { snapshotVaultSessionEpoch } from '@/lib/vault/session-epoch';
+import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
+import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
+import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Loader2 } from "@/components/icons";
@@ -129,6 +136,8 @@ export function CalendarAgentPage({
   connectionPending = false,
 }: CalendarAgentPageProps) {
   const { user, loading } = useAuth();
+  const { vaultKey, vaultOwnerToken } = useVault();
+  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, snapshotVaultSessionEpoch());
   const renderedOwnerId = user?.uid ?? null;
   const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
   activeOwnerIdRef.current = renderedOwnerId;
@@ -255,6 +264,26 @@ export function CalendarAgentPage({
     const popup = attempt ? openGoogleOAuthPopup(attempt) : null;
     setBusy(true);
     try {
+      const privateAgent = await ownerContentIsPrivate();
+      if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
+      if (privateAgent) {
+        popup?.close();
+        if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
+        const outcome = await connectGoogleConnector('calendar', {
+          vaultOwnerCapability: vaultOwnerToken,
+          confirmLegacyTransition: confirmTransition,
+          isCurrent: () => activeOwnerIdRef.current === operationOwnerId,
+        });
+        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (!outcome.ok) {
+          if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('calendar');
+          else toast.error(connectRefusalMessage(outcome.code, 'Calendar'));
+          return;
+        }
+        const current = await GoogleCalendarService.status(await user.getIdToken(), operationOwnerId);
+        if (activeOwnerIdRef.current === operationOwnerId) setStatus(current);
+        return;
+      }
       if (journeyVariant === "onboarding") {
         markCalendarSetupOAuthReturn();
       } else {
@@ -492,6 +521,7 @@ export function CalendarAgentPage({
       }}
     >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
+        {transitionDialog}
         <div className="flex flex-col items-center text-center space-y-1 pb-4 pt-8 max-w-sm mx-auto">
           <div className="mb-6 flex size-24 items-center justify-center rounded-[24px] bg-[#FFF0F1] dark:bg-red-950/40">
             <CalendarConnectIcon className="size-11" style={{ color: "#FF3B30" }} />

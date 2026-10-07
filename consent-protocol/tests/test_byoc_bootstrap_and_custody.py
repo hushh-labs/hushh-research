@@ -52,6 +52,37 @@ BORROWED = "fake-bearer-for-tests"  # noqa: S105 - not a credential; there is no
 HUSHH_OWN = "fake-hushh-identity-bearer"  # noqa: S105 - same
 
 
+@pytest.fixture(autouse=True)
+def _notification_authorities(monkeypatch):
+    """Synthetic separate credentials; no bootstrap test discovers real ADC."""
+    from types import SimpleNamespace
+
+    principal = "consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com"
+    monkeypatch.setenv("GOOGLE_CONNECTOR_OAUTH_PROJECT", "oauth-developer-project")
+    monkeypatch.setenv("HUSSH_CONSENT_PLANE_SA", principal)
+    original = UserGcpBootstrap.__init__
+
+    def initialize(self, *args, **kwargs):
+        project = kwargs.get("project")
+        kwargs.setdefault("bootstrap_sa", f"one-bootstrap@{project}.iam.gserviceaccount.com")
+        kwargs.setdefault(
+            "oauth_credentials",
+            SimpleNamespace(valid=True, token=HUSHH_OWN, service_account_email=principal),
+        )
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(UserGcpBootstrap, "__init__", initialize)
+    original_apply = UserGcpBootstrap.apply
+
+    def apply_with_synthetic_checkpoint(self, *args, **kwargs):
+        # This fixture supplies the fake durable port explicitly; production has
+        # no checkpoint fallback. Tests of absence pass None themselves.
+        kwargs.setdefault("notification_checkpoint", lambda *_args: None)
+        return original_apply(self, *args, **kwargs)
+
+    monkeypatch.setattr(UserGcpBootstrap, "apply", apply_with_synthetic_checkpoint)
+
+
 def _spec() -> PodSpec:
     return PodSpec(
         hushh_id=HUSHH_ID,
@@ -80,6 +111,12 @@ class _Response:
 #: silently counting responses. Routes are matched in insertion order, so a more
 #: specific fragment can be listed before a more general one.
 _DEFAULT_ROUTES: dict = {
+    "/services/pubsub.googleapis.com:generateServiceIdentity": lambda: _Response(
+        200, {"done": True, "response": {}}
+    ),
+    "/services/cloudscheduler.googleapis.com:generateServiceIdentity": lambda: _Response(
+        200, {"done": True, "response": {}}
+    ),
     # The Cloud Storage service agent lookup. Named here because almost every apply()
     # test now passes through it on the way to the CMEK bucket.
     "storage/v1/projects/": lambda: _Response(
@@ -302,6 +339,7 @@ def test_a_failed_step_is_reported_rather_than_raised() -> None:
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     result = boot.apply(plan, dry_run=False)
     assert result["ok"] is False
+    assert result["coreOk"] is False
     assert "cmek_bucket" in result["failed"]
     assert len(result["steps"]) == len(boot.plan_calls(plan))
 
@@ -353,9 +391,10 @@ def test_a_half_applied_bootstrap_converges_on_a_re_run() -> None:
         "kms_keyring",
         "kms_key",
         "pod_service_account",
-        "mail_topic",
+        "oauth_mail_topic",
+        "mail_dead_letter_topic",
+        "mail_dead_letter_subscription",
         "mail_subscription",
-        "watch_renew_job",
     }
 
     # Pass 1: the KMS key ring fails with a quota error; everything else proceeds.
@@ -702,9 +741,10 @@ def test_api_enablement_is_the_first_step_not_a_prerequisite() -> None:
     boot = UserGcpBootstrap(project=USER_PROJECT, session=_Session([]))
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     calls = boot.plan_calls(plan)
-    assert calls[0]["step"] == "enable_services"
-    assert set(calls[0]["body"]["serviceIds"]) == set(REQUIRED_SERVICES)
-    assert "aiplatform.googleapis.com" in calls[0]["body"]["serviceIds"]
+    network_calls = [call for call in calls if call.get("method")]
+    assert network_calls[0]["step"] == "enable_services"
+    assert set(network_calls[0]["body"]["serviceIds"]) == set(REQUIRED_SERVICES)
+    assert "aiplatform.googleapis.com" in network_calls[0]["body"]["serviceIds"]
 
 
 def test_iam_steps_merge_rather_than_overwrite() -> None:
@@ -1040,7 +1080,7 @@ def test_a_failed_enablement_skips_the_rest_instead_of_reporting_seven_failures(
     result = boot.apply(plan, dry_run=False)
 
     assert result["failed"] == ["enable_services"]
-    assert len(result["skipped"]) == len(boot.plan_calls(plan)) - 1
+    assert len(result["skipped"]) == len(boot.plan_calls(plan)) - 2
     assert "kms_keyring" in result["skipped"]
     assert "iam_pod_sa_vertex" in result["skipped"]
     assert result["ok"] is False
@@ -1195,7 +1235,7 @@ def test_a_missing_prerequisite_skips_only_what_depends_on_it() -> None:
     )
     result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
     assert set(result["skipped"]) == {"cmek_bucket", "iam_pod_sa_on_bucket"}
-    for still_run in ("mail_topic", "mail_subscription", "watch_renew_job"):
+    for still_run in ("oauth_mail_topic", "mail_subscription", "mail_dead_letter_subscription"):
         assert next(s for s in result["steps"] if s["step"] == still_run)["ok"] is True
 
 
@@ -1223,7 +1263,7 @@ def test_the_bootstrap_can_act_as_the_pod_account_and_nothing_wider() -> None:
 
 def test_an_unknown_bootstrap_identity_omits_the_grant_rather_than_guessing_one() -> None:
     """Binding a grant to a guessed principal is an access grant to the wrong account."""
-    steps = [c["step"] for c in _boot(_Session([])).plan_calls(_plan())]
+    steps = [c["step"] for c in _boot(_Session([]), bootstrap_sa="").plan_calls(_plan())]
     assert "iam_bootstrap_can_run_as_pod" not in steps
 
 
@@ -1671,9 +1711,9 @@ def test_operation_polling_binds_identity_and_sanitizes_failure(case):
 @pytest.mark.parametrize(
     "resource_type,step_name",
     [
-        ("pubsub_topic", "mail_topic"),
+        ("pubsub_topic", "mail_dead_letter_topic"),
         ("pubsub_subscription", "mail_subscription"),
-        ("cloud_scheduler_job", "watch_renew_job"),
+        ("pubsub_subscription", "mail_dead_letter_subscription"),
     ],
 )
 @pytest.mark.parametrize("case", ["created", "adopted", "foreign"])
@@ -1705,6 +1745,265 @@ def test_mail_creation_acknowledgements_preserve_relationships_without_message_c
         assert "cmVuZXctd2F0Y2g=" not in json.dumps(record)
     else:
         assert "resourceObservation" not in step
+
+
+class _NotificationDeliverySession:
+    """Provider readbacks with independent owner/operator authorization checks."""
+
+    def __init__(self, plan, *, existing_job=False, missing_iam=False):
+        self.terms = plan["gmailNotifications"]
+        self.calls = []
+        self.job = (
+            {"name": self.terms["watchJob"], "pubsubTarget": {"topicName": "legacy"}}
+            if existing_job
+            else None
+        )
+        self.subscription = {
+            "name": self.terms["ownerSubscription"],
+            "topic": self.terms["topic"],
+        }
+        self.missing_iam = missing_iam
+
+    def request(self, method, url, **kwargs):
+        from copy import deepcopy
+
+        assert kwargs["allow_redirects"] is False
+        assert 0 < kwargs["timeout"] <= 30
+        self.calls.append((method, url, kwargs.get("data")))
+        terms = self.terms
+        operator = terms["topic"] in url
+        expected_token = HUSHH_OWN if operator else BORROWED
+        assert kwargs["headers"]["Authorization"] == "Bearer " + expected_token
+        base = url.split("?", 1)[0]
+        body = json.loads(kwargs["data"]) if kwargs.get("data") else {}
+        if base.endswith(":getIamPolicy"):
+            agent = "serviceAccount:service-12345@gcp-sa-pubsub.iam.gserviceaccount.com"
+            scheduler = "serviceAccount:service-12345@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+            bootstrap = f"serviceAccount:one-bootstrap@{USER_PROJECT}.iam.gserviceaccount.com"
+            if operator:
+                pairs = [
+                    (
+                        "roles/pubsub.publisher",
+                        "serviceAccount:gmail-api-push@system.gserviceaccount.com",
+                    ),
+                    ("roles/pubsub.subscriber", bootstrap),
+                ]
+            elif "/serviceAccounts/" in base:
+                pairs = [
+                    ("roles/iam.serviceAccountOpenIdTokenCreator", agent),
+                    ("roles/iam.serviceAccountOpenIdTokenCreator", scheduler),
+                    ("roles/iam.serviceAccountUser", bootstrap),
+                ]
+            elif terms["deadLetterTopic"] in base:
+                pairs = [("roles/pubsub.publisher", agent)]
+            else:
+                pairs = [("roles/pubsub.subscriber", agent)]
+            return _Response(
+                200,
+                {
+                    "bindings": []
+                    if self.missing_iam
+                    else [{"role": role, "members": [member]} for role, member in pairs]
+                },
+            )
+        if "cloudresourcemanager.googleapis.com" in base:
+            return _Response(200, {"projectNumber": "12345"})
+        if "cloudscheduler.googleapis.com" in base:
+            if method in {"POST", "PATCH"}:
+                self.job = body
+            return _Response(200, deepcopy(self.job)) if self.job else _Response(404)
+        if terms["ownerSubscription"] in base:
+            if method == "PATCH":
+                self.subscription = body
+            return _Response(200, deepcopy(self.subscription))
+        if terms["deadLetterSubscription"] in base:
+            return _Response(
+                200,
+                {
+                    "name": terms["deadLetterSubscription"],
+                    "topic": terms["deadLetterTopic"],
+                    "messageRetentionDuration": "604800s",
+                    "expirationPolicy": {},
+                },
+            )
+        if terms["deadLetterTopic"] in base:
+            return _Response(200, {"name": terms["deadLetterTopic"]})
+        if operator:
+            assert method == "GET"
+            return _Response(200, {"name": terms["topic"]})
+        raise AssertionError((method, url))
+
+
+@pytest.mark.parametrize("missing", ["project", "identity", "checkpoint"])
+def test_notification_prerequisite_unavailable_preserves_core_bootstrap(monkeypatch, missing):
+    plan = _plan()
+    session = _Session()
+    bootstrap = _boot(session)
+    if missing == "project":
+        monkeypatch.delenv("GOOGLE_CONNECTOR_OAUTH_PROJECT")
+    elif missing == "identity":
+        bootstrap._oauth_credentials.service_account_email = (
+            "wrong@foreign-project.iam.gserviceaccount.com"
+        )
+
+    def refuse_checkpoint(*_args):
+        raise AssertionError(
+            "unavailable notification authority must not request mutation admission"
+        )
+
+    result = bootstrap.apply(
+        plan,
+        dry_run=False,
+        notification_checkpoint=None if missing == "checkpoint" else refuse_checkpoint,
+    )
+    assert result["ok"] is False
+    assert result["coreOk"] is True
+    assert result["capabilities"]["gmail_notifications"]["status"] == "unavailable"
+    assert result["failed"] == ["gmail_notification_prerequisite"]
+    assert all(
+        step.get("capability") == "gmail_notifications"
+        for step in result["steps"]
+        if not step["ok"]
+    )
+    assert any("cloudkms.googleapis.com" in call["url"] for call in session.calls)
+    assert not any("oauth-developer-project" in call["url"] for call in session.calls)
+
+
+def test_notification_checkpoint_receives_only_capability_steps_and_owner_receipts():
+    plan = _plan()
+    bootstrap = _boot(_Session())
+    observed = []
+    result = bootstrap.apply(
+        plan,
+        dry_run=False,
+        notification_checkpoint=lambda phase, step, completed: observed.append(
+            (phase, step, completed)
+        ),
+    )
+    notification_steps = {
+        call["step"]
+        for call in bootstrap.plan_calls(plan)
+        if call.get("capability") == "gmail_notifications"
+    }
+    assert {step for _, step, _ in observed} == notification_steps - {
+        "gmail_notification_prerequisite"
+    }
+    assert all(
+        item["step"] in notification_steps and item["capability"] == "gmail_notifications"
+        for _, _, completed in observed
+        for item in completed
+    )
+    operator = next(
+        item for item in result["steps"] if item["step"] == "iam_gmail_publisher_on_topic"
+    )
+    assert "bindingObservations" not in operator
+    assert "operatorBindingObservations" in operator
+    assert not any(
+        "oauth-developer-project" in binding["policyResource"]
+        for item in result["steps"]
+        for binding in item.get("bindingObservations", [])
+    )
+
+
+@pytest.mark.parametrize("existing_job", [False, True])
+def test_direct_notification_configuration_retains_exact_owner_http_job(existing_job):
+    from hushh_mcp.services.byoc_substrate import SubstrateReceipt
+
+    plan = _plan()
+    session = _NotificationDeliverySession(plan, existing_job=existing_job)
+    retained = []
+
+    def checkpoint(phase, step, completed):
+        retained.append((phase, step, completed, len(session.calls)))
+
+    inventory = _boot(session).configure_notification_delivery(
+        plan, service_url="https://one-owner.a.run.app", checkpoint=checkpoint
+    )
+    assert inventory["watchJobDisposition"] == ("updated" if existing_job else "created")
+    assert inventory["runtimeEnv"]["HUSSH_POD_TICK_AUDIENCE"] == "https://one-owner.a.run.app"
+    job = session.job
+    assert job["httpTarget"] == {
+        "uri": "https://one-owner.a.run.app/api/one/pod/maintenance/tick",
+        "httpMethod": "POST",
+        "oidcToken": {
+            "serviceAccountEmail": plan["gmailNotifications"]["pushServiceAccount"],
+            "audience": "https://one-owner.a.run.app",
+        },
+    }
+    assert "pubsubTarget" not in job
+    writes = [
+        (index, call)
+        for index, call in enumerate(session.calls)
+        if call[0] in {"PATCH", "POST"} and ":getIamPolicy" not in call[1]
+    ]
+    assert len(writes) == 2
+    for index, _call in writes:
+        assert any(
+            phase == "intent" and call_count == index for phase, _, _, call_count in retained
+        )
+    observation = inventory["deliverySteps"][-1]
+    if existing_job:
+        assert "resourceObservation" not in observation
+    else:
+        record = SubstrateReceipt(
+            True,
+            f"{USER_PROJECT}/us-central1",
+            planned_resources=plan["resources"],
+            resource_observations=[observation["resourceObservation"]],
+        ).as_record()
+        assert record["resourceObservations"][0]["identity"]["name"] == job["name"]
+    assert BORROWED not in repr(retained)
+    assert HUSHH_OWN not in repr(retained)
+
+
+@pytest.mark.parametrize("refusal", ["iam", "intent", "observed"])
+def test_direct_notification_refusal_stops_later_provider_mutations(refusal):
+    plan = _plan()
+    session = _NotificationDeliverySession(plan, missing_iam=refusal == "iam")
+
+    def checkpoint(phase, _step, _completed):
+        if phase == refusal:
+            raise RuntimeError("durable owner authority unavailable")
+
+    with pytest.raises((RuntimeError, BootstrapError)):
+        _boot(session).configure_notification_delivery(
+            plan, service_url="https://one-owner.a.run.app", checkpoint=checkpoint
+        )
+    mutations = [call for call in session.calls if call[0] == "PATCH"]
+    assert len(mutations) == (1 if refusal == "observed" else 0)
+    assert session.job is None
+
+
+@pytest.mark.parametrize("forgery", ["audience", "account", "name", "uri"])
+def test_notification_http_creation_receipt_refuses_forged_authority(forgery):
+    from copy import deepcopy
+
+    from hushh_mcp.services.byoc_bootstrap_observation import qualify_created_resource
+
+    plan = _plan()
+    session = _NotificationDeliverySession(plan)
+    _boot(session).configure_notification_delivery(
+        plan, service_url="https://one-owner.a.run.app", checkpoint=lambda *_args: None
+    )
+    requested = session.job
+    observed = deepcopy(requested)
+    if forgery == "audience":
+        observed["httpTarget"]["oidcToken"]["audience"] = "https://foreign.invalid"
+    elif forgery == "account":
+        observed["httpTarget"]["oidcToken"]["serviceAccountEmail"] = (
+            "pod@foreign-project.iam.gserviceaccount.com"
+        )
+    elif forgery == "name":
+        observed["name"] = observed["name"].replace(USER_PROJECT, "foreign-project")
+    else:
+        observed["httpTarget"]["uri"] = "https://one-owner.a.run.app/api/other"
+    result = qualify_created_resource(
+        {"step": "watch_renew_job", "body": requested},
+        observed,
+        project=USER_PROJECT,
+        project_number="12345",
+    )
+    assert "resourceObservation" not in result
 
 
 def test_iam_write_failure_does_not_return_provider_details():

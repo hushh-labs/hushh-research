@@ -25,6 +25,7 @@ const HOST_LABELS = {
   byoc: "Your cloud",
   hussh_pods: "Hussh Pods",
   pending: "Setup in progress",
+  unplaced: "Not chosen yet",
   unknown: "Hosting unavailable",
 } as const;
 
@@ -48,6 +49,8 @@ function updateCheckMessage(
     return "Hussh Shared updates automatically.";
   if (status.hostingMode === "pending")
     return "Updates become available after setup finishes.";
+  if ((status.hostingMode as string) === "unplaced")
+    return "Choose where your agent runs first.";
   if (status.updateFailed)
     return "Update needs attention. Its outcome has not been verified.";
   const activity = updateActivityLabel(readUpdateStatus(status));
@@ -80,7 +83,7 @@ export function AgentSettingsPanel({
     return () => { mounted.current = false; };
   }, []);
   const mode: HostingMode = isHostingMode(status?.hostingMode)
-    ? status.hostingMode
+    ? (status.hostingMode as HostingMode)
     : "unknown";
   const isPod = mode === "byoc" || mode === "hussh_pods";
   const needsLinkRecovery = mode === "byoc" && status?.state === "failed";
@@ -254,7 +257,7 @@ export function AgentSettingsPanel({
 
   if (kind === "hosting") {
     const canManageCloud =
-      mode === "shared" || mode === "pending" || mode === "byoc";
+      mode === "shared" || mode === "pending" || mode === "byoc" || mode === "unplaced";
     return (
       <div className="space-y-5">
         <SettingsGroup density="compact">
@@ -283,7 +286,9 @@ export function AgentSettingsPanel({
           <SettingsRow
             title="Hussh Shared"
             description="Hussh runs and updates the shared service automatically."
-            trailing={mode === "shared" ? "Current" : undefined}
+            trailing={mode === "shared" ? "Current" : mode === "unplaced" ? "Choose" : undefined}
+            onClick={mode === "unplaced" ? () => router.push(ROUTES.ONE_SETUP_CLOUD) : undefined}
+            chevron={mode === "unplaced"}
           />
           <SettingsRow
             title="Bring your own cloud"
@@ -346,7 +351,7 @@ export function AgentSettingsPanel({
     ? "Checking update status…"
     : mode === "shared"
       ? "Updated automatically by Hussh"
-      : mode === "pending"
+      : mode === "pending" || mode === "unplaced"
         ? "Available after setup finishes"
         : mode === "unknown"
           ? "Hosting status unavailable"

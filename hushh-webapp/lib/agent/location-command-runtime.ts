@@ -18,6 +18,8 @@ import {
   type EncryptedPayload,
 } from "@/lib/vault/encrypt";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { PrivateLocationCommand } from "@/lib/agent/location-command-private";
+import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
@@ -192,6 +194,11 @@ export class LocationCommandRuntime {
   private readonly references = new LocationReferenceSession();
   private pendingCancellation: { commandId: string; owner: string } | null =
     null;
+  // A private agent plans and checkpoints itself; the hub gets only typed effects.
+  private readonly privateCommand = new PrivateLocationCommand({ ports: { execute: (...a) => this.ports.execute(...a),
+    navigate: (...a) => this.ports.navigate(...a), context: () => this.ports.context(), present: (v) => this.ports.present(v) },
+    assess: (input) => this.assessPrivately(input), observations: () => this.references.list(this.authority().userId),
+    transcript: () => this.transcript });
 
   constructor(private readonly ports: CommandPorts) {}
 
@@ -369,7 +376,7 @@ export class LocationCommandRuntime {
     typedAction?: LocationCommandPlan["steps"][number],
     chosenResourceId?: string,
   ): Promise<void> {
-    if (this.busy || this.run || this.pendingCancellation)
+    if (this.busy || this.run || this.pendingCancellation || this.privateCommand.active)
       throw new Error("Finish or cancel your current command first.");
     this.authority();
     const generation = ++this.generation;
@@ -387,6 +394,7 @@ export class LocationCommandRuntime {
       message: "Understanding your Location request…",
     });
     try {
+      if (await ownerContentIsPrivate()) return await this.privateCommand.submit({ requestId, typedAction }).then(() => accepted?.());
       const proposed = await this.request<{
         plan?: LocationCommandPlan;
         checkpoint: CommandCheckpoint;
@@ -540,28 +548,15 @@ export class LocationCommandRuntime {
   }
 
   async recover(): Promise<void> {
-    if (this.busy || this.run) return;
+    // A private agent's checkpoints never live on the hub; an unreadable placement is not Shared.
+    if (this.busy || this.run || (await ownerContentIsPrivate().catch(() => true))) return;
     const owner = this.authority().userId;
     const generation = this.generation;
-    const { commands } = await this.request<{ commands: CommandCheckpoint[] }>(
-      "action-proposals",
-      undefined,
-      "GET",
-    );
-    if (
-      generation !== this.generation ||
-      this.ports.authority()?.userId !== owner ||
-      this.busy ||
-      this.run
-    )
-      return;
+    const { commands } = await this.request<{ commands: CommandCheckpoint[] }>("action-proposals", undefined, "GET");
+    if (generation !== this.generation || this.ports.authority()?.userId !== owner || this.busy || this.run) return;
     if (commands.length)
-      this.show({
-        phase: "recovery",
-        message:
-          "You have unfinished Location commands. Resume after reviewing current state.",
-        recoverable: commands,
-      });
+      this.show({ phase: "recovery", recoverable: commands,
+        message: "You have unfinished Location commands. Resume after reviewing current state." });
   }
 
   async resume(checkpoint: CommandCheckpoint): Promise<void> {
@@ -779,6 +774,7 @@ export class LocationCommandRuntime {
   }
 
   async continueGate(trustedGesture: boolean): Promise<void> {
+    if (this.privateCommand.active) return this.privateCommand.continueGate(trustedGesture);
     if (this.busy || !this.run || !trustedGesture) return;
     this.requireFreshCheckpoint();
     this.busy = true;
@@ -1706,6 +1702,7 @@ export class LocationCommandRuntime {
   }
 
   async cancel(checkpoint?: CommandCheckpoint): Promise<void> {
+    if (this.privateCommand.active && !checkpoint) return this.privateCommand.cancel();
     const current = checkpoint || this.run?.checkpoint;
     const owner = this.authority().userId;
     if (current)

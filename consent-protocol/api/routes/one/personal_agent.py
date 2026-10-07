@@ -1,11 +1,10 @@
 """Owner-authorized provisioning for a user's own personal agent.
 
-Every action requires the owner's VAULT_OWNER token, so only the person
-themselves can stand up or tear down their own agent. Auth is resolved before the
-kill-switch check, so an unauthenticated caller gets 401 regardless of the flag;
-once authenticated, the surface returns 404 while ``PERSONAL_AGENT_ENABLED`` is
-off. The handlers are thin; the real work lives in the provisioning service and
-registry.
+Every action requires the owner's VAULT_OWNER token, so only the person themselves can
+stand up or tear down their own agent. Auth is resolved before the kill-switch check, so
+an unauthenticated caller gets 401 regardless of the flag; once authenticated, the surface
+returns 404 while ``PERSONAL_AGENT_ENABLED`` is off. Handlers are thin; the real work
+lives in the provisioning service and registry.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes.one import personal_agent_direct_ingress as direct_ingress
 from api.routes.one.pod_capabilities import observed_ai_selection
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.account_service import (
@@ -57,6 +57,7 @@ from hushh_mcp.services.pod_update_presentation import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/personal-agent", tags=["personal-agent"])
+router.include_router(direct_ingress.router)
 
 
 class ProvisionRequest(BaseModel):
@@ -71,8 +72,7 @@ class ProvisionRequest(BaseModel):
     row in `connecting`, and `collect_pod_key_if_pending` completes the handshake on
     the same status poll the UI is already doing -- but no route could express it. So
     the only way a pod could ever come into existence was a fire-and-forget hook off
-    phone verification whose exceptions are swallowed. That is why dev has every flag
-    on and zero pods.
+    phone verification whose exceptions are swallowed (dev: every flag on, zero pods).
 
     A HALF-supplied pair is still rejected, by the service rather than here
     (`personal_agent_provisioning_service.py`): "no key yet" and "a key the caller
@@ -624,6 +624,7 @@ async def resolve_personal_agent_status(
     if isinstance(metadata, dict) and metadata.get("ready") is not None:
         result["hostReady"] = bool(metadata.get("ready"))
     result["aiSelection"] = observed_ai_selection(metadata)  # None: an older agent
+    result.update(direct_ingress.direct_ingress_status(metadata))
     result["filesActivationAvailable"] = bool(
         result.get("hostingMode") == "byoc"
         and state == "active"
@@ -633,8 +634,7 @@ async def resolve_personal_agent_status(
         and not ((metadata or {}).get("filesSetup") or {}).get("enabled")
     )
 
-    # The installed-version half of "an upgrade is a software update at login".
-    # Only meaningful once there is a serving pod to be behind.
+    # Installed version ("an upgrade is a software update at login"), once a pod serves.
     if result.get("state") == "active":
         result.update(describe_pod_update(row))
 

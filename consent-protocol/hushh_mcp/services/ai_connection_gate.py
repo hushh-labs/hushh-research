@@ -95,6 +95,10 @@ async def _reserved_byoc_ready(
     return bool(selected_for_row(row) and selection.get("setupJobId") == job.get("job_id")), cloud
 
 
+#: The same proof, read by ``owner_cloud_attach`` before a recorded setup attaches.
+owner_cloud_ready_to_attach = _reserved_byoc_ready
+
+
 async def _schedule_verified_owner(
     user_id: str,
     provider: str,
@@ -218,7 +222,7 @@ async def on_ai_connection_verified(
                 normalized, row or {}, repo, setup_jobs
             )
 
-        if hosting_mode in {"pending", "unknown"} and not reserved_byoc_ready:
+        if hosting_mode in {"pending", "unknown", "unplaced"} and not reserved_byoc_ready:
             return {
                 "scheduled": False,
                 "reason": f"hosting mode is {hosting_mode}; pod provisioning is not authorized",

@@ -360,3 +360,130 @@ async def test_browser_erasure_inventory_cannot_delete_an_arbitrary_object(store
         )
     assert await store.get(WRAPPED) == b"wrapped-dek"
     assert await store.get(ERASURE_TOMBSTONE_OBJECT) is None
+
+
+@pytest.mark.parametrize("provider_status", [200, 503])
+async def test_provider_receipts_survive_key_erasure_and_retries_without_secret_copies(
+    store, monkeypatch, provider_status
+):
+    from hushh_mcp.services import pod_connector_credentials as credentials
+    from hushh_mcp.services import pod_google_oauth as oauth
+    from tests.pod_connector_harness import SCOPES, credential
+
+    log = await _agent(store)
+    gmail = credential("gmail", SCOPES["gmail_manage"])
+    monkeypatch.setenv("GOOGLE_IOS_CONNECTOR_CLIENT_ID", gmail.client_id)
+    calendar = credential("calendar", SCOPES["calendar"])
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, gmail))
+    await log.append(credentials.RECORD_KIND, credentials._payload(OWNER, calendar))
+    calls = []
+
+    async def provider(url, form):
+        assert await store.get(WRAPPED) is not None, "revocation precedes key destruction"
+        assert url == oauth.REVOKE_URL
+        calls.append(form)
+        return provider_status, {}
+
+    counts = await crypto_erase(
+        store=store,
+        owner_id=OWNER,
+        attempt_id=ATTEMPT,
+        wrapped_key_object=WRAPPED,
+        open_fenced_log=_fencer(log),
+        provider_post=provider,
+    )
+    assert await store.get(WRAPPED) is None, "provider outage cannot retain local owner information"
+    assert len(calls) == 1, "one project/account grant, even across connectors"
+    assert counts["providerRevoked"] == int(provider_status == 200)
+    assert counts["providerUnconfirmed"] == int(provider_status != 200)
+    assert counts["providerUnavailable"] == 0
+    raw = await store.get(ERASURE_TOMBSTONE_OBJECT)
+    body = json.loads(raw)
+    assert body["version"] == 3
+    assert len(body["providerRevocations"]["receipts"]) == 1
+    for private_value in (gmail.refresh_token, gmail.account_subject, gmail.client_id):
+        assert private_value.encode() not in raw
+    retry = await crypto_erase(
+        store=store,
+        owner_id=OWNER,
+        attempt_id=ATTEMPT,
+        wrapped_key_object=WRAPPED,
+        open_fenced_log=_never,
+        provider_post=provider,
+    )
+    assert len(calls) == 1 and retry["deleted"] == 0
+    assert {name: retry[name] for name in counts if name.startswith("provider")} == {
+        name: counts[name] for name in counts if name.startswith("provider")
+    }
+
+
+@pytest.mark.parametrize("version", [1, 2])
+async def test_legacy_tombstones_remain_readable_and_do_not_claim_provider_completion(
+    store, version
+):
+    from hushh_mcp.services.pod_crypto_erase import _owner_digest
+
+    body = {
+        "kind": "pod_crypto_erase_v1",
+        "version": version,
+        "ownerDigest": _owner_digest(OWNER),
+        "attemptId": ATTEMPT,
+        "records": [],
+    }
+    if version == 2:
+        body["browserObjects"] = []
+    await store.put(ERASURE_TOMBSTONE_OBJECT, json.dumps(body).encode())
+    counts = await crypto_erase(
+        store=store,
+        owner_id=OWNER,
+        attempt_id=ATTEMPT,
+        wrapped_key_object=WRAPPED,
+        open_fenced_log=_never,
+    )
+    assert counts["providerUnavailable"] == 1 and counts["providerRevoked"] == 0
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"revoked": True, "unrevoked": 0, "unavailable": 0, "receipts": []},
+        {"revoked": 1, "unrevoked": 0, "unavailable": 0, "receipts": []},
+        {"revoked": 0, "unrevoked": 0, "unavailable": 0, "receipts": [], "token": "never-store"},
+        {
+            "revoked": 1,
+            "unrevoked": 0,
+            "unavailable": 0,
+            "receipts": [
+                {
+                    "provider": "google",
+                    "grantDigest": "a" * 64,
+                    "outcome": "confirmed",
+                    "refreshToken": "never-store",
+                }
+            ],
+        },
+    ],
+)
+async def test_provider_tombstone_receipts_are_strictly_bounded_metadata(store, invalid):
+    from hushh_mcp.services.pod_crypto_erase import _owner_digest
+
+    await store.put(WRAPPED, b"existing-key")
+    body = {
+        "kind": "pod_crypto_erase_v1",
+        "version": 3,
+        "ownerDigest": _owner_digest(OWNER),
+        "attemptId": ATTEMPT,
+        "records": [],
+        "browserObjects": [],
+        "providerRevocations": invalid,
+    }
+    await store.put(ERASURE_TOMBSTONE_OBJECT, json.dumps(body).encode())
+    with pytest.raises(PodCryptoEraseRefused, match="malformed"):
+        await crypto_erase(
+            store=store,
+            owner_id=OWNER,
+            attempt_id=ATTEMPT,
+            wrapped_key_object=WRAPPED,
+            open_fenced_log=_never,
+        )
+    assert await store.get(WRAPPED) == b"existing-key"

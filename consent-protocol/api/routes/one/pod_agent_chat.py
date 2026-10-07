@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import aclosing
+from typing import Any, Literal
 
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
@@ -15,7 +16,9 @@ from api.routes.external_connectors import (
     PrivateConnectorRoute,
     _mcp_review_response,
 )
+from api.routes.one import pod_agent_chat_connectors, pod_command_proposals
 from api.routes.one.agent_context import sanitize_agent_context
+from api.routes.one.pod_chat_owner import owner_context
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
 from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
 from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
@@ -31,11 +34,19 @@ from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.output_privacy import safe_exception_event
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
+from hushh_mcp.one_adk.queued_input import QueuedInputError
+from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
 from hushh_mcp.one_adk.request_secrets import store_request_secret
+from hushh_mcp.one_adk.specialist_focus import (
+    STATE_SPECIALIST_FOCUS,
+    SpecialistFocusInvalid,
+    admit_specialist_focus,
+)
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
+from hushh_mcp.services.message_feedback_service import MessageFeedbackError
 
 router = APIRouter(
     prefix="/api/one/pod/agent-chat", tags=["personal-agent"], route_class=PrivateConnectorRoute
@@ -45,7 +56,9 @@ router = APIRouter(
 async def context(request: Request) -> PodChatContext:
     _require_enabled()
     result = PodChatContext(
-        request.headers.get("authorization"), needs_key=request.method != "DELETE"
+        request.headers.get("authorization"),
+        needs_key=request.method != "DELETE",
+        browser_runtime=getattr(request.app.state, "browser_task_runtime", None),
     )
     await result.require_access()
     return result
@@ -97,6 +110,10 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
             },
         }
     )
+    try:
+        focus = admit_specialist_focus(forwarded)
+    except SpecialistFocusInvalid:
+        raise HTTPException(400, detail={"code": "POD_CHAT_SPECIALIST_FOCUS_INVALID"}) from None
     screen_context = forwarded.get("screenContext")
     screen = sanitize_agent_context(screen_context if isinstance(screen_context, dict) else {})
     state = {
@@ -121,6 +138,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         "hussh:timezone": options.timezone or "",
         "hussh:typed_chat_context": True,
         "hussh:screen": str(screen.get("screen") or "")[:64],
+        STATE_SPECIALIST_FOCUS: focus,
         "hussh:voice_context": screen,
         "hussh:pkm_context": store_request_secret(options.pkm_context or "", ttl_seconds=240),
     }
@@ -260,3 +278,129 @@ async def review_mcp(
     return await _mcp_review_response(
         prepare_private_review, owner=owner, connector_id=connector_id, body=body
     )
+
+
+# ── Queued input: messages sent while One is still working ─────────────────
+# The same owner-bound registry the hub uses (queued_input.py), keyed by this pod's
+# owner. Only enqueue carries text; it stays in this process until the running turn
+# seals it into the conversation or it is returned to the app.
+
+
+class EnqueueQueuedInput(BaseModel):
+    client_message_id: str = Field(min_length=8, max_length=64)
+    text: str = Field(min_length=1, max_length=4000)
+
+
+def _receipt(receipt: Any) -> dict[str, str]:
+    return {"clientMessageId": receipt.client_message_id, "status": receipt.status}
+
+
+@router.post("/runs/{conversation_id}/queue")
+async def enqueue_queued_input(
+    conversation_id: str,
+    payload: EnqueueQueuedInput,
+    owner: PodChatContext = Depends(owner_context),
+):
+    try:
+        receipt = queued_input_registry.enqueue(
+            owner.owner, conversation_id, payload.client_message_id, payload.text
+        )
+    except QueuedInputError as exc:
+        raise HTTPException(400, detail=str(exc)) from None
+    return _receipt(receipt)
+
+
+@router.delete("/runs/{conversation_id}/queue/{client_message_id}")
+async def withdraw_queued_input(
+    conversation_id: str, client_message_id: str, owner: PodChatContext = Depends(owner_context)
+):
+    try:
+        receipt = queued_input_registry.withdraw(owner.owner, conversation_id, client_message_id)
+    except QueuedInputError as exc:
+        raise HTTPException(400, detail=str(exc)) from None
+    return _receipt(receipt)
+
+
+@router.get("/runs/{conversation_id}/queue")
+async def queued_input_status(
+    conversation_id: str,
+    ids: list[str] = Query(default_factory=list, max_length=16),
+    owner: PodChatContext = Depends(owner_context),
+):
+    try:
+        receipts = queued_input_registry.status(owner.owner, conversation_id, ids)
+    except QueuedInputError as exc:
+        raise HTTPException(400, detail=str(exc)) from None
+    return {"receipts": [_receipt(receipt) for receipt in receipts]}
+
+
+@router.post("/runs/{conversation_id}/stop")
+async def stop_agent_turn(conversation_id: str, owner: PodChatContext = Depends(owner_context)):
+    """End the running turn at its next step; queued messages come back unsent."""
+    settlement = queued_input_registry.request_stop(owner.owner, conversation_id)
+    if settlement is None:
+        return {"stopped": False, "returned": []}
+    return {"stopped": True, "returned": list(settlement.returned)}
+
+
+# ── Ratings: ids and two closed enums, stored in this pod (pod_message_feedback) ──
+
+
+class MessageFeedbackRequest(BaseModel):
+    conversation_id: str = Field(max_length=200)
+    message_id: str = Field(max_length=200)
+    rating: Literal["up", "down"] | None = None
+    report_reason: Literal["offensive", "harmful", "inaccurate", "other"] | None = None
+
+
+@router.get("/feedback")
+async def read_feedback(
+    conversation_id: str = Query(max_length=200), owner: PodChatContext = Depends(owner_context)
+):
+    from hushh_mcp.services import pod_message_feedback
+
+    return await pod_message_feedback.read_feedback(
+        owner.log, owner=owner.owner, hushh_id=owner.hushh_id, conversation=conversation_id
+    )
+
+
+@router.put("/feedback")
+async def write_feedback(
+    payload: MessageFeedbackRequest, owner: PodChatContext = Depends(owner_context)
+):
+    from hushh_mcp.services import pod_message_feedback
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    try:
+        conversation, message, rating, reason = pod_message_feedback.normalize_feedback(
+            conversation_ref=payload.conversation_id,
+            message_ref=payload.message_id,
+            rating=payload.rating,
+            report_reason=payload.report_reason,
+        )
+        if not await pod_message_feedback.conversation_exists(ONE_APP_NAME, conversation):
+            raise MessageFeedbackError(
+                "That conversation does not exist.", code="CONVERSATION_NOT_FOUND"
+            )
+    except MessageFeedbackError as exc:
+        raise HTTPException(400, detail={"code": exc.code, "message": str(exc)}) from None
+    permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+    try:
+        await owner.require_access()
+        return await pod_message_feedback.record_feedback(
+            owner.log,
+            owner=owner.owner,
+            hushh_id=owner.hushh_id,
+            conversation=conversation,
+            message=message,
+            rating=rating,
+            report_reason=reason,
+        )
+    finally:
+        await permit.release()
+
+
+# Settings' connector refresh and login, and voice proposals, on the same prefix and
+# owner admission (pod_agent_chat_connectors.py, pod_command_proposals.py).
+router.include_router(pod_agent_chat_connectors.router)
+router.include_router(pod_command_proposals.router)

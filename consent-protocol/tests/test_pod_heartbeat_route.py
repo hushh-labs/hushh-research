@@ -13,6 +13,8 @@ agent as alive, which is precisely how a dead agent would go on looking healthy.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import HTTPException
 
@@ -41,6 +43,61 @@ class _FakeRegistry:
         if not self._matched:
             return None
         return {"hushh_id": hushh_id, "user_id": "u1", "status": self._status}
+
+
+@pytest.mark.parametrize("change", [None, "unsigned", "key", "erasure", "replacement"])
+async def test_consent_snapshot_is_bound_to_current_signed_serving_incarnation(monkeypatch, change):
+    from hushh_mcp.services import pod_consent_revocation
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    row = {
+        "hushh_id": "ha1_pod",
+        "user_id": "owner",
+        "status": "provisioned",
+        "external_agent_id": "one-pod",
+        "deployment_target": "user_gcp",
+        "pod_key_id": "x25519_key",
+        "pod_signing_key_id": "pods_signer",
+    }
+    binding = {
+        "hushhId": "ha1_pod",
+        "environment": "dev",
+        "podKeyId": "x25519_key",
+        "incarnationEpoch": 7,
+    }
+    if change == "key":
+        binding["podKeyId"] = "another_key"
+    if change == "erasure":
+        row["backend_metadata"] = {"erasure": {"attemptId": "erase"}}
+
+    class Request:
+        async def json(self):
+            return {"consentIncarnation": binding}
+
+    class Registry:
+        async def get(self, owner):
+            return row
+
+        async def get_by_hushh_id(self, hushh_id):
+            return row
+
+    async def build(owner, hushh_id, *, binding):
+        assert binding.incarnation_epoch == 7
+        if change == "replacement":
+            row["pod_key_id"] = "replacement_key"
+        return {"list": {"ownerId": owner}, "signature": "fixture"}
+
+    builder = AsyncMock(side_effect=build)
+    monkeypatch.setattr(pod_consent_revocation, "build_consent_revocation_list", builder)
+    supplied = dict(row)
+    result = await pod_heartbeat._consent_revocations(
+        Request(),
+        Registry(),
+        supplied,
+        VerifiedPod("ha1_pod", key_id=None if change == "unsigned" else "pods_signer"),
+    )
+    assert (result is not None) == (change is None)
+    assert builder.await_count == (1 if change in {None, "replacement"} else 0)
 
 
 @pytest.fixture

@@ -51,11 +51,19 @@ from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
+from api.routes.one.pod_actions import router as pod_actions_router
 from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
 from api.routes.one.pod_ai_selection import router as pod_ai_selection_router
-from api.routes.one.pod_capabilities import ai_selection_capability, pod_capabilities
+from api.routes.one.pod_browser import router as pod_browser_router
+from api.routes.one.pod_capabilities import (
+    ai_selection_capability,
+    connectors_capability,
+    pod_capabilities,
+)
 from api.routes.one.pod_commands import router as pod_commands_router
+from api.routes.one.pod_connectors import router as pod_connectors_router
 from api.routes.one.pod_files import router as pod_files_router
+from api.routes.one.pod_gmail_push import router as pod_gmail_push_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
@@ -125,6 +133,10 @@ _POD_ROUTERS = (
     # the turn route; see api/routes/one/pod_memory.py.
     pod_memory_router,
     pod_ai_selection_router,  # the owner's sealed "Bring your own AI"; same two doors
+    pod_connectors_router,
+    pod_actions_router,
+    pod_gmail_push_router,
+    pod_browser_router,
     # The tick: background attention arrives as an inbound authenticated request,
     # because an economy pod has no CPU between requests and no process a loop
     # could live in. Fail-closed without its audience/allowlist env; see the
@@ -201,6 +213,17 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[
+        "X-Browser-Pod-Incarnation",
+        "X-Browser-Task-Id",
+        "X-Browser-Pod-Id",
+        "X-Browser-Control-Epoch",
+        "X-Browser-Sequence",
+        "X-Browser-Next-Sequence",
+        "X-Browser-Revision",
+        "X-Browser-Width",
+        "X-Browser-Height",
+    ],
 )
 app.middleware("http")(observability_middleware)
 
@@ -510,6 +533,12 @@ async def _pod_startup() -> None:
     except Exception:  # noqa: BLE001 - configuration never blocks the boot
         logger.warning("pod.config_unavailable", exc_info=True)
 
+    # Hydrate sealed connector custody before admitting owner turns. An unreadable
+    # store remains unavailable; it must not be mistaken for an absent login.
+    from hushh_mcp.services.pod_connector_credentials import load_connector_credentials
+
+    await load_connector_credentials()
+
     keypair_is_durable = False
     pod_keypair()
     try:
@@ -537,6 +566,11 @@ async def _pod_startup() -> None:
         logger.warning("pod.local_authority_unavailable reason=%s", type(exc).__name__)
 
     _start_heartbeat_loop()
+    # Bounded restart continuation; no polling worker or model inference. The
+    # direct push and authenticated maintenance tick own subsequent wakes.
+    from api.routes.one.pod_maintenance import gmail_notification_job
+
+    await gmail_notification_job()
     # Memory Bank, off the boot path. Creating the engine is a slow LRO in the
     # person's project; until it resolves, turns recall from the sealed log.
     asyncio.get_running_loop().create_task(_ensure_memory_bank_task())
@@ -576,6 +610,19 @@ _APPLIED_TOMBSTONES: list[str] = []
 async def _heartbeat_once(client: Any) -> bool:
     """Send one beat. Returns whether the hub recorded it. Never raises."""
     body = {**_self_report(), "aiSelection": ai_selection_capability()}
+    connectors = connectors_capability()
+    if connectors is not None:
+        body["connectors"] = connectors
+    try:
+        from hushh_mcp.services.pod_consent_revocation import current_revocation_binding
+        from hushh_mcp.services.pod_session_authority import active_session_authority
+
+        authority = active_session_authority()
+        if authority is not None:
+            await authority.require_held()
+            body["consentIncarnation"] = current_revocation_binding().to_dict()
+    except Exception as exc:  # noqa: BLE001 - unavailable lease is never a claimed incarnation
+        logger.info("pod.consent_binding_unavailable reason=%s", type(exc).__name__)
     if _APPLIED_TOMBSTONES:
         body["appliedTombstones"] = list(_APPLIED_TOMBSTONES)
     try:
@@ -620,6 +667,14 @@ async def _heartbeat_once(client: Any) -> bool:
             )
 
             _APPLIED_TOMBSTONES.extend(await apply_pending_tombstones(payload))
+        if isinstance(payload, dict) and payload.get("consentRevocations"):
+            from hushh_mcp.services.pod_consent_revocation import install_revocation_list
+            from hushh_mcp.services.pod_session_authority import active_session_authority
+
+            authority = active_session_authority()
+            if authority is not None:
+                await authority.require_held()
+                install_revocation_list(payload["consentRevocations"])
     except Exception as exc:  # noqa: BLE001 - the beat was recorded; courier work is best effort
         logger.warning("pod.tombstone_courier_failed %s", type(exc).__name__)
     return True

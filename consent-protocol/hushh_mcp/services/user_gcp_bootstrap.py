@@ -10,7 +10,9 @@ The GCP control plane uses short-lived service-account impersonation. The owner
 creates one bootstrap service account and grants the control plane token-creator
 authority on that account. Each token expires after 900 seconds. No exported
 service-account key is created; the standing impersonation grant remains until
-revoked. Resources and IAM are applied only in the selected owner project.
+revoked. Owner resources and IAM use only that borrowed identity. The Gmail
+notification topic belongs to the configured OAuth developer project and uses
+the exact attached consent-plane identity, with no credential fallback.
 
 INERT BY DEFAULT
 ----------------
@@ -24,6 +26,8 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -52,8 +56,11 @@ BOOTSTRAP_ROLES: tuple[tuple[str, str], ...] = (
     ("roles/storage.admin", "create the CMEK-encrypted bucket the pod writes to"),
     ("roles/iam.serviceAccountAdmin", "create the pod's own least-privilege identity"),
     ("roles/run.admin", "create the pod service"),
-    ("roles/pubsub.admin", "create the mail doorbell topic and subscription"),
-    ("roles/cloudscheduler.admin", "re-arm the Gmail watch before its 7-day expiry"),
+    (
+        "roles/pubsub.admin",
+        "create the owner direct subscription and retained dead-letter resources",
+    ),
+    ("roles/cloudscheduler.admin", "configure the authenticated daily pod maintenance tick"),
     ("roles/resourcemanager.projectIamAdmin", "bind the pod SA to exactly those resources"),
     (
         "roles/secretmanager.admin",
@@ -293,6 +300,7 @@ class UserGcpBootstrap:
         sleep: Any = None,
         clock: Any = None,
         bootstrap_sa: str = "",
+        oauth_credentials: Any = None,
     ) -> None:
         if not project:
             raise BootstrapError("a target project is required; BYOC never guesses one")
@@ -305,6 +313,7 @@ class UserGcpBootstrap:
         # guessed its own identity could bind a grant to the wrong principal, so an
         # unknown bootstrap SA simply omits the step and lets Cloud Run refuse loudly.
         self._bootstrap_sa = bootstrap_sa
+        self._oauth_credentials = oauth_credentials
         if session is None:
             import requests as session  # noqa: PLC0415
         self._session = session
@@ -313,6 +322,482 @@ class UserGcpBootstrap:
         self._clock = clock or time.monotonic
 
     # -- rendering (writes nothing) ------------------------------------------------
+
+    def _notification_bootstrap_calls(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
+        """Exact operator topic and owner delivery resources, with separate authority."""
+        notifications = plan.get("gmailNotifications") or {}
+        topic = str(notifications.get("topic") or "")
+        subscription = str(notifications.get("ownerSubscription") or "")
+        dead_topic = str(notifications.get("deadLetterTopic") or "")
+        dead_sub = str(notifications.get("deadLetterSubscription") or "")
+        runtime = str(notifications.get("pushServiceAccount") or "")
+        pubsub = "https://pubsub.googleapis.com/v1/"
+        project_lookup = {
+            "url": f"https://cloudresourcemanager.googleapis.com/v1/projects/{self._project}",
+            "field": "projectNumber",
+        }
+        calls: list[dict[str, Any]] = [
+            {
+                "step": "gmail_notification_prerequisite",
+                "kind": "notification_prerequisite",
+            },
+            {
+                "step": "oauth_mail_topic",
+                "authority": "oauth_developer_project",
+                "method": "PUT",
+                "url": pubsub + topic,
+                "body": {},
+                "tolerate": [409],
+            },
+            {
+                "step": "iam_gmail_publisher_on_topic",
+                "authority": "oauth_developer_project",
+                "kind": "merge_binding",
+                "depends_on": "oauth_mail_topic",
+                "read_method": "GET",
+                "read_url": pubsub + topic + ":getIamPolicy",
+                "write_url": pubsub + topic + ":setIamPolicy",
+                "policy_envelope": "policy",
+                "bindings": [
+                    {
+                        "role": "roles/pubsub.publisher",
+                        "members": ["serviceAccount:gmail-api-push@system.gserviceaccount.com"],
+                    },
+                    {
+                        "role": "roles/pubsub.subscriber",
+                        "members": [f"serviceAccount:{self._bootstrap_sa}"],
+                    },
+                ],
+                "tolerate": [],
+            },
+            {
+                "step": "mail_dead_letter_topic",
+                "method": "PUT",
+                "url": pubsub + dead_topic,
+                "body": {},
+                "tolerate": [409],
+            },
+            {
+                "step": "mail_dead_letter_subscription",
+                "method": "PUT",
+                "url": pubsub + dead_sub,
+                "depends_on": "mail_dead_letter_topic",
+                "body": {
+                    "topic": dead_topic,
+                    "messageRetentionDuration": "604800s",
+                    "expirationPolicy": {},
+                },
+                "tolerate": [409],
+            },
+            {
+                "step": "mail_subscription",
+                "method": "PUT",
+                "url": pubsub + subscription,
+                "depends_on": "iam_gmail_publisher_on_topic",
+                "body": {
+                    "topic": topic,
+                    "ackDeadlineSeconds": 60,
+                    "retryPolicy": {"minimumBackoff": "10s", "maximumBackoff": "600s"},
+                    "messageRetentionDuration": "604800s",
+                    "expirationPolicy": {},
+                    "deadLetterPolicy": {"deadLetterTopic": dead_topic, "maxDeliveryAttempts": 10},
+                },
+                "tolerate": [409],
+            },
+        ]
+        for service, label in (
+            ("pubsub.googleapis.com", "pubsub"),
+            ("cloudscheduler.googleapis.com", "scheduler"),
+        ):
+            calls.append(
+                {
+                    "step": f"generate_{label}_service_identity",
+                    "method": "POST",
+                    "url": f"https://serviceusage.googleapis.com/v1beta1/projects/{self._project}/services/{service}:generateServiceIdentity",
+                    "body": {},
+                    "tolerate": [],
+                    "await_operation": True,
+                    "operation_url": "https://serviceusage.googleapis.com/v1beta1/",
+                }
+            )
+            calls.append(
+                {
+                    "step": f"iam_{label}_oidc_on_pod",
+                    "kind": "merge_binding",
+                    "depends_on": f"generate_{label}_service_identity",
+                    "read_method": "POST",
+                    "read_url": f"https://iam.googleapis.com/v1/projects/{self._project}/serviceAccounts/{runtime}:getIamPolicy",
+                    "write_url": f"https://iam.googleapis.com/v1/projects/{self._project}/serviceAccounts/{runtime}:setIamPolicy",
+                    "policy_envelope": "policy",
+                    "read_body": {},
+                    "member_lookup": {
+                        **project_lookup,
+                        "member_template": f"serviceAccount:service-{{value}}@gcp-sa-{'pubsub' if label == 'pubsub' else 'cloudscheduler'}.iam.gserviceaccount.com",
+                    },
+                    "bindings": [
+                        {"role": "roles/iam.serviceAccountOpenIdTokenCreator", "members": []}
+                    ],
+                    "tolerate": [],
+                }
+            )
+        for step, resource, role in (
+            ("iam_pubsub_dead_letter_publisher", dead_topic, "roles/pubsub.publisher"),
+            ("iam_pubsub_source_subscriber", subscription, "roles/pubsub.subscriber"),
+        ):
+            calls.append(
+                {
+                    "step": step,
+                    "kind": "merge_binding",
+                    "depends_on": "mail_dead_letter_topic"
+                    if resource == dead_topic
+                    else "mail_subscription",
+                    "read_method": "GET",
+                    "read_url": pubsub + resource + ":getIamPolicy",
+                    "write_url": pubsub + resource + ":setIamPolicy",
+                    "policy_envelope": "policy",
+                    "member_lookup": {
+                        **project_lookup,
+                        "member_template": "serviceAccount:service-{value}@gcp-sa-pubsub.iam.gserviceaccount.com",
+                    },
+                    "bindings": [{"role": role, "members": []}],
+                    "tolerate": [],
+                }
+            )
+        return calls
+
+    def _notification_prerequisite(self, plan: dict[str, Any]) -> None:
+        notifications = plan.get("gmailNotifications") or {}
+        oauth_project = str(notifications.get("oauthProject") or "")
+        configured = (os.getenv("GOOGLE_CONNECTOR_OAUTH_PROJECT") or "").strip()
+        if (
+            not re.fullmatch(r"[a-z][a-z0-9-]{4,61}[a-z0-9]", oauth_project)
+            or oauth_project != configured
+        ):
+            raise BootstrapError(
+                "Gmail notifications require the configured GOOGLE_CONNECTOR_OAUTH_PROJECT"
+            )
+        if not self._bootstrap_sa or not self._bootstrap_sa.endswith(
+            f"@{self._project}.iam.gserviceaccount.com"
+        ):
+            raise BootstrapError(
+                "Gmail notifications require the explicit owner-project bootstrap account"
+            )
+        from hushh_mcp.services.user_gcp_backend import _slug, pod_service_account_id
+
+        owner = str((plan.get("gmailNotifications") or {}).get("hushhId") or "")
+        if not owner:
+            raise BootstrapError("Gmail notification owner is missing from the approved plan")
+        slug = _slug(owner)
+        expected = {
+            "topic": f"projects/{oauth_project}/topics/one-mail-{slug}",
+            "ownerSubscription": f"projects/{self._project}/subscriptions/one-mail-{slug}-direct-sub",
+            "deadLetterTopic": f"projects/{self._project}/topics/one-mail-{slug}-dead-letter",
+            "deadLetterSubscription": f"projects/{self._project}/subscriptions/one-mail-{slug}-dead-letter-sub",
+            "pushServiceAccount": f"{pod_service_account_id(owner)}@{self._project}.iam.gserviceaccount.com",
+        }
+        if any(notifications.get(key) != value for key, value in expected.items()):
+            raise BootstrapError(
+                "Gmail notification inventory differs from the approved owner/project"
+            )
+
+    def _oauth_headers(self, plan: dict[str, Any]) -> dict[str, str]:
+        """Attached consent-plane ADC for only the operator-owned topic; no key fallback."""
+        self._notification_prerequisite(plan)
+        expected = str(
+            ((plan.get("federation") or {}).get("impersonation") or {}).get("granted_to") or ""
+        )
+        if not expected or expected.startswith("<"):
+            raise BootstrapError(
+                "Gmail OAuth-project topic requires the exact consent-plane identity"
+            )
+        from google.auth.transport.requests import Request
+
+        credentials = self._oauth_credentials
+        if credentials is None:
+            import google.auth
+            from google.auth.compute_engine import Credentials
+
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            if not isinstance(credentials, Credentials):
+                raise BootstrapError("Gmail OAuth-project setup requires attached managed ADC")
+            self._oauth_credentials = credentials
+        if not getattr(credentials, "valid", False):
+            credentials.refresh(Request())
+        if getattr(credentials, "service_account_email", None) != expected or not getattr(
+            credentials, "token", None
+        ):
+            raise BootstrapError(
+                "Gmail OAuth-project ADC identity differs from the configured consent plane"
+            )
+        return {"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"}
+
+    def configure_notification_delivery(
+        self,
+        plan: dict[str, Any],
+        *,
+        service_url: str,
+        checkpoint: Callable[[str, str, list[dict[str, Any]]], None] | None = None,
+        verify_only: bool = False,
+    ) -> dict[str, Any]:
+        """Reconcile direct delivery only after the owner pod's URL is verified.
+
+        Every resource must already exist under the approved bootstrap inventory.
+        Legacy topics/subscriptions remain untouched. Missing resources require the
+        existing substrate workflow, never a silent alternate provider or project.
+        """
+        from hushh_mcp.services.pod_gmail_push_config import gmail_notification_resources
+
+        self._notification_prerequisite(plan)
+        if not self._token:
+            raise BootstrapError("Gmail direct delivery requires the owner bootstrap token")
+        terms = plan["gmailNotifications"]
+        inventory = gmail_notification_resources(
+            owner_project=self._project,
+            hushh_id=terms["hushhId"],
+            oauth_project=terms["oauthProject"],
+            service_url=service_url,
+            push_service_account=terms["pushServiceAccount"],
+        )
+        headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
+        oauth_headers = self._oauth_headers(plan)
+        completed: list[dict[str, Any]] = []
+
+        def retain(phase: str, step: str) -> None:
+            from copy import deepcopy
+
+            if checkpoint is None:
+                raise BootstrapError(
+                    "Gmail delivery requires the existing owner operation checkpoint"
+                )
+            checkpoint(phase, step, deepcopy(completed))
+
+        def request(
+            method: str, url: str, body: dict | None = None, *, authority: dict | None = None
+        ) -> dict:
+            response = self._session.request(
+                method,
+                url,
+                headers=authority or headers,
+                params=None,
+                data=json.dumps(body) if body is not None else None,
+                timeout=30,
+                allow_redirects=False,
+            )
+            if getattr(response, "status_code", 0) not in (200, 201):
+                raise BootstrapError(
+                    "Gmail direct notification prerequisite or configuration unavailable"
+                )
+            return _json_or_empty(response)
+
+        pubsub = "https://pubsub.googleapis.com/v1/"
+        if (
+            request("GET", pubsub + inventory["topic"], authority=oauth_headers).get("name")
+            != inventory["topic"]
+        ):
+            raise BootstrapError("Gmail OAuth-project topic identity unavailable")
+        for resource, expected_topic in (
+            (inventory["deadLetterTopic"], None),
+            (terms["deadLetterSubscription"], inventory["deadLetterTopic"]),
+            (inventory["subscription"], inventory["topic"]),
+        ):
+            observed = request("GET", pubsub + resource)
+            if observed.get("name") != resource or (
+                expected_topic and observed.get("topic") != expected_topic
+            ):
+                raise BootstrapError(
+                    "Gmail owner resource identity differs from the approved inventory"
+                )
+            if resource == terms["deadLetterSubscription"] and (
+                observed.get("messageRetentionDuration") != "604800s"
+                or observed.get("expirationPolicy") != {}
+            ):
+                raise BootstrapError("Gmail dead-letter recovery retention is unverified")
+        project = request(
+            "GET", f"https://cloudresourcemanager.googleapis.com/v1/projects/{self._project}"
+        )
+        number = str(project.get("projectNumber") or "")
+        if not number.isascii() or not number.isdigit():
+            raise BootstrapError("Gmail delivery service-agent project number is unavailable")
+        pubsub_agent = f"serviceAccount:service-{number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+        scheduler_agent = (
+            f"serviceAccount:service-{number}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+        )
+        required_policies = [
+            (
+                pubsub + inventory["topic"] + ":getIamPolicy",
+                oauth_headers,
+                "GET",
+                [
+                    (
+                        "roles/pubsub.publisher",
+                        "serviceAccount:gmail-api-push@system.gserviceaccount.com",
+                    ),
+                    ("roles/pubsub.subscriber", f"serviceAccount:{self._bootstrap_sa}"),
+                ],
+            ),
+            (
+                f"https://iam.googleapis.com/v1/projects/{self._project}/serviceAccounts/{terms['pushServiceAccount']}:getIamPolicy",
+                headers,
+                "POST",
+                [
+                    ("roles/iam.serviceAccountOpenIdTokenCreator", pubsub_agent),
+                    ("roles/iam.serviceAccountOpenIdTokenCreator", scheduler_agent),
+                    ("roles/iam.serviceAccountUser", f"serviceAccount:{self._bootstrap_sa}"),
+                ],
+            ),
+            (
+                pubsub + inventory["deadLetterTopic"] + ":getIamPolicy",
+                headers,
+                "GET",
+                [("roles/pubsub.publisher", pubsub_agent)],
+            ),
+            (
+                pubsub + inventory["subscription"] + ":getIamPolicy",
+                headers,
+                "GET",
+                [("roles/pubsub.subscriber", pubsub_agent)],
+            ),
+        ]
+        for url, authority, method, wanted in required_policies:
+            policy = request(method, url, {} if method == "POST" else None, authority=authority)
+            for role, member in wanted:
+                if not any(
+                    binding.get("role") == role
+                    and binding.get("condition") is None
+                    and member in binding.get("members", [])
+                    for binding in policy.get("bindings", [])
+                    if isinstance(binding, dict)
+                ):
+                    raise BootstrapError("Gmail direct delivery IAM prerequisite is unavailable")
+        if verify_only:
+            return inventory
+        subscription_body = {"name": inventory["subscription"], **inventory["subscriptionConfig"]}
+        mutable = "pushConfig,ackDeadlineSeconds,retryPolicy,messageRetentionDuration,expirationPolicy,deadLetterPolicy"
+        retain("intent", "mail_subscription_configuration")
+        request(
+            "PATCH",
+            pubsub + inventory["subscription"] + "?updateMask=" + mutable,
+            subscription_body,
+        )
+        observed = request("GET", pubsub + inventory["subscription"])
+        if observed.get("name") != inventory["subscription"] or any(
+            observed.get(key) != value for key, value in inventory["subscriptionConfig"].items()
+        ):
+            raise BootstrapError("Gmail direct delivery configuration readback differs")
+        completed.append(
+            {
+                "step": "mail_subscription_configuration",
+                "status": 200,
+                "ok": True,
+                "configurationObservation": {
+                    "name": inventory["subscription"],
+                    **inventory["subscriptionConfig"],
+                },
+            }
+        )
+        retain("observed", "mail_subscription_configuration")
+        job_name = terms["watchJob"]
+        origin = inventory["runtimeEnv"]["POD_GMAIL_PUSH_AUDIENCE"]
+        job_body = {
+            "name": job_name,
+            "schedule": "0 4 * * *",
+            "timeZone": "Etc/UTC",
+            "httpTarget": {
+                "uri": origin + "/api/one/pod/maintenance/tick",
+                "httpMethod": "POST",
+                "oidcToken": {
+                    "serviceAccountEmail": terms["pushServiceAccount"],
+                    "audience": origin,
+                },
+            },
+            "attemptDeadline": "180s",
+            "retryConfig": {
+                "retryCount": 3,
+                "maxRetryDuration": "3600s",
+                "minBackoffDuration": "30s",
+                "maxBackoffDuration": "600s",
+                "maxDoublings": 3,
+            },
+        }
+        scheduler = "https://cloudscheduler.googleapis.com/v1/"
+        response = self._session.request(
+            "GET",
+            scheduler + job_name,
+            headers=headers,
+            params=None,
+            data=None,
+            timeout=30,
+            allow_redirects=False,
+        )
+        existed = getattr(response, "status_code", 0) == 200
+        if getattr(response, "status_code", 0) not in (200, 404):
+            raise BootstrapError("Gmail renewal job could not be inspected")
+        if existed:
+            old = _json_or_empty(response)
+            if old.get("name") != job_name:
+                raise BootstrapError("Gmail renewal job identity mismatch")
+            # Scheduler target types are mutually exclusive. Explicitly clear the
+            # old Pub/Sub target in the same field-mask update, preserving the job.
+            retain("intent", "watch_renew_job")
+            request(
+                "PATCH",
+                scheduler
+                + job_name
+                + "?updateMask=schedule,timeZone,httpTarget,pubsubTarget,attemptDeadline,retryConfig",
+                job_body,
+            )
+        else:
+            retain("intent", "watch_renew_job")
+            request("POST", scheduler + job_name.rsplit("/", 1)[0], job_body)
+        observed = request("GET", scheduler + job_name)
+        observed_target = observed.get("httpTarget") or {}
+        if (
+            any(
+                observed.get(key) != job_body[key]
+                for key in ("name", "schedule", "timeZone", "attemptDeadline", "retryConfig")
+            )
+            or any(
+                observed_target.get(key) != value for key, value in job_body["httpTarget"].items()
+            )
+            or observed.get("pubsubTarget")
+        ):
+            raise BootstrapError("Gmail authenticated maintenance job readback differs")
+        from hushh_mcp.services.byoc_bootstrap_observation import qualify_created_resource
+
+        step_observation = {"step": "watch_renew_job", "status": 200, "ok": True}
+        if not existed:
+            step_observation.update(
+                qualify_created_resource(
+                    {"step": "watch_renew_job", "body": job_body},
+                    observed,
+                    project=self._project,
+                    project_number=number,
+                )
+            )
+            if "resourceObservation" not in step_observation:
+                raise BootstrapError("Gmail HTTP maintenance creation receipt is unavailable")
+        else:
+            step_observation["configurationObservation"] = {
+                "name": job_name,
+                "httpTarget": job_body["httpTarget"],
+                "schedule": job_body["schedule"],
+                "timeZone": job_body["timeZone"],
+            }
+        completed.append(step_observation)
+        retain("observed", "watch_renew_job")
+        inventory["runtimeEnv"].update(
+            HUSSH_POD_TICK_AUDIENCE=origin,
+            HUSSH_POD_TICK_ALLOWED_EMAILS=terms["pushServiceAccount"],
+        )
+        inventory["watchJob"] = job_name
+        inventory["watchJobDisposition"] = "updated" if existed else "created"
+        inventory["watchJobIdentity"] = {
+            key: observed[key] for key in ("name", "schedule", "timeZone", "httpTarget")
+        }
+        inventory["deliverySteps"] = completed
+        return inventory
 
     def plan_calls(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
         """Every request ``apply`` would make, in order, as inspectable data.
@@ -329,9 +814,6 @@ class UserGcpBootstrap:
             "service_account", {}
         ).get("id", "")
         pod_sa_id = pod_sa.split("@")[0] if pod_sa else ""
-        topic = by_type.get("pubsub_topic", {}).get("id", "")
-        sub = by_type.get("pubsub_subscription", {}).get("id", "")
-        job = by_type.get("cloud_scheduler_job", {}).get("id", "")
         key_path = f"projects/{project}/locations/{region}/keyRings/{keyring}/cryptoKeys/{kms_key}"
         # The user's OWN Artifact Registry repo that will hold their copy of the pod
         # image, so the pod pulls from their project and hushh keeps no runtime
@@ -631,10 +1113,9 @@ class UserGcpBootstrap:
                 "tolerate": [409],
             },
             {
-                # The material is generated HERE, at apply time, and deliberately never
-                # appears in the rendered plan: `apply(dry_run=True)` returns every step
-                # verbatim for review, so a key in the plan would be a key in whatever
-                # printed it.
+                # The material is generated HERE, at apply time, and never appears in the
+                # rendered plan: `apply(dry_run=True)` returns every step verbatim for
+                # review, so a key in the plan would be a key in whatever printed it.
                 #
                 # Idempotent by inspection, not by tolerating an error: a re-run must not
                 # rotate this key. APP_SIGNING_KEY is the HMAC key behind consent tokens,
@@ -645,38 +1126,6 @@ class UserGcpBootstrap:
                 "secret": f"projects/{project}/secrets/{pod_sa_id}-signing-key",
                 "depends_on": "pod_signing_secret",
                 "tolerate": [],
-            },
-            {
-                "step": "mail_topic",
-                "method": "PUT",
-                "url": f"https://pubsub.googleapis.com/v1/projects/{project}/topics/{topic}",
-                "body": {},
-                "tolerate": [409],
-            },
-            {
-                "step": "mail_subscription",
-                "method": "PUT",
-                "url": f"https://pubsub.googleapis.com/v1/projects/{project}/subscriptions/{sub}",
-                "body": {"topic": f"projects/{project}/topics/{topic}"},
-                "tolerate": [409],
-            },
-            {
-                "step": "watch_renew_job",
-                "method": "POST",
-                "url": (
-                    f"https://cloudscheduler.googleapis.com/v1/projects/{project}/locations/"
-                    f"{region}/jobs"
-                ),
-                "body": {
-                    "name": f"projects/{project}/locations/{region}/jobs/{job}",
-                    "schedule": "0 4 * * *",
-                    "timeZone": "Etc/UTC",
-                    "pubsubTarget": {
-                        "topicName": f"projects/{project}/topics/{topic}",
-                        "data": "cmVuZXctd2F0Y2g=",  # "renew-watch"
-                    },
-                },
-                "tolerate": [409],
             },
         ]
 
@@ -757,9 +1206,8 @@ class UserGcpBootstrap:
             }
         )
         # Vertex has no per-resource binding, so model access for the pod is granted at
-        # PROJECT level. This is the one place BYOC grants project-wide, and it is
-        # called out rather than buried: `roles/aiplatform.user` lets the pod call
-        # Vertex as itself, on the person's own quota and bill, and nothing else.
+        # PROJECT level, the one place BYOC grants project-wide, called out not buried:
+        # `roles/aiplatform.user` lets the pod call Vertex as itself, on the person's bill.
         calls.append(
             {
                 "step": "iam_pod_sa_vertex",
@@ -786,6 +1234,11 @@ class UserGcpBootstrap:
         )
         from hushh_mcp.services.pod_files.provisioning import bootstrap_calls
 
+        if plan.get("gmailNotifications"):
+            notification_calls = self._notification_bootstrap_calls(plan)
+            for call in notification_calls:
+                call["capability"] = "gmail_notifications"
+            calls = [notification_calls[0], *calls, *notification_calls[1:]]
         calls.extend(bootstrap_calls(plan, project=project, region=region, runtime=pod_sa))
         return calls
 
@@ -798,6 +1251,7 @@ class UserGcpBootstrap:
         dry_run: bool = True,
         on_step: Any = None,
         checkpoint: Callable[[str, str, list[dict[str, Any]]], None] | None = None,
+        notification_checkpoint: Callable[[str, str, list[dict[str, Any]]], None] | None = None,
         completed_prefix: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Create the plan's resources. ``dry_run`` is the default on purpose.
@@ -841,6 +1295,9 @@ class UserGcpBootstrap:
         from copy import deepcopy
 
         results: list[dict[str, Any]] = deepcopy(completed_prefix or [])
+        notification_steps = {
+            call["step"] for call in calls if call.get("capability") == "gmail_notifications"
+        }
         if results and (
             checkpoint is None
             or len(results) >= len(calls)
@@ -851,7 +1308,19 @@ class UserGcpBootstrap:
             raise BootstrapError("Bootstrap continuation requires a verified successful prefix")
 
         def _checkpoint(phase: str, step: str) -> None:
-            if checkpoint is None:
+            selected_checkpoint = (
+                notification_checkpoint
+                if step in notification_steps and notification_checkpoint is not None
+                else checkpoint
+            )
+            if selected_checkpoint is None:
+                return
+            if (
+                selected_checkpoint is notification_checkpoint
+                and step == "gmail_notification_prerequisite"
+            ):
+                # This preflight reads authority only. An unavailable capability
+                # has no notification mutation to admit or resource to retain.
                 return
             from copy import deepcopy
 
@@ -869,11 +1338,17 @@ class UserGcpBootstrap:
                         "skipped",
                         "resourceObservation",
                         "bindingObservations",
+                        "operatorBindingObservations",
                     }
                 }
                 for result in results
+                if selected_checkpoint is not notification_checkpoint
+                or result["step"] in notification_steps
             ]
-            checkpoint(phase, step, safe)
+            if selected_checkpoint is notification_checkpoint:
+                for result in safe:
+                    result["capability"] = "gmail_notifications"
+            selected_checkpoint(phase, step, safe)
 
         headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
         unmet: set[str] = set()
@@ -883,6 +1358,11 @@ class UserGcpBootstrap:
             # which is how the first live run turned one missing IAM binding into three
             # failures that read like three problems.
             required = call.get("depends_on")
+            if (
+                call.get("capability") == "gmail_notifications"
+                and "gmail_notification_prerequisite" in unmet
+            ):
+                required = "gmail_notification_prerequisite"
             if required and required in unmet:
                 results.append(
                     {
@@ -898,8 +1378,59 @@ class UserGcpBootstrap:
                 continue
 
             _checkpoint("intent", call["step"])
+            if call.get("kind") == "notification_prerequisite":
+                try:
+                    if not callable(notification_checkpoint):
+                        raise BootstrapError(
+                            "Gmail notification mutations require the owner operation checkpoint"
+                        )
+                    self._notification_prerequisite(plan)
+                    self._oauth_headers(plan)
+                except Exception as exc:
+                    results.append(
+                        {
+                            "step": call["step"],
+                            "status": 0,
+                            "ok": False,
+                            "detail": str(exc)
+                            if isinstance(exc, BootstrapError)
+                            else "Gmail OAuth-project managed ADC unavailable",
+                        }
+                    )
+                    _checkpoint("observed", call["step"])
+                    _observe(call["step"], False)
+                    unmet.add(call["step"])
+                    continue
+                results.append(
+                    {
+                        "step": call["step"],
+                        "status": 200,
+                        "ok": True,
+                        "detail": "notification authority configured",
+                    }
+                )
+                _checkpoint("observed", call["step"])
+                _observe(call["step"], True)
+                continue
+            request_headers = headers
+            if call.get("authority") == "oauth_developer_project":
+                topic_url = "https://pubsub.googleapis.com/v1/" + str(
+                    plan["gmailNotifications"]["topic"]
+                )
+                if any(
+                    call.get(key)
+                    and str(call[key])
+                    not in (topic_url, topic_url + ":getIamPolicy", topic_url + ":setIamPolicy")
+                    for key in ("url", "read_url", "write_url")
+                ):
+                    raise BootstrapError(
+                        "OAuth notification authority may address only the approved topic"
+                    )
+                request_headers = self._oauth_headers(plan)
             if call.get("kind") == "merge_binding":
-                merged = self._merge_binding(call, headers)
+                merged = self._merge_binding(call, request_headers)
+                if call.get("authority") == "oauth_developer_project":
+                    merged["operatorBindingObservations"] = merged.pop("bindingObservations", [])
                 results.append(merged)
                 _checkpoint("observed", call["step"])
                 _observe(call["step"], bool(merged["ok"]))
@@ -908,7 +1439,7 @@ class UserGcpBootstrap:
                 continue
 
             if call.get("kind") == "generate_secret_version":
-                seeded = self._seed_secret_version(call, headers)
+                seeded = self._seed_secret_version(call, request_headers)
                 results.append(seeded)
                 _checkpoint("observed", call["step"])
                 _observe(call["step"], bool(seeded["ok"]))
@@ -919,7 +1450,7 @@ class UserGcpBootstrap:
             response = self._session.request(
                 call["method"],
                 call["url"],
-                headers=headers,
+                headers=request_headers,
                 params=call.get("params"),
                 data=json.dumps(call.get("body") or {}),
                 timeout=120,
@@ -931,7 +1462,7 @@ class UserGcpBootstrap:
             ok, files_observation = verify_files_step(
                 self._session,
                 call,
-                headers,
+                request_headers,
                 code=code,
                 ok=ok,
                 enabled=bool(plan.get("filesLibrary")),
@@ -942,7 +1473,7 @@ class UserGcpBootstrap:
             # owner's project. Tolerating it blindly would point this person's pod at
             # storage it cannot write, and the failure would surface far from the cause.
             if ok and code == 409 and call["step"] == "cmek_bucket":
-                owned = self._bucket_is_ours(call, headers)
+                owned = self._bucket_is_ours(call, request_headers)
                 if not owned:
                     ok = False
                     results.append(
@@ -980,7 +1511,7 @@ class UserGcpBootstrap:
             # success and never rely on tolerating, so this is a no-op for them.
             waited = {}
             if ok and code in (200, 201) and call.get("await_operation"):
-                waited = self._await_operation(call, headers, response)
+                waited = self._await_operation(call, request_headers, response)
                 ok = waited["ok"]
                 detail = waited["detail"]
 
@@ -1035,11 +1566,28 @@ class UserGcpBootstrap:
 
         failed = [r for r in results if not r["ok"] and not r.get("skipped")]
         skipped = [r for r in results if r.get("skipped")]
+        for result in results:
+            if result["step"] in notification_steps:
+                result["capability"] = "gmail_notifications"
+        core_failures = [r for r in results if r["step"] not in notification_steps and not r["ok"]]
+        notification_failures = [
+            r for r in results if r["step"] in notification_steps and not r["ok"]
+        ]
         return {
             "dryRun": False,
             "project": self._project,
             "steps": results,
             "ok": not failed and not skipped,
+            "coreOk": not core_failures,
+            "capabilities": {
+                "gmail_notifications": {
+                    "status": "unavailable" if notification_failures else "substrate_ready",
+                    "failed": [r["step"] for r in notification_failures if not r.get("skipped")],
+                    "skipped": [r["step"] for r in notification_failures if r.get("skipped")],
+                }
+            }
+            if notification_steps
+            else {},
             "failed": [r["step"] for r in failed],
             "skipped": [r["step"] for r in skipped],
         }
@@ -1079,6 +1627,8 @@ class UserGcpBootstrap:
             "enable_services",
             "generate_run_service_identity",
             "generate_files_task_identity",
+            "generate_pubsub_service_identity",
+            "generate_scheduler_service_identity",
         }:
             prefix = "operations/"
             version = "v1" if call["step"] == "enable_services" else "v1beta1"

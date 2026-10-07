@@ -60,6 +60,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled, pod_data_door_enabled
+from hushh_mcp.services.owner_placement_guard import hub_content_inline
 from hushh_mcp.services.pod_access_audit import (
     PodAccessUnavailable,
     resolve_serving_owner_hushh_id,
@@ -257,6 +258,15 @@ async def broker_specialist_read(
         # was the binding or the token.
         raise HTTPException(status_code=403, detail="scope is not valid for this read")
 
+    from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+
+    mode = await get_owner_hosting_mode(owner_id)
+    if mode != "shared":
+        # Old grants cannot reopen hub information custody after placement moves.
+        if mode in {"byoc", "pending", "unplaced", "hussh_pods"}:
+            raise HTTPException(404, detail="not found")
+        raise HTTPException(503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
+
     if payload.email_read is not None and payload.email_read.operation not in {"nudges", "search"}:
         return await _read_bound_mail(
             owner_id=owner_id, asserted=asserted, payload=payload, check=check, registry=registry
@@ -321,6 +331,7 @@ async def _run(check: Any, token: str, scope: str):
 
 
 @router.post("/{name}/read")
+@hub_content_inline("pod_specialist")
 async def specialist_read_route(
     request: Request,
     name: str = Path(..., min_length=1, max_length=64),

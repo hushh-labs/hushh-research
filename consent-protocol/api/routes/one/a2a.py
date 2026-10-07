@@ -27,6 +27,7 @@ from hushh_mcp.runtime_settings import a2a_agent_card_enabled
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
+from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_inline
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
 
 logger = logging.getLogger(__name__)
@@ -466,6 +467,7 @@ async def _create_or_report_consent_request(
     )
     _require_one_app_capability(principal)
     user_id = await _resolve_consent_user_id(body)
+    await admit_hub_content(user_id, "a2a")
     scope = _required_scope()
     service = ConsentDBService()
 
@@ -571,6 +573,7 @@ async def agent_one_a2a_card(request: Request) -> dict[str, Any]:
 
 
 @router.post("/message", response_model=AgentOneA2AMessageResponse)
+@hub_content_inline("a2a")
 async def agent_one_a2a_message(
     request: Request,
     body: AgentOneA2AMessageRequest,
@@ -606,6 +609,7 @@ async def agent_one_a2a_message(
         raise HTTPException(status_code=403, detail="Token app does not match caller")
 
     user_id = str(token_obj.user_id)
+    await admit_hub_content(user_id, "a2a")
     if _has_user_target(body):
         requested_user_id = await _resolve_consent_user_id(body)
         if requested_user_id != user_id:

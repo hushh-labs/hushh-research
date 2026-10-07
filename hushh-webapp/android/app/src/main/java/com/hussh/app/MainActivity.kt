@@ -27,6 +27,7 @@ import com.getcapacitor.BridgeActivity
 import com.getcapacitor.BridgeWebViewClient
 import com.getcapacitor.WebViewListener
 import com.hussh.app.plugins.HushhAuth.HushhAuthPlugin
+import com.hussh.app.plugins.GoogleConnectorAuth.GoogleConnectorAuthPlugin
 import com.hussh.app.plugins.HushhConsent.HushhConsentPlugin
 import com.hussh.app.plugins.HushhStream.HushhStreamPlugin
 import com.hussh.app.plugins.HushhOAuthReturn.HushhOAuthReturnPlugin
@@ -247,6 +248,7 @@ class MainActivity : BridgeActivity() {
         
         // Register all Hushh native plugins
         registerPlugin(HushhAuthPlugin::class.java)
+        registerPlugin(GoogleConnectorAuthPlugin::class.java)
         registerPlugin(HushhVaultPlugin::class.java)
         registerPlugin(HushhConsentPlugin::class.java)
         registerPlugin(HushhSyncPlugin::class.java)

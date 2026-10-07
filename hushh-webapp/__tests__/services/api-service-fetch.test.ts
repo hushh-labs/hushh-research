@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const googlePlacement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: googlePlacement }));
+
 
 const capacitorMocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
@@ -121,6 +124,7 @@ describe("ApiService.apiFetch", () => {
   });
 
   beforeEach(() => {
+    googlePlacement.mockResolvedValue(false);
     vi.clearAllMocks();
     mockFetch.mockReset();
     capacitorMocks.isNativePlatform.mockReturnValue(false);
@@ -166,6 +170,14 @@ describe("ApiService.apiFetch", () => {
       idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
       code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => mounted,
     })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+
+  it('does not deliver a legacy Google callback code to the hub after private placement', async () => {
+    publishValidatedAuthSessionOwner('synthetic-owner');
+    googlePlacement.mockResolvedValue(true);
+    await expect(GoogleConnectionService.completeConnect({ idToken: makeUnsignedToken({ sub: 'synthetic-owner' }), userId: 'synthetic-owner', code: 'native-code-must-not-reach-hub', state: 'state', isEffectCurrent: () => true })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
     expect(mockFetch).not.toHaveBeenCalled();
     expect(capacitorMocks.request).not.toHaveBeenCalled();
   });

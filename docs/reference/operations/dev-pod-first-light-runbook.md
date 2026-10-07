@@ -23,6 +23,9 @@ helper without a production caller does not establish custody. Keep opaque
 billing identifiers separate from the owner's selected space name, and verify
 the pod's machine-route wall before publishing direct readiness. These are
 dated rehearsal findings to recheck per project, not fleet-wide acceptance.
+Placement is explicit: no current placement or setup intent is `unplaced`, and Shared requires
+the owner's recorded choice. Pending setup, failed placement reads and assigned
+owner-cloud pods never receive a Shared fallback (`personal_agent_hosting.py`).
 The [recovery guide](./pod-backup-and-recovery.md) owns the pod's conditional
 first-boot key creation and encrypted recovery contract.
 
@@ -178,41 +181,121 @@ the bucket's retention, encryption, IAM and object inventory around that precise
 change. Preserve recovery and PKM prefixes. Receipt correction grants no deletion
 authority and does not replace the owner's exact Files-plan approval.
 
-### Controlled owner-direct access
+### Owner-direct access (dev source wiring; verify the serving revision)
 
-Keep an existing BYOC pod private while applying its owner-approved image update.
-Verify its service UID, image digest, single-writer recovery and machine-route
-wall before changing ingress. On the same service, verify or widen Cloud Run
-ingress and grant the public invoker only for the dev direct pilot. Verify the live IAM
-policy, HTTPS/WSS reachability, frontend CORS preflight, hub machine-route
-authentication, and a signed subject binding plus pod admission from a separate
-network. A health response or public Cloud Run URL alone is insufficient.
-Record the observed ingress with
-`PersonalAgentRegistryRepo.record_direct_ingress_observed` only after the live
-service and IAM checks; it keeps endpoint publication closed.
+The dev source wires widening and admission through the existing heartbeat.
+The checks below describe what the deployed revision must prove. Do not widen
+ingress or write readiness by hand to manufacture acceptance.
 
-After those checks, use `PersonalAgentRegistryRepo.record_direct_readiness`
-with the exact owner, HushhID, service UID, pod key, URL and verification time.
-Its conditional write refuses a replaced pod or private ingress record. The
-hub then publishes the signed endpoint; the browser pins it only after its own
-admission succeeds. If any check fails, retain private ingress and leave the
-direct-ready record absent. An update keeps the ingress axis; recheck the route
-wall and recovery before treating the new image as accepted. Puppy access
-still requires the owner's explicit per-device choice in Trusted devices.
+**A new Google own-cloud agent** (`user_gcp`) is created with Cloud Run ingress
+`all` and an `allUsers` invoker behind the in-pod machine-route wall, and records
+`ingress: external` (`owner_direct_ingress`). Azure Container Apps agents record
+`external` from the start. The managed `gcp` tier stays dev-only.
 
-A pod whose ingress is public by construction records `ingress: external`: Azure
-Container Apps always, and a NEW Google own-cloud (`user_gcp`) agent, which is
-created with Cloud Run ingress `all` and an `allUsers` invoker behind the in-pod
-wall on any lane (`owner_direct_ingress`; the managed `gcp` tier stays dev-only).
-There is nothing to open, so the hub runs the same checks on a live beat
-(`pod_external_ingress_admission`): key recorded from that URL, machine-route wall
-refusing an unidentified caller, and the app origin's preflight allowed. One
-compare-and-set then writes `direct` together with the readiness receipt.
-`internal` is never promoted this way, and a heal or update never widens an
-existing `internal` agent; it stays the operator step above. If an organisation
-policy refuses `allUsers`, the row records `internal` with
-`directIngressBlocker.code = ORG_POLICY_REFUSES_PUBLIC_INVOKER` and the agent stays
-hub-reachable; change the policy, then use the operator step. Never work around it.
+**An existing hub-only Google agent** (`ingress: internal`) is widened by the hub on
+the dev lane when its pod beats (`owner_direct_widen.schedule_widen_if_due`), using
+the owner's bootstrap identity the hub already holds. Only a pod whose heartbeat
+reports the `aiSelection` advert is widened: that image postdates the in-pod wall, and
+an older image stays hub-only until an approved update. In order: the service UID must
+match the row; the public invoker is granted **first**; only then is the service's
+ingress annotation set to `all` with a revision nonce (a replace on the same service,
+so the URL survives); the new revision must be Ready; the pod key is re-pulled; and
+one compare-and-set (`promote_internal_to_external`) moves the row from `internal` to
+`external` for that exact owner, HushhID, service UID and URL. It never writes
+`direct`. Each attempt is claimed per row with a `directIngressWiden` marker and
+backs off from 5 minutes to 6 hours. An approved update of such an agent also renders
+ingress `all` but keeps recording `internal` until the widening promotes it. The
+update does not grant the invoker first, so it can open ingress before a later grant
+is refused; the service then stays IAM-gated (no `allUsers` invoker) and reachable by
+the hub alone. `pod_heartbeat.py` now calls `schedule_widen_if_due`; source wiring
+does not prove that the serving hub or pod has that implementation.
+
+**Admission** (`pod_external_ingress_admission`) then promotes `external` to
+`direct` together with the readiness receipt, on a live beat, only when all of
+these hold: the key was recorded from that URL; anonymous `/pod/info` answers 404
+with exactly the pod wall's body (`consent-protocol/hushh_mcp/services/pod_wall.py`), so a Cloud Run
+IAM 403 or a provider 404 page is not mistaken for the wall; anonymous `/health`
+answers 200; the app origin's CORS preflight is allowed with that origin echoed;
+and, for Google, the live service read with the bootstrap identity is the same
+incarnation, has ingress `all` and lists `allUsers` under `roles/run.invoker`. Any
+failure leaves the row unchanged and the next beat retries. While a Google row is
+`external` and not yet admitted, each live beat mints a bootstrap token and makes two
+Cloud Run reads. In plan mode (localhost with no live Google access) the IAM check
+reports `iam_unverifiable`, so a localhost Google row is never admitted to `direct`;
+that is by design. The hub then publishes
+the signed endpoint; the browser pins it only after its own admission succeeds.
+Puppy access still requires the owner's explicit per-device choice in Trusted
+devices.
+
+Direct setup must bind the authenticated owner to this exact pod before issuing
+its local app session. Connector/AI setup then uses that owner session with the
+required scope and held incarnation; hub consent alone cannot open a credential
+envelope (`pod_owner_door.py`). Test a foreign owner and an unwalled provider
+response as negative controls before claiming direct setup accepted.
+
+**Organisation policy.** If a policy refuses `allUsers` (for example Domain
+Restricted Sharing), the row keeps `internal` and records
+`directIngressBlocker.code = ORG_POLICY_REFUSES_PUBLIC_INVOKER`. On the widening
+path ingress is not changed, because the grant comes first; an approved update may
+already have set ingress `all` (see above), which stays IAM-gated. The blocker
+survives heals, provisions and upgrades. Adoption of an existing service rewrites the
+metadata whole and drops it, and the next widening attempt records it again. The
+owner sees it in `GET /api/one/personal-agent/status` (`directIngressBlocker`). On
+dev it is `retryable`, and after the policy is changed Retry calls
+`POST /api/one/personal-agent/direct-ingress/retry` to clear the blocker and start
+one attempt. On uat and production, where nothing widens, it is not `retryable` and
+Retry keeps the blocker and does nothing. Never work around the policy.
+
+**Outside dev** (uat, production) existing hub-only agents are not widened and an
+update keeps `internal`; that waits for the dev proof. `record_direct_ingress_observed`
+and `record_direct_readiness` remain for recovery only and are not part of setup.
+
+### Google connector and notification acceptance
+
+Private native authorization uses public-client PKCE and an owner-direct sealed
+code/verifier envelope. A web QR carries connector intent only and must not carry
+an owner, endpoint or credential. Confirm the signed-in provider account and
+granted scopes at the pod, then read back owner-authenticated status. Google
+revocation is project/account-wide. The source legacy-to-private transition now
+fences existing credential rows, confirms the owner's choice and provider revocation
+before opening fresh native authorization. The pod requires current transition
+admission, drops affected token caches and validates the exact credential ID and
+generation through provider refresh before redemption. Only `invalid_grant`
+retires an old grant; provider outages block fresh redemption, and credential
+timestamps are not revocation evidence. Completion clears unchanged legacy custody.
+Verify provider refusal, changed snapshot/placement and incomplete cleanup with
+the owning transition tests; live provider/native acceptance remains unproved.
+Do not revoke an old project token after issuing a fresh sibling grant.
+
+For notifications, verify the topic in `GOOGLE_CONNECTOR_OAUTH_PROJECT`, the
+owner-project direct subscription and OIDC account, exact pod audience/endpoint,
+DLQ forwarding IAM and retained DLQ subscription. An Azure pod additionally needs
+an explicit Google notification-project adapter; Azure authority alone is insufficient.
+The OAuth-project topic remains operator-owned and is outside automatic owner
+resource erasure. Owner resources and grants require qualified retained receipts.
+
+Parked migration 956 and its existing-operation checkpoint port must be validated
+and deployed before accepting notification mutations. Without that port or the
+other prerequisites, notifications remain unavailable while core chat/recovery
+retain their independent status. Verify bounded retries/retention and operator
+recovery status, failed listener retry with unchanged history cursor, and daily
+authenticated HTTP maintenance renewal. No resident poller or per-ring model
+invocation is an acceptance substitute. These are source-level contracts until
+the exact deployed resource and serving revision have live receipts.
+
+The checkpoint uses the existing owner registry operation, not another table or
+job ledger. Its bounded metadata contains public resource coordinates,
+configuration and qualified receipts; credentials and private content are
+excluded. Current placement, standby and detached custody retain the exact
+checkpoint and resource inventory until the owning cleanup contract permits
+removal. Each subscription has its own qualified erasure receipt. A receipt for
+one subscription cannot release a sibling, the topic or the encryption key.
+Rollback must refuse retained obligations it cannot represent.
+
+The disposable Azure native sandbox retry on 2026-10-06 reached the provider,
+created the sandbox and then returned `AZURE_PROBE_EGRESS_REFUSED`. Sandbox and
+outer resource-group deletion were confirmed. Browser readiness, owner-information
+execution and a private bridge remain unproved; that retry does not admit them.
 
 ### Model project ownership
 

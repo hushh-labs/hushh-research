@@ -3,287 +3,131 @@
 ## Visual Context
 
 Canonical visual owner: [Quality and Design System Index](README.md).
-The Files-led matrix below carries the release decision.
+Runtime diagrams and contracts live in the [private-agent north star](../architecture/private-agent-north-star.md)
+and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-**Decision — 2026-10-02: Files discovery and the prior Dev 4 update pass;
-Dev 5 installation, full dev acceptance and production remain blocked.**
-Dev's hub serves verified source `60f92a6a5f81`; the frontend remains on
-`3f968a985e3c`. Files is a dedicated `/one` agent; Hosting no longer links its workspace.
-The personal pod retains its independently qualified `.4` image, encrypted
-information, trusted device and selected on-demand configuration. Private chat
-and typed/recorded synthetic commands pass through that pod on the earlier `a9c479328fd0` application. Puppy failed the
-two-operation and cold rehearsals before inference had time to finish; recovery
-work and client deadline allocation are confirmed defects. Eligible connector review, billing recovery
-and bounded mixed work remain gates. No main, UAT, production or stable-channel
-promotion occurred. The qualified Dev 5 offer is published, but its normal
-installation is held until the selected owner's changed registry placement is
-resolved. No pod was reassigned or upgraded to bypass that refusal.
+## Decision — 2026-10-06
 
-Reusable guidance lives in the [One hierarchy](../one/one-agent-hierarchy.md),
-[Files contract](../operations/private-files-library.md),
-[dev update runbook](../operations/dev-pod-first-light-runbook.md) and
-[deployment standard](../architecture/deployment-standard.md).
-Git history retains the earlier chronology; this memo records current evidence.
+**Hold the new dev release until integration and core CI pass. Keep Computer Use
+unavailable on both clouds.** The interrupted BYOC handoff has been resumed;
+local implementation and focused checks do not establish deployed acceptance.
+Existing owners, selected hosting, trusted devices and encrypted information are
+preserved. No application merge to main, UAT/production deployment, stable
+publication or owner-pod installation occurred in this continuation.
 
 ## Source and serving evidence
 
-### Computer Use privacy pilot — 2026-10-06
+| Surface | Dated evidence | Boundary |
+| --- | --- | --- |
+| Working source | Infrastructure base `f407f849b281`; BYOC and browser changes remain under local review. | Concurrent commerce/PDF work, local ADK and consumer repository are preserved; no combined green SHA yet. |
+| Dev backend | Readback at 2026-10-07 00:22 UTC: `consent-protocol-00143-mbc`, source `9a3d5f043469`, digest `sha256:9b868c12cf7776ab62ec0c5f759fd993fa675eddd7dbedfe8441d095dd8ad655`, 100% traffic. | Serving baseline predates this continuation. |
+| Dev frontend | Same readback: `hushh-webapp-00121-d9g`, source `9a3d5f043469`, digest `sha256:8174fc29ce435ff08b497a456079efad32318a05c6cebd61a0d5d352ed1e7e2b`, 100% traffic. | Native connector configuration and new browser UI are not inferred from this image. |
+| Owner pods | No owner service/image changed in this continuation. | Hub deployment, pod publication and exact owner-approved installation are separate receipts. |
+| Schema | Hosting 955 and notification checkpoint 956 are registered in the dev manifest only. | Local registration is not an applied migration. Compatibility, ledger/checksum readback and release guards remain required. |
 
-**Decision: keep disabled.** Information/session work starts at `9a3d5f043469`
-and preserves concurrent infrastructure commits through `f1bda1eb5`. The
-[private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md)
-owns the boundary, diagram and prerequisites. No owner pod, serving image, release
-channel or application traffic changed in this slice.
-
-| Gate | Evidence / disposition |
-| --- | --- |
-| Selected PKM and disclosure | Local typed ports pin independent export/content/manifest revisions; separate exact processing and single-use transmission reviews reuse the existing ledger. Runtime grant-loader and authenticated approval routes remain unwired. |
-| Manual login and remembered state | Observation fencing, approved screen origins, origin-only model URLs, encrypted 1 MiB objects, bounded reads and generation-fenced Forget are implemented locally. Customer preview/login and retention controls remain unavailable. |
-| Browser fixture | Controlled Chromium passes redirects, multiple cookies, official expiry, local storage and recipient refusal. Original redirect failure identified the interception defect; no real owner or website was used. |
-| Recovery and erasure | Same-custody restart and inventoried erasure have core coverage. Record-only migration/sync refuses browser history on both ends, even after Forget; cross-custody transfer and live update continuity remain unqualified. |
-| Cloud isolation | GCP's earlier native probe ran as root; fixed UID/GID changes failed with `EPERM`. Azure Sandbox Early Access is not registered. Neither substrate is accepted. Earlier task-owned probes were removed. |
-
-**Local verification:** 392 focused cases pass. Explicit browser typecheck, docs
-links/governance, skill lint and 234 trigger checks pass; all 180 diagrams render
-and the changed figure received visual review. Browser changes introduce no
-architecture-ratchet regression. The controlled Chromium fixture also refuses an
-embedded frame from an otherwise admitted secondary origin.
-
-**Combined workspace is not CI-green.** The core mirror ran once: secret,
-governance and web-core passed. Its stale generated Location projection was
-regenerated through its owner. The subsequent protocol run passed lint, typecheck
-and security analysis, then reported **13,583 passed / 75 failed / 134 skipped**;
-integration reported **376 passed / 4 failed**. MCP packaging passed. Failing
-families concern concurrent hosting/route authority, auth-marker expectations and
-the new parked hosting migration's inventory; no browser case failed. Two
-concurrent function-growth findings also remain in `claim_verified_phone` and
-`record_information_request_submission`. Their owning runtime/quality change must
-reconcile those contracts before a release; no gate was weakened.
-
-No hosted CI, deployment or browser registration is inferred from these checks.
-The Wiki rules/index were refreshed; no matching Computer Use article was
-identified for a verified correction, and no Wiki page was published.
-
-**Next gate:** supported non-root sandbox Chromium and denied egress, then owner
-route/preview, consent-loader wiring, encrypted-object lifecycle and update
-qualification. Keep all real owner information outside the sandbox until it passes.
-
-### Prior BYOC evidence
-
-- **Application:** [exact-SHA backend CI](https://github.com/hushh-labs/hushh-research/actions/runs/37055310810)
-  and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37056544633)
-  succeeded for `60f92a6a5f81ea975071ac010fd8c015d2541e5e`. Independent readback
-  at 20:08 UTC confirmed backend `consent-protocol-00130-bgz` at 100% traffic,
-  digest `sha256:be07c80a8ba5f13f665c897eb9756a889ce3a71c3bef31f9b1c8db07fc9707c6`.
-  Frontend `hushh-webapp-00108-2rj` remains at 100% on `3f968a985e3c`, digest
-  `sha256:25d5d8ce928412deacf1b260fb564c38da791a3359e8b0fb3ee5831f887290d0`;
-  its [full CI](https://github.com/hushh-labs/hushh-research/actions/runs/37043837731)
-  and [deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37046577862)
-  passed. GitHub Actions governed; Cloud Build built and deployed. Health,
-  provenance, parity and database guards passed. Backend rollback target is
-  `00129-jnb`; the frontend was not replaced. The latest workflow took
-  approximately 19 minutes. No live rollback acceptance is claimed.
-- **Integration boundary:** the refresh froze main `43c70034dd99` and clean local
-  ADK `b398a9de5166`. Two relevant reviewer fixes were carried selectively; the
-  wider Drive, voice, production, native and CI-policy delta remains outside this
-  bounded release. Peer commits through `e8f5b20c6` were preserved by normal merge
-  `1d45e5fe21` and now serve in the candidate. Azure selection remains disabled;
-  this is GCP acceptance only. Unrelated PDF work is excluded.
-- **Pod offer and installation:** dev-only `2026.10-dev.4+b70ee404bfa7.730e1702`
-  reuses immutable image source `b70ee404bfa7`, target `sha256:730e1702…43d1d5`,
-  and only qualified predecessor `sha256:d02509f1…9d23f`. Actual immutable-image
-  predecessor → target → restart tests proved synthetic encrypted Files, session,
-  authority-tombstone and PKM-summary continuity without source overlays.
-  Normal Settings approval during active synthetic chat retained one operation
-  under repeated approval; durable idle preceded replacement. Revision
-  `00024-x8z` subsequently reconciled to digest-verified success, preserving
-  service identity, keys, storage and Files queue. The original harness missed
-  the draining overlap and failed final readback; independent readback verified
-  completion. Fresh unlock recovered the exact synthetic user message and a
-  completed assistant response, without an exact assistant-byte comparator.
-  Dev 5 now offers `sha256:a313b9f7…194126d`, retaining its original `3f968a985e3c`
-  image provenance and admitting only exact predecessor `sha256:730e1702…43d1d5`.
-  Publication does not prove installation; the selected owner preflight refused
-  while its registry assignment was detached by concurrent work. The existing
-  cloud service and encrypted information were preserved.
-- **Updates and Feed:** the missing historical notice was repaired through the
-  existing Feed writer: two calls produced one operation-key notice and no
-  registry mutation. Settings/Feed readback agrees. The corrected automatic
-  reconciled projection was introduced at `3f968a985e3c` and remains in serving
-  hub `60f92a6a5f81`; this deployment does not
-  prove a second normal update or observed drain overlap.
-- **Economic configuration:** fresh management readback preserves 1 vCPU/1 GiB,
-  minimum zero, revision maximum one instance, concurrency eight and ten-minute
-  relay grace; the immutable image retains one worker. The service-level maximum
-  is distinct from the serving revision limit. Earlier metrics recorded zero
-  active/idle instances followed by a roughly 104-second wake. Updated-image
-  metrics recorded zero at 14:24 UTC and again at 17:00 UTC before the cold Puppy
-  rehearsal. Empty metrics series remain unavailable evidence, not zero.
-  Capacity remains unproved.
-- **Schema:** pre/post-deploy guards passed at integrated version 262. Migrations
-  943, 944 and 946–949 are applied with source-matching checksums. Ledger 249 is
-  the public-profile bridge, not the destructive cleanup. Dev history cutover
-  **944 already completed on September 28**, governed by
-  [run 36392414630](https://github.com/hushh-labs/hushh-research/actions/runs/36392414630)
-  at source `83f307dd993c`. Dated readback confirmed intended legacy rows absent
-  and retained fingerprints unchanged. Live retained BYOK tables were empty;
-  nonempty restoration/preservation was proved separately in isolated fixtures.
-  The ledger's null deployment-SHA field is a provenance limitation; dated
-  workflow/readback supplies the evidence. Matching cleanup was skipped on this
-  deployment. Do not rerun it or describe its no-op SQL rollback as recovery.
-  Retained-backup erasure and UAT/production cutover are not established.
-- **Environment limits:** dev uses the approved personal Gemini bridge and
-  governed Gemini 3.6 Flash configuration. RIA remains `ria_stage1_query_only`
-  degraded. Eight of nine candidate model probes passed; global ADK returned
-  a provider 429, while the US/EU ADK, text, recorded-command and Live probes
-  passed. The workflow's existing provider-outage advisory allowed deployment;
-  this is not complete model or regional-failover acceptance. Production pod
-  migrations, release-channel graduation and production IAM/billing remain unaccepted.
+The baseline's [hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/37461110037)
+and [governed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37464072047)
+passed. These receipts do not validate the uncommitted candidate. Previous ready
+revisions are recorded as metadata rollback candidates; their compatibility has
+not been rehearsed in this continuation.
 
 ## Files-led acceptance
 
-| Journey | Verified | Remaining gate / owner |
+| Journey | Source / local evidence | Dev gate |
 | --- | --- | --- |
-| **Files discovery** | Authored ADK specialist and dedicated `/one/files` explorer exist. The launcher correction adds Files to the canonical `/one` roster and navigation catalog and removes its Hosting link; development-only visibility follows the authored manifest. | Frontend: live list/grid entry and explorer navigation pass at 390/768/1440 px with vault continuity; Hosting has no Files launcher. Discovery is not installed capability or consent. |
-| **Files setup** | Exact-plan approval, same-operation queue continuation, installed capability, encrypted keys and queue configuration. | Preserve the existing operation, bucket and selected hosting settings. |
-| **Files explorer and transfer** | Live 5 MiB interrupted/resumed upload, byte-exact download, folders, rename/move undo, trash/restore and same-session continuity; mobile/paginated move checks. | Files: mixed-work recheck; trash retention is not physical deletion. |
-| **Files Agent and jobs** | Explicit opt-in/exclusions, automatic organization of a new synthetic upload, authenticated queue completion, terminal cancellation and original-byte preservation on the installed image. Isolated malicious/unsupported-content tests. | Files: bounded overlapping work. Original analysis settings restored; synthetic creations trashed under retention. Failed and cancellation-only harness receipts stay separate. |
-| **Chat and recovery** | Two direct browser replies completed in approximately 74 and 71 seconds on the dated `a9c479328fd0` candidate; terminal UI and exact-thread history agree. Signed admission, same-session continuity and pod/hub session revocation pass. Fresh unlock recovered exact synthetic user and completed assistant information. | Runtime: original failed/inconclusive harness receipts remain preserved. Recovery latency remains poor. |
-| **Commands and connectors** | Typed and five-second recorded synthetic commands completed pod transcription/assessment and the existing hub ledger's Location settings plan on dated `a9c479328fd0`; same-session continuity and both cleanup authorities pass. | Runtime: a real physical microphone and eligible connector approval/resume are unverified. This owner's inventory has no eligible saved review-required read-only fixture. |
-| **Puppy and machine** | Existing Hermes identity: direct response, `200/stopped`, released work, Mac inference cancellation, reconnect, owner withdrawal/new-binding refusal and re-enable; dated model/capacity report. A controlled relay restart followed by a warm browser response passed in approximately 73 seconds. | Runtime: mixed work exhausted the 155-second pod timeout after approximately 151 seconds of recovery. The confirmed-zero cold browser attempt exhausted its 205-second total after 172 seconds of setup. Independent active internet and usable cold latency remain unverified. Failed receipts are retained. |
-| **Updates and runtime** | Exact `.4` approval, one operation, durable idle, restart, digest/key/configuration and Settings/Feed verification. Automatic projection correction and qualified Dev 5 offer are deployed. | Updates/runtime: resolve changed owner placement before exact Dev 5 approval; observed drain overlap, bounded mixed work and updated-image idle/wake remain gates. No live rollback-fault acceptance. |
-| **Billing recovery** | Typed retry contracts preserve the recorded project and setup operation. | Provisioning: real missing-billing return through fresh authorization on a disposable setup; never disable an existing owner's billing to manufacture failure. |
-| **Production** | No main, UAT, production or stable-channel promotion. | Release/security: finish dev acceptance, graduate migrations/channels and prove production IAM/billing and UAT recovery/rollback. |
+| Placement and setup | Explicit Shared selection and `unplaced`; pending/assigned modes preserved. Automatic attach/direct setup checks identity, IAM, exact route wall, CORS and owner admission. | New/existing setup, billing return and policy-blocked retry without a second project or assignment. |
+| Private connectors | Sealed native PKCE, credential hydration before admission, Gmail/Calendar/Drive/Contacts and curated MCP routes. Owner review is bound to exact action; missing capabilities refuse. | iOS and Android provider authorization, declared scope upgrades, exact review/resume and restart recovery. |
+| Google transition | Owner-confirmed project-wide old-grant revocation precedes fresh authorization. A signed current-pod receipt gates redemption; exact provider refresh/CAS distinguishes revoked from fresh sibling grants. | Provider-confirmed transition, fenced legacy callbacks/jobs and cleanup of unchanged legacy rows without revoking the new grant. |
+| Notifications | OAuth-project topic, owner-project OIDC push subscription, exact route/audience/service binding, durable coalescing and bounded cursor checkpoints. No model inference from a doorbell. | Provision/upgrade receipts, duplicate/lost delivery, queue drain, watch renewal and minimum-zero idle return. Multiple subscriptions require independently qualified erasure receipts. |
+| Consent and hub closure | Current-incarnation signed revocations and metadata-only feeds; real tools, including Nav, receive owner authority. Reserved/commercial policy stays canonical. Hub content refuses BYOC. | Revocation delivery, route closure and absence of migrated hub readers, credentials and caches. Sealing plaintext never proves private custody. |
+| Files | Dedicated ADK specialist and `/one/files` explorer retained. Dated earlier acceptance covered resumed transfer, byte-exact download, reversible organization and explicit analysis consent. | Regression on the final installed candidate, authenticated background completion and overlapping activity. |
+| Puppy | Existing identity/grant and direct transport retained; prior responses, cancellation and withdrawal have dated receipts. | Reconnect and same-owner/pod proof after the approved image update; independent active internet, usable cold latency and bounded overlap remain unverified. |
+| Updates/recovery | Existing exact-release approval and durable operation retained. Earlier Dev 4 receipts prove a normal restart and encrypted continuity on that image pair. | Exact predecessor compatibility, active-work drain, one installation, Settings/Feed agreement and installed-digest/recovery readback. No automatic upgrade. |
+| Computer Use | Authenticated task runtime, isolated ADK runner, selected PKM ports, exact reviews, preview/takeover, opt-in encrypted sessions and generation-fenced Forget have focused local coverage. The browser hand returns metadata only to One. | Both cloud execution gates remain closed; no real owner information admitted. |
+
+## Computer Use qualification
+
+- **GCP:** the earlier native probe ran as UID/GID zero; switching to the fixed
+  non-root identity failed with `EPERM`. No supported provider identity mechanism,
+  sandbox Chromium, broker bridge or denied-egress proof is qualified. Keep refusal.
+- **Azure:** Early Access enrollment is an obsolete blocker: SandboxGroups is now
+  generally available. The new bounded dev probe created the native group,
+  qualified data-plane read access and created a synthetic sandbox. Its exact
+  egress-policy readback was refused before execution. Sandbox deletion and resource
+  group deletion were confirmed. No owner resource changed. The private task bridge,
+  Chromium, network isolation and lifecycle remain unqualified.
+- **Privacy:** credential entry suppresses model observations; handback requires a
+  fresh observation. Remembered state is encrypted, origin bounded and capped at
+  1 MiB; Forget races cannot restore an older generation. Cloud retention and remote
+  website logout remain separate from logical Forget. No password injection or
+  generic Secrets export is offered.
+
+## Blockers and next gate
+
+| Owner | Blocking evidence | Required resolution |
+| --- | --- | --- |
+| Backend / release | Notification custody and multi-resource erasure corrections pass focused PostgreSQL checks; the combined candidate remains unverified. | Preserve exact receipts through integration and pass the complete release gates before deployment. |
+| Integration | Current main/local ADK authority delta has not been frozen and reconciled. | Preserve pod identity/custody and injected authority; regenerate from authored owners, then one local core mirror and exact-SHA hosted CI. |
+| Native / provider | Registered iOS client verified; dev public-client configuration and feed keys prepared. Android public-client PKCE is not provider qualified. | Supported Android registration/authorization and live iOS acceptance; no server client-secret fallback. |
+| Cloud / browser | GCP identity and Azure policy/private bridge gates fail or remain unverified. | Qualify each substrate independently. Keep Computer Use disabled until its isolation, privacy and lifecycle receipts pass. |
+| Dev acceptance | No new candidate deployment or owner installation receipt. | Main-owned dev workflow for the exact green branch SHA, terminal/readback proof, then exact owner-approved pod release and one acceptance window. |
 
 ## Verification and measured debt
 
 ### Reviewed integration debt
 
-The completed candidate passed focused trust-boundary checks, typecheck, owning
-contracts, the final local core mirror in 287 seconds and exact-SHA hosted CI.
-The read-only Location bootstrap correction preserves ordinary owner behavior;
-its nearest regression and broken-code negative control pass. The new-or-worsened
-fitness ratchet passes without widening a handwritten allowance.
+Focused local checks cover native sealing, owner/epoch fencing, Google grant
+races, connector actions, route closure, notification checkpoints and browser
+control/session boundaries. Frontend typecheck and design checks pass; all 181
+Mermaid figures render. Check counts overlap and are not an end-to-end acceptance
+total. The full docs gate currently identifies an unrelated ignored PR snapshot's
+11 shareability violations; authored documentation checks pass.
 
-Cold admission now has its own bounded wait; the existing 90-second byte-based
-stream-silence budget starts after successful response headers. Cancellation
-refuses late private writes without cancelling another caller's shared admission.
-Feed completion remains a best-effort projection after verified registry
-publication; status is a pure reader and install authority is unchanged.
+The final notification/lifecycle check passed 150 tests, including real PostgreSQL
+standby removal, detached-custody retention and qualified erasure completion.
+The connector pack passed 587 tests before the last strict provider-status
+correction; its redirect/server-failure negative controls are checked separately.
+Neither result proves a deployed provider transition or owner-cloud cleanup.
 
-Private-chat diagnostics exposed two harness defects: new-chat reset was not
-awaited and failed network reads could wait indefinitely for stream completion.
-Original failed receipts remain preserved. Optional CDP body access is not a
-substitute for terminal UI and exact-thread history evidence.
+The prior combined core run reported 75 protocol and four integration failures.
+It is historical evidence of the interrupted handoff, not a result for the current
+candidate. The final dependency-complete source must pass the current gates;
+no tests, security checks or ratchet budgets are waived. The [fitness baseline](architecture-fitness-baseline.json)
+remains measured debt, not a line-count target.
 
-The mixed rehearsal passed one chat operation. At two operations, One completed
-in approximately 66 seconds, but Puppy exhausted the 155-second route budget.
-Correlated pod/device stages show a 48-second PKM rebuild, another full scan used
-only for statistics, then memory hydration. Local inference started approximately
-151 seconds into the request and was cancelled four seconds later. A warm retry
-admitted the relay in 1.7 seconds and generated locally in nine seconds. The
-four-operation and ten-minute soak stages were not run after this failure.
+The [One Wiki hosting section](https://wiki.hushh.ai/wiki/products/one#hosting-choices)
+was corrected and read back: Shared is explicit, detached accounts return to the
+chooser, existing setup/assignments are preserved, and cloud rollout remains
+qualified. Public prose contains no owner or operational credentials.
 
-The `.5` source correction retains the verified rebuild count and removes the
-statistics scan. All 28 resolver tests and five existing PKM/log recovery tests
-pass; restoring the old initializer reads ten objects instead of five. Owner,
-erasure and initialization boundaries are unchanged. The qualified immutable
-image `sha256:a313b9f7…194126d` has source `3f968a985e3c`. Recovery build
-`37d515ab-5b54-4688-8e92-711be0e09d96` passed actual immutable `.4` predecessor
-`sha256:730e1702…43d1d5` → target → target restart, without application source
-overlays. Synthetic encrypted Files bytes/rename, sessions/deletion, identity,
-authority tombstones and corrected memory/PKM summaries survived. The image
-modules came from `/app/`. This proves isolated compatibility, not owner-cloud
-IAM, provider access or a normal live installation. The qualified descriptor
-admits only that exact predecessor and reuses the original image/run/archive
-provenance. The owner's `.4` image remains installed until exact Settings approval.
+## Historical receipts and boundaries
 
-A subsequent cold Puppy attempt followed observed zero active/idle instances.
-The browser submitted at 17:02:43 UTC, but direct inference dispatched only at
-17:05:35; its 205-second deadline cancelled at 17:06:08. Two client timers included
-preparation, leaving approximately 33 seconds for inference. The deployed browser source
-fix keeps preparation bounded at 205 seconds and starts a fresh 170-second
-inference ceiling only at the authenticated direct POST. UI waiting begins at
-that same point; cancellation authority and no-cloud-fallback remain unchanged.
-This fixes deadline allocation, not the underlying cold-start latency. Both
-pod/hub cleanup succeeded and the old browser session was refused afterward.
-All 41 focused stream/parser/UI checks pass, including the real inference
-deadline and authenticated stop. The delayed-admission regression fails with
-the old stream consumer substituted in memory; shared source files are not
-overwritten. Typecheck, docs links and diagram governance pass. Independent
-review found no change to admission, consent or cancellation authority.
-The completed recovery-plus-deadline candidate passed the local core mirror
-in 334 seconds, including the unchanged architecture ratchet. The first attempt
-stopped at duplicated test scaffolding; consolidation into the existing shared
-SSE helper cleared that finding without a baseline allowance or removed coverage.
+- Dev history cleanup **944 completed on 2026-09-28**, under
+  [governed run 36392414630](https://github.com/hushh-labs/hushh-research/actions/runs/36392414630).
+  Migration 249 is the public-profile bridge. Do not repeat deletion or treat a
+  no-op SQL rollback as recovery. Retained-backup erasure and production cutover
+  are not established.
+- Earlier cold Puppy and mixed-work samples failed usability budgets. Those failed
+  receipts remain valid; green CI and restored deadlines do not prove acceptable
+  cold latency or sustained capacity. Measure wake, admission, recovery, relay,
+  first token and completion separately; empty metrics are not zero.
+- Sustainable hub/pod capacity, native live journeys, physical-device acceptance,
+  release/migration graduation and UAT recovery/IAM remain independent gates.
+  Spending thresholds warn; they never stop service.
 
-The Files launcher correction passes 44 focused roster, navigation, availability
-and Hosting checks, typecheck and independent boundary review. The completed
-combined candidate passes the local core mirror in 372 seconds. Documentation
-links and governance pass; exact-SHA hosted CI and dev deployment pass. The original live harness proved
-the narrow roster and explorer, then failed at its Hosting navigation; its failed
-receipt is retained and responsive readback is repeated with actual Profile clicks.
-
-A prior Puppy response took approximately 139 seconds, including 98 seconds of
-local generation and 37 seconds to first content. Recovery replay held 459
-records and one correlated completion took 117 seconds. The bounded HTTP startup
-budget repair was failed-start maintenance, separate from the normal image
-update. These measurements identify usability debt, not a latency guarantee.
-The latest candidate probe confirms one global ADK 429; no sustained provider
-429 rate or sustainable capacity envelope is available.
-
-The 2026-10-04 integration of `main` (`81002fb50`), the ADK branch and the Azure
-owner-cloud branch re-recorded the baseline under
-`review.integration_2026_10_04`. Budgets are unchanged. Of 298 new or worsened
-findings, 296 come from code in `main` or the ADK branch, which carry no size
-ratchet. Two Azure-side files were already over budget and grew:
-`scripts/deploy/backend-deploy.sh` (929 to 951 lines, the account-deletion and
-direct-message settings ported from `main`'s Cloud Build step) and
-`byoc-cloud-setup-page.tsx` (782 to 793 lines, the popup sign-in work). The
-ratchet passes against the new baseline.
-
-### Dev connection-budget correction
-
-Live database readback found 92 idle clients against 100 total slots, with three
-reserved. Zero-traffic revision `00128-kk2` still had three active instances;
-`00129-jnb` had four. The six LISTEN sessions per instance match a confirmed
-entrypoint defect: the workflow declares `WEB_CONCURRENCY=1`, but Docker hardcodes
-two Gunicorn workers. The deployed hub correction honors that existing setting;
-unset still runs two workers for UAT/production. The real shell entrypoint test
-passes for one worker and rejects the old command as a negative control. All 56
-nearest deployment/release checks pass. The owner-pod image is separate and
-unchanged by this hub correction. The completed candidate passed the local core
-mirror in 256 seconds, then exact-SHA hosted CI and governed dev deployment.
-Startup logs show one worker in each of two observed instances. Read-only
-database checks showed 40 usable slots before deployment and 82 afterward
-(15 clients including the observer); no sessions or retained revisions were
-terminated to manufacture headroom. The pooled 40-connection budget excludes
-dedicated locks and revision overlap, and does not prove capacity at maximum scale.
-
-## Next gate and board alignment
-
-1. Resolve the selected owner's changed placement; the qualified dev offer is
-   published, and installation still requires exact owner approval. Repeat the failed two-operation
-   stage before bounded four-operation work, soak and idle/wake observations.
-2. Finish the eligible connector, disposable billing-return and independent-internet
-   Puppy journeys when their concrete prerequisites are available. Do not mark
-   unperformed journeys passed or repeat unrelated deployments.
-3. Reconcile the affected private Wiki sections against this evidence and read
-   back every edit. The broader Wiki corpus remains a separate audit scope.
-4. [#5507 Personal GCP Pod simulation](https://github.com/hushh-labs/hushh-research/issues/5507)
-   remains **In Progress**. [#6790 ADK migration](https://github.com/hushh-labs/hushh-research/issues/6790)
-   is closed for its source scope; historical Puppy Done cards do not close acceptance.
-
-The [Plaid contract](../kai/plaid-vault-passthrough.md) and
-[Mail/Drive acceptance record](../operations/mail-drive-uat-acceptance.md) retain
-separate rollout and exchange/cache gates.
+Operating procedures remain in the [Files contract](../operations/private-files-library.md),
+[dev pod runbook](../operations/dev-pod-first-light-runbook.md),
+[deployment standard](../architecture/deployment-standard.md),
+[Plaid contract](../kai/plaid-vault-passthrough.md) and
+[Mail/Drive acceptance record](../operations/mail-drive-uat-acceptance.md).
+Git history retains the earlier chronology; this memo carries the current decision.
 
 ## GCP-only pod deployment correction — 2026-09-25
 
-Historical anchor: Anypoint pod deployment was removed; the CRM connector is
-retained. The deployment standard owns current placement and disabled choices.
+Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.
+Current Google/Azure choices and their gates belong to the deployment standard.
 
 ## Files continuation evidence — 2026-09-25
 
-Historical anchor: source checks were not owner-cloud activation receipts.
-The Files contract and current matrix above own subsequent decisions.
+Historical pointer: source checks were not owner-cloud activation receipts.
+The Files contract and current matrix above own later acceptance.

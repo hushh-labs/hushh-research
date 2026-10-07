@@ -24,6 +24,7 @@ from hushh_mcp.services import owner_direct_ingress as odi
 from hushh_mcp.services import pod_external_ingress_admission as admission
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.gcp_backend import INGRESS_DIRECT, GcpBackend, pod_ingress_mode
+from hushh_mcp.services.pod_wall import POD_WALL_NOT_FOUND_BODY
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
 ORIGIN = "https://one.hushh.ai"
@@ -245,16 +246,28 @@ def _row(**overrides: Any) -> dict:
         "deployment_target": "user_gcp",
         "pod_key_id": "pod_key_1",
         "pod_pubkey": "cHVibGlj",
-        "backend_metadata": {"ingress": "external", "url": URL, "serviceUid": "svc-1"},
+        "backend_metadata": {
+            "ingress": "external",
+            "url": URL,
+            "service": "one-pod-x",
+            "serviceUid": "svc-1",
+        },
     }
     row.update(overrides)
     return row
 
 
+async def _iam_holds(_row, *, service, service_uid):
+    """The live IAM read-back, held (tests/test_pod_external_ingress_admission_strict.py)."""
+    return None
+
+
 def _pod(wall: int = 404, allow_origin: str | None = ORIGIN, preflight: int = 204):
     def handle(request: httpx.Request) -> httpx.Response:
         if request.method == "GET" and request.url.path == "/pod/info":
-            return httpx.Response(wall)
+            return httpx.Response(wall, content=POD_WALL_NOT_FOUND_BODY)
+        if request.method == "GET" and request.url.path == "/health":
+            return httpx.Response(200)
         if request.method == "OPTIONS":
             headers = {"access-control-allow-origin": allow_origin} if allow_origin else {}
             return httpx.Response(preflight, headers=headers)
@@ -279,7 +292,7 @@ def promoted(monkeypatch):
 
 async def test_a_verified_google_agent_is_promoted_to_direct(promoted):
     assert await admission.admit_external_ingress_if_due(
-        _row(), client=_pod(), db=object(), origin=ORIGIN
+        _row(), client=_pod(), db=object(), origin=ORIGIN, cloud_check=_iam_holds
     )
     [fields] = promoted
     assert fields["url"] == URL and fields["service_uid"] == "svc-1"
@@ -297,7 +310,7 @@ async def test_a_verified_google_agent_is_promoted_to_direct(promoted):
 )
 async def test_a_google_agent_that_fails_a_check_stays_not_ready(promoted, pod, why):
     assert not await admission.admit_external_ingress_if_due(
-        _row(), client=_pod(**pod), db=object(), origin=ORIGIN
+        _row(), client=_pod(**pod), db=object(), origin=ORIGIN, cloud_check=_iam_holds
     ), why
     assert promoted == []
 

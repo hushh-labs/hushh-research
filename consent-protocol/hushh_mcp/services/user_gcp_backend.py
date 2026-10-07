@@ -45,6 +45,7 @@ from hushh_mcp.services.owner_direct_ingress import (
     rendered_cloud_run_ingress,
     update_ingress_record,
 )
+from hushh_mcp.services.pod_gmail_push_config import gmail_notification_resources
 
 logger = logging.getLogger(__name__)
 
@@ -545,9 +546,8 @@ class UserGcpBackend:
         kms_key = f"one-pod-{slug}-key"
         bucket = f"one-pod-{slug}-blobs"
         invoker = self._hushh_invoker_sa or "<hushh-consent-plane-sa>"
-        # Per-user mail-event trigger, entirely inside the user's project (BYOC): Gmail
-        # push -> the user's OWN Pub/Sub topic; the always-on pod pulls its own wake
-        # events. A metadata-only doorbell -- the pod opens the mail, never Hushh.
+        # Gmail requires the topic in its OAuth developer project. Owner resources
+        # and operator resources retain separate credentials and erasure authority.
         # Created by `UserGcpBootstrap` step `pod_signing_secret` and, until now,
         # declared by the plan nowhere. A resource the plan does not name cannot appear
         # in `resource_ids(plan)`, so the teardown receipt could never account for it.
@@ -558,8 +558,13 @@ class UserGcpBackend:
         # person reads named an identity that would never exist.
         bootstrap_sa = self._bootstrap_sa or f"one-bootstrap@{project}.iam.gserviceaccount.com"
         mail_topic = f"one-mail-{slug}"
-        mail_sub = f"one-mail-{slug}-sub"
+        legacy_mail_sub = f"one-mail-{slug}-sub"
+        mail_sub = f"one-mail-{slug}-direct-sub"
         watch_job = f"one-mail-{slug}-watch-renew"
+        oauth_project = _env("GOOGLE_CONNECTOR_OAUTH_PROJECT") or ""
+        oauth_topic = f"projects/{oauth_project}/topics/{mail_topic}" if oauth_project else ""
+        mail_dead_letter = f"{mail_topic}-dead-letter"
+        mail_dead_letter_sub = f"{mail_topic}-dead-letter-sub"
         plan = {
             "tenancy": "user-owned",
             "target": {"project": project, "region": self._user_region},
@@ -609,23 +614,41 @@ class UserGcpBackend:
                 {
                     "type": "pubsub_topic",
                     "id": mail_topic,
-                    "purpose": "Gmail push target — mailbox-change events (metadata only, no body)",
+                    "purpose": "retained legacy owner topic; never used for a new Gmail watch",
+                    "legacyOnly": True,
+                },
+                {
+                    "type": "pubsub_topic",
+                    "id": mail_dead_letter,
+                    "purpose": "bounded failed notification delivery retention for owner recovery",
+                },
+                {
+                    "type": "pubsub_subscription",
+                    "id": legacy_mail_sub,
+                    "on": f"projects/{project}/topics/{mail_topic}",
+                    "legacyOnly": True,
+                    "purpose": "retained legacy subscription; topic is immutable and never retargeted",
                 },
                 {
                     "type": "pubsub_subscription",
                     "id": mail_sub,
-                    "on": mail_topic,
-                    "delivery": (
-                        "pull, consumed by the always-on pod "
-                        "(push-to-/wake is the alternative when fronted by the gateway)"
-                    ),
+                    "on": oauth_topic or "<OAuth developer project topic required>",
+                    "delivery": "push to your agent's own URL, signed as your agent's own account",
                     "purpose": "wakes the pod on new mail; the pod then fetches changes with the user's own token",
+                },
+                {
+                    "type": "pubsub_subscription",
+                    "id": mail_dead_letter_sub,
+                    "on": f"projects/{project}/topics/{mail_dead_letter}",
+                    "delivery": "owner-operated retained dead-letter subscription",
+                    "purpose": "retain failed identifiers for explicit owner/operator recovery",
                 },
                 {
                     "type": "cloud_scheduler_job",
                     "id": watch_job,
                     "schedule": "daily",
-                    "purpose": "re-arm Gmail users.watch() before its 7-day expiry (fail-safe: history catch-up on lapse)",
+                    "purpose": "authenticated HTTP maintenance tick renews the Gmail watch daily",
+                    "applied_at": "provision",
                 },
             ],
             # THE CONSENT ARTIFACT. This list is what a person is shown before they
@@ -704,16 +727,35 @@ class UserGcpBackend:
                     "note": "lets your pod's own runtime pull its image from your own repo",
                 },
                 {
-                    "member": "gmail-api-push@system.gserviceaccount.com",
-                    "role": "roles/pubsub.publisher",
-                    "on": mail_topic,
-                    "note": "lets Gmail publish mailbox-change events into the user's OWN topic",
+                    "member": pod_sa,
+                    "role": "roles/run.invoker",
+                    "on": name,
+                    "applied_at": "provision",
+                    "note": "exact direct Gmail push and authenticated maintenance identity",
                 },
                 {
-                    "member": pod_sa,
+                    "member": "the project's Pub/Sub service agent",
+                    "role": "roles/iam.serviceAccountOpenIdTokenCreator",
+                    "on": pod_sa,
+                    "note": "mint only OIDC for this pod's authenticated notification delivery",
+                },
+                {
+                    "member": "the project's Cloud Scheduler service agent",
+                    "role": "roles/iam.serviceAccountOpenIdTokenCreator",
+                    "on": pod_sa,
+                    "note": "mint only OIDC for this pod's authenticated maintenance tick",
+                },
+                {
+                    "member": "the project's Pub/Sub service agent",
+                    "role": "roles/pubsub.publisher",
+                    "on": mail_dead_letter,
+                    "note": "forward failed deliveries to the owner dead-letter topic",
+                },
+                {
+                    "member": "the project's Pub/Sub service agent",
                     "role": "roles/pubsub.subscriber",
                     "on": mail_sub,
-                    "note": "the always-on pod pulls its own wake events; no event leaves the user's project",
+                    "note": "consume source delivery for bounded dead-letter forwarding",
                 },
             ],
             "federation": {
@@ -737,18 +779,19 @@ class UserGcpBackend:
             },
             "mail_trigger": {
                 "model": "provider-native push — the doorbell, not the mail-opener",
-                "source": "Gmail users.watch() -> the user's own Pub/Sub topic (Graph webhook is the Outlook parity)",
+                "source": "Gmail users.watch() -> owner-specific topic in the OAuth developer project -> owner's own push subscription -> exact pod URL",
                 "carries": "metadata only — emailAddress + historyId; never the message body",
                 "wake": (
                     "the event wakes the always-on pod; the pod fetches the changed messages "
                     "with the user's OWN token and decrypts in-process"
                 ),
                 "zero_knowledge": (
-                    "Hushh is fully out of this path — topic, subscription, token, pod, and mailbox "
-                    "all live in the user's project; Hushh sees neither content nor the 'new mail at T' metadata"
+                    "Mailbox content and OAuth tokens stay in the owner pod. The OAuth developer "
+                    "project holds the identifier-only notification topic; its operator can observe "
+                    "notification metadata. The owner subscription delivers directly to the pod."
                 ),
                 "renewal": (
-                    "Cloud Scheduler re-arms the 7-day watch daily; delivery is at-least-once, so the "
+                    "Owner Cloud Scheduler invokes the authenticated pod maintenance tick daily; delivery is at-least-once, so the "
                     "pod dedupes on historyId and reconciles from the last processed point"
                 ),
                 "alias": (
@@ -759,6 +802,32 @@ class UserGcpBackend:
                     "MCP tools are the agent's hands (read/draft/send after wake), not the trigger — "
                     "MCP has no watch/subscribe primitive"
                 ),
+            },
+            "gmailNotifications": {
+                "hushhId": spec.hushh_id,
+                "oauthProject": oauth_project,
+                "topic": oauth_topic,
+                "operatorOwned": True,
+                "ownerSubscription": f"projects/{project}/subscriptions/{mail_sub}",
+                "deadLetterTopic": f"projects/{project}/topics/{mail_dead_letter}",
+                "deadLetterSubscription": f"projects/{project}/subscriptions/{mail_dead_letter_sub}",
+                "pushServiceAccount": pod_sa,
+                "watchJob": f"projects/{project}/locations/{spec.region or self._user_region}/jobs/{watch_job}",
+                "configureAt": "verified_service_url",
+                "operatorIam": [
+                    {
+                        "member": "gmail-api-push@system.gserviceaccount.com",
+                        "role": "roles/pubsub.publisher",
+                        "on": oauth_topic,
+                    },
+                    {
+                        "member": bootstrap_sa,
+                        "role": "roles/pubsub.subscriber",
+                        "on": oauth_topic,
+                        "note": "attach the owner project's subscription to this owner-specific OAuth-project topic",
+                    },
+                ],
+                "prerequisite": "configured OAuth developer project and exact consent-plane attached ADC identity",
             },
             "authorization": (
                 "user runs the one-time bootstrap (Terraform/gcloud), or their device "
@@ -846,6 +915,203 @@ class UserGcpBackend:
         return GcpRunClient(
             project=project, region=self._user_region, credentials=_StaticToken(token)
         )
+
+    def _gmail_notification_inventory(self, spec: PodSpec, url: str) -> dict[str, Any]:
+        """Delivery authority derived only from this owner's observed service origin."""
+        return gmail_notification_resources(
+            owner_project=str(self._user_project or ""),
+            hushh_id=spec.hushh_id,
+            oauth_project=_env("GOOGLE_CONNECTOR_OAUTH_PROJECT") or "",
+            service_url=url,
+            push_service_account=self._pod_service_account(spec),
+        )
+
+    def _apply_gmail_runtime_env(
+        self, config: dict[str, Any], spec: PodSpec, url: str
+    ) -> dict[str, Any]:
+        inventory = self._gmail_notification_inventory(spec, url)
+        runtime = {
+            **inventory["runtimeEnv"],
+            "HUSSH_POD_TICK_AUDIENCE": inventory["runtimeEnv"]["POD_GMAIL_PUSH_AUDIENCE"],
+            "HUSSH_POD_TICK_ALLOWED_EMAILS": self._pod_service_account(spec),
+        }
+        container = config["spec"]["template"]["spec"]["containers"][0]
+        container["env"] = [
+            item for item in container.get("env", []) if item.get("name") not in runtime
+        ] + [{"name": name, "value": value} for name, value in runtime.items()]
+        inventory["runtimeEnv"] = runtime
+        return inventory
+
+    def _gmail_notification_blocker(self, spec: PodSpec) -> str | None:
+        if not _env("GOOGLE_CONNECTOR_OAUTH_PROJECT"):
+            return "oauth_developer_project_unconfigured"
+        if not callable(getattr(spec, "on_notification_checkpoint", None)):
+            return "owner_operation_checkpoint_unavailable"
+        return None
+
+    async def _configure_gmail_delivery(
+        self,
+        client: Any,
+        spec: PodSpec,
+        *,
+        service: dict[str, Any],
+        expected_uid: str,
+        allow_runtime_replace: bool = True,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Require owner substrate, pin runtime terms, then reconcile direct delivery."""
+        import asyncio
+        from copy import deepcopy
+
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+        from hushh_mcp.services.user_gcp_bootstrap import UserGcpBootstrap
+
+        blocker = self._gmail_notification_blocker(spec)
+        if blocker:
+            return service, {"status": "unavailable", "reason": blocker}
+        checkpoint = getattr(spec, "on_notification_checkpoint", None)
+        GcpRunClient.require_service_uid(service, expected_uid)
+        url = GcpRunClient.service_url(service)
+        if not url:
+            raise RuntimeError("Gmail notifications require the verified pod HTTPS URL")
+        inventory = self._gmail_notification_inventory(spec, url)
+        owner_header = await asyncio.to_thread(client._headers)
+        authorization = str(owner_header.get("Authorization") or "")
+        if not authorization.startswith("Bearer ") or not self._bootstrap_sa:
+            return service, {
+                "status": "unavailable",
+                "reason": "owner_bootstrap_authority_unavailable",
+            }
+        bootstrap = UserGcpBootstrap(
+            project=str(self._user_project),
+            region=spec.region or self._user_region,
+            bootstrap_sa=self._bootstrap_sa,
+            token=authorization.removeprefix("Bearer "),
+        )
+        try:
+            await asyncio.to_thread(
+                bootstrap.configure_notification_delivery,
+                self.render_bootstrap_plan(spec),
+                service_url=url,
+                verify_only=True,
+            )
+        except Exception:
+            # No notification mutation has started. Keep core serving when the
+            # separately owned notification resources or authority are unavailable.
+            return service, {"status": "unavailable", "reason": "notification_substrate_unverified"}
+        names = inventory["runtimeEnv"]
+        installed = {
+            item.get("name"): item.get("value")
+            for item in service.get("spec", {})
+            .get("template", {})
+            .get("spec", {})
+            .get("containers", [{}])[0]
+            .get("env", [])
+        }
+        required = {
+            **names,
+            "HUSSH_POD_TICK_AUDIENCE": url.rstrip("/"),
+            "HUSSH_POD_TICK_ALLOWED_EMAILS": self._pod_service_account(spec),
+        }
+        if any(installed.get(name) != value for name, value in required.items()):
+            if not allow_runtime_replace:
+                raise RuntimeError(
+                    "Gmail notification terms were not installed by the acknowledged upgrade"
+                )
+            current = await asyncio.to_thread(client.get_service, _service_name(spec.hushh_id))
+            GcpRunClient.require_service_uid(current, expected_uid)
+            desired = deepcopy(current)
+            self._apply_gmail_runtime_env(desired, spec, url)
+            await asyncio.to_thread(checkpoint, "intent", "gmail_runtime_configuration", [])
+            await asyncio.to_thread(
+                client.replace_service,
+                _service_name(spec.hushh_id),
+                GcpRunClient.merge_for_replace(current, desired),
+                expected_uid=expected_uid,
+            )
+            ready, service = await asyncio.to_thread(
+                client.wait_ready, _service_name(spec.hushh_id), expected_uid=expected_uid
+            )
+            if not ready:
+                raise RuntimeError("Gmail notification runtime configuration did not become ready")
+            GcpRunClient.require_service_uid(service, expected_uid)
+            actual = {
+                item.get("name"): item.get("value")
+                for item in service["spec"]["template"]["spec"]["containers"][0].get("env", [])
+            }
+            if any(actual.get(name) != value for name, value in required.items()):
+                raise RuntimeError("Gmail notification runtime configuration readback differs")
+            await asyncio.to_thread(
+                checkpoint,
+                "observed",
+                "gmail_runtime_configuration",
+                [
+                    {
+                        "step": "gmail_runtime_configuration",
+                        "status": 200,
+                        "ok": True,
+                        "configurationObservation": {
+                            "service": _service_name(spec.hushh_id),
+                            "serviceUid": expected_uid,
+                            "runtimeEnv": required,
+                        },
+                    }
+                ],
+            )
+        await asyncio.to_thread(checkpoint, "intent", "gmail_direct_invoker", [])
+        policy = await asyncio.to_thread(
+            client.set_invoker_binding,
+            _service_name(spec.hushh_id),
+            f"serviceAccount:{self._pod_service_account(spec)}",
+            expected_uid=expected_uid,
+        )
+        service = await asyncio.to_thread(client.get_service, _service_name(spec.hushh_id))
+        GcpRunClient.require_service_uid(service, expected_uid)
+        observed_uid = GcpRunClient.service_uid(service)
+        member = f"serviceAccount:{self._pod_service_account(spec)}"
+        if not isinstance(policy, dict) or not any(
+            binding.get("role") == "roles/run.invoker"
+            and binding.get("condition") is None
+            and member in binding.get("members", [])
+            for binding in policy.get("bindings", [])
+            if isinstance(binding, dict)
+        ):
+            raise RuntimeError("Gmail direct invoker IAM readback is unavailable")
+        await asyncio.to_thread(
+            checkpoint,
+            "observed",
+            "gmail_direct_invoker",
+            [
+                {
+                    "step": "gmail_direct_invoker",
+                    "status": 200,
+                    "ok": True,
+                    "configurationObservation": {
+                        "service": _service_name(spec.hushh_id),
+                        "serviceUid": observed_uid,
+                        "role": "roles/run.invoker",
+                        "member": member,
+                    },
+                }
+            ],
+        )
+        configured = await asyncio.to_thread(
+            bootstrap.configure_notification_delivery,
+            self.render_bootstrap_plan(spec),
+            service_url=url,
+            checkpoint=getattr(spec, "on_notification_checkpoint", None),
+        )
+        metadata = {
+            "status": "ready",
+            "configGeneration": configured["runtimeEnv"]["POD_GMAIL_CONFIG_GENERATION"],
+            "topic": configured["topic"],
+            "operatorOwnedTopic": True,
+            "subscription": configured["subscription"],
+            "deadLetterTopic": configured["deadLetterTopic"],
+            "watchJob": configured["watchJob"],
+            "watchJobDisposition": configured["watchJobDisposition"],
+            "watchJobIdentity": configured["watchJobIdentity"],
+        }
+        return service, metadata
 
     _ACTAS_BACKOFF_SECONDS: tuple[float, ...] = (5.0, 10.0, 20.0, 30.0)
 
@@ -966,10 +1232,14 @@ class UserGcpBackend:
                 name,
                 f"serviceAccount:{files_env['POD_FILES_WORKER_SERVICE_ACCOUNT']}",
             )
-        # Public by construction on the direct axis, the in-pod wall as the lock;
-        # recorded `external` until heartbeat admission verifies it (owner_direct_ingress).
+        # Public on the direct axis, in-pod wall as lock; `external` until admission verifies.
         ingress_record = await bind_owner_direct_ingress(client, name, spec)
         url = client.service_url(svc)
+        gmail_metadata: dict[str, Any] = {"status": "awaiting_pod_readiness"}
+        if ready:
+            svc, gmail_metadata = await self._configure_gmail_delivery(
+                client, spec, service=svc, expected_uid=service_uid
+            )
         return BackendHandle(
             external_agent_id=name,
             a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
@@ -981,6 +1251,7 @@ class UserGcpBackend:
                 "region": spec.region or self._user_region,
                 "service": name,
                 "url": url or "",
+                "gmailNotifications": gmail_metadata,
                 **ingress_record,
                 # The pod runs the user's OWN digest-pinned copy; record THAT, not hushh's
                 # source, so the registry row does not misreport the running image. The
@@ -1588,8 +1859,7 @@ class UserGcpBackend:
             existing.get("spec", {}).get("template", {}).get("spec", {}).get("serviceAccountName")
         )
         if observed_runtime != self._pod_service_account(spec):
-            # Do not copy an image, drain work or restore a derived identity on
-            # a service whose runtime authority has changed independently.
+            # Never copy an image, drain work or restore identity on a changed runtime authority.
             raise ValueError("pod runtime identity changed; reconcile before updating")
         previous_digest = _digest_from_service(existing)
         handoff = None
@@ -1637,6 +1907,24 @@ class UserGcpBackend:
                 raise RuntimeError("approved upgrade image is not an immutable digest")
             image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, recorded_digest)
             config = self.render_deploy_config(spec, image_digest=image_digest)
+            existing_url = GcpRunClient.service_url(existing)
+            notification_inventory = None
+            if self._gmail_notification_blocker(spec) is None:
+                if not existing_url:
+                    raise RuntimeError("Gmail notifications require the existing verified pod URL")
+                notification_inventory = self._apply_gmail_runtime_env(config, spec, existing_url)
+            before_env = {
+                item.get("name"): item.get("value")
+                for item in existing.get("spec", {})
+                .get("template", {})
+                .get("spec", {})
+                .get("containers", [{}])[0]
+                .get("env", [])
+            }
+            notification_changed = notification_inventory is not None and any(
+                before_env.get(key) != value
+                for key, value in notification_inventory["runtimeEnv"].items()
+            )
             from hushh_mcp.services.pod_upgrade_configuration import (
                 preserve_image_upgrade_configuration,
             )
@@ -1662,9 +1950,20 @@ class UserGcpBackend:
                 latest = await asyncio.to_thread(client.get_service, name)
                 files_capability.require_observation(latest)
                 files_capability.apply_configuration(existing=existing, desired=config)
-            changed = image_digest != previous_digest or files_capability is not None
+            changed = (
+                image_digest != previous_digest
+                or files_capability is not None
+                or notification_changed
+            )
             svc: Optional[dict[str, Any]] = existing
             if changed:
+                if notification_changed:
+                    await asyncio.to_thread(
+                        spec.on_notification_checkpoint,
+                        "intent",
+                        "gmail_runtime_configuration",
+                        [],
+                    )
                 replacement_submitted = True
                 acknowledged = await asyncio.to_thread(
                     client.replace_service,
@@ -1708,6 +2007,33 @@ class UserGcpBackend:
                         f"upgrade of {name} to {image_digest[:19]} was not confirmed Ready "
                         "in time; nothing recorded, the next sweep re-checks"
                     )
+                if notification_changed:
+                    observed_env = {
+                        item.get("name"): item.get("value")
+                        for item in svc["spec"]["template"]["spec"]["containers"][0].get("env", [])
+                    }
+                    if any(
+                        observed_env.get(key) != value
+                        for key, value in notification_inventory["runtimeEnv"].items()
+                    ):
+                        raise RuntimeError("Gmail acknowledged upgrade runtime terms differ")
+                    await asyncio.to_thread(
+                        spec.on_notification_checkpoint,
+                        "observed",
+                        "gmail_runtime_configuration",
+                        [
+                            {
+                                "step": "gmail_runtime_configuration",
+                                "status": 200,
+                                "ok": True,
+                                "configurationObservation": {
+                                    "service": name,
+                                    "serviceUid": expected_uid,
+                                    "runtimeEnv": notification_inventory["runtimeEnv"],
+                                },
+                            }
+                        ],
+                    )
             elif handoff is not None and handoff_incarnation:
                 # A no-op never submits a replacement, so the old incarnation must
                 # resume accepting work before returning to the caller.
@@ -1732,6 +2058,9 @@ class UserGcpBackend:
                     logger.info("user_gcp_backend.handoff_release_failed", exc_info=True)
             raise
         url = client.service_url(svc)
+        svc, gmail_metadata = await self._configure_gmail_delivery(
+            client, spec, service=svc, expected_uid=expected_uid, allow_runtime_replace=False
+        )
         if files_capability is not None:
             files_capability.require_installed(svc)
         logger.info(
@@ -1752,6 +2081,7 @@ class UserGcpBackend:
                 "region": spec.region or self._user_region,
                 "service": name,
                 "url": url or "",
+                "gmailNotifications": gmail_metadata,
                 **update_ingress_record(spec),
                 "image": self._user_pod_image_ref(spec, image_digest),
                 "source_image": spec.upgrade_target_image or self._image,

@@ -23,6 +23,9 @@ from hushh_mcp.runtime_providers.factory import (
     build_runtime_client,
 )
 from hushh_mcp.services.ai_connection_gate import on_ai_connection_verified
+from hushh_mcp.services.owner_hosting_choice import (
+    write_cloud_setup_marker as _write_cloud_setup_marker,
+)
 from hushh_mcp.services.personal_agent_registry_repo import (
     PersonalAgentRegistryRepo,
     registry_host_snapshot,
@@ -660,34 +663,6 @@ async def _reserve_pending_agent_record(user_id: str) -> bool:
         return False
 
 
-async def _write_cloud_setup_marker(user_id: str) -> None:
-    """Record that this person finished the "where does my agent live" step.
-
-    Server-written, never client-asserted: a marker that can exist without a real,
-    recorded decision is a gate that does nothing.
-
-    Shared by BOTH doors deliberately. The setup hub gates on one ``cloud``
-    capability marker, so the hosted choice has to satisfy it through the identical
-    mechanism -- otherwise "host it with hussh" would leave onboarding stuck on a
-    step the person already completed, and the fix would be a second gating rule in
-    the frontend that could drift from this one.
-    """
-    try:
-        from hushh_mcp.onboarding_contract import normalize_setup_capability_ids
-        from hushh_mcp.services.vault_keys_service import VaultKeysService
-
-        service = VaultKeysService()
-        state = await service.get_pre_vault_state(user_id)
-        current = list(state.get("setupCapabilityIds") or [])
-        if "cloud" not in current:
-            await service.update_pre_vault_state(
-                user_id=user_id,
-                setup_capability_ids=normalize_setup_capability_ids([*current, "cloud"]),
-            )
-    except Exception:  # noqa: BLE001 - the choice is recorded; the marker can be retried
-        logger.warning("one_cloud_choice.marker_write_failed", exc_info=True)
-
-
 class SharedHostingSelectResponse(BaseModel):
     hostingMode: str
     nextStep: str
@@ -787,32 +762,10 @@ async def select_shared_hosting(
     request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> SharedHostingSelectResponse:
-    """Confirm the stateless Shared default when no pod is assigned or pending."""
-    from api.routes.one.personal_agent import resolve_personal_agent_status
+    """Record the explicit Shared choice (``runtime_placement.select_shared``)."""
+    from api.routes.one.runtime_placement import select_shared
 
-    status = await resolve_personal_agent_status(user_id=firebase_uid)
-    mode = str(status.get("hostingMode") or "unknown")
-    if mode != "shared":
-        if mode == "unknown":
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": "HOSTING_STATUS_UNAVAILABLE",
-                    "message": "We could not confirm your current pod setup. Try again.",
-                },
-            )
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "POD_ASSIGNMENT_PRESERVED",
-                "message": (
-                    "Your existing or in-progress pod setup is unchanged. Finish or move it "
-                    "through its dedicated setup flow before choosing Shared."
-                ),
-            },
-        )
-
-    await _write_cloud_setup_marker(firebase_uid)
+    await select_shared(firebase_uid)
     return SharedHostingSelectResponse(
         hostingMode="shared",
         nextStep="Choose how your agent reaches a model next.",
@@ -1049,6 +1002,7 @@ class ByocSetupStatusResponse(BaseModel):
     errorMessage: str | None = None
     stale: bool = False
     updatedAt: str | None = None
+    attachBlocked: str | None = None  # typed reason the automatic attach stopped
 
 
 async def _require_unassigned_byoc(user_id: str) -> None:
@@ -1090,6 +1044,7 @@ async def begin_byoc_authorize(
     The state is signed, expiring and bound to THIS caller; the grant requested
     is online-only (no refresh token exists to store)."""
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
+    from hushh_mcp.services.byoc_setup_intent import record_intent
     from hushh_mcp.services.user_gcp_project import validate_project_id
 
     verdict = validate_project_id(body.projectId)
@@ -1103,17 +1058,18 @@ async def begin_byoc_authorize(
             from hushh_mcp.services.pod_files.selection import require_setup_admission
 
             await require_setup_admission(firebase_uid)
-        return ByocAuthorizeBeginResponse(
-            authUrl=oauth.begin(
-                firebase_uid,
-                verdict.project_id,
-                **({"files_enabled": True} if body.filesEnabled else {}),
-            )
+        url = oauth.begin(
+            firebase_uid,
+            verdict.project_id,
+            **({"files_enabled": True} if body.filesEnabled else {}),
         )
     except oauth.ByocAuthorizeError as exc:
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
         ) from exc
+    # Pending from here, never Shared, while the person is on Google's consent screen.
+    await record_intent(firebase_uid, provider="gcp", project=verdict.project_id)
+    return ByocAuthorizeBeginResponse(authUrl=url)
 
 
 #: Strong references to in-flight setup jobs: asyncio keeps only weak refs to
@@ -1169,16 +1125,15 @@ async def complete_byoc_authorize(
 ) -> ByocSetupAcceptedResponse:
     """Everything after the Google consent screen, as an OBSERVABLE JOB.
 
-    The single-use OAuth code is burned synchronously (it cannot wait), then the
-    in-memory token is handed to a background task that runs the chain and
-    writes one durable stage record per transition. The response is a claim
-    ticket, not a verdict: the status route serves the truth from here on, so
-    the person can watch, leave, keep onboarding, and come back. The six-stage
-    chain squeezed through one HTTP request lost to three stacked timeouts
-    (measured live 2026-08-21); no timeout tuning fixes that shape.
+    The single-use OAuth code is burned synchronously, then the in-memory token goes
+    to a background task that runs the chain, one durable stage record per step, and
+    attaches the recorded home (``finish_recorded_setup``). The response is a claim
+    ticket: the status route serves the truth, so the person can leave and come back.
+    One HTTP request lost to three stacked timeouts (measured live 2026-08-21).
     """
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
     from hushh_mcp.services import byoc_setup_job_service as jobs
+    from hushh_mcp.services.owner_cloud_attach import finish_recorded_setup
     from hushh_mcp.services.user_gcp_project import suggest_project_id
 
     try:
@@ -1237,6 +1192,7 @@ async def complete_byoc_authorize(
             files_enabled=files_enabled,
             wait_for_grant=_wait_for_bootstrap_grant,
             save=_save,
+            on_recorded=lambda: finish_recorded_setup(firebase_uid, job_id=job_id),
         )
     )
     _BYOC_SETUP_TASKS.add(task)
@@ -1255,24 +1211,32 @@ async def byoc_setup_status(
 
     `stale`: a `running` record stopped advancing (the instance restarted mid-job); the chain is
     idempotent, so the UI offers a fresh attempt. A job for a detached placement reads `none`.
+    `attachBlocked` names why the automatic attach after a recorded setup stopped.
     """
+    from api.routes.one.runtime_placement import setup_status_fields
     from hushh_mcp.services import byoc_setup_job_service as jobs
     from hushh_mcp.services.personal_agent_hosting import setup_job_is_detached_history
 
     row = await jobs.ByocSetupJobRepo().get(firebase_uid)
     if not row or await setup_job_is_detached_history(firebase_uid, row):
         return ByocSetupStatusResponse(status="none", stage="", stages=[], projectId="")
-    return ByocSetupStatusResponse(
-        status=str(row.get("status") or ""),
-        stage=str(row.get("stage") or ""),
-        stages=list(row.get("stages") or []),
-        projectId=str(row.get("project_id") or ""),
-        jobId=str(row.get("job_id") or ""),
-        errorCode=row.get("error_code"),
-        errorMessage=row.get("error_message"),
-        stale=jobs.is_stale(row),
-        updatedAt=str(row.get("updated_at") or "") or None,
-    )
+    return ByocSetupStatusResponse(**setup_status_fields(row))
+
+
+class ByocAttachRetryResponse(BaseModel):
+    started: bool
+
+
+@router.post("/byoc/attach/retry", response_model=ByocAttachRetryResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def retry_byoc_attach(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> ByocAttachRetryResponse:
+    """Run the attach of this person's recorded setup again (``retry_recorded_attach``)."""
+    from hushh_mcp.services.owner_cloud_attach import retry_recorded_attach
+
+    return ByocAttachRetryResponse(started=await retry_recorded_attach(firebase_uid))
 
 
 class ByocAuthorizationInstructionsResponse(BaseModel):

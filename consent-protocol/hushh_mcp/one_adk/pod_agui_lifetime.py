@@ -57,12 +57,27 @@ class PodTimedADKAgent(TimedADKAgent):
     @asynccontextmanager
     async def _mcp_turn_resources(self, conversation_id: str, *, owner_id, configurations):
         from hushh_mcp.one_adk.mcp_turn_scope import McpTurnResources, bind_mcp_turn
+        from hushh_mcp.one_adk.pod_custody_mcp import (
+            custody_configuration_admissions,
+            custody_configurations,
+            merge_turn_configurations,
+        )
+        from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
 
+        await self._pod_require_access()
+        custody = await custody_configurations() if owner_cloud_agent() else []
+        await self._pod_require_access()
+        admitted = (
+            merge_turn_configurations(configurations or [], custody)
+            if owner_cloud_agent()
+            else configurations or []
+        )
         self._pod_mcp_scope = McpTurnResources(
             conversation_id,
             owner_id=owner_id,
-            configurations=configurations or [],
+            configurations=admitted,
             owner_admission=self._pod_mcp_owner_admission,
+            configuration_admissions=custody_configuration_admissions(custody),
             vault_only=True,
         )
         with bind_mcp_turn(self._pod_mcp_scope):

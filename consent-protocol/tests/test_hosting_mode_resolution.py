@@ -10,8 +10,10 @@ from hushh_mcp.services.personal_agent_hosting import resolve_hosting_mode
 @pytest.mark.parametrize(
     ("row", "job", "registry_ok", "job_ok", "expected"),
     [
-        (None, None, True, True, "shared"),
-        ({"status": "unprovisioned"}, None, True, True, "shared"),
+        # No placement and no recorded choice: the chooser, never the hub runtime.
+        (None, None, True, True, "unplaced"),
+        ({"status": "unprovisioned"}, None, True, True, "unplaced"),
+        (None, {"status": "pending", "stage": "consent_pending"}, True, True, "pending"),
         ({"deployment_target": "user_gcp"}, None, True, True, "byoc"),
         ({"deployment_target": "gcp"}, None, True, True, "hussh_pods"),
         ({"deployment_target": "user_gcp", "status": "connecting"}, None, True, True, "pending"),
@@ -33,7 +35,7 @@ from hushh_mcp.services.personal_agent_hosting import resolve_hosting_mode
         ({"deployment_target": "future_target"}, None, True, True, "unknown"),
     ],
 )
-def test_hosting_mode_requires_confirmed_absence_before_shared(
+def test_hosting_mode_requires_confirmed_absence_and_never_defaults_to_shared(
     row, job, registry_ok, job_ok, expected
 ):
     assert (
@@ -47,7 +49,7 @@ def test_hosting_mode_requires_confirmed_absence_before_shared(
     )
 
 
-async def test_personal_agent_status_reports_shared_only_after_empty_registry_and_job(monkeypatch):
+async def test_personal_agent_status_reports_unplaced_after_empty_registry_and_job(monkeypatch):
     class _Registry:
         async def get(self, _user_id: str):
             return None
@@ -56,15 +58,20 @@ async def test_personal_agent_status_reports_shared_only_after_empty_registry_an
         async def get(self, _user_id: str):
             return None
 
+    class _NoChoice:
+        async def get(self, _user_id: str):
+            return None
+
     monkeypatch.setattr(personal_agent, "personal_agent_enabled", lambda: True)
     monkeypatch.setattr(
         "hushh_mcp.services.byoc_setup_job_service.ByocSetupJobRepo", _Jobs, raising=False
     )
+    monkeypatch.setattr("hushh_mcp.services.owner_hosting_choice.HostingChoiceRepo", _NoChoice)
 
     result = await personal_agent.resolve_personal_agent_status(user_id="u1", registry=_Registry())
 
     assert result["state"] == "none"
-    assert result["hostingMode"] == "shared"
+    assert result["hostingMode"] == "unplaced"
 
 
 async def test_shared_selection_marks_onboarding_complete_without_assigning_a_pod(monkeypatch):
@@ -92,6 +99,11 @@ async def test_shared_selection_marks_onboarding_complete_without_assigning_a_po
 async def test_shared_selection_preserves_existing_or_pending_pod(mode, monkeypatch):
     async def _status(*, user_id: str):
         return {"hostingMode": mode}
+
+    async def _no_intent(_user_id: str):
+        return False  # a real setup job, not an untouched intent
+
+    monkeypatch.setattr("hushh_mcp.services.byoc_setup_intent.clear_intent", _no_intent)
 
     async def _must_not_mark(_user_id: str):
         raise AssertionError("a non-Shared setup must not be silently changed")
@@ -136,14 +148,17 @@ def _detached_row(project: str) -> dict:
 
 
 def test_an_attached_job_for_a_detached_placement_is_history():
-    """After a detach the old setup job must not trap the person in 'unknown'."""
+    """After a detach the old setup job must not trap the person in 'unknown'.
+
+    A detach does not make the person Shared: they choose again.
+    """
     mode = resolve_hosting_mode(
         row=_detached_row("owner-project"),
         registry_read_ok=True,
         setup_job={"stage": "attached", "project_id": "owner-project"},
         setup_job_read_ok=True,
     )
-    assert mode == "shared"
+    assert mode == "unplaced"
 
 
 @pytest.mark.parametrize(

@@ -109,6 +109,7 @@ import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
 import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
+import { ComputerUseOwnerBridge } from "@/components/computer-use/computer-use-owner-bridge";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
   AgentConnectionsDrawer,
@@ -359,6 +360,7 @@ import { canReviewDriveMemory, DriveReadMemoryAction } from "@/components/agent/
 import { clearGeneratedDriveSearchDraft } from "@/lib/agent/drive-search-draft";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
+import { useGoogleConnectorTransitionReview } from "@/components/connections/google-connector-transition-review";
 import { loadCustomConnectorSnapshot } from "@/lib/connections/custom-connector-configuration";
 import {
   appInteractionCoordinator,
@@ -2381,6 +2383,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     getVaultOwnerToken,
   } = useVault();
   const vaultSessionEpoch = snapshotVaultSessionEpoch();
+  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, vaultSessionEpoch);
   // Chat history is sealed with a key derived from this; read it at call time so
   // history requests never capture a stale (or locked) vault.
   const vaultKeyRef = useRef<string | null>(vaultKey);
@@ -3845,6 +3848,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           owner,
           purpose: "send",
           ...controls,
+          vaultOwnerCapability: vaultOwnerToken ?? undefined,
+          confirmLegacyTransition: confirmTransition,
           isCurrent: () => workspaceOwnerIdRef.current === ownerId,
         }),
       (outcome, { cancelled }) => {
@@ -3883,12 +3888,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               owner,
               accessLevel: payload.accessLevel === "manage" ? "manage" : "read",
               ...controls,
+              vaultOwnerCapability: vaultOwnerToken ?? undefined,
+              confirmLegacyTransition: confirmTransition,
               isCurrent,
             })
           : connectGmailInPlace({
               owner,
               purpose: "modify",
               ...controls,
+              vaultOwnerCapability: vaultOwnerToken ?? undefined,
+              confirmLegacyTransition: confirmTransition,
               isCurrent,
             }),
       (outcome, { cancelled, surface }) => {
@@ -8435,6 +8444,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
       data-one-chat-surface
     >
+      {transitionDialog}
       <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
         ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
         : null}>
@@ -9274,6 +9284,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 vaultOwnerToken={vaultOwnerToken ?? null}
                 enabled={hasChatAccess && !isPuppySurface}
               />
+
+              {hasChatAccess && user?.uid && !isPuppySurface ? (
+                <ComputerUseOwnerBridge key={`${user.uid}:${vaultSessionEpoch}`} ownerId={user.uid} />
+              ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
                 <McpCallReviewCard

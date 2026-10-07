@@ -1,9 +1,7 @@
 """Turn-owned dependencies for the existing in-process specialist fleet.
 
-Model execution and conversation persistence stay in the pod. Location reads
-currently use the existing scoped broker; this is transitional information
-access, not proof of the ledger's zero-hub-read assertion. Missing adapters fail
-closed instead of constructing shared-runtime services.
+Model execution and persistence stay in the pod. Owner-cloud reads use the signed owner
+feed (``pod_owner_read_ports``), others the scoped broker. Missing adapters fail closed.
 """
 
 from __future__ import annotations
@@ -487,23 +485,21 @@ def build_pod_specialist_runtime(
     session_owner_id: str | None = None,
 ) -> SpecialistRuntime:
     # Construction does no storage/provider I/O. Admission precedes resolution.
-    # ``verifier`` is the second consent seam: a turn admitted by the pod's own
-    # session authority threads its local verifier here, so a specialist re-checks
-    # the owner against the pod's tombstones rather than asking the hub. None keeps
-    # the hub-verified path exactly as it was.
+    # ``verifier``: a turn admitted by the pod's own session authority threads its
+    # local verifier here, so a specialist re-checks the owner against the pod's
+    # tombstones rather than asking the hub. None keeps the hub-verified path.
     log: Any = None
     client: Any = None
 
-    # The shared hub keeps authority-sensitive specialists unwired at import
-    # time. A pod has already crossed its owner-bound admission boundary here,
-    # so opt those handlers into the in-process registry for this runtime.
+    # The hub keeps authority-sensitive specialists unwired at import time. A pod has
+    # crossed its owner-bound admission here, so opt those handlers in for this runtime.
     from hushh_mcp.adk_bridge import register_pod_specialists
+    from hushh_mcp.services.pod_owner_read_ports import owner_read_ports
 
     register_pod_specialists()
 
-    # The pod's provider is exposed through the same ADK BaseLlm adapter used
-    # by the shared runtime.  This keeps the pod on the migrated Task/Runner
-    # path while retaining its owner-local credential and Puppy relay.
+    # The pod's provider rides the shared runtime's ADK BaseLlm adapter: the migrated
+    # Task/Runner path, keeping its owner-local credential and Puppy relay.
     from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
 
     adk_model = ProviderAdkModel(
@@ -535,8 +531,7 @@ def build_pod_specialist_runtime(
     invocation_expires_at = int(time.time() * 1000) + 180_000
 
     async def admit_owner(owner: str, credential: str) -> int:
-        # Invocation permission is local session authority, never a fabricated
-        # VAULT_OWNER token. Information access still needs its separate grant.
+        # Local session authority, never a fabricated VAULT_OWNER; information needs its grant.
         if (
             owner != user_id
             or credential != consent_token
@@ -545,6 +540,19 @@ def build_pod_specialist_runtime(
             raise PermissionError("Pod invocation authority unavailable")
         await require_access()
         return invocation_expires_at
+
+    async def require_local_metadata_read(owner: str, token: str) -> None:
+        from hushh_mcp.services.pod_session_authority import LOCAL_TOKEN_PREFIX
+
+        # Feed availability proves no invocation authority. Only ingress's local
+        # session verifier can admit the owner, including live tombstone checks.
+        if verifier is None or not consent_token.startswith(LOCAL_TOKEN_PREFIX):
+            raise PermissionError("Consent review requires the owner's local session")
+        await admit_owner(owner, token)
+
+    ports = owner_read_ports(
+        user_id, data_door_grants, owner_read_authority=require_local_metadata_read
+    )
 
     async def model_call(contents: Any, config: Any) -> Any:
         nonlocal client
@@ -594,17 +602,21 @@ def build_pod_specialist_runtime(
                 if task.user_id != user_id:
                     raise PermissionError("Nav owner mismatch")
                 await require_access()
+                from hushh_mcp.services.pod_owner_read_ports import OwnerFeedConsentCenterPort
+
+                if isinstance(ports.consent_center, OwnerFeedConsentCenterPort):
+                    await require_local_metadata_read(task.user_id, task.consent_token)
+                    return
+                nav_grant = data_door_grants.get("nav", "")
                 verdict = await require_owner_scope(
-                    data_door_grants.get("nav", ""),
-                    expected_scope="agent.nav.review",
-                    user_id=user_id,
+                    nav_grant, expected_scope="agent.nav.review", user_id=user_id
                 )
                 if verdict.hushh_id != hushh_id:
                     raise PermissionError("Nav pod owner mismatch")
 
             return NavAgent(
                 model=adk_model,
-                consent_service=PodConsentCenterReadPort(user_id, data_door_grants.get("nav", "")),
+                consent_service=ports.consent_center,
                 admit_owner=admit_owner,
                 require_read=nav_access,
                 scope_tokens={"agent.nav.review": data_door_grants.get("nav", "")},
@@ -628,13 +640,17 @@ def build_pod_specialist_runtime(
         if agent_id == "agent_email":
             from hushh_mcp.adk_bridge.email_agent import EmailAgentA2A
             from hushh_mcp.services.email_chat_service import EmailChatService
+            from hushh_mcp.services.pod_gmail_local import PodLocalEmailReadPort, email_read_port
+
+            email_grant = data_door_grants.get("email", "")
+            email_port = email_read_port(user_id, email_grant, consent_token, verifier)
 
             async def email_access() -> None:
                 await require_access()
+                if isinstance(email_port, PodLocalEmailReadPort):
+                    return email_port.require_owner_session()  # own login: owner session only
                 verdict = await require_owner_scope(
-                    data_door_grants.get("email", ""),
-                    expected_scope="cap.email.inbox.view",
-                    user_id=user_id,
+                    email_grant, expected_scope="cap.email.inbox.view", user_id=user_id
                 )
                 if verdict.hushh_id != hushh_id:
                     raise PermissionError("Email pod owner mismatch")
@@ -650,7 +666,6 @@ def build_pod_specialist_runtime(
                 await email_access()
                 return result
 
-            email_port = PodEmailReadPort(user_id, data_door_grants.get("email", ""))
             return EmailAgentA2A(
                 require_read=authorize_email,
                 admit_owner=admit_owner,
@@ -688,11 +703,7 @@ def build_pod_specialist_runtime(
                 model=adk_model,
                 ready=lambda: True,
                 genai_types=types,
-                service_ports={
-                    "marketplace_information": PodMarketplaceReadPort(
-                        user_id, data_door_grants.get("marketplace", "")
-                    ),
-                },
+                service_ports={"marketplace_information": ports.marketplace},
                 scope_tokens={"cap.pkm.marketplace.view": data_door_grants.get("marketplace", "")},
             )
 
@@ -711,7 +722,7 @@ def build_pod_specialist_runtime(
             model=adk_model,
             ready=lambda: True,
             genai_types=types,
-            location_service=PodLocationReadPort(user_id, data_door_grants.get("location", "")),
+            location_service=ports.location,
             scope_tokens={
                 "cap.location.live.view": data_door_grants.get("location", ""),
                 **{

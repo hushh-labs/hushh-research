@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from hushh_mcp.services.pod_browser.contracts import (
+    BrowserAction,
     BrowserBinding,
     BrowserFrame,
     BrowserNetworkPermit,
@@ -283,3 +284,145 @@ def browser_export_package():
     )
 
     return package, field
+
+
+def task_runtime_fixture(monkeypatch, *, ready=None, model=None, log=None):
+    """Synthetic adapters prove composition, never provider qualification."""
+    import json
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_browser.consent import private_commitment
+    from hushh_mcp.services.pod_browser.task_contracts import (
+        BrowserOwnerAccess,
+        BrowserReviewOffer,
+        BrowserTaskRequest,
+    )
+    from hushh_mcp.services.pod_browser.task_runtime import BrowserTaskRuntime
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+
+    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
+    auth, driver = Authority(approved=True), Executor()
+
+    class Log:
+        def __init__(self):
+            self.records = []
+
+        async def require_open(self):
+            return None
+
+        async def replay(self):
+            return list(self.records)
+
+        async def append(self, kind, payload):
+            # Simulate an immutable sealed-log record, never retaining DTO references.
+            record = {"kind": kind, "payload": json.loads(json.dumps(payload))}
+            self.records.append(record)
+            return record
+
+    class Reviews:
+        def __init__(self):
+            self.offers, self.grants = {}, set()
+
+        async def check_binding(self, bound):
+            await auth.check_binding(bound)
+
+        def identity(self, bound, purpose, terms):
+            return (bound.task_id, purpose, private_commitment(b"r" * 32, terms))
+
+        async def require(self, bound, purpose, terms):
+            await self.check_binding(bound)
+            if self.identity(bound, purpose, terms) not in self.grants:
+                raise BrowserRefused("BROWSER_OWNER_APPROVAL_REQUIRED")
+
+        async def offer_review(self, bound, purpose, terms):
+            identity = self.identity(bound, purpose, terms)
+            review_id = "review_" + identity[2]
+            self.offers[review_id] = (bound, identity)
+            return BrowserReviewOffer(review_id=review_id, purpose=purpose, terms=terms)
+
+        async def confirm_review(self, bound, review_id):
+            await self.check_binding(bound)
+            original, identity = self.offers[review_id]
+            if bound != original:
+                raise BrowserRefused("BROWSER_REVIEW_CHANGED")
+            self.grants.add(identity)
+
+    class Launcher:
+        readiness = ready or readiness()
+        calls = 0
+
+        async def launch(self, bound, **ports):
+            self.calls += 1
+            await ports["consent"].check_binding(bound)
+            return driver
+
+    class Model:
+        model_name = readiness().model_name
+        transport = readiness().model_transport
+
+        def __init__(self):
+            self.entered, self.release = asyncio.Event(), asyncio.Event()
+
+        async def run(self, *, control, processing, goal):
+            await processing.require()
+            await control.execute(
+                BrowserAction(
+                    operation="observe",
+                    sequence=control.next_sequence,
+                    control_epoch=control.control_epoch,
+                )
+            )
+            self.entered.set()
+            await self.release.wait()
+            return {"outcome": "completed", "summary": "Finished the requested task."}
+
+    async def check():
+        if auth.revoked:
+            raise BrowserRefused("BROWSER_OWNER_REFUSED")
+
+    log, reviews, launcher, model = log or Log(), Reviews(), Launcher(), model or Model()
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+    runtime = BrowserTaskRuntime(
+        owner_id="owner",
+        pod_id="pod",
+        incarnation="epoch",
+        launcher=launcher,
+        model=model,
+        reviews=reviews,
+        source=SimpleNamespace(),
+        authority_factory=lambda _bound, _consent: auth,
+        log=log,
+        admission=admission,
+        clock=lambda: 1000,
+    )
+    owner = BrowserOwnerAccess("owner", "pod", "epoch", 1900, check)
+    request = BrowserTaskRequest(
+        request_id="request_1",
+        goal="Open the selected page.",
+        allowed_origins=("https://example.com",),
+    )
+    return SimpleNamespace(
+        runtime=runtime,
+        auth=auth,
+        driver=driver,
+        log=log,
+        reviews=reviews,
+        launcher=launcher,
+        model=model,
+        owner=owner,
+        request=request,
+        admission=admission,
+    )
+
+
+async def approved_task(fixture):
+    snapshot = await fixture.runtime.start(fixture.owner, fixture.request)
+    await fixture.runtime._tasks[snapshot.binding.task_id].worker
+    snapshot = await fixture.runtime.read(fixture.owner, snapshot.binding.task_id)
+    assert snapshot.phase == "needs_owner"
+    assert fixture.launcher.calls == 0  # no screen before provider-processing receipt
+    snapshot = await fixture.runtime.confirm_review(
+        fixture.owner, snapshot.binding.task_id, snapshot.review.review_id
+    )
+    await asyncio.wait_for(fixture.model.entered.wait(), 2)
+    return await fixture.runtime.read(fixture.owner, snapshot.binding.task_id)

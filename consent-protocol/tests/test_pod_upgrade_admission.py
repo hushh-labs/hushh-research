@@ -185,3 +185,40 @@ async def test_drain_append_failure_keeps_fence_until_durable_retry(monkeypatch)
     recovered = await admission.prepare(operation_id="op_first", incarnation="rev-a")
     assert recovered["state"] == "idle"
     assert recovered["idleReceipt"]["idleRecord"]["seq"] == 2
+
+
+@pytest.mark.asyncio
+async def test_resource_drain_failure_cannot_issue_idle_even_after_turn_release() -> None:
+    log = MemoryLog()
+    admission = PodUpgradeAdmission(log_resolver=lambda: log)
+    permit = await admission.acquire_turn(incarnation="rev-a")
+    entered, finish = asyncio.Event(), asyncio.Event()
+    fail = True
+
+    async def close_resource():
+        await log.append("browser_closed", {"incarnation": "rev-a"})
+        await permit.release()
+        entered.set()
+        await finish.wait()
+        if fail:
+            raise OSError("close unconfirmed")
+
+    admission.register_drain(incarnation="rev-a", name="browser", callback=close_resource)
+    preparing = asyncio.create_task(
+        admission.prepare(operation_id="op_browser", incarnation="rev-a")
+    )
+    await asyncio.wait_for(entered.wait(), 1)
+    pending = await admission.wait_idle(operation_id="op_browser", incarnation="rev-a")
+    assert pending["activeWork"] == 0 and pending["idleReceipt"] is None
+    with pytest.raises(PodUpgradeAdmissionRefused, match="active pod work"):
+        await admission.release(operation_id="op_browser", incarnation="rev-a")
+    finish.set()
+    with pytest.raises(OSError, match="close unconfirmed"):
+        await preparing
+    assert (await admission.status(incarnation="rev-a"))["state"] == "draining"
+    assert not any(record["kind"] == "pod_upgrade_idle" for record in log.records)
+    fail = False  # only acknowledged shutdown permits the retry to issue idle
+    idle = await admission.prepare(operation_id="op_browser", incarnation="rev-a")
+    assert idle["state"] == "idle"
+    cursor = idle["idleReceipt"]["committedCursor"]
+    assert log.records[cursor["seq"] - 1]["kind"] == "browser_closed"

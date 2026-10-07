@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const placement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: placement }));
+
 
 const apiFetch = vi.hoisted(() => vi.fn());
 
@@ -15,8 +18,17 @@ import {
 } from "@/lib/services/external-connector-service";
 
 describe("ExternalConnectorService native Drive OAuth", () => {
-  beforeEach(() => apiFetch.mockReset());
+  beforeEach(() => { placement.mockResolvedValue(false); apiFetch.mockReset(); });
   afterEach(() => vi.useRealTimers());
+
+  it('blocks legacy Drive credentials and picker grants after private placement before any hub request', async () => {
+    placement.mockResolvedValue(true);
+    await expect(ExternalConnectorService.completeOAuthConnect({ vaultOwnerToken: 'owner-token', state: 'state', code: 'never-hub' })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(ExternalConnectorService.completeWebOAuth({ idToken: 'token', state: 'state', code: 'never-hub', attemptId: 'attempt' })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(ExternalConnectorService.pickerSession('owner-token', 'https://app.test')).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(ExternalConnectorService.documents('owner-token')).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
 
   it("discards private OAuth delivery after vault authority changes", async () => {
     let current = true;
@@ -247,7 +259,7 @@ describe("ExternalConnectorService native Drive OAuth", () => {
 });
 
 describe("ExternalConnectorService live Drive background preparation", () => {
-  beforeEach(() => apiFetch.mockReset());
+  beforeEach(() => { placement.mockResolvedValue(false); apiFetch.mockReset(); });
 
   it("reads and sets live background preparation with explicit confirmation", async () => {
     apiFetch.mockResolvedValueOnce(Response.json({ enabled: true }));

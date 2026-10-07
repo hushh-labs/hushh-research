@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+const placement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: placement }));
+
 
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: vi.fn() },
+  ApiService: { apiFetch: vi.fn(), ownerPodRequest: vi.fn() },
 }));
+
+vi.mock('@/lib/services/auth-service', () => ({ AuthService: { getCurrentUser: () => ({ uid: 'owner' }) } }));
 
 import {
   EmailDeliveryError,
@@ -11,7 +16,22 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 
 describe("EmailDeliveryService", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { placement.mockResolvedValue(false); vi.clearAllMocks(); });
+
+  it('binds private sends to the exact reviewed proposal and refuses changed drafts or a hub fallback', async () => {
+    placement.mockResolvedValue(true);
+    const draft = { to: 'to@example.com', cc: '', bcc: '', subject: 'Hello', body: 'Body' };
+    const proposal = 'gmod_abcdefghijklmnop';
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ status: 'confirmation_required', action: 'send_email', proposal_id: proposal, expires_at: new Date(Date.now() + 60000).toISOString(), preview: { ...draft, to: ['to@example.com'], cc: [], bcc: [], html_body: '' } })));
+    const prepared = await EmailDeliveryService.prepare({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', draft, idempotencyKey: 'review' });
+    await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft: { ...draft, body: 'changed after review' } })).rejects.toMatchObject({ code: 'PRIVATE_EMAIL_REVIEW_REQUIRED' });
+    expect(ApiService.ownerPodRequest).toHaveBeenCalledTimes(1);
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ proposalId: proposal, kind: 'gmail_mailbox', result: { status: 'sent', action: 'send_email', message_id: 'provider-receipt' } })));
+    await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft })).resolves.toEqual({ messageId: 'provider-receipt', threadId: null, outcomeUnknown: false });
+    expect(ApiService.ownerPodRequest).toHaveBeenLastCalledWith(`actions/${proposal}/confirm`, { method: 'POST' });
+    await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft })).rejects.toMatchObject({ code: 'PRIVATE_EMAIL_REVIEW_REQUIRED' });
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
+  });
 
   it("keeps explicit draft fields and both short-lived auth credentials at the delivery boundary", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(

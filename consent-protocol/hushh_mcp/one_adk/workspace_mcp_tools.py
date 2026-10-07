@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 from hushh_mcp.adk_bridge.contract import SpecialistReadResult, SpecialistReadSource
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.one_adk.pod_connector_tools import pod_tool_owner
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -376,9 +377,10 @@ def _service(provider: WorkspaceProvider) -> Any:
 
 
 async def _owner(tool_context: ToolContext, provider: WorkspaceProvider) -> str | None:
+    if pod_mode():  # only an owner-cloud agent's own session, never the hub token check
+        return await pod_tool_owner(tool_context, provider)
     if (
-        pod_mode()
-        or provider not in {"drive", "gmail", "calendar"}
+        provider not in {"drive", "gmail", "calendar"}
         or tool_context.state.get(WORKSPACE_CHAT_ADMISSION_STATE) is not True
         or tool_context.state.get("temp:one_execution_surface") != "typed_chat"
     ):
@@ -389,8 +391,7 @@ async def _owner(tool_context: ToolContext, provider: WorkspaceProvider) -> str 
     feature = {"drive": "google_drive_chat_reads", "gmail": "gmail_chat_reads"}.get(provider)
     if feature and not connector_feature_enabled(feature, owner):
         return None
-    # Provider rollout is not authentication. Check it after owner validation
-    # so an admitted owner gets an honest unavailable state, not a session block.
+    # Rollout is not authentication: an admitted owner gets an honest unavailable state.
     token = resolve_request_secret(tool_context.state.get("hussh:consent_token"))
     return owner if await validate_first_party_owner_token(owner, token) else None
 
@@ -403,9 +404,8 @@ async def _grant_binding(owner: str, provider: WorkspaceProvider) -> tuple[str, 
         binding = await get_google_connection_service().read_grant_binding(
             user_id=owner, service=provider
         )
-    # Gmail has one credential/grant row; shared Google connections have
-    # independently versioned connection and service-grant rows. Keep both
-    # revisions so a change to either invalidates an in-flight result.
+    # Gmail has one credential/grant row; shared Google connections version connection
+    # and service-grant rows apart. Keep both so a change to either invalidates a result.
     expected_parts = 5 if provider == "gmail" else 6
     if (
         not isinstance(binding, (tuple, list))

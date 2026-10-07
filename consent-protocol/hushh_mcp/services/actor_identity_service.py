@@ -1087,36 +1087,35 @@ class ActorIdentityService:
             )
             return None
 
-        # Phone-verify seam: kick off the user's personal-agent provisioning
-        # (flag-gated, fire-and-forget). Wrapped defensively so it can never affect
-        # the phone-claim result.
+        # Phone-verify seam: provisioning and the resume run in the background, never in the claim.
         try:
             self.schedule_provision_personal_agent(normalized_user_id, normalized_phone_number)
         except Exception:  # noqa: S110 -- provisioning kickoff must never break phone verify
             pass
-        await self._resume_ai_connection(normalized_user_id)
-
+        self._schedule_phone_resume(normalized_user_id, normalized_phone_number)
         return self._normalize_row(row)
 
-    async def _resume_ai_connection(self, user_id: str) -> None:
-        """Re-run the AI-connection trigger for a choice recorded BEFORE the phone.
-
-        The setup wizard shows the cloud and the AI before identity (2026-09-02), so
-        a person can pick "use your pod's AI" while no record can exist yet; the gate
-        then defers on the missing phone and nothing re-fires when the phone arrives.
-        Only the managed choice resumes here: a bring-your-own-key choice proves its
-        key on its own path and fires the trigger from there. Never raises.
-        """
+    def _schedule_phone_resume(self, user_id: str, phone: str) -> None:
+        """Hand the resume to the background; never raises into phone verify."""
         try:
-            from hushh_mcp.services.ai_connection_gate import (  # noqa: PLC0415
-                on_ai_connection_verified,
-            )
+            from hushh_mcp.services.owner_cloud_attach import run_after_phone  # noqa: PLC0415
+
+            run_after_phone(user_id, self._resume_ai_connection, phone)
+        except Exception:  # noqa: BLE001 -- the resume must never break phone verify
+            logger.warning("personal_agent.phone_resume_unscheduled")
+
+    async def _resume_ai_connection(self, user_id: str, phone: str = "") -> None:
+        """Resume pre-phone choices: own-cloud attach, then managed AI; BYOK fires on its proof."""
+        try:
+            from hushh_mcp.services import ai_connection_gate as gate  # noqa: PLC0415
+            from hushh_mcp.services import owner_cloud_attach as attach  # noqa: PLC0415
             from hushh_mcp.services.vault_keys_service import VaultKeysService  # noqa: PLC0415
 
+            await attach.resume_attach_after_phone(user_id, phone)
             state = await VaultKeysService().get_pre_vault_state(user_id)
             if str(state.get("oneRuntimeSetupChoice") or "") != "hushh_managed_vertex":
                 return
-            verdict = await on_ai_connection_verified(
+            verdict = await gate.on_ai_connection_verified(
                 user_id=user_id, provider="hushh_managed_vertex", transport="managed_vertex"
             )
             logger.info(

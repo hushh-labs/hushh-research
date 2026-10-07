@@ -43,6 +43,13 @@
             </intent-filter>
 
             <!-- Firebase Auth can also return through its app-owned scheme. -->
+            <!-- Intent only. The phone resolves its own signed-in owner and pod. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hushh" android:host="one" android:pathPrefix="/connect/google/" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

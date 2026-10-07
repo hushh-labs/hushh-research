@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from hushh_mcp.consent import audit_signing, token_signing
-from hushh_mcp.consent.token_signing import CONSENT_AUDIT, CONSENT_TOKENS
+from hushh_mcp.consent.token_signing import CONSENT_AUDIT, CONSENT_TOKENS, OWNER_FEED
 from hushh_mcp.services import consent_audit_chain_service as cac
 
 _SEED = base64.b64encode(bytes(range(32))).decode("ascii")
@@ -292,18 +292,26 @@ def test_process_startup_actually_runs_the_guard():
 # --------------------------------------------------------------------------- #
 
 
-def test_the_mint_script_can_mint_the_audit_keypair_under_the_exact_env_names():
+@pytest.mark.parametrize(
+    "namespace,authority,deploy_kid",
+    [
+        ("audit", CONSENT_AUDIT, "consent_audit_ed25519_kid"),
+        ("owner-feed", OWNER_FEED, "owner_feed_ed25519_kid"),
+    ],
+)
+def test_the_mint_script_uses_independent_authority_names(namespace, authority, deploy_kid):
     sys.path.insert(0, str(_ROOT / "scripts" / "ops"))
     try:
         import mint_consent_ed25519_key as mint
     finally:
         sys.path.pop(0)
-    priv, pub, kid = mint.NAMESPACES["audit"]
-    assert (priv, pub) == (CONSENT_AUDIT.private_key_env, CONSENT_AUDIT.public_keys_env)
+    priv, pub, kid = mint.NAMESPACES[namespace]
+    assert (priv, pub) == (authority.private_key_env, authority.public_keys_env)
     assert mint.NAMESPACES["consent"][:2] == (
         CONSENT_TOKENS.private_key_env,
         CONSENT_TOKENS.public_keys_env,
     )
     deploy = (_ROOT.parent / "scripts" / "deploy" / "backend-deploy.sh").read_text("utf-8")
     # A kid mismatch verifies at the hub and fails in every other verifier.
-    assert f'consent_audit_ed25519_kid="{kid}"' in deploy
+    assert f'{deploy_kid}="{kid}"' in deploy
+    assert f'append_optional_env "{priv}"' not in deploy

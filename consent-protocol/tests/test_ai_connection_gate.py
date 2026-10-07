@@ -196,12 +196,13 @@ async def test_unproven_byoc_reservation_never_schedules():
     assert identity.scheduled == []
 
 
-async def test_no_pod_assignment_defaults_to_shared_without_provisioning():
+async def test_no_pod_assignment_is_unplaced_and_never_provisions():
+    """No placement and no recorded choice is `unplaced`, not Shared: nothing is built."""
     identity = _Identity()
     result = await _verify(registry=_Registry(None), identity=identity)
 
     assert result["scheduled"] is False
-    assert result["reason"] == "Shared runtime does not provision a pod"
+    assert result["reason"] == "hosting mode is unplaced; pod provisioning is not authorized"
     assert identity.scheduled == []
 
 

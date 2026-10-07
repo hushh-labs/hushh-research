@@ -82,7 +82,9 @@ SET backend_metadata = coalesce(r.backend_metadata, '{}'::jsonb) || jsonb_build_
       'detachedPlacements',
       coalesce(r.backend_metadata -> 'detachedPlacements', '[]'::jsonb) || jsonb_build_array(
         (SELECT coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb)
-         FROM jsonb_each(to_jsonb(gone)) AS e WHERE e.key = ANY(:coordinates))
+         FROM jsonb_each(to_jsonb(gone)) AS e
+         WHERE e.key = ANY(CASE WHEN gone.backend_metadata ? 'notificationCheckpoint'
+                               THEN :custody_coordinates ELSE :coordinates END))
         || jsonb_build_object(
           'role', 'standby',
           'detachedAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),

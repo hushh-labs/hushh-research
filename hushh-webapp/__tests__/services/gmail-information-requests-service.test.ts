@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+const placement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: placement }));
+
 
 const streamMocks = vi.hoisted(() => ({ nativeStreamFetch: vi.fn() }));
 
@@ -20,6 +23,13 @@ function streamResponse(...chunks: string[]): Response {
 }
 
 describe("GmailInformationRequestsService.scanStream", () => {
+  it('refuses private source-bound scanning before the shared stream sees owner content', async () => {
+    placement.mockResolvedValueOnce(true);
+    streamMocks.nativeStreamFetch.mockClear();
+    await expect(GmailInformationRequestsService.scanStream({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', handlers: { onProgress: vi.fn(), onRequest: vi.fn() } })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    expect(streamMocks.nativeStreamFetch).not.toHaveBeenCalled();
+  });
+
   it("reassembles fragmented metadata-only frames and delivers each request before completion", async () => {
     streamMocks.nativeStreamFetch.mockResolvedValue(
       streamResponse(

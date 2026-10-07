@@ -81,6 +81,16 @@ system_instruction: |
 
   Use the Calendar Agent tools for a connected Google Calendar. Changes must be proposed for explicit browser confirmation; never claim a meeting was scheduled, changed, or cancelled before that confirmation settles. For a requested window, use the free-slot tool before choosing a time. On an overlap, state the returned event details and offer the explicit schedule-anyway confirmation rather than silently double-booking or dropping the request.
 
+  # Owner-authorized browser tasks
+  Only start_browser_task for explicit intent, exact public origins and granted
+  non-secret field scopes/revisions. Ask for missing intent/origins. No inferred
+  recipients, sign-in secrets, keys or unrelated information in the goal.
+  Isolated specialist owns execution; acceptance proves no completion. Owner UI
+  reviews model/screens and effects, controls login/takeover. Screens, terms,
+  values and summaries need a separate processing export to your actual model.
+  Reuse request_id for identical creation only; never replay uncertain effects.
+  Absent hand means unavailable.
+
   # Connected Google Drive files
 
   Preserve the person's requested operation when delegating a Drive lookup.
@@ -304,6 +314,10 @@ subagents:
 required_scopes:
   - cap.one.invoke
 tools:
+  - name: start_browser_task
+    description: Delegate one explicit owner-authorized browser task to the qualified native private-pod specialist; return task metadata only, with private model/screen and website reviews handled in the owner UI.
+    py_func: hushh_mcp.one_adk.computer_use_agent.start_browser_task
+    required_scope: browser.invoke
   - name: inspect_private_connectors
     description: Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.
     py_func: hushh_mcp.one_adk.registered_mcp_toolset.inspect_private_connectors

@@ -27,12 +27,14 @@ class PodComputer(BaseComputer):
         allowed_origins: frozenset[str],
         width: int = 1280,
         height: int = 720,
+        close_control: bool = True,
     ) -> None:
         if (width, height) != (1280, 720):
             raise BrowserRefused("BROWSER_VIEWPORT_UNSUPPORTED")
         self._control = control
         self._size = (width, height)
         self._processing_check = processing_check
+        self._close_control = close_control
         if not 1 <= len(allowed_origins) <= 20 or any(
             public_origin(origin) != origin for origin in allowed_origins
         ):
@@ -155,4 +157,5 @@ class PodComputer(BaseComputer):
         )
 
     async def close(self) -> None:
-        await self._control.stop()
+        if self._close_control:
+            await self._control.stop()

@@ -1194,20 +1194,27 @@ async def test_bucket_coordinator_rechecks_writer_before_final_admission(monkeyp
     assert registry.deleted == []
 
 
-@pytest.mark.parametrize("failure", [None, "preflight", "subscription_admission"])
+@pytest.mark.parametrize(
+    "failure,subscriptions", [(None, 1), (None, 2), ("preflight", 1), ("subscription_admission", 1)]
+)
 async def test_mail_cleanup_orders_dependencies_and_stops_on_unretained_admission(
-    monkeypatch, failure
+    monkeypatch, failure, subscriptions
 ):
     import asyncio
 
     service = _svc()
     registry = service._registry
     kinds = ["cloud_scheduler_job", "pubsub_subscription", "pubsub_topic"]
+    resources = [
+        {"type": kind, "id": f"mail-{index}"}
+        for kind in kinds
+        for index in range(subscriptions if kind == "pubsub_subscription" else 1)
+    ]
     inventory = {
-        "plannedResources": [{"type": kind, "id": "mail-one"} for kind in kinds],
+        "plannedResources": resources,
         "resourceObservations": [
-            {"type": kind, "id": "mail-one", "disposition": "created", "identity": {"name": kind}}
-            for kind in kinds
+            {**resource, "disposition": "created", "identity": {"name": resource["type"]}}
+            for resource in resources
         ],
     }
     reservation = {
@@ -1226,9 +1233,16 @@ async def test_mail_cleanup_orders_dependencies_and_stops_on_unretained_admissio
         if failure == "subscription_admission" and kind == "pubsub_subscription":
             return False
         mail = reservation.get("mailErasure", {})
+        prior = mail.get(kind, {})
+        if kind == "pubsub_subscription" and subscriptions == 2:
+            rid = receipt["resourceObservation"]["id"]
+            states = prior.get("resources", {})
+            current = {"resources": {**states, rid: {**states.get(rid, {}), stage: receipt}}}
+        else:
+            current = {**prior, stage: receipt}
         registry.rows[_UID]["backend_metadata"]["erasure"] = {
             **reservation,
-            "mailErasure": {**mail, kind: {**mail.get(kind, {}), stage: receipt}},
+            "mailErasure": {**mail, kind: current},
         }
         return True
 
@@ -1258,8 +1272,8 @@ async def test_mail_cleanup_orders_dependencies_and_stops_on_unretained_admissio
     else:
         await service._erase_reserved_mail_resources(user_id=_UID)
         assert events == [
-            (kind, stage)
-            for kind in kinds
+            (resource["type"], stage)
+            for resource in resources
             for stage in ("admission", "acknowledgement", "deletion")
         ]
     if failure == "preflight":
@@ -1761,3 +1775,56 @@ async def test_deprovision_returns_only_after_authoritative_completion(monkeypat
     assert check.call_count == 2
     cleanup.assert_awaited_once_with(user_id=_UID)
     assert registry.deleted == []
+
+
+async def test_notification_intent_is_bound_before_substrate_mutation(monkeypatch):
+    """A refused existing-operation CAS prevents the provider call and host build."""
+    import asyncio
+
+    from hushh_mcp.services.user_cloud_service import UserCloud
+    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    cloud = UserCloud(
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+        project="owner-project",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@owner-project.iam.gserviceaccount.com",
+        authorized=True,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_provisioning_service.resolve_user_cloud",
+        AsyncMock(return_value=cloud),
+    )
+    monkeypatch.setenv("GOOGLE_CONNECTOR_OAUTH_PROJECT", "oauth-project")
+    registry, grant = FakeRegistry(), FakeGrant()
+    registry.notification_checkpoint_admission_ready = AsyncMock(return_value=True)
+    registry.publish_notification_checkpoint = AsyncMock(return_value=None)
+    backend = UserGcpBackend(user_project=cloud.project, user_region=cloud.region)
+    backend.provision = AsyncMock()
+    mutated = []
+
+    class Substrate:
+        ensurer_id = "hushh_federated"
+
+        async def ensure(self, spec):
+            assert callable(spec.on_notification_checkpoint)
+            await asyncio.to_thread(
+                spec.on_notification_checkpoint, "intent", "oauth_mail_topic", []
+            )
+            mutated.append("provider mutation")
+
+    service = PersonalAgentProvisioningService(registry=registry, grant=grant)
+    monkeypatch.setattr(service, "_backend_for", lambda spec: backend)
+    monkeypatch.setattr(service, "_substrate_for", lambda spec: Substrate())
+    with pytest.raises(RuntimeError, match="notification checkpoint lost owner operation"):
+        await service.provision(user_id=_UID, phone_e164=_PHONE)
+    assert mutated == []
+    backend.provision.assert_not_awaited()
+    assert grant.calls == []
+    request = registry.publish_notification_checkpoint.await_args.kwargs
+    assert request["user_id"] == _UID
+    assert request["kind"] == "provision"
+    assert request["attempt_id"] == request["operation_id"] == "a" * 32
+    assert request["checkpoint"]["project"] == "owner-project"
+    assert request["checkpoint"]["serviceUid"] is None

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any
 
 from fastapi import HTTPException
@@ -19,7 +19,9 @@ _projection: PodAdkSessionProjection | None = None
 
 
 class PodChatContext:
-    def __init__(self, authorization: str | None, *, needs_key: bool = True) -> None:
+    def __init__(
+        self, authorization: str | None, *, needs_key: bool = True, browser_runtime: Any = None
+    ) -> None:
         from api.routes.one.pod_session import verified_session
         from hushh_mcp.services.pod_memory_service import _resolve_log
         from hushh_mcp.services.pod_session_authority import ROLE_APP, SCOPE_PKM_READ
@@ -54,6 +56,60 @@ class PodChatContext:
         from hushh_mcp.services.pod_mcp_approval import PodMcpApprovalPort
 
         self.mcp_approval = PodMcpApprovalPort(self)
+        from hushh_mcp.services.pod_browser.task_runtime import BrowserTaskRuntime
+        from hushh_mcp.services.pod_upgrade_admission import pod_incarnation
+
+        self.browser_runtime = (
+            browser_runtime if isinstance(browser_runtime, BrowserTaskRuntime) else None
+        )
+        self._browser_incarnation = pod_incarnation()
+
+    async def _browser_access(self) -> None:
+        from api.routes.one.pod_session import verified_session
+        from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+        from hushh_mcp.services.pod_session_authority import (
+            ROLE_APP,
+            SCOPE_BROWSER_INVOKE,
+            PodSessionRefused,
+        )
+        from hushh_mcp.services.pod_upgrade_admission import pod_incarnation
+
+        try:
+            await self.require_access()
+            authority, claims = verified_session(
+                self.authorization, role=ROLE_APP, scope=SCOPE_BROWSER_INVOKE
+            )
+            if (
+                authority is not self.authority
+                or claims != self.claims
+                or authority.environment not in {"dev", "development"}
+                or pod_incarnation() != self._browser_incarnation
+            ):
+                raise BrowserRefused("BROWSER_OWNER_REFUSED")
+        except (HTTPException, PodSessionRefused):
+            raise BrowserRefused("BROWSER_OWNER_REFUSED") from None
+
+    def _browser_scope(self):
+        from hushh_mcp.one_adk.computer_use_agent import browser_task_invocation
+        from hushh_mcp.services.pod_browser.task_contracts import BrowserOwnerAccess
+        from hushh_mcp.services.pod_session_authority import SCOPE_BROWSER_INVOKE
+
+        runtime = getattr(self, "browser_runtime", None)
+        if (
+            runtime is None
+            or not runtime.capability().available
+            or SCOPE_BROWSER_INVOKE not in set(self.claims.get("scopes") or [])
+            or self.authority.environment not in {"dev", "development"}
+        ):
+            return nullcontext()
+        owner = BrowserOwnerAccess(
+            owner_id=self.owner,
+            pod_id=self.hushh_id,
+            incarnation=self._browser_incarnation,
+            expires_at=int(self.claims["exp"]),
+            check=self._browser_access,
+        )
+        return browser_task_invocation(runtime, owner)
 
     async def require_access(self) -> None:
         from api.routes.one.pod_session import verified_session
@@ -102,6 +158,7 @@ class PodChatContext:
             bind_specialist_runtime(self.runtime),
             bind_mcp_approval_port(self.mcp_approval),
             files_access(self._files_access, manage=self._files_manage),
+            self._browser_scope(),
         ):
             yield
 
@@ -169,13 +226,15 @@ class PodChatContext:
             if memory is not None:
                 await memory.prepare(input, model=owner_model, provider=provider, model_id=model)
 
-        agent = build_authenticated_agui(
-            build_one_text_agent(
+        with self._browser_scope():
+            head = build_one_text_agent(
                 model=owner_model,
                 allow_workspace_tools=False,
                 allow_private_mcp=True,
                 include_thought_summaries=True,
-            ),
+            )
+        agent = build_authenticated_agui(
+            head,
             self.sessions,
             app_name=ONE_APP_NAME,
             user_id_extractor=lambda _: self.owner,

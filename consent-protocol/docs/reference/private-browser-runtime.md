@@ -3,11 +3,13 @@
 ## Status and evidence
 
 **2026-10-06 — disabled pilot; not a usable owner browser capability.**
-The information/session change starts at `9a3d5f043469` and preserves concurrent
-infrastructure commits through `f1bda1eb5`. Local ports extend the existing native
-ADK, control, broker and sandbox foundation. They do not register a One child,
-issue browser grants, expose owner routes or provide a preview. Earlier isolated
-cloud probes did not qualify Chromium; no owner pod changed in this slice.
+The committed information/session foundation is `f407f849b`. The resumed working
+candidate composes authenticated owner task routes, exact reviews, ephemeral
+preview, takeover and remembered-session controls with an isolated native ADK
+runner. One exposes only a metadata-returning task hand from a qualified runtime;
+its transcript never receives screenshots, selected values or website sessions.
+Neither cloud has a qualified launcher/bridge, so default startup provides no
+browser runtime. No owner pod or serving image changed in this implementation slice.
 
 The [agent-development procedure](./agent-development.md) owns registration;
 the [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
@@ -19,21 +21,21 @@ Target topology; all dashed paths remain gated and unavailable.
 
 ```mermaid
 flowchart TD
-    UI["Unimplemented: One task card and interactive preview"]
+    UI["Source: One task card and private preview; cloud gated"]
     One["Existing: owner private agent"]
     Agent["Disabled: native ADK Computer Use task specialist"]
-    Model["Unverified: owner-authorized native Gemini transport"]
+    Model["Native Gemini adapter; synthetic SDK verification"]
     Control["Foundation: exclusive control and exact authority ports"]
     Broker["Foundation: HTTPS broker and dispatch receipts"]
     Cloud["Unverified: isolated Chromium launcher in owner cloud"]
     Web["Task-authorized public HTTPS origins"]
-    Ledger["Existing action ledger; local browser adapter, not wired"]
+    Ledger["Existing action ledger; exact runtime review port"]
     Information["Local port: selected non-secret PKM exports"]
     Sessions["Local port: encrypted remembered sign-in"]
     Store["Existing owner object store and sealed recovery log"]
     UI -. "owner task" .-> One
     UI -. "exclusive manual takeover; task-bound input" .-> Control
-    One -. "AgentTool; not registered" .-> Agent
+    One -. "qualified task hand; isolated ADK runner" .-> Agent
     Agent -. "screen processing requires provider disclosure" .-> Model
     Model -. "unverified native action assessment" .-> Agent
     Agent -. "typed actions" .-> Control
@@ -48,7 +50,7 @@ flowchart TD
     Sessions -. "approved state through private memory bridge" .-> Cloud
     Broker -. "exact transmission approval / outcome receipt" .-> Ledger
     Cloud -. "private frames through task bridge" .-> Control
-    Control -. "validated frames; preview not implemented" .-> UI
+    Control -. "validated ephemeral frames; qualified cloud required" .-> UI
 ```
 
 ## Implemented foundation
@@ -63,8 +65,8 @@ flowchart TD
 | `services/pod_browser/playwright_executor.py` | One page, Chromium sandbox enabled, service workers/WebSockets blocked, downloads disabled. Chromium Fetch interception brokers each redirect hop and preserves response-header multiplicity. Frames/workers/objects are restricted; multi-target authentication is unqualified. No direct or unsandboxed fallback. |
 | `services/pod_browser/worker_identity.py` | Before worker IPC or Chromium, require the fixed non-root identity, zero permitted/effective/ambient capabilities and `no_new_privs`. Refuse unavailable privilege dropping; never run the browser as root. |
 | `browser_runtime/Dockerfile` | Browser-only probe definition, pinned Playwright, explicit source copies and fixed UID/GID. No core pod, recovery, provider SDK or credentials. The earlier probe image was built; the revised identity guard is not image-qualified. |
-| `services/pod_browser/information.py`, `consent.py` | Typed selected-field exports and exact private commitments over the existing ledger. Export revision, PKM content revision and PKM manifest revision are distinct. Runtime grant-loader and authenticated route wiring remain required. |
-| `services/pod_browser/session_state.py`, `sessions.py` | Bounded encrypted persistent sign-in objects, current-admission reuse, metadata-only recovery, CAS publication and generation-fenced Forget. Core ports only; no customer retention control is exposed. |
+| `services/pod_browser/information.py`, `consent.py` | Typed selected-field exports and exact private commitments over the existing ledger. Export revision, PKM content revision and PKM manifest revision are distinct. Authenticated runtime routes require injected authoritative export/review ports; cloud startup remains gated. |
+| `services/pod_browser/session_state.py`, `sessions.py` | Bounded encrypted persistent sign-in objects, current-admission reuse, metadata-only recovery, CAS publication and generation-fenced Forget. Owner-only retention routes and controls remain cloud gated. |
 | `services/pod_browser/scratch.py`, `mailbox.py` | Require Linux tmpfs on the actual open descriptor, private task scratch, and command/network cleanup on close. macOS fixtures do not qualify native cloud scratch. |
 
 The broker's authority ports must be backed by the **existing** approval/action
@@ -210,36 +212,44 @@ release channels and application traffic were unchanged.
 
 ### Azure
 
-The current subscription reports `Microsoft.App/SandboxPreview` as
-`NotRegistered`. API metadata alone does not establish Early Access enrollment.
-No SandboxGroup adapter or resource exists in this change. Enrollment,
-owner-scoped launch/termination, deny-by-default egress with Full inspection,
-and the restricted broker transport each require independent proof.
+The earlier Early Access blocker is stale: Azure Sandboxes reached general
+availability in September 2026. Fresh read-only stable `2026-07-01` and preview
+SandboxGroups requests succeed; the subscription has no groups. The legacy
+`SandboxPreview=NotRegistered` flag does not prove current unavailability.
+
+The 2026-10-06 bounded probe created a native group, qualified data-plane read
+access and created a synthetic sandbox. Exact egress-policy readback was refused
+before execution; sandbox and group deletion were confirmed. Sandboxed Chromium,
+deny-by-default egress with **Full** inspection, a private task-only broker bridge
+and browser lifecycle remain unqualified. No alternate executor or unsandboxed
+fallback is permitted. A synthetic probe cannot authorize real owner information
+or remembered logins.
 
 Native cloud contracts: [GCP sandbox execution](https://docs.cloud.google.com/run/docs/code-execution),
 [GCP resource allocation](https://docs.cloud.google.com/run/docs/configuring/services/sandboxes),
-[Azure SandboxGroups](https://github.com/microsoft/azure-container-apps/blob/main/docs/early/sandboxes-overview.md),
-[Azure network controls](https://github.com/microsoft/azure-container-apps/blob/main/docs/early/sandboxes-egress-policies.md).
+[Azure SandboxGroups](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-overview),
+[Azure network controls](https://learn.microsoft.com/en-us/azure/container-apps/sandboxes-egress-policies).
 
 ## Remaining release gates
 
 1. Prove each cloud's isolation, ephemeral bridge, immutable image, bounded
    teardown and resource use. Readiness is trusted-side evidence; it must never
    be supplied by a browser, model or client-selected cloud.
-2. Bind signed admission, dedicated permissions and exact browser approvals to
-   existing authorities. Integrate update permits, recovery and cancellation.
+2. Qualify the composed signed admission, browser permissions, exact reviews,
+   update draining, recovery and cancellation against the installed cloud image.
    Native Gemini screenshots must remain ephemeral: do not widen the sealed
    session record budget or persist screens in One transcripts or hub storage.
-3. Register the child only after the native model and cloud capability pass.
-   Add task status/preview/control through existing pod routes, a responsive
-   One task card and explicit takeover. Wire the local observation-suppression
-   and session-control ports; handback requires a fresh observation. Render frames separately
-   from model calls and enforce preview lease expiry.
-4. Wire and qualify the local encrypted session/information ports, runtime grant
-   loader, account erasure, orphan cleanup and update continuity. Complete bounded
-   background continuation, budget continuation and scoped Files transfer. Local
-   cookie/redirect fixtures pass; real owner preview, authentication and cloud
-   recovery remain unverified. No customer login or retention is enabled.
+3. Expose the composed task hand only after the native model and cloud capability
+   pass. Source includes task status/preview/control routes, the responsive One
+   task card, takeover and observation suppression; these still need installed
+   cloud acceptance. Handback requires a fresh observation. Frames are separate
+   from model calls and preview leases must expire.
+4. Qualify the composed encrypted session/information ports and grant loader
+   against cloud account erasure, orphan cleanup and update continuity. Bounded
+   background and budget continuation and scoped Files transfer need installed
+   evidence. Local cookie/redirect fixtures pass; real owner preview,
+   authentication and cloud recovery remain unverified. No customer login or
+   retention is enabled.
 5. Prove controlled research, preparation and reviewed submission, uncertain
    outcomes, revocation/recovery, malicious pages, cross-owner refusal, update
    draining and idle wake. Measure cold/warm latency, 429 outcomes, memory,

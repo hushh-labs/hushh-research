@@ -30,12 +30,12 @@ public for as long as the switch stayed off.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 from typing import Any, Callable, Optional
 
+from hushh_mcp.services.pod_wall import POD_WALL_NOT_FOUND_BODY
 from hushh_mcp.services.scheduler_identity import (
     SchedulerIdentity,
     SchedulerIdentityError,
@@ -87,6 +87,18 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/puppy/models",
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
+        # The owner's ratings, and voice command proposals validated and
+        # checkpointed in the agent (pod_command_proposals.py). Same owner app
+        # session as chat; ids, enums and the owner's own plan only.
+        "/api/one/pod/agent-chat/feedback",
+        "/api/one/pod/agent-chat/proposals",
+        "/api/one/pod/agent-chat/proposals/typed",
+        # The route verifies its own dedicated Pub/Sub OIDC identity; it does
+        # not admit that principal to any other machine or owner route.
+        "/api/one/pod/gmail/push",
+        "/api/one/pod/actions/gmail/proposals",
+        "/api/one/pod/browser/capability",
+        "/api/one/pod/browser/tasks",
         "/api/one/puppy/relay",
         # The owner's memory doors (api/routes/one/pod_memory.py). Each is named
         # here one at a time rather than by a `/memory/` prefix, so a later memory
@@ -132,7 +144,30 @@ APP_SURFACE_PREFIXES: tuple[str, ...] = (
     "/api/one/pod/conversation/",
 )
 
-_NOT_FOUND = json.dumps({"detail": "not found"}).encode("utf-8")
+_NOT_FOUND = POD_WALL_NOT_FOUND_BODY
+
+_CONVERSATION = r"[A-Za-z0-9_-]{1,256}"
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+#: Parameterised app routes, one exact pattern each. A new route under the same
+#: folder stays walled until it is named here.
+APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(pattern)
+    for pattern in (
+        rf"/api/one/pod/agent-chat/(?:history|conversations)/{_CONVERSATION}",
+        r"/api/one/pod/agent-chat/connectors/[A-Za-z0-9_-]{1,128}/mcp/review",
+        # Settings' tool refresh and connector login (pod_agent_chat_connectors.py):
+        # only owner-registered custom connectors, exactly as the hub routes admit.
+        r"/api/one/pod/agent-chat/connectors/custom_[0-9a-f]{32}"
+        r"/mcp/(?:catalog|oauth/(?:begin|complete|cancel))",
+        # Messages sent while a turn runs, and stop (pod_agent_chat.py).
+        rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/(?:queue|stop)",
+        rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/queue/[A-Za-z0-9_-]{{8,64}}",
+        rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/settle)?",
+        r"/api/one/pod/connectors/(?:gmail|calendar|drive|contacts)",
+        r"/api/one/pod/actions/(?:gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}/confirm",
+        r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}(?:/(?:frame|control|input|review|session))?",
+    )
+)
 
 
 def is_app_surface(path: str) -> bool:
@@ -142,11 +177,7 @@ def is_app_surface(path: str) -> bool:
         clean = clean.rstrip("/")
     if clean in APP_SURFACE_EXACT:
         return True
-    if re.fullmatch(
-        r"/api/one/pod/agent-chat/(?:history|conversations)/[A-Za-z0-9_-]{1,256}", clean
-    ):
-        return True
-    if re.fullmatch(r"/api/one/pod/agent-chat/connectors/[A-Za-z0-9_-]{1,128}/mcp/review", clean):
+    if any(pattern.fullmatch(clean) for pattern in APP_SURFACE_PATTERNS):
         return True
     if clean.startswith(APP_SURFACE_PREFIXES):
         # The conversation prefix admits only the close verb; anything else under
@@ -250,6 +281,7 @@ class PodIngressPolicy:
 
 __all__ = [
     "APP_SURFACE_EXACT",
+    "APP_SURFACE_PATTERNS",
     "APP_SURFACE_PREFIXES",
     "PodIngressPolicy",
     "accepted_audiences",

@@ -23,13 +23,14 @@ export async function importPrivate(raw: Uint8Array): Promise<CryptoKey> {
 }
 
 /** Open an envelope the way the agent does; throws on any tampering. */
-export async function openAsAgent(envelope: AiSelectionEnvelope, agentPrivate: CryptoKey, agentPublicRaw: Uint8Array): Promise<string> {
+export async function openAsAgent(envelope: Pick<AiSelectionEnvelope, 'epk' | 'iv' | 'ct'> & { aad: unknown }, agentPrivate: CryptoKey,
+  agentPublicRaw: Uint8Array, purpose = 'hussh/ai-selection/v1'): Promise<string> {
   const epk = base64AnyDecode(envelope.epk);
   const ephemeral = await crypto.subtle.importKey("raw", buf(epk), X25519, false, []);
   const shared = await crypto.subtle.deriveBits({ name: "X25519", public: ephemeral } as unknown as AlgorithmIdentifier, agentPrivate, 256);
   const hkdf = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveBits"]);
   const keyBytes = await crypto.subtle.deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt: buf(new Uint8Array([...epk, ...agentPublicRaw])), info: new TextEncoder().encode("hussh/ai-selection/v1") },
+    { name: "HKDF", hash: "SHA-256", salt: buf(new Uint8Array([...epk, ...agentPublicRaw])), info: new TextEncoder().encode(purpose) },
     hkdf,
     256,
   );

@@ -17,6 +17,9 @@ ORDER, AND WHY
    it without the key, and key custody refuses to mint a replacement key while it
    exists (``pod_key_vault_custody``), so the next request cannot quietly start a
    second history that claims to be the erased agent.
+   Connector grants are inventoried behind the verified fence and revocation is
+   attempted before the tombstone is written. Only bounded hashed receipts survive;
+   a provider outage does not block erasure of the person's local information.
 2. The **wrapped data key goes first**. From that moment every sealed object is
    ciphertext nobody can open. Then the identity key, the incarnation fence, the
    session projection and the chained records.
@@ -83,15 +86,20 @@ def _owner_digest(owner_id: str) -> str:
 
 
 def _tombstone(
-    owner_id: str, attempt_id: str, record_keys: list[str], browser_keys: list[str]
+    owner_id: str,
+    attempt_id: str,
+    record_keys: list[str],
+    browser_keys: list[str],
+    provider_revocations: dict[str, Any],
 ) -> bytes:
     body = {
         "kind": _TOMBSTONE_KIND,
-        "version": 2,
+        "version": 3,
         "ownerDigest": _owner_digest(owner_id),
         "attemptId": attempt_id,
         "records": record_keys,
         "browserObjects": browser_keys,
+        "providerRevocations": provider_revocations,
     }
     raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
     if len(raw) > _MAX_TOMBSTONE_BYTES:
@@ -109,6 +117,40 @@ def _valid_record_key(key: Any) -> bool:
     return True
 
 
+def _valid_provider_receipts(value: Any) -> bool:
+    """Strict metadata only: counts and provider/project/account digests, never tokens."""
+    if not isinstance(value, dict) or set(value) != {
+        "revoked",
+        "unrevoked",
+        "unavailable",
+        "receipts",
+    }:
+        return False
+    for name in ("revoked", "unrevoked", "unavailable"):
+        if type(value[name]) is not int or not 0 <= value[name] <= (
+            1 if name == "unavailable" else 128
+        ):
+            return False
+    receipts = value["receipts"]
+    if not isinstance(receipts, list) or len(receipts) > 128:
+        return False
+    for receipt in receipts:
+        if (
+            not isinstance(receipt, dict)
+            or set(receipt) != {"provider", "grantDigest", "outcome"}
+            or receipt["provider"] not in ("google", "mcp")
+            or not isinstance(receipt["grantDigest"], str)
+            or re.fullmatch(r"[a-f0-9]{64}", receipt["grantDigest"]) is None
+            or receipt["outcome"] not in ("confirmed", "unconfirmed")
+        ):
+            return False
+    return (
+        value["revoked"] == sum(r["outcome"] == "confirmed" for r in receipts)
+        and value["unrevoked"] == sum(r["outcome"] == "unconfirmed" for r in receipts)
+        and (not value["unavailable"] or not receipts)
+    )
+
+
 def bound_record_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str]:
     """The record keys a tombstone lists, only when it binds THIS owner and attempt."""
     try:
@@ -118,15 +160,16 @@ def bound_record_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str
             or set(body)
             != (
                 {"kind", "version", "ownerDigest", "attemptId", "records"}
-                | ({"browserObjects"} if body.get("version") == 2 else set())
+                | ({"browserObjects"} if body.get("version") in (2, 3) else set())
+                | ({"providerRevocations"} if body.get("version") == 3 else set())
             )
             or body["kind"] != _TOMBSTONE_KIND
             or type(body["version"]) is not int
-            or body["version"] not in {1, 2}
+            or body["version"] not in {1, 2, 3}
             or not isinstance(body["records"], list)
             or not all(_valid_record_key(key) for key in body["records"])
             or (
-                body["version"] == 2
+                body["version"] in {2, 3}
                 and (
                     not isinstance(body["browserObjects"], list)
                     or len(body["browserObjects"]) > 10000
@@ -137,6 +180,7 @@ def bound_record_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str
                     )
                 )
             )
+            or (body["version"] == 3 and not _valid_provider_receipts(body["providerRevocations"]))
         ):
             raise ValueError("shape")
     except ValueError:
@@ -148,7 +192,20 @@ def bound_record_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str
 
 def bound_browser_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str]:
     bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
-    return json.loads(raw).get("browserObjects", [])
+    return list(json.loads(raw).get("browserObjects", []))
+
+
+def provider_revocation_counts(raw: bytes, *, owner_id: str, attempt_id: str) -> dict[str, int]:
+    """A verified tombstone's provider outcome, independently of local key erasure."""
+    bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
+    receipts = json.loads(raw).get("providerRevocations")
+    if receipts is None:  # legacy erasure gives no evidence of external revocation
+        return {"providerRevoked": 0, "providerUnconfirmed": 0, "providerUnavailable": 1}
+    return {
+        "providerRevoked": receipts["revoked"],
+        "providerUnconfirmed": receipts["unrevoked"],
+        "providerUnavailable": receipts["unavailable"],
+    }
 
 
 async def _claim_tombstone(
@@ -157,6 +214,7 @@ async def _claim_tombstone(
     owner_id: str,
     attempt_id: str,
     open_fenced_log: Callable[[], Awaitable[PodCommitLog]],
+    provider_post: Any = None,
 ) -> bytes:
     """Write the tombstone once; a concurrent erase that won it is adopted, never raced."""
     log = await open_fenced_log()
@@ -182,11 +240,18 @@ async def _claim_tombstone(
             raise PodCryptoEraseRefused("the browser inventory exceeds its bound")
 
     keys = await log.fold_fenced(owner_id=owner_id, attempt_id=attempt_id, visit_reverse=collect)
-    tombstone = _tombstone(owner_id, attempt_id, keys, sorted(browser))
+    from hushh_mcp.services.pod_connector_connect import revoke_fenced  # noqa: PLC0415
+
+    provider_revocations = await revoke_fenced(
+        log, owner_id=owner_id, attempt_id=attempt_id, hushh_id=owner_id, post=provider_post
+    )
+    if not _valid_provider_receipts(provider_revocations):
+        raise PodCryptoEraseRefused("the provider receipt did not verify")
+    tombstone = _tombstone(owner_id, attempt_id, keys, sorted(browser), provider_revocations)
     if await store.put_if_generation(ERASURE_TOMBSTONE_OBJECT, tombstone, ABSENT) is not None:
         return tombstone
     winner, _ = await store.get_with_generation(ERASURE_TOMBSTONE_OBJECT)
-    if winner is None:
+    if not isinstance(winner, bytes):
         raise PodCryptoEraseRefused("the erasure tombstone could not be confirmed")
     return winner
 
@@ -235,6 +300,7 @@ async def crypto_erase(
     attempt_id: str,
     wrapped_key_object: str,
     open_fenced_log: Callable[[], Awaitable[PodCommitLog]],
+    provider_post: Any = None,
 ) -> dict[str, int]:
     """Destroy the key, then the objects; idempotent per attempt. Returns counts only.
 
@@ -245,16 +311,26 @@ async def crypto_erase(
     raw, _ = await store.get_with_generation(ERASURE_TOMBSTONE_OBJECT)
     if raw is None:
         raw = await _claim_tombstone(
-            store, owner_id=owner_id, attempt_id=attempt_id, open_fenced_log=open_fenced_log
+            store,
+            owner_id=owner_id,
+            attempt_id=attempt_id,
+            open_fenced_log=open_fenced_log,
+            provider_post=provider_post,
         )
     records = bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
     browser = bound_browser_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
+    providers = provider_revocation_counts(raw, owner_id=owner_id, attempt_id=attempt_id)
     targets = (*owned_objects(wrapped_key_object), *records, *browser)
     deleted = 0
     for key in targets:
         deleted += int(await store.delete(key))
     await _close_fences(store)
-    return {"deleted": deleted, "alreadyAbsent": len(targets) - deleted, "records": len(records)}
+    return {
+        "deleted": deleted,
+        "alreadyAbsent": len(targets) - deleted,
+        "records": len(records),
+        **providers,
+    }
 
 
 __all__ = [
@@ -264,4 +340,5 @@ __all__ = [
     "bound_record_keys",
     "crypto_erase",
     "owned_objects",
+    "provider_revocation_counts",
 ]

@@ -1,9 +1,8 @@
-"""How a pod asks the hub whether consent is still good.
+"""Owner-local token verification with a canonical metadata verifier fallback.
 
-The pod side of ``api/routes/one/pod_consent.py``. See that module for why asking
-beats verifying locally; in short, a pod holds a signing key that deliberately
-cannot check the hub's signatures, and even a checkable signature would not close
-revocation, because the revoked set lives in the hub's process and database.
+A fresh signed grant snapshot belongs to one exact serving incarnation. Reserved
+and commercial grants retain the canonical verifier's additional policy. Neither
+path reads private information from the hub.
 
 Three failure modes, three different answers -- and conflating any two of them is
 how a consent control quietly stops being one:
@@ -11,6 +10,9 @@ how a consent control quietly stops being one:
     valid       the hub says this token is live and in scope
     invalid     the hub says no. A clean denial. Refuse the turn.
     unavailable the hub could not be asked at all
+
+An Ed25519-signed token is judged inside the agent instead when the agent holds a
+fresh signed revocation list (``pod_local_consent``); a stale list is ``unavailable``.
 
 The third must NEVER collapse into either of the others. Treated as ``invalid`` it
 would turn a hub blip into "your agent refuses to know you", which is alarming and
@@ -116,6 +118,22 @@ async def verify_consent(
     if not str(token or "").strip():
         return ConsentVerdict(valid=False, available=True, reason="no token")
 
+    from hushh_mcp.services.pod_session_authority import active_session_authority
+
+    authority = active_session_authority()
+    if authority is not None:
+        try:
+            await authority.require_held()
+        except Exception:  # noqa: BLE001 - a fenced or unreadable lease grants nothing
+            return ConsentVerdict(valid=False, available=False, reason="incarnation unavailable")
+
+    # An Ed25519 token this agent can judge itself never leaves the agent.
+    from hushh_mcp.services.pod_local_consent import local_ed25519_verdict  # noqa: PLC0415
+
+    local = local_ed25519_verdict(token, expected_scope=expected_scope)
+    if local is not None:
+        return local
+
     hub = client
     if hub is None:
         from hushh_mcp.services.pod_hub_client import PodHubClient  # noqa: PLC0415
@@ -136,6 +154,14 @@ async def verify_consent(
             valid=False, available=False, reason=f"authority unreachable: {type(exc).__name__}"
         )
 
+    try:
+        if active_session_authority() is not authority:
+            raise PermissionError("serving authority changed")
+        if authority is not None:
+            await authority.require_held()
+    except Exception:  # noqa: BLE001 - an in-flight response cannot revive a fenced worker
+        return ConsentVerdict(valid=False, available=False, reason="incarnation unavailable")
+
     status = getattr(response, "status_code", 0)
     if status == 503:
         # The hub reached its database and could not read it. Same class as an
@@ -154,8 +180,18 @@ async def verify_consent(
     except Exception:  # noqa: BLE001
         return ConsentVerdict(valid=False, available=False, reason="unreadable authority response")
 
-    if not data.get("valid"):
+    if not isinstance(data, Mapping) or type(data.get("valid")) is not bool:
+        return ConsentVerdict(valid=False, available=False, reason="unreadable authority response")
+    if not data["valid"]:
         return ConsentVerdict(valid=False, available=True, reason="consent is not valid")
+    if (
+        not isinstance(data.get("userId"), str)
+        or not data["userId"].strip()
+        or not isinstance(data.get("hushhId"), str)
+        or data["hushhId"] != (os.getenv("HUSSH_ID") or "").strip()
+        or not isinstance(data.get("scope", ""), str)
+    ):
+        return ConsentVerdict(valid=False, available=False, reason="authority binding unavailable")
     return ConsentVerdict(
         valid=True,
         available=True,

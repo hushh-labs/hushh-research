@@ -1,6 +1,9 @@
 # Owner-pod direct runtime: evidence and implementation handoff
 
-Status: **future implementation plan, grounded in source and read-only deployment inspection on 2026-09-10**. This document does not certify completion. Only this plan was added during this scan; no runtime, repository code, infrastructure or Wiki changes were made.
+Status: **dated implementation handoff, grounded in inspection on 2026-09-10**,
+with source corrections below. The original scan added only this plan; later source
+wiring does not certify deployed acceptance. Current qualified status belongs in
+the [canonical north star](../../reference/architecture/private-agent-north-star.md#owner-direct-setup-and-google-connectors--qualified-source-status).
 
 ## Visual Context
 
@@ -46,7 +49,7 @@ The Vertex diagnostic and Live-ticket mint passed previously. The Live socket cl
 
 ## 3. Current and intended topology
 
-### Current implementation
+### Inspected implementation (2026-09-10)
 
 ```mermaid
 flowchart LR
@@ -61,7 +64,7 @@ flowchart LR
     P --> M[Owner memory and sealed storage]
 ```
 
-The current transport is authenticated but the hub forwards decoded inference frames. This is not evidence of end-to-end payload confidentiality from the hub. The frontend-facing pod-turn route collects a JSON response; internal model deltas do not establish browser streaming.
+The transport inspected on that date was authenticated but the hub forwarded decoded inference frames. This was not evidence of end-to-end payload confidentiality from the hub. The frontend-facing pod-turn route collected a JSON response; internal model deltas did not establish browser streaming.
 
 ### Intended owner deployment
 
@@ -236,6 +239,26 @@ Agents: primary only; no subagents. Skills consulted for this scan: repo-context
 Recorded against the source and the owner project after the plan above was executed on
 the private branch. Each line names what the plan got wrong or left unsaid; the code and
 the runbooks are the source of truth where this document still disagrees.
+
+**Source correction, 2026-10-06.** Without placement or setup intent the owner is `unplaced`; Shared needs
+explicit owner choice. Direct setup and credential writes require the exact pod
+wall/owner binding and a local app-role session. Native Google uses public-client
+PKCE; web/QR carries intent only. The legacy-to-private transition now confirms
+project/account-wide old-grant revocation before fresh native authorization and
+requires current pod transition admission before redemption. Affected caches are
+dropped and exact credential IDs/generations refreshed; only `invalid_grant`
+retires an old grant. Provider outages block fresh redemption; timestamps do not
+prove grant loss. Source wiring is implemented; live provider/native acceptance
+remains unproved.
+Gmail delivery uses the OAuth-project topic and owner notification-project direct
+OIDC subscription/DLQ; Azure needs an explicit Google notification adapter. The
+existing owner-operation checkpoint and parked migration 956 remain conditional
+until integration, database validation and live readback agree. No poller or model
+call on every ring is substituted. Hub owner feeds expose declared platform
+metadata/publication summaries; private provider observations remain pod-local.
+The 2026-10-06 disposable Azure native sandbox retry reached the provider and
+created the sandbox, then refused egress; sandbox and outer resource-group deletion
+were confirmed. Owner-information execution and a private bridge remain unproved.
 
 - **§3 deployment choice.** No ingress sidecar. Cloud Run IAM is service-wide, so a
   sidecar cannot restore per-path protection, and `gcp_run_client.py` and

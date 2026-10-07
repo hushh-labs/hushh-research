@@ -20,13 +20,9 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
-from api.middlewares.chat_key import (
-    CHAT_KEY_REQUIRED_DETAIL,
-    log_chat_key_refusal,
-    require_vault_owner_chat_key,
-)
+from api.middlewares.chat_key import CHAT_KEY_REQUIRED_DETAIL, log_chat_key_refusal
 from api.routes.one.agent_context import sanitize_agent_context
-from api.routes.one.command_proposals import require_private_runtime
+from api.routes.one.command_proposals import require_pod_process
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
@@ -156,6 +152,14 @@ from hushh_mcp.services.gmail_personal_information_request_service import (
 from hushh_mcp.services.information_request_service import (
     InformationRequestError,
     InformationRequestService,
+)
+from hushh_mcp.services.owner_placement_guard import (
+    HUB_CHAT_GUARD,
+    admit_hub_content,
+    hub_content_chat_owner,
+    hub_content_owner,
+    mark_inline_routes,
+    require_vault_owner_chat_key,
 )
 from hushh_mcp.services.person_profile_service import PersonProfileService
 from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
@@ -312,9 +316,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     authorization_is_consent = authorization_token.startswith("HCT:")
     if consent_header is not None:
         token = await require_vault_owner_token(
-            request=request,
-            authorization=None,
-            hushh_consent=consent_header,
+            request=request, authorization=None, hushh_consent=consent_header
         )
     if authorization_is_consent:
         bearer_token = await require_vault_owner_token(
@@ -330,12 +332,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
         if token is not None and firebase_uid != token["user_id"]:
             raise HTTPException(status_code=403, detail="Credential owner mismatch")
-    if token is not None:
-        hosting_mode = await get_owner_hosting_mode(token["user_id"])
-        if hosting_mode == "unknown":
-            raise HTTPException(status_code=503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
-        if hosting_mode != "shared":
-            raise HTTPException(status_code=409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
+    owner_id = (token or {}).get("user_id") or firebase_uid  # Firebase-only is still an owner.
+    await admit_hub_content(owner_id, "agent_chat", resolve_mode=get_owner_hosting_mode)
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
     if (
         forwarded.get("runtimeCredential")
@@ -691,6 +689,7 @@ add_adk_fastapi_endpoint(
     extract_state_from_request=_extract_state,
     agent_resolver=_resolve_agent,
 )
+mark_inline_routes(router, "/api/one/agent-chat", "agent_chat")  # _extract_state admits
 
 
 class RenameConversation(BaseModel):
@@ -708,6 +707,7 @@ async def record_information_request_submission(
     conversation_id: str,
     payload: RecordInformationRequestSubmission,
     token: dict = Depends(require_vault_owner_chat_key),
+    _admitted: dict = Depends(hub_content_chat_owner),  # after token: callers pass it third
 ):
     """Record one confirmed browser request in the existing encrypted ADK history.
 
@@ -789,7 +789,7 @@ async def record_information_request_submission(
     return {"descriptor": persisted_descriptor, "sourceActivityId": source_card_id}
 
 
-@router.get("/api/one/agent-chat/conversations/{user_id}")
+@router.get("/api/one/agent-chat/conversations/{user_id}", dependencies=HUB_CHAT_GUARD)
 async def list_conversations(
     user_id: str,
     limit: int = Query(default=5, ge=1, le=20),
@@ -857,7 +857,7 @@ async def _consent_access_for_history(
     return by_invocation, ended
 
 
-@router.get("/api/one/agent-chat/history/{conversation_id}")
+@router.get("/api/one/agent-chat/history/{conversation_id}", dependencies=HUB_CHAT_GUARD)
 async def conversation_history(
     conversation_id: str,
     limit: int = Query(default=50, ge=1, le=100),
@@ -897,7 +897,7 @@ async def conversation_history(
 @router.get("/api/one/agent-chat/information-requests/{bundle_id}/conversation")
 async def information_request_conversation(
     bundle_id: uuid.UUID,
-    token: dict = Depends(require_vault_owner_chat_key),
+    token: dict = Depends(hub_content_chat_owner),
 ):
     """The requester's own conversation that sent this request, after unlock.
 
@@ -919,7 +919,7 @@ async def information_request_conversation(
     raise HTTPException(status_code=404, detail="Conversation not found.")
 
 
-@router.patch("/api/one/agent-chat/conversations/{conversation_id}")
+@router.patch("/api/one/agent-chat/conversations/{conversation_id}", dependencies=HUB_CHAT_GUARD)
 async def rename_conversation(
     conversation_id: str,
     payload: RenameConversation,
@@ -946,8 +946,8 @@ async def delete_conversation(
     conversation_id: str,
     token: dict = Depends(require_vault_owner_token),
 ):
-    # Deleting needs no plaintext, so it needs no chat key: only the owner's
-    # current conversation row, matched by id, is removed.
+    # No plaintext and no Shared placement needed: an owner whose agent moved still
+    # erases their own hub conversation row, matched by id.
     deleted = await _session_service.delete_owned_session(
         app_name=ONE_APP_NAME, user_id=str(token["user_id"]), session_id=conversation_id
     )
@@ -957,9 +957,9 @@ async def delete_conversation(
 
 
 # ── Queued input: messages sent while One is still working ─────────────────
-# Owner-bound by the VAULT_OWNER token. No chat key: nothing sealed is read
-# here. Queued text is held in memory until the running turn seals it into the
-# conversation, or dropped when it is returned or withdrawn. See queued_input.py.
+# Owner-bound by the VAULT_OWNER token, no chat key. Only enqueue carries text, so
+# only it admits Shared owners alone; withdraw, status and stop return ids. Queued
+# text stays in memory until the turn seals it or it is returned. See queued_input.py.
 
 
 class EnqueueQueuedInput(BaseModel):
@@ -975,7 +975,7 @@ def _queued_input_receipt(receipt: Any) -> dict[str, str]:
 async def enqueue_queued_input(
     conversation_id: str,
     payload: EnqueueQueuedInput,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
 ):
     try:
         receipt = queued_input_registry.enqueue(
@@ -1039,11 +1039,11 @@ class ActionSearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
 
 
-@router.post("/api/one/actions/search", dependencies=[Depends(require_private_runtime)])
+@router.post("/api/one/actions/search", dependencies=[Depends(require_pod_process)])
 async def search_actions_endpoint(
     payload: ActionSearchRequest,
     request: Request,
-    token: dict = Depends(require_vault_owner_token),
+    token: dict = Depends(hub_content_owner),
 ):
     """Return related generated capabilities for a natural-language query.
 

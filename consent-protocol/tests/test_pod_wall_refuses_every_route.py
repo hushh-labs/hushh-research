@@ -121,3 +121,81 @@ def test_every_machine_websocket_is_closed_before_it_is_accepted(walled):
             with client.websocket_connect(_concrete(path)):
                 pass
         assert closed.value.code == 1008, path
+
+
+#: Realistic values for the owner app's parameterised agent-chat routes.
+_REAL = {
+    "conversation_id": "conv-1",
+    "user_id": "owner-a",
+    "client_message_id": "client-msg-0001",
+    "command_id": "0b6f6a1e-2f4c-4d1a-9a59-5f1f3c1e2d3b",
+}
+
+
+def _real(path: str) -> str:
+    def value(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name == "connector_id":
+            return "custom_" + "a" * 32
+        return _REAL[name]
+
+    return re.sub(r"\{([^}]+)\}", value, path)
+
+
+def _agent_chat_routes() -> list[tuple[str, str]]:
+    return [(m, p) for m, p in _http_routes() if p.startswith("/api/one/pod/agent-chat")]
+
+
+def test_every_agent_chat_route_is_named_on_the_app_surface(walled):
+    """Queue, stop, ratings, proposals and connector settings are the owner app's
+    own doors on its agent. Each must be named exactly, so the app reaches it with
+    its pod session and nothing else shares that reach."""
+    routes = _agent_chat_routes()
+    paths = {p for _, p in routes}
+    for expected in (
+        "/api/one/pod/agent-chat/runs/{conversation_id}/queue",
+        "/api/one/pod/agent-chat/runs/{conversation_id}/queue/{client_message_id}",
+        "/api/one/pod/agent-chat/runs/{conversation_id}/stop",
+        "/api/one/pod/agent-chat/feedback",
+        "/api/one/pod/agent-chat/proposals",
+        "/api/one/pod/agent-chat/proposals/typed",
+        "/api/one/pod/agent-chat/proposals/{command_id}",
+        "/api/one/pod/agent-chat/proposals/{command_id}/settle",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/catalog",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/begin",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/complete",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/cancel",
+    ):
+        assert expected in paths, f"{expected} is not mounted on the pod"
+    for method, path in routes:
+        assert walled.is_app_surface(_real(path)), (method, path)
+
+
+def test_agent_chat_app_surface_patterns_do_not_widen_to_neighbours(walled):
+    for path in (
+        "/api/one/pod/agent-chat/runs/conv-1/queue/client-msg-0001/extra",
+        "/api/one/pod/agent-chat/runs/conv-1/queue/short",
+        "/api/one/pod/agent-chat/runs/conv-1/start",
+        "/api/one/pod/agent-chat/runs/conv 1/stop",
+        "/api/one/pod/agent-chat/proposals/not-a-uuid",
+        "/api/one/pod/agent-chat/proposals/0b6f6a1e-2f4c-4d1a-9a59-5f1f3c1e2d3b/execute",
+        "/api/one/pod/agent-chat/proposals/typed/x",
+        "/api/one/pod/agent-chat/feedback/export",
+        "/api/one/pod/agent-chat/connectors/gmail/mcp/catalog",
+        "/api/one/pod/agent-chat/connectors/custom_" + "a" * 32 + "/mcp/oauth/refresh",
+        "/api/one/pod/agent-chat/connectors/custom_" + "a" * 32 + "/mcp/confirm",
+    ):
+        assert not walled.is_app_surface(path), path
+
+
+def test_no_agent_chat_route_serves_an_unidentified_caller_at_its_real_path(walled):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    served = []
+    for method, path in _agent_chat_routes():
+        for kwargs in ({}, {"json": {}}):
+            response = client.request(method, _real(path), **kwargs)
+            if response.status_code < 400:
+                served.append((method, path, response.status_code))
+    assert served == [], f"served to a caller with no identity: {served}"

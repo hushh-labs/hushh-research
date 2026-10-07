@@ -684,17 +684,20 @@ def test_setup_authorization_survives_retry_and_rejects_foreign_receipts(provisi
 
 
 @pytest.mark.parametrize(
-    "invalid,with_files",
+    "invalid,with_files,notification_custody",
     [
-        (None, False),
-        (None, True),
+        (None, False, False),
+        (None, True, False),
+        (None, False, True),
         *[
-            (value, False)
+            (value, False, False)
             for value in ("owner", "attempt", "engine", "extra", "guard", "provenance")
         ],
     ],
 )
-def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, invalid, with_files):
+def test_erasure_memory_binding_is_append_only_and_attempt_bound(
+    provision_pg, invalid, with_files, notification_custody
+):
     pg = provision_pg
     pg.apply_file(ROOT / "db/migrations/parked/918_personal_agent_erasure_memory_binding.sql")
     pg.apply_file(ROOT / "db/migrations/parked/919_personal_agent_compute_erasure.sql")
@@ -757,6 +760,15 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ROOT / "db/migrations/rollback/942_personal_agent_erasure_validation_cost.rollback.sql"
     )
     pg.apply_file(ROOT / "db/migrations/parked/942_personal_agent_erasure_validation_cost.sql")
+    if notification_custody:
+        for path in sorted((ROOT / "db/migrations/parked").glob("*.sql")):
+            number = int(path.name.split("_", 1)[0])
+            if 943 <= number <= 956 and number not in (944, 945):
+                if number == 954:
+                    pg.execute(
+                        "ALTER TABLE vault_keys ADD COLUMN IF NOT EXISTS setup_capability_ids TEXT"
+                    )
+                pg.apply_file(path)
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -938,6 +950,41 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
                     "serviceUid": "incarnation",
                     "substrateReceipt": inventory,
                     "runtime_service_account": runtime_email,
+                    **(
+                        {
+                            "detachedPlacements": [
+                                {
+                                    "user_id": "synthetic-owner",
+                                    "hushh_id": "ha1_erasure",
+                                    "external_agent_id": "pod-service",
+                                    "deployment_target": "user_gcp",
+                                    "user_cloud_project": "synthetic-project",
+                                    "user_cloud_region": "us-central1",
+                                    "backend_metadata": {
+                                        "serviceUid": "incarnation",
+                                        "notificationCheckpoint": {
+                                            "phase": "observed",
+                                            "plan": {
+                                                "plannedResources": [
+                                                    {"type": x["type"], "id": x["id"]}
+                                                    for x in mail_observations
+                                                ]
+                                            },
+                                        },
+                                        "substrateReceipt": {
+                                            "plannedResources": [
+                                                {"type": x["type"], "id": x["id"]}
+                                                for x in mail_observations
+                                            ],
+                                            "resourceObservations": mail_observations,
+                                        },
+                                    },
+                                }
+                            ]
+                        }
+                        if notification_custody
+                        else {}
+                    ),
                     "provisionAttempt": {
                         "version": 1,
                         "ownerId": "synthetic-owner",
@@ -1842,6 +1889,8 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
                 "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,%s::text[],%s::jsonb) WHERE user_id='synthetic-owner'",
                 (path, json.dumps(value)),
             )
+            if notification_custody:
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
             cursor.execute(
                 "ALTER TABLE personal_agent_registry ENABLE TRIGGER zz_personal_agent_erasure_registry"
             )
@@ -1893,7 +1942,36 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         )[0][0]
         == 0
     )
+    if notification_custody:
+        custody = saved["backend_metadata"]["detachedPlacements"][0]
+        complete_reservation = saved["backend_metadata"]["erasure"]
+        assert (
+            pg.execute(
+                "SELECT notification_erasure_custody_archived('synthetic-owner',%s::jsonb,%s::jsonb)",
+                (json.dumps(complete_reservation), json.dumps(custody)),
+            )[0][0]
+            is False
+        )
     assert pg.execute("SELECT finalize_personal_agent_erasure('synthetic-owner')")[0][0] is True
+    if notification_custody:
+        assert (
+            pg.execute(
+                "SELECT notification_erasure_custody_archived('synthetic-owner',%s::jsonb,%s::jsonb)",
+                (json.dumps(complete_reservation), json.dumps(custody)),
+            )[0][0]
+            is True
+        )
+        foreign = json.loads(json.dumps(custody))
+        foreign["backend_metadata"]["substrateReceipt"]["resourceObservations"][0]["id"] = (
+            "uncovered"
+        )
+        assert (
+            pg.execute(
+                "SELECT notification_erasure_custody_archived('synthetic-owner',%s::jsonb,%s::jsonb)",
+                (json.dumps(complete_reservation), json.dumps(foreign)),
+            )[0][0]
+            is False
+        )
     for table in (
         "personal_agent_registry",
         "byoc_setup_jobs",

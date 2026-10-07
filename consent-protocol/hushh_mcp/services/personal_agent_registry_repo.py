@@ -309,6 +309,55 @@ class PersonalAgentRegistryRepo:
         # Retention is not permission to continue ordinary provisioning.
         return published
 
+    async def notification_checkpoint_admission_ready(self) -> bool:
+        """Missing or unavailable notification schema cannot authorize a provider write."""
+        try:
+            result = await asyncio.to_thread(
+                self._db().execute_raw,
+                "SELECT public.notification_checkpoint_admission_ready() AS ready",
+                {},
+            )
+            return bool(result.data and result.data[0].get("ready") is True)
+        except Exception:
+            return False
+
+    async def publish_notification_checkpoint(
+        self,
+        *,
+        user_id: str,
+        kind: str,
+        attempt_id: str,
+        operation_id: str,
+        expected_generation: int,
+        checkpoint: dict,
+    ) -> dict | None:
+        """CAS the existing owner operation; a late receipt never resumes execution."""
+        result = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.publish_personal_agent_notification_checkpoint("
+            ":owner,:kind,:attempt,:operation,:generation,CAST(:checkpoint AS jsonb)) AS admitted",
+            {
+                "owner": user_id,
+                "kind": kind,
+                "attempt": attempt_id,
+                "operation": operation_id,
+                "generation": expected_generation,
+                "checkpoint": json.dumps(checkpoint),
+            },
+        )
+        admitted = result.data[0].get("admitted") if result.data else None
+        return admitted if isinstance(admitted, dict) else None
+
+    async def effective_erasure_substrate_inventory(self, *, reservation: dict) -> dict | None:
+        """Read the same qualified inventory the guarded retention function derives."""
+        result = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.effective_erasure_substrate_inventory(CAST(:reservation AS jsonb)) AS inventory",
+            {"reservation": json.dumps(reservation)},
+        )
+        inventory = result.data[0].get("inventory") if result.data else None
+        return inventory if isinstance(inventory, dict) else None
+
     async def retain_erasure_upgrade_ack(self, *, user_id: str, lease: str, receipt: dict) -> bool:
         """Append late provider evidence without reopening the reserved owner."""
         response = await asyncio.to_thread(
