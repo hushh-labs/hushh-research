@@ -128,16 +128,19 @@ final class AppUITests: XCTestCase {
         let unlock = web.buttons["Unlock"].firstMatch
         let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
         let signIn = web.buttons["Continue with Google"].firstMatch
+        let passphraseMethod = web.buttons["Passphrase"].firstMatch
+        let passphraseFallback = web.buttons["Use passphrase instead"].firstMatch
         // A newly installed iPad can expose WebKit before Firebase/vault
         // restoration settles. Absence of Unlock at that instant does not
         // prove admission; wait for an actual public gate or protected shell.
         let sessionReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            unlock.exists && unlock.isHittable || composer.exists && composer.isHittable || signIn.exists && signIn.isHittable
+            unlock.exists && unlock.isHittable || composer.exists && composer.isHittable || signIn.exists && signIn.isHittable ||
+                passphraseMethod.exists && passphraseMethod.isHittable || passphraseFallback.exists && passphraseFallback.isHittable
         }, object: web)
         XCTAssertEqual(XCTWaiter.wait(for: [sessionReady], timeout: 30), .completed, "SESSION_ADMISSION_NOT_SETTLED")
         guard !signIn.exists else { XCTFail("SESSION_SIGN_IN_REQUIRED"); return }
         print("NATIVE_SESSION_STATE unlock=\(unlock.exists) unlock_hittable=\(unlock.exists && unlock.isHittable) composer=\(composer.exists) sign_in=\(signIn.exists)")
-        if unlock.exists {
+        if unlock.exists || (!composer.exists && (passphraseMethod.exists || passphraseFallback.exists)) {
             let email = environment["HUSHH_UI_TEST_REVIEWER_EMAIL"] ?? ""
             guard !email.isEmpty, web.staticTexts.matching(NSPredicate(format: "label == %@", email)).firstMatch.exists else {
                 XCTFail("The visible vault account does not match the canonical reviewer; unlock was not submitted")
@@ -2656,15 +2659,6 @@ final class AppUITests: XCTestCase {
             return false
         }
 
-        // Select the authored fallback before requiring its field. A device-
-        // first vault may have no text entry until this choice is made.
-        for methodButton in [app.buttons["Passphrase"], app.buttons["Use passphrase instead"], app.buttons["Vault Key"]] {
-            if methodButton.waitForExistence(timeout: 0.25), methodButton.isHittable {
-                methodButton.tap()
-                break
-            }
-        }
-
         let unlockControls = app.buttons.matching(NSPredicate(
             format: "label IN %@", ["Unlock", "Unlock with passphrase"]
         ))
@@ -2680,9 +2674,29 @@ final class AppUITests: XCTestCase {
             ["Enter passphrase", "Enter vault key", "Enter your passphrase"],
             ["unlock-passphrase", "vault-key"]
         )
-        // WebKit may initially project the password input as a text field on
-        // iPad. Admit only its authored identity, never an unrelated lone field
-        // or the mere presence of a secure field elsewhere in the app.
+        let hasAuthoredField = {
+            fieldQueries.contains { $0.matching(authoredField).firstMatch.exists }
+        }
+        // A device-first vault has no text field until its authored fallback
+        // is chosen. Existing passphrase entry must not trigger another choice.
+        if !hasAuthoredField() {
+            let hosts = app.webViews.matching(identifier: "native-webview")
+            let methods = hosts.firstMatch.buttons.matching(NSPredicate(
+                format: "label IN %@", ["Passphrase", "Use passphrase instead", "Vault Key"]
+            ))
+            guard hosts.count == 1, methods.count == 1, methods.firstMatch.isEnabled,
+                  methods.firstMatch.isHittable else {
+                print("VAULT_METHOD_ADMISSION stage=method_unavailable"); return false
+            }
+            methods.firstMatch.tap()
+            print("VAULT_METHOD_ADMISSION stage=tap_dispatched")
+        }
+        let fieldExists = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in hasAuthoredField() }, object: app)
+        guard XCTWaiter.wait(for: [fieldExists], timeout: 5) == .completed else {
+            print("VAULT_METHOD_ADMISSION stage=field_absent"); return false
+        }
+        // Keep WebKit's text/secure-role compatibility, but distinguish a
+        // missing field from an existing field obstructed by presentation.
         let fieldReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             fieldQueries.contains { query in
                 let field = query.matching(authoredField).firstMatch
@@ -2690,6 +2704,7 @@ final class AppUITests: XCTestCase {
             }
         }, object: app)
         guard XCTWaiter.wait(for: [fieldReady], timeout: 5) == .completed else {
+            print("VAULT_METHOD_ADMISSION stage=field_obstructed")
             print("VAULT_ENTRY_ADMISSION stage=authored_field_unavailable")
             return false
         }
