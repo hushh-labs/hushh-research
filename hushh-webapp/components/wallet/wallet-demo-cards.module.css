@@ -67,3 +67,32 @@
   border-radius: inherit;
   overflow: hidden;
 }
+
+.dynamicCardName,
+.dynamicCardQr {
+  position: absolute;
+  z-index: 2;
+}
+
+.dynamicCardName {
+  left: 37%;
+  top: 48%;
+  width: 45%;
+  overflow: hidden;
+  color: #c9a96a;
+  font: 600 clamp(8px, 2.6cqw, 18px)/1.1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 1px 2px;
+  background: #151519;
+}
+
+.dynamicCardQr {
+  left: 9.26%;
+  top: 36.15%;
+  width: 20.37%;
+  height: auto;
+  border-radius: 2px !important;
+}

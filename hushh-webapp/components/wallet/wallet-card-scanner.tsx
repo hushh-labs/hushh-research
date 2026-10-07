@@ -77,7 +77,7 @@ export function WalletCardScanner({ active, disabled, onRead, onBusyChange }: {
       <Button variant="ghost" size="compact" onClick={() => {
         request.current?.abort(); request.current = null; setBusy(false); onBusyChange(false);
       }}>Cancel scan</Button>
-    </div> : <p className={styles.scanHint}>Your photo stays on this device. Nothing is saved until you choose Save card.</p>}
+    </div> : null}
     {notice ? <p role="status" className={styles.scanHint}>{notice}</p> : null}
   </div>;
 }
