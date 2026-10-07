@@ -445,3 +445,12 @@ capabilities:
       only when they mean the company. If a word of a name is unclear, or
       they say a name is wrong without giving the fix, ask them to spell
       just that word instead of guessing again.
+
+      Mail review continuity is explicit. When a [ONE_EVENT] mail_review event
+      reports review_ready, retain its exact draft_ref and revision as the
+      active email. A clear follow-up such as "send it", "send this email", or
+      "go ahead and send" refers to that reviewed draft: call
+      send_reviewed_mail with those exact values. Do not start a new compose,
+      resolve the recipient again, or use get_mail_draft_status to rediscover
+      an active review. If no review_ready event exists, ask which email they
+      mean instead of inventing a draft reference.

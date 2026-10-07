@@ -427,6 +427,53 @@ async def test_spoken_send_requires_exact_render_and_fresh_send_approval(reviewe
 
 
 @pytest.mark.asyncio
+async def test_review_ready_event_carries_the_binding_for_a_pronoun_follow_up(reviewed_mail):
+    """The model can route "send it" without rediscovering the draft.
+
+    ``send_reviewed_mail`` is intentionally bound to the server-issued draft
+    reference and revision.  The review event must carry that same binding into
+    the model context; otherwise a follow-up can only guess and returns
+    ``draft_unavailable``.
+    """
+    _session, _transport, live, _pending, _delivery, created, _step = reviewed_mail
+
+    await _ack_review(reviewed_mail)
+
+    event = _events(live)[-1]
+    assert event == {
+        "kind": "mail_review",
+        "status": "review_ready",
+        "reason_code": None,
+        "draft_ref": created.result.draft_ref,
+        "revision": created.result.revision,
+        "spoken_facts": [
+            "The email and sending account are open for review. Ask for send-specific approval before sending."
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_it_without_binding_persists_the_canonical_review(reviewed_mail):
+    session, _transport, _live, pending, delivery, created, _step = reviewed_mail
+    await _ack_review(reviewed_mail)
+
+    proposal = await session.executor.call(
+        session.ctx, "send_reviewed_mail", {}, origin_turn_id=session.turn.turn_id
+    )
+    assert proposal.result.status == "confirmation_required"
+    assert proposal.pending is not None
+    assert proposal.pending.args["draft_ref"] == created.result.draft_ref
+    assert proposal.pending.args["revision"] == created.result.revision
+
+    await pending.mark_shown(user_id=OWNER, pending_action_id=proposal.pending.id)
+    confirmed = await session.executor.call(
+        session.ctx, "confirm_pending_action", {"pending_action_id": proposal.pending.id}
+    )
+    assert confirmed.result.status == "sent"
+    delivery.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_foreign_review_ack_cannot_enable_send(reviewed_mail):
     session, _transport, _live, _pending, delivery, created, _ = reviewed_mail
     await _ack_review(reviewed_mail, action_id="33333333-3333-4333-8333-333333333333")

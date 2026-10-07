@@ -174,6 +174,21 @@ def test_authored_policy_from_agent_yaml_is_present():
     ) in flat
 
 
+def test_authored_policy_binds_send_it_to_the_active_reviewed_draft():
+    """A reviewed draft is an active object, not a new compose request.
+
+    The voice model receives the opaque draft binding in ``mail_review``.  Keep
+    the pronoun mapping in the authored prompt so "send it" reuses that exact
+    binding instead of inventing a new ref or asking status to rediscover it.
+    """
+    flat = " ".join(instruction.voice_head_config()["instruction"].split())
+    assert "When a [ONE_EVENT] mail_review event reports review_ready" in flat
+    assert '"send it", "send this email", or "go ahead and send"' in flat
+    assert "call send_reviewed_mail with those exact values" in flat
+    assert "Do not start a new compose, resolve the recipient again" in flat
+    assert "use get_mail_draft_status to rediscover an active review" in flat
+
+
 def test_context_lines_name_the_person_and_screen():
     text = _build()
     assert "The person's name is Ayesha. They are currently on the one_home screen." in text
