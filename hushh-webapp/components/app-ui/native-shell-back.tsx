@@ -26,10 +26,12 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const layerBlocked = surface?.interactionLayer?.blocksUnderlyingActions === true;
   const [supported, setSupported] = useState(false);
   const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
+  const [backReplacement, setBackReplacement] = useState(false);
   const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome() || supportsNativeChrome("back") && eligible && !!owner && !overlay && !suppressed && !layerBlocked);
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
   const lease = useRef<NativeChromeLease | null>(null);
+  const replacementCandidate = useRef<NativeChromeLease | null>(null);
   const ownerIdentity = useMemo(() => ({ owner, epoch: crypto.randomUUID() }), [owner]);
   const epoch = ownerIdentity.epoch;
   const allowed = eligible && !!owner && !!theme && !overlay && !layerBlocked && !suppressed;
@@ -72,7 +74,11 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
             !nativeShellOverlayBlocked() && !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
             document.visibilityState !== "hidden", () => callback.current()).catch(() => undefined);
         })), retain(nativeChrome.addListener("invalidated", invalidate)), retain(subscribeNativeSessionPrivacy(invalidate))]);
-        if (!cancelled) { setInPlaceUpdates(capability.inPlaceUpdates === true); setSupported(true); }
+        if (!cancelled) {
+          setInPlaceUpdates(capability.inPlaceUpdates === true);
+          setBackReplacement(capability.backReplacement === true);
+          setSupported(true);
+        }
       } catch {
         if (cancelled) return;
         subscriptionsFailed = true;
@@ -103,41 +109,61 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     let owned: NativeChromeLease | null = null;
     const activeEpoch = epoch;
     const wasFocused = document.activeElement === button.current;
+    const previous = replacementCandidate.current;
+    replacementCandidate.current = null;
     lease.current?.invalidate();
     void (async () => {
       try {
-        // Also retire an uncertain lease from a previous mount before exposing DOM.
-        await retireNativeChrome(activeEpoch);
-        if (cancelled) return;
         const { theme } = current.current;
+        const geometry = allowed && theme && document.visibilityState !== "hidden" && slot.current
+          ? measureNativeChromeGeometry(slot.current, "back") : null;
+        const projection = geometry && theme ? { kind: "back" as const, label, enabled: true, ...theme, ...geometry } : null;
+        const replacing = backReplacement && previous && projection && previous.canReplaceBackWith(projection, activeEpoch, context);
+        if (!replacing) {
+          // Uncertainty, owner, overlay or actual geometry changes require
+          // removal. Cached capability never authorizes keeping a stale view.
+          await retireNativeChrome(activeEpoch);
+          if (cancelled) return;
+        }
         setPrepared(null);
-        if (!allowed || !theme || document.visibilityState === "hidden" || !slot.current) {
+        if (!projection) {
           setHidden(false);
           if (wasFocused) button.current?.focus({ preventScroll: true });
           return;
         }
-        const geometry = measureNativeChromeGeometry(slot.current, "back");
-        if (!geometry) { setHidden(false); return; }
-        const next = new NativeChromeLease({ kind: "back", label, enabled: true, ...theme,
-          ...geometry }, activeEpoch, context, inPlaceUpdates);
-        owned = next;
-        lease.current = next;
-        setHidden(true);
-        if (await next.prepare() && !cancelled) { setHidden(true); setPrepared(next); }
+        const next = new NativeChromeLease(projection, activeEpoch, context, inPlaceUpdates);
+        owned = next; lease.current = next; setHidden(true);
+        const ready = replacing ? await next.prepareBackReplacement(previous) : await next.prepare();
+        if (ready && !cancelled) { setHidden(true); setPrepared(next); }
       } catch {
         if (cancelled || (owned && lease.current !== owned)) return;
         owned?.invalidate();
         // Uncertainty is recoverable only by a confirmed removal, never a replay.
-        try { await retireNativeChrome(activeEpoch, owned?.projection); if (!cancelled) setHidden(false); }
+        // Refused replacement can leave the predecessor installed; timeout can
+        // leave either revision. This still-current reconciler owns the slot,
+        // so prove removal of whichever remains before exposing web controls.
+        try { await retireNativeChrome(activeEpoch); if (!cancelled) setHidden(false); }
         catch { if (!cancelled) setHidden(true); console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
       }
     })();
     return () => {
       cancelled = true;
+      replacementCandidate.current = owned?.replacementReady ? owned : null;
       owned?.invalidate();
-      if (owned) void retireNativeChrome(activeEpoch, owned.projection).catch(() => console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"));
+      // The next committed layout either explicitly replaces this presentation
+      // or hard-retires it. Actual unmount has its own strict removal below.
     };
-  }, [supported, allowed, epoch, context, label, measurement, installationAppearance, inPlaceUpdates]);
+  }, [supported, allowed, epoch, context, label, measurement, installationAppearance, inPlaceUpdates, backReplacement]);
+
+  useLayoutEffect(() => () => {
+    replacementCandidate.current = null;
+    const active = lease.current;
+    active?.invalidate();
+    // Pending replacement may still own its predecessor natively. The removal
+    // revision is reserved synchronously; a later mount has a newer fence.
+    if (active) void retireNativeChrome(active.projection.ownerEpoch)
+      .catch(() => console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"));
+  }, []);
 
   // Layout effect runs after the DOM button is hidden/inert, not before React commits it.
   useLayoutEffect(() => {

@@ -758,8 +758,56 @@ final class AppUITests: XCTestCase {
         let routeRetirement = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: back)
         XCTAssertEqual(XCTWaiter.wait(for: [routeRetirement], timeout: 10), .completed,
                        "Native Back remained accessible after returning to One")
+
+        // Consent tabs change the authored route query while retaining the
+        // same Back geometry. Unlike local Mail pager state, this exercises
+        // the actual replacement contract, not merely same-route stability.
+        let consent = webView.links["Open Consent"].firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 15), "CONSENT_ENTRY_UNAVAILABLE")
+        for _ in 0..<4 { if consent.isHittable { break }; webView.swipeDown() }
+        for _ in 0..<4 { if consent.isHittable { break }; webView.swipeUp() }
+        XCTAssertTrue(consent.isHittable)
+        consent.tap()
+        XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable)
+        let probe = app.buttons["native-back-continuity"].firstMatch
+        func counters() -> [String: Int]? {
+            guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8),
+                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
+                  Set(packet.keys) == Set(["installs", "removals", "replacements", "sampledFrames", "missingFrames"])
+            else { return nil }
+            return packet
+        }
+        let measured = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (counters()?["sampledFrames"] ?? 0) > 0
+        }, object: probe)
+        XCTAssertEqual(XCTWaiter.wait(for: [measured], timeout: 5), .completed, "NATIVE_BACK_MEASUREMENTS_UNAVAILABLE")
+        let originalFrame = back.frame
+        for name in ["Active", "History", "Connections", "Requests"] {
+            let tab = webView.buttons.matching(NSPredicate(format: "label == %@", name)).firstMatch
+            XCTAssertTrue(tab.waitForExistence(timeout: 10) && tab.isHittable)
+            if tab.isSelected { continue }
+            guard let before = counters() else { XCTFail("NATIVE_BACK_MEASUREMENTS_UNAVAILABLE"); return }
+            tab.tap()
+            let replaced = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard let after = counters() else { return false }
+                return tab.isSelected && back.exists && back.isHittable &&
+                    after["replacements", default: 0] > before["replacements", default: 0] &&
+                    after["sampledFrames", default: 0] > before["sampledFrames", default: 0]
+            }, object: probe)
+            XCTAssertEqual(XCTWaiter.wait(for: [replaced], timeout: 10), .completed, "NATIVE_BACK_REPLACEMENT_NOT_OBSERVED")
+            guard let after = counters() else { XCTFail("NATIVE_BACK_MEASUREMENTS_UNAVAILABLE"); return }
+            XCTAssertEqual(after["installs"], before["installs"], "Route transition rebuilt the native host")
+            XCTAssertEqual(after["removals"], before["removals"], "Route transition removed the native host")
+            XCTAssertEqual(after["missingFrames"], before["missingFrames"], "Route transition hid or detached the native control")
+            XCTAssertEqual(back.frame, originalFrame)
+            XCTAssertFalse(domBack.exists, "Replacement exposed a duplicate DOM Back")
+        }
+        back.tap()
+        XCTAssertTrue(wallet.waitForExistence(timeout: 15), "Fresh Back did not invoke the authored return handler")
+        XCTAssertFalse(webView.buttons["Unlock"].exists)
         XCTAssertEqual(hosts.count, 1, "Back introduced another Capacitor host")
         XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count)
+        print("NATIVE_BACK_REPLACEMENT_CONTINUITY query_tabs_retained_host_observed_frames_current_handler")
         print("NATIVE_BACK_CONTINUITY layout_overlay_resume_existing_handler_single_host")
     }
 

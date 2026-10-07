@@ -42,6 +42,8 @@ export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: numb
 export type NativeChromeCapabilities = {
   contractVersion: number; families: readonly ChromeFamily[]; canvasAppearance?: boolean;
   independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean;
+  /** Same-owner, same-frame stationary Back only; retirement still means removal. */
+  backReplacement?: boolean;
 };
 
 export interface HushhNativeChromePlugin {
@@ -50,6 +52,7 @@ export interface HushhNativeChromePlugin {
   update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number }): Promise<ChromeUpdateAcknowledgement>;
   setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;
+  prepareBackReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
   activate(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
   retire(options: ChromeIdentity & { targetRevision?: number }): Promise<ChromeAcknowledgement>;
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
@@ -203,17 +206,32 @@ export class NativeChromeLease {
     this.projection = { ...projection, ...nextChromeIdentity(ownerEpoch, chromeControlId(projection.kind)) };
   }
   invalidate() { this.current = false; this.active = false; }
+  /** Capture before invalidation. A pending update/activation is not a handoff candidate. */
+  get replacementReady(): boolean {
+    return this.current && this.active && this.layoutConfirmed && this.requestedUpdate === this.appliedUpdate;
+  }
+  canReplaceBack(previous: NativeChromeLease): boolean {
+    return previous.canReplaceBackWith(this.projection, this.projection.ownerEpoch, this.context) &&
+      this.projection.documentId === previous.projection.documentId;
+  }
+  /** Compare before reserving a revision: ordinary preparation must be newer
+   * than the removal tombstone, not merely newer than its predecessor. */
+  canReplaceBackWith(projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    return projection.kind === "back" && this.projection.kind === "back" &&
+      nativeDocumentId() === this.projection.documentId && ownerEpoch === this.projection.ownerEpoch &&
+      projection.label === this.projection.label && context !== this.context && this.sameGeometry(projection);
+  }
   /** Exact equality, not the one-pixel acknowledgement tolerance. A real move,
    * changed viewport, or unconfirmed/invalidated lease must be re-admitted. */
   matchesGeometry(geometry: ChromeGeometry): boolean {
-    return this.current && this.layoutConfirmed &&
-      (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).every((key) =>
+    return this.current && this.layoutConfirmed && this.sameGeometry(geometry);
+  }
+  private sameGeometry(geometry: ChromeGeometry): boolean {
+    return (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).every((key) =>
         geometry.frame[key] === this.projection.frame[key]) &&
       geometry.viewport.width === this.projection.viewport.width && geometry.viewport.height === this.projection.viewport.height;
   }
-  async prepare(): Promise<boolean> {
-    outstanding.set(this.projection.controlId, this.projection);
-    const ack = await bounded(nativeChrome.prepare(this.projection));
+  private acceptPreparation(ack: ChromeAcknowledgement): boolean {
     if (!matches(ack, this.projection, "prepared") || !ack.frame ||
         (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).some((key) =>
           !Number.isFinite(ack.frame![key]) || Math.abs(ack.frame![key] - this.projection.frame[key]) > 1)) {
@@ -221,6 +239,21 @@ export class NativeChromeLease {
     }
     this.layoutConfirmed = true;
     return this.current;
+  }
+  async prepare(): Promise<boolean> {
+    outstanding.set(this.projection.controlId, this.projection);
+    const ack = await bounded(nativeChrome.prepare(this.projection));
+    return this.acceptPreparation(ack);
+  }
+  /** Replace public presentation, never retain the predecessor's action authority. */
+  async prepareBackReplacement(previous: NativeChromeLease): Promise<boolean> {
+    if (!this.canReplaceBack(previous)) throw new Error("NATIVE_CHROME_REPLACEMENT_REFUSED");
+    previous.invalidate();
+    outstanding.set(this.projection.controlId, this.projection);
+    const ack = await bounded(nativeChrome.prepareBackReplacement({
+      ...this.projection, previousRevision: previous.projection.revision,
+    }));
+    return this.acceptPreparation(ack);
   }
   async activate(): Promise<void> {
     if (!this.current) return;

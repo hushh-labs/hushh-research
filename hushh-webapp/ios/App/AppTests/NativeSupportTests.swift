@@ -86,14 +86,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: false)) // privacy/overlay guard
         XCTAssertTrue(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true))
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true))
-        let next = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-b", revision: 2)
+        let replacement = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 2)
+        XCTAssertFalse(state.prepareBackReplacement(replacement, previousRevision: 0))
+        XCTAssertFalse(state.prepareBackReplacement(.init(document: "a", ownerEpoch: "owner-b", revision: 2), previousRevision: 1))
+        XCTAssertFalse(state.prepareBackReplacement(.init(document: "b", ownerEpoch: "owner-a", revision: 2), previousRevision: 1))
+        XCTAssertEqual(state.identity, first) // Refusal must not overwrite the predecessor.
+        XCTAssertTrue(state.prepareBackReplacement(replacement, previousRevision: 1))
+        XCTAssertFalse(state.confirm(first, sequence: 2, latestSequence: 2, allowed: true))
+        XCTAssertFalse(state.confirm(replacement, sequence: 2, latestSequence: 2, allowed: true))
+        XCTAssertTrue(state.activate(replacement))
+        let next = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-b", revision: 3)
         XCTAssertTrue(state.prepare(next))
         XCTAssertFalse(state.activate(first))
         XCTAssertTrue(state.activate(next))
         XCTAssertFalse(state.retire(.init(document: "a", ownerEpoch: "owner-a", revision: 100), targetRevision: 1))
         XCTAssertEqual(state.phase, "active") // old failure cannot remove a replacement
         XCTAssertFalse(state.confirm(first, sequence: 2, latestSequence: 2, allowed: true))
-        XCTAssertTrue(state.retire(.init(document: "a", ownerEpoch: "owner-b", revision: 3)))
+        XCTAssertTrue(state.retire(.init(document: "a", ownerEpoch: "owner-b", revision: 4)))
         XCTAssertFalse(state.prepare(next)) // late uncertain preparation cannot resurrect a retired view
         XCTAssertTrue(state.prepare(.init(document: "b", ownerEpoch: "owner-b", revision: 1)))
         XCTAssertFalse(state.prepare(.init(document: "a", ownerEpoch: "owner-a", revision: 99)))
