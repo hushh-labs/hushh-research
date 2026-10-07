@@ -1150,14 +1150,28 @@ final class AppUITests: XCTestCase {
             print("NATIVE_CHAT_FOCUS stage=\(stage) packet=\(result)")
             return sequence
         }
-        let focusSequence = reportComposerAdmission("before")
+        guard let focusSequence = reportComposerAdmission("before"),
+              let beforeKeyboard = historyCounters() else {
+            XCTFail("NATIVE_CHAT_KEYBOARD_MEASUREMENTS_UNAVAILABLE"); return
+        }
         composer.tap() // No typeText: preserve the complete existing draft.
         let keyboardAppeared = app.keyboards.firstMatch.waitForExistence(timeout: 10)
-        if let focusSequence { _ = reportComposerAdmission("after", after: focusSequence) }
-        else { print("NATIVE_CHAT_FOCUS_UNAVAILABLE stage=after") }
-        XCTAssertTrue(keyboardAppeared, "Keyboard did not open")
-        XCTAssertFalse(nativeHistory.exists, "Native History appeared over the keyboard")
-        awaitAbsent(selector, "Native selector remained accessible over the keyboard")
+        guard reportComposerAdmission("after", after: focusSequence) != nil else {
+            XCTFail("NATIVE_CHAT_KEYBOARD_MEASUREMENTS_UNAVAILABLE"); return
+        }
+        guard keyboardAppeared else { XCTFail("Keyboard did not open"); return }
+        // Require one joint state within the existing ten-second boundary:
+        // a present keyboard, retired hosts and absent accessibility controls.
+        // A non-hittable control alone does not prove retirement.
+        let keyboardIsolation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.keyboards.firstMatch.exists && !nativeHistory.exists && !selector.exists &&
+                (historyCounters()?["removals"] ?? -1) > beforeKeyboard["removals", default: 0]
+        }, object: historyProbe)
+        guard XCTWaiter.wait(for: [keyboardIsolation], timeout: 10) == .completed else {
+            XCTFail("NATIVE_CHAT_KEYBOARD_ISOLATION_UNCONFIRMED"); return
+        }
+        assertSameHost()
+        print("NATIVE_KEYBOARD_ISOLATION keyboard_present=true history_removed=true selector_removed=true")
         blurThroughAuthoredTitle()
         awaitAbsent(app.keyboards.firstMatch, "Keyboard did not dismiss through the public header")
         XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)

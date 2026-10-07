@@ -1411,6 +1411,14 @@ Chat remains failed at keyboard isolation: its History AX element still exists
 when the keyboard is observed. Layout-probe evidence was not enabled in that
 preparation; neither product causality nor full-batch acceptance is established.
 
+The nearest attach-only keyboard check now requires a fresh public layout packet,
+an observed keyboard, both native controls absent and a confirmed History host
+removal in one bounded ten-second check. It retains restoration and single-host
+assertions; this harness correction does not prove a product fix. Prepare with
+all three explicit Debug arguments before normal unlock:
+`--hushh-native-chat-chrome --hushh-native-chrome-diagnostics --hushh-vault-layout-diagnostics`.
+The earlier four-pass/one-failure result remains recorded until rebuilt acceptance.
+
 The next main refresh (`ae3f73b09`) retains Consent same-state navigation,
 independent summary/list availability and responsive date selection, plus
 profile artwork on all three illustrative cards. Its Sharing profile-loader
