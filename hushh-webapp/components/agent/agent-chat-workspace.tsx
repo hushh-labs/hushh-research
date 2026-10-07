@@ -146,7 +146,6 @@ import {
 } from "@/components/agent/email-delivery-history-card";
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
@@ -240,7 +239,7 @@ import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { AgentDockPortal, useAgentDockFrame, useAgentDockHost } from "@/components/agent/agent-dock";
-import { NativeChatChrome, NativeHistoryClose, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
+import { NativeChatChrome, NativeHistoryClose, NativeHistoryOpener, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
@@ -8594,33 +8593,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
-            <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
+            <NativeHistoryOpener owner={renderedWorkspaceOwnerId}
               pendingAttention={driveReviewsPending}
               context={`${chatChromeContext}:${agentSurface}`}
-              eligible={isVaultUnlocked && !isHistoryDrawerOpen}
-              style={{ visibility: isHistoryDrawerOpen ? "hidden" : undefined }}
-              onActivate={() => { historyPrefersNativeFocus.current = true; toggleHistoryDrawer(); }} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
-              className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
-            <ShellActionSurface
-              variant="icon"
-              id="one-chat-history-trigger"
-              ref={historyDrawerFallbackRef}
-              onClick={(event) => {
-                historyPrefersNativeFocus.current = false;
-                historyDrawerTriggerRef.current = event.currentTarget;
+              eligible={isVaultUnlocked} open={isHistoryDrawerOpen}
+              showAttentionDot={!isPuppySurface}
+              focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
+              onActivate={(preferNativeFocus, trigger) => {
+                historyPrefersNativeFocus.current = preferNativeFocus;
+                if (trigger) historyDrawerTriggerRef.current = trigger;
                 toggleHistoryDrawer();
               }}
-              aria-label={`${isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}${driveReviewsPending > 0 && !isHistoryDrawerOpen
-                ? `, ${driveReviewsPending} Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you` : ""}`}
-              title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
-              aria-expanded={isHistoryDrawerOpen}
-              className="relative z-[540]"
-            >
-              <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
-              {driveReviewsPending > 0 && !isHistoryDrawerOpen && !isPuppySurface ?
-                <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
-            </ShellActionSurface>
-            </NativeChatChrome>
+            />
             <div
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { createRef, useRef } from "react";
+import { createRef, useEffect, useRef, useState } from "react";
 import { NativeChromeLease, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
-import { NativeChatChrome, NativeHistoryClose, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
+import { NativeChatChrome, NativeHistoryClose, NativeHistoryOpener, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
@@ -687,6 +687,46 @@ describe("native chrome presentation lease", () => {
     expect(await result).toBe(true);
     await act(async () => { delayedFocus.resolve({ ...resized, restored: true }); });
     expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
+  });
+
+  it.each([1, 0])("returns actual History opener focus after delayed capability entry (click detail %s)", async (detail) => {
+    measureSlot();
+    const discovery = deferred<{ contractVersion: number; families: ["history"]; independentControls: boolean; focusReturn: boolean }>();
+    bridge.getCapabilities.mockReturnValueOnce(discovery.promise);
+    function OpenerJourney() {
+      const [open, setOpen] = useState(false);
+      const didOpen = useRef(false), preference = useRef(false);
+      const handle = useRef<NativeChatChromeHandle>(null), fallback = useRef<HTMLButtonElement>(null);
+      useEffect(() => {
+        if (!open && didOpen.current) void handle.current?.restoreFocus(preference.current);
+      }, [open]);
+      return <>
+        <NativeHistoryOpener owner="synthetic-owner" context="chat:stable" eligible open={open}
+          pendingAttention={0} showAttentionDot focusRef={fallback} ref={handle}
+          onActivate={(preferNative) => { preference.current = preferNative; didOpen.current = true; setOpen(true); }} />
+        {open ? <NativeHistoryClose owner="synthetic-owner" context="history:stable" onClose={() => setOpen(false)} /> : null}
+      </>;
+    }
+    const view = render(<OpenerJourney />);
+    fireEvent.click(view.getByRole("button", { name: "Open chat history" }), { detail });
+    await act(async () => discovery.resolve({ contractVersion: 2, families: ["history"], independentControls: true, focusReturn: true }));
+    // Use the actual authored Close while it is still settling; do not infer
+    // a control from DOM or call restoreFocus directly as the interaction.
+    fireEvent.click(view.getByRole("button", { name: "Close chat history" }));
+    if (detail > 0) {
+      await waitFor(() => expect(bridge.restoreFocus).toHaveBeenCalledOnce());
+      expect(view.queryByRole("button", { name: "Open chat history" })).toBeNull();
+    } else {
+      const opener = view.getByRole("button", { name: "Open chat history" });
+      await waitFor(() => expect(opener).toHaveFocus());
+      expect(bridge.restoreFocus).not.toHaveBeenCalled();
+      const prepared = bridge.prepare.mock.calls.length;
+      fireEvent(window, new Event("resize"));
+      await act(async () => { await Promise.resolve(); });
+      expect(bridge.prepare).toHaveBeenCalledTimes(prepared);
+      act(() => opener.blur());
+      await waitFor(() => expect(bridge.activate).toHaveBeenCalled());
+    }
   });
 
   function Harness({ context = "/one/profile/security", owner = "synthetic-owner", suppressed = false, onBack = vi.fn() }) {

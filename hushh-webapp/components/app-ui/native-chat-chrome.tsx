@@ -2,6 +2,8 @@
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { XIcon } from "@/components/icons";
+import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
 import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
@@ -503,6 +505,33 @@ export function NativeChatChrome(props: Props) {
     <div inert={hidden} aria-hidden={hidden || undefined} style={{ visibility: hidden ? "hidden" : undefined }}>{children}</div>
     {rehearsalStatus && <span id="native-selector-rehearsal-status" className="sr-only" role="status" aria-live="off" data-testid="native-selector-rehearsal-status">NATIVE_SELECTOR_STATUS {rehearsalStatus}</span>}
   </div>;
+}
+
+/** The authored opener shares the Close family's presentation and focus contract. */
+export function NativeHistoryOpener({ owner, context, eligible, open, pendingAttention, showAttentionDot,
+  focusRef, ref, onActivate }: {
+  owner: string | null; context: string; eligible: boolean; open: boolean;
+  pendingAttention: number; showAttentionDot: boolean;
+  focusRef: RefObject<HTMLButtonElement | null>; ref?: Ref<NativeChatChromeHandle>;
+  onActivate: (preferNativeFocus: boolean, trigger?: HTMLButtonElement) => void;
+}) {
+  const label = open ? "Close chat history" : "Open chat history";
+  return <NativeChatChrome kind="history" owner={owner} pendingAttention={pendingAttention}
+    context={context} eligible={eligible && !open} style={{ visibility: open ? "hidden" : undefined }}
+    onActivate={() => onActivate(true)} focusRef={focusRef} ref={ref}
+    className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
+    <ShellActionSurface variant="icon" id="one-chat-history-trigger" ref={focusRef}
+      // Pointer entry may return to acknowledged native focus. Keyboard and
+      // ambiguous activation retain the DOM focus target until explicit blur.
+      onClick={(event) => onActivate(event.detail > 0, event.currentTarget)}
+      aria-label={`${label}${pendingAttention > 0 && !open
+        ? `, ${pendingAttention} Drive ${pendingAttention === 1 ? "review needs" : "reviews need"} you` : ""}`}
+      title={label} aria-expanded={open} className="relative z-[540]">
+      <AnimatedMenuCrossIcon isOpen={open} />
+      {pendingAttention > 0 && !open && showAttentionDot
+        ? <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
+    </ShellActionSurface>
+  </NativeChatChrome>;
 }
 
 /** Same History control identity, relocated to the modal's authored Close
