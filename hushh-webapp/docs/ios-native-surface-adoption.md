@@ -1101,6 +1101,25 @@ prerequisite: the selected-Cards guard rejects an already observed Add handoff,
 but cannot prevent an automatic reveal that was already pending. No handoff is
 cleared to force admission. Public pane bodies use bounded hittability waits,
 not a single sample taken before the pager settles.
-Its physical result is pending at this source entry. The preceding product head
+Its physical result was pending at that source snapshot. The preceding product head
 `eaed6d945` passes canonical core in 201s; this harness change does not inherit
 an exact-head pass or claim successful sharing-information retrieval.
+
+The installed `6117f25c8` product then passes four native warm journeys, while
+Wallet fails the assumption that its two-line Sharing heading is one XCUI static
+text. A failure-only public probe confirms the combined locator is absent but
+both exact heading fragments and the unique explanatory paragraph are hittable.
+The existing case now requires the complete combined heading or both fragments,
+plus that paragraph; it never substitutes selected-tab state for body proof.
+Diagnostics precede `XCTFail` because the runner stops at the first assertion.
+Only fixed public anchor names and existence/hittability booleans are emitted.
+The corrected Wallet-only run passes Cards/Add/Sharing/Cards, inactive Add
+isolation, Back, draft preservation and one identified host, without reinstalling
+the app or resetting the session. This qualifies public pane interaction, not
+successful sharing-information retrieval or universal visual acceptance.
+
+The latest Circle layout from main is normally merged at `97bd81e7`; the four
+incoming files leave the native and Wallet fixes unchanged. Its core passes in
+232s and all 65 focused Circle tests pass. The subsequent nearest native,
+Wallet and continuity contracts pass 105 checks. These results retain their
+source identities; later heads still need canonical core and exact-head CI.

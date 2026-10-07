@@ -1716,11 +1716,13 @@ final class AppUITests: XCTestCase {
                 select("Active"); select("History"); select("Connections"); select("Requests")
             default:
                 openAgent("Wallet")
-                func walletPaneReady(_ element: XCUIElement, failure: String) -> Bool {
+                func walletPaneReady(_ isVisible: @escaping () -> Bool, failure: String,
+                                     diagnoseFailure: (() -> Void)? = nil) -> Bool {
                     let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                        element.exists && element.isHittable
-                    }, object: element)
+                        isVisible()
+                    }, object: web)
                     guard XCTWaiter.wait(for: [visible], timeout: 10) == .completed else {
+                        diagnoseFailure?()
                         XCTFail(failure); return false
                     }
                     return true
@@ -1749,13 +1751,33 @@ final class AppUITests: XCTestCase {
                 }
                 select("Cards"); select("Add")
                 let addHeading = web.staticTexts["Add your card"].firstMatch
-                guard walletPaneReady(addHeading, failure: "WORKSPACE_WALLET_ADD_BODY_UNOBSERVED") else { return }
+                guard walletPaneReady({ addHeading.exists && addHeading.isHittable },
+                                      failure: "WORKSPACE_WALLET_ADD_BODY_UNOBSERVED") else { return }
                 select("Sharing")
                 let sharingHeading = web.staticTexts.matching(NSPredicate(format:
                     "label CONTAINS %@ AND label CONTAINS %@", "Your cards.", "Your control.")).firstMatch
-                guard walletPaneReady(sharingHeading, failure: "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED") else { return }
+                // WKWebView may expose a <br>-separated heading as two static texts.
+                // Either representation must prove the complete, hittable public body.
+                let sharingFirst = web.staticTexts["Your cards."].firstMatch
+                let sharingSecond = web.staticTexts["Your control."].firstMatch
+                let sharingExplanation = web.staticTexts["You choose who can access your Wallet information."].firstMatch
+                let sharingAnchors: [(String, XCUIElement)] = [
+                    ("combined", sharingHeading), ("first", sharingFirst),
+                    ("second", sharingSecond), ("explanation", sharingExplanation),
+                ]
+                guard walletPaneReady({
+                    let completeHeading = (sharingHeading.exists && sharingHeading.isHittable) ||
+                        (sharingFirst.exists && sharingFirst.isHittable && sharingSecond.exists && sharingSecond.isHittable)
+                    return completeHeading && sharingExplanation.exists && sharingExplanation.isHittable
+                }, failure: "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED", diagnoseFailure: {
+                    // Only authored public anchors; never enumerate card or recipient content.
+                    for (name, anchor) in sharingAnchors {
+                        print("WORKSPACE_WALLET_PUBLIC_ANCHOR anchor=\(name) exists=\(anchor.exists) hittable=\(anchor.exists && anchor.isHittable)")
+                    }
+                }) else { return }
                 select("Cards")
-                guard walletPaneReady(web.staticTexts["Your cards"].firstMatch,
+                let cardsHeading = web.staticTexts["Your cards"].firstMatch
+                guard walletPaneReady({ cardsHeading.exists && cardsHeading.isHittable },
                                       failure: "WORKSPACE_WALLET_CARDS_BODY_UNOBSERVED") else { return }
                 XCTAssertFalse(addHeading.exists && addHeading.isHittable,
                                "WORKSPACE_WALLET_INACTIVE_ADD_HITTABLE")
