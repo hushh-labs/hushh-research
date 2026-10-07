@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 
 from hushh_mcp.one_voice import private_pending
+from hushh_mcp.one_voice.actor_proof import ProofOutcome
 from hushh_mcp.one_voice.config import OneVoiceMailAdmission
 from hushh_mcp.one_voice.tools import mail, registry
 from hushh_mcp.one_voice.tools.base import OFFER_TTL_SECONDS, ToolPolicy
@@ -102,6 +103,15 @@ def h(monkeypatch):
     connections = ConnectionsDouble()
     ctx, _, _ = make_ctx(connections=connections)
     ctx.timezone = "Asia/Kolkata"
+    ctx.firebase_id_token = "verified-schedule-owner"  # noqa: S105
+
+    async def prove_owner(token: str | None, user_id: str) -> ProofOutcome:
+        if not token:
+            return "missing"
+        if user_id != OWNER or token == "another-owner":
+            return "mismatch"
+        return "ok" if token == "verified-schedule-owner" else "invalid"
+
     doubles = SimpleNamespace(
         clock=Clock(), admission=ScheduleAdmission(), gmail=GmailDouble(), ledger=ledger
     )
@@ -118,7 +128,7 @@ def h(monkeypatch):
     return SimpleNamespace(
         ctx=ctx,
         connections=connections,
-        executor=ToolExecutor(pending_store=MemoryPendingStore()),
+        executor=ToolExecutor(pending_store=MemoryPendingStore(), actor_proof=prove_owner),
         **vars(doubles),
     )
 
@@ -159,6 +169,28 @@ def _private(*values: Any) -> list[str]:
 
 
 # -- schedule_mail -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "proof, reason",
+    [(None, "missing"), ("expired", "invalid"), ("another-owner", "mismatch")],
+)
+async def test_scheduling_requires_current_owner_proof_before_arming_delivery(h, proof, reason):
+    await _confirm_ayesha(h)
+    proposed = await _propose(h)
+    h.ctx.firebase_id_token = proof
+
+    refused = await _confirm(h, proposed.pending.id)
+
+    assert refused.result.status == "firebase_proof_required"
+    assert refused.result.reason_code == f"firebase_proof_{reason}"
+    assert h.ledger.rows == {}
+    assert proposed.pending.status == "pending"
+    # A fresh proof confirms the same card, without requiring a new dictation.
+    h.ctx.firebase_id_token = "verified-schedule-owner"  # noqa: S105
+    done = await _confirm(h, proposed.pending.id)
+    assert done.result.status == "scheduled"
+    assert len(h.ledger.rows) == 1
 
 
 async def test_a_confirmed_schedule_stores_one_sealed_row_and_says_the_owner_local_time(h):

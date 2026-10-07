@@ -642,6 +642,22 @@ export class ExternalConnectorService {
     return readJsonOrThrow(response);
   }
 
+  /** Recheck an existing live grant; never replay its single-use OAuth code. */
+  static async verifyLiveDrive(input: {
+    vaultOwnerToken: string;
+    signal?: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<{ status: string; connectorId: string }> {
+    return readJsonOrThrow(
+      await ApiService.apiFetch("/api/connectors/google_drive/live/verify", {
+        method: "POST",
+        headers: authHeaders(input.vaultOwnerToken),
+        signal: input.signal,
+        isEffectCurrent: input.isEffectCurrent,
+      }),
+    );
+  }
+
   static async disconnect(input: {
     vaultOwnerToken: string;
     connectorId: string;

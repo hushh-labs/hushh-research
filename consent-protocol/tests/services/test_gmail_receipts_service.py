@@ -4,6 +4,7 @@ import asyncio
 import threading
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -339,6 +340,66 @@ async def test_send_ready_accepts_a_connected_account_with_the_granted_send_scop
     )
 
     await service.assert_send_ready(user_id="user_123")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "race",
+    [
+        "none",
+        "token_account",
+        "token_generation",
+        "latest_generation",
+        "send_disabled",
+        "scope_removed",
+    ],
+)
+async def test_send_token_is_bound_to_its_actual_account_and_current_grant(monkeypatch, race):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    row = {
+        "status": "connected",
+        "revoked": False,
+        "send_enabled": True,
+        "scope_csv": "https://www.googleapis.com/auth/gmail.send",
+        "google_sub": "reviewed-account",
+        "google_email": "owner@example.com",
+        "send_grant_generation": 4,
+    }
+    token_row, latest = dict(row), dict(row)
+    if race == "token_account":
+        token_row["google_sub"] = "other-account"
+    elif race == "token_generation":
+        token_row["send_grant_generation"] = 5
+    elif race == "latest_generation":
+        latest["send_grant_generation"] = 5
+    elif race == "send_disabled":
+        token_row["send_enabled"] = False
+    elif race == "scope_removed":
+        token_row["scope_csv"] = "https://www.googleapis.com/auth/gmail.readonly"
+    calls = iter([row, latest])
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda **_: next(calls))
+    refresh = AsyncMock(return_value=("private-access-token", token_row))
+    monkeypatch.setattr(service, "_ensure_access_token", refresh)
+    expected = {
+        "google_sub": "reviewed-account",
+        "grant_generation": 4,
+        "account_label": "owner@example.com",
+    }
+    if race == "none":
+        assert (
+            await service.get_send_access_token(user_id="owner", expected_sender=expected)
+            == "private-access-token"
+        )
+    else:
+        with pytest.raises(GmailApiError) as refused:
+            await service.get_send_access_token(user_id="owner", expected_sender=expected)
+        assert refused.value.code in {
+            "GMAIL_SENDER_CHANGED",
+            "GMAIL_SEND_DISABLED",
+            "GMAIL_SEND_PERMISSION_REQUIRED",
+        }
+    refresh.assert_awaited_once_with(user_id="owner")
 
 
 @pytest.mark.asyncio

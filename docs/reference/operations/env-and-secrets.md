@@ -110,6 +110,21 @@ session policy: if ADC itself expires, reauthenticate with
 also need interactive CLI operations. Do not create service-account key files for
 local agent operation; GitHub deployment remains on its separate OIDC/WIF path.
 
+### Explicit workspace identity for localhost models
+
+When the default ADC account cannot access the configured Vertex project, set
+`HUSHH_LOCAL_GCLOUD_ACCOUNT` to the authorized Workspace email in the launching
+shell's process environment. Authenticate that account with
+`gcloud auth login EMAIL --no-activate` first. This does not replace the default
+CLI account or shared ADC files. The local doctor and managed Gemini clients use
+the explicit identity; regional failover preserves it. Tokens remain in memory,
+are checked for the selected email and actual expiry, and refresh through gcloud.
+
+This override is restricted to `ENVIRONMENT=development` and
+`APP_RUNTIME_PROFILE=local`, with no `K_SERVICE` or `HUSHH_DEPLOY_ENV`. It is not
+a hosted credential strategy, does not create service-account keys, and must not
+be added to deployed secrets or canonical contributor profile files.
+
 6. Activate the chosen runtime profile:
 
 ```bash

@@ -6,9 +6,9 @@ never accepts a sender address or a caller-provided OAuth token.
 
 The one persisted envelope is a scheduled send's: it must outlive the session
 that approved it, so it is stored as AES-GCM ciphertext bound to its owner and
-action, and is opened only by the send that fires it. Its envelope HMAC is the
-one an immediate send of the same draft would carry, so the existing
-``execute`` verifies it unchanged.
+action, and is opened only by the send that fires it. Historical scheduled
+sends retain their canonical envelope HMAC. New immediate reviews additionally
+bind the sending grant and any reviewed recipient sources.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import os
 import re
 import secrets
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -41,6 +42,7 @@ from db.connection import get_pool
 from hushh_mcp.agents.email.runtime import EMAIL_DRAFT_SCHEMA, run_email_gene
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.gmail_owner_html import sanitize_gmail_owner_html
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
@@ -413,9 +415,11 @@ class GmailDeliveryService:
         *,
         gmail_service: GmailReceiptsService | None = None,
         drive_blobs: GoogleDriveBlobAttachmentService | None = None,
+        connections_service: ConnectionsService | None = None,
     ) -> None:
         self._gmail_service = gmail_service
         self._drive_blobs = drive_blobs
+        self._connections_service = connections_service
 
     @property
     def gmail_service(self) -> GmailReceiptsService:
@@ -485,6 +489,7 @@ class GmailDeliveryService:
         owner_user_id: str | None = None,
         grant_binding: str | None = None,
         source_account_label: str | None = None,
+        sender_review: dict[str, Any] | None = None,
     ) -> str:
         # Keep the text-only HMAC shape unchanged for existing prepared actions.
         envelope: dict[str, Any] = {
@@ -496,6 +501,8 @@ class GmailDeliveryService:
             envelope["owner_user_id"] = owner_user_id
             envelope["drive_grant_binding"] = grant_binding
             envelope["drive_source_account_label"] = source_account_label
+        if sender_review is not None:
+            envelope["sender_review"] = sender_review
         return self._hmac(
             json.dumps(envelope, separators=(",", ":"), sort_keys=True),
             purpose="envelope",
@@ -503,6 +510,150 @@ class GmailDeliveryService:
 
     def _idempotency_hmac(self, idempotency_key: str) -> str:
         return self._hmac(idempotency_key, purpose="idempotency")
+
+    @staticmethod
+    def _review_revision(payload: dict[str, Any]) -> dict[str, Any] | None:
+        draft_ref, revision = payload.get("draft_ref"), payload.get("revision")
+        if draft_ref is None and revision is None:
+            return None
+        if (
+            not isinstance(draft_ref, str)
+            or not 1 <= len(draft_ref) <= 128
+            or type(revision) is not int
+            or revision < 1
+        ):
+            raise GmailDeliveryError(
+                "INVALID_DRAFT_REVISION", "Review the current email draft.", status_code=409
+            )
+        return {"draft_ref": draft_ref, "revision": revision}
+
+    @staticmethod
+    def _sender_key() -> bytes:
+        secret = get_core_security_settings().app_signing_key.encode("utf-8")
+        return hmac.new(secret, b"gmail-owner-sender-review-v1", hashlib.sha256).digest()
+
+    @staticmethod
+    def _sender_aad(user_id: str, action_id: str) -> bytes:
+        return json.dumps(["gmail-sender-review-v1", user_id, action_id]).encode("utf-8")
+
+    def _seal_sender_review(self, *, user_id: str, action_id: str, review: dict[str, Any]) -> str:
+        nonce = secrets.token_bytes(12)
+        ciphertext = AESGCM(self._sender_key()).encrypt(
+            nonce,
+            json.dumps(review, separators=(",", ":"), sort_keys=True).encode("utf-8"),
+            self._sender_aad(user_id, action_id),
+        )
+        return "gs1." + base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
+
+    def _open_sender_review(self, token: Any, *, user_id: str, action_id: str) -> dict[str, Any]:
+        try:
+            if not isinstance(token, str) or not token.startswith("gs1.") or len(token) > 32768:
+                raise ValueError("invalid sender review")
+            packed = base64.b64decode(token[4:], altchars=b"-_", validate=True)
+            review = json.loads(
+                AESGCM(self._sender_key()).decrypt(
+                    packed[:12], packed[12:], self._sender_aad(user_id, action_id)
+                )
+            )
+            sender = review["sender"]
+            if (
+                set(review) not in ({"sender", "revision"}, {"sender", "revision", "recipients"})
+                or set(sender) != {"google_sub", "grant_generation", "account_label"}
+                or not all(
+                    isinstance(sender[key], str) and sender[key]
+                    for key in ("google_sub", "account_label")
+                )
+                or type(sender["grant_generation"]) is not int
+                or sender["grant_generation"] < 0
+                or (
+                    review["revision"] is not None
+                    and self._review_revision(review["revision"]) != review["revision"]
+                )
+            ):
+                raise ValueError("invalid sender review")
+            if "recipients" in review:
+                checks = review["recipients"]
+                if not isinstance(checks, list) or not 1 <= len(checks) <= _MAX_RECIPIENTS:
+                    raise ValueError("invalid recipient review")
+                for check in checks:
+                    if (
+                        not isinstance(check, dict)
+                        or set(check) != {"user_id", "connection_id", "address_hmac"}
+                        or any(not isinstance(value, str) or not value for value in check.values())
+                        or not re.fullmatch(r"[a-f0-9]{64}", check["address_hmac"])
+                    ):
+                        raise ValueError("invalid recipient review")
+            return review
+        except (ValueError, TypeError, KeyError, InvalidTag, binascii.Error):
+            raise GmailDeliveryError(
+                "SENDER_REVIEW_INVALID", "Review the sending account again.", status_code=409
+            ) from None
+
+    async def _connection_recipient_checks(
+        self,
+        *,
+        user_id: str,
+        recipient_ids: Any,
+        draft: NormalizedEmailDraft,
+    ) -> list[dict[str, str]]:
+        """Capture current active sources; only the encrypted review carries these."""
+        if (
+            not isinstance(recipient_ids, list)
+            or len(recipient_ids) > _MAX_RECIPIENTS
+            or any(not isinstance(item, str) or not 1 <= len(item) <= 256 for item in recipient_ids)
+        ):
+            raise GmailDeliveryError("RECIPIENT_CHANGED", "Review the email recipients again.", 409)
+        if not recipient_ids:
+            return []
+        try:
+            service = self._connections_service or ConnectionsService()
+            rows = await asyncio.to_thread(service.list_connections, user_id)
+            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                raise ValueError("invalid connections")
+        except Exception:
+            raise GmailDeliveryError(
+                "RECIPIENT_LOOKUP_UNAVAILABLE", "I couldn't check the recipients. Try again.", 503
+            ) from None
+        audience = {*draft.to, *draft.cc, *draft.bcc}
+        checks = []
+        for recipient_id in sorted(set(recipient_ids)):
+            matches = [row for row in rows if row.get("userId") == recipient_id]
+            if len(matches) != 1 or not _text(matches[0].get("connectionId")):
+                raise GmailDeliveryError(
+                    "RECIPIENT_CHANGED", "Review the email recipients again.", 409
+                )
+            row = matches[0]
+            try:
+                address = normalize_draft({"to": row.get("email"), "body": "check"}).to
+                if len(address) != 1 or address[0] not in audience:
+                    raise ValueError("changed recipient")
+            except (GmailDeliveryError, ValueError, TypeError):
+                raise GmailDeliveryError(
+                    "RECIPIENT_CHANGED", "Review the email recipients again.", 409
+                ) from None
+            checks.append(
+                {
+                    "user_id": recipient_id,
+                    "connection_id": _text(row["connectionId"]),
+                    "address_hmac": hmac.new(
+                        self._sender_key(),
+                        json.dumps(["recipient-address-v1", user_id, address[0]]).encode(),
+                        hashlib.sha256,
+                    ).hexdigest(),
+                }
+            )
+        return checks
+
+    def _with_sender_review(
+        self, result: dict[str, Any], *, user_id: str, review: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            **result,
+            "sender_token": self._seal_sender_review(
+                user_id=user_id, action_id=result["action_id"], review=review
+            ),
+            "sender_label": review["sender"]["account_label"],
+        }
 
     @staticmethod
     def _attachment_key() -> bytes:
@@ -683,7 +834,17 @@ class GmailDeliveryService:
         idempotency_key = _text(idempotency_key)
         if not 16 <= len(idempotency_key) <= 256:
             raise GmailDeliveryError("INVALID_IDEMPOTENCY_KEY", "Use a valid confirmation key.")
-        await self.gmail_service.assert_send_ready(user_id=user_id)
+        sender_review = {
+            "sender": await self.gmail_service.send_grant_identity(user_id=user_id),
+            "revision": self._review_revision(draft_payload),
+        }
+        recipient_checks = await self._connection_recipient_checks(
+            user_id=user_id,
+            recipient_ids=draft_payload.get("_connection_recipient_ids", []),
+            draft=draft,
+        )
+        if recipient_checks:
+            sender_review["recipients"] = recipient_checks
         attachment_ref = _attachment_ref(draft_payload.get("drive_attachment"))
         attachment = None
         grant_binding = None
@@ -708,6 +869,7 @@ class GmailDeliveryService:
             owner_user_id=user_id,
             grant_binding=grant_binding,
             source_account_label=source_account_label,
+            sender_review=sender_review,
         )
         idempotency_hmac = self._idempotency_hmac(idempotency_key)
         action_id = str(uuid.uuid4())
@@ -715,6 +877,13 @@ class GmailDeliveryService:
         pool = await get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # Lock the intent even before its row exists. Concurrent
+                # prepare retries then return one action instead of racing the
+                # unique index; no plaintext envelope enters the lock key.
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                    f"{user_id}:{idempotency_hmac}",
+                )
                 # Only this path's own immediate confirmations: an armed
                 # scheduled send (send_at set) is expired by the drain alone,
                 # which judges it against its send window.
@@ -757,7 +926,7 @@ class GmailDeliveryService:
                             grant_binding=grant_binding,
                             source_account_label=source_account_label,
                         )
-                    return result
+                    return self._with_sender_review(result, user_id=user_id, review=sender_review)
                 await conn.execute(
                     """
                     INSERT INTO gmail_owner_send_actions (
@@ -790,7 +959,7 @@ class GmailDeliveryService:
                 grant_binding=grant_binding,
                 source_account_label=source_account_label,
             )
-        return result
+        return self._with_sender_review(result, user_id=user_id, review=sender_review)
 
     async def execute(
         self,
@@ -799,11 +968,26 @@ class GmailDeliveryService:
         action_id: str,
         draft_payload: dict[str, Any],
         reply_context: GmailReplyContext | None = None,
+        authorization_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         draft = normalize_draft(draft_payload)
         action_id = _text(action_id)
         if not action_id:
             raise GmailDeliveryError("MISSING_ACTION", "Choose the prepared email confirmation.")
+        sender_token = draft_payload.get("sender_token")
+        sender_review = (
+            self._open_sender_review(sender_token, user_id=user_id, action_id=action_id)
+            if sender_token is not None
+            else None
+        )
+        if sender_review is not None and sender_review["revision"] != self._review_revision(
+            draft_payload
+        ):
+            raise GmailDeliveryError(
+                "DRAFT_CHANGED",
+                "The draft changed. Review it again before sending.",
+                status_code=409,
+            )
         attachment_token = draft_payload.get("attachment_token")
         reviewed = (
             self._open_attachment(attachment_token, user_id=user_id, action_id=action_id)
@@ -820,6 +1004,7 @@ class GmailDeliveryService:
             owner_user_id=user_id,
             grant_binding=grant_binding,
             source_account_label=source_account_label,
+            sender_review=sender_review,
         )
         pool = await get_pool()
         resolved_attachment: tuple[DriveBlobDescriptor, bytes, str, str] | None = None
@@ -828,7 +1013,7 @@ class GmailDeliveryService:
             # their existing idempotent result even if Drive was disconnected.
             async with pool.acquire() as conn:
                 initial = await conn.fetchrow(
-                    """SELECT action_id, state, expires_at, sent_at, envelope_hmac
+                    """SELECT action_id, state, expires_at, sent_at, envelope_hmac, send_at
                        FROM gmail_owner_send_actions WHERE action_id = $1 AND user_id = $2""",
                     action_id,
                     user_id,
@@ -850,6 +1035,12 @@ class GmailDeliveryService:
                 raise GmailDeliveryError(
                     "ACTION_NOT_SENDABLE",
                     "This email confirmation can no longer be sent.",
+                    status_code=409,
+                )
+            if sender_review is None and initial_row.get("send_at") is None:
+                raise GmailDeliveryError(
+                    "SENDER_REVIEW_REQUIRED",
+                    "Review the sending account before sending.",
                     status_code=409,
                 )
             resolved_attachment = await self._resolve_attachment(
@@ -889,7 +1080,7 @@ class GmailDeliveryService:
             async with conn.transaction():
                 action = await conn.fetchrow(
                     """
-                    SELECT action_id, state, expires_at, sent_at, envelope_hmac
+                    SELECT action_id, state, expires_at, sent_at, envelope_hmac, send_at
                     FROM gmail_owner_send_actions
                     WHERE action_id = $1 AND user_id = $2
                     FOR UPDATE
@@ -918,6 +1109,40 @@ class GmailDeliveryService:
                         "This email confirmation can no longer be sent.",
                         status_code=409,
                     )
+                if sender_review is None and row.get("send_at") is None:
+                    raise GmailDeliveryError(
+                        "SENDER_REVIEW_REQUIRED",
+                        "Review the sending account before sending.",
+                        status_code=409,
+                    )
+                if sender_review is not None:
+                    checks = sender_review.get("recipients", [])
+                    if checks:
+                        current_checks = await self._connection_recipient_checks(
+                            user_id=user_id,
+                            recipient_ids=[item["user_id"] for item in checks],
+                            draft=draft,
+                        )
+                        if current_checks != checks:
+                            raise GmailDeliveryError(
+                                "RECIPIENT_CHANGED", "Review the email recipients again.", 409
+                            )
+                    current_sender = await self.gmail_service.send_grant_identity(user_id=user_id)
+                    if current_sender != sender_review["sender"]:
+                        raise GmailDeliveryError(
+                            "GMAIL_SENDER_CHANGED",
+                            "The sending account or permission changed. Review the email again.",
+                            status_code=409,
+                        )
+                # The voice owner supplies a synchronous current-input fence.
+                # Recheck after every awaited lookup/lock and immediately before
+                # the same atomic claim shared with an explicit owner tap.
+                if authorization_check is not None and authorization_check() is not True:
+                    raise GmailDeliveryError(
+                        "VOICE_APPROVAL_SUPERSEDED",
+                        "New input replaced that approval. Review the email before sending.",
+                        status_code=409,
+                    )
                 transitioned = await conn.fetchrow(
                     """
                     UPDATE gmail_owner_send_actions
@@ -940,7 +1165,21 @@ class GmailDeliveryService:
         provider_attempted = False
         provider_accepted = False
         try:
-            access_token = await self.gmail_service.get_send_access_token(user_id=user_id)
+            access_token = await self.gmail_service.get_send_access_token(
+                user_id=user_id,
+                **({"expected_sender": sender_review["sender"]} if sender_review else {}),
+            )
+            if authorization_check is not None and authorization_check() is not True:
+                await self._set_terminal(
+                    action_id=action_id,
+                    state="failed",
+                    error_code="voice_approval_superseded",
+                )
+                raise GmailDeliveryError(
+                    "VOICE_APPROVAL_SUPERSEDED",
+                    "New input replaced that approval. Review the email before sending.",
+                    status_code=409,
+                )
             raw = base64.urlsafe_b64encode(
                 _message_for(
                     draft,
@@ -953,6 +1192,22 @@ class GmailDeliveryService:
                 send_payload["threadId"] = reply_context.thread_id
             timeout = httpx.Timeout(20.0, connect=8.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
+                # Token refresh and opening the HTTP client can yield after
+                # the ledger claim. A superseded voice approval remains a
+                # consumed, definitely-unsent attempt; only fresh review may
+                # create another action. There is no await between this final
+                # fence and starting the provider POST.
+                if authorization_check is not None and authorization_check() is not True:
+                    await self._set_terminal(
+                        action_id=action_id,
+                        state="failed",
+                        error_code="voice_approval_superseded",
+                    )
+                    raise GmailDeliveryError(
+                        "VOICE_APPROVAL_SUPERSEDED",
+                        "New input replaced that approval. Review the email before sending.",
+                        status_code=409,
+                    )
                 provider_attempted = True
                 response = await client.post(
                     _GMAIL_SEND_URL,
@@ -1068,6 +1323,7 @@ class GmailDeliveryService:
                 message_id=message_id,
                 thread_id=thread_id,
             )
+
         except Exception as exc:
             # Keep the original action non-retryable even when a transient DB
             # issue prevents recording its terminal state immediately.
@@ -1076,6 +1332,33 @@ class GmailDeliveryService:
                 action_id,
                 type(exc).__name__,
             )
+
+    async def cancel_prepared(self, *, user_id: str, action_id: str) -> dict[str, Any]:
+        """Retire an immediate review before an edit; a claimed send is never recalled."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """UPDATE gmail_owner_send_actions
+                   SET state = 'cancelled', updated_at = NOW()
+                   WHERE action_id = $1 AND user_id = $2
+                     AND state = 'prepared' AND send_at IS NULL
+                   RETURNING action_id, state""",
+                action_id,
+                user_id,
+            )
+            if row is not None:
+                return {"action_id": action_id, "cancelled": True, "state": "cancelled"}
+            current = await conn.fetchrow(
+                """SELECT state FROM gmail_owner_send_actions
+                   WHERE action_id = $1 AND user_id = $2 AND send_at IS NULL""",
+                action_id,
+                user_id,
+            )
+        return {
+            "action_id": action_id,
+            "cancelled": False,
+            "state": current["state"] if current else None,
+        }
 
     async def _set_terminal(
         self,

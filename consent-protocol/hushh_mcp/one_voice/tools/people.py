@@ -21,7 +21,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from hushh_mcp.one_voice.tools.base import (
     ConfirmedPerson,
@@ -37,6 +37,7 @@ from hushh_mcp.one_voice.tools.base import (
     Unsupported,
     now_iso,
 )
+from hushh_mcp.one_voice.tools.name_parts import NamePart, render_name_input
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
@@ -426,9 +427,28 @@ def _candidate(item: ScoredCandidate) -> PersonCandidate:
 
 
 class ResolvePersonInput(ToolInput):
-    spoken_name: str = Field(
-        min_length=1, max_length=120, description="One name exactly as the person said it."
+    spoken_name_parts: list[NamePart] = Field(
+        default_factory=list,
+        min_length=1,
+        max_length=16,
+        exclude=True,
+        description=(
+            "Spelled lookup name: ordered parts including spaces. Omit spoken_name. Search only."
+        ),
     )
+    spoken_name: str = Field(
+        default="",
+        validate_default=True,
+        min_length=1,
+        max_length=120,
+        description="One name exactly as said. Omit when supplying spoken_name_parts.",
+    )
+
+    @field_validator("spoken_name", mode="before")
+    @classmethod
+    def _render_name(cls, value: Any, info: ValidationInfo) -> str:
+        return render_name_input(value, info.data.get("spoken_name_parts") or None)
+
     pool: Literal["connections", "directory"] = Field(
         default="connections",
         description=(
@@ -1458,12 +1478,10 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=ResolvePersonInput,
         output_model=ResolvePersonResult,
         description=(
-            "Find who the person means by a spoken name, searching by name only (never by "
-            "phone or email, and never the device's contacts). Returns candidates to read back; "
-            "it never picks one. Always follow with confirm_person after the person agrees, "
-            "even when only one candidate is likely. pool='connections' for people already in "
-            "their life; pool='directory' for anyone findable on Hussh, to connect with someone "
-            "new. A relative ('my uncle') is not a name: ask for the name first."
+            "Search by name, never phone/email or device contacts. Read candidates back; even "
+            "one likely match needs their agreement then confirm_person. Use spoken_name_parts "
+            "for explicit spelling. connections searches existing people; directory finds new "
+            "people on Hussh. Ask for a name when given only a relation like 'my uncle'."
         ),
         handler=resolve_person,
     ),
@@ -1487,11 +1505,9 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=ListPeopleInput,
         output_model=ListPeopleResult,
         description=(
-            "Read who the person is connected with, one page at a time (optionally filtered by "
-            "name), who can receive their location, and pending CONNECTION requests in both "
-            "directions with their request ids (accept, decline and cancel need an id from "
-            "here; location requests are list_requests instead). counts carry the totals; the "
-            "page is not the total. Read only."
+            "Read connections (paged, optional name filter), location-ready people and pending "
+            "CONNECTION requests both ways. Accept/decline/cancel need request ids from here. "
+            "Location requests use list_requests. Counts are totals, not page lengths."
         ),
         handler=list_people,
     ),
@@ -1515,13 +1531,10 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=InvitePersonInput,
         output_model=InvitePersonResult,
         description=(
-            "Send a plain in-app connection request from the signed-in person to one confirmed "
-            "account. It requests a connection: it does not accept on their behalf, add a "
-            "circle member, request location, or attach information-sharing scopes. The result "
-            "is the real outcome: sent (with the request id, waiting for acceptance), "
-            "already_connected, or already_pending with its direction (if they already asked "
-            "you, accept that instead). Needs its own confirmation; confirming who they meant "
-            "is not approval to send."
+            "Send a plain in-app connection request to a confirmed account. No acceptance, "
+            "circle addition, location request or information scopes. Needs separate action "
+            "confirmation, not just identity confirmation. Returns sent with request id, "
+            "already_connected, or already_pending with direction; accept an incoming request instead."
         ),
         handler=invite_person,
         person_args=("person",),

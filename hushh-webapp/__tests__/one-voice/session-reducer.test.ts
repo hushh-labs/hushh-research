@@ -952,6 +952,28 @@ describe("reduceVoiceSession: transcript", () => {
     expect(state.transcript[0]?.final).toBe(true);
   });
 
+  it("a leading-space final restating accumulated legacy chunks shows once", () => {
+    const state = run(
+      [
+        out("Shall I create", false),
+        out(" HUSSH GARAGE V04?", false),
+        out(" Shall I create HUSSH GARAGE V04?", true),
+        out(" Shall I create HUSSH GARAGE V04?", true),
+      ],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["one", " Shall I create HUSSH GARAGE V04?"]]);
+    expect(state.transcript[0]?.final).toBe(true);
+  });
+
+  it("a leading-space final can restate the same raw legacy line", () => {
+    const state = run(
+      [out(" Shall I create it?", false), out(" Shall I create it?", true)],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["one", " Shall I create it?"]]);
+  });
+
   it("spelled chunks accumulate; a repeated letter is not a restatement", () => {
     const spelled = run(
       [
@@ -1316,7 +1338,7 @@ describe("reduceVoiceSession: tools and success", () => {
     expect(selectSuccessReceipt(blocked)).toBeNull();
   });
 
-  it("a scheduled-mail cancel that cancelled nothing, or an unconfirmed send, is never Done", () => {
+  it("mail awaiting review, sending, unconfirmed, or unchanged is never Done", () => {
     // Regression: these resolved `executed` (the cancel ran and answered), and
     // send_unconfirmed / schedule_unconfirmed were not in the shared set, so the
     // panel showed a green Done for a cancel that cancelled nothing.
@@ -1326,12 +1348,18 @@ describe("reduceVoiceSession: tools and success", () => {
       "already_sent",
       "already_sending",
       "not_sent",
+      "review_requested",
+      "review_pending",
+      "needs_input",
+      "outcome_unknown",
+      "sending",
     ]) {
       expect(NOT_SUCCESS_STATUSES.has(status), status).toBe(true);
       expect(isSuccessStatus(status), status).toBe(false);
-      // Not a failure either: nothing went wrong, nothing was cancelled.
-      expect(toolResultTone(status, true), status).toBe("neutral");
-      expect(toolResultTone(status, false), status).toBe("neutral");
+      // Review and delivery remain pending; uncertainty is not an achievement.
+      const tone = ["review_requested", "review_pending", "sending"].includes(status) ? "pending" : "neutral";
+      expect(toolResultTone(status, true), status).toBe(tone);
+      expect(toolResultTone(status, false), status).toBe(tone);
       const card = pendingActionFrame({
         pending_action_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
         tool: "cancel_scheduled_mail",

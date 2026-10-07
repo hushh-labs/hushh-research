@@ -186,6 +186,7 @@ function WorkflowCard({
     | {
         body: string;
         actionId?: string;
+        senderToken?: string;
         preview?: {
           to: string[];
           cc: string[];
@@ -498,6 +499,7 @@ export default function GmailInformationRequestsSection({
       {
         body: string;
         actionId?: string;
+        senderToken?: string;
         preview?: {
           to: string[];
           cc: string[];
@@ -950,6 +952,7 @@ export default function GmailInformationRequestsSection({
           [workflow.workflow_id]: {
             ...draft,
             actionId: prepared.actionId,
+            senderToken: prepared.senderToken,
             preview: prepared.preview,
           },
         }));
@@ -986,6 +989,7 @@ export default function GmailInformationRequestsSection({
           vaultOwnerToken,
           workflowId: workflow.workflow_id,
           actionId: draft.actionId,
+          senderToken: draft.senderToken,
           body: draft.body,
         });
         if (result.state === "sent") {

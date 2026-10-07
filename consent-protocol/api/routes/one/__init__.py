@@ -7,6 +7,7 @@ from .a2a import well_known_router as a2a_well_known_router
 from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
+from .business_suggestions import router as business_suggestions_router
 from .calendar import router as calendar_router
 from .capability_runtime import router as capability_runtime_router
 from .career import router as career_router
@@ -70,6 +71,7 @@ router.include_router(feed_router)
 router.include_router(first_connect_insights_router)
 router.include_router(models_router)
 router.include_router(agent_feedback_router)
+router.include_router(business_suggestions_router)
 router.include_router(location_router)
 router.include_router(public_location_router)
 router.include_router(location_chat_router)

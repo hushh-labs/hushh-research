@@ -10,6 +10,7 @@ import type { OpenedDraft, OpenedMailMessage } from "@/lib/one-voice/mail-open";
 import type {
   CandidatePublic,
   EntityCardPayload,
+  MailDraftChange,
   PendingActionPublic,
   ServerFrame,
   ToolResultPublic,
@@ -38,6 +39,8 @@ export type TranscriptItem = {
   segmentId?: string;
   /** Highest frame seq applied to a contracted row; older frames are ignored. */
   lastSeq?: number;
+  /** Last normalized legacy chunk; distinguishes a full final from a repeated delta. */
+  lastLegacyChunk?: string;
 };
 
 export type ToolTimelineItem = {
@@ -254,6 +257,7 @@ export type VoiceSessionController = {
    * used. Carries no outcome on purpose; the relay re-reads the send action.
    */
   reportMailDelivery?: (deliveryRef: string, actionId: string) => void;
+  reportMailDraftChange?: (change: MailDraftChange) => boolean;
   /**
    * Replace an open create_circle card with a name the person typed. Resolves
    * with the relay's `name_edit.result` for this submission, or a local

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/services/onboarding-local-service", () => ({
   OnboardingLocalService: {
+    hasSeenWalletSwipeHint: vi.fn().mockResolvedValue(true),
+    markWalletSwipeHintSeen: vi.fn().mockResolvedValue(undefined),
     hasSeenWalletIntroduction: vi.fn().mockResolvedValue(false),
     markWalletIntroductionSeen: vi.fn().mockResolvedValue(undefined),
   },
@@ -321,13 +323,15 @@ describe("WalletWorkspace at scale", () => {
     vi.clearAllMocks();
   });
 
-  it("expands all saved cards without changing their storage order", async () => {
+  it("renders every saved card in storage order for scroll unfolding", async () => {
     render(<WalletWorkspace />);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-add-collection");
     expect(screen.getAllByTestId(/^wallet-add-layer-/)).toHaveLength(25);
-    fireEvent.click(screen.getByRole("button", { name: "View all 25 cards" }));
+    expect(screen.getAllByTestId(/^wallet-add-layer-/).map(node => node.dataset.gestureCard)).toEqual(
+      Array.from({ length:25 }, (_, index) => `card_${index}`),
+    );
     expect(screen.getByTestId("wallet-add-stack")).toHaveAttribute("data-expanded", "true");
   });
 

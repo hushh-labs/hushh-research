@@ -571,7 +571,7 @@ function OwnerConnectorsPanel({
   const plaidConnections = vaultKey && vaultOwnerToken && financial.data
     ? Object.values(vaultConnections(financial.data.data))
     : [];
-  const refresh = useCallback(async (signal?: AbortSignal) => {
+  const refresh = useCallback(async (signal?: AbortSignal, verifyDrive = false) => {
     const token = currentToken.current;
     if (!token) {
       onCatalogStateChange?.("unavailable-valid");
@@ -583,7 +583,24 @@ function OwnerConnectorsPanel({
     setLoading(true);
     onCatalogStateChange?.("loading");
     try {
-      const result = await ExternalConnectorService.overview(token);
+      let result = await ExternalConnectorService.overview(token);
+      const isEffectCurrent = () => !signal?.aborted &&
+        currentToken.current === token && request === overviewRead.current;
+      const pendingDrive = result.connectors.find((item) => item.connectorId === "google_drive");
+      if (verifyDrive && isEffectCurrent() && pendingDrive?.profile === "live" &&
+          pendingDrive.status === "verifying") {
+        // Authorization is already saved. Retry the existing readiness probe,
+        // never exchange the Google code again or infer that sign-in is success.
+        try {
+          await ExternalConnectorService.verifyLiveDrive({ vaultOwnerToken: token,
+            signal, isEffectCurrent });
+        } catch {
+          // A provider rejection may have changed the grant to needs_reauth.
+          // Re-read that state even when readiness verification failed.
+        }
+        if (!isEffectCurrent()) return false;
+        result = await ExternalConnectorService.overview(token);
+      }
       if (
         signal?.aborted ||
         currentToken.current !== token ||
@@ -825,7 +842,7 @@ function OwnerConnectorsPanel({
         // A recovery poll itself is a Drive operation and retires any older
         // overview read. Restore the authoritative connection status even
         // when there was no staged credential to finalize.
-        await refresh(signal);
+        await refresh(signal, true);
         return false;
       }
       await ExternalConnectorService.finalizeNative({
@@ -834,7 +851,10 @@ function OwnerConnectorsPanel({
         isEffectCurrent,
       });
       if (!isEffectCurrent()) return false;
-      return await refresh(signal);
+      const refreshed = await refresh(signal, true);
+      const connection = latestOverview.current?.connectors.find((item) => item.connectorId === "google_drive");
+      return refreshed && Boolean(connection?.status === "connected" ||
+        (connection?.status === "verifying" && connection.profile !== "live"));
     },
     [refresh],
   );
@@ -1184,10 +1204,12 @@ function OwnerConnectorsPanel({
           if (!signal.aborted) setDriveMessage("Drive connection cancelled.");
           return;
         }
-        if (!signal.aborted && (await refresh(signal)))
+        if (!signal.aborted && (await refresh(signal, true)))
           setDriveMessage(
             profile === "live"
-              ? "Live Drive connection checked. Ask One to find files."
+              ? latestOverview.current?.connectors.find((item) => item.connectorId === "google_drive")?.status === "connected"
+                ? "Live Drive access connected. Ask One to find files."
+                : "Drive sign-in was not confirmed. Retry Drive to check the connection."
               : "Connection checked. Ask One to find a file.",
           );
       } finally {
@@ -2347,7 +2369,9 @@ function OwnerConnectorsPanel({
                       : !statusChecked
                         ? "Connection status unavailable"
                         : drive
-                          ? (labels[drive.status] ?? "Status unavailable")
+                          ? drive.status === "verifying" && drive.profile === "live"
+                            ? "Authorized · connection check needed"
+                            : (labels[drive.status] ?? "Status unavailable")
                           : "Not connected"}
                   </p>
                 </>
@@ -2391,17 +2415,17 @@ function OwnerConnectorsPanel({
                     Disconnect Drive
                   </Button>
                 )}
-                {(!statusChecked || (!canConnectDrive && drive?.status !== "connected") || drive?.status === "error") && <Button
+                {(!statusChecked || (!canConnectDrive && drive?.status !== "connected") || drive?.status === "error" ||
+                  (drive?.status === "verifying" && drive.profile === "live")) && <Button
                   size="compact"
                   className={touch}
                   variant="ghost"
                   disabled={driveBusy || loading}
                   onClick={() => {
-                    void refresh(controller.current?.signal);
-                    if (controller.current)
-                      void refreshDocuments(controller.current.signal).catch(
-                        () => undefined,
-                      );
+                    void runDrive(async (_token, signal) => {
+                      await refresh(signal, true);
+                      if (!signal.aborted) await refreshDocuments(signal);
+                    });
                   }}
                 >
                   Retry Drive

@@ -580,6 +580,19 @@ article[data-message-role="user"] .messageReactions {
   background: color-mix(in oklab, var(--app-accent) 12%, var(--one-chat-raised));
 }
 
+.messageActionError {
+  max-width: 17rem;
+  margin: 0.3125rem 0 0;
+  color: var(--destructive);
+  font-size: 0.6875rem;
+  line-height: 1.25;
+}
+
+article[data-message-role="user"] .messageActionError {
+  margin-left: auto;
+  text-align: right;
+}
+
 .composer {
   display: flex;
   width: 100%;
@@ -654,6 +667,14 @@ article[data-message-role="user"] .messageReactions {
 
 .composerInput::placeholder {
   color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+}
+
+.composerError {
+  width: 100%;
+  margin: -0.125rem 0 0.125rem;
+  color: var(--destructive);
+  font-size: 0.6875rem;
+  line-height: 1.25;
 }
 
 .voiceButton,

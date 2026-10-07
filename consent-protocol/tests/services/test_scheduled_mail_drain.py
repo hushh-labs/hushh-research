@@ -271,7 +271,14 @@ class _Conn:
                 return None
             return {
                 key: row[key]
-                for key in ("action_id", "state", "expires_at", "sent_at", "envelope_hmac")
+                for key in (
+                    "action_id",
+                    "state",
+                    "expires_at",
+                    "sent_at",
+                    "envelope_hmac",
+                    "send_at",
+                )
             }
         if "SET state = 'sending'" in query:
             row = self._owned(args[0], args[1])

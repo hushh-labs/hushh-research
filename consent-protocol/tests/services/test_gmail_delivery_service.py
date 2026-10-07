@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from email import message_from_bytes
 from email.policy import default
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -30,6 +30,9 @@ from hushh_mcp.services.google_drive_blob_attachment_service import (
     GoogleDriveBlobAttachmentService,
     ResolvedDriveBlob,
 )
+
+_SENDER = {"google_sub": "sender-sub", "grant_generation": 3, "account_label": "owner@example.com"}
+_SENDER_REVIEW = {"sender": _SENDER, "revision": None}
 
 _BLOB = b"private attachment\n"
 _BINDING = "b" * 64
@@ -90,12 +93,16 @@ def _prepared_attachment_row(service, *, state="prepared", descriptor=_DESCRIPTO
             owner_user_id="owner",
             grant_binding=_BINDING,
             source_account_label=_ACCOUNT_LABEL,
+            sender_review=_SENDER_REVIEW,
         ),
     }
 
 
 def _envelope() -> dict[str, object]:
     return {
+        "sender_token": GmailDeliveryService()._seal_sender_review(
+            user_id="owner", action_id="action", review=_SENDER_REVIEW
+        ),
         "to": ["recipient@example.com"],
         "cc": [],
         "bcc": [],
@@ -180,6 +187,10 @@ class _Gmail:
     async def assert_send_ready(self, *, user_id):
         self.ready_calls += 1
 
+    async def send_grant_identity(self, *, user_id):
+        await self.assert_send_ready(user_id=user_id)
+        return dict(_SENDER)
+
 
 @pytest.mark.asyncio
 async def test_prepare_persists_only_hmac_metadata(monkeypatch):
@@ -221,6 +232,118 @@ async def test_prepare_persists_only_hmac_metadata(monkeypatch):
     assert raw_body not in persisted_values
     assert raw_html not in persisted_values
     assert gmail.ready_calls == 1
+    assert result["sender_label"] == "owner@example.com"
+    assert (
+        service._open_sender_review(
+            result["sender_token"], user_id="owner", action_id=result["action_id"]
+        )
+        == _SENDER_REVIEW
+    )
+    assert "owner@example.com" not in persisted_values
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["prepared", "sent"])
+async def test_legacy_immediate_review_requires_new_approval_but_sent_history_survives(
+    monkeypatch, state
+):
+    module = _signing_key(monkeypatch)
+    service = GmailDeliveryService(gmail_service=_Gmail())
+    payload = {k: v for k, v in _envelope().items() if k != "sender_token"}
+    conn = _ActionConn(
+        [
+            {
+                "action_id": "action",
+                "state": state,
+                "envelope_hmac": service._envelope_hmac(normalize_draft(payload)),
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    if state == "sent":
+        assert (await service.execute(user_id="owner", action_id="action", draft_payload=payload))[
+            "state"
+        ] == "sent"
+    else:
+        with pytest.raises(GmailDeliveryError) as rejected:
+            await service.execute(user_id="owner", action_id="action", draft_payload=payload)
+        assert rejected.value.code == "SENDER_REVIEW_REQUIRED"
+    assert not any("SET state = 'sending'" in query for query, _ in conn.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change", ["account", "generation", "owner", "action", "revision", "missing_token"]
+)
+async def test_sender_and_draft_review_changes_never_claim_a_send(monkeypatch, change):
+    module = _signing_key(monkeypatch)
+    gmail = _Gmail()
+    service = GmailDeliveryService(gmail_service=gmail)
+    review = {"sender": dict(_SENDER), "revision": {"draft_ref": "voice-draft", "revision": 2}}
+    payload = {
+        **_envelope(),
+        "draft_ref": "voice-draft",
+        "revision": 2,
+        "sender_token": service._seal_sender_review(
+            user_id="owner", action_id="action", review=review
+        ),
+    }
+    if change in {"account", "generation"}:
+        current = {
+            **_SENDER,
+            **({"google_sub": "different"} if change == "account" else {"grant_generation": 4}),
+        }
+        gmail.send_grant_identity = AsyncMock(return_value=current)
+    elif change == "revision":
+        payload["revision"] = 3
+    elif change == "missing_token":
+        payload.pop("sender_token")
+    conn = _ActionConn(
+        [
+            {
+                "action_id": "action",
+                "state": "prepared",
+                "envelope_hmac": service._envelope_hmac(
+                    normalize_draft(payload), sender_review=review
+                ),
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    with pytest.raises(GmailDeliveryError) as rejected:
+        await service.execute(
+            user_id="other" if change == "owner" else "owner",
+            action_id="other" if change == "action" else "action",
+            draft_payload=payload,
+        )
+    assert rejected.value.code in {"GMAIL_SENDER_CHANGED", "SENDER_REVIEW_INVALID", "DRAFT_CHANGED"}
+    assert not any("SET state = 'sending'" in query for query, _ in conn.calls)
+
+
+@pytest.mark.asyncio
+async def test_token_account_race_after_claim_is_a_definite_failure_without_provider_post(
+    monkeypatch,
+):
+    service, conn, posts = _status_send_harness(
+        monkeypatch, 200, later_state="failed", provider_payload={"id": "unused"}
+    )
+    from hushh_mcp.services.gmail_receipts_service import GmailApiError
+
+    service.gmail_service.get_send_access_token = AsyncMock(
+        side_effect=GmailApiError("Account changed", status_code=409, code="GMAIL_SENDER_CHANGED")
+    )
+    with pytest.raises(GmailDeliveryError) as error:
+        await service.execute(user_id="owner", action_id="action", draft_payload=_envelope())
+    assert error.value.code == "GMAIL_SENDER_CHANGED"
+    assert posts == []
+    assert _recorded_states(conn) == ["failed"]
+    service.gmail_service.get_send_access_token.assert_awaited_once_with(
+        user_id="owner", expected_sender=_SENDER
+    )
 
 
 def test_delivery_migration_has_metadata_only_contract():
@@ -297,7 +420,9 @@ def test_html_only_edit_changes_the_reviewed_envelope_hmac(monkeypatch):
     base = normalize_draft({**_envelope(), "html_body": "<p>Message</p>"})
     edited = normalize_draft({**_envelope(), "html_body": "<p><strong>Message</strong></p>"})
 
-    assert service._envelope_hmac(base) != service._envelope_hmac(edited)
+    assert service._envelope_hmac(base, sender_review=_SENDER_REVIEW) != service._envelope_hmac(
+        edited, sender_review=_SENDER_REVIEW
+    )
 
 
 def _signing_key(monkeypatch):
@@ -316,7 +441,7 @@ async def test_prepare_reuses_matching_idempotency_action(monkeypatch):
     module = _signing_key(monkeypatch)
     service = GmailDeliveryService(gmail_service=_Gmail())
     draft = normalize_draft(_envelope())
-    envelope_hmac = service._envelope_hmac(draft)
+    envelope_hmac = service._envelope_hmac(draft, sender_review=_SENDER_REVIEW)
     conn = _ActionConn(
         [
             {
@@ -374,7 +499,9 @@ async def test_execute_is_single_use_after_sent_action(monkeypatch):
     gmail = _Gmail()
     gmail.get_send_access_token = AsyncMock()
     service = GmailDeliveryService(gmail_service=gmail)
-    envelope_hmac = service._envelope_hmac(normalize_draft(_envelope()))
+    envelope_hmac = service._envelope_hmac(
+        normalize_draft(_envelope()), sender_review=_SENDER_REVIEW
+    )
     conn = _ActionConn(
         [
             {
@@ -400,7 +527,9 @@ async def test_execute_is_single_use_after_sent_action(monkeypatch):
 async def test_execute_expired_action_cannot_transition_to_sending(monkeypatch):
     module = _signing_key(monkeypatch)
     service = GmailDeliveryService(gmail_service=_Gmail())
-    envelope_hmac = service._envelope_hmac(normalize_draft(_envelope()))
+    envelope_hmac = service._envelope_hmac(
+        normalize_draft(_envelope()), sender_review=_SENDER_REVIEW
+    )
     conn = _ActionConn(
         [
             {
@@ -434,7 +563,7 @@ async def test_execute_sends_rfc_message_as_gmail_me_without_a_from_header(
     gmail.get_send_access_token = AsyncMock(return_value="canonical-connector-token")
     service = GmailDeliveryService(gmail_service=gmail)
     draft = normalize_draft(_envelope())
-    envelope_hmac = service._envelope_hmac(draft)
+    envelope_hmac = service._envelope_hmac(draft, sender_review=_SENDER_REVIEW)
     conn = _ActionConn(
         [
             {
@@ -479,7 +608,7 @@ async def test_execute_sends_rfc_message_as_gmail_me_without_a_from_header(
     result = await service.execute(user_id="owner", action_id="action", draft_payload=_envelope())
 
     assert result == {"action_id": "action", "state": "sent", "outcome_unknown": False}
-    gmail.get_send_access_token.assert_awaited_once_with(user_id="owner")
+    gmail.get_send_access_token.assert_awaited_once_with(user_id="owner", expected_sender=_SENDER)
     assert calls[0][0].endswith("/users/me/messages/send")
     assert calls[0][1]["headers"] == {"Authorization": "Bearer canonical-connector-token"}
     rendered = base64.urlsafe_b64decode(str(calls[0][1]["json"]["raw"]).encode("ascii")).decode(
@@ -555,7 +684,9 @@ async def test_provider_timeout_becomes_outcome_unknown_without_retry(monkeypatc
     gmail = _Gmail()
     gmail.get_send_access_token = AsyncMock(return_value="token")
     service = GmailDeliveryService(gmail_service=gmail)
-    envelope_hmac = service._envelope_hmac(normalize_draft(_envelope()))
+    envelope_hmac = service._envelope_hmac(
+        normalize_draft(_envelope()), sender_review=_SENDER_REVIEW
+    )
     conn = _ActionConn(
         [
             {
@@ -603,7 +734,9 @@ async def test_provider_transport_failure_becomes_outcome_unknown_without_retry(
     gmail = _Gmail()
     gmail.get_send_access_token = AsyncMock(return_value="token")
     service = GmailDeliveryService(gmail_service=gmail)
-    envelope_hmac = service._envelope_hmac(normalize_draft(_envelope()))
+    envelope_hmac = service._envelope_hmac(
+        normalize_draft(_envelope()), sender_review=_SENDER_REVIEW
+    )
     conn = _ActionConn(
         [
             {
@@ -674,7 +807,9 @@ def _status_send_harness(
     gmail.get_send_access_token = AsyncMock(return_value="token")
     service = GmailDeliveryService(gmail_service=gmail)
     envelope_hmac = service._envelope_hmac(
-        normalize_draft(_envelope()), reply_context=reply_context
+        normalize_draft(_envelope()),
+        reply_context=reply_context,
+        sender_review=_SENDER_REVIEW,
     )
     conn = _ActionConn(
         [
@@ -1443,9 +1578,8 @@ async def test_schedule_send_is_idempotent_and_persists_no_plaintext_envelope(mo
 
 @pytest.mark.asyncio
 async def test_scheduled_row_is_sendable_by_the_unchanged_execute_path(monkeypatch):
-    """The envelope a schedule stores is the one prepare() computes for an
-    immediate send of the same draft, so execute() verifies the drained payload
-    with zero changes -- and still refuses a payload that was altered."""
+    """Scheduled rows retain their original envelope contract, while new
+    immediate reviews additionally bind the sending account and generation."""
     from hushh_mcp.services import gmail_delivery_service as module
 
     conn = ScheduleLedgerConn()
@@ -1466,7 +1600,9 @@ async def test_scheduled_row_is_sendable_by_the_unchanged_execute_path(monkeypat
     prepared_envelope = next(
         args[2] for query, args in prepare_conn.calls if "INSERT INTO" in query
     )
-    assert prepared_envelope == row["envelope_hmac"]
+    assert (
+        prepared_envelope != row["envelope_hmac"]
+    )  # New immediate reviews also bind sender authority.
 
     gmail = _Gmail()
     gmail.get_send_access_token = AsyncMock(return_value="token")
@@ -1625,3 +1761,221 @@ async def test_execute_persists_an_immediate_expiry_and_leaves_a_late_scheduled_
     assert conn.rows["immediate"]["state"] == "expired"
     assert row["state"] == "prepared"
     assert row["payload_sealed"] is not None
+
+
+@pytest.mark.asyncio
+async def test_prepare_seals_active_recipient_source_without_persisting_its_identity(monkeypatch):
+    module = _signing_key(monkeypatch)
+    connections = SimpleNamespace(
+        list_connections=Mock(
+            return_value=[
+                {
+                    "userId": "recipient-user",
+                    "connectionId": "connection-one",
+                    "email": "Recipient@example.com",
+                }
+            ]
+        )
+    )
+    service = GmailDeliveryService(gmail_service=_Gmail(), connections_service=connections)
+    conn = _PrepareConn()
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    prepared = await service.prepare(
+        user_id="owner",
+        draft_payload={**_envelope(), "_connection_recipient_ids": ["recipient-user"]},
+        idempotency_key="source-bound-review-one",
+    )
+    review = service._open_sender_review(
+        prepared["sender_token"], user_id="owner", action_id=prepared["action_id"]
+    )
+    assert review["recipients"][0]["user_id"] == "recipient-user"
+    assert review["recipients"][0]["connection_id"] == "connection-one"
+    assert re.fullmatch(r"[a-f0-9]{64}", review["recipients"][0]["address_hmac"])
+    connections.list_connections.assert_called_once_with("owner")
+    persisted = repr(conn.calls)
+    assert all(
+        value not in persisted
+        for value in ("recipient-user", "connection-one", "recipient@example.com")
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change", ["none", "address", "removed", "reconnected", "ambiguous", "lookup_failure"]
+)
+async def test_tap_send_rechecks_sealed_connection_sources_before_claim(monkeypatch, change):
+    service, conn, posts = _status_send_harness(
+        monkeypatch, 200, later_state="sent", provider_payload={"id": "one"}
+    )
+    rows = [
+        {
+            "userId": "recipient-user",
+            "connectionId": "connection-one",
+            "email": "recipient@example.com",
+        }
+    ]
+    connections = SimpleNamespace(list_connections=Mock(return_value=rows))
+    service._connections_service = connections
+    payload = _envelope()
+    checks = await service._connection_recipient_checks(
+        user_id="owner", recipient_ids=["recipient-user"], draft=normalize_draft(payload)
+    )
+    review = {**_SENDER_REVIEW, "recipients": checks}
+    payload["sender_token"] = service._seal_sender_review(
+        user_id="owner", action_id="action", review=review
+    )
+    # Untrusted execute metadata cannot remove a source that was reviewed.
+    payload["_connection_recipient_ids"] = []
+    for row in conn.rows:
+        if "envelope_hmac" in row:
+            row["envelope_hmac"] = service._envelope_hmac(
+                normalize_draft(payload), sender_review=review
+            )
+    if change == "address":
+        rows[0]["email"] = "other@example.com"
+    elif change == "removed":
+        rows.clear()
+    elif change == "reconnected":
+        rows[0]["connectionId"] = "new-connection"
+    elif change == "ambiguous":
+        rows.append(dict(rows[0]))
+    elif change == "lookup_failure":
+        connections.list_connections.side_effect = RuntimeError("unavailable")
+    if change == "none":
+        assert (await service.execute(user_id="owner", action_id="action", draft_payload=payload))[
+            "state"
+        ] == "sent"
+        assert len(posts) == 1
+    else:
+        with pytest.raises(GmailDeliveryError) as error:
+            await service.execute(user_id="owner", action_id="action", draft_payload=payload)
+        assert error.value.code == (
+            "RECIPIENT_LOOKUP_UNAVAILABLE" if change == "lookup_failure" else "RECIPIENT_CHANGED"
+        )
+        assert posts == []
+        assert not any("SET state = 'sending'" in query for query, _ in conn.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["prepared", "sending", "sent", "cancelled", None])
+async def test_cancel_prepared_reports_authoritative_owner_state(monkeypatch, state):
+    module = _signing_key(monkeypatch)
+    conn = _ActionConn(
+        [{"action_id": "action", "state": "cancelled"}]
+        if state == "prepared"
+        else [None, {"state": state} if state is not None else None]
+    )
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    result = await GmailDeliveryService().cancel_prepared(user_id="owner", action_id="action")
+    assert result == {
+        "action_id": "action",
+        "cancelled": state == "prepared",
+        "state": "cancelled" if state == "prepared" else state,
+    }
+    assert all(args == ("action", "owner") for _, args in conn.calls)
+    assert all("send_at IS NULL" in query for query, _ in conn.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approval_survives", [False, True])
+async def test_voice_approval_is_rechecked_after_awaited_lookup_before_claim(
+    monkeypatch, approval_survives
+):
+    service, conn, posts = _status_send_harness(
+        monkeypatch, 200, later_state="sent", provider_payload={"id": "one"}
+    )
+    authorization = {"current": True}
+
+    async def check_sender(*, user_id):
+        await __import__("asyncio").sleep(0)
+        authorization["current"] = approval_survives
+        return dict(_SENDER)
+
+    service.gmail_service.send_grant_identity = AsyncMock(side_effect=check_sender)
+    check = Mock(side_effect=lambda: authorization["current"])
+    if approval_survives:
+        result = await service.execute(
+            user_id="owner",
+            action_id="action",
+            draft_payload=_envelope(),
+            authorization_check=check,
+        )
+        assert result["state"] == "sent" and len(posts) == 1
+    else:
+        with pytest.raises(GmailDeliveryError) as refused:
+            await service.execute(
+                user_id="owner",
+                action_id="action",
+                draft_payload=_envelope(),
+                authorization_check=check,
+            )
+        assert refused.value.code == "VOICE_APPROVAL_SUPERSEDED"
+        assert posts == []
+        service.gmail_service.get_send_access_token.assert_not_awaited()
+        assert not any("SET state = 'sending'" in query for query, _ in conn.calls)
+    assert check.call_count == (3 if approval_survives else 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wait_at", ["token", "client_open"])
+async def test_new_input_during_post_claim_wait_never_submits_to_gmail(monkeypatch, wait_at):
+    import asyncio
+
+    from hushh_mcp.services import gmail_delivery_service as module
+
+    service, conn, posts = _status_send_harness(
+        monkeypatch, 200, later_state="failed", provider_payload={"id": "unused"}
+    )
+    waiting, release = asyncio.Event(), asyncio.Event()
+    authority = {"current": True}
+
+    async def pause():
+        waiting.set()
+        await release.wait()
+
+    if wait_at == "token":
+
+        async def token(**_):
+            await pause()
+            return "token"
+
+        service.gmail_service.get_send_access_token = AsyncMock(side_effect=token)
+    else:
+        original_client = module.httpx.AsyncClient
+
+        class PausedClient(original_client):
+            async def __aenter__(self):
+                await pause()
+                return self
+
+        monkeypatch.setattr(module.httpx, "AsyncClient", PausedClient)
+
+    attempt = asyncio.create_task(
+        service.execute(
+            user_id="owner",
+            action_id="action",
+            draft_payload=_envelope(),
+            authorization_check=lambda: authority["current"],
+        )
+    )
+    await asyncio.wait_for(waiting.wait(), timeout=1)
+    # A new utterance or typed edit arrives after the DB claim but while no
+    # Gmail request has started. It must supersede that in-flight approval.
+    authority["current"] = False
+    release.set()
+    with pytest.raises(GmailDeliveryError) as refused:
+        await attempt
+    assert refused.value.code == "VOICE_APPROVAL_SUPERSEDED"
+    assert posts == []
+    assert _recorded_states(conn) == ["failed"]
+    assert _terminal_writes(conn) == [("failed", "voice_approval_superseded", None)]
+    # The consumed action cannot be reopened if the old request is repeated.
+    authority["current"] = True
+    with pytest.raises(GmailDeliveryError) as repeated:
+        await service.execute(user_id="owner", action_id="action", draft_payload=_envelope())
+    assert repeated.value.code == "ACTION_NOT_SENDABLE"
+    assert posts == []

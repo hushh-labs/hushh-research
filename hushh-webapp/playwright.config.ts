@@ -141,6 +141,7 @@ export default defineConfig({
         // travel and the zero-shift open are felt on an iPhone first; the
         // fixture builds its own document.
         /wallet-workspace\.layout\.spec\.ts/,
+        /wallet-scroll-reveal\.layout\.spec\.ts/,
         /wallet-card-scan\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,

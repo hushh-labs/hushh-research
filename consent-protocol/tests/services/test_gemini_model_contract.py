@@ -40,6 +40,90 @@ MEASURED = {
 ACCEPTED_LEVELS = ("LOW", "MEDIUM", "HIGH")
 
 
+def test_local_cli_credentials_are_explicit_refreshable_and_never_hosted(monkeypatch):
+    from datetime import datetime, timezone
+
+    from google.auth.exceptions import RefreshError
+
+    from hushh_mcp.runtime_providers import local_credentials
+
+    monkeypatch.delenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", raising=False)
+    assert local_credentials.local_cli_credentials() is None
+    monkeypatch.setenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", "reviewer@example.test")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "local")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.setattr(local_credentials.shutil, "which", lambda _: "resolved-gcloud")
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(stdout="synthetic-token")
+
+    monkeypatch.setattr(local_credentials.subprocess, "run", run)
+    credentials = local_credentials.local_cli_credentials()
+
+    def request(**kwargs):
+        assert "synthetic-token" not in kwargs["url"]
+        assert kwargs["method"] == "POST"
+        assert kwargs["timeout"] == 10
+        return SimpleNamespace(
+            status=200, data=b'{"email":"reviewer@example.test","expires_in":900}'
+        )
+
+    credentials.refresh(request)
+    assert credentials.token == "synthetic-token"
+    assert credentials.expiry > datetime.now(timezone.utc).replace(tzinfo=None)
+    assert "--account=reviewer@example.test" in calls[0][0]
+    assert calls[0][1]["timeout"] == 15
+    assert "synthetic-token" not in str(calls)
+    for data in (
+        b'{"email":"wrong@example.test","expires_in":900}',
+        b'{"email":"reviewer@example.test","expires_in":100}',
+        b"not-json",
+    ):
+        with pytest.raises(RefreshError, match="reauthentication"):
+            credentials.refresh(lambda data=data, **kwargs: SimpleNamespace(status=200, data=data))
+    monkeypatch.setenv("K_SERVICE", "hosted")
+    with pytest.raises(RuntimeError, match="local runtime"):
+        local_credentials.local_cli_credentials()
+    monkeypatch.delenv("K_SERVICE")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(RuntimeError, match="local runtime"):
+        local_credentials.local_cli_credentials()
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(local_credentials.shutil, "which", lambda _: None)
+    with pytest.raises(RefreshError, match="unavailable"):
+        credentials.refresh(None)
+
+
+def test_managed_clients_keep_local_identity_across_regional_failover(monkeypatch):
+    from hushh_mcp.runtime_providers import factory
+
+    marker = object()
+    monkeypatch.setattr(factory, "local_cli_credentials", lambda: marker)
+    calls = []
+    monkeypatch.setattr(
+        "google.genai.Client", lambda **kwargs: calls.append(kwargs) or SimpleNamespace()
+    )
+    binding = ManagedGeminiRuntimeBinding(
+        project="synthetic-project", locations=("global", "us"), auth_mode="vertex_adc"
+    )
+    client = binding.build_direct_client()
+    client._client_for("us")
+    assert [call["credentials"] for call in calls] == [marker, marker]
+    monkeypatch.setattr("google.adk.models.Gemini", lambda **kwargs: SimpleNamespace(**kwargs))
+    assert binding.build_adk_model(GEMINI_MODEL).client_kwargs["credentials"] is marker
+    monkeypatch.setattr(
+        factory, "_regional_gemini_type", lambda: lambda **kwargs: SimpleNamespace(**kwargs)
+    )
+    monkeypatch.setattr(factory, "_REGIONAL_ADK_CLIENTS", {})
+    regional = binding.build_regional_adk_model(GEMINI_MODEL)
+    regional.regional_client._client_for("global")
+    assert calls[-1]["credentials"] is marker
+
+
 def test_supported_ids_are_exactly_the_two_measured_releases() -> None:
     assert SUPPORTED == ("gemini-3.7-flash", "gemini-3.6-flash")
     assert GEMINI_MODEL in SUPPORTED

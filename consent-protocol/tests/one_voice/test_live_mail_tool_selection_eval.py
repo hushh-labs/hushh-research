@@ -96,6 +96,13 @@ WRONG_EFFECT = {
     "no_mutation": {"send_mail"},
     "cross": {"read_mail", "send_mail"},
 }
+# Versioned composition is still a mutation when the intent is to read,
+# navigate, reply, or schedule. Preparing/cancelling a draft can use either
+# client contract; neither utterance is a fresh send-specific approval.
+for _family in FAMILIES - {"send", "follow_up"}:
+    WRONG_EFFECT[_family] |= {"compose_mail", "edit_mail_draft", "send_reviewed_mail"}
+WRONG_EFFECT["send"] |= {"edit_mail_draft", "send_reviewed_mail"}
+WRONG_EFFECT["follow_up"] |= {"send_reviewed_mail"}
 # A recipient the model never resolved, or a position outside the list the
 # server showed. Both are refused by the same guards production uses.
 UNOFFERED_CODES = frozenset({"person_not_offered", "mail_ordinal_not_offered"})

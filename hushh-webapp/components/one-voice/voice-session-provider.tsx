@@ -79,6 +79,7 @@ import type {
 } from "@/lib/one-voice/live-client";
 import type {
   ClientStepRequestFrame,
+  MailDraftChange,
   OsPermission,
   PerfFrame,
   ServerFrame,
@@ -124,6 +125,7 @@ export interface VoiceLiveClientLike {
   sendAppContext(context: AppContextInput): void;
   /** Optional so older test doubles keep compiling; the real client has it. */
   mailDeliveryResult?(deliveryRef: string, actionId: string): boolean;
+  mailDraftChanged?(change: MailDraftChange): boolean;
   /** Optional like mailDeliveryResult; sent only to a relay listing `name_edit`. */
   nameEditSubmit?(pendingActionId: string, name: string, operationId: string): boolean;
   pendingShown(pendingActionId: string): boolean;
@@ -2102,6 +2104,12 @@ export function VoiceSessionProvider({
     session.client.mailDeliveryResult?.(deliveryRef, actionId);
   }, []);
 
+  const reportMailDraftChange = useCallback((change: MailDraftChange): boolean => {
+    const session = sessionRef.current;
+    if (!session || session.tornDown || !session.features.has("mail_draft_review")) return false;
+    return session.client.mailDraftChanged?.(change) ?? false;
+  }, []);
+
   const submitNameEdit = useCallback(
     (pendingActionId: string, name: string): Promise<NameEditOutcome> => {
       const session = sessionRef.current;
@@ -2184,6 +2192,7 @@ export function VoiceSessionProvider({
       reportClientStep,
       setActiveMail,
       reportMailDelivery,
+      reportMailDraftChange,
       submitNameEdit,
     }),
     [
@@ -2203,6 +2212,7 @@ export function VoiceSessionProvider({
       reportClientStep,
       setActiveMail,
       reportMailDelivery,
+      reportMailDraftChange,
       submitNameEdit,
     ],
   );

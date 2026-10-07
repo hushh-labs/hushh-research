@@ -105,8 +105,14 @@ PROXY_PORT="${PROXY_PORT:-$DB_PORT}"
 PROXY_CREDENTIALS_FILE="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_PROXY_CREDENTIALS_FILE')"
 PROXY_CREDENTIALS_JSON="$(read_env_value "$BACKEND_ENV_FILE" 'FIREBASE_ADMIN_CREDENTIALS_JSON')"
 PROXY_CREDENTIALS_TEMP=""
+PROXY_CHILD_PID=""
 
 cleanup_proxy_credentials() {
+  if [ -n "${PROXY_CHILD_PID:-}" ]; then
+    kill "$PROXY_CHILD_PID" 2>/dev/null || true
+    wait "$PROXY_CHILD_PID" 2>/dev/null || true
+    PROXY_CHILD_PID=""
+  fi
   if [ -n "${PROXY_CREDENTIALS_TEMP:-}" ] && [ -f "${PROXY_CREDENTIALS_TEMP:-}" ]; then
     rm -f "$PROXY_CREDENTIALS_TEMP"
   fi
@@ -155,12 +161,13 @@ proxy_cmd=(cloud-sql-proxy --address 127.0.0.1 --port "$PROXY_PORT")
 
 if [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
   PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
-  python3 - "$PROXY_CREDENTIALS_TEMP" "$PROXY_CREDENTIALS_JSON" <<'PY'
+  python3 - "$PROXY_CREDENTIALS_TEMP" "$BACKEND_ENV_FILE" <<'PY'
 import json
 import sys
+from dotenv import dotenv_values
 
 path = sys.argv[1]
-raw = sys.argv[2]
+raw = dotenv_values(sys.argv[2]).get("FIREBASE_ADMIN_CREDENTIALS_JSON")
 data = json.loads(raw)
 with open(path, "w", encoding="utf-8") as fh:
     json.dump(data, fh)
@@ -191,4 +198,7 @@ echo "  ./bin/hushh web --mode local"
 echo
 
 # Run in the foreground so logs stream to this terminal. Ctrl-C stops it.
-exec "${proxy_cmd[@]}"
+# Keep the launcher alive so its EXIT trap removes temporary credentials.
+"${proxy_cmd[@]}" &
+PROXY_CHILD_PID=$!
+wait "$PROXY_CHILD_PID"

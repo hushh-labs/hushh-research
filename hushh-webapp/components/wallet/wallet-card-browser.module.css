@@ -42,7 +42,7 @@
 @media(prefers-reduced-motion:reduce) { .thumbnailButton { transition:none; } }
 
 /* Preserve layout while the page moves; keyboard focus always keeps controls visible. */
-.dock[data-scrolling-down=true]:not(:has(:focus-visible)) { visibility:hidden; pointer-events:none; }
+
 
 /* The content panel follows Mail; payment-card faces retain their real proportions. */
 .browser { max-width:820px; margin-top:16px; padding:20px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); box-shadow:var(--app-card-shadow-feature); }
@@ -53,3 +53,21 @@
 @media(min-width:640px) { .browser { padding:32px; } }
 
 .title { margin-bottom:16px; }
+
+/* A continuous shelf masks cards below the switcher, as in a physical wallet. */
+.dock { max-width:460px; border:0; border-radius:0; box-shadow:none; padding-block:4px; background:var(--app-card-surface-default-solid); }
+.browser { padding-top:16px; }
+.browser [data-testid="wallet-preview-collection"],
+.browser [data-testid="wallet-add-collection"] { max-width:clamp(220px, calc((100svh - 360px) * 1.05), 420px); }
+
+/* Compact reference strip: retain touch targets without a tall surrounding shelf. */
+.dock { gap:6px; padding:0; min-height:44px; }
+.thumbnails { gap:6px; padding:0 2px; }
+.thumbnailButton { flex-basis:54px; min-height:44px; display:flex; align-items:center; padding:2px; }
+.thumbnail { width:100%; }
+.allButton { min-height:44px; padding-inline:8px; }
+.plus { width:44px; height:44px; }
+
+/* Hide the complete shelf, including its mask, without changing scroll geometry.
+   Anchored on a local class: CSS-modules pure mode (native webpack build) rejects selectors with only :global parts. */
+.dockHost[data-scrolling-down="true"]:not(:focus-within) { visibility:hidden; pointer-events:none; }

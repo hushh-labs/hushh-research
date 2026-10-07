@@ -3026,7 +3026,7 @@
         "stream patch latency through route_refresh_completed"
       ],
       "realtime_policy": "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only",
-      "reviewer_fixture": "/one/messages",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fmessages",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3043,7 +3043,6 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -6513,5 +6512,5 @@
       ]
     }
   ],
-  "content_sha256": "55de406afb9b8737bfdfee9d9393b14d1244896a50ae281ab23ee76851f064ed"
+  "content_sha256": "a6c79a61ee4706edea4eefbec1a977f3ec7daeb98033ef22ee2307acf4bd14d7"
 }

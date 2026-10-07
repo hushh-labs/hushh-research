@@ -2877,7 +2877,7 @@ export function OneLocationAgentPageContent({
   const { run: runGoogleContactSync, clear: clearGoogleContactSync } = googleContactSync;
   const contactSyncResult = googleContactSync.result ?? deviceContactSyncResult;
   const contactInvitations = useContactInvitations(contactSyncUserId);
-  const { clear: clearContactInvitations, beginSync: beginContactInvites, open: openContactInvitations, captureSession: captureContactInviteSession } = contactInvitations;
+  const { clear: clearContactInvitations, beginSync: beginContactInvites, open: openContactInvitations } = contactInvitations;
   const [deviceContactSyncResultsOpen, setContactSyncResultsOpenState] = useState(false);
   const contactSyncResultsOpen = googleContactSync.phase !== "idle" ? googleContactSync.open : deviceContactSyncResultsOpen;
   const setContactSyncResultsOpen = useCallback((open: boolean) => {
@@ -7938,9 +7938,6 @@ export function OneLocationAgentPageContent({
     }
   }, [contactInvitations.enabled, contactInvitations.candidates.length, setContactSyncResultsOpen, openContactInvitations, prepareContactInvitation]);
 
-  const contactInviteActionRef = useRef(handleInviteContactCandidates);
-  useLayoutEffect(() => { contactInviteActionRef.current = handleInviteContactCandidates; }, [handleInviteContactCandidates]);
-
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
       const message = "Sign in before syncing contacts.";
@@ -7969,7 +7966,6 @@ export function OneLocationAgentPageContent({
     if (contactSyncInFlightRef.current) return;
     contactSyncInFlightRef.current = true;
     const onInviteCandidates = beginContactInvites();
-    const inviteSessionIsCurrent = captureContactInviteSession();
     const initiatingUserId = contactSyncUserId;
     const resolveLatestAccountPhoneNumber =
       createContactSyncAccountPhoneResolver({
@@ -8066,25 +8062,7 @@ export function OneLocationAgentPageContent({
                     onClick: () => void handleSyncContactSignalRef.current?.(),
                   },
                 }
-              : outcome.remedy === "invite"
-                ? {
-                    action: {
-                      label: "Invite them",
-                      // The other half of a contact scan. Until now the count of
-                      // people who are NOT on One was computed on every sync and
-                      // read by nothing but an analytics dimension — the product
-                      // learned who was missing, recorded it, and offered the
-                      // person no way to act on it.
-                      //
-                      // Reuses the existing invite share rather than minting a
-                      // second one, and deliberately carries no pre-authorized
-                      // connection: `buildInviteToOneShare` documents why, and
-                      // an invite that consents on the recipient's behalf is not
-                      // an invite.
-                      onClick: () => { if (inviteSessionIsCurrent()) void contactInviteActionRef.current(); },
-                    },
-                  }
-                : {}),
+              : {}),
       };
       if (result.matchedUserIds.length > 0) {
         toast.success(toastOutcome.title, outcomeOptions);
@@ -8134,7 +8112,6 @@ export function OneLocationAgentPageContent({
   }, [
     accountPhoneNumber,
     beginContactInvites,
-    captureContactInviteSession,
     reconcileSyncedConnections,
     setContactSyncResultsOpen,
     auth.user,

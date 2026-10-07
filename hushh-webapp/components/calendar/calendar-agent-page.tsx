@@ -25,10 +25,10 @@ import {
   CALENDAR_SETUP_REGION_CLASSNAME,
   CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "@/components/calendar/calendar-agent-page-layout";
+import { CalendarConnectHero } from "@/components/calendar/calendar-connect-hero";
 
 import { useAuth } from "@/hooks/use-auth";
 import { HushhAuth } from "@/lib/capacitor";
-import { Button } from "@/lib/morphy-ux/button";
 import {
   clearCalendarSetupOAuthReturn,
   markCalendarSetupOAuthReturn,
@@ -451,11 +451,27 @@ export function CalendarAgentPage({
   const permissionLabel = needsSchedulingReconnect
     ? "View events and availability with One."
     : "View availability and manage meetings with One.";
-  const connectLabel =
-    status?.status === "needs_reauth"
-      ? "Reconnect Calendar"
-      : "Connect Calendar";
-  const shouldShowSetup = !connected && status?.status !== "needs_reauth";
+  const needsReauth = status?.status === "needs_reauth";
+  const checkingConnection =
+    connectionPending || loading || (!status && !user);
+  // Every not-connected resting state (first connect and a lapsed Google
+  // authorization) shares one hero and one action.
+  const showConnectHero = !connected && !checkingConnection;
+
+  const popupWaitingNotice = popupWaiting ? (
+    <div className="flex flex-col items-center gap-2 pt-3 text-center">
+      <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
+        Finish signing in with Google in the window that opened.
+      </p>
+      <button
+        type="button"
+        className="min-h-11 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
+        onClick={() => popupCancelRef.current?.abort()}
+      >
+        Cancel sign-in
+      </button>
+    </div>
+  ) : null;
 
   const openChat = (prompt?: string) => {
     trackEvent("one_calendar_action", { route_id: "one_calendar", action: "chat_opened", result: "success" });
@@ -492,121 +508,75 @@ export function CalendarAgentPage({
       }}
     >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
-        <div className="flex flex-col items-center text-center space-y-1 pb-4 pt-8 max-w-sm mx-auto">
-          <div className="mb-6 flex size-24 items-center justify-center rounded-[24px] bg-[#FFF0F1] dark:bg-red-950/40">
-            <CalendarConnectIcon className="size-11" style={{ color: "#FF3B30" }} />
-          </div>
+        {showConnectHero ? (
+          <CalendarConnectHero
+            journeyVariant={journeyVariant}
+            busy={busy}
+            needsReauth={needsReauth}
+            onConnect={() => void connect("read")}
+          >
+            {popupWaitingNotice}
+          </CalendarConnectHero>
+        ) : (
+          <div className="flex flex-col items-center text-center space-y-1 pb-4 pt-8 max-w-sm mx-auto">
+            <div className="mb-6 flex size-24 items-center justify-center rounded-[24px] bg-[#FFF0F1] dark:bg-red-950/40">
+              <CalendarConnectIcon className="size-11" style={{ color: "#FF3B30" }} />
+            </div>
 
-          <h2 className="text-2xl sm:text-[26px] font-bold tracking-tight text-foreground">
-            {connected ? "Google Calendar" : "Connect Google Calendar"}
-          </h2>
+            <h2 className="text-2xl sm:text-[26px] font-bold tracking-tight text-foreground">
+              {connected ? "Google Calendar" : "Connect Google Calendar"}
+            </h2>
 
-          <p className="text-base text-muted-foreground/80 mt-1 max-w-xs leading-normal">
-            {detail}
-          </p>
+            <p className="text-base text-muted-foreground/80 mt-1 max-w-xs leading-normal">
+              {detail}
+            </p>
 
-          <div className="space-y-4 pt-6 w-full flex flex-col items-center">
-            {connectionPending || loading || (!status && !user) ? (
-              <span className="inline-flex items-center gap-2 pt-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                {connectionPending
-                  ? "Finishing Calendar connection…"
-                  : "Loading Calendar…"}
-              </span>
-            ) : connected ? (
-              <div className="pt-2 space-y-4 flex flex-col items-center w-full">
-                {/* Connection Status & Permission */}
-                <div className="flex flex-col items-center gap-1.5 text-center px-2">
-                  <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-                    <span>{connectionLabel}</span>
+            <div className="space-y-4 pt-6 w-full flex flex-col items-center">
+              {checkingConnection ? (
+                <span className="inline-flex items-center gap-2 pt-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  {connectionPending
+                    ? "Finishing Calendar connection…"
+                    : "Loading Calendar…"}
+                </span>
+              ) : (
+                <div className="pt-2 space-y-4 flex flex-col items-center w-full">
+                  {/* Connection Status & Permission */}
+                  <div className="flex flex-col items-center gap-1.5 text-center px-2">
+                    <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                      <span>{connectionLabel}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground max-w-sm leading-normal">
+                      {permissionLabel}
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground max-w-sm leading-normal">
-                    {permissionLabel}
-                  </p>
-                </div>
 
-                {/* Actions */}
-                <div className="flex flex-col items-center gap-2.5 w-full pt-1">
-                  <AskOneButton
-                    disabled={busy}
-                    showIcon={false}
-                    onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
-                    className="w-full rounded-full"
-                  >
-                    Try Calendar Agent with One
-                  </AskOneButton>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
-                    disabled={busy}
-                    onClick={() => setDisconnectConfirmOpen(true)}
-                  >
-                    Disconnect Calendar
-                  </button>
+                  {/* Actions */}
+                  <div className="flex flex-col items-center gap-2.5 w-full pt-1">
+                    <AskOneButton
+                      disabled={busy}
+                      showIcon={false}
+                      onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
+                      className="w-full rounded-full"
+                    >
+                      Try Calendar Agent with One
+                    </AskOneButton>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
+                      disabled={busy}
+                      onClick={() => setDisconnectConfirmOpen(true)}
+                    >
+                      Disconnect Calendar
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : shouldShowSetup ? (
-              <div className="pt-2 pb-1 w-full">
-                <div className="flex flex-col items-center justify-center text-center space-y-3 w-full">
-                  <Button
-                    disabled={busy}
-                    onClick={() => void connect("read")}
-                    className="w-full justify-center h-12 text-base font-semibold rounded-full bg-[var(--app-accent)] hover:opacity-90 text-white shadow-sm transition-opacity"
-                    data-voice-control-id="open_calendar_connector"
-                    data-voice-action-id={
-                      journeyVariant === "onboarding"
-                        ? "setup.connect_calendar"
-                        : undefined
-                    }
-                    data-voice-label="Connect Calendar"
-                    data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
-                  >
-                    {connectLabel}
-                  </Button>
-                  <p className="text-xs text-muted-foreground/70 text-center">
-                    Disconnect anytime.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-3 pt-2 w-full">
-                <Button
-                  disabled={busy}
-                  onClick={() => void connect("read")}
-                  className="w-full justify-center h-12 text-base font-semibold rounded-full bg-[var(--app-accent)] hover:opacity-90 text-white shadow-sm transition-opacity"
-                  data-voice-control-id="open_calendar_connector"
-                  data-voice-action-id={
-                    journeyVariant === "onboarding"
-                      ? "setup.connect_calendar"
-                      : undefined
-                  }
-                  data-voice-label="Connect Calendar"
-                  data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
-                >
-                  {connectLabel}
-                </Button>
-                <p className="text-xs text-muted-foreground/70 text-center">
-                  Disconnect anytime.
-                </p>
-              </div>
-            )}
-            {popupWaiting ? (
-              <div className="flex flex-col items-center gap-2 pt-3 text-center">
-                <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
-                  Finish signing in with Google in the window that opened.
-                </p>
-                <button
-                  type="button"
-                  className="min-h-11 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
-                  onClick={() => popupCancelRef.current?.abort()}
-                >
-                  Cancel sign-in
-                </button>
-              </div>
-            ) : null}
+              )}
+              {popupWaitingNotice}
+            </div>
           </div>
-        </div>
+        )}
 
         {journeyVariant === "onboarding" && onFinishSetup && onSkipSetup ? (
           <SetupCompletionFooter

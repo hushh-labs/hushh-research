@@ -4624,7 +4624,20 @@
           "out_of_scope_behavior": "Do not infer a connection or reveal another person's message history."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/messages",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fmessages",
+        "expectedMarker": "native-route-direct-messages",
+        "expectedRoute": "/one/messages",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -9730,5 +9743,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "6dfec5f984ff318ca728205df3c78b8c60b4fd69092743c2110987f87d56978d"
+  "content_sha256": "09a9a8d7c7e74e02c2bb481e72c1c099387e4a5f14414fcb82fa348a302eef0e"
 }

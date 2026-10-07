@@ -12,10 +12,13 @@
         "get_mail_access"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "get_profile",
         "open_mail",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "capability question: answered from the connection, never by opening the inbox or the profile email"
     },
@@ -29,10 +32,13 @@
         "get_mail_access"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "get_profile",
         "open_mail",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "capability question in casual wording"
     },
@@ -46,10 +52,13 @@
         "get_mail_access"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "get_profile",
         "open_mail",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "Hinglish capability question"
     },
@@ -63,10 +72,13 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "create_circle",
+        "edit_mail_draft",
         "open_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "needs-reply read; the reader's scope is needs_reply, not newest"
     },
@@ -80,10 +92,13 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "create_circle",
+        "edit_mail_draft",
         "open_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "action-item analysis is a read"
     },
@@ -97,10 +112,13 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "create_circle",
+        "edit_mail_draft",
         "open_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "personal-information request analysis, owner's today"
     },
@@ -114,10 +132,13 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "create_circle",
+        "edit_mail_draft",
         "open_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "meeting analysis is a read"
     },
@@ -131,10 +152,13 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "create_circle",
+        "edit_mail_draft",
         "open_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "a sender named in a mail question is a search criterion, not a person to act on"
     },
@@ -148,10 +172,13 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "create_circle",
+        "edit_mail_draft",
         "open_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "newest-N summary"
     },
@@ -165,10 +192,13 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "create_circle",
+        "edit_mail_draft",
         "open_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "metadata-only read; never open a message"
     },
@@ -182,10 +212,13 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "create_circle",
+        "edit_mail_draft",
         "open_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "inbox update"
     },
@@ -201,8 +234,11 @@
         "open_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "position in the list just shown: open, do not re-read or summarise"
     },
@@ -218,8 +254,11 @@
         "open_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "show the original message at a position"
     },
@@ -235,8 +274,11 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "open_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "negated open: summarise by ordinal instead"
     },
@@ -250,7 +292,9 @@
         "resolve_person"
       ],
       "forbidden_tools": [
-        "read_mail"
+        "edit_mail_draft",
+        "read_mail",
+        "send_reviewed_mail"
       ],
       "note": "a spoken name is never an id: resolve first"
     },
@@ -264,7 +308,9 @@
         "resolve_person"
       ],
       "forbidden_tools": [
-        "read_mail"
+        "edit_mail_draft",
+        "read_mail",
+        "send_reviewed_mail"
       ],
       "note": "dictated message; resolve the recipient first"
     },
@@ -278,7 +324,9 @@
         "resolve_person"
       ],
       "forbidden_tools": [
-        "read_mail"
+        "edit_mail_draft",
+        "read_mail",
+        "send_reviewed_mail"
       ],
       "note": "draft wording is the send tool, which only opens a review card"
     },
@@ -292,7 +340,9 @@
         "resolve_person"
       ],
       "forbidden_tools": [
-        "read_mail"
+        "edit_mail_draft",
+        "read_mail",
+        "send_reviewed_mail"
       ],
       "note": "subject and body dictated together"
     },
@@ -306,11 +356,14 @@
       ],
       "utterance": "now email her that the UAT build is ready",
       "expected_tools": [
+        "compose_mail",
         "send_mail",
         "resolve_person"
       ],
       "forbidden_tools": [
-        "read_mail"
+        "edit_mail_draft",
+        "read_mail",
+        "send_reviewed_mail"
       ],
       "note": "recipient confirmed in history: send_mail directly, or a fresh resolve"
     },
@@ -326,8 +379,10 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "edit_mail_draft",
         "read_mail",
-        "reply_mail"
+        "reply_mail",
+        "send_reviewed_mail"
       ],
       "note": "a new email to a named person, even with her mail on screen: resolve her and use send_mail, never reply_mail"
     },
@@ -343,10 +398,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "position in the list just shown, with dictated words: reply in that email's thread; the recipient comes from the email, never resolve_person or send_mail"
     },
@@ -362,10 +420,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "an instruction rather than dictated words: the reply is written from the instruction alone, with no invented dates, amounts or commitments"
     },
@@ -381,10 +442,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "Hinglish: reply to the first one saying I'll send it tomorrow; 'bhejunga' is the reply's words, not a send_mail request"
     },
@@ -401,10 +465,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "the single email just read is the one in front of them: reply_mail with no position"
     },
@@ -421,10 +488,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "the email open on screen: reply_mail with no position; the surface's open row names it"
     },
@@ -438,11 +508,14 @@
         "read_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "list_people",
         "reply_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "no email shown yet and nothing to say: search her mail first, then ask which one and what to say; never pick one from a name or resolve her as a person"
     },
@@ -458,10 +531,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "the sender of a shown email is reached by replying to it; the model never knows who sent it, so never look them up"
     },
@@ -477,10 +553,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "position named as 'email two' with a dictated reply"
     },
@@ -496,10 +575,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "Hinglish: answer the third mail saying the meeting is confirmed; 'jawab bhej do' (send the answer) is still a reply"
     },
@@ -515,10 +597,13 @@
         "reply_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
+        "edit_mail_draft",
         "read_mail",
         "resolve_person",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "'send' inside the dictated reply is the reply's text, not a send_mail request"
     },
@@ -532,11 +617,14 @@
       ],
       "utterance": "sure, prepare it",
       "expected_tools": [
-        "confirm_pending_action"
+        "confirm_pending_action",
+        "compose_mail"
       ],
       "forbidden_tools": [
         "cancel_pending_action",
-        "send_mail"
+        "edit_mail_draft",
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "yes to the waiting voice-tier draft card confirms it; never re-propose the draft"
     },
@@ -550,11 +638,14 @@
       ],
       "utterance": "actually hold on, scrap that draft",
       "expected_tools": [
-        "cancel_pending_action"
+        "cancel_pending_action",
+        "edit_mail_draft"
       ],
       "forbidden_tools": [
+        "compose_mail",
         "confirm_pending_action",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "change of mind cancels the waiting draft card"
     },
@@ -572,8 +663,11 @@
       ],
       "forbidden_tools": [
         "cancel_pending_action",
+        "compose_mail",
+        "edit_mail_draft",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "yes to the waiting voice-tier reply card confirms it; never re-propose the reply"
     },
@@ -596,6 +690,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -604,6 +699,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -622,6 +718,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -658,6 +755,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -666,6 +764,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -684,6 +783,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -722,6 +822,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -730,6 +831,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -748,6 +850,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -786,6 +889,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -794,6 +898,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -812,6 +917,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -850,6 +956,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -858,6 +965,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -876,6 +984,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -914,6 +1023,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -922,6 +1032,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -940,6 +1051,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -978,6 +1090,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -986,6 +1099,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1004,6 +1118,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1040,6 +1155,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1048,6 +1164,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1066,6 +1183,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1106,6 +1224,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1114,6 +1233,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1132,6 +1252,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1168,6 +1289,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1176,6 +1298,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1194,6 +1317,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1232,6 +1356,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1240,6 +1365,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1258,6 +1384,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1296,6 +1423,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1304,6 +1432,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1322,6 +1451,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1360,6 +1490,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1368,6 +1499,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1386,6 +1518,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1424,6 +1557,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1432,6 +1566,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1450,6 +1585,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1477,8 +1613,11 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "a circle named after mail is still a circle"
     },
@@ -1492,8 +1631,11 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "mail word in a circle name"
     },
@@ -1507,9 +1649,12 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
         "reply_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "a mail word in a circle name is still a circle"
     },
@@ -1527,8 +1672,11 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "a named later time is a scheduled send, never an immediate draft"
     },
@@ -1546,8 +1694,11 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "a weekday and part of day is a later time: a scheduled send"
     },
@@ -1565,8 +1716,11 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "Hinglish evening time for tomorrow: a scheduled send to the confirmed person"
     },
@@ -1580,8 +1734,11 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "an unresolved person is looked up first; an immediate draft is the wrong effect"
     },
@@ -1595,8 +1752,11 @@
         "list_scheduled_mail"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "asking what will go out later is the scheduled list, not the inbox"
     },
@@ -1613,7 +1773,10 @@
       ],
       "forbidden_tools": [
         "cancel_pending_action",
-        "send_mail"
+        "compose_mail",
+        "edit_mail_draft",
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "a position in the scheduled list just shown is a scheduled cancel, not a pending card"
     },
@@ -1631,8 +1794,11 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "a duration from now is a scheduled send (send_in_minutes, counted by the server), never an immediate draft"
     },
@@ -1646,12 +1812,15 @@
       ],
       "utterance": "email her right away that the build passed",
       "expected_tools": [
+        "compose_mail",
         "send_mail",
         "resolve_person"
       ],
       "forbidden_tools": [
+        "edit_mail_draft",
         "read_mail",
-        "schedule_mail"
+        "schedule_mail",
+        "send_reviewed_mail"
       ],
       "note": "no later time named: an immediate draft, never a scheduled send"
     },
@@ -1665,8 +1834,11 @@
         "list_drafts"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "Gmail drafts are listed as drafts, never as inbox mail"
     },
@@ -1680,8 +1852,11 @@
         "list_drafts"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "read_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "Hinglish request for the saved drafts list"
     },
@@ -1697,9 +1872,12 @@
         "open_draft"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "open_mail",
         "send_draft",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "opening a listed draft by position opens the draft, not an email"
     },
@@ -1715,8 +1893,11 @@
         "send_draft"
       ],
       "forbidden_tools": [
+        "compose_mail",
+        "edit_mail_draft",
         "schedule_mail",
-        "send_mail"
+        "send_mail",
+        "send_reviewed_mail"
       ],
       "note": "sending a listed draft sends that draft by position, never a new email"
     },
@@ -1741,6 +1922,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1749,6 +1931,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1767,6 +1950,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -1805,6 +1989,7 @@
         "cancel_connection_request",
         "cancel_scheduled_mail",
         "change_share_duration",
+        "compose_mail",
         "confirm_pending_action",
         "create_check_in",
         "create_circle",
@@ -1813,6 +1998,7 @@
         "decline_connection_request",
         "delete_account",
         "delete_circle",
+        "edit_mail_draft",
         "hide_on_map",
         "invite_person",
         "leave_circle",
@@ -1831,6 +2017,7 @@
         "schedule_mail",
         "send_draft",
         "send_mail",
+        "send_reviewed_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",

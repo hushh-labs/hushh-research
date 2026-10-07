@@ -1094,7 +1094,13 @@ class DirectMessagesService:
         conversation = self._public_conversation(
             self._conversation_projection(conversation_row, sender)
         )
-        message = self._message_projection(message_row, sender)
+        # INSERT ... RETURNING includes the reply id but not the joined reply
+        # envelope fields used by ``_message_projection``. The reply target was
+        # already participant-validated and projected in this transaction, so
+        # build the new message without an unavailable joined envelope and
+        # attach that safe preview below. Otherwise a reply can commit and then
+        # return a false 503 while its client retries the durable message.
+        message = self._message_projection({**message_row, "reply_to_message_id": None}, sender)
         if reply_to:
             message["replyTo"] = {
                 "id": reply_to["id"],

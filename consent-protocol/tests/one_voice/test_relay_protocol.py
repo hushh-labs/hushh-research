@@ -2621,6 +2621,111 @@ def _responses(fake: FakeLive, name: str) -> list[dict]:
     return [r["response"] for r in fake.tool_responses if r["name"] == name]
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("change", ["ask", "cancel_pending_action"])
+@pytest.mark.parametrize("padding", ["", " ", "uuid_alias"])
+async def test_batch_cannot_confirm_and_change_the_same_review(change, reverse, padding):
+    session, transport, fake, pending = await _voice_card_session()
+    await _model_calls(session, "prepare", "ask", {"person": {"user_id": "u-priya"}})
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+    await pending.mark_shown(user_id=USER, pending_action_id=card)
+    supplied_id = (
+        card.upper().replace("-", "") if padding == "uuid_alias" else f"{padding}{card}{padding}"
+    )
+    changed_args = (
+        {"pending_action_id": supplied_id}
+        if change == "cancel_pending_action"
+        else {"person": {"user_id": "u-priya"}, "hours": 2}
+    )
+    calls = [
+        {
+            "id": "approve",
+            "name": "confirm_pending_action",
+            "args": {"pending_action_id": supplied_id},
+        },
+        {"id": "change", "name": change, "args": changed_args},
+    ]
+    if reverse:
+        calls.reverse()
+    calls.append({"id": "read", "name": "echo", "args": {"text": "read still works"}})
+    await session._handle_live_event(LiveEvent(kind="tool_call", function_calls=calls))
+    assert pending.rows[card].status == "pending"
+    assert len(pending.rows) == 1
+    results = {r["id"]: r["response"] for r in fake.tool_responses[-3:]}
+    assert results["approve"]["reason_code"] == "conflicting_confirmation"
+    assert results["change"]["reason_code"] == "conflicting_confirmation"
+    assert results["read"]["status"] == "ok"
+    # A tool result cannot launder this contradictory answer into consent.
+    await _model_calls(session, "same-turn", "confirm_pending_action", {"pending_action_id": card})
+    assert pending.rows[card].status == "pending"
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await _model_calls(session, "silent", "confirm_pending_action", {"pending_action_id": card})
+    assert pending.rows[card].status == "pending"
+    assert (
+        _responses(fake, "confirm_pending_action")[-1]["reason_code"] == "conflicting_confirmation"
+    )
+    # A fresh owner response can approve the unchanged review.
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Go ahead unchanged"))
+    await _model_calls(session, "fresh", "confirm_pending_action", {"pending_action_id": card})
+    assert pending.rows[card].status == "executed"
+
+
+async def test_batch_confirmation_and_independent_followup_still_work():
+    session, transport, fake, pending = await _voice_card_session()
+    await _model_calls(session, "prepare", "ask", {"person": {"user_id": "u-priya"}})
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+    await pending.mark_shown(user_id=USER, pending_action_id=card)
+    await session._handle_live_event(
+        LiveEvent(
+            kind="tool_call",
+            function_calls=[
+                {
+                    "id": "approve",
+                    "name": "confirm_pending_action",
+                    "args": {"pending_action_id": card},
+                },
+                {"id": "followup", "name": "delete_thing", "args": {"thing_id": "different"}},
+            ],
+        )
+    )
+    assert pending.rows[card].status == "executed"
+    assert _responses(fake, "delete_thing")[-1]["status"] == "confirmation_required"
+
+
+async def test_unchecked_batch_cannot_confirm_after_storage_recovers(monkeypatch):
+    session, transport, fake, pending = await _voice_card_session()
+    await _model_calls(session, "prepare", "ask", {"person": {"user_id": "u-priya"}})
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+    await pending.mark_shown(user_id=USER, pending_action_id=card)
+    original = pending.list_open
+
+    async def unavailable(**kwargs):
+        raise PendingActionStorageError("unavailable")
+
+    monkeypatch.setattr(pending, "list_open", unavailable)
+    await session._handle_live_event(
+        LiveEvent(
+            kind="tool_call",
+            function_calls=[
+                {
+                    "id": "approve",
+                    "name": "confirm_pending_action",
+                    "args": {"pending_action_id": card},
+                },
+                {"id": "read", "name": "echo", "args": {"text": "independent read"}},
+            ],
+        )
+    )
+    monkeypatch.setattr(pending, "list_open", original)
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await _model_calls(session, "retry", "confirm_pending_action", {"pending_action_id": card})
+    assert pending.rows[card].status == "pending"
+    assert (
+        _responses(fake, "confirm_pending_action")[-1]["reason_code"] == "conflicting_confirmation"
+    )
+
+
 async def test_repeated_voice_proposal_reuses_the_open_card_on_the_current_turn():
     """After a yes, a model that proposes the same action again gets the open
     card's id back: no second row, no cancelled card, no new question."""

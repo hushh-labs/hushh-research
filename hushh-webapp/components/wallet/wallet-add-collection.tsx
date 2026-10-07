@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type TouchEvent } from "react";
+import { WalletCardSwipe } from "./wallet-card-swipe";
+import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
@@ -23,8 +25,10 @@ function EmptyCardPreview() {
 }
 
 /** Cards collection presentation of the workspace's summaries; never fetches or reveals secrets. */
-export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, onRemove, busyCardId, disabled = false, preview = false, initialExpanded = false, scrollStack = false, showActions = true, showDetailsLink = false, onOpen }: {
+export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, onRemove, busyCardId, disabled = false, preview = false, initialExpanded = false, scrollStack = false, showActions = true, showDetailsLink = false, scrollReveal = false, hintOwnerId, onOpen }: {
   scrollStack?: boolean;
+  scrollReveal?: boolean;
+  hintOwnerId?: string;
   showDetailsLink?: boolean;
   initialExpanded?: boolean;
   showActions?: boolean;
@@ -39,19 +43,65 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
   busyCardId: string | null;
 }) {
   const [expanded, setExpanded] = useState(initialExpanded);
+  const [hintOwner, setHintOwner] = useState<string | null>(null);
+  useEffect(() => {
+    if (!scrollReveal || !hintOwnerId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const owner = hintOwnerId;
+    void OnboardingLocalService.hasSeenWalletSwipeHint(owner).then(seen => {
+      if (cancelled || seen) return;
+      setHintOwner(owner);
+      void OnboardingLocalService.markWalletSwipeHintSeen(owner);
+      timer = setTimeout(() => setHintOwner(null), 4800);
+    });
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [scrollReveal, hintOwnerId]);
   const stackId = useId();
   const stackRef = useRef<HTMLDivElement>(null);
-  const start = useRef<{ x: number; y: number; time: number } | null>(null);
+  const start = useRef<{ x: number; y: number; time: number; cardId?: string } | null>(null);
   const suppressClickUntil = useRef(0);
   const selected = cards.find((card) => card.cardId === selectedCardId) ?? cards[0];
   // Derive presentation order only. The workspace and encrypted store retain their order.
   const displayCards = selected ? [selected, ...cards.filter((card) => card !== selected)] : [];
   const depth = Math.min(3, Math.max(0, cards.length - 1));
   const canExpand = cards.length > 1;
-  const isExpanded = canExpand && expanded;
+  const isExpanded = canExpand && (expanded || scrollReveal);
+  useEffect(() => {
+    if (!scrollReveal || expanded) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const stack = stackRef.current;
+    if (!stack) return;
+    const root = stack.closest<HTMLElement>("[data-app-scroll-root]");
+    const target = root ?? window;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const width = stack.clientWidth;
+      const cardHeight = width * 53.98 / 85.6;
+      const top = root?.getBoundingClientRect().top ?? 0;
+      const progress = reducedMotion.matches ? 1 : Math.min(1, Math.max(0, (top + 40 - stack.getBoundingClientRect().top) / Math.max(1, cardHeight)));
+      stack.dataset.unfolded = String(progress === 1);
+      stack.querySelectorAll<HTMLElement>("li[data-reveal-rank]").forEach(layer => {
+        const rank = Number(layer.dataset.revealRank);
+        const folded = rank ? cardHeight + 56 + (rank - 1) * 28 : 0;
+        const lined = rank * (cardHeight + 56);
+        layer.style.transform = `translate3d(0, ${folded + (lined - folded) * progress}px, 0)`;
+        const details = layer.querySelector<HTMLElement>("[data-stack-details]");
+        if (details) details.style.visibility = rank > 0 && progress < .98 ? "hidden" : "";
+      });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(stack);
+    reducedMotion.addEventListener("change", schedule);
+    target.addEventListener("scroll", schedule, { passive: true });
+    schedule();
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); reducedMotion.removeEventListener("change", schedule); target.removeEventListener("scroll", schedule); };
+  }, [scrollReveal, expanded, selectedCardId, cards.length]);
   useEffect(() => {
     const stack = stackRef.current;
-    if (!stack || !isExpanded) return;
+    if (!stack || !isExpanded || scrollReveal) return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const scrollRoot = stack.closest<HTMLElement>("[data-app-scroll-root]");
     const target = scrollRoot ?? window;
@@ -93,15 +143,16 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       reducedMotion.removeEventListener("change", schedule);
       stack.querySelectorAll<HTMLElement>("[data-card-motion]").forEach((card) => { card.style.transform = ""; const details = card.querySelector<HTMLElement>("[data-stack-details]"); if (details) details.style.visibility = ""; });
     };
-  }, [isExpanded, selectedCardId, cards.length, scrollStack]);
+  }, [isExpanded, selectedCardId, cards.length, scrollStack, scrollReveal]);
   const endGesture = (event: TouchEvent) => {
     const origin = start.current;
     start.current = null;
-    if (!origin || !canExpand) return;
+    if (!origin || disabled || busyCardId) return;
     const touch = event.changedTouches[0];
     if (!touch) return;
     const dy = touch.clientY - origin.y;
     const dx = touch.clientX - origin.x;
+    if (scrollReveal || !canExpand) return;
     // A short, directed flick changes presentation; slow page scrolling stays scrolling.
     // Never preventDefault or capture touch movement: the page remains the scroll owner.
     if (Date.now() - origin.time > 450 || Math.abs(dy) < 64 || Math.abs(dy) < Math.abs(dx) * 1.5) return;
@@ -129,7 +180,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
             onTouchStart={(event) => {
               suppressClickUntil.current = 0;
               const touch = event.touches[0];
-              start.current = event.touches.length === 1 && touch ? { x: touch.clientX, y: touch.clientY, time: Date.now() } : null;
+              start.current = event.touches.length === 1 && touch ? { x: touch.clientX, y: touch.clientY, time: Date.now(), cardId: (event.target as HTMLElement).closest<HTMLElement>("[data-gesture-card]")?.dataset.gestureCard } : null;
             }}
             onTouchMove={(event) => { if (event.touches.length !== 1) start.current = null; }}
             onTouchEnd={endGesture}
@@ -144,16 +195,17 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                 const rank = displayCards.indexOf(card);
                 const active = rank === 0;
                 const hidden = !isExpanded && rank > 3;
-                const y = isExpanded ? `calc(${rank} * (100% + 16px))` : `${(depth - Math.min(rank, depth)) * 20}px`;
+                const y = scrollReveal && !expanded ? (rank ? `calc(100cqw * 53.98 / 85.6 + ${56 + (rank - 1) * 28}px)` : "0px") : isExpanded ? `calc(${rank} * (100% + 16px))` : `${(depth - Math.min(rank, depth)) * 20}px`;
                 return (
-                  <li key={card.cardId}
-                    className={`absolute inset-x-0 top-0 origin-top [transition:transform_300ms_var(--motion-ease-decelerate),opacity_220ms_ease-out] motion-reduce:[transition:none] ${!isExpanded && !active ? "[&_[data-testid=wallet-card-face]>span]:invisible" : ""}`}
+                  <li key={card.cardId} data-gesture-card={card.cardId} data-reveal-rank={rank}
+                    className={`absolute inset-x-0 top-0 origin-top ${scrollReveal ? "" : "[transition:transform_300ms_var(--motion-ease-decelerate),opacity_220ms_ease-out]"} motion-reduce:[transition:none] ${!isExpanded && !active ? "[&_[data-testid=wallet-card-face]>span]:invisible" : ""}`}
                     aria-hidden={hidden || undefined} inert={hidden || undefined}
                     data-testid={preview ? `wallet-preview-layer-${card.cardId}` : `wallet-add-layer-${card.last4}`} data-selected={active}
                     style={{ transform: `translate3d(0, ${y}, 0) scale(${isExpanded ? 1 : 1 - Math.min(rank, 3) * 0.045})`,
-                      zIndex: isExpanded && scrollStack ? rank + 1 : cards.length - rank, opacity: hidden || busyCardId === card.cardId ? 0 : 1,
+                      zIndex: scrollReveal ? (active ? cards.length + 1 : rank) : isExpanded && scrollStack ? rank + 1 : cards.length - rank, opacity: hidden || busyCardId === card.cardId ? 0 : 1,
                       pointerEvents: hidden ? "none" : undefined }}>
-                    <div data-card-motion className="origin-bottom">
+                    <div data-card-motion className="relative origin-bottom">
+                    <WalletCardSwipe card={card} disabled={disabled || Boolean(busyCardId)} onOpen={() => onOpen?.(card.cardId)} hint={scrollReveal && active && Boolean(hintOwnerId) && hintOwner === hintOwnerId} dismissHint={() => setHintOwner(null)}>
                     <button type="button"
                       disabled={disabled || Boolean(busyCardId)}
                       aria-label={preview ? card.nickname : `${card.nickname || cardNetworkLabel(card.brand)}, ${cardNetworkLabel(card.brand)} ending in ${card.last4}`}
@@ -168,6 +220,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                       className="block origin-bottom w-full rounded-[3.72cqw] text-left outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background">
                       {preview ? <WalletDemoCardFace summary={card} /> : <WalletCardFace summary={card} collection />}
                     </button>
+                    </WalletCardSwipe>
                     {showDetailsLink && isExpanded ? <div data-stack-details className="flex h-10 items-center justify-center"><Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)} onClick={() => onOpen?.(card.cardId)} aria-label={`View details for ${card.nickname || cardNetworkLabel(card.brand)}`}>View details <span aria-hidden="true">›</span></Button></div> : null}
                     </div>
                   </li>
@@ -176,7 +229,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
             </ul>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            {canExpand ? <Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)} aria-expanded={isExpanded} aria-controls={stackId}
+            {canExpand && !scrollReveal ? <Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)} aria-expanded={isExpanded} aria-controls={stackId}
               onClick={() => setExpanded(!isExpanded)}>
               {isExpanded ? "Collapse cards" : `View all ${cards.length} cards`}
             </Button> : <span />}

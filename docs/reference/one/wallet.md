@@ -165,3 +165,7 @@ in Consent Center. Loading and read errors are distinct from empty access.
 Wallet panels use solid surfaces and Location section typography. The collection
 omits example labels and fictional total-due content. PIN is optional; blank or
 whitespace-only PIN input is omitted before validation and saving.
+
+### Card browsing gestures
+
+The Cards overview presents one full card above a compact lower stack. Vertical scrolling unfolds the remaining cards; reduced-motion users receive a static, fully unfolded list. A left drag or horizontal trackpad scroll opens card-local summary controls; full details continue through the existing Wallet reveal flow. The first-use swipe hint is scoped to the account and device through OnboardingLocalService. The compact thumbnail shelf hides on downward scrolling and returns on upward scrolling or keyboard navigation.

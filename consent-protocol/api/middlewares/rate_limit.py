@@ -48,6 +48,7 @@ _TYPED_RATE_LIMIT_PATHS = (
     "/api/marketplace/contacts/match",
     "/api/one/connections/contact-sync",
     "/api/one/connections/directory",
+    "/api/one/business/suggestion",
 )
 
 _TYPED_RATE_LIMIT_MESSAGES = {
@@ -58,6 +59,7 @@ _TYPED_RATE_LIMIT_MESSAGES = {
         "You have checked many contacts recently. Give it a little time and try again."
     ),
     "/api/one/connections/directory": "Too many searches. Try again shortly.",
+    "/api/one/business/suggestion": "Business suggestions are taking a moment. Try again shortly.",
 }
 
 

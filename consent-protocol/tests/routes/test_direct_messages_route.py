@@ -24,7 +24,11 @@ def test_send_person_ref_threads_authenticated_sender_and_never_accepts_a_peer_u
     with patch("api.routes.one.messages._service", return_value=service):
         response = _client().post(
             "/api/one/messages",
-            json={"recipientPersonRef": "11111111-1111-4111-8111-111111111111", "content": "hello"},
+            json={
+                "recipientPersonRef": "11111111-1111-4111-8111-111111111111",
+                "content": "hello",
+                "replyToMessageId": "22222222-2222-4222-8222-222222222222",
+            },
         )
 
     assert response.status_code == 200
@@ -34,7 +38,7 @@ def test_send_person_ref_threads_authenticated_sender_and_never_accepts_a_peer_u
         content="hello",
         recipient_user_id=None,
         recipient_person_ref="11111111-1111-4111-8111-111111111111",
-        reply_to_message_id=None,
+        reply_to_message_id="22222222-2222-4222-8222-222222222222",
     )
 
 

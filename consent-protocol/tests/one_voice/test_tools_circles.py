@@ -793,6 +793,143 @@ def _propose_circle(ctx: ToolContext, executor: ToolExecutor | None = None, **ar
     return asyncio.run(executor.call(ctx, "create_circle", args))
 
 
+@pytest.mark.parametrize("word", ["HUSSH", "AAVIK", "ANNIKA", "HASH"])
+def test_structured_spelling_is_retained_and_the_reviewed_name_is_created_once(word):
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    service = FakeCircleService()
+    ctx = make_ctx(service, confirm_family=False)
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    original = _propose_circle(
+        ctx,
+        executor,
+        name_parts=[
+            {"type": "spelled", "characters": list(word)},
+            {"type": "literal", "text": "  Workshop\tV01 "},
+        ],
+    )
+    assert original.result.status == "confirmation_required"
+    assert original.parsed.name == f"{word} Workshop V01"
+    assert original.pending.args["name"] == original.parsed.name
+    assert original.pending.args["spelled_words"] == [word]
+    assert "name_parts" not in original.pending.args
+    assert _kept_words(ctx) == [word]
+    corrected = _propose_circle(
+        ctx,
+        executor,
+        name=f"{word} Workshop V02",
+        changed_words=[{"old": "V01", "new": "V02"}],
+    )
+    assert corrected.result.status == "confirmation_required"
+    assert original.pending.id != corrected.pending.id
+    stale = _say_yes(executor, ctx, original)
+    assert stale.result.status == "not_pending"
+    assert not [call for call in service.calls if call[0] == "create_circle"]
+    accepted = _say_yes(executor, ctx, corrected)
+    assert accepted.result.status == "created"
+    assert accepted.result.circle.name == f"{word} Workshop V02"
+    _say_yes(executor, ctx, corrected)
+    writes = [call for call in service.calls if call[0] == "create_circle"]
+    assert len(writes) == 1
+    assert writes[0][1]["name"] == corrected.pending.args["name"]
+
+
+@pytest.mark.parametrize(
+    "part",
+    [
+        {"type": "spelled"},
+        {"type": "spelled", "characters": []},
+        {"type": "spelled", "characters": ["A", "NN", "I", "K", "A"]},
+        {"type": "spelled", "characters": ["A", " ", "B"]},
+        {"type": "spelled", "characters": ["é"]},
+        {"type": "spelled", "characters": ["A"], "text": "A"},
+    ],
+)
+def test_invalid_character_units_retire_the_rejected_review(part):
+    ctx, executor = _reviewing("Anika Workshop V01")
+    old = asyncio.run(
+        executor.pending.list_open(user_id=USER, conversation_id=ctx.conversation_id)
+    )[0]
+    asyncio.run(executor.pending.mark_shown(user_id=USER, pending_action_id=old.id))
+    refused = _propose_circle(
+        ctx, executor, name_parts=[part, {"type": "literal", "text": " Workshop V01"}]
+    )
+    assert refused.result.reason_code == "invalid_spelling"
+    assert [row.id for row in refused.superseded] == [old.id]
+    stale = asyncio.run(executor.call(ctx, "confirm_pending_action", {"pending_action_id": old.id}))
+    assert stale.result.status == "not_pending"
+
+
+def test_name_parts_refuse_competing_names_and_preserve_literal_unicode_and_spaces():
+    with pytest.raises(ValidationError):
+        circles.CreateCircleInput(
+            name="Hush Workshop", name_parts=[{"type": "spelled", "characters": list("HUSSH")}]
+        )
+    for value in ({}, {"name_parts": []}, {"name_parts": [{"type": "literal", "text": " "}]}):
+        with pytest.raises(ValidationError):
+            circles.CreateCircleInput.model_validate(value)
+    literal = circles.CreateCircleInput(
+        name_parts=[{"type": "literal", "text": "  A B Café-Studio 007 "}]
+    )
+    assert literal.name == "A B Café-Studio 007"
+    assert literal.spelled_words == []
+    assert circles.CreateCircleInput(name="  A B Café-Studio 007 ").name == literal.name
+
+
+def test_structured_respelling_changes_its_word_and_keeps_the_rest():
+    ctx, executor = _reviewing("Anika Workshop V01")
+    corrected = _propose_circle(
+        ctx,
+        executor,
+        name_parts=[
+            {"type": "spelled", "characters": list("ANNIKA")},
+            {"type": "literal", "text": " Workshop V01"},
+        ],
+    )
+    assert corrected.result.status == "confirmation_required"
+    assert _kept_words(ctx) == ["ANNIKA"]
+    dropped = _propose_circle(
+        ctx, executor, name="Anika Workshop V02", changed_words=[{"old": "V01", "new": "V02"}]
+    )
+    assert dropped.result.reason_code == "name_changed"
+    explicit = _propose_circle(
+        ctx,
+        executor,
+        name_parts=[
+            {"type": "spelled", "characters": list("ANIKA")},
+            {"type": "literal", "text": " Workshop V01"},
+        ],
+        release_spelled_words=["ANNIKA"],
+    )
+    assert explicit.result.status == "confirmation_required"
+    assert _kept_words(ctx) == ["ANIKA"]
+
+
+def test_name_corrections_keep_kind_through_invalid_spelling_but_allow_explicit_change():
+    ctx, executor = _reviewing("Anika Workshop V01", kind="friends")
+    bad = _propose_circle(ctx, executor, name_parts=[{"type": "spelled"}])
+    assert bad.result.reason_code == "invalid_spelling"
+    assert not asyncio.run(
+        executor.pending.list_open(user_id=USER, conversation_id=ctx.conversation_id)
+    )
+    corrected = _propose_circle(
+        ctx,
+        executor,
+        name_parts=[
+            {"type": "spelled", "characters": list("ANNIKA")},
+            {"type": "literal", "text": " Workshop V01"},
+        ],
+    )
+    assert corrected.result.status == "confirmation_required"
+    assert corrected.pending.args["kind"] == "friends"
+    assert corrected.result.summary.startswith("create a friends circle")
+    changed = _propose_circle(ctx, executor, name="ANNIKA Workshop V01", kind="family")
+    assert changed.result.status == "confirmation_required"
+    assert changed.pending.args["kind"] == "family"
+    # The recovery baseline is scoped to a related name, not a new circle.
+    assert circles.retained_creation_kind(ctx, circles.CreateCircleInput(name="Book Club")) is None
+
+
 def test_create_circle_refuses_a_name_that_drops_a_spelled_word():
     service = FakeCircleService()
     ctx = make_ctx(service, confirm_family=False)

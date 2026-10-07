@@ -205,6 +205,7 @@ export function DirectMessagesPage() {
   const [loadingThread, setLoadingThread] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [openMessageMenu, setOpenMessageMenu] = useState<string | null>(null);
@@ -216,21 +217,22 @@ export function DirectMessagesPage() {
     message: DirectMessage;
     scope: "me" | "everyone";
   } | null>(null);
+  const [messageActionError, setMessageActionError] = useState<{
+    messageId: string;
+    message: string;
+  } | null>(null);
   const loadGeneration = useRef(0);
   const loadedReadScopes = useRef<readonly string[]>([]);
   const operationGeneration = useRef(0);
   const messageMenuSequence = useRef(0);
   const messageMenuOpening = useRef<MessageMenuOpening | null>(null);
   const replyFocus = useRef<MessageMenuOpening | null>(null);
-  const actionToastIds = useRef(new Set<number>());
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const invalidateThreadRead = useCallback(() => { ++loadGeneration.current; }, []);
   const invalidateOperations = useCallback(() => {
     ++operationGeneration.current;
     messageMenuOpening.current = null;
     replyFocus.current = null;
-    for (const id of actionToastIds.current) morphyToast.dismiss(id);
-    actionToastIds.current.clear();
   }, []);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -261,6 +263,8 @@ export function DirectMessagesPage() {
     setEditingMessage(null);
     setEditingContent("");
     setDeleteRequest(null);
+    setComposerError(null);
+    setMessageActionError(null);
     return invalidateOperations;
   }, [invalidateOperations, readScope]);
 
@@ -560,11 +564,13 @@ export function DirectMessagesPage() {
     const generation = operationGeneration.current;
     const isCurrentOperation = () => generation === operationGeneration.current;
     const content = draft;
+    const reply = replyingTo;
     const recipientPersonRef = thread.peerPersonRef || requestedPersonRef;
     if (!recipientPersonRef) {
       morphyToast.error("This recipient is no longer available for messaging.");
       return;
     }
+    setComposerError(null);
     setSending(true);
     try {
       const idToken = await user.getIdToken();
@@ -573,7 +579,7 @@ export function DirectMessagesPage() {
         idToken,
         content,
         recipientPersonRef,
-        replyToMessageId: replyingTo?.id,
+        replyToMessageId: reply?.id,
       });
       if (!isCurrentOperation()) return;
       setDraft("");
@@ -612,7 +618,11 @@ export function DirectMessagesPage() {
     } catch {
       if (!isCurrentOperation()) return;
       setDraft(content);
-      morphyToast.error("Message could not be sent. Check your connection and try again.");
+      setComposerError(
+        reply
+          ? "Couldn’t send this reply. Your message is ready to try again."
+          : "Couldn’t send this message. Your draft is ready to try again.",
+      );
       // A 403/409 is authoritative: redraw the thread as read-only instead of
       // leaving a stale connected composer visible.
       void loadThread({ preserveMessages: true });
@@ -660,18 +670,6 @@ export function DirectMessagesPage() {
     );
   };
 
-  const showActionToast = <T,>(operation: Promise<T>, generation: number, labels: { loading: string; success: string; error: string }) => {
-    let id: number;
-    const handle = morphyToast.promise(operation, {
-      ...labels,
-      isCurrent: () => generation === operationGeneration.current,
-      finally: () => { actionToastIds.current.delete(id); },
-    });
-    // Sonner's generated numeric handle is boxed with an unwrap method.
-    id = Number(handle);
-    if (Number.isFinite(id)) actionToastIds.current.add(id);
-  };
-
   const startReply = (message: DirectMessage) => {
     const opening = messageMenuOpening.current;
     if (!opening || opening.generation !== operationGeneration.current ||
@@ -679,12 +677,14 @@ export function DirectMessagesPage() {
     replyFocus.current = opening;
     setOpenMessageMenu(null);
     setActiveMessageActions(message.id);
+    setComposerError(null);
     setReplyingTo(message);
   };
 
   const startEditing = (message: DirectMessage) => {
     setOpenMessageMenu(null);
     setActiveMessageActions(message.id);
+    setMessageActionError(null);
     setEditingMessage(message);
     setEditingContent(message.content);
   };
@@ -694,51 +694,56 @@ export function DirectMessagesPage() {
     const message = editingMessage;
     const generation = operationGeneration.current;
     const isCurrentOperation = () => generation === operationGeneration.current;
-    const operation = (async () => {
-      const idToken = await user.getIdToken();
-      if (!isCurrentOperation()) throw new Error("Message action retired");
-      return DirectMessagesService.editMessage({
-        idToken,
-        conversationId: message.conversationId,
-        messageId: message.id,
-        content: editingContent,
-      });
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        if (!isCurrentOperation()) return;
+        const updated = await DirectMessagesService.editMessage({
+          idToken,
+          conversationId: message.conversationId,
+          messageId: message.id,
+          content: editingContent,
+        });
+        if (!isCurrentOperation()) return;
+        replaceMessage(updated);
+        setMessageActionError(null);
+        setEditingMessage(null);
+        setEditingContent("");
+      } catch {
+        if (!isCurrentOperation()) return;
+        setMessageActionError({
+          messageId: message.id,
+          message: "Couldn’t update this message. Try again.",
+        });
+      }
     })();
-    void operation.then((updated) => {
-      if (!isCurrentOperation()) return;
-      replaceMessage(updated);
-      setEditingMessage(null);
-      setEditingContent("");
-    }).catch(() => undefined);
-    showActionToast(operation, generation, {
-      loading: "Saving message…",
-      success: "Message edited",
-      error: "Message could not be edited. Try again.",
-    });
   };
 
   const saveReaction = (message: DirectMessage, emoji: string) => {
     if (!user || !isCurrentRead || message.conversationId !== activeConversationId) return;
     const generation = operationGeneration.current;
     const isCurrentOperation = () => generation === operationGeneration.current;
-    const operation = (async () => {
-      const idToken = await user.getIdToken();
-      if (!isCurrentOperation()) throw new Error("Message action retired");
-      return DirectMessagesService.reactToMessage({
-        idToken,
-        conversationId: message.conversationId,
-        messageId: message.id,
-        emoji,
-      });
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        if (!isCurrentOperation()) return;
+        const updated = await DirectMessagesService.reactToMessage({
+          idToken,
+          conversationId: message.conversationId,
+          messageId: message.id,
+          emoji,
+        });
+        if (!isCurrentOperation()) return;
+        replaceMessage(updated);
+        setMessageActionError(null);
+      } catch {
+        if (!isCurrentOperation()) return;
+        setMessageActionError({
+          messageId: message.id,
+          message: "Couldn’t add that reaction. Try again.",
+        });
+      }
     })();
-    void operation.then((updated) => {
-      if (isCurrentOperation()) replaceMessage(updated);
-    }).catch(() => undefined);
-    showActionToast(operation, generation, {
-      loading: "Adding reaction…",
-      success: "Reaction added",
-      error: "Reaction could not be saved. Try again.",
-    });
   };
 
   const confirmDelete = () => {
@@ -746,30 +751,31 @@ export function DirectMessagesPage() {
     const { message, scope } = deleteRequest;
     const generation = operationGeneration.current;
     const isCurrentOperation = () => generation === operationGeneration.current;
-    const operation = (async () => {
-      const idToken = await user.getIdToken();
-      if (!isCurrentOperation()) throw new Error("Message action retired");
-      return DirectMessagesService.deleteMessage({
-        idToken,
-        conversationId: message.conversationId,
-        messageId: message.id,
-        scope,
-      });
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        if (!isCurrentOperation()) return;
+        const result = await DirectMessagesService.deleteMessage({
+          idToken,
+          conversationId: message.conversationId,
+          messageId: message.id,
+          scope,
+        });
+        if (!isCurrentOperation()) return;
+        if (result.message) replaceMessage(result.message);
+        else setMessages((current) => current.filter((item) => item.id !== message.id || item.conversationId !== message.conversationId));
+        setMessageActionError(null);
+        setDeleteRequest(null);
+        setActiveMessageActions(null);
+      } catch {
+        if (!isCurrentOperation()) return;
+        setDeleteRequest(null);
+        setMessageActionError({
+          messageId: message.id,
+          message: "Couldn’t delete this message. Try again.",
+        });
+      }
     })();
-    void operation.then((result) => {
-      if (!isCurrentOperation()) return;
-      if (result.message) replaceMessage(result.message);
-      else setMessages((current) => current.filter((item) => item.id !== message.id || item.conversationId !== message.conversationId));
-      setDeleteRequest(null);
-      setActiveMessageActions(null);
-    }).catch(() => undefined);
-    showActionToast(operation, generation, {
-      loading: "Deleting message…",
-      success: deleteRequest.scope === "everyone"
-        ? "Message deleted for everyone"
-        : "Message deleted for you",
-      error: "Message could not be deleted. Try again.",
-    });
   };
 
   if (!user && !authLoading) {
@@ -1117,6 +1123,11 @@ export function DirectMessagesPage() {
                                 ))}
                               </div>
                             ) : null}
+                            {messageActionError?.messageId === message.id ? (
+                              <p className={styles.messageActionError} role="status">
+                                {messageActionError.message}
+                              </p>
+                            ) : null}
                             <time
                               className={cn(
                                 styles.messageMeta,
@@ -1179,7 +1190,10 @@ export function DirectMessagesPage() {
                       id="direct-message-draft"
                       ref={composerRef}
                       value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
+                      onChange={(event) => {
+                        setComposerError(null);
+                        setDraft(event.target.value);
+                      }}
                       placeholder={`Message ${selectedLabel}`}
                       maxLength={DIRECT_MESSAGE_MAX_LENGTH}
                       disabled={sending}
@@ -1228,6 +1242,11 @@ export function DirectMessagesPage() {
                     <span className="sr-only" aria-live="polite">
                       {draft.length}/{DIRECT_MESSAGE_MAX_LENGTH}
                     </span>
+                    {composerError ? (
+                      <p className={styles.composerError} role="status">
+                        {composerError}
+                      </p>
+                    ) : null}
                   </form>
                 ) : null}
               </AgentDockPortal>

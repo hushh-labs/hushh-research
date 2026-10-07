@@ -113,8 +113,18 @@ def app(monkeypatch):
         ("theirs", "FIREBASE_PROOF_INVALID"),
     ],
 )
-def test_http_confirm_refuses_an_unproven_actor_before_the_row_is_confirmed(app, token, code):
+@pytest.mark.parametrize("tool", ["send_thing", "schedule_mail"])
+def test_http_confirm_refuses_an_unproven_actor_before_the_row_is_confirmed(
+    app, monkeypatch, token, code, tool
+):
     application, store, proofs = app
+    if tool == "schedule_mail":
+        from hushh_mcp.one_voice.tools import mail
+
+        schedule = next(spec for spec in mail.TOOLS if spec.name == tool)
+        store.row.tool_name = schedule.name
+        store.row.gateway_action_id = schedule.gateway_action_id
+        monkeypatch.setattr(registry, "get_tool", lambda name: schedule if name == tool else None)
     body: dict[str, Any] = {} if token is None else {"firebase_id_token": token}
     response = TestClient(application).post(
         f"/api/one/voice/pending-actions/{ROW}/confirm", json=body

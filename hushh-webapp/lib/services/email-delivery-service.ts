@@ -39,6 +39,8 @@ export type EmailDraftResult = EmailDraft & {
 export type PreparedEmailSend = {
   actionId: string;
   expiresAt: string | null;
+  senderToken?: string | null;
+  senderLabel?: string | null;
   driveAttachment?: DriveAttachmentPreview | null;
   attachmentToken?: string | null;
 };
@@ -50,6 +52,14 @@ export type SentEmailResult = {
   threadId: string | null;
   outcomeUnknown: boolean;
 };
+
+/** These codes come from Gmail's connector, not the owner's vault credentials. */
+function gmailAuthorizationFailed(code: string | null, status: number): boolean {
+  return (
+    (code === "GMAIL_NOT_READY" || code === "GMAIL_SEND_NOT_READY") &&
+    (status === 401 || status === 403)
+  );
+}
 
 export class EmailDeliveryError extends Error {
   readonly status: number;
@@ -65,15 +75,19 @@ export class EmailDeliveryError extends Error {
   get needsGmailReconnect(): boolean {
     return (
       this.code === "GMAIL_SEND_PERMISSION_REQUIRED" ||
-      this.code === "GMAIL_SEND_DISABLED" ||
       // A reply re-reads its original email, which needs the read grant.
-      this.code === "GMAIL_READ_PERMISSION_REQUIRED"
+      this.code === "GMAIL_READ_PERMISSION_REQUIRED" ||
+      gmailAuthorizationFailed(this.code, this.status)
     );
   }
 
   /** Gmail was never connected: the fix is a first connection, not a reconnect. */
   get needsGmailConnect(): boolean {
     return this.code === "GMAIL_NOT_CONNECTED";
+  }
+
+  get needsGmailSendingEnabled(): boolean {
+    return this.code === "GMAIL_SEND_DISABLED";
   }
 }
 
@@ -125,7 +139,7 @@ function safeErrorMessage(code: string | null, status: number): string {
     return "Reconnect Mail to grant mail sending permission.";
   }
   if (code === "GMAIL_SEND_DISABLED") {
-    return "Reconnect Mail to finish enabling mail sending.";
+    return "Turn on Gmail sending to continue. Your draft is still here.";
   }
   if (code === "GMAIL_COMPOSE_PERMISSION_REQUIRED") {
     return "Enable Gmail drafts in Connectors, then review this draft again.";
@@ -192,6 +206,9 @@ function safeErrorMessage(code: string | null, status: number): string {
   }
   if (code === "SOURCE_BOUND_ATTACHMENT_UNSUPPORTED") {
     return "A reply can't include an attachment. Nothing was sent.";
+  }
+  if (gmailAuthorizationFailed(code, status)) {
+    return "Reconnect Mail to continue.";
   }
   if (status === 401 || status === 403) {
     return "Unlock your vault and try again.";
@@ -294,6 +311,8 @@ export class EmailDeliveryService {
   static async prepare(input: EmailDeliveryAuth & {
     draft: EmailDraft;
     idempotencyKey: string;
+    draftRef?: string;
+    revision?: number;
   }): Promise<PreparedEmailSend> {
     const payload = await postJson<unknown>("/api/one/email/prepare", input, {
       to: input.draft.to,
@@ -303,6 +322,7 @@ export class EmailDeliveryService {
       body: input.draft.body,
       html_body: input.draft.htmlBody,
       idempotency_key: input.idempotencyKey,
+      ...(input.draftRef ? { draft_ref: input.draftRef, revision: input.revision } : {}),
       ...(input.draft.driveFileId
         ? { drive_attachment: { file_id: input.draft.driveFileId } }
         : {}),
@@ -313,6 +333,8 @@ export class EmailDeliveryService {
     return {
       actionId: stringValue(record, "action_id", "actionId"),
       expiresAt: stringValue(record, "expires_at", "expiresAt") || null,
+      senderToken: stringValue(record, "sender_token") || null,
+      senderLabel: stringValue(record, "sender_label") || null,
       driveAttachment: attachment
         ? {
             filename: stringValue(attachment, "filename"),
@@ -329,9 +351,14 @@ export class EmailDeliveryService {
     actionId: string;
     draft: EmailDraft;
     attachmentToken?: string | null;
+    senderToken?: string | null;
+    draftRef?: string;
+    revision?: number;
   }): Promise<SentEmailResult> {
     const payload = await postJson<unknown>("/api/one/email/send", input, {
       action_id: input.actionId,
+      ...(input.senderToken ? { sender_token: input.senderToken } : {}),
+      ...(input.draftRef ? { draft_ref: input.draftRef, revision: input.revision } : {}),
       to: input.draft.to,
       cc: input.draft.cc,
       bcc: input.draft.bcc,
@@ -344,11 +371,22 @@ export class EmailDeliveryService {
       ...sourceBinding(input.draft),
     });
     const record = asRecord(payload);
+    const actionId = stringValue(record, "action_id", "actionId");
+    const state = stringValue(record, "state");
+    const outcomeUnknown = record?.outcome_unknown === true || record?.outcomeUnknown === true;
+    if (actionId !== input.actionId || (state !== "sent" && state !== "outcome_unknown") ||
+        (state === "sent" && outcomeUnknown)) {
+      throw new EmailDeliveryError(
+        "We could not confirm delivery. Check Sent Mail before trying again.",
+        502,
+        "EMAIL_ACTION_OUTCOME_UNKNOWN",
+      );
+    }
     return {
-      actionId: stringValue(record, "action_id", "actionId") || null,
+      actionId,
       messageId: stringValue(record, "message_id", "messageId") || null,
       threadId: stringValue(record, "thread_id", "threadId") || null,
-      outcomeUnknown: record?.outcome_unknown === true || record?.outcomeUnknown === true,
+      outcomeUnknown: state === "outcome_unknown",
     };
   }
 }

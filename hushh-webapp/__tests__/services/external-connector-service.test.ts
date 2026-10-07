@@ -18,6 +18,17 @@ describe("ExternalConnectorService native Drive OAuth", () => {
   beforeEach(() => apiFetch.mockReset());
   afterEach(() => vi.useRealTimers());
 
+  it("rechecks live Drive through the owner-authorized endpoint without replaying OAuth", async () => {
+    apiFetch.mockResolvedValue(Response.json({ connectorId: "google_drive", status: "connected" }));
+    const signal = new AbortController().signal;
+    const isEffectCurrent = () => true;
+    await expect(ExternalConnectorService.verifyLiveDrive({ vaultOwnerToken: "owner-token", signal,
+      isEffectCurrent })).resolves.toMatchObject({ status: "connected" });
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith("/api/connectors/google_drive/live/verify",
+      expect.objectContaining({ method: "POST", headers: { Authorization: "Bearer owner-token" },
+        signal, isEffectCurrent }));
+  });
+
   it("discards private OAuth delivery after vault authority changes", async () => {
     let current = true;
     apiFetch.mockImplementationOnce(async () => {

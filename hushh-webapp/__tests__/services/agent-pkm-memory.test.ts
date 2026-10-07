@@ -156,6 +156,32 @@ describe("agent PKM memory helpers", () => {
     vi.useRealTimers();
   });
 
+  it("fences business identity at the conflict-aware writer, not only in the popup", async () => {
+    const entity = (uid: string) => ({ businesses: { entities: { chosen: { summary: "Synthetic business",
+      _business_origin: { business_uid: uid } } } } });
+    const reviewed: AgentPkmPreviewCard = { card_id: "business", source_text: "Synthetic business", write_mode: "can_save",
+      target_domain: "professional", target_entity_scope: "businesses", target_entity_id: "chosen",
+      candidate_payload: entity("business-A"), structure_decision: { target_domain: "professional" },
+      merge_decision: { merge_mode: "extend_entity", target_entity_path: "businesses.entities.chosen" } };
+    let existing = entity("business-A");
+    pkmSavePreparedDomainMock.mockImplementation(async (input: { build: (context: { currentDomainData: Record<string, unknown> }) => Promise<unknown> }) => {
+      await input.build({ currentDomainData: existing });
+      return { success: true, dataVersion: 1, fullBlob: {} };
+    });
+    const save = () => addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "Synthetic business", source: "business_profile_review", businessOrigin: { businessUid: "business-A" },
+      confirmation: { confirmedByUser: true, surface: "chat", source: "business_profile_review" },
+      batchSimpleDomainExtensions: true, cards: [reviewed] });
+    expect((await save()).saved).toBe(1);
+    existing = entity("business-B");
+    const rejected = await save();
+    expect(rejected.saved).toBe(0);
+    expect(rejected.results[0]?.message).toContain("different or unidentified");
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+    await expect(addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "Synthetic business", source: "business_profile_review", cards: [reviewed] })).rejects.toThrow("Business identity");
+  });
+
   it("keeps sharing and uncertain cards in review while exposing only private can-save cards", () => {
     const cards: AgentPkmPreviewCard[] = [
       { card_id: "auto", source_text: "", write_mode: "can_save" },
