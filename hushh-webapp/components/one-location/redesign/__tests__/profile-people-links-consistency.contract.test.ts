@@ -77,9 +77,9 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(ctaLayout).toContain("DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME");
     expect(ctaLayout).toContain("w-full space-y-3 sm:max-w-[320px]");
     expect(ctaLayout).toContain(
-      "mx-auto flex w-full max-w-[244px] flex-col items-stretch",
+      "flex w-full max-w-[420px] flex-col items-stretch gap-4 px-4",
     );
-    expect(ctaLayout).toContain("h-[50px] min-h-[50px] w-full rounded-full");
+    expect(ctaLayout).toContain("h-12 min-h-12 w-full rounded-full");
     expect(ctaLayout).not.toContain("min-[380px]:pl-16");
   });
 

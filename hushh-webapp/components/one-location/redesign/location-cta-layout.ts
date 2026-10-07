@@ -9,14 +9,22 @@
 export const PUBLIC_LINK_CONTROLS_CLASSNAME =
   "w-full space-y-3 sm:max-w-[320px]";
 
-/** Gives the create-link form one centered iOS control measure. */
+/**
+ * The create-link form shares the row's 16px gutter, so "Duration", the
+ * select and the CTA start on the same edge as the link icon above and end on
+ * the card's right gutter. Centering a narrow column under a left-aligned row
+ * left the controls floating, aligned to nothing.
+ */
 export const PUBLIC_LINK_CREATE_FORM_CLASSNAME =
-  "mx-auto flex w-full max-w-[244px] flex-col items-stretch space-y-3 pb-4 pt-2";
+  "flex w-full max-w-[420px] flex-col items-stretch gap-4 px-4 pb-4 pt-1";
 
 export const PUBLIC_LINK_DURATION_GROUP_CLASSNAME = "w-full";
 
+/** Select and CTA share one height and radius so they read as a pair. */
+export const PUBLIC_LINK_SELECT_CLASSNAME = "h-12 rounded-full px-4";
+
 export const PUBLIC_LINK_PRIMARY_CTA_CLASSNAME =
-  "ui-text-button-label h-[50px] min-h-[50px] w-full rounded-full px-6 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
+  "ui-text-button-label h-12 min-h-12 w-full rounded-full px-6 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
 
 export const DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME =
   "grid w-full grid-cols-3 gap-2";

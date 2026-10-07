@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Briefcase, ChevronRight, Heart, KeyRound, MapPin, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
+import { Briefcase, ChevronRight, Heart, KeyRound, MapPin, Plus, Search, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -237,7 +237,7 @@ function SmsCircleMainIcon() {
 function circleVisual(circle: OneLocationCircleSummary) {
   const kind = systemKindOf(circle);
   if (kind === "trusted") return { Icon: ShieldCheck, tone: "text-[color:var(--app-accent)] bg-[color:var(--app-accent-ring)]" };
-  if (kind === "sms") return { Icon: SmsCircleMainIcon, tone: "bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300" };
+  if (kind === "sms") return { Icon: SmsCircleMainIcon, tone: "bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive)]" };
   const name = circle.name.trim().toLowerCase();
   if (name === "family" || name === "family circle") return { Icon: Heart, tone: "text-rose-700 bg-rose-50 dark:text-rose-300 dark:bg-rose-950/40" };
   if (name === "finance" || name === "finance circle") return { Icon: Wallet, tone: "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40" };
@@ -924,7 +924,7 @@ export function ConnectCirclesTab({
             {circleRowDescription(circle)}
           </span>
         </span>
-        {!canInviteToEmptyCircle ? (
+        {!canInviteToEmptyCircle && !(kind === "trusted" && circle.memberCount <= 1) ? (
           <span className="col-span-3 flex min-w-0 items-center sm:col-auto sm:ml-auto sm:w-40 sm:shrink-0 sm:justify-end">
             <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
 
@@ -1020,18 +1020,22 @@ export function ConnectCirclesTab({
               <p className="ui-text-page-subtitle mx-auto mt-1 max-w-md text-[color:var(--app-secondary-label)]">
                 Make a space for family, friends, or any group you choose. Invite people when you're ready.
               </p>
-              <div className="mt-5 flex flex-col justify-center gap-2.5 min-[440px]:flex-row">
-                <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)]" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
+              <div className="mx-auto mt-5 flex w-full max-w-sm flex-col gap-2.5">
+                <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!h-12 w-full !rounded-[var(--app-card-radius-compact)]" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
                   <Plus aria-hidden="true" className="mr-1.5 size-4" />
                   Create circle
                 </Button>
-                <Button type="button" variant="blue" effect="fade" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)]" onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
-                  Find people
-                </Button>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Button type="button" variant="none" effect="fade" size="standard" showRipple={false} className="!h-12 !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)] !px-3 !text-[color:var(--app-accent)]" onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
+                    <Search aria-hidden="true" className="mr-1.5 size-4 shrink-0" />
+                    Find people
+                  </Button>
+                  <Button type="button" variant="none" effect="fade" size="standard" showRipple={false} className="!h-12 !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)] !px-3 !text-[color:var(--app-accent)]" onClick={() => go({ action: "join-circle" })} data-testid="connect-circle-join" aria-label="Have a code? Join a circle">
+                    <KeyRound aria-hidden="true" className="mr-1.5 size-4 shrink-0" />
+                    Join with code
+                  </Button>
+                </div>
               </div>
-              <Button type="button" variant="none" effect="fade" size="compact" showRipple={false} className="mt-2" onClick={() => go({ action: "join-circle" })} data-testid="connect-circle-join">
-                Have a code? Join a circle
-              </Button>
             </section>
           ) : null}
           {owned.length ? (

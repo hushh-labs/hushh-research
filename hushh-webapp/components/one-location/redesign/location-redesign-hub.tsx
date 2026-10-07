@@ -164,6 +164,7 @@ import {
   PUBLIC_LINK_CREATE_FORM_CLASSNAME,
   PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
   PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
+  PUBLIC_LINK_SELECT_CLASSNAME,
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
   PUBLIC_LINK_CONTROLS_CLASSNAME,
@@ -4889,6 +4890,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 label="Duration"
                 presentation="select"
                 maxWidthClassName={PUBLIC_LINK_DURATION_GROUP_CLASSNAME}
+                selectClassName={PUBLIC_LINK_SELECT_CLASSNAME}
               />
               <Button
                 onClick={vm.onCreatePublicInvite}

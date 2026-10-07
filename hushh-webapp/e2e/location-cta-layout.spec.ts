@@ -13,6 +13,7 @@ import {
 } from "../components/one-location/redesign/duration-presets";
 import {
   PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+  PUBLIC_LINK_SELECT_CLASSNAME,
   PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
   PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
@@ -79,7 +80,7 @@ async function buildFixture(): Promise<string> {
     PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
     SHARE_CONFIRM_ACTIONS_CLASSNAME,
     SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
-    "h-11 w-full rounded-[14px] border px-3",
+    PUBLIC_LINK_SELECT_CLASSNAME,
     DURATION_COMPACT_GRID_CLASS,
     COMPACT_CELL_ON_CLASSNAME,
     COMPACT_CELL_OFF_CLASSNAME,
@@ -134,7 +135,7 @@ async function buildFixture(): Promise<string> {
     <div data-public-controls class="${PUBLIC_LINK_CREATE_FORM_CLASSNAME}">
       <div data-public-duration class="${PUBLIC_LINK_DURATION_GROUP_CLASSNAME} space-y-2.5">
         <p>Duration</p>
-        <button data-public-select class="h-11 w-full rounded-[14px] border px-3">1 hour</button>
+        <button data-public-select class="${PUBLIC_LINK_SELECT_CLASSNAME} w-full border">1 hour</button>
       </div>
       <button data-public-cta class="${PUBLIC_LINK_PRIMARY_CTA_CLASSNAME} inline-flex items-center justify-center">Create link</button>
     </div>
@@ -253,49 +254,45 @@ test.describe("One Location compact CTA layout", () => {
 
       expect(result.overflow).toBeLessThanOrEqual(1);
 
+      // The form shares the row gutter: it starts on the card's content edge
+      // and fills it up to the 420px cap, rather than floating centred.
       expect(result.publicControls.width).toBeCloseTo(
         Math.min(
-          244,
+          420,
           result.publicCard.width - result.publicCardPaddingLeft * 2,
         ),
         0,
       );
       expect(
         Math.abs(
-          result.publicControls.left + result.publicControls.width / 2 -
-            (result.publicCard.left + result.publicCard.width / 2),
+          result.publicControls.left -
+            (result.publicCard.left + result.publicCardPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
       expect(result.publicDuration.width).toBeCloseTo(
-        Math.min(
-          244,
-          result.publicControls.width -
-            result.publicControlsPaddingLeft -
-            result.publicControlsPaddingRight,
-        ),
+        result.publicControls.width -
+          result.publicControlsPaddingLeft -
+          result.publicControlsPaddingRight,
         0,
       );
       expect(
         Math.abs(
-          result.publicDuration.left + result.publicDuration.width / 2 -
-            (result.publicCard.left + result.publicCard.width / 2),
+          result.publicDuration.left -
+            (result.publicControls.left + result.publicControlsPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(result.publicSelect.height).toBeGreaterThanOrEqual(44);
+      expect(result.publicSelect.height).toBeCloseTo(48, 0);
       expect(result.publicSelect.width).toBeCloseTo(
         result.publicDuration.width,
         0,
       );
-      expect(result.publicCta.height).toBeCloseTo(50, 0);
+      expect(result.publicCta.height).toBeCloseTo(48, 0);
       expect(result.publicCta.width).toBeCloseTo(
         result.publicDuration.width,
         0,
       );
       expect(
-        Math.abs(
-          result.publicCta.left + result.publicCta.width / 2 -
-            (result.publicCard.left + result.publicCard.width / 2),
-        ),
+        Math.abs(result.publicCta.left - result.publicDuration.left),
       ).toBeLessThanOrEqual(1);
 
       expect(result.shareOptions.width).toBeCloseTo(

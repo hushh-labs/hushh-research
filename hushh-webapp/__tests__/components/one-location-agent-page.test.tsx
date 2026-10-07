@@ -5648,17 +5648,21 @@ describe("OneLocationAgentPage", () => {
       name: /Create link/i,
     });
     expect(createLinkButton).toHaveClass(
-      "h-[50px]",
-      "min-h-[50px]",
+      "h-12",
+      "min-h-12",
       "w-full",
       "rounded-full",
     );
     expect(createLinkButton.className).not.toContain("mx-auto");
     expect(createLinkButton.parentElement).toHaveClass(
-      "mx-auto",
       "w-full",
-      "max-w-[244px]",
+      "max-w-[420px]",
       "items-stretch",
+      "px-4",
+    );
+    expect(screen.getByRole("combobox", { name: "Duration" })).toHaveClass(
+      "h-12",
+      "rounded-full",
     );
     expect(screen.getByText("Temporary link")).toBeTruthy();
     expect(

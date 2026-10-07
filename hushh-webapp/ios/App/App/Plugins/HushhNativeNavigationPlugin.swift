@@ -130,7 +130,13 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 call.reject("NATIVE_NAVIGATION_STALE_STATE"); return
             }
             self.installIfNeeded()
-            self.tabBar?.items?.first(where: { $0.tag == 3 })?.badgeValue = call.getBool("feedAttention") == true ? " " : nil
+            if let feed = self.tabBar?.items?.first(where: { $0.tag == 3 }) {
+                feed.badgeValue = call.getBool("feedAttention") == true ? " " : nil
+                // A 4pt badge font shrinks UIKit's pill to a small round attention dot.
+                let dot: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 4)]
+                feed.setBadgeTextAttributes(dot, for: .normal)
+                feed.setBadgeTextAttributes(dot, for: .selected)
+            }
             self.tabBar?.overrideUserInterfaceStyle = theme.style
             self.tabBar?.tintColor = theme.accent
             self.updatePresentation()
@@ -164,6 +170,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         bar.isHidden = true
         bar.delegate = self
         // Keep Apple's standard appearance: no custom blur, material or background image.
+        bar.unselectedItemTintColor = .label
         bar.items = items
         // A shield installed before the bridge call must remain above native controls.
         if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {

@@ -66,6 +66,7 @@ export function DurationSelector({
   compact = false,
   equalWidthButtons = false,
   maxWidthClassName = "max-w-[420px]",
+  selectClassName,
   activeClassName,
   rungs,
   disabled = false,
@@ -116,6 +117,8 @@ export function DurationSelector({
    * of sitting short inside its own card.
    */
   maxWidthClassName?: string | null;
+  /** `select` only: height and radius overrides for the trigger. */
+  selectClassName?: string;
   /**
    * `buttons` only. Overrides the selected-option border/background/text
    * classes for this one call site, leaving every other caller's default
@@ -183,7 +186,10 @@ export function DurationSelector({
           <SelectTrigger
             aria-label={label || "Duration"}
             aria-labelledby={label ? labelId : undefined}
-            className="h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none"
+            className={cn(
+              "h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none",
+              selectClassName,
+            )}
           >
             <InputValue as="span">
               <SelectValue />

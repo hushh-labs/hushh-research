@@ -2705,8 +2705,11 @@ describe("Connect — the phone-width geometry QA reported", () => {
     const remove = await screen.findByRole("button", {
       name: "Remove connection with Abdul Rashid",
     });
-    expect(message.textContent).toContain("Message");
+    // Messages is the iOS bubble glyph, not a text pill, so the name keeps the width.
+    expect(message.textContent).not.toContain("Message");
+    expect(message.querySelector("svg")).toBeTruthy();
     expect(message.className).toContain("h-11");
+    expect(remove.className).toContain("text-destructive");
     expect(remove.className).toContain("h-11");
     expect(remove.className).toContain("min-h-11");
     expect(remove.querySelector("svg")).toBeTruthy();

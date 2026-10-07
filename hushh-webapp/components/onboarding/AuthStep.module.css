@@ -127,8 +127,8 @@
 :global(.dark) .authProviderButton {
   width: 344px !important;
   min-width: 344px !important;
-  height: 60px !important;
-  min-height: 60px !important;
+  height: 51px !important;
+  min-height: 51px !important;
   padding: 0 16px !important;
   border: 0 !important;
   border-radius: 16px !important;

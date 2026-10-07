@@ -115,22 +115,10 @@
   height: 100%;
   display: grid;
   place-items: center;
-  border-radius: var(--app-card-radius-standard);
-  border: 1px solid var(--app-card-surface-default-solid);
-  background: linear-gradient(
-    135deg,
-    var(--app-card-surface-default-solid),
-    color-mix(
-      in oklab,
-      var(--orbit-gold) 65%,
-      var(--app-card-surface-default-solid)
-    )
-  );
-  box-shadow: var(--app-card-shadow-standard);
 }
 .brandMark {
-  width: 5rem;
-  height: 5rem;
+  width: 6.25rem;
+  height: 6.25rem;
 }
 .circle {
   --circle-ink: var(--agent-icon-profile-fg);

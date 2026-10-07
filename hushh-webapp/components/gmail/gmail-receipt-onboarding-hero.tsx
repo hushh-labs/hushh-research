@@ -72,7 +72,7 @@ export function GmailReceiptOnboardingHero({
       className="@container w-full"
       data-testid="receipt-sync-hero"
     >
-      <div className="grid w-full grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] items-center gap-3 overflow-hidden rounded-[24px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] bg-[radial-gradient(circle_at_80%_30%,var(--app-accent-tint),transparent_65%)] p-4 shadow-[var(--app-card-shadow-feature)] @md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @md:gap-8 @md:p-8 @lg:p-10">
+      <div className="grid w-full grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] items-center gap-3 overflow-hidden rounded-[24px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-feature)] @md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @md:gap-8 @md:p-8 @lg:p-10">
         <div className="min-w-0 @md:py-2">
           <h2
             className="text-foreground [--foundation-title2-size:clamp(1.75rem,8.2vw,2.125rem)] [--foundation-title3-size:var(--foundation-title2-size)] [--foundation-title2-line:1.08] [--foundation-title3-line:1.08] [--foundation-title2-weight:800] [--foundation-title3-weight:800] sm:[--foundation-title2-size:44px]"
