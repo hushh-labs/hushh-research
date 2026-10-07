@@ -77,9 +77,13 @@ resources, selected hosting, trusted identities and concurrent work are preserve
   correlation, secret cleanup and refusal assertions. OAuth now proves actual
   timeout expiry outside the provider: 29 nearest cases pass; a disabled-deadline
   control reproduces old false acceptance and is refused by the correction.
-  The two-worker run passed 196 checks; four unchanged elapsed/CLI limits remain
-  local capacity failures pending exact-SHA proof. Local governance must use the
-  pinned Python 3.13, not the host's 3.14. No deadline or gate was widened.
+  The two-worker run passed 196 checks. The remaining Drive fixtures now use
+  two deterministic log observations, proving retry, refusal and rollback without
+  55 identical subprocess checks. All 35 nearest Drive/schema cases pass.
+  Pinned regex uses process CPU time; measured refusals used about 0.251 CPU
+  seconds and 0.41–0.63 wall seconds. Earlier wall failures remain recorded;
+  they are not proof of a faulty limit or a universally met latency bound.
+  Local governance uses pinned Python 3.13. No deadline or gate was widened.
 - All **181 Mermaid figures** rendered. The reviewed fitness baseline retains
   2,209 findings and budgets 500/250/80; future new or worsened debt still fails.
   The environment-test module is reviewed from 572 to 634 lines for the runtime
