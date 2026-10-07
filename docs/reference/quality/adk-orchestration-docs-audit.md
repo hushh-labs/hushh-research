@@ -8,9 +8,10 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 ## Decision — 2026-10-07
 
-**Hold dev acceptance: strict verifier bootstrap failed after traffic promotion.
-The narrow environment/native-gate correction requires new exact-SHA CI and a
-terminal governed deployment. Owner installation and Computer Use remain gated.**
+**Hold dev acceptance: the exact-SHA release reached traffic, but the semantic
+verifier falsely rejected a canonical private-placement refusal. Backend rollback
+completed; the candidate frontend remains. The corrective candidate needs hosted
+CI and a terminal governed deployment. Owner installation and Computer Use stay gated.**
 The interrupted BYOC handoff is integrated, including the confirmed authority,
 recovery and UI corrections.
 Source implementation does not establish owner-cloud acceptance. Existing owner
@@ -20,10 +21,10 @@ resources, selected hosting, trusted identities and concurrent work are preserve
 
 | Surface | Verified evidence | Limit |
 | --- | --- | --- |
-| Application | `2d965641308dab5f8b1f8196ddd99e782963c573`; main `be8d4e014b34` and frozen local ADK `eb76e00af60a` included. [Hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/37572520334) passed all required jobs. | Later ADK and unrelated commerce/native/PDF work stay outside this frozen candidate. Promotion preserved 270 concurrent dirty/untracked leaves byte-for-byte. |
-| Dev services | 2026-10-07 05:21 UTC: backend `consent-protocol-00144-rs9`, frontend `hushh-webapp-00122-th9`, both source `2d965641308d` at 100% traffic. [Deployment 37574435209](https://github.com/hushh-labs/hushh-research/actions/runs/37574435209) failed before semantic smoke; no rollback occurred. | Health, provenance and schema acceptance do not prove owner-pod journeys. |
-| Schema | Readback at 2026-10-07 05:11 UTC: dev 955/956 applied; all 55 prior ledger rows unchanged, including 944. Required tables, columns and functions are present; no dev checksum mismatch. | Dev-only registration remains; ledger deploy-SHA fields are unset, so exact-source attribution comes from the governed workflow and matching SQL checksums. No UAT/production schema claim. |
-| Pod release | Dev `2026.10-dev.8`, source `2d965641308d`, immutable digest `sha256:8d49af56df8efd8911ce241e05637941e10dce6e8662e3fa3df81569a1672cca`; validated readback 05:31 UTC. No admitted predecessors. Correction descriptor Dev 9 is prepared, not published. | Publication never installs an image. Exact predecessor recovery and normal owner approval remain mandatory. |
+| Application | `efd2324d5b99cf55e67584bf546f17a29df45920` passed all 22 [hosted jobs](https://github.com/hushh-labs/hushh-research/actions/runs/37600364587). The correction integrates main `1de271b46fa7`; frozen ADK `eb76e00af60a` remains included. | Later ADK and unrelated commerce/native/PDF work stay outside this candidate. Previous promotion preserved 338 concurrent leaves byte-for-byte. |
+| Dev services | 2026-10-07 10:50 UTC: backend `consent-protocol-00144-rs9` / source `2d965641308d`, frontend `hushh-webapp-00123-f6c` / source `efd2324d5b99`, each 100%. [Deployment 37607407334](https://github.com/hushh-labs/hushh-research/actions/runs/37607407334) failed semantic verification and rolled back the backend. | Mixed serving revisions are not final dev acceptance. Health, provenance, bootstrap and schema passed; owner journeys remain separate. |
+| Schema | Fresh predeploy readback: 57 dev ledger rows, including 944/955/956, unchanged; required schema is present, no checksum mismatch. Isolated restoration previously preserved retained ciphertext. | Dev-only registration remains; no UAT/production schema or owner-image recovery claim. |
+| Pod release | Serving backend readback 11:01 UTC: Dev 8 / source `2d965641308d`, digest `sha256:8d49af56df8efd8911ce241e05637941e10dce6e8662e3fa3df81569a1672cca`, no admitted predecessors. The latest service template contains Dev 9 but is not the serving revision. | Publication and template configuration never establish an installation or a serving offer. Exact predecessor recovery and normal owner approval remain mandatory. |
 | Owner pods | No owner image, assignment, device or resource changed in this continuation. | Hub revisions and installed pod digests are separate authorities. |
 
 ## Acceptance matrix
@@ -37,14 +38,14 @@ resources, selected hosting, trusted identities and concurrent work are preserve
 | Files | Dedicated `agent_files` and `/one/files` explorer retained. Earlier installed-image receipts cover resumed transfer, exact download, undo, trash/restore and organization consent. | Regression, authenticated background completion and overlapping work on the newly installed candidate. Earlier receipts are dated, not transferable proof. |
 | Puppy | Existing trusted identity, owner grant and direct stream retained; earlier response/cancellation/withdrawal receipts remain. | Fresh binding and response after approved update, independent active internet, usable cold latency and bounded overlap. |
 | Updates / recovery | Exact-release owner approval, durable operation, drain and Settings/Feed state retained. | Actual predecessor pair, active-work handoff, one installation, restart, digest/recovery verification and continuation. Historical Dev 4/5 success does not qualify Dev 8. |
-| Release experience | Concise existing-account announcement; new/unknown accounts receive no catch-up. Installed pod notes use exact retained completion receipts, independently of a newer offer. Hosting is untouched. | Frozen-candidate CI and dev serving/UX readback. UAT/production announcement activation and actual legacy Shared cohort qualification remain separate gates. |
+| Release experience | Concise existing-account announcement; new/unknown accounts receive no catch-up. Installed pod notes use exact retained completion receipts, independently of a newer offer. Hosting is untouched. | Corrective exact-SHA CI, dev serving/UX readback and actual owner-update receipt. UAT/production announcement activation and actual legacy Shared cohort qualification remain separate gates. |
 | Computer Use | Authenticated task runtime, isolated ADK runner, scoped PKM, exact reviews, private preview/takeover and encrypted origin-bound remembered sessions with race-safe Forget. One receives metadata only. | Both cloud execution gates are closed. No real owner information or remembered login was admitted. |
 
 ## Blockers with owners
 
 | Owner | Remaining gap | Next required evidence |
 | --- | --- | --- |
-| CI / release | Bootstrap rejected a configured native public-client key absent from all four profile templates. Semantic smoke never ran; classifier blocked without rollback. | Correct the templates, preserve unknown-key refusal and obtain exact-SHA hosted/terminal dev success. |
+| CI / release | Canonical 409 carries `code`, `hostingMode` and `message`; the verifier expected exactly one field. Candidate request logs and live readback confirm 409. | Correct code/status/private-mode recognition; preserve 401/503/unrelated/contradictory refusals. Obtain exact-SHA hosted and governed dev success. |
 | Release / recovery | Dev 8 admits no predecessor digest. No reusable original exact-image-pair receipt was found. | Normally admitted disposable owner pod; actual old/new images, encrypted continuity, cold recovery and revocation. Then qualify only that digest and use normal Settings approval. |
 | Native / provider | iOS client is configured but live authorization is unproved. The correction accepts governed dev's `uat` runtime identity only with explicit Android opt-in; production/unknown labels still refuse. Live flag remains false. | Qualify Android registration, then normal iOS/Android sign-in. No client-secret fallback. |
 | GCP / browser | Native worker UID/GID zero; required non-root switch fails `EPERM`. No supported provider identity selector is established. | Supported provider identity control, Chromium sandbox, private broker bridge, denied-egress and lifecycle probes. Preserve refusal; no unsandboxed fallback. |
@@ -53,59 +54,50 @@ resources, selected hosting, trusted identities and concurrent work are preserve
 
 ## Verification and measured cost
 
-- The follow-up candidate `18c5fc244b2b` passed the local core mirror in **620 seconds**:
-  16,038 protocol, 572 isolated PostgreSQL and 380 integration checks, plus web,
-  governance, secrets and MCP. [Exact-SHA hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/37590686110)
-  also passed. The release-experience addition is a subsequent candidate; it must
-  pass its own completed-candidate checks before deployment.
-- Release-notice review fixed queued-unmount and account-switch replay races.
-  Focused checks pass: 56 frontend and 74 backend; four broken account, cohort,
-  verification and incarnation controls are refused. Chromium/WebKit component
-  fixtures cover 24 responsive/theme states with measured shared start lines.
-  These are synthetic local checks, not owner-cloud or production acceptance.
-  Acknowledgement has a memory fallback and erasure-only cleanup. The status
-  contract moved behind the same API facade; app notifiers retain their provider
-  scope. The existing bootstrap module's reviewed size changes **716 → 719** solely
-  for the server `createdAt` projection; budgets and other debt remain unchanged.
+- `efd2324d5b99` passed the completed local core mirror in **713 seconds**:
+  16,046 protocol, 572 isolated PostgreSQL and 380 integration checks, plus web,
+  governance, secrets and MCP. All 22 hosted jobs passed in **27m40s**; iOS led at
+  **25m15s**. Source CI and deployment duration are separate measurements.
+- The verifier correction passes 16 nearest cases. Its old predicate fails four
+  canonical private modes; authentication, unknown/shared mode, unavailable state
+  and unrelated conflicts still block. The corrected live verifier passed twice,
+  with the RIA provider explicitly degraded. A hub refusal is not pod recovery.
+- Fresh-main integration passes 471 focused voice/protocol and 77 affected web
+  checks. Conflict resolution keeps owner/operation fences and reply focus while
+  adopting inline errors; stale rejected actions cannot paint another owner's UI.
+  Generated projections come from their owners, not hand-selected merge sides.
+- Corrective source `43df78dfd35f` passed completed local core: 16,094 protocol,
+  572 isolated PostgreSQL and 380 integration checks. Wall elapsed was 8,105
+  seconds; protocol execution reported 469 seconds. This is not a pipeline speed
+  claim. A stale voice-budget negative fixture now crosses the actual approved
+  cap; the checker and budget are unchanged. Final review also fenced the new
+  Drive recheck before a private owner can reach the shared hub: 10 focused cases
+  pass, and removing that guard fails the existing private-placement case.
+- Release notices passed 56 frontend and 74 backend checks. Four broken account,
+  cohort, verification and incarnation controls are refused. Chromium/WebKit cover
+  24 responsive/theme states and real two-tab claim/refresh behavior. These are
+  synthetic local checks, not owner-cloud or production acceptance.
+- Restored dev backup passed two canonical replays and both schema guards:
+  230 retained tables, 53 ciphertext/key projections and 25 key/PKM tables remained
+  intact. Only 955/956 were added. The isolated target was deleted; the restricted
+  recovery point is bounded through dev revalidation. This proves database
+  recovery, not owner-image or production recovery.
+- Prior source rendered all **181 Mermaid figures**. New or worsened architecture
+  debt still fails against a reviewed integrated baseline; budgets remain
+  500/250/80. Current corrections must pass their own completed-candidate checks.
 
-- Source `2d965641308d` passed local core in **495 seconds**, including 16,036 parallel protocol checks,
-  572 isolated PostgreSQL checks, web build/type/lint, governance, secrets, MCP and
-  380 integration checks. Owned loopback PostgreSQL was removed; the existing
-  local service was untouched. Hosted CI independently passed on the exact SHA.
-- Hosted browser: **19m58s**; Chromium 549 passes and WebKit 475 passes, with ten
-  existing skips each. Tablet recovery passed in both engines. The Reply focus
-  race and divergent popup notice were fixed; old-source controls fail. One
-  Connections fixture mount flaked and passed on retry; retain it as a fixture
-  follow-up, not evidence of a CSS defect or permission to remove the gate.
-- Recovery: restored dev backup passed two canonical replays and both schema
-  guards. All 230 retained tables, 53 ciphertext/key projections and 25 key/PKM
-  tables stayed intact. Only 955/956 were added; old receipts and orphan counts
-  remained unchanged. The original destructive seed replay was repaired at
-  `590fdbb893c6`, with six focused checks and failing old-code controls. The
-  isolated restoration target was deleted; the restricted recovery point remains
-  bounded through dev revalidation.
-  This is database recovery, not owner-image or production recovery.
-- The narrow correction passes **63** nearest environment/build cases and **15**
-  native authorization cases. Old-template and both old Android gate controls
-  fail. Strict unknown-key refusal remains; no configured secret was removed.
-- The correction's first complete core attempt recorded 20 failures: two clock
-  fixtures and existing execution deadlines. The two fixture corrections preserve
-  correlation, secret cleanup and refusal assertions. OAuth now proves actual
-  timeout expiry outside the provider: 29 nearest cases pass; a disabled-deadline
-  control reproduces old false acceptance and is refused by the correction.
-  The two-worker run passed 196 checks. The remaining Drive fixtures now use
-  two deterministic log observations, proving retry, refusal and rollback without
-  55 identical subprocess checks. All 35 nearest Drive/schema cases pass.
-  Pinned regex uses process CPU time; measured refusals used about 0.251 CPU
-  seconds and 0.41–0.63 wall seconds. Earlier wall failures remain recorded;
-  they are not proof of a faulty limit or a universally met latency bound.
-  Local governance uses pinned Python 3.13. No deadline or gate was widened.
-- All **181 Mermaid figures** rendered. The reviewed fitness baseline retains
-  2,209 findings and budgets 500/250/80; future new or worsened debt still fails.
-  The environment-test module is reviewed from 572 to 634 lines for the runtime
-  regression proof; its new helper/test remain 23/34 lines. The existing voice
-  fixture adds one injected clock line (4,358 to 4,359); all timing/privacy
-  assertions remain. No mass splitting or structural exemption was introduced.
+### Reviewed integration debt
+
+The fresh-main review updates only 25 measured findings on 18 paths: 19 match
+incoming main byte-for-byte; six modules combine incoming behavior and coverage
+with existing admission/owner fences. Direct-message negative controls cover late
+authorization, late success and late failure after an owner change. The verifier's
+small response classifier reduces its existing main function. The baseline retains
+all other debt and unchanged 500/250/80 budgets; future worsening still blocks.
+The owning generator additionally retains two workflow compatibility revisions
+(1,431 → 1,433 lines); authored semantics and alias preservation are unchanged.
+The Drive refusal uses the existing placement owner and a flat request/parse flow;
+its module span and all debt ceilings remain unchanged.
 
 ### CI and deployment performance
 
@@ -119,7 +111,7 @@ led by the browser lane. It is not the deployment duration.
 Full-suite jobs already own duplicate targeted unit/static checks. The measured
 34-case agent browser overlap cost 15.6 seconds; its selector now consolidates
 only when the broad two-engine pack is selected. Six nearest selector checks
-and old-selector/missing-WebKit negative controls pass; narrow coverage remains. Earlier long runs retried broken fixtures. The failed current
+and old-selector/missing-WebKit negative controls pass; narrow coverage remains. Earlier long runs retried broken fixtures. The earlier bootstrap-failed
 deployment took about **17m17s**. Its backend image reuse
 step took one second; the new pod image took about 173 seconds. No disconnected
 gate, same-image rebuild or runner/cache cause was proved by this sample. Keep native,

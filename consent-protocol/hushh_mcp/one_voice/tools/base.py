@@ -351,6 +351,7 @@ class CircleNameBaseline(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     at: float
+    kind: Literal["family", "friends", "other"] | None = None
 
 
 def _wellformed_circle_name_baseline(value: Any) -> dict[str, Any] | None:
@@ -366,7 +367,12 @@ def _wellformed_circle_name_baseline(value: Any) -> dict[str, Any] | None:
         return None
     if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
         return None
-    return {"name": name, "at": float(at)}
+    kind = raw.get("kind")
+    return {
+        "name": name,
+        "at": float(at),
+        "kind": kind if kind in ("family", "friends", "other") else None,
+    }
 
 
 class EntityContext(BaseModel):
@@ -486,8 +492,10 @@ class EntityContext(BaseModel):
             return None
         return baseline.name
 
-    def set_circle_name_baseline(self, name: str, now: float) -> None:
-        self.circle_name_baseline = CircleNameBaseline(name=name, at=now)
+    def set_circle_name_baseline(
+        self, name: str, now: float, *, kind: Literal["family", "friends", "other"] | None = None
+    ) -> None:
+        self.circle_name_baseline = CircleNameBaseline(name=name, at=now, kind=kind)
 
     def clear_circle_name_baseline(self) -> None:
         self.circle_name_baseline = None

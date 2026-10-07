@@ -74,7 +74,8 @@ Supported intents, by family (utterance → tool):
 
 ## Consent rules
 
-- The socket requires a vault-owner token (HCT); people and profile mutations additionally require a fresh Firebase proof at confirmation.
+- The socket requires a vault-owner token (HCT); people, profile mutations and scheduled mail additionally require a fresh Firebase proof at confirmation. Missing, expired or mismatched proof leaves scheduled mail unarmed.
+- A provider batch that both confirms and changes the same pending review is refused before dispatch. Independent reads can continue, but same-input retries cannot confirm until the owner supplies a fresh answer. An unreadable batch confirmation also requires a fresh answer after recovery.
 - Location setup records consent strictly before the OS permission prompt (service rule and a table constraint); the client refuses `request_os_permission` without recorded consent.
 - Turning sharing off revokes every active owner grant outside the Save My Soul lane and every active public link in the same transaction; Save My Soul must be stopped explicitly.
 - Coordinates never reach the server in plaintext. `precision` is a stored preference and a plaintext envelope tag; the device coarsens the point before recipient-ECDH encryption and the server rejects a mismatched tag.
@@ -89,5 +90,22 @@ Supported intents, by family (utterance → tool):
 5. Set `_VERTEX_LIVE_LOCATION` to one regional endpoint (`global`/`us`/`eu` are refused) and flip `_ONE_VOICE_LIVE_ENABLED=true` on UAT only. Production stays off until the UAT red-team transcript run passes.
 
 ## Limits and observability
+
+Explicit spelling uses ordered literal/spelled parts on `create_circle.name_parts`
+and `resolve_person.spoken_name_parts`, mutually exclusive with their plain-text
+name fields. Each spelled unit is one Latin letter or digit; the server preserves
+order, repeated letters and leading zeros. Circle parts automatically retain
+spelling through the existing correction checks, and an omitted circle kind is
+preserved across related corrections. Person parts only construct the lookup
+query; candidate selection and `confirm_person` still apply. Other editable fields
+retain their existing contracts; this is not a general durable capture protocol.
+
+Mail preparation refreshes a missing connection email through the existing
+cooldown-aware identity cache, bounded to three seconds, then rechecks the active
+connection. It reports missing, invalid and unavailable lookup states separately;
+logs contain reason/stage only. The operational model's draft receipt excludes
+the dictated subject and body, while the owner card retains them. Oversize
+dictation asks for a shorter draft. Gmail authorization failures offer Mail
+reconnection; owner/vault authorization errors keep their existing unlock flow.
 
 `one_voice_conversations` keeps per-conversation counters (audio seconds, tool calls, ok/rejected results, pending created/confirmed/cancelled, `narration_without_receipt`, `unknown_tool_calls`, close code/class) and never audio, transcripts, names, or coordinates. Limits: `ONE_VOICE_SESSION_MAX_MINUTES` (30), `ONE_VOICE_IDLE_CLOSE_SECONDS` (90), one live session per user, `ONE_VOICE_MAX_SESSIONS_PER_INSTANCE` (8), ticket minting under the agent-chat rate limit. A provider outage (including a billing denial arriving as close 1008) closes the app socket with 4013 `voice_unavailable`; the app says "Voice is unavailable right now" and never retries with another model or region.

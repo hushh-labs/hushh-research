@@ -719,7 +719,7 @@
     },
     {
       "circle_args": [],
-      "description": "Create an empty circle with the given name (kind family, friends, or other). Creating a circle sends no invitations and shares no location; adding people is a separate action. Reports already_exists when the person already owns one by that name. Use the name exactly as the person said or spelled it. When correcting a name you proposed, even after cancelling its card, change only what they asked: the letters they spell replace the word they correct and go in spelled_words, and each other changed word goes in changed_words; a word they spelled stays until they change it. If it answers name_changed or spelled_word_missing for a change they did ask for, call it again with that change declared (changed_words or release_spelled_words).",
+      "description": "Create an empty circle (family/friends/other); no invitations or location sharing. Returns already_exists for an owned match. For spelling use name_parts, omit name: characters assemble literally and are retained; literal parts keep spaces/rest. Correct only requested words, even after cancel. Declare unspelled edits in changed_words, explicit respelling/removal in release_spelled_words. Keep the rest. On name_changed/spelled_word_missing, retry with the requested change declared.",
       "firebase_plane": false,
       "gateway_action_id": "location.create_circle",
       "name": "create_circle",
@@ -727,7 +727,7 @@
         "additionalProperties": false,
         "properties": {
           "changed_words": {
-            "description": "When correcting a name you proposed, even after cancelling its card: each word you changed, added or removed that they did not spell \u2014 old as on the card (empty if added), new as in name (empty if removed). A word neither listed here nor spelled stays exactly as on the card.",
+            "description": "Unspelled corrections, even after cancel: old as reviewed (empty for addition), new as proposed (empty for removal). Keep every undeclared word.",
             "items": {
               "additionalProperties": false,
               "description": "One word a correction changes: ``old`` as on the waiting card, ``new`` as\nit becomes. An empty ``old`` is an added word, an empty ``new`` a removed one.",
@@ -760,14 +760,53 @@
             "type": "string"
           },
           "name": {
-            "description": "The circle's name, exactly as the person said or spelled it.",
+            "default": "",
+            "description": "The circle's complete name. Omit when supplying name_parts.",
             "maxLength": 80,
             "minLength": 1,
             "title": "Name",
             "type": "string"
           },
+          "name_parts": {
+            "description": "Spelled name: ordered parts, including spaces and untouched words. Omit name.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "characters": {
+                  "description": "Spelled word: ordered single Latin letters/digits.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Characters",
+                  "type": "array"
+                },
+                "text": {
+                  "default": "",
+                  "description": "Literal text, including word spaces.",
+                  "title": "Text",
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "literal",
+                    "spelled"
+                  ],
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Name Parts",
+            "type": "array"
+          },
           "release_spelled_words": {
-            "description": "An earlier spelled word the person changed or dropped, or every earlier spelled word when they now name a different circle.",
+            "description": "Earlier spelled words explicitly changed/dropped; release all for a different circle.",
             "items": {
               "type": "string"
             },
@@ -776,7 +815,7 @@
             "type": "array"
           },
           "spelled_words": {
-            "description": "Each word of this name the person spelled letter by letter, as one word of letters and digits (k a y r a -> KAYRA). Keep them in every correction.",
+            "description": "Legacy spelled words (k a y r a -> KAYRA). name_parts retains these automatically.",
             "items": {
               "type": "string"
             },
@@ -785,9 +824,6 @@
             "type": "array"
           }
         },
-        "required": [
-          "name"
-        ],
         "type": "object"
       },
       "person_args": [],
@@ -1000,7 +1036,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read one circle's current name, kind, member count, whether the person owns it, and what they can do with it (add members, rename, delete, leave). Read only. With no circle argument it reads the circle whose screen is open, so it answers 'this circle'. Use it to answer who manages a circle or what kind it is.",
+      "description": "Read a circle's name, kind, member count, ownership and allowed actions (add, rename, delete, leave). No argument reads the circle on screen.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_circles",
       "name": "get_circle_details",
@@ -1246,7 +1282,7 @@
     },
     {
       "circle_args": [],
-      "description": "Send a plain in-app connection request from the signed-in person to one confirmed account. It requests a connection: it does not accept on their behalf, add a circle member, request location, or attach information-sharing scopes. The result is the real outcome: sent (with the request id, waiting for acceptance), already_connected, or already_pending with its direction (if they already asked you, accept that instead). Needs its own confirmation; confirming who they meant is not approval to send.",
+      "description": "Send a plain in-app connection request to a confirmed account. No acceptance, circle addition, location request or information scopes. Needs separate action confirmation, not just identity confirmation. Returns sent with request id, already_connected, or already_pending with direction; accept an incoming request instead.",
       "firebase_plane": true,
       "gateway_action_id": "connect.send_request",
       "name": "invite_person",
@@ -1382,7 +1418,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read who is in a circle: one page of members with each one's canonical id, real name, role, and relationship to the person. Read only. With no circle argument it reads the circle whose screen is open. Use it for 'who is in this group' and to find the member to remove: someone can be in a circle without being a connection, so remove_circle_member needs a member from here confirmed with confirm_person. The result says whether more pages follow; the total is the total, not the page.",
+      "description": "Read one page of members: ids, names, roles and relationships. No argument reads the circle on screen. Members need not be connections: before remove_circle_member, confirm one from here with confirm_person. Counts are totals; has_more marks paging.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_circles",
       "name": "list_circle_members",
@@ -1536,7 +1572,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read who the person is connected with, one page at a time (optionally filtered by name), who can receive their location, and pending CONNECTION requests in both directions with their request ids (accept, decline and cancel need an id from here; location requests are list_requests instead). counts carry the totals; the page is not the total. Read only.",
+      "description": "Read connections (paged, optional name filter), location-ready people and pending CONNECTION requests both ways. Accept/decline/cancel need request ids from here. Location requests use list_requests. Counts are totals, not page lengths.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_people",
       "name": "list_people",
@@ -2338,7 +2374,7 @@
     },
     {
       "circle_args": [],
-      "description": "Find who the person means by a spoken name, searching by name only (never by phone or email, and never the device's contacts). Returns candidates to read back; it never picks one. Always follow with confirm_person after the person agrees, even when only one candidate is likely. pool='connections' for people already in their life; pool='directory' for anyone findable on Hussh, to connect with someone new. A relative ('my uncle') is not a name: ask for the name first.",
+      "description": "Search by name, never phone/email or device contacts. Read candidates back; even one likely match needs their agreement then confirm_person. Use spoken_name_parts for explicit spelling. connections searches existing people; directory finds new people on Hussh. Ask for a name when given only a relation like 'my uncle'.",
       "firebase_plane": false,
       "gateway_action_id": "connect.search_people",
       "name": "resolve_person",
@@ -2356,16 +2392,52 @@
             "type": "string"
           },
           "spoken_name": {
-            "description": "One name exactly as the person said it.",
+            "default": "",
+            "description": "One name exactly as said. Omit when supplying spoken_name_parts.",
             "maxLength": 120,
             "minLength": 1,
             "title": "Spoken Name",
             "type": "string"
+          },
+          "spoken_name_parts": {
+            "description": "Spelled lookup name: ordered parts including spaces. Omit spoken_name. Search only.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "characters": {
+                  "description": "Spelled word: ordered single Latin letters/digits.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Characters",
+                  "type": "array"
+                },
+                "text": {
+                  "default": "",
+                  "description": "Literal text, including word spaces.",
+                  "title": "Text",
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "literal",
+                    "spelled"
+                  ],
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Spoken Name Parts",
+            "type": "array"
           }
         },
-        "required": [
-          "spoken_name"
-        ],
         "type": "object"
       },
       "person_args": [],
@@ -2539,7 +2611,7 @@
     {
       "circle_args": [],
       "description": "Schedule an email the owner dictates to a confirmed person for a future time they name. Use this \u2014 never send_mail \u2014 whenever they give any future time: 'tomorrow', 'in the morning', 'at 9', 'next Monday', 'kal subah'. First resolve_person and confirm_person; pass only that canonical PersonRef as recipient. Preserve their dictated message in message and never invent an address, subject, or body. For a clock time or day, pass send_at as owner-local wall-clock ISO-8601 without a UTC offset; never a relative phrase. For a duration ('in 30 minutes'), pass send_in_minutes instead. A bare 'morning' or 'subah' means 9:00 AM owner-local today, or tomorrow if 9:00 AM has passed; a bare 'tomorrow' or 'kal' means 9:00 AM tomorrow; a bare date means 9:00 AM that day. After spoken confirmation the mail is stored to be delivered at that time; it is never sent immediately. It never sends a Gmail draft.",
-      "firebase_plane": false,
+      "firebase_plane": true,
       "gateway_action_id": "email.chat.turn",
       "name": "schedule_mail",
       "parameters": {

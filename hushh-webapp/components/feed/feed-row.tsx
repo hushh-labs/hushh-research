@@ -8,6 +8,22 @@ import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { FeedRowMetadata } from "./feed-row-metadata";
 import type { FeedItem } from "@/lib/services/feed-service";
 
+// Capability hues match the shared icon registry. Circle activity uses the
+// trusted-circle green even when it is delivered through the Location domain.
+const FEED_ICON_COLOR: Record<string, string> = {
+  Consent: "#F97316",
+  Location: "var(--app-accent)",
+  Finance: "#10B981",
+  KYC: "#2563EB",
+  "Connected systems": "#0284C7",
+  Connections: "#10B981",
+  "Circle chat": "#10B981",
+  Calendar: "#0284C7",
+  Mail: "#E11D48",
+  Messages: "#10B981",
+  "Google Drive": "#6366F1",
+};
+
 /**
  * History and pending requests share the same contact-list geometry.
  *
@@ -29,6 +45,10 @@ export const FeedRow = memo(function FeedRow({
   const read = unread === undefined ? item.read : !unread;
   const person = presentation.person;
   const Icon = presentation.icon;
+  const iconColor = item.event_type.startsWith("circle_") ||
+    item.event_type.startsWith("location_circle_")
+    ? "#10B981"
+    : FEED_ICON_COLOR[presentation.domainLabel] ?? "#6366F1";
 
   return (
     <SettingsRow
@@ -45,9 +65,9 @@ export const FeedRow = memo(function FeedRow({
           <span
             aria-hidden
             data-slot="feed-domain-icon"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground"
+            className="inline-flex size-10 items-center justify-center"
           >
-            <Icon className="size-[18px]" />
+            <Icon className="size-7" color={iconColor} />
           </span>
         )
       }

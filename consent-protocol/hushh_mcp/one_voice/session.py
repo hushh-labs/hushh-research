@@ -55,6 +55,7 @@ from hushh_mcp.one_voice.tools.base import (
 )
 from hushh_mcp.one_voice.tools.executor import (
     CONFIRMATION_WAITING,
+    LOOKUP_TOOLS,
     PENDING_ACTION_EXISTS,
     STORAGE_UNAVAILABLE,
     ToolCallOutcome,
@@ -403,6 +404,7 @@ class VoiceSession:
         self._pending_voice_turn_id: str | None = None
         self._pending_turn_ids: dict[str, str] = {}
         self._latest_input_turn_id: str | None = None
+        self._conflicted_confirmation_input: str | None = None
         # Live can end a provider turn after a tool call, then continue the
         # same person's request in a fresh provider turn. Wire frames keep
         # that fresh turn ID so the client can display them after model_end;
@@ -2252,8 +2254,9 @@ class VoiceSession:
         elif kind == "tool_call":
             self._touch()
             self.turn.input_seen = True
-            for call in event.function_calls:
-                await self._dispatch_tool_call(call)
+            refused = await self._conflicting_batch_calls(event.function_calls)
+            for index, call in enumerate(event.function_calls):
+                await self._dispatch_tool_call(call, rejection=refused.get(index))
         elif kind == "tool_cancel":
             pass
         elif kind == "resumption" and event.resumption_handle:
@@ -2642,7 +2645,89 @@ class VoiceSession:
             self._bump(narration_without_receipt=1)
             logger.info("one_voice.narration_without_receipt session=%s", self.session_id)
 
-    async def _dispatch_tool_call(self, call: dict[str, Any]) -> None:
+    async def _conflicting_batch_calls(self, calls: list[dict[str, Any]]) -> dict[int, Rejected]:
+        """Refuse contradictory controls before any call can consume approval.
+
+        This compares declared tools and pending identities, never utterances.
+        Independent reads and a confirmation followed by a different action
+        keep their existing behavior.
+        """
+
+        def pending_identity(value: Any) -> str:
+            text = str(value or "").strip()
+            try:
+                return str(uuid.UUID(text))
+            except ValueError:
+                return text
+
+        confirms = {
+            index: pending_identity((call.get("args") or {}).get("pending_action_id"))
+            for index, call in enumerate(calls)
+            if call.get("name") == "confirm_pending_action"
+        }
+        if not confirms or len(calls) < 2:
+            return {}
+        try:
+            rows = await self.pending.list_open(
+                user_id=self.ctx.user_id, conversation_id=self.ctx.conversation_id
+            )
+        except PendingActionStorageError:
+            self._conflicted_confirmation_input = self._turn_input_origins.get(
+                self.turn.turn_id, self.turn.turn_id
+            )
+            # No action in an unchecked batch may use an approval. Reads may
+            # still run through their own normal authority checks.
+            return {
+                index: Rejected(
+                    reason_code=STORAGE_UNAVAILABLE,
+                    spoken_facts=["I couldn't check that confirmation. Please try again."],
+                )
+                for index in confirms
+            }
+        by_id = {pending_identity(row.id): row for row in rows}
+        conflicts: set[int] = set()
+        for index, pending_id in confirms.items():
+            row = by_id.get(pending_id)
+            current = registry.get_tool(row.tool_name) if row else None
+            if current is None:
+                continue
+            for other_index, call in enumerate(calls):
+                if other_index == index:
+                    continue
+                name = str(call.get("name") or "")
+                spec = registry.get_tool(name)
+                lookup = LOOKUP_TOOLS.get(name)
+                cancels = (
+                    name == "cancel_pending_action"
+                    and pending_identity((call.get("args") or {}).get("pending_action_id"))
+                    == pending_id
+                )
+                corrects = (
+                    spec is not None
+                    and spec.policy.needs_confirmation
+                    and (spec.correction_key == current.correction_key or spec.preempts_pending)
+                )
+                if cancels or corrects or (lookup and current.stale_on_lookup(lookup)):
+                    conflicts.update((index, other_index))
+        if conflicts:
+            self._conflicted_confirmation_input = self._turn_input_origins.get(
+                self.turn.turn_id, self.turn.turn_id
+            )
+            logger.info("one_voice.tool.batch_conflict count=%d", len(conflicts))
+        return {
+            index: Rejected(
+                reason_code="conflicting_confirmation",
+                spoken_facts=[
+                    "That answer both approved and changed the waiting action. "
+                    "Nothing in that action ran. Ask whether to change it or go ahead."
+                ],
+            )
+            for index in conflicts
+        }
+
+    async def _dispatch_tool_call(
+        self, call: dict[str, Any], *, rejection: Rejected | None = None
+    ) -> None:
         name = str(call.get("name") or "")
         call_id = call.get("id")
         args = dict(call.get("args") or {})
@@ -2667,7 +2752,11 @@ class VoiceSession:
             self._awaiting_first_tool = False
         try:
             await self._dispatch_tool_call_inner(
-                name=name, call_id=call_id, args=args, origin_turn_id=origin_turn_id
+                name=name,
+                call_id=call_id,
+                args=args,
+                origin_turn_id=origin_turn_id,
+                rejection=rejection,
             )
         finally:
             self._tool_response_at = self.clock()
@@ -2689,12 +2778,26 @@ class VoiceSession:
         call_id: Any,
         args: dict[str, Any],
         origin_turn_id: str,
+        rejection: Rejected | None = None,
     ) -> None:
         self.turn.tool_calls += 1
         self._bump(tool_calls=1)
         self._count_turn_perf(origin_turn_id, "tool_calls")
         spec = registry.get_tool(name)
         self._log_unprompted_tool(spec, origin_turn_id)
+        if (
+            rejection is None
+            and name == "confirm_pending_action"
+            and self._conflicted_confirmation_input
+            == (self._turn_input_origins.get(origin_turn_id, origin_turn_id))
+        ):
+            # An unrelated read/tool response cannot turn an ambiguous answer
+            # into consent. A new owner input is required, including for a
+            # same-turn retry or a replacement review created in that turn.
+            rejection = Rejected(
+                reason_code="conflicting_confirmation",
+                spoken_facts=["Ask for a fresh confirmation after clarifying the change."],
+            )
         await self._send(
             protocol.tool_started(
                 call_id=str(call_id or ""),
@@ -2706,7 +2809,11 @@ class VoiceSession:
                 turn_id=origin_turn_id,
             )
         )
-        held = await self._held_card(spec, origin_turn_id, name=name)
+        held = (
+            ToolCallOutcome(result=rejection, spec=spec)
+            if rejection is not None
+            else await self._held_card(spec, origin_turn_id, name=name)
+        )
         if isinstance(held, PendingAction):
             await self._answer_held(held, name=name, call_id=call_id, origin_turn_id=origin_turn_id)
             return

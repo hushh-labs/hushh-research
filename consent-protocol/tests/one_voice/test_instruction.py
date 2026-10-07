@@ -6,6 +6,7 @@ tool list the model reads is the one the executor serves.
 
 from __future__ import annotations
 
+import json
 import runpy
 import sys
 from datetime import datetime, timezone
@@ -232,15 +233,18 @@ def test_instruction_budget_is_calendar_stable_but_rejects_payload_growth(monkey
     monkeypatch.setattr(sys, "argv", [str(script), "--check"])
     assert benchmark["main"]() == 0
     capsys.readouterr()
+    caps = json.loads(benchmark["BUDGET_PATH"].read_text(encoding="utf-8"))
+    growth = caps["instruction_chars"] - samples[0]["instruction_chars"] + 1
     config = instruction.voice_head_config()
     monkeypatch.setattr(
         instruction,
         "voice_head_config",
         lambda: {
             **config,
-            "instruction": str(config["instruction"]) + "\nExtra authored instruction.",
+            "instruction": str(config["instruction"]) + "X" * growth,
         },
     )
+    assert benchmark["measure"]()["instruction_chars"] > caps["instruction_chars"]
     assert benchmark["main"]() == 1
     assert "One Voice performance budget exceeded" in capsys.readouterr().err
 

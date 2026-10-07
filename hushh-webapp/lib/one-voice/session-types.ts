@@ -38,6 +38,8 @@ export type TranscriptItem = {
   segmentId?: string;
   /** Highest frame seq applied to a contracted row; older frames are ignored. */
   lastSeq?: number;
+  /** Last normalized legacy chunk; distinguishes a full final from a repeated delta. */
+  lastLegacyChunk?: string;
 };
 
 export type ToolTimelineItem = {

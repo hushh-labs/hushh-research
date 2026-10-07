@@ -952,6 +952,28 @@ describe("reduceVoiceSession: transcript", () => {
     expect(state.transcript[0]?.final).toBe(true);
   });
 
+  it("a leading-space final restating accumulated legacy chunks shows once", () => {
+    const state = run(
+      [
+        out("Shall I create", false),
+        out(" HUSSH GARAGE V04?", false),
+        out(" Shall I create HUSSH GARAGE V04?", true),
+        out(" Shall I create HUSSH GARAGE V04?", true),
+      ],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["one", " Shall I create HUSSH GARAGE V04?"]]);
+    expect(state.transcript[0]?.final).toBe(true);
+  });
+
+  it("a leading-space final can restate the same raw legacy line", () => {
+    const state = run(
+      [out(" Shall I create it?", false), out(" Shall I create it?", true)],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["one", " Shall I create it?"]]);
+  });
+
   it("spelled chunks accumulate; a repeated letter is not a restatement", () => {
     const spelled = run(
       [

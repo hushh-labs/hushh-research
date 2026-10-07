@@ -89,6 +89,7 @@ describe("DirectMessagesService", () => {
       idToken: "firebase-token",
       recipientPersonRef: "person-public-ref",
       content: "  Good morning  ",
+      replyToMessageId: "message-1",
     });
 
     expect(apiFetch).toHaveBeenCalledWith(
@@ -99,6 +100,7 @@ describe("DirectMessagesService", () => {
     expect(JSON.parse(String(options.body))).toEqual({
       recipientPersonRef: "person-public-ref",
       content: "Good morning",
+      replyToMessageId: "message-1",
     });
     expect(result.message.senderIsViewer).toBe(true);
   });

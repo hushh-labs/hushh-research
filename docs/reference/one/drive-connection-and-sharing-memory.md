@@ -45,7 +45,7 @@ flowchart TD
 ## 1. How A connects Drive
 
 1. The One Connectors panel starts the Google Drive OAuth flow with `profile='live'` by default. The backend owns the PKCE attempt and asks for `openid`, `email`, and `https://www.googleapis.com/auth/drive`; it accepts only the allowlisted live scope set or that set plus `drive.file`, and checks the linked identity. A selected-file profile remains supported separately.
-2. Web completion or native finalization stores the credential in the connector lifecycle boundary. Live verification probes Google Drive and records the verified policy. The UI can show `verifying`, `connected`, `needs_reauth`, or an error; a completed OAuth redirect alone is not the live-read proof.
+2. Web completion or native finalization stores the credential in the connector lifecycle boundary. Live verification probes Google Drive and records the verified policy. The UI can show `verifying`, `connected`, `needs_reauth`, or an error; a completed OAuth redirect alone is not the live-read proof. A saved live grant still awaiting verification gets one readiness recheck after return; **Retry Drive** repeats that owner-authorized check without replaying OAuth. Selected-file grants keep their separate file-selection verification.
 3. Before and after live provider calls, the reader checks owner authority, connection generation, verified profile and provider eligibility. Disconnect or account change invalidates stale work.
 
 Code entrypoints: `hushh-webapp/components/agent/connectors-panel.tsx` (`connectDrive`), `consent-protocol/api/routes/external_connectors.py` (OAuth and `/google_drive/live/verify`), `consent-protocol/hushh_mcp/services/external_connector_google_oauth.py`, `drive_live_reader.py`, and `google_drive_rest_transport.py`.

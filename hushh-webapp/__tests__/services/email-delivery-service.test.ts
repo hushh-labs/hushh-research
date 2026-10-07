@@ -272,6 +272,35 @@ describe("EmailDeliveryService", () => {
     });
   });
 
+  it("distinguishes Gmail authorization failures from owner authorization and temporary outages", async () => {
+    const cases = [
+      { code: "GMAIL_NOT_READY", status: 401, reconnect: true },
+      { code: "GMAIL_NOT_READY", status: 403, reconnect: true },
+      { code: "GMAIL_SEND_NOT_READY", status: 401, reconnect: true },
+      { code: "GMAIL_SEND_NOT_READY", status: 403, reconnect: true },
+      { code: "GMAIL_DELIVERY_USER_MISMATCH", status: 403, reconnect: false },
+      { code: null, status: 401, reconnect: false },
+      { code: "GMAIL_NOT_READY", status: 503, reconnect: false },
+    ];
+    for (const { code, status, reconnect } of cases) {
+      vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: { code, message: "private provider detail" } }), { status }),
+      );
+      const error = await EmailDeliveryService.send({ ...AUTH, draft: replyDraft(), actionId: ACTION_ID })
+        .catch((cause: unknown) => cause);
+      expect(error).toBeInstanceOf(EmailDeliveryError);
+      expect(error).toMatchObject({ code, status, needsGmailReconnect: reconnect });
+      expect((error as EmailDeliveryError).message).not.toContain("private provider detail");
+      expect((error as EmailDeliveryError).message).toBe(
+        reconnect
+          ? "Reconnect Mail to continue."
+          : status === 503
+            ? "Mail could not be completed. Please review the draft and try again."
+            : "Unlock your vault and try again.",
+      );
+    }
+  });
+
   it("renders structured recipient lists from the drafting boundary into editable fields", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(
       new Response(

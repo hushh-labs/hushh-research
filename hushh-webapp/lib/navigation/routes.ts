@@ -200,7 +200,7 @@ export const ROUTES = {
   /** Compatibility-only inbound path; the active chat surface is `/`. */
   LEGACY_AGENT: "/agent",
   /** Private 1:1 message route. Direct messaging remains separate from One agent chat. */
-  ONE_MESSAGES: DIRECT_MESSAGES_PATH,
+  ONE_MESSAGES: "/one/messages",
   CONNECT: "/one/connect",
   CONNECT_SETTINGS: "/one/connect/settings",
   MARKETPLACE: "/marketplace",

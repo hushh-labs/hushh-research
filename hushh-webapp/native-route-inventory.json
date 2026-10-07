@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-09-20",
-  "total_routes": 131,
-  "native_required_routes": 105,
+  "generated_at": "2026-10-07",
+  "total_routes": 132,
+  "native_required_routes": 106,
   "excluded_routes": 26,
   "routes": [
     {
@@ -613,6 +613,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fmap",
       "expectedMarker": "native-route-one-location-map",
       "expectedRoute": "/one/location/map",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/messages",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fmessages",
+      "expectedMarker": "native-route-direct-messages",
+      "expectedRoute": "/one/messages",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

@@ -27,7 +27,19 @@ describe("ExternalConnectorService native Drive OAuth", () => {
     await expect(ExternalConnectorService.completeWebOAuth({ idToken: 'token', state: 'state', code: 'never-hub', attemptId: 'attempt' })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
     await expect(ExternalConnectorService.pickerSession('owner-token', 'https://app.test')).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
     await expect(ExternalConnectorService.documents('owner-token')).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(ExternalConnectorService.verifyLiveDrive({ vaultOwnerToken: 'owner-token', isEffectCurrent: () => true })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
     expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("rechecks live Drive through the owner-authorized endpoint without replaying OAuth", async () => {
+    apiFetch.mockResolvedValue(Response.json({ connectorId: "google_drive", status: "connected" }));
+    const signal = new AbortController().signal;
+    const isEffectCurrent = () => true;
+    await expect(ExternalConnectorService.verifyLiveDrive({ vaultOwnerToken: "owner-token", signal,
+      isEffectCurrent })).resolves.toMatchObject({ status: "connected" });
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith("/api/connectors/google_drive/live/verify",
+      expect.objectContaining({ method: "POST", headers: { Authorization: "Bearer owner-token" },
+        signal, isEffectCurrent }));
   });
 
   it("discards private OAuth delivery after vault authority changes", async () => {

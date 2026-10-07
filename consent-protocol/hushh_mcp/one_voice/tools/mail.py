@@ -67,6 +67,7 @@ from hushh_mcp.one_voice.tools.base import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import gmail_reply_source_service as reply_source
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
@@ -101,6 +102,10 @@ MAIL_REPLY_READER_SERVICE = "voice_mail_reply_reader"
 MAIL_DELIVERY_SERVICE = "voice_mail_delivery"
 # The wall clock a send time is validated against; injected by tests.
 MAIL_CLOCK_SERVICE = "voice_mail_clock"
+# Reuse the identity cache's coalesced, cooldown-aware refresh only when an
+# active connection has no address. It must not hold a voice turn indefinitely.
+MAIL_IDENTITY_SERVICE = "voice_mail_identity"
+MAIL_IDENTITY_REFRESH_SECONDS = 3.0
 
 # What One says when a read did not happen. Connection state and nothing else:
 # no sender, subject or body, so the model boundary is untouched.
@@ -734,12 +739,13 @@ class SendMailResult(ToolResult):
     client_step: dict[str, Any]
 
     def model_public(self) -> dict[str, Any]:
-        # The address and full draft go only to the owner's review card. The
-        # operational Live model receives a bounded first-party speech receipt.
+        # The operational model must not receive the dictated body or subject
+        # again as tool instructions, including a short body's entire preview.
+        # The owner still receives the exact draft and its client-side summary.
         return {
             "status": self.status,
             "needs": self.needs,
-            "spoken_facts": list(self.spoken_facts),
+            "spoken_facts": ["I'm opening the email draft for review. Nothing has been sent."],
         }
 
 
@@ -779,46 +785,93 @@ def _recipient_email(
     return normalized.to[0], normalized.subject
 
 
-def _no_recipient_email(name: str) -> Rejected:
-    return Rejected(
-        reason_code="person_has_no_email",
-        spoken_facts=[f"I don't have an email address for {name}, so I can't draft this."],
+def _send_mail_rejected(reason: str, fact: str, *, stage: str) -> Rejected:
+    # Counts by reason and stage, without names, addresses, dictation or IDs.
+    # Prefix the fixed reason vocabulary so the runtime's bare-UID filter
+    # does not mistake a long reason code for an owner identifier.
+    logger.info("one_voice.mail_send %s stage=%s", f"reason={reason}", stage)
+    return Rejected(reason_code=reason, spoken_facts=[fact])
+
+
+def _unusable_recipient_email(row: dict[str, Any], name: str, *, stage: str) -> Rejected:
+    if not str(row.get("email") or "").strip():
+        return _send_mail_rejected(
+            "person_has_no_email",
+            f"I don't have an email address for {name}, so I can't draft this.",
+            stage=stage,
+        )
+    return _send_mail_rejected(
+        "person_email_invalid",
+        f"The email address I have for {name} doesn't look valid, so I can't draft this.",
+        stage=stage,
     )
 
 
 def _recipient_changed(fact: str) -> Rejected:
-    return Rejected(reason_code="recipient_changed", spoken_facts=[fact])
+    return _send_mail_rejected("recipient_changed", fact, stage="open")
+
+
+async def _send_mail_connection(
+    ctx: ToolContext, recipient_id: str, *, stage: str
+) -> dict[str, Any] | Rejected | None:
+    try:
+        row = await asyncio.to_thread(_mail_connection, ctx, recipient_id)
+        if stage == "prepare" and row is not None and not str(row.get("email") or "").strip():
+            identity = ctx.service(MAIL_IDENTITY_SERVICE, ActorIdentityService)
+            try:
+                await asyncio.wait_for(
+                    identity.sync_from_firebase_if_due(recipient_id),
+                    timeout=MAIL_IDENTITY_REFRESH_SECONDS,
+                )
+            except Exception:
+                # A refresh is best effort; the active connection cache remains
+                # authoritative. Never log an exception that may contain PII.
+                logger.info("one_voice.mail_send reason=email_refresh_unavailable stage=prepare")
+            # Do not trust an identity result as proof of an active connection:
+            # it may have been disconnected while the provider was refreshing.
+            row = await asyncio.to_thread(_mail_connection, ctx, recipient_id)
+        return row
+    except Exception:
+        return _send_mail_rejected(
+            "recipient_lookup_unavailable",
+            "I couldn't check that connection right now. Nothing was sent. Please try again.",
+            stage=stage,
+        )
 
 
 async def _prepare_send_mail(ctx: ToolContext, args: SendMailInput) -> Prepared | ToolResult:
     person = ctx.entities.person(args.recipient.user_id)
     if person is None or person.relationship != "connected":
-        return Rejected(
-            reason_code="recipient_not_connected",
-            spoken_facts=["I can draft only to a confirmed connection with an email address."],
+        return _send_mail_rejected(
+            "recipient_not_connected",
+            "I can draft only to a confirmed connection with an email address.",
+            stage="prepare",
         )
-    row = await asyncio.to_thread(_mail_connection, ctx, args.recipient.user_id)
+    row = await _send_mail_connection(ctx, args.recipient.user_id, stage="prepare")
+    if isinstance(row, Rejected):
+        return row
     if row is None:
         # Confirmed earlier in the conversation, but no longer an active
         # connection. That is a different fact from "no address on file", and
         # the person acts on it differently.
-        return Rejected(
-            reason_code="recipient_not_connected",
-            spoken_facts=[
-                f"You aren't connected with {person.display_name} any more, so I can't draft this."
-            ],
+        return _send_mail_rejected(
+            "recipient_not_connected",
+            f"You aren't connected with {person.display_name} any more, so I can't draft this.",
+            stage="prepare",
         )
     address = _recipient_email(row, args.subject, args.message)
     if address is None:
-        return _no_recipient_email(person.display_name)
+        return _unusable_recipient_email(row, person.display_name, stage="prepare")
     to_email, _subject = address
+    binding = _email_binding(ctx, args.recipient.user_id, to_email)
+    logger.info("one_voice.mail_send reason=prepared stage=prepare")
     return Prepared(
         summary=f"draft an email to {person.display_name}",
         # An HMAC pins the confirmed recipient without retaining their address
         # in the long-lived pending-action row.
         snapshot={
             "recipient_user_id": args.recipient.user_id,
-            "email_binding": _email_binding(ctx, args.recipient.user_id, to_email),
+            "email_binding": binding,
         },
     )
 
@@ -834,7 +887,9 @@ async def _send_mail(ctx: ToolContext, args: SendMailInput) -> ToolResult:
         return _recipient_changed(
             "That connection changed. I didn't open a draft; please ask again."
         )
-    row = await asyncio.to_thread(_mail_connection, ctx, args.recipient.user_id)
+    row = await _send_mail_connection(ctx, args.recipient.user_id, stage="open")
+    if isinstance(row, Rejected):
+        return row
     if row is None:
         # Connected when the card was shown, not any more: the approval was for
         # a recipient this draft can no longer be addressed to.
@@ -843,7 +898,7 @@ async def _send_mail(ctx: ToolContext, args: SendMailInput) -> ToolResult:
         )
     address = _recipient_email(row, args.subject, args.message)
     if address is None:
-        return _no_recipient_email(person.display_name)
+        return _unusable_recipient_email(row, person.display_name, stage="open")
     to_email, subject = address
     if not hmac.compare_digest(
         str(prepared.get("email_binding") or ""),
@@ -860,6 +915,7 @@ async def _send_mail(ctx: ToolContext, args: SendMailInput) -> ToolResult:
         facts.append(f"Subject: {subject}.")
     facts.append(f"Body starts: {preview}.")
     facts.append("I'm opening it for your review. Tap Send only after checking it.")
+    logger.info("one_voice.mail_send reason=draft_open_requested stage=open")
     return SendMailResult(
         spoken_facts=facts,
         client_step={
@@ -2064,6 +2120,9 @@ TOOLS: tuple[ToolSpec, ...] = (
         person_args=("recipient",),
         private_args=("subject", "message"),
         prepare=_prepare_schedule_mail,
+        # Scheduling arms an unattended provider write. Re-prove the owner at
+        # confirmation through the same socket/HTTP gate as identity writes.
+        firebase_plane=True,
         ui_refresh=("mail",),
     ),
     ToolSpec(

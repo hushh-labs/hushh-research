@@ -1,6 +1,6 @@
 {
-  "instruction_chars": 51028,
-  "instruction_utf8_bytes": 51040,
+  "instruction_chars": 51030,
+  "instruction_utf8_bytes": 51042,
   "tool_count": 82,
   "tool_description_chars": 27762,
   "tool_schema_json_bytes": 66745

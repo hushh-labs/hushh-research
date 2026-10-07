@@ -62,6 +62,16 @@ does not authorize installation or production stable-channel promotion.
 The current migration, release, capacity and owner/device acceptance
 disposition is recorded in the [integration audit](../quality/adk-orchestration-docs-audit.md).
 
+The semantic command-recovery probe distinguishes a successful recovery response
+from a private-placement refusal. A canonical HTTP 409 with
+`AGENT_PRIVATE_RUNTIME_REQUIRED` proves the hub boundary; it does not prove pod
+recovery. Recognize its declared private hosting mode without comparing the whole
+human-facing error object. Authentication failures, unavailable placement and
+unrelated or contradictory conflicts remain blocking. Read back status, allowlisted
+code and hosting mode only; keep credentials and response contents out of diagnostics.
+After rollback, inspect the traffic-serving revision's release metadata rather
+than the service template, which may still describe the failed candidate.
+
 ## The rule in one screen
 
 ```mermaid

@@ -268,6 +268,18 @@ class ToolExecutor:
         except ValidationError as exc:
             missing = sorted({str(err.get("loc", ("?",))[0]) for err in exc.errors()})
             facts = [f"I'm missing {', '.join(missing) or 'a detail'} for that."]
+            if name in {"send_mail", "reply_mail", "schedule_mail"}:
+                too_long = {
+                    str(err.get("loc", ("?",))[0])
+                    for err in exc.errors()
+                    if err.get("type") == "string_too_long"
+                }
+                if too_long & {"message", "subject"}:
+                    field_name = "message" if "message" in too_long else "subject"
+                    facts = [
+                        f"That {field_name} is too long for a voice draft. "
+                        "Shorten it and try again."
+                    ]
             if "circle" in missing and ctx.screen.active_circle_id:
                 # The person is looking at a circle: say where its id comes from
                 # rather than leaving the model to guess one.
@@ -321,6 +333,25 @@ class ToolExecutor:
                     parsed=parsed,
                 )
             timings["pending"] = _elapsed_ms(pending_started)
+            # A correction only changes declared fields. The schema default is
+            # for a new circle, not permission to reset an existing proposal's
+            # kind when the owner only corrects its name.
+            if name == "create_circle" and "kind" not in parsed.model_fields_set:
+                from hushh_mcp.one_voice.tools.circles import (
+                    CreateCircleInput,
+                    retained_creation_kind,
+                )
+
+                previous = next((row for row in open_rows if row.tool_name == name), None)
+                previous_kind = (
+                    previous.args.get("kind")
+                    if previous is not None
+                    else retained_creation_kind(ctx, parsed)
+                    if isinstance(parsed, CreateCircleInput)
+                    else None
+                )
+                if previous_kind in {"family", "friends", "other"}:
+                    parsed = parsed.model_copy(update={"kind": previous_kind})
             target = self._target_key(ctx, spec, parsed)
             existing = self._open_duplicate(ctx, spec, parsed, open_rows, target=target)
             if existing is not None:

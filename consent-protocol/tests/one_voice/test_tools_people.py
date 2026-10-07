@@ -363,6 +363,32 @@ def test_no_tool_accepts_a_free_text_name_for_a_person():
 # -- resolve_person ---------------------------------------------------------
 
 
+async def test_spelled_lookup_uses_literal_units_and_still_requires_identity_confirmation():
+    ctx, connections, _ = make_ctx()
+    connections.directory = [
+        {"userId": "sara-1", "displayName": "SARA Kapoor"},
+        {"userId": "sara-2", "displayName": "SARA Rao"},
+    ]
+    args = people.ResolvePersonInput(
+        spoken_name_parts=[{"type": "spelled", "characters": list("SARA")}],
+        pool="directory",
+    )
+    assert args.spoken_name == "SARA"
+    assert "spoken_name_parts" not in args.model_dump()
+    result = await people.resolve_person(ctx, args)
+    assert result.spoken_name == "SARA"
+    assert result.status == "multiple"
+    assert result.needs == "disambiguation"
+    assert {person.user_id for person in result.candidates} == {"sara-1", "sara-2"}
+    assert ctx.entities.people == {}
+    assert ("search_directory", (OWNER, "sara", 1, people.DIRECTORY_LIMIT)) in connections.calls
+    with pytest.raises(ValidationError):
+        people.ResolvePersonInput(
+            spoken_name="Sarah",
+            spoken_name_parts=[{"type": "spelled", "characters": list("SARA")}],
+        )
+
+
 async def test_resolve_aysha_offers_both_and_confirms_nothing():
     ctx, connections, _ = make_ctx()
     result = await people.resolve_person(ctx, people.ResolvePersonInput(spoken_name="Aysha"))

@@ -54,6 +54,14 @@ export type SentEmailResult = {
   outcomeUnknown: boolean;
 };
 
+/** These codes come from Gmail's connector, not the owner's vault credentials. */
+function gmailAuthorizationFailed(code: string | null, status: number): boolean {
+  return (
+    (code === "GMAIL_NOT_READY" || code === "GMAIL_SEND_NOT_READY") &&
+    (status === 401 || status === 403)
+  );
+}
+
 export class EmailDeliveryError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -70,7 +78,8 @@ export class EmailDeliveryError extends Error {
       this.code === "GMAIL_SEND_PERMISSION_REQUIRED" ||
       this.code === "GMAIL_SEND_DISABLED" ||
       // A reply re-reads its original email, which needs the read grant.
-      this.code === "GMAIL_READ_PERMISSION_REQUIRED"
+      this.code === "GMAIL_READ_PERMISSION_REQUIRED" ||
+      gmailAuthorizationFailed(this.code, this.status)
     );
   }
 
@@ -195,6 +204,9 @@ function safeErrorMessage(code: string | null, status: number): string {
   }
   if (code === "SOURCE_BOUND_ATTACHMENT_UNSUPPORTED") {
     return "A reply can't include an attachment. Nothing was sent.";
+  }
+  if (gmailAuthorizationFailed(code, status)) {
+    return "Reconnect Mail to continue.";
   }
   if (status === 401 || status === 403) {
     return "Unlock your vault and try again.";

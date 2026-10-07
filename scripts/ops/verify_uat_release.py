@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from importlib.util import module_from_spec, spec_from_file_location
 from typing import Any
 
 import requests
@@ -18,8 +19,6 @@ PROTOCOL_ROOT = REPO_ROOT / "consent-protocol"
 WEB_ROOT = REPO_ROOT / "hushh-webapp"
 if str(PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(PROTOCOL_ROOT))
-
-from importlib.util import module_from_spec, spec_from_file_location
 
 _UAT_SMOKE_PATH = PROTOCOL_ROOT / "scripts" / "uat_kai_regression_smoke.py"
 _UAT_SPEC = spec_from_file_location("uat_kai_regression_smoke", _UAT_SMOKE_PATH)
@@ -94,6 +93,43 @@ def _record_exception(
         }
     )
     failures.append(name)
+
+
+def _command_recovery_check(response: requests.Response) -> dict[str, Any]:
+    """A private-placement refusal proves the hub boundary, not pod recovery."""
+    commands = response.json()
+    commands = commands if isinstance(commands, dict) else {}
+    detail = commands.get("detail")
+    detail = detail if isinstance(detail, dict) else {}
+    error_code = detail.get("code")
+    hosting_mode = detail.get("hostingMode")
+    private_modes = ("byoc", "pending", "hussh_pods", "unplaced")
+    private_runtime_required = (
+        response.status_code == 409
+        and error_code == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+        and ("hostingMode" not in detail or hosting_mode in private_modes)
+    )
+    commands_ok = response.status_code == 200 and isinstance(
+        commands.get("commands"), list
+    )
+    return {
+        "name": "location_command_recovery",
+        "ok": commands_ok or private_runtime_required,
+        "recovery_verified": commands_ok,
+        "private_runtime_required": private_runtime_required,
+        "status_code": response.status_code,
+        "error_code": error_code
+        if error_code in ("AGENT_PRIVATE_RUNTIME_REQUIRED", "AGENT_HOSTING_UNAVAILABLE")
+        else "unrecognized"
+        if error_code is not None
+        else None,
+        "hosting_mode": hosting_mode
+        if hosting_mode in (*private_modes, "shared", "unknown")
+        else "unrecognized"
+        if hosting_mode is not None
+        else None,
+        "command_count": len(commands["commands"]) if commands_ok else 0,
+    }
 
 
 def main() -> int:
@@ -176,26 +212,9 @@ def main() -> int:
                 headers=smoke._vault_headers(),  # noqa: SLF001
                 expected=None,
             )
-            commands = response.json()
-            private_runtime_required = response.status_code == 409 and commands.get(
-                "detail"
-            ) == {"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"}
-            commands_ok = response.status_code == 200 and isinstance(
-                commands.get("commands"), list
-            )
-            boundary_ok = commands_ok or private_runtime_required
-            report["checks"].append(
-                {
-                    "name": "location_command_recovery",
-                    "ok": boundary_ok,
-                    "recovery_verified": commands_ok,
-                    "private_runtime_required": private_runtime_required,
-                    "command_count": len(commands.get("commands") or [])
-                    if commands_ok
-                    else 0,
-                }
-            )
-            if not boundary_ok:
+            command_check = _command_recovery_check(response)
+            report["checks"].append(command_check)
+            if not command_check["ok"]:
                 failures.append("location_command_recovery")
         except Exception as exc:  # pragma: no cover - exercised in live verification
             _record_exception(
