@@ -11,20 +11,23 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One manual dispatch cuts a Hussh One Android App Bundle (`.aab`) from an explicitly selected green
-`main` SHA, builds the Capacitor app against the **production backend + shared Firebase authority**,
+`main` SHA, builds the Capacitor app against the **UAT backend + shared Firebase authority**,
 signs it with the **existing Android Release Upload Keystore**, and uploads it directly to the
 **Google Play production track**.
 
 - **Workflow:** `.github/workflows/ship-android-playstore-v1.yml` (`workflow_dispatch`).
 - **CLI Dispatcher:** `node scripts/release/dispatch-android-playstore.mjs` (or `npm run android:release:playstore`).
 - **Runner:** GitHub-hosted `ubuntu-latest`.
-- **Target:** package `com.hussh.app` (Android only — iOS remains `com.hushh.app`), Google Play production track, production routing project `hushh-pda`.
-- **Secret custody:** signing, Play service-account, and native/shared Firebase material remains in `hushh-pda-uat` Secret Manager. The Firebase config itself identifies the shared `hushh-pda` authority and is cross-checked against the production project before the build.
+- **Target:** package `com.hussh.app` (Android only — iOS remains `com.hushh.app`), Google Play production track. The binary talks to the **UAT backend** (`hushh-pda-uat`); the production backend (`hushh-pda`) is never read or targeted by this lane.
+- **Secret custody:** routing, signing, Play service-account, and native/shared Firebase material all live in `hushh-pda-uat` Secret Manager. The native `google-services.json` is cross-checked against the web Firebase identity before the build.
 - **Cadence:** operator-initiated, roughly twice per week when a release is warranted. There is no cron trigger and no internal, closed, open, alpha, or beta upload mode in this workflow.
 
-The public iOS production workflow is the environment model: production routing and exact backend
-revision provenance come from `hushh-pda`; existing signing and shared Firebase material stays in
-the UAT secrets project. This is deliberate split custody, not a UAT runtime.
+This is the Android equivalent of the iOS App Store workflow with `backend_target=uat` (latest
+frontend + latest backend, matching UAT). A store binary that talks to UAT is an intentional product
+contract, not credential reuse: the Play production track is the upload target, UAT is the runtime.
+The job runs in the `uat` GitHub environment because that environment carries the UAT workload
+identity needed to read the UAT backend revision and secrets; dispatch authority is still the
+stricter `production.manual_dispatch_users` list.
 
 ## Version Cadence & Monotonic versionCode
 
@@ -38,14 +41,15 @@ the UAT secrets project. This is deliberate split custody, not a UAT runtime.
 cd hushh-webapp
 npm ci
 npm run sync:native-firebase-configs -- --platform android
-# Production env is supplied by the workflow; the Android wrapper isolates the export.
+# UAT env is supplied by the workflow; the Android wrapper isolates the export.
 node ./scripts/native/with-android-native-env.mjs ... next build
 node ./scripts/native/with-android-native-env.mjs ... cap sync android
 cd android && ./gradlew bundleRelease
 ```
 
 Before compilation, the workflow verifies that every generated Capacitor plugin backend URL and
-the bundled native runtime contract point to the production backend. After compilation, it runs
+the bundled native runtime contract point to the UAT backend (UAT host, `app_env=uat`, valid
+attestation). After compilation, it runs
 `jarsigner` verification and refuses to retain or upload a missing/unsigned AAB.
 
 Signing reads from `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` supplied by Secret Manager / GitHub secrets.
@@ -63,11 +67,14 @@ Every run must prove all of the following before a live upload:
 
 1. The workflow was manually dispatched from `main` by an authorized production actor.
 2. The selected full SHA is on `main` and has a successful `Main Post-Merge Smoke Gate`.
-3. The serving production backend revision was deployed by `deploy-production` from that exact SHA.
-4. Production routing is HTTPS and is not UAT, localhost, or an emulator endpoint.
-5. Production and secret-custody Firebase project/app identities match; `google-services.json` contains `com.hussh.app`.
+3. The serving UAT backend revision was deployed by `deploy-uat` from that exact SHA
+   (`verify-cloudrun-revision-provenance.py --expected-env uat --expected-source deploy-uat`). If UAT is
+   not yet serving the SHA, the run stops: deploy that SHA to UAT first. This workflow never deploys.
+4. UAT routing is HTTPS and resolves to the UAT backend host; any production, localhost, or emulator
+   URL is refused before the web build starts.
+5. The native `google-services.json` project matches the web Firebase identity and contains `com.hussh.app`.
 6. Play is reachable with the existing release service account and supplies the authoritative version floor.
-7. The generated production runtime contract, Capacitor plugin routes, release signing, and AAB signature all verify.
+7. The generated UAT runtime contract, Capacitor plugin routes, release signing, and AAB signature all verify.
 
 Play Console policy declarations, production availability, store listing, Data safety answers, and
 any Console-side blocking warnings remain human-owned preconditions. A green dry run does not prove
@@ -115,7 +122,7 @@ base64 -i service-account-key.json \
 
 ```bash
 npm run android:release:playstore -- --dry-run  # query Play + build/sign/verify; no upload
-npm run android:release:playstore                # live production upload
+npm run android:release:playstore                # live upload to the Play production track
 ```
 
 The dispatcher refreshes `origin/main`, shows the exact SHA/environment/package/track, and requires
@@ -126,7 +133,7 @@ flag. It watches and verifies the exact run ID returned by GitHub.
 
 1. Open repository on GitHub $\rightarrow$ **Actions** $\rightarrow$ **Ship Android to Google Play Store**.
 2. First run with **dry_run** enabled and inspect every gate.
-3. For a live release, re-run the exact green SHA with **dry_run** disabled. The target is always production.
+3. For a live release, re-run the exact green SHA with **dry_run** disabled. The upload target is always the Play production track; the runtime is always UAT.
 
 ## Contacts: the Data safety declaration, and the April 2026 policy
 

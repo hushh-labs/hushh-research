@@ -509,3 +509,28 @@ async def test_prepared_null_draft_mount_is_not_send_review(reviewed_mail):
     )
     assert _events(live)[-1]["status"] == "needs_input"
     delivery.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generic_voice_cancel_emits_mail_draft_outcome(reviewed_mail):
+    session, transport, _live, _pending, delivery, created, _ = reviewed_mail
+    await _ack_review(reviewed_mail)
+
+    await session._dispatch_tool_call_inner(
+        name="edit_mail_draft",
+        call_id="cancel-voice",
+        args={
+            "draft_ref": created.result.draft_ref,
+            "revision": created.result.revision,
+            "cancel": True,
+        },
+        origin_turn_id=session.turn.turn_id,
+    )
+
+    outcome_frame = transport.frames("client_step.request")[-1]
+    outcome = outcome_frame["payload"]
+    assert outcome_frame["kind"] == "mail_draft_outcome"
+    assert outcome["status"] == "cancelled"
+    assert outcome["draft_ref"] == created.result.draft_ref
+    assert outcome["action_id"] is None
+    delivery.execute.assert_not_awaited()
