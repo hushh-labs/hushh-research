@@ -39,6 +39,10 @@ type LoadState = "loading" | "ready" | "error";
 
 type DashboardData = {
   summary: ReferralSummary;
+  /** Live sum of the points ledger -- independent of the published
+   * leaderboard snapshot, so it is correct before a snapshot exists or
+   * while the viewer sits outside the latest one. */
+  points: number;
   leaderboard: LeaderboardPage;
   circleLeaderboard: CircleLeaderboardEntry[];
   milestones: MilestoneProgress;
@@ -107,9 +111,10 @@ export function ReferralDashboardPage() {
     try {
       if (!user) throw new Error("not signed in");
       const idToken = await user.getIdToken();
-      const [summary, leaderboard, circleLeaderboard, milestones, engagement, challenge, circle] =
+      const [summary, points, leaderboard, circleLeaderboard, milestones, engagement, challenge, circle] =
         await Promise.all([
           ReferralService.getSummary({ idToken }),
+          ReferralService.getPoints({ idToken }).then((r) => r.points),
           ReferralService.getLeaderboard({ idToken, limit: 10 }),
           ReferralService.getCircleLeaderboard({ idToken }).then((r) => r.teams),
           ReferralService.getMilestones({ idToken }),
@@ -117,8 +122,12 @@ export function ReferralDashboardPage() {
           ReferralService.getChallenge({ idToken }),
           ReferralService.getCircleSelection({ idToken }),
         ]);
+      // A loading or error state is handled by `state`, never by a numeric
+      // fallback here -- `points` either carries the real ledger sum from a
+      // successful read, or the whole load() call rejects into the catch
+      // block below and the page renders its error state instead.
       if (!mounted.current || seq !== requestSeq.current) return;
-      setData({ summary, leaderboard, circleLeaderboard, milestones, engagement, challenge, circle });
+      setData({ summary, points, leaderboard, circleLeaderboard, milestones, engagement, challenge, circle });
       setState("ready");
     } catch {
       if (!mounted.current || seq !== requestSeq.current) return;
@@ -329,7 +338,7 @@ function YouTab({
   onCopy: () => void;
   onShare: () => void;
 }) {
-  const { summary, leaderboard, circleLeaderboard, circle, engagement, challenge } = data;
+  const { summary, points, leaderboard, circleLeaderboard, circle, engagement, challenge } = data;
   const viewer = leaderboard.viewer ?? leaderboard.entries.find((e) => e.is_viewer) ?? null;
   // `get_team_rankings` returns rows already ordered by contribution_count
   // DESC; rank is the 1-based position in that order, not a server field.
@@ -394,7 +403,7 @@ function YouTab({
       </Card>
 
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Your points" value={viewer ? fmt(viewer.points) : "—"} sub={viewer ? "Recorded total" : "Not yet ranked"} />
+        <StatTile label="Your points" value={fmt(points)} sub="Recorded total" />
         <StatTile
           label="Published rank"
           value={viewer ? `#${viewer.rank}` : "—"}

@@ -41,6 +41,7 @@ from hushh_mcp.services.one_referral_program_settings_service import (
     ProgramSettingsUnavailable,
     get_active_program_settings,
 )
+from hushh_mcp.services.one_referral_scoring_service import get_cumulative_score
 from hushh_mcp.services.one_referral_service import (
     ReferralProgramDisabled,
     ReferralServiceError,
@@ -187,6 +188,20 @@ async def set_referral_display_handle(
         logger.exception("[referrals] set_handle_failed")
         raise HTTPException(status_code=500, detail={"code": "REFERRAL_HANDLE_FAILED"})
     return {"handle": handle}
+
+
+@router.get("/points")
+async def referral_cumulative_points(firebase_uid: str = Depends(require_firebase_auth)):
+    """This person's own recorded point total, summed live from the ledger.
+
+    Deliberately independent of the published leaderboard snapshot: a
+    referrer whose points just posted, or who has never appeared in a
+    snapshot at all (not yet ranked, or no snapshot has published since they
+    joined), still sees their real balance here. `user_id` comes only from
+    the verified token, never a request parameter -- this can only ever
+    answer for the caller's own account.
+    """
+    return {"points": get_cumulative_score(firebase_uid)}
 
 
 @router.get("/leaderboard")

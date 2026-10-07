@@ -153,6 +153,19 @@ export const ReferralService = {
     });
   },
 
+  /** This person's own recorded point total, summed live from the ledger --
+   * independent of the published leaderboard snapshot. Correct for an
+   * unranked account or one whose points posted after the latest snapshot. */
+  async getPoints(opts: { idToken: string }): Promise<{ points: number }> {
+    return apiJson<{ points: number }>("/api/one/referrals/points", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.idToken}`,
+      },
+    });
+  },
+
   /** One page of the published cumulative leaderboard. The caller's own row
    * is included even when it falls outside this page. */
   async getLeaderboard(opts: {
