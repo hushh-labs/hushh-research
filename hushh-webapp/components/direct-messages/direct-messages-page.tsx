@@ -221,6 +221,10 @@ export function DirectMessagesPage() {
     actionToastIds.current.clear();
   }, []);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingReplyFocus = useRef<{
+    messageId: string;
+    generation: number;
+  } | null>(null);
 
   const hasRouteSelection = Boolean(requestedPersonRef || requestedConversationId);
   const selectedRouteKey = requestedPersonRef
@@ -246,6 +250,7 @@ export function DirectMessagesPage() {
     setOpenMessageMenu(null);
     setActiveMessageActions(null);
     setReplyingTo(null);
+    pendingReplyFocus.current = null;
     setEditingMessage(null);
     setEditingContent("");
     setDeleteRequest(null);
@@ -664,10 +669,12 @@ export function DirectMessagesPage() {
     setOpenMessageMenu(null);
     setActiveMessageActions(message.id);
     setReplyingTo(message);
-    const generation = operationGeneration.current;
-    requestAnimationFrame(() => {
-      if (generation === operationGeneration.current) composerRef.current?.focus();
-    });
+    // Transfer focus when Radix finishes closing, rather than racing its
+    // trigger restoration with an animation frame.
+    pendingReplyFocus.current = {
+      messageId: message.id,
+      generation: operationGeneration.current,
+    };
   };
 
   const startEditing = (message: DirectMessage) => {
@@ -1022,6 +1029,15 @@ export function DirectMessagesPage() {
                                     side="top"
                                     align={message.senderIsViewer ? "end" : "start"}
                                     collisionPadding={12}
+                                    onCloseAutoFocus={(event) => {
+                                      const intent = pendingReplyFocus.current;
+                                      if (intent?.messageId !== message.id) return;
+                                      pendingReplyFocus.current = null;
+                                      event.preventDefault();
+                                      if (intent.generation === operationGeneration.current) {
+                                        composerRef.current?.focus();
+                                      }
+                                    }}
                                     className={styles.messageMenu}
                                   >
                                     {!message.deletedForEveryoneAt ? (

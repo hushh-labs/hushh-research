@@ -431,11 +431,31 @@ describe("DirectMessagesPage", () => {
     const view = renderConnectionThread();
     await screen.findByText(message.content);
     fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
-    expect(screen.getByText("Replying to yourself")).toBeVisible();
+    const frames: FrameRequestCallback[] = [];
+    const scheduleFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    try {
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
+      expect(screen.getByText("Replying to yourself")).toBeVisible();
+      // Force the reported ordering: the reply frame runs before Radix's
+      // deferred close focus. Focus must remain in the composer afterward.
+      await act(async () => {
+        for (const callback of frames.splice(0)) callback(performance.now());
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveFocus());
+    } finally {
+      scheduleFrame.mockRestore();
+    }
+    const options = screen.getByRole("button", { name: "Message options" });
+    fireEvent.keyDown(options, { key: "Enter" });
+    fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveFocus());
-    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    await waitFor(() => expect(options).toHaveFocus());
+    fireEvent.keyDown(options, { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete for me" }));
     expect(await screen.findByRole("alertdialog")).toBeVisible();
     if (change === "owner") mocks.user = { ...mocks.user, uid: "viewer-2" };

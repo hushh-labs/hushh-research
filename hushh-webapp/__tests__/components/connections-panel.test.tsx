@@ -7,6 +7,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
 const state = vi.hoisted(() => ({
   uid: "owner-a",
   token: "vault-a",
@@ -137,6 +139,10 @@ describe("Connectors owner and mutation fences", () => {
     state.uid = "owner-a";
     state.token = "vault-a";
     state.native = false;
+    vi.spyOn(AuthService, "getCurrentUser").mockImplementation(
+      () => ({ uid: state.uid, getIdToken: async () => "firebase" }) as ReturnType<typeof AuthService.getCurrentUser>,
+    );
+    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "shared" });
     state.overview.mockResolvedValue(overview());
     state.documents.mockResolvedValue([]);
     state.remove.mockResolvedValue(undefined);
@@ -282,12 +288,15 @@ describe("Connectors owner and mutation fences", () => {
     );
     const p = props();
     const view = render(<ConnectorsPanel {...p} />);
+    // Placement must admit owner A before its pending result can be retired.
+    await waitFor(() => expect(state.overview).toHaveBeenCalledExactlyOnceWith("vault-a"));
     state.uid = "owner-b";
     state.token = "vault-b";
     state.overview.mockResolvedValue(overview("new-owner@example.invalid"));
     view.rerender(<ConnectorsPanel {...p} />);
     await openDriveDetail();
     await screen.findByText(/new-owner@example\.invalid/);
+    expect(state.overview).toHaveBeenNthCalledWith(2, "vault-b");
     await act(async () => {
       stale(overview("old-owner@example.invalid"));
     });

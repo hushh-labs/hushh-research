@@ -14135,7 +14135,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 1229
+      "value": 1245
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16934,7 +16934,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/boot-surface.layout.spec.ts",
       "symbol": null,
-      "value": 710
+      "value": 714
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17582,7 +17582,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/connections-panel.test.tsx",
       "symbol": null,
-      "value": 645
+      "value": 654
     },
     {
       "detail": "module exceeds the advisory operon budget",

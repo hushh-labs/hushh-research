@@ -10,7 +10,9 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 **Hold the new dev release until exact-SHA hosted CI passes. Isolated migration
 recovery passed; keep Computer Use unavailable on both clouds.** The interrupted
-BYOC handoff has been integrated; failed hosted checks are being corrected.
+BYOC handoff has been integrated. Hosted validation found two recovery UX
+regressions and two asynchronous fixture defects; the narrow corrections pass
+their nearest checks and require another exact-SHA hosted run.
 Local implementation and focused checks do not establish deployed acceptance.
 Existing owners, selected hosting, trusted devices and encrypted information are
 preserved. No application merge to main, UAT/production deployment, stable
@@ -20,7 +22,7 @@ publication or owner-pod installation occurred in this continuation.
 
 | Surface | Dated evidence | Boundary |
 | --- | --- | --- |
-| Working source | Integrated candidate `03e7bb9e35d7`; replay preservation repair `590fdbb893c6`. | Main `be8d4e014b34` and frozen local ADK `eb76e00af60a` are included. Browser/native corrections require the next exact-SHA hosted run. Concurrent commerce/PDF work and unrelated repositories remain preserved. |
+| Working source | Integrated candidate `292775974f99`; replay preservation repair `590fdbb893c6`; subsequent bounded UI corrections. | Main `be8d4e014b34` and frozen local ADK `eb76e00af60a` are included. The grouped correction candidate passed local core in 495 seconds. Hosted validation of `292775974f99` failed at the UI boundaries below; its fixes require exact-SHA hosted success. Concurrent commerce/PDF/native work and unrelated repositories remain preserved. |
 | Dev backend | Readback at 2026-10-07 00:22 UTC: `consent-protocol-00143-mbc`, source `9a3d5f043469`, digest `sha256:9b868c12cf7776ab62ec0c5f759fd993fa675eddd7dbedfe8441d095dd8ad655`, 100% traffic. | Serving baseline predates this continuation. |
 | Dev frontend | Same readback: `hushh-webapp-00121-d9g`, source `9a3d5f043469`, digest `sha256:8174fc29ce435ff08b497a456079efad32318a05c6cebd61a0d5d352ed1e7e2b`, 100% traffic. | Native connector configuration and new browser UI are not inferred from this image. |
 | Owner pods | No owner service/image changed in this continuation. | Hub deployment, pod publication and exact owner-approved installation are separate receipts. |
@@ -32,6 +34,9 @@ passed. These receipts do not validate the newly integrated candidate. Previous 
 revisions are recorded as metadata rollback candidates; their compatibility has
 not been rehearsed in this continuation. [Candidate validation](https://github.com/hushh-labs/hushh-research/actions/runs/37561159718)
 failed; its receipt remains failure evidence, not release authorization.
+[Validation of `292775974f99`](https://github.com/hushh-labs/hushh-research/actions/runs/37567472152)
+also failed. Both native lanes, protocol, build, integration and MCP passed;
+the aggregate correctly refused release on the remaining UI failures.
 
 ## Files-led acceptance
 
@@ -88,6 +93,21 @@ All 181 Mermaid figures rendered after the affected documentation corrections.
 Web-core, secret, governance and MCP package lanes passed
 locally. Integration passes 380 checks. These checks do not replace hosted CI.
 
+The final local core mirror passed in 495 seconds: 16,036 parallel protocol
+checks, 572 isolated PostgreSQL checks, web build/type/lint, governance, secrets,
+MCP and integration. The owned loopback database was removed afterward;
+the existing local PostgreSQL service was untouched.
+
+Hosted `292775974f99` exposed a real Reply focus race with Radix and divergent
+blocked-popup recovery copy. The reply now transfers focus at menu closure
+through a one-shot generation-bound intent; connections reuse the existing
+canonical recovery notice. The nearest 13 message, 15 connector and 24 adapter
+checks pass; old-source or broken-fence controls fail. The connector fixture now
+waits for the old owner's actual request before switching owner. Tablet recovery
+polls the unchanged containment geometry after native scrolling: both engines
+pass, while permanently hidden controls still fail. Linux WebKit confirmation
+remains with hosted CI; no production CSS defect is inferred from the Mac run.
+
 Hosted failure review found an actual Location cancellation/lock race across a
 placement await; the existing generation fence now runs before dispatch. The
 nearest 17 checks pass and both old-source controls fail. Scheduled-mail tests now
@@ -105,6 +125,12 @@ CI performance is measured by stage. The earlier PR browser lane spent about
 deduplicated. The remaining roughly 12-second browser overlap does not justify
 new selector coordination in this release. No security, native, PKM, recovery or
 browser gate was removed. See the [dev timing review](../operations/dev-fast-lane.md#deployment-duration-and-independent-work).
+The next hosted iOS run took 29m30s versus 16m38s previously with the same
+native source, package versions and test counts. Resolution, compilation,
+web export and simulator startup all increased; no duplicate test execution
+was found. Network versus runner contention is unproven. This is a validation
+duration, separate from application deployment; it does not justify removing
+native gates or speculative cache changes.
 
 The restored dev backup passed two canonical migration runs and both schema
 guards at `590fdbb893c6`. Comparison preserved 230 retained tables, 53
@@ -124,7 +150,9 @@ evidence; no test or authority gate is waived.
 The [fitness baseline](./architecture-fitness-baseline.json) attributes incoming
 main, ADK and local debt separately. Hosted corrections add one reviewed module
 finding and update six existing module values for authority fixtures, relative
-fixture aliases and native splash measurement. Total retained findings are 2,209.
+fixture aliases and native splash measurement. The final UI corrections review
+three further existing module values; budgets, non-size findings and future-growth
+refusals remain unchanged. Total retained findings are 2,209.
 Budgets remain 500/250/80; future new or worsened findings still fail. Debt owners
 remain recorded. Size review does not qualify cloud execution or an image upgrade.
 

@@ -559,7 +559,9 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
         await page.mouse.wheel(0, 1000);
         await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
       }
-      const geometry = await page.evaluate(() => {
+      // Native wheel scrolling is asynchronous in WebKit. A positive scroll
+      // offset is not proof that both recovery actions are revealed yet.
+      const measureRecoveryGeometry = () => page.evaluate(() => {
         const scroll = document.querySelector<HTMLElement>("[data-vault-flow-content]")!;
         const dialog = document.querySelector<HTMLElement>("[data-vault-unlock-surface]")!;
         const box = scroll.getBoundingClientRect();
@@ -576,7 +578,9 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
           targets: footer.length === 2 && footer.every((button) => button.getBoundingClientRect().height >= 44),
         };
       });
-      expect(geometry).toEqual({ centered: true, horizontalOverflow: false, contained: true, targets: true });
+      await expect.poll(measureRecoveryGeometry, {
+        message: `Vault recovery ${width}x${height}, keyboard ${keyboard}`,
+      }).toEqual({ centered: true, horizontalOverflow: false, contained: true, targets: true });
       await recovery.click();
       await expect(content).toHaveAttribute("data-vault-flow-step", "recovery");
       await page.getByRole("button", { name: "Passphrase", exact: true }).click();

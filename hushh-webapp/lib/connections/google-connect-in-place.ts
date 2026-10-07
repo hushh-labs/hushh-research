@@ -3,6 +3,7 @@
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import { Capacitor } from "@capacitor/core";
+import { OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
 
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import { HushhAuth } from "@/lib/capacitor";
@@ -411,7 +412,7 @@ export function inPlaceConnectCopy(
     gmail_send: {
       unlock_required: 'Unlock your vault, then connect Gmail again.',
       cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',
-      window_blocked: "Allow popups to connect Gmail, then try again.",
+      window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
       phone_handoff: "Finish connecting Gmail on your phone, then return to review your message.",
       connected: "Gmail sending enabled. Review your message, then send.",
       not_connected: "Gmail sending was not enabled.",
@@ -420,7 +421,7 @@ export function inPlaceConnectCopy(
     gmail_modify: {
       unlock_required: 'Unlock your vault, then connect Gmail again.',
       cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',
-      window_blocked: "Allow popups to change Gmail permissions, then try again.",
+      window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
       phone_handoff: "Finish connecting Gmail on your phone, then ask your private agent again.",
       connected: "Gmail changes allowed. Ask One again to organize your mailbox.",
       not_connected: "Gmail changes were not allowed.",
@@ -429,7 +430,7 @@ export function inPlaceConnectCopy(
     calendar: {
       unlock_required: 'Unlock your vault, then connect Calendar again.',
       cleanup_unconfirmed: 'Calendar connected. The previous Google connection still needs verification.',
-      window_blocked: "Allow popups to connect Calendar, then try again.",
+      window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
       phone_handoff: "Finish connecting Calendar on your phone, then ask your private agent again.",
       connected: "Google Calendar connected. Ask One again to continue.",
       not_connected: "Google Calendar was not connected.",
