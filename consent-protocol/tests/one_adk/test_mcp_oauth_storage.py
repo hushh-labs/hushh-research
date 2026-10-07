@@ -1,6 +1,6 @@
 """Synthetic SDK-port proof only; no provider, browser or OAuth endpoint admission."""
 
-import time
+import asyncio
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -14,6 +14,46 @@ from hushh_mcp.one_adk.mcp_oauth_storage import (
     McpOAuthCallback,
     McpOAuthConnectError,
 )
+
+
+def _callback_deadline_controller(monkeypatch):
+    """Expire the real SDK timeout after redirect, independent of metadata latency."""
+    original_timeout = asyncio.timeout
+    contexts = []
+
+    def capture_timeout(delay):
+        context = original_timeout(delay)
+        contexts.append(context)
+        return context
+
+    monkeypatch.setattr("hushh_mcp.one_adk.mcp_oauth_storage.asyncio.timeout", capture_timeout)
+
+    def expire():
+        assert contexts, "the guarded OAuth flow must own its deadline"
+        contexts[0].reschedule(asyncio.get_running_loop().time())
+
+    return expire
+
+
+async def _assert_single_delivery(provider, storage, *, registered, visited):
+    token_ref, client_ref = storage._tokens, storage._client
+    assert provider.context.current_tokens is not None
+    assert provider.context.client_info is not None
+    result = await provider.take_result()
+    assert provider.context.current_tokens is None
+    assert provider.context.client_info is None
+    assert provider.context.oauth_metadata is None
+    assert result.tokens.access_token == "synthetic-access"
+    assert result.tokens.refresh_token == "synthetic-refresh"
+    assert result.client_info.client_id == "synthetic-client"
+    if registered:
+        assert "/register" not in visited
+    assert result.expires_at is not None
+    assert "synthetic" not in repr(result)
+    assert request_secrets.resolve_request_secret(token_ref) == ""
+    assert request_secrets.resolve_request_secret(client_ref) == ""
+    with pytest.raises(ValueError, match="expired or changed"):
+        await storage.take_result()
 
 
 @pytest.mark.asyncio
@@ -31,16 +71,21 @@ from hushh_mcp.one_adk.mcp_oauth_storage import (
     ],
 )
 async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
-    caplog, token_failure, registered
+    caplog, token_failure, registered, monkeypatch
 ):
     storage = EphemeralMcpOAuthStorage(is_current=lambda: True)
     handoff = McpOAuthCallback(owner_id="synthetic-owner", is_current=lambda: True)
     redirect = {}
     visited = []
+    expire_callback = (
+        _callback_deadline_controller(monkeypatch) if token_failure == "callback_timeout" else None
+    )
 
     async def navigate(url):
         redirect.update(parse_qs(urlsplit(url).query))
-        if token_failure != "callback_timeout":
+        if expire_callback is not None:
+            expire_callback()
+        else:
             handoff.submit(
                 owner_id="synthetic-owner",
                 code="synthetic-code",
@@ -146,8 +191,6 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
             issuer="https://auth.example",
         )
     provider.use_callback(handoff, navigate)
-    if token_failure == "callback_timeout":
-        storage._deadline = time.monotonic() + 0.02
     try:
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(respond), auth=provider
@@ -182,24 +225,7 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                     "https://connector.example/mcp", headers={"MCP-Protocol-Version": "2025-11-25"}
                 )
             ).status_code == 200
-        token_ref, client_ref = storage._tokens, storage._client
-        assert provider.context.current_tokens is not None
-        assert provider.context.client_info is not None
-        result = await provider.take_result()
-        assert provider.context.current_tokens is None
-        assert provider.context.client_info is None
-        assert provider.context.oauth_metadata is None
-        assert result.tokens.access_token == "synthetic-access"
-        assert result.tokens.refresh_token == "synthetic-refresh"
-        assert result.client_info.client_id == "synthetic-client"
-        if registered:
-            assert "/register" not in visited
-        assert result.expires_at is not None
-        assert "synthetic" not in repr(result)
-        assert request_secrets.resolve_request_secret(token_ref) == ""
-        assert request_secrets.resolve_request_secret(client_ref) == ""
-        with pytest.raises(ValueError, match="expired or changed"):
-            await storage.take_result()
+        await _assert_single_delivery(provider, storage, registered=registered, visited=visited)
     finally:
         provider.close()
 

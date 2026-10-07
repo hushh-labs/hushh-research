@@ -441,6 +441,10 @@ Practical maintainer rule:
 
 `bash scripts/ci/orchestrate.sh core` is the fast local pre-push run: secret and governance, then protocol and web-core in parallel (separate Python and Node runtimes), then mcp-package and integration, which need the protocol stage's Python environment. Measured on 2026-09-26 it took 374 s, against about 1,126 s for every stage run serially. The browser layout packs (`web-targeted`, 429 s) and the full Vitest suite (`web-full-suite`) are not in the core mirror; GitHub Actions runs them and stays the authority. Set `CORE_SERIAL=1` to run protocol and web-core one after the other. `web-targeted` runs every matched pack and lists every failure instead of stopping at the first, so one broken pack no longer hides the next.
 
+When the broad Chromium/WebKit layout pack is selected, it owns the agent
+surface spec; `web-targeted-check.sh` retains its standalone invocation for
+agent-only changes. The lane partition check proves both paths and both engines.
+
 Tests follow the same economy: add a test only for a real regression, a trust boundary (with a negative control), or a public API or schema contract, and extend existing test files before creating new ones (`AGENTS.md`, Verification rules 5 to 8).
 
 ### Script Lifecycle Policy
@@ -533,8 +537,10 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 **Parallel pytest (2026-09-26).** `consent-protocol/scripts/run-test-ci.sh` runs the manifest with
 `-n auto --dist loadfile`: one worker per CPU, and every test in a file stays on
 one worker in file order, so module-scoped fixtures behave as they do serially.
-The script is the switch; there is no environment flag. `protocol-check` in CI
-and the local `orchestrate.sh core` stage both reach it through
+Parallel execution is enabled by the script. On a loaded local host, the pinned
+xdist supports `PYTEST_XDIST_AUTO_NUM_WORKERS=<count>` to bound the auto worker
+count; this changes scheduling only, never test coverage or deadlines.
+`protocol-check` in CI and the local `orchestrate.sh core` stage both reach it through
 `consent-protocol/scripts/ci/backend-check.sh`. `tests/conftest.py` gives each
 xdist worker its own `OFFLINE_DB_PATH` file so workers never share SQLite rows;
 the Postgres-backed tests already create a uniquely named schema or database

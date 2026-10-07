@@ -12281,7 +12281,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_relay_protocol.py",
       "symbol": null,
-      "value": 4358
+      "value": 4359
     },
     {
       "detail": "module exceeds the advisory operon budget",

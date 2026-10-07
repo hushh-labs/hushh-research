@@ -382,6 +382,7 @@ async def test_eos_and_final_transcript_in_one_provider_message_are_correlated(c
     assert events[0].same_message_input_transcript is True
     transport, fake = FakeTransport(), FakeLive([])
     session = _session(transport, fake)
+    session.clock = lambda: 100.0
     await session._open_conversation(
         AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
     )

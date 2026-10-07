@@ -182,9 +182,9 @@ took one second; the requested new pod image took about 173 seconds. This is
 distinct pod publication work, not a second backend image build.
 
 Required full-suite jobs already own duplicate targeted unit/static checks.
-One remaining standalone agent-browser pack overlaps the broad two-engine pack
-and cost 15.6 seconds. Consolidate it only when the exact broader pack is already
-required; retain narrow-change coverage. No broad gate cut, cache/worker change
+The standalone agent-browser pack overlapped the broad two-engine pack and
+cost 15.6 seconds. The selector now delegates it to the broad pack only when
+that pack is selected; agent-only changes retain their standalone coverage. No broad gate cut, cache/worker change
 or same-image rebuild is justified by this sample. Candidate health and
 post-promotion provenance observe different states, as do pre/post migration
 checks. Keep these authorities and measure actual completed work rather than

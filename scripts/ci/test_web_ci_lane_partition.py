@@ -106,7 +106,8 @@ def _reaches_playwright(script: str, scripts: dict[str, str], seen: set[str]) ->
     if re.search(r"\bplaywright\b", body):
         return True
     return any(
-        _reaches_playwright(ref, scripts, seen) for ref in re.findall(r"npm run ([\w:.-]+)", body)
+        _reaches_playwright(ref, scripts, seen)
+        for ref in re.findall(r"npm run ([\w:.-]+)", body)
     )
 
 
@@ -117,12 +118,16 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         code, calls, output = _run(
             TARGETED, {"WEB_TARGETED_PART": part, "WEB_TARGETED_CHANGED_FILES": changed}
         )
-        assert code == 0, f"web-targeted-check.sh ({part}) exited {code}:\n{output[-2000:]}"
+        assert code == 0, (
+            f"web-targeted-check.sh ({part}) exited {code}:\n{output[-2000:]}"
+        )
         runs[part] = calls
 
     all_calls, node, browser = runs["all"], runs["node"], runs["browser"]
     assert node and browser, "the fixture must schedule packs in both legs"
-    assert not set(node) & set(browser), f"packs ran in both legs: {set(node) & set(browser)}"
+    assert not set(node) & set(browser), (
+        f"packs ran in both legs: {set(node) & set(browser)}"
+    )
     assert sorted(node + browser) == sorted(all_calls), (
         "the node and browser legs together must run exactly what `all` runs"
     )
@@ -130,10 +135,42 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     for call in browser:
         name = call.split()[1]
-        assert _reaches_playwright(name, scripts, set()), f"{name} ran in the browser leg"
+        assert _reaches_playwright(name, scripts, set()), (
+            f"{name} ran in the browser leg"
+        )
     for call in node:
         name = call.split()[1]
         assert not _reaches_playwright(name, scripts, set()), f"{name} needs a browser"
+
+
+def test_agent_surface_layout_runs_once_without_losing_the_focused_gate() -> None:
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    spec = "e2e/agent-surface-model-authority.layout.spec.ts"
+    broad_commands = [
+        command
+        for command in scripts["test:layout-contracts"].split("&&")
+        if "playwright test" in command
+    ]
+    for project in ("chromium", "webkit"):
+        commands = [
+            command for command in broad_commands if f"--project={project}" in command
+        ]
+        assert len(commands) == 1 and spec in commands[0], (
+            f"the broader layout pack must retain the agent spec on {project}"
+        )
+
+    agent_only = "hushh-webapp/components/agent/agent-chat-workspace.tsx"
+    for changed, broad_required in (
+        (agent_only, False),
+        (agent_only + "\n" + "hushh-webapp/" + spec, True),
+    ):
+        code, calls, output = _run(
+            TARGETED,
+            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
+        )
+        assert code == 0, output[-2000:]
+        assert calls.count("run test:layout-contracts") == int(broad_required)
+        assert calls.count("run test:agent-surface-layout") == int(not broad_required)
 
 
 def test_targeted_rejects_an_unknown_part() -> None:
@@ -143,7 +180,8 @@ def test_targeted_rejects_an_unknown_part() -> None:
 
 def test_node_leg_leaves_diagram_rendering_to_browser_leg() -> None:
     code, calls, output = _run(
-        TARGETED, {"WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": "docs/README.md"}
+        TARGETED,
+        {"WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": "docs/README.md"},
     )
     assert code == 0, output[-2000:]
     assert not calls and "Rendered " not in output
@@ -162,7 +200,9 @@ def test_full_suite_shards_run_verifiers_once() -> None:
         assert calls[-1] == f"run test:ci -- --shard={index}/3 --maxWorkers=2", calls
         shard_calls.append(calls[:-1])
     assert shard_calls[0] == verifiers, "shard 1 must run every contract verifier"
-    assert shard_calls[1] == [] and shard_calls[2] == [], "only shard 1 runs the verifiers"
+    assert shard_calls[1] == [] and shard_calls[2] == [], (
+        "only shard 1 runs the verifiers"
+    )
 
     for bad in ("0/3", "4/3", "1/0", "a/b", "1", "1/3/3"):
         code, calls, _ = _run(FULL_SUITE, {"WEB_FULL_SUITE_SHARD": bad})
@@ -180,7 +220,9 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
     assert "fail-fast: false" in targeted
 
-    editor_perf = _job_block(workflow, "web-editor-performance-check", "web-full-suite-check")
+    editor_perf = _job_block(
+        workflow, "web-editor-performance-check", "web-full-suite-check"
+    )
     assert "runs-on: macos-15" in editor_perf
     assert "npm run test:layout-editor-performance" in editor_perf
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
@@ -193,19 +235,25 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     count = len(indexes)
     assert indexes == list(range(1, count + 1)), f"shards must be 1..N, got {indexes}"
     assert f"WEB_FULL_SUITE_SHARD: ${{{{ matrix.shard }}}}/{count}" in full
-    assert f"${{{{ matrix.shard }}}}/{count}\"" in full, "the job name must show the shard count"
+    assert f'${{{{ matrix.shard }}}}/{count}"' in full, (
+        "the job name must show the shard count"
+    )
     assert "fail-fast: false" in full
 
     gate = workflow[workflow.index('name: "CI Status Gate"') :]
     assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
     assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
-    assert "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\"" in gate
+    assert (
+        "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\""
+        in gate
+    )
     assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
 
 
 def main() -> int:
     tests = (
         test_targeted_legs_partition_the_matched_packs,
+        test_agent_surface_layout_runs_once_without_losing_the_focused_gate,
         test_targeted_rejects_an_unknown_part,
         test_node_leg_leaves_diagram_rendering_to_browser_leg,
         test_full_suite_shards_run_verifiers_once,

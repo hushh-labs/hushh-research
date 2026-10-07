@@ -72,11 +72,17 @@ resources, selected hosting, trusted identities and concurrent work are preserve
 - The narrow correction passes **63** nearest environment/build cases and **15**
   native authorization cases. Old-template and both old Android gate controls
   fail. Strict unknown-key refusal remains; no configured secret was removed.
+- The correction's first complete core attempt recorded 20 failures: two clock
+  fixtures and existing execution deadlines. The two fixture corrections preserve
+  correlation, secret cleanup and refusal assertions. A two-worker focused run
+  passed 196 checks; four unchanged elapsed/CLI limits still require isolated
+  recheck and exact-SHA hosted proof. No deadline or security gate was widened.
 - All **181 Mermaid figures** rendered. The reviewed fitness baseline retains
   2,209 findings and budgets 500/250/80; future new or worsened debt still fails.
-  One existing test-module value is reviewed from 572 to 634 lines for the runtime
-  regression proof; its new helper/test remain 23/34 lines. No mass splitting or
-  structural test exemption was introduced.
+  The environment-test module is reviewed from 572 to 634 lines for the runtime
+  regression proof; its new helper/test remain 23/34 lines. The existing voice
+  fixture adds one injected clock line (4,358 to 4,359); all timing/privacy
+  assertions remain. No mass splitting or structural exemption was introduced.
 
 ### CI and deployment performance
 
@@ -87,10 +93,10 @@ backend/frontend/Drive worker took **21m55s / 29m34s**. Scope and queue delay ma
 Source validation is separate: `2d965641308d` took **22m20s** created-to-terminal,
 led by the browser lane. It is not the deployment duration.
 
-Full-suite jobs already own duplicate targeted unit/static checks. One remaining
-34-case agent browser invocation overlaps the broad two-engine pack and cost
-15.6 seconds; conditional consolidation belongs to the existing CI owner, not a
-broad gate cut. Earlier long runs retried broken fixtures. The failed current
+Full-suite jobs already own duplicate targeted unit/static checks. The measured
+34-case agent browser overlap cost 15.6 seconds; its selector now consolidates
+only when the broad two-engine pack is selected. Six nearest selector checks
+and old-selector/missing-WebKit negative controls pass; narrow coverage remains. Earlier long runs retried broken fixtures. The failed current
 deployment took about **17m17s**. Its backend image reuse
 step took one second; the new pod image took about 173 seconds. No disconnected
 gate, same-image rebuild or runner/cache cause was proved by this sample. Keep native,

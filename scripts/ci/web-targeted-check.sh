@@ -102,6 +102,14 @@ run_full_suite_check() {
 
 ran=0
 
+# Resolve the existing broad layout pack once. It already includes the agent
+# surface spec in both required browser engines; do not invoke that spec twice.
+layout_contracts_required=0
+if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html|fixtures/one-location-contact-scroll\.tsx|fixtures/guest-preview\.tsx)|lib/(morphy-ux/hooks/use-page-enter|one-location/contact-picker-controls)\.ts|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/onboarding/(guest-preview|IntroStep)|components/app-ui/|components/one-location/|components/feed/|components/connect/|components/secrets/)'; then
+  layout_contracts_required=1
+fi
+
+
 # This lane already installs Chromium. Render every maintained Mermaid block
 # when documentation or its checker changes; structural lint alone misses parser errors.
 if has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
@@ -195,7 +203,11 @@ if has_match '^hushh-webapp/(components/agent/|lib/hermes/|lib/services/(puppy-o
   # toggle slides sideways under the thumb that pressed it, which is exactly
   # the shape the reported defect took. This spec needs no dev server: it
   # compiles its fixture from the shipped source and loads it over file://.
-  run_check "agent surface layout" npm run test:agent-surface-layout
+  if [ "$layout_contracts_required" -eq 1 ]; then
+    echo "Required layout contracts own: agent surface layout (Chromium + WebKit)"
+  else
+    run_check "agent surface layout" npm run test:agent-surface-layout
+  fi
   ran=1
 fi
 
@@ -407,7 +419,7 @@ fi
 # globals.css changes -- which is what those specs are pinned to. The browsers
 # are installed in the workflow step, not here, so a local run of this script
 # uses whatever is already on the machine.
-if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html|fixtures/one-location-contact-scroll\.tsx|fixtures/guest-preview\.tsx)|lib/(morphy-ux/hooks/use-page-enter|one-location/contact-picker-controls)\.ts|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/onboarding/(guest-preview|IntroStep)|components/app-ui/|components/one-location/|components/feed/|components/connect/|components/secrets/)'; then
+if [ "$layout_contracts_required" -eq 1 ]; then
   run_check "layout contracts" npm run test:layout-contracts
   ran=1
 fi
