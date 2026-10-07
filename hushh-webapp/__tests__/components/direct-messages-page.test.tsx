@@ -252,6 +252,40 @@ describe("DirectMessagesPage", () => {
     });
   });
 
+  it("acknowledges a conversation route even when history omits unread metadata", async () => {
+    mocks.query = "conversation=conversation-1";
+    mocks.listConversations
+      .mockResolvedValueOnce({
+        items: [{ ...mocks.conversation, unreadCount: 2 }],
+        unreadCount: 2,
+      })
+      .mockResolvedValue({
+        items: [{ ...mocks.conversation, unreadCount: 2 }],
+        unreadCount: 2,
+      });
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    expect(await screen.findByRole("heading", { name: "Ankit Kumar Singh" })).toBeVisible();
+    expect(screen.queryByLabelText("2 unread")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.markConversationRead).toHaveBeenCalledWith({
+        idToken: "test-token",
+        conversationId: "conversation-1",
+      }),
+    );
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(mocks.listConversations).toHaveBeenCalledTimes(2));
+    expect(screen.queryByLabelText("2 unread")).not.toBeInTheDocument();
+  });
+
   it("searches the open thread and keeps voice access in the header", async () => {
     mocks.getConversationMessages.mockResolvedValue({
       conversation: mocks.conversation,
@@ -288,6 +322,7 @@ describe("DirectMessagesPage", () => {
       target: { value: "budget" },
     });
     expect(screen.getByText("Budget review tomorrow")).toBeVisible();
+    expect(screen.getByText("1 match")).toBeVisible();
     expect(screen.queryByText("See you then")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Start voice call" }));

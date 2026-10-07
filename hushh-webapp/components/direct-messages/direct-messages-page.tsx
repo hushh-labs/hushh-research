@@ -140,7 +140,11 @@ function conversationPreview(conversation: DirectMessageConversation): string {
   if (!latest) return "Start a conversation";
   if (latest.deletedForEveryoneAt) return "Message deleted";
   const prefix = latest.senderIsViewer ? "You: " : "";
-  return `${prefix}${latest.content}`;
+  const preview = `${prefix}${latest.content}`.replace(/\s+/g, " ").trim();
+  const maxLength = 88;
+  return preview.length > maxLength
+    ? `${preview.slice(0, maxLength - 1).trimEnd()}…`
+    : preview;
 }
 
 function isNewMessageDay(
@@ -257,10 +261,20 @@ export function DirectMessagesPage() {
   const messageLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timestampRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageTouchStart = useRef<{ x: number; y: number } | null>(null);
+  const acknowledgedReadConversations = useRef(new Set<string>());
   const [showMessageTimes, setShowMessageTimes] = useState(false);
   const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const activeConversationId = thread.conversation?.id ?? null;
+
+  useEffect(() => {
+    const currentConversationId = activeConversationId || requestedConversationId;
+    for (const conversationId of acknowledgedReadConversations.current) {
+      if (conversationId !== currentConversationId) {
+        acknowledgedReadConversations.current.delete(conversationId);
+      }
+    }
+  }, [activeConversationId, requestedConversationId]);
 
   useEffect(() => {
     return () => {
@@ -305,7 +319,13 @@ export function DirectMessagesPage() {
         const idToken = await user.getIdToken();
         const inbox = await DirectMessagesService.listConversations({ idToken });
         if (generation !== inboxLoadGeneration.current) return;
-        setInboxItems(inbox.items);
+        setInboxItems(
+          inbox.items.map((conversation) =>
+            acknowledgedReadConversations.current.has(conversation.id)
+              ? { ...conversation, unreadCount: 0 }
+              : conversation,
+          ),
+        );
       } catch {
         if (generation !== inboxLoadGeneration.current) return;
         if (!options?.preserveItems) {
@@ -316,6 +336,38 @@ export function DirectMessagesPage() {
       }
     },
     [user],
+  );
+
+  const acknowledgeConversationRead = useCallback(
+    (idToken: string, conversationId: string) => {
+      const alreadyAcknowledged = acknowledgedReadConversations.current.has(conversationId);
+      acknowledgedReadConversations.current.add(conversationId);
+      setInboxItems((current) =>
+        current.map((conversation) =>
+          conversation.id === conversationId
+            ? { ...conversation, unreadCount: 0 }
+            : conversation,
+        ),
+      );
+      if (alreadyAcknowledged) return;
+      void DirectMessagesService.markConversationRead({
+        idToken,
+        conversationId,
+      })
+        .then((result) => {
+          if (result.readCount < 1) return;
+          dispatchDirectMessagesUpdated({
+            userId: user?.uid || "",
+            conversationId,
+            messageId: null,
+            source: "read",
+          });
+        })
+        .catch(() => {
+          acknowledgedReadConversations.current.delete(conversationId);
+        });
+    },
+    [user?.uid],
   );
 
   const openOneVoiceChat = useCallback(() => {
@@ -382,33 +434,7 @@ export function DirectMessagesPage() {
             }),
           );
           setMessages(sortMessages(history.items));
-          if (history.conversation.unreadCount > 0) {
-            setInboxItems((current) =>
-              current.map((conversation) =>
-                conversation.id === history.conversation.id
-                  ? { ...conversation, unreadCount: 0 }
-                  : conversation,
-              ),
-            );
-            void DirectMessagesService.markConversationRead({
-              idToken,
-              conversationId: history.conversation.id,
-            }).then(() => {
-              setInboxItems((current) =>
-                current.map((conversation) =>
-                  conversation.id === history.conversation.id
-                    ? { ...conversation, unreadCount: 0 }
-                    : conversation,
-                ),
-              );
-              dispatchDirectMessagesUpdated({
-                userId: user.uid,
-                conversationId: history.conversation.id,
-                messageId: null,
-                source: "read",
-              });
-            });
-          }
+          acknowledgeConversationRead(idToken, history.conversation.id);
           return;
         }
 
@@ -432,33 +458,7 @@ export function DirectMessagesPage() {
           }),
         );
         setMessages(sortMessages(history.items));
-        if (history.conversation.unreadCount > 0) {
-          setInboxItems((current) =>
-            current.map((conversation) =>
-              conversation.id === history.conversation.id
-                ? { ...conversation, unreadCount: 0 }
-                : conversation,
-            ),
-          );
-          void DirectMessagesService.markConversationRead({
-            idToken,
-            conversationId: history.conversation.id,
-          }).then(() => {
-            setInboxItems((current) =>
-              current.map((conversation) =>
-                conversation.id === history.conversation.id
-                  ? { ...conversation, unreadCount: 0 }
-                  : conversation,
-              ),
-            );
-            dispatchDirectMessagesUpdated({
-              userId: user.uid,
-              conversationId: history.conversation.id,
-              messageId: null,
-              source: "read",
-            });
-          });
-        }
+        acknowledgeConversationRead(idToken, history.conversation.id);
       } catch (error) {
         if (generation !== loadGeneration.current) return;
         // A short-lived refresh failure must not replace an already readable
@@ -487,7 +487,7 @@ export function DirectMessagesPage() {
         if (generation === loadGeneration.current) setLoadingThread(false);
       }
     },
-    [requestedConversationId, requestedPersonRef, user],
+    [acknowledgeConversationRead, requestedConversationId, requestedPersonRef, user],
   );
 
   useEffect(() => {
@@ -624,6 +624,9 @@ export function DirectMessagesPage() {
           .includes(normalizedMessageSearch),
       )
     : messages;
+  const messageSearchSummary = normalizedMessageSearch
+    ? `${visibleMessages.length} ${visibleMessages.length === 1 ? "match" : "matches"}`
+    : "";
   const normalizedInboxSearch = inboxSearch.trim().toLocaleLowerCase();
   const visibleConversations = normalizedInboxSearch
     ? inboxItems.filter((conversation) =>
@@ -1053,7 +1056,18 @@ export function DirectMessagesPage() {
                           onChange={(event) => setMessageSearchQuery(event.target.value)}
                           placeholder="Search messages"
                           aria-label="Search messages"
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              setMessageSearchOpen(false);
+                              setMessageSearchQuery("");
+                            }
+                          }}
                         />
+                        {messageSearchSummary ? (
+                          <output className={styles.threadSearchCount} aria-live="polite">
+                            {messageSearchSummary}
+                          </output>
+                        ) : null}
                         <button
                           type="button"
                           className={styles.threadSearchClear}
@@ -1287,7 +1301,7 @@ export function DirectMessagesPage() {
                                   </div>
                                 ) : null}
                               </OneChatBubble>
-                              <div className={styles.messageActions}>
+                              <div className={styles.messageActions} aria-label="Message actions">
                                 {!message.deletedForEveryoneAt ? (
                                   <DirectMessageEmojiPicker
                                     label="Choose a reaction"
