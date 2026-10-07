@@ -1716,6 +1716,40 @@ final class AppUITests: XCTestCase {
                 select("Active"); select("History"); select("Connections"); select("Requests")
             default:
                 openAgent("Wallet")
+                let introduction = web.buttons["Continue"].firstMatch
+                let admission = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    (tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable) ||
+                    (introduction.exists && introduction.isEnabled && introduction.isHittable)
+                }, object: web)
+                guard XCTWaiter.wait(for: [admission], timeout: 15) == .completed else {
+                    XCTFail("WORKSPACE_WALLET_ADMISSION_UNOBSERVED"); return
+                }
+                if !tab("Cards").exists {
+                    // Cosmetic owner-local introduction only; no card or grant operation.
+                    introduction.tap()
+                }
+                let cardsReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable
+                }, object: web)
+                guard XCTWaiter.wait(for: [cardsReady], timeout: 15) == .completed else {
+                    XCTFail("WORKSPACE_WALLET_NOT_READY"); return
+                }
+                guard tab("Cards").isSelected else {
+                    // Do not erase or route around an owner's staged add/reveal handoff.
+                    XCTFail("WORKSPACE_WALLET_UNEXPECTED_HANDOFF"); return
+                }
+                select("Cards"); select("Add")
+                let addHeading = web.staticTexts["Add your card"].firstMatch
+                XCTAssertTrue(addHeading.waitForExistence(timeout: 10) && addHeading.isHittable,
+                              "WORKSPACE_WALLET_ADD_BODY_UNOBSERVED")
+                select("Sharing")
+                let sharingHeading = web.staticTexts.matching(NSPredicate(format:
+                    "label CONTAINS %@ AND label CONTAINS %@", "Your cards.", "Your control.")).firstMatch
+                XCTAssertTrue(sharingHeading.waitForExistence(timeout: 10) && sharingHeading.isHittable,
+                              "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED")
+                select("Cards")
+                XCTAssertFalse(addHeading.exists && addHeading.isHittable,
+                               "WORKSPACE_WALLET_INACTIVE_ADD_HITTABLE")
                 let back = app.buttons.matching(NSPredicate(format: "label == %@", "Go back")).firstMatch
                 XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable, "WORKSPACE_BACK_UNAVAILABLE")
                 back.tap()

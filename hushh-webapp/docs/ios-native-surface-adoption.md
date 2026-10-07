@@ -1091,3 +1091,12 @@ regressions both fail the prior code. All 54 native-control tests pass after the
 correction, preserving genuine changed/reverted updates, exact choice sequences,
 owner/overlay retirement and disabled/focus behavior. This identifies and fixes
 structural churn; visible glass continuity still requires current-device proof.
+
+The existing warm Wallet workspace case now requires enabled, hittable Cards
+admission (continuing the cosmetic introduction once when present), then visits
+Cards/Add/Sharing/Cards and asserts each public pane plus inactive Add isolation.
+It retains Back, draft and single-host assertions. It saves, deletes, reveals
+and grants nothing; an unexpected staged handoff fails instead of being cleared.
+Its physical result is pending at this source entry. The preceding product head
+`eaed6d945` passes canonical core in 201s; this harness change does not inherit
+an exact-head pass or claim successful sharing-information retrieval.
