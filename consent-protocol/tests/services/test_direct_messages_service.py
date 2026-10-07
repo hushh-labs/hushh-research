@@ -413,6 +413,27 @@ def test_edit_reencrypts_and_reaction_is_persisted_for_the_authenticated_partici
     }
 
 
+def test_reaction_adds_a_distinct_emoji_without_replacing_existing_reactions(monkeypatch):
+    service = _service()
+    action_row = _action_message()
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(service, "_message_action_row", lambda *_args: action_row)
+
+    def execute_one(sql, params=None):
+        calls.append((sql, params or {}))
+        return None
+
+    monkeypatch.setattr(service, "_execute_one", execute_one)
+
+    service.react_to_message("alice", _CONVERSATION_ID, _MESSAGE_ID, emoji="❤️")
+
+    reaction_sql, reaction_params = next(
+        (sql, params) for sql, params in calls if "INSERT INTO direct_message_reactions" in sql
+    )
+    assert "ON CONFLICT (message_id, user_id, emoji)" in reaction_sql
+    assert reaction_params["emoji"] == "❤️"
+
+
 def test_delete_for_me_uses_the_viewers_participant_visibility_field(monkeypatch):
     service = _service()
     calls: list[tuple[str, dict]] = []

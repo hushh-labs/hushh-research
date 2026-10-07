@@ -59,3 +59,26 @@ def test_direct_message_actions_preserve_encrypted_bodies_and_participant_bounda
         "rollback/282_direct_message_actions.rollback.sql"
     )
     assert "drop table if exists public.direct_message_reactions" in rollback.lower()
+
+
+def test_direct_message_reactions_support_multiple_distinct_emojis():
+    root = Path(__file__).resolve().parents[1]
+    migration_name = "284_direct_message_multiple_reactions.sql"
+    migration = (root / "db" / "migrations" / migration_name).read_text(encoding="utf-8")
+    rollback = (
+        root
+        / "db"
+        / "migrations"
+        / "rollback"
+        / "284_direct_message_multiple_reactions.rollback.sql"
+    ).read_text(encoding="utf-8")
+    manifest = json.loads((root / "db" / "release_migration_manifest.json").read_text())
+    normalized = migration.lower()
+
+    assert "drop constraint if exists direct_message_reactions_one_per_participant" in normalized
+    assert "direct_message_reactions_one_per_emoji" in normalized
+    assert migration_name in manifest["ordered_migrations"]
+    assert manifest["rollback_migrations"][migration_name] == (
+        "rollback/284_direct_message_multiple_reactions.rollback.sql"
+    )
+    assert "cannot rollback multiple direct-message reactions" in rollback.lower()

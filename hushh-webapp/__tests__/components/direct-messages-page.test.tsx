@@ -236,6 +236,10 @@ describe("DirectMessagesPage", () => {
     expect(
       screen.getByRole("tab", { name: "Animals and nature" }),
     ).toBeInTheDocument();
+    const emojiSearch = screen.getByPlaceholderText("Search emoji");
+    fireEvent.change(emojiSearch, { target: { value: "cat" } });
+    expect(screen.getByRole("button", { name: "Use 🐱" })).toBeVisible();
+    fireEvent.change(emojiSearch, { target: { value: "" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
     expect(composer).toHaveValue("😀");
 
@@ -304,6 +308,42 @@ describe("DirectMessagesPage", () => {
     expect(screen.getByLabelText("Read")).toHaveAttribute("title", "Read");
     expect(screen.getByLabelText("Sent")).toHaveAttribute("title", "Sent");
     expect(screen.getAllByRole("article")).toHaveLength(3);
+  });
+
+  it("reveals bubble timestamps only after a left swipe", async () => {
+    const message = {
+      id: "message-time",
+      conversationId: "conversation-1",
+      senderIsViewer: true,
+      content: "Swipe me",
+      createdAt: "2026-10-07T10:04:00.000Z",
+      readAt: null,
+      reactions: [],
+    };
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [message],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    const article = await screen.findByRole("article");
+    const timestamp = article.querySelector(
+      `time[datetime="${message.createdAt}"]`,
+    );
+    expect(timestamp).toBeInTheDocument();
+    const messageList = screen.getByTestId("direct-message-list");
+    expect(messageList).not.toHaveAttribute("data-show-message-times");
+    fireEvent.touchStart(article, {
+      changedTouches: [{ clientX: 220, clientY: 100 }],
+    });
+    fireEvent.touchEnd(article, {
+      changedTouches: [{ clientX: 140, clientY: 104 }],
+    });
+    expect(messageList).toHaveAttribute("data-show-message-times", "true");
   });
 
   it("exposes message reactions and replies after a bubble is tapped", async () => {

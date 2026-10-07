@@ -1398,14 +1398,16 @@ class DirectMessagesService:
                         "A deleted message cannot be reacted to.",
                         status_code=409,
                     )
+                # PUT is intentionally idempotent: a retry after a lost
+                # response must not remove a reaction that was already saved.
+                # The widened key lets the same participant add other emojis.
                 self._execute_one(
                     """
                     INSERT INTO direct_message_reactions (
                       message_id, user_id, emoji, created_at, updated_at
                     )
                     VALUES (CAST(:message_id AS UUID), :viewer_user_id, :emoji, NOW(), NOW())
-                    ON CONFLICT (message_id, user_id)
-                    DO UPDATE SET emoji = EXCLUDED.emoji, updated_at = NOW()
+                    ON CONFLICT (message_id, user_id, emoji) DO NOTHING
                     RETURNING message_id
                     """,
                     {
