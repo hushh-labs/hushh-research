@@ -1426,7 +1426,7 @@ describe("Connect — People", () => {
       name: "Remove connection with Remove Me",
     });
     fireEvent.click(remove);
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
     expect(await screen.findByText("Shifted Boundary")).toBeTruthy();
     expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("me");
@@ -2741,7 +2741,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
 
     fireEvent.click(remove);
-    const confirm = screen.getByRole("button", { name: "Delete" });
+    const confirm = screen.getByRole("button", { name: "Remove" });
     const cancel = screen.getByRole("button", { name: "Cancel" });
     const dialog = screen.getByRole("alertdialog");
     expect(dialog).toHaveTextContent("Remove connection?");

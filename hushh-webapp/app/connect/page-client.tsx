@@ -3286,7 +3286,7 @@ export default function ConnectPageClient() {
                                   trailing={
                                     <span
                                       className={cn(
-                                        "flex shrink-0 items-center justify-end gap-1 whitespace-nowrap",
+                                        "flex shrink-0 items-center justify-end gap-3 whitespace-nowrap",
                                         CONNECT_ROW_TRAILING_CLASSNAME,
                                       )}
                                     >
@@ -3326,7 +3326,7 @@ export default function ConnectPageClient() {
                                       >
                                         <Trash2
                                           aria-hidden="true"
-                                          className="size-4"
+                                          className="size-[22px]"
                                         />
                                       </Button>
                                     </span>
@@ -4203,7 +4203,7 @@ export default function ConnectPageClient() {
                   }
                 }}
               >
-                {busyId === pendingRemoveId ? "Removing…" : "Delete"}
+                {busyId === pendingRemoveId ? "Removing…" : "Remove"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
