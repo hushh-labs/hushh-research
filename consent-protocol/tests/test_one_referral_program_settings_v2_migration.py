@@ -192,14 +192,37 @@ def test_migration_checks_every_configuration_field_for_an_existing_v2() -> None
         "points",
         "milestones",
         "streak_rules",
+        "flash_windows",
         "weekly_schedule",
         "prize_catalogue",
+        "tie_break_rules",
+        "fulfillment_config",
         "feature_active",
     ):
         assert f"v2_row.{column} IS DISTINCT FROM" in mismatch_guard, (
             f"an existing version 2 must be compared on {column} before this "
             "migration treats it as a matching, idempotent no-op"
         )
+
+
+def test_migration_mismatch_guard_covers_the_previously_omitted_fields() -> None:
+    # Regression: an earlier revision of this guard compared 7 of the 10
+    # columns this migration actually writes, silently skipping
+    # flash_windows, tie_break_rules and fulfillment_config -- a version 2
+    # row that diverged only on one of those three would have been accepted
+    # as a matching idempotent no-op. Each must appear compared against its
+    # own expected-value variable, not merely present anywhere in the guard.
+    statements = _statements(_migration())
+    mismatch_guard = statements[
+        statements.index("IF v2_row.qualification_policy_version") : statements.index(
+            "RAISE EXCEPTION 'migration 275: version 2 exists and is active, but"
+        )
+    ]
+    assert "v2_row.flash_windows IS DISTINCT FROM expected_flash_windows" in mismatch_guard
+    assert "v2_row.tie_break_rules IS DISTINCT FROM expected_tie_break_rules" in mismatch_guard
+    assert (
+        "v2_row.fulfillment_config IS DISTINCT FROM expected_fulfillment_config" in mismatch_guard
+    )
 
 
 def test_migration_rejects_a_retired_or_unactivated_existing_v2() -> None:

@@ -41,9 +41,11 @@
 --     a pre-transition snapshot and racing to write.
 --   * If version 2 already exists, that is ONLY an idempotent success when
 --     its stored configuration matches this migration's intended values
---     exactly (points, milestones, streak_rules, weekly_schedule,
---     prize_catalogue, feature_active, qualification_policy_version) AND it
---     is the currently active row (activated_at set, retired_at null). A
+--     exactly -- every field this migration writes: qualification_policy_version,
+--     points, milestones, streak_rules, flash_windows, weekly_schedule,
+--     prize_catalogue, tie_break_rules, fulfillment_config, feature_active --
+--     AND it is the currently active row (activated_at set, retired_at
+--     null). A
 --     version 2 that exists but is retired, never activated, or configured
 --     differently is an unexpected state this migration refuses to paper
 --     over -- it raises and leaves version 1 exactly as it found it, rather
@@ -77,6 +79,9 @@ DECLARE
   expected_streak_rules JSONB := '{"run_length_days": 3, "bonus_points": 15}'::JSONB;
   expected_weekly_schedule JSONB := '{"timezone": "Asia/Kolkata", "cutoff_day_of_week": 7, "cutoff_time": "23:59:00", "announce_lead_hours": 2, "award_slots": 3}'::JSONB;
   expected_prize_catalogue JSONB := '[{"reward_key": "weekly_airpods", "rank_slots": [1, 2, 3]}]'::JSONB;
+  expected_flash_windows JSONB := '[]'::JSONB;
+  expected_tie_break_rules JSONB := '{}'::JSONB;
+  expected_fulfillment_config JSONB := '{}'::JSONB;
   active_count INTEGER;
 BEGIN
   -- Serialize: lock both candidate rows before reading either, so a second
@@ -98,8 +103,11 @@ BEGIN
        OR v2_row.points IS DISTINCT FROM expected_points
        OR v2_row.milestones IS DISTINCT FROM expected_milestones
        OR v2_row.streak_rules IS DISTINCT FROM expected_streak_rules
+       OR v2_row.flash_windows IS DISTINCT FROM expected_flash_windows
        OR v2_row.weekly_schedule IS DISTINCT FROM expected_weekly_schedule
        OR v2_row.prize_catalogue IS DISTINCT FROM expected_prize_catalogue
+       OR v2_row.tie_break_rules IS DISTINCT FROM expected_tie_break_rules
+       OR v2_row.fulfillment_config IS DISTINCT FROM expected_fulfillment_config
        OR v2_row.feature_active IS DISTINCT FROM FALSE
     THEN
       RAISE EXCEPTION 'migration 275: version 2 exists and is active, but its configuration does not match this migration''s intended values; refusing to silently diverge; version 1 left untouched';
@@ -130,8 +138,8 @@ BEGIN
       feature_active, activated_at
     ) VALUES (
       2, 1,
-      expected_points, expected_milestones, expected_streak_rules, '[]'::JSONB,
-      expected_weekly_schedule, expected_prize_catalogue, '{}'::JSONB, '{}'::JSONB,
+      expected_points, expected_milestones, expected_streak_rules, expected_flash_windows,
+      expected_weekly_schedule, expected_prize_catalogue, expected_tie_break_rules, expected_fulfillment_config,
       FALSE, NOW()
     );
   END IF;
