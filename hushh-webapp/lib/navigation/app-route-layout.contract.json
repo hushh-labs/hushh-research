@@ -691,15 +691,13 @@
   },
   {
     "route": "/one/referrals",
-    "mode": "standard",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "interactionLayerPolicy": { "allowedFamilies": [] },
     "shellVerification": {
       "file": "components/referrals/referral-dashboard-page.tsx",
       "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader",
-        "SurfaceStack"
+        "NativeTestBeacon"
       ]
     },
     "voicePlaybook": {
