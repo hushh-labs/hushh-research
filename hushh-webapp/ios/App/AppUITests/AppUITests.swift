@@ -1716,6 +1716,15 @@ final class AppUITests: XCTestCase {
                 select("Active"); select("History"); select("Connections"); select("Requests")
             default:
                 openAgent("Wallet")
+                func walletPaneReady(_ element: XCUIElement, failure: String) -> Bool {
+                    let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                        element.exists && element.isHittable
+                    }, object: element)
+                    guard XCTWaiter.wait(for: [visible], timeout: 10) == .completed else {
+                        XCTFail(failure); return false
+                    }
+                    return true
+                }
                 let introduction = web.buttons["Continue"].firstMatch
                 let admission = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                     (tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable) ||
@@ -1740,14 +1749,14 @@ final class AppUITests: XCTestCase {
                 }
                 select("Cards"); select("Add")
                 let addHeading = web.staticTexts["Add your card"].firstMatch
-                XCTAssertTrue(addHeading.waitForExistence(timeout: 10) && addHeading.isHittable,
-                              "WORKSPACE_WALLET_ADD_BODY_UNOBSERVED")
+                guard walletPaneReady(addHeading, failure: "WORKSPACE_WALLET_ADD_BODY_UNOBSERVED") else { return }
                 select("Sharing")
                 let sharingHeading = web.staticTexts.matching(NSPredicate(format:
                     "label CONTAINS %@ AND label CONTAINS %@", "Your cards.", "Your control.")).firstMatch
-                XCTAssertTrue(sharingHeading.waitForExistence(timeout: 10) && sharingHeading.isHittable,
-                              "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED")
+                guard walletPaneReady(sharingHeading, failure: "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED") else { return }
                 select("Cards")
+                guard walletPaneReady(web.staticTexts["Your cards"].firstMatch,
+                                      failure: "WORKSPACE_WALLET_CARDS_BODY_UNOBSERVED") else { return }
                 XCTAssertFalse(addHeading.exists && addHeading.isHittable,
                                "WORKSPACE_WALLET_INACTIVE_ADD_HITTABLE")
                 let back = app.buttons.matching(NSPredicate(format: "label == %@", "Go back")).firstMatch

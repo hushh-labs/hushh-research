@@ -1095,8 +1095,12 @@ structural churn; visible glass continuity still requires current-device proof.
 The existing warm Wallet workspace case now requires enabled, hittable Cards
 admission (continuing the cosmetic introduction once when present), then visits
 Cards/Add/Sharing/Cards and asserts each public pane plus inactive Add isolation.
-It retains Back, draft and single-host assertions. It saves, deletes, reveals
-and grants nothing; an unexpected staged handoff fails instead of being cleared.
+It retains Back, draft and single-host assertions. It requests no card save,
+deletion, reveal or grant. A session with no pending Secrets/Chat handoff is a
+prerequisite: the selected-Cards guard rejects an already observed Add handoff,
+but cannot prevent an automatic reveal that was already pending. No handoff is
+cleared to force admission. Public pane bodies use bounded hittability waits,
+not a single sample taken before the pager settles.
 Its physical result is pending at this source entry. The preceding product head
 `eaed6d945` passes canonical core in 201s; this harness change does not inherit
 an exact-head pass or claim successful sharing-information retrieval.
