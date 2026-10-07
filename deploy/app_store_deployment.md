@@ -13,8 +13,8 @@
 >   after Apple approval additionally requires `--release-after-approval` — runbook:
 >   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).
 > - **Google Play production:** `npm run android:release:playstore -- --dry-run` verifies the
->   production backend, exact green `main` SHA, Play version floor, Firebase identity, signing, and
->   AAB without uploading. `npm run android:release:playstore` performs the separately confirmed
+>   UAT backend (which must already serve the exact green `main` SHA), Play version floor, Firebase
+>   identity, signing, and AAB without uploading. `npm run android:release:playstore` performs the separately confirmed
 >   live production upload — runbook:
 >   [docs/guides/mobile/ship-android-playstore.md](../docs/guides/mobile/ship-android-playstore.md).
 >
@@ -299,9 +299,9 @@ cd <repo-root>/hushh-webapp
 npm run android:release:playstore -- --dry-run
 ```
 
-The dry run queries the real Play version floor, builds against the production backend, verifies
-the exact production backend revision and generated native routes, signs the AAB, verifies its
-signature, and stores it privately. It does not upload to Play.
+The dry run queries the real Play version floor, builds against the UAT backend, verifies the
+exact UAT backend revision and generated native routes, signs the AAB, verifies its signature, and
+stores it privately. It does not upload to Play.
 
 #### Step 3: Confirm and dispatch the live production release
 

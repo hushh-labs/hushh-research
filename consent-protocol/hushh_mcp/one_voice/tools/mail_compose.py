@@ -65,6 +65,17 @@ _RECOVERY = {
     "GMAIL_RECONNECT_REQUIRED": "Reconnect Gmail, then review this draft again.",
     "GMAIL_SENDER_CHANGED": "The sending account changed. Review this draft again.",
     "DRAFT_CHANGED": "This draft changed. Review it again before sending.",
+    "RECIPIENT_LOOKUP_UNAVAILABLE": "I couldn't check the recipients. Your draft is still here.",
+    "RECIPIENT_CHANGED": "Review the email recipients again. Your draft is still here.",
+    "ACTION_NOT_FOUND": "This review expired. Review the draft again before sending.",
+    "ACTION_NOT_SENDABLE": "This review is no longer active. Review the draft again before sending.",
+    "DRIVE_ATTACHMENT_CHANGED": "The attachment changed. Review this draft again before sending.",
+    "GMAIL_SEND_FAILED": "Gmail rejected the email. Review the draft and try again.",
+    "GMAIL_NOT_READY": "Gmail is not ready. Reconnect it, then review this draft again.",
+    "GMAIL_SENDER_UNAVAILABLE": "The sending account is unavailable. Review this draft again.",
+    "SENDER_REVIEW_REQUIRED": "Review the sending account, then review this draft again.",
+    "SENDER_REVIEW_INVALID": "Review the sending account again before sending.",
+    "VOICE_APPROVAL_SUPERSEDED": "Review the current email again. Nothing was sent.",
 }
 
 
@@ -138,6 +149,60 @@ class MailComposeRuntime:
                 "reason_code": reason,
             },
         )
+
+    async def _recover_reviewable_send_failure(
+        self, ctx: ToolContext, task: ComposeDraft, reason: str
+    ) -> ComposeResult | None:
+        """Retire an unclaimed/definitely failed action before fresh review.
+
+        A failure classified here must never leave a prepared action attached to
+        a draft that the UI can review again. If retirement cannot prove a safe
+        terminal state, preserve the action and report an ambiguous outcome.
+        """
+        action = str(task.prepared.get("action_id") or "")
+        if not action:
+            if reason != "ACTION_NOT_FOUND":
+                return None
+            task.rendered = False
+            task.revision += 1
+            task.review_epoch += 1
+            recovered = self.needs_input(
+                task,
+                reason=reason,
+                fact=_RECOVERY.get(
+                    reason, "Nothing was sent. Your draft is still here for review."
+                ),
+            )
+            return recovered
+        try:
+            retired = await self._retire_action(ctx, action)
+        except Exception:
+            task.state = "outcome_unknown"
+            return None
+        if (
+            retired.get("sent_at")
+            or retired.get("gmail_message_id")
+            or not (
+                (retired.get("cancelled") and retired.get("state") == "cancelled")
+                or retired.get("state") in {"cancelled", "expired", "failed"}
+                or (reason == "ACTION_NOT_FOUND" and retired.get("state") is None)
+            )
+        ):
+            task.state = "outcome_unknown"
+            return None
+        task.prepared = {}
+        task.rendered = False
+        task.revision += 1
+        task.review_epoch += 1
+        recovered = self.needs_input(
+            task,
+            reason=reason,
+            fact=_RECOVERY.get(reason, "Nothing was sent. Your draft is still here for review."),
+        )
+        if recovered.client_step is not None:
+            recovered.client_step["previous_action_id"] = action
+            recovered.client_step["previous_revision"] = task.revision - 1
+        return recovered
 
     async def _retire_action(self, ctx: ToolContext, action: str) -> dict[str, Any]:
         result = await self.delivery(ctx).cancel_prepared(user_id=ctx.user_id, action_id=action)
@@ -433,7 +498,16 @@ class MailComposeRuntime:
             task.recipients = None
             task.prepared = {}
             return self.result(
-                task, status="cancelled", spoken_facts=["The unsent email was cancelled."]
+                task,
+                status="cancelled",
+                spoken_facts=["The unsent email was cancelled."],
+                client_step={
+                    "kind": "mail_draft_outcome",
+                    "draft_ref": task.ref,
+                    "revision": task.revision,
+                    "action_id": None,
+                    "status": "cancelled",
+                },
             )
 
     def prepare_send(self, ref: str, revision: int) -> Prepared | Rejected:
@@ -567,29 +641,17 @@ class MailComposeRuntime:
                 )
                 reason = None
             except (GmailDeliveryError, GmailApiError) as exc:
-                state = (
-                    "failed"
-                    if exc.code
-                    in {
-                        *_RECOVERY,
-                        "RECIPIENT_CHANGED",
-                        "GMAIL_SEND_FAILED",
-                        "DELIVERY_FAILED",
-                        "SENDER_REVIEW_REQUIRED",
-                        "SENDER_REVIEW_INVALID",
-                    }
-                    else "outcome_unknown"
-                )
-                reason = exc.code
-                if reason == "VOICE_APPROVAL_SUPERSEDED":
-                    state = "needs_input"
+                # The ledger, not a code allowlist, proves whether this action
+                # can be retired. A simultaneous claim wins over this recovery.
+                recoverable = await self._recover_reviewable_send_failure(ctx, task, exc.code)
+                if recoverable is not None:
+                    return recoverable
+                state, reason = "outcome_unknown", exc.code
             except Exception:
                 state, reason = "outcome_unknown", "delivery_unverified"
             task.state = state
             fact = (
-                "Review the current email again. Nothing was sent."
-                if reason == "VOICE_APPROVAL_SUPERSEDED"
-                else "Gmail accepted your email."
+                "Gmail accepted your email."
                 if state == "sent"
                 else "I couldn't confirm the final result. I won't send another copy automatically."
                 if state == "outcome_unknown"
@@ -752,12 +814,40 @@ async def _status(ctx: ToolContext, args: DraftStatusInput) -> ToolResult:
                 "cancelled",
                 "expired",
             }:
-                if task.state == "blocked" and row["state"] in {"failed", "cancelled", "expired"}:
+                if (
+                    task.state == "blocked"
+                    and row["state"] in {"failed", "cancelled", "expired"}
+                    and not row.get("sent_at")
+                    and not row.get("gmail_message_id")
+                ):
+                    previous_revision = task.revision
                     task.prepared = {}
-                    task.state = "needs_input"
+                    task.rendered = False
+                    task.revision += 1
+                    task.review_epoch += 1
+                    recovered = owner.needs_input(
+                        task,
+                        reason="send_not_started",
+                        fact="Nothing was sent. Your draft is ready for a fresh review.",
+                    )
+                    if recovered.client_step is not None:
+                        recovered.client_step["previous_action_id"] = action
+                        recovered.client_step["previous_revision"] = previous_revision
+                    return recovered
                 else:
                     task.state = str(row["state"])
                 task.rendered = False
+            elif (
+                row.get("state") == "prepared"
+                and task.state in {"sending", "failed", "outcome_unknown"}
+                and not row.get("sent_at")
+                and not row.get("gmail_message_id")
+            ):
+                # Reading prepared is insufficient: a competing claim can win
+                # before retirement. Recover only after the atomic CAS settles.
+                healed = await owner._recover_reviewable_send_failure(ctx, task, "send_not_started")
+                if healed is not None:
+                    return healed
     return owner.result(
         task,
         status=task.state,

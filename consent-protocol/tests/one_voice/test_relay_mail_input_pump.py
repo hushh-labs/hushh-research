@@ -230,3 +230,118 @@ async def test_tap_binds_input_before_pending_await_and_never_clears_new_speech(
     assert captured == [((1, False), 2, not completed)]
     assert session._mail_input_active is not completed
     assert session._mail_approval_input.get() is None
+
+
+@pytest.mark.asyncio
+async def test_reviewed_tap_send_does_not_block_client_correction(monkeypatch):
+    session, _live = pump_session()
+    session.ctx = ToolContext(
+        user_id="owner",
+        conversation_id="conversation",
+        entities=EntityContext(),
+        screen=ScreenContext(),
+        vault_owner_token="test-owner",  # noqa: S106 - test credential
+    )
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def confirm(**_):
+        return SimpleNamespace(
+            id="pending-mail",
+            tool_name="send_reviewed_mail",
+            origin_turn_id=None,
+        )
+
+    async def execute(*_):
+        started.set()
+        await release.wait()
+        return SimpleNamespace(result=SimpleNamespace(status="sent"), pending=None)
+
+    session.pending = SimpleNamespace(get=AsyncMock(return_value=None), confirm=confirm)
+    session.executor = SimpleNamespace(execute_pending=execute)
+    monkeypatch.setattr(session, "_after_execution", AsyncMock())
+
+    tap = asyncio.create_task(
+        session._confirm_by_tap(
+            protocol.ConfirmActionFrame(
+                type="confirm_action",
+                pending_action_id="11111111-1111-4111-8111-111111111111",
+            )
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    before = session._mail_input_generation
+
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="change the body"))
+
+    assert session._mail_input_generation == before + 1
+    assert session._mail_execution_tasks
+    release.set()
+    await tap
+    await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_client_pump_reads_correction_while_tap_proof_is_waiting(monkeypatch):
+    """The receive loop must not wait on pending/proof or provider I/O."""
+    transport = FakeTransport()
+    live = FakeLive([])
+    session = _session(transport, live)
+    session.live = live
+    started, release = asyncio.Event(), asyncio.Event()
+    pending_id = "11111111-1111-4111-8111-111111111111"
+    session._mail_pending_ids.add(pending_id)
+
+    async def blocked_confirm(_frame, *, admission):
+        started.set()
+        await release.wait()
+        assert admission[0] == session._mail_input_generation - 1
+
+    monkeypatch.setattr(session, "_confirm_by_tap", blocked_confirm)
+    pump = asyncio.create_task(session._pump_client())
+    transport.push(
+        {
+            "type": "confirm_action",
+            "pending_action_id": pending_id,
+        }
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    generation = session._mail_input_generation
+    transport.push({"type": "text", "text": "change the body"})
+    transport.push({"type": "ping"})
+    for _ in range(100):
+        if transport.frames("pong"):
+            break
+        await asyncio.sleep(0.01)
+    assert transport.frames("pong"), "ping was blocked behind the tap task"
+    assert session._mail_input_generation == generation + 1
+    assert live.texts == ["change the body"]
+
+    release.set()
+    transport.push({"type": "end"})
+    with pytest.raises(SessionClosed):
+        await asyncio.wait_for(pump, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_mail_tap_reuses_admission(monkeypatch):
+    session, live = pump_session()
+    pending_id = "11111111-1111-4111-8111-111111111111"
+    session._mail_pending_ids.add(pending_id)
+    admissions = []
+    release = asyncio.Event()
+
+    async def blocked_confirm(_frame, *, admission):
+        admissions.append(admission)
+        await release.wait()
+
+    monkeypatch.setattr(session, "_confirm_by_tap", blocked_confirm)
+    pump = asyncio.create_task(session._pump_client())
+    for _ in range(2):
+        session.transport.push({"type": "confirm_action", "pending_action_id": pending_id})
+    await asyncio.sleep(0.05)
+    assert len(admissions) == 2
+    assert admissions[0] == admissions[1]
+    release.set()
+    session.transport.push({"type": "end"})
+    with pytest.raises(SessionClosed):
+        await asyncio.wait_for(pump, timeout=1)

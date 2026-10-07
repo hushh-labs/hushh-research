@@ -54,6 +54,20 @@ describe("versioned mail review", () => {
     expect(parseMailDraftOutcome({ draft_ref: DELIVERY_REF, revision: 2, status: "sent" })).toBeNull();
     expect(parseMailDraftOutcome({ draft_ref: DELIVERY_REF, revision: 2, action_id: "action-2", status: "invented" })).toBeNull();
   });
+
+  it("accepts only a strictly older retired action binding on an unprepared recovery review", () => {
+    const recovered = parseReviewedMailDraftStep({
+      ...review(), revision: 3, prepared: null, operation_id: null,
+      previous_action_id: "action-2", previous_revision: 2,
+    });
+    expect(recovered).toMatchObject({ ready: false, revision: 3, previousActionId: "action-2", previousRevision: 2 });
+    expect(parseReviewedMailDraftStep({
+      ...review(), revision: 3, prepared: null, previous_action_id: "action-2", previous_revision: 3,
+    })).toBeNull();
+    expect(parseReviewedMailDraftStep({
+      ...review(), revision: 3, previous_action_id: "action-2", previous_revision: 2,
+    })).toBeNull();
+  });
 });
 
 /** The reply step exactly as the relay sends it: the binding inside `draft`. */
