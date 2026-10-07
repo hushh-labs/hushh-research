@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.8",
+  "version": "2026.10-dev.9",
   "channel": "dev",
   "summary": "Private connectors and gated browser tasks in your own cloud.",
   "notes": {
@@ -10,7 +10,8 @@
     ],
     "fixes": [
       "Pending connector reviews retain their exact approval and conversation binding.",
-      "Software updates wait for browser task cleanup before reporting an idle handoff."
+      "Software updates wait for browser task cleanup before reporting an idle handoff.",
+      "Native Google sign-in configuration matches the governed dev runtime profile."
     ],
     "security": [
       "Shared services refuse private-owner connector content.",

@@ -216,6 +216,68 @@ def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
     assert client not in built.stdout + built.stderr
 
 
+def _native_runtime_profile_fixture(tmp_path: Path, pins: dict[str, str]) -> Path:
+    """Copy the real shape verifier and templates; configure only synthetic pins."""
+    verifier = tmp_path / "scripts" / "ops" / "verify-runtime-profile-env-shape.py"
+    verifier.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "scripts" / "ops" / verifier.name, verifier)
+    backend = tmp_path / "consent-protocol"
+    backend.mkdir()
+    for filename in (".env.example", ".env"):
+        shutil.copyfile(ROOT / "consent-protocol" / ".env.example", backend / filename)
+    frontend = tmp_path / "hushh-webapp"
+    frontend.mkdir()
+    for profile in ("local", "uat", "dev", "prod"):
+        filename = f".env.{profile}.local"
+        template = ROOT / "hushh-webapp" / f"{filename}.example"
+        shutil.copyfile(template, frontend / template.name)
+        lines = [
+            line
+            for line in template.read_text(encoding="utf-8").splitlines()
+            if line.partition("=")[0] not in pins
+        ]
+        lines.extend(f"{name}={value}" for name, value in pins.items())
+        (frontend / filename).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return verifier
+
+
+@pytest.mark.parametrize("unexpected_key", [False, True])
+def test_native_configured_runtime_profiles_preserve_strict_env_shape(
+    tmp_path: Path, unexpected_key: bool
+) -> None:
+    client = "123456789012-synthetic.apps.googleusercontent.com"
+    pins = {
+        "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID": client,
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID": client,
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI": "com.hussh.app:/oauth2redirect",
+        "NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED": "true",
+    }
+    verifier = _native_runtime_profile_fixture(tmp_path, pins)
+    if unexpected_key:
+        runtime = tmp_path / "hushh-webapp" / ".env.dev.local"
+        runtime.write_text(
+            runtime.read_text(encoding="utf-8")
+            + "NEXT_PUBLIC_UNRECOGNIZED_CONNECTOR_PIN=synthetic\n",
+            encoding="utf-8",
+        )
+    result = subprocess.run(  # noqa: S603 - real repo verifier, synthetic fixtures only
+        [sys.executable, str(verifier), "--include-runtime"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == int(unexpected_key), result.stderr
+    assert client not in result.stdout + result.stderr
+    if unexpected_key:
+        assert result.stderr.splitlines() == [
+            "Runtime profile env shape check failed:",
+            "- hushh-webapp/.env.dev.local: unexpected extra keys NEXT_PUBLIC_UNRECOGNIZED_CONNECTOR_PIN",
+        ]
+    else:
+        assert result.stdout.strip() == "Runtime profile env shape check passed."
+
+
 @pytest.mark.parametrize(
     ("skip_build", "image_reference", "expected_code", "expected_message"),
     [

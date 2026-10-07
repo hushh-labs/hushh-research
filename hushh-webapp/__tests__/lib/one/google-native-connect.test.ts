@@ -18,6 +18,7 @@ import {
   googleAuthorizationUrl,
   nativeGoogleClient,
 } from "@/lib/one/google-native-connect";
+import { openGoogleConnectorAuth } from "@/lib/one/google-connector-auth";
 import { googleConnectorIntent } from '@/lib/one/google-connector-intent';
 import { base64UrlEncode } from "@/lib/one/ai-selection-seal";
 
@@ -178,15 +179,42 @@ describe("google native connect", () => {
     }
     expect(googleConnectorIntent('https://evil/connect/google/drive')).toBeNull();
   });
-  it('keeps Android closed until both the development lane and public-client opt-in are set', () => {
+  it('keeps Android closed without explicit dev opt-in and accepts the dev lane runtime identity', () => {
     vi.stubEnv('NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID', IOS_CLIENT);
     vi.stubEnv('NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI', 'com.hussh.app:/oauth2redirect');
-    vi.stubEnv('NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED', 'true');
     vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'uat');
-    expect(nativeGoogleClient('android')).toBeNull();
-    vi.stubEnv('NEXT_PUBLIC_APP_ENV', 'dev');
-    expect(nativeGoogleClient('android')?.profile).toBe('hussh_android');
     vi.stubEnv('NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED', 'false');
     expect(nativeGoogleClient('android')).toBeNull();
+    vi.stubEnv('NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED', 'true');
+    // The governed dev resource profile deliberately uses UAT runtime identity.
+    for (const environment of ['uat', 'dev', 'development']) {
+      vi.stubEnv('NEXT_PUBLIC_APP_ENV', environment);
+      expect(nativeGoogleClient('android')).toEqual({
+        profile: 'hussh_android', clientId: IOS_CLIENT,
+        redirectUri: 'com.hussh.app:/oauth2redirect',
+      });
+    }
+    for (const environment of ['production', 'unknown']) {
+      vi.stubEnv('NEXT_PUBLIC_APP_ENV', environment);
+      expect(nativeGoogleClient('android')).toBeNull();
+    }
+  });
+  it('forwards the same explicit dev qualification to the existing native adapter', async () => {
+    const authorizationUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+    const redirectUri = 'com.hussh.app:/oauth2redirect';
+    nativeOpen.mockResolvedValue({ redirectUrl: redirectUri });
+    for (const [environment, flag, devEnabled] of [
+      ['uat', 'true', true],
+      ['uat', 'false', false],
+      ['production', 'true', false],
+    ] as const) {
+      vi.stubEnv('NEXT_PUBLIC_APP_ENV', environment);
+      vi.stubEnv('NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED', flag);
+      await expect(openGoogleConnectorAuth(authorizationUrl, redirectUri)).resolves.toBe(redirectUri);
+      expect(nativeOpen).toHaveBeenLastCalledWith({
+        authorizationUrl, redirectUri, expectedUserId: owner.uid, devEnabled,
+      });
+    }
+    expect(nativeOpen).toHaveBeenCalledTimes(3);
   });
 });

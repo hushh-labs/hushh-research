@@ -18527,7 +18527,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
       "symbol": null,
-      "value": 572
+      "value": 634
     },
     {
       "detail": "module exceeds the advisory operon budget",

@@ -91,7 +91,7 @@ export function nativeGoogleClient(platform: string = Capacitor.getPlatform()): 
     const clientId = (process.env.NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_CLIENT_ID ?? "").trim();
     const redirectUri = (process.env.NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI ?? "").trim();
     if (!clientId || redirectUri !== 'com.hussh.app:/oauth2redirect' ||
-        !['dev', 'development'].includes(process.env.NEXT_PUBLIC_APP_ENV ?? '') ||
+        !['dev', 'development', 'uat'].includes(process.env.NEXT_PUBLIC_APP_ENV ?? '') ||
         process.env.NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED !== 'true') return null;
     return { profile: "hussh_android", clientId, redirectUri };
   }

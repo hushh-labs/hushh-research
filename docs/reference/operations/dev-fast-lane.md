@@ -107,7 +107,7 @@ flowchart LR
 | Workflow definition pinned to `main` | dispatch time | the pipeline itself cannot be mutated from a feature branch; only the deployed *content* comes from the requested ref |
 | Secret sync + runtime identity assertions | every deploy | dev cannot silently drift to wrong DB/CORS/identity |
 | Migrations + `dev_minimum_schema.json` (policy: minimum, floor = UAT schema) | every backend deploy | dev may run AHEAD of UAT's schema (train migrations) but never behind it |
-| Provenance labels + parity + semantic verification + auto-rollback | every deploy | a bad train deploy self-heals; dev state is always attributable to an exact SHA |
+| Provenance labels + parity + semantic verification + classified rollback | every deploy | release failures block acceptance; classified service failures restore the captured revision. A verifier setup failure can block without rollback, so read back serving traffic and the terminal receipt. |
 | Dev environment isolation (own project, DB, secrets) | always | nothing dev does can touch UAT or production data |
 
 ## What we deliberately did NOT add (overkill avoidance)
@@ -153,16 +153,42 @@ triggers. Preserve this single deployment authority and existing owner resources
 
 ### Deployment duration and independent work
 
-Review on 2026-10-07: [dev run 37464072047](https://github.com/hushh-labs/hushh-research/actions/runs/37464072047)
-spent 14m21s in deployment; [UAT run 37554552503](https://github.com/hushh-labs/hushh-research/actions/runs/37554552503)
-spent 29m34s. These are different revisions and selected work, not a performance
-guarantee. [PR validation 37561159718](https://github.com/hushh-labs/hushh-research/actions/runs/37561159718)
-instead spent about 26 minutes retrying failing Drive browser fixtures. Correct
-the failed fixtures before changing CI policy. Required full-suite jobs already
-own duplicate targeted unit/static checks; separate browser, native, PKM,
-migration and recovery gates retain their distinct contracts. Inspect job and
-step durations rather than summing parallel lanes or equating PR validation
-with deployment.
+Review on 2026-10-07: compare selected work and active deployment time separately
+from queue waiting and source validation.
+
+| Run | Observed deployment | Active job |
+| --- | --- | --- |
+| [Dev 37464072047](https://github.com/hushh-labs/hushh-research/actions/runs/37464072047) | Backend, frontend, pod image | 14m21s |
+| [Dev 37450634683](https://github.com/hushh-labs/hushh-research/actions/runs/37450634683) | Backend, frontend, pod image | 14m54s |
+| [UAT 37523933082](https://github.com/hushh-labs/hushh-research/actions/runs/37523933082) | Frontend only | 14m11s; another 14m53s elapsed before its first job |
+| [UAT 37537896978](https://github.com/hushh-labs/hushh-research/actions/runs/37537896978) | Backend, frontend, Drive worker | 21m55s |
+| [UAT 37554552503](https://github.com/hushh-labs/hushh-research/actions/runs/37554552503) | Backend, frontend, Drive worker | 29m34s |
+
+This bounded sample does not show dev as intrinsically slower than UAT.
+[Source validation 37572520334](https://github.com/hushh-labs/hushh-research/actions/runs/37572520334)
+passed in 22m20s, with browser validation the critical path at 19m58s. That is a
+separate cost. Earlier failed Drive fixtures spent about 26 minutes retrying;
+their corrections now pass. One recovered Connections fixture flake remains a
+follow-up, not permission to remove browser assertions.
+
+[Dev 37574435209](https://github.com/hushh-labs/hushh-research/actions/runs/37574435209)
+finished in about 17m17s but failed strict environment bootstrap after promotion:
+configured native sign-in pins were missing from the canonical profile templates.
+Health, provenance and schema passed; semantic verification never ran and both
+rollback steps were skipped. The selected SHA remained at 100% traffic. Correct
+the templates while preserving strict unknown-key refusal; obtain new exact-SHA
+CI and terminal dev verification before acceptance. Its backend image reuse step
+took one second; the requested new pod image took about 173 seconds. This is
+distinct pod publication work, not a second backend image build.
+
+Required full-suite jobs already own duplicate targeted unit/static checks.
+One remaining standalone agent-browser pack overlaps the broad two-engine pack
+and cost 15.6 seconds. Consolidate it only when the exact broader pack is already
+required; retain narrow-change coverage. No broad gate cut, cache/worker change
+or same-image rebuild is justified by this sample. Candidate health and
+post-promotion provenance observe different states, as do pre/post migration
+checks. Keep these authorities and measure actual completed work rather than
+summing parallel lanes or equating PR validation with deployment.
 
 Measured on 2026-09-27, governed dev run `36332480677` took 21m39s for
 backend, frontend and a pod image. UAT run `36331605754` took 11m33s for
