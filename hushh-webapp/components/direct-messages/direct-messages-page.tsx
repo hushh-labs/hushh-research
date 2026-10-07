@@ -266,6 +266,7 @@ export function DirectMessagesPage() {
   const successfulInboxOwner = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const invalidateThreadRead = useCallback(() => { ++loadGeneration.current; }, []);
+  const invalidateInboxRead = useCallback(() => { ++inboxLoadGeneration.current; }, []);
   const invalidateOperations = useCallback(() => {
     ++operationGeneration.current;
     messageMenuOpening.current = null;
@@ -310,13 +311,13 @@ export function DirectMessagesPage() {
   useEffect(() => { setDraft(""); }, [user?.uid]);
 
   useLayoutEffect(() => {
-    ++inboxLoadGeneration.current;
+    invalidateInboxRead();
     successfulInboxOwner.current = null;
     setInboxSearch("");
     setInboxError(null);
     setLoadingInbox(Boolean(user?.uid));
-    return () => { ++inboxLoadGeneration.current; };
-  }, [user?.uid]);
+    return invalidateInboxRead;
+  }, [invalidateInboxRead, user?.uid]);
 
   const loadInbox = useCallback(
     async (options?: { preserveItems?: boolean }) => {
