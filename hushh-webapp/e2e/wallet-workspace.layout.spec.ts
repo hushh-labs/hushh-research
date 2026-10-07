@@ -394,29 +394,67 @@ for (const [width, height] of [[320, 667], [390, 844], [714, 668], [1440, 900]])
   });
 }
 
+async function assertWalletNavigationInViewport(page: Page) {
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toBeInViewport({ ratio: 1 });
+}
+
+async function awaitWalletCardsSettled(page: Page) {
+  await expect.poll(() => page.getByTestId("wallet-card-browser").evaluate((element) =>
+    element.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length,
+  )).toBe(0);
+}
+
 for (const width of [320, 390, 1024]) {
+  test(`Wallet profile overlays preserve card selection at ${width}px`, async ({ page }) => {
+    const errors = await test.step("Open the authored Wallet overview", async () => {
+      const errors = await open(page, width, "light", { cards: 0 }, { height: 844, shell: true });
+      await mount(page, false);
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await assertWalletNavigationInViewport(page);
+      await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
+      await awaitWalletCardsSettled(page);
+      return errors;
+    });
+    const firstCard = page.getByTestId("wallet-preview-stack").getByRole("button", { name: "Everyday", exact: true });
+    await test.step("Require loaded artwork before testing its overlays", async () => {
+      await expect(firstCard.locator("iframe").contentFrame().locator("body")).not.toBeEmpty();
+    });
+    // Both overlays must preserve the same parent selection authority as the
+    // loaded artwork. Real pointer input must not be swallowed by either.
+    for (const overlay of ["name", "qr"] as const) {
+      await test.step(`Select the card through its ${overlay} overlay`, async () => {
+        if (overlay === "qr") {
+          await page.getByRole("button", { name: "All cards", exact: true }).click();
+          await awaitWalletCardsSettled(page);
+        }
+        await (overlay === "name"
+          ? firstCard.getByText("Alex Rivera", { exact: true })
+          : firstCard.getByRole("img", { name: "Wallet Profile QR code" })).click();
+        await assertWalletNavigationInViewport(page);
+        await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
+        await expect(page.getByTestId("wallet-demo-details")).toContainText("Everyday card");
+      });
+    }
+    expect(errors).toEqual([]);
+  });
+
   test(`video card browser switches and clears chrome at ${width}px`, async ({ page }, testInfo) => {
-    const errors = await open(page, width, "light", { cards: 0 }, { height: 844, shell: true });
-    await mount(page, false);
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    const errors = await test.step("Open the authored Wallet overview", async () => {
+      const errors = await open(page, width, "light", { cards: 0 }, { height: 844, shell: true });
+      await mount(page, false);
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      return errors;
+    });
     // Mount positioning must not scroll the workspace navigation away. Check
     // before a locator action can repair the viewport for the application.
     const cardsTab = page.getByRole("tab", { name: "Cards", exact: true });
     await expect(cardsTab).toBeEnabled();
-    const assertNavigationInViewport = async () => {
-      await expect(cardsTab).toBeInViewport({ ratio: 1 });
-      await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toBeInViewport({ ratio: 1 });
-    };
-    await assertNavigationInViewport();
+    await assertWalletNavigationInViewport(page);
     await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
     await expect(page.getByTestId("wallet-preview-stack")).toHaveAttribute("data-unfolded", "false");
     const firstCard = page.getByTestId("wallet-preview-stack").getByRole("button", { name: "Everyday", exact: true });
-    const awaitCardsSettled = async () => {
-      await expect.poll(() => page.getByTestId("wallet-card-browser").evaluate((element) =>
-        element.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length,
-      )).toBe(0);
-    };
-    await awaitCardsSettled();
+    await test.step("Wait for the overview to settle", () => awaitWalletCardsSettled(page));
     // WebKit quantizes the rounded swipe mask's fractional height in its
     // intersection ratio. Prove full containment and actual input coverage
     // directly, including the fixed chrome that IntersectionObserver ignores.
@@ -437,54 +475,53 @@ for (const width of [320, 390, 1024]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath("cards-overview.png") });
     // Click the artwork itself, not a label or an invisible navigation control.
-    await expect(firstCard.locator("iframe").contentFrame().locator("body")).not.toBeEmpty();
-    await firstCard.getByTestId("wallet-card-face").click();
-    await assertNavigationInViewport();
-    await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
-    await expect(page.getByTestId("wallet-demo-details")).toContainText("Everyday card");
-    // The incoming name/QR overlays must preserve the same parent selection
-    // authority as the artwork; neither may swallow the card's pointer input.
-    for (const overlay of ["name", "qr"] as const) {
-      await page.getByRole("button", { name: "All cards", exact: true }).click();
-      await awaitCardsSettled();
-      await (overlay === "name"
-        ? firstCard.getByText("Alex Rivera", { exact: true })
-        : firstCard.getByRole("img", { name: "Wallet Profile QR code" })).click();
-      await assertNavigationInViewport();
+    await test.step("Select through loaded decorative artwork", async () => {
+      await expect(firstCard.locator("iframe").contentFrame().locator("body")).not.toBeEmpty();
+      await firstCard.getByTestId("wallet-card-face").click();
+      await assertWalletNavigationInViewport(page);
+      await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
       await expect(page.getByTestId("wallet-demo-details")).toContainText("Everyday card");
-    }
-    await page.getByRole("button", { name: "Next card", exact: true }).click();
-    await expect(page.getByTestId("wallet-demo-details")).toContainText("Travel card");
-    await expect(page.getByTestId("wallet-demo-activity")).toContainText("₹8,640.00");
-    await page.screenshot({ path: testInfo.outputPath("cards-detail.png") });
-    await page.getByRole("button", { name: "Payment", exact: true }).first().click();
-    await expect(page.getByRole("dialog")).toContainText("No money moves and no payment is scheduled");
-    await page.getByRole("button", { name: "Got it", exact: true }).click();
-    await page.locator("[data-app-scroll-root]").evaluate((element) => { element.scrollTop = 0; });
-    await page.getByRole("button", { name: "All cards", exact: true }).click();
-    await assertNavigationInViewport();
-    await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
-    await awaitCardsSettled();
+    });
+    await test.step("Browse the next card and dismiss the payment disclaimer", async () => {
+      await page.getByRole("button", { name: "Next card", exact: true }).click();
+      await expect(page.getByTestId("wallet-demo-details")).toContainText("Travel card");
+      await expect(page.getByTestId("wallet-demo-activity")).toContainText("₹8,640.00");
+      await page.screenshot({ path: testInfo.outputPath("cards-detail.png") });
+      await page.getByRole("button", { name: "Payment", exact: true }).first().click();
+      await expect(page.getByRole("dialog")).toContainText("No money moves and no payment is scheduled");
+      await page.getByRole("button", { name: "Got it", exact: true }).click();
+    });
+    await test.step("Return to All cards without hiding navigation", async () => {
+      await page.locator("[data-app-scroll-root]").evaluate((element) => { element.scrollTop = 0; });
+      await page.getByRole("button", { name: "All cards", exact: true }).click();
+      await assertWalletNavigationInViewport(page);
+      await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
+      await awaitWalletCardsSettled(page);
+    });
     const add = page.getByRole("button", { name: "Add your first card", exact: true });
     // Native bottom chrome overlays the viewport; scroll past it, not merely
     // into the browser's full-height rectangle.
-    await page.mouse.move(width / 2, 400);
-    await page.mouse.wheel(0, 5000);
-    await expect.poll(() => add.evaluate((element) =>
-      element.getBoundingClientRect().bottom - document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
-    )).toBeLessThanOrEqual(0);
-    await expect(add).toBeInViewport({ ratio: 1 });
-    const bounds = await add.evaluate((element) => ({
-      bottom: element.getBoundingClientRect().bottom,
-      chrome: document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
-      overflow: document.documentElement.scrollWidth - innerWidth,
-    }));
-    expect(bounds.bottom).toBeLessThanOrEqual(bounds.chrome);
-    expect(bounds.overflow).toBeLessThanOrEqual(1);
-    await add.click();
-    await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("wallet-card-browser")).not.toBeInViewport();
-    await expect(page.getByTestId("secure-card-add-form")).toBeInViewport();
+    await test.step("Scroll the Add action clear of fixed chrome", async () => {
+      await page.mouse.move(width / 2, 400);
+      await page.mouse.wheel(0, 5000);
+      await expect.poll(() => add.evaluate((element) =>
+        element.getBoundingClientRect().bottom - document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
+      )).toBeLessThanOrEqual(0);
+      await expect(add).toBeInViewport({ ratio: 1 });
+      const bounds = await add.evaluate((element) => ({
+        bottom: element.getBoundingClientRect().bottom,
+        chrome: document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
+        overflow: document.documentElement.scrollWidth - innerWidth,
+      }));
+      expect(bounds.bottom).toBeLessThanOrEqual(bounds.chrome);
+      expect(bounds.overflow).toBeLessThanOrEqual(1);
+    });
+    await test.step("Admit Add and show its authored panel", async () => {
+      await add.click();
+      await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByTestId("wallet-card-browser")).not.toBeInViewport();
+      await expect(page.getByTestId("secure-card-add-form")).toBeInViewport();
+    });
     expect(errors).toEqual([]);
   });
 }

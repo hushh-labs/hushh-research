@@ -1386,3 +1386,20 @@ the verified browser-local page-start owner already provides the same behavior.
 All 24 focused Chromium/WebKit cases pass, including exact Location header/tab
 geometry, pane alignment, artwork/name/QR taps, swipes and bottom-chrome clearance.
 This later combined source still requires its own core, native builds and CI.
+
+The `a9dd0b1b9` combined candidate passes canonical core, device/simulator Debug
+builds, bundled-asset checks, 40 native-support checks and ordinary reviewer
+unlock. Exact-head CI nevertheless fails its WebKit Wallet journey: 1024px
+exhausts the unchanged 30-second budget on three attempts; 320px is flaky.
+Name/QR pointer cycles are now separated into a short test at each existing
+width, preserving loaded-artwork admission and every navigation/Add assertion.
+Named steps expose the failing phase. Both focused engine runs pass locally;
+Linux exact-head CI remains authoritative. No timeout or layout waiver is added.
+
+The first combined warm simulator batch passes Preferences but fails four other
+journeys. Three probes are unavailable because preparation omitted the explicit
+Debug diagnostics launch flag. Wallet fails on composer availability, not proven
+draft loss; a later admission observes the public session-recovery screen.
+Corrected cold preparation reaches the ordinary vault gate and normal unlock
+passes once. This is a new preparation, not continuity of the failed session.
+Corrected warm acceptance and physical qualification remain separate gates.
