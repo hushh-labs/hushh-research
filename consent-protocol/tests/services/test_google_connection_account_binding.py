@@ -461,6 +461,18 @@ async def test_absent_registry_never_creates_assignment_or_discards_recovery_env
     assert row["refresh_token_ciphertext"] is None
 
 
+def test_legacy_revocation_rejects_unknown_table_before_database_access(custody_transition):
+    from hushh_mcp.services.google_connector_transition_store import finish_legacy_revocation
+
+    db, _ = custody_transition
+    before = len(db.calls)
+    with pytest.raises(ValueError, match="unsupported legacy credential family"):
+        finish_legacy_revocation(
+            db, owner="owner", family="personal_agent_registry", claim={}, confirmed=True
+        )
+    assert len(db.calls) == before
+
+
 @pytest.mark.parametrize(
     "provider_status,body", [(302, {"status": "redirected"}), (503, {"error": "invalid_token"})]
 )

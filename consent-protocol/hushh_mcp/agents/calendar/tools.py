@@ -20,7 +20,6 @@ from hushh_mcp.services.google_calendar_service import (
     get_google_calendar_service,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
-from hushh_mcp.services.pod_google_connections import calendar_reads_via_door, calendar_turn_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +98,11 @@ async def _serve_via_door(
     tool_context: ToolContext, calendar_read: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
     """Read through the consented door in a hosted pod; None means read locally."""
+    from hushh_mcp.one_adk.pod_connector_tools import (
+        calendar_reads_via_door,
+        calendar_turn_refusal,
+    )
+
     if not calendar_reads_via_door():
         return await calendar_turn_refusal(tool_context)  # owner cloud: owner session only
     if calendar_read is not None:
@@ -400,6 +404,11 @@ async def _propose(
     payload: dict[str, Any],
     tool_context: ToolContext,
 ) -> dict[str, Any]:
+    from hushh_mcp.one_adk.pod_connector_tools import (
+        calendar_reads_via_door,
+        calendar_turn_refusal,
+    )
+
     if calendar_reads_via_door() or await calendar_turn_refusal(tool_context):
         return {
             "status": "runtime_unavailable",

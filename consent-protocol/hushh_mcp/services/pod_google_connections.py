@@ -160,33 +160,17 @@ def calendar_runs_locally() -> bool:
 
 
 def calendar_reads_via_door() -> bool:
-    """True only in a Hussh-hosted pod: Calendar still goes through the consented door."""
-    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
+    """Compatibility facade for the tool-runtime Calendar admission port."""
+    from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door as admitted
 
-    return pod_mode() and not calendar_runs_locally()
-
-
-_OWN_CHAT_ONLY = {
-    "status": "failed",
-    "message": "Ask about your calendar in your own chat with your agent.",
-}
+    return admitted()
 
 
 async def calendar_turn_refusal(tool_context: Any) -> Optional[dict[str, Any]]:
-    """None when this Calendar call may run here; else the refusal the tool returns.
+    """Compatibility facade for the tool-runtime Calendar owner check."""
+    from hushh_mcp.one_adk.pod_connector_tools import calendar_turn_refusal as refusal
 
-    Off owner cloud nothing changes (None). In an owner-cloud agent the call must come
-    from the owner's own verified chat session (``pod_tool_owner``), exactly like Drive,
-    Gmail mailbox changes and Contacts: a turn the hub admitted never reaches the
-    agent's own Calendar login.
-    """
-    if not calendar_runs_locally():
-        return None
-    from hushh_mcp.one_adk.pod_connector_tools import pod_tool_owner  # noqa: PLC0415
-
-    if await pod_tool_owner(tool_context, "calendar") is None:
-        return dict(_OWN_CHAT_ONLY)
-    return None
+    return await refusal(tool_context)
 
 
 def pod_calendar_service() -> Any:

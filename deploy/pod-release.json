@@ -1,21 +1,21 @@
 {
-  "version": "2026.10-dev.7",
+  "version": "2026.10-dev.8",
   "channel": "dev",
-  "summary": "Tool steps work on your own Azure model.",
+  "summary": "Private connectors and gated browser tasks in your own cloud.",
   "notes": {
     "improvements": [
-      "Your agent's tool steps (memory, mail, calendar, files) run on your own Azure OpenAI model, as they do on Gemini."
+      "Google connections use owner-approved authorization in your own cloud.",
+      "Direct mail notifications queue bounded work without starting a model turn.",
+      "Browser tasks remain unavailable until their cloud isolation checks pass."
     ],
     "fixes": [
-      "A tool result that carries a date no longer ends the answer with an error.",
-      "A tool with a long name no longer makes your model refuse the whole turn."
+      "Pending connector reviews retain their exact approval and conversation binding.",
+      "Software updates wait for browser task cleanup before reporting an idle handoff."
     ],
     "security": [
-      "When an answer must not use tools (a consent decision), your own model is told so too.",
-      "A model's private reasoning never reaches another provider as something your agent said."
+      "Shared services refuse private-owner connector content.",
+      "Remembered website sign-ins require explicit consent and encrypted owner storage."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:3a7bb6792bd282596aa43b3ffd86a5bab346c19556a1c43b51b3ac57552feb4c"
-  ]
+  "supportedUpgradeDigests": []
 }

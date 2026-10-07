@@ -333,20 +333,17 @@ def _apply_mutation(
         for r in current
     ):
         raise TransitionRefused("GOOGLE_TRANSITION_CONNECTION_CHANGED")
-    for family in _FAMILIES:
-        connection.execute(
-            text(f"DELETE FROM {family} WHERE user_id=:owner AND status='disconnected'"),
-            {"owner": owner},
-        )
-    for table in (
-        "google_service_grants",
-        "google_oauth_attempts",
-        "google_calendar_action_proposals",
-        "kai_receipt_memory_artifacts",
-        "kai_gmail_receipts",
-        "kai_gmail_sync_runs",
+    for statement in (
+        "DELETE FROM google_provider_connections WHERE user_id=:owner AND status='disconnected'",
+        "DELETE FROM kai_gmail_connections WHERE user_id=:owner AND status='disconnected'",
+        "DELETE FROM google_service_grants WHERE user_id=:owner",
+        "DELETE FROM google_oauth_attempts WHERE user_id=:owner",
+        "DELETE FROM google_calendar_action_proposals WHERE user_id=:owner",
+        "DELETE FROM kai_receipt_memory_artifacts WHERE user_id=:owner",
+        "DELETE FROM kai_gmail_receipts WHERE user_id=:owner",
+        "DELETE FROM kai_gmail_sync_runs WHERE user_id=:owner",
     ):
-        connection.execute(text(f"DELETE FROM {table} WHERE user_id=:owner"), {"owner": owner})
+        connection.execute(text(statement), {"owner": owner})
     state.update(phase="completed", completedAtMs=now, snapshots={})
     _write_state(connection, owner, state)
     return {"status": "completed"}

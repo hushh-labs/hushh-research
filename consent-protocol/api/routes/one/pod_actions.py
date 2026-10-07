@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Literal, Optional
+from typing import Any, Awaitable, Callable, Literal, Optional, Protocol
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -43,13 +43,24 @@ class GmailProposalRequest(BaseModel):
     draft: dict[str, Any]
 
 
+class _GmailProposalPort(Protocol):
+    async def propose_email(
+        self,
+        *,
+        user_id: str,
+        action: str,
+        draft_payload: dict[str, Any],
+        require_access: Callable[[], Awaitable[dict[str, Any]]],
+    ) -> dict[str, Any]: ...
+
+
 async def run_gmail_proposal(
     payload: GmailProposalRequest,
     *,
     consent_token: str,
     verifier: Any = None,
     session: Optional[dict] = None,
-    mailbox: Any = None,
+    mailbox: _GmailProposalPort | None = None,
 ) -> dict:
     """Keep exact email terms in the owner's log; preparation sends nothing."""
     from hushh_mcp.services.pod_gmail_mailbox import PodGmailMailboxActions
@@ -67,7 +78,7 @@ async def run_gmail_proposal(
         return claims
 
     owner = str((await require_access())["user_id"])
-    service = mailbox if mailbox is not None else PodGmailMailboxActions(owner)
+    service: _GmailProposalPort = mailbox if mailbox is not None else PodGmailMailboxActions(owner)
     try:
         return await service.propose_email(
             user_id=owner,

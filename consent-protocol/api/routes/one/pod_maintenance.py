@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Protocol
 
 from fastapi import APIRouter, Header, Request
 
@@ -94,7 +94,15 @@ async def pod_tick(
     }
 
 
-async def gmail_notification_job(*, doorbell: Any = None) -> dict[str, Any]:
+class _GmailNotificationWork(Protocol):
+    async def renew_if_due(self) -> dict[str, Any]: ...
+
+    async def catch_up(self) -> dict[str, Any]: ...
+
+
+async def gmail_notification_job(
+    *, doorbell: _GmailNotificationWork | None = None
+) -> dict[str, Any]:
     """Renew an opted-in watch and continue bounded durable notification work."""
     from hushh_mcp.services.pod_gmail_doorbell import pod_gmail_doorbell
     from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
@@ -102,7 +110,7 @@ async def gmail_notification_job(*, doorbell: Any = None) -> dict[str, Any]:
     if not owner_cloud_agent():
         return {"status": "disabled"}
     try:
-        bell = doorbell if doorbell is not None else pod_gmail_doorbell()
+        bell: _GmailNotificationWork = doorbell if doorbell is not None else pod_gmail_doorbell()
         watch = await bell.renew_if_due()
         if watch.get("status") not in {"watching", "watch_current"}:
             return watch

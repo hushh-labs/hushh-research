@@ -22,6 +22,9 @@ paths = [
   # Deterministic "Bring your own AI" seal vector (C1): published synthetic X25519
   # keys, iv and derived AES key so the device and the pod assert identical bytes.
   '''^consent-protocol/tests/fixtures/ai_selection_seal_vector_v1\.json$''',
+  # Published synthetic connector seal (C2) interoperability vector. The fixed
+  # private keys and derived outputs are test material, never live credentials.
+  '''^consent-protocol/tests/fixtures/connector_credential_seal_vector_v1\.json$''',
 ]
 regexes = [
   '''replace_with_64_char_hex_secret_key''',
@@ -60,6 +63,10 @@ regexes = [
   # file; this exempts one exact string and nothing else, so an actual Ed25519
   # key assigned to that variable still trips the rule.
   '''^CONSENT_ED25519_PRIVATE_KEY$''',
+  # Public Python type annotation captured after pod_private_key, not a value.
+  '''^X25519PrivateKey$''',
+  # Exact test-only HMAC dependency injected into action ledger fixtures.
+  '''^test-key-at-least-32-characters-long$''',
   # A Pydantic LENGTH BOUND, not a secret. `generic-api-key` treats a field alias
   # containing "Credential" as a key name and then captures the NEXT token as its
   # value, so

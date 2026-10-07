@@ -294,8 +294,7 @@ async def pending_call_details(session: Session, handle: str) -> dict:
                 raise ValueError
         except (TypeError, ValueError, KeyError):
             raise review_refusal("pending_handle_missing", _EXPIRED) from None
-        _require_pending_binding(session, pending)
-        return pending
+        return _require_pending_binding(session, pending)
     result = await _execute(
         """SELECT payload_ciphertext, payload_iv, payload_tag
            FROM one_mcp_pending_calls
@@ -323,11 +322,10 @@ async def pending_call_details(session: Session, handle: str) -> dict:
     except (ChatKeyMismatchError, LegacyChatCiphertextError, ValueError):
         # A different key than the one that sealed it, or a record that does not open.
         raise review_refusal("pending_record_unreadable", _EXPIRED) from None
-    _require_pending_binding(session, pending)
-    return pending
+    return _require_pending_binding(session, pending)
 
 
-def _require_pending_binding(session: Session, pending: Any) -> None:
+def _require_pending_binding(session: Session, pending: Any) -> dict[str, Any]:
     if (
         not isinstance(pending, dict)
         or pending.get("kind") != "mcp_pending_call"
@@ -339,6 +337,7 @@ def _require_pending_binding(session: Session, pending: Any) -> None:
         or not isinstance(pending.get("arguments"), dict)
     ):
         raise review_refusal("binding_mismatch", "Connector review context changed.")
+    return pending
 
 
 async def restore_pending_call(session: Session, handle: str) -> Session:

@@ -118,6 +118,29 @@ async def test_a_calendar_change_runs_once_on_the_owners_own_confirmation(agent)
     assert _Session.held >= 2, "every confirmation requires a held incarnation"
 
 
+@pytest.mark.parametrize("foreign_turn", ["voice", "other_owner"])
+async def test_calendar_tools_refuse_non_owner_turns_before_local_provider_access(
+    agent, foreign_turn
+):
+    _log, tokens, google = agent
+    context = (
+        h.tool_context(**{"temp:one_execution_surface": "voice"})
+        if foreign_turn == "voice"
+        else h.tool_context(owner="someone-else")
+    )
+    before = (len(tokens.asks), len(google.requests))
+    read = await calendar_tools.calendar_summary(context)
+    write = await calendar_tools.propose_calendar_event(
+        context,
+        title="Lunch",
+        start_at="2026-10-07T12:00:00Z",
+        end_at="2026-10-07T13:00:00Z",
+    )
+    assert read["status"] == "failed"
+    assert write["status"] == "runtime_unavailable"
+    assert (len(tokens.asks), len(google.requests)) == before
+
+
 async def test_a_hub_consent_token_never_confirms(agent):
     proposal_id = await _propose_lunch()
     response = _client().post(

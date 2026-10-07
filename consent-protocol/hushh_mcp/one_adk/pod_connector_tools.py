@@ -14,8 +14,9 @@ the owner's own cloud holds its own Google logins instead, so here:
   Contacts. Each tool still checks its own login at call time and asks the owner to
   connect when it is missing, so the list never depends on what is connected yet.
 
-Calendar keeps its existing tools, which call :func:`pod_tool_owner` through
-``pod_google_connections.calendar_turn_refusal`` before any local read or proposal.
+Calendar keeps its existing tools, which call :func:`calendar_turn_refusal`
+before any local read or proposal. The service adapter retains compatibility
+facades for these tool admission helpers.
 """
 
 from __future__ import annotations
@@ -53,6 +54,25 @@ async def pod_tool_owner(tool_context: Any, provider: str) -> Optional[str]:
     return owner if token.startswith(LOCAL_TOKEN_PREFIX) else None
 
 
+def calendar_reads_via_door() -> bool:
+    """True only in a Hussh-hosted pod: Calendar uses the consented read door."""
+    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
+
+    return pod_mode() and not owner_cloud_agent()
+
+
+async def calendar_turn_refusal(tool_context: Any) -> Optional[dict[str, Any]]:
+    """Refuse a local Calendar call outside the owner's own verified chat."""
+    if not owner_cloud_agent():
+        return None
+    if await pod_tool_owner(tool_context, "calendar") is None:
+        return {
+            "status": "failed",
+            "message": "Ask about your calendar in your own chat with your agent.",
+        }
+    return None
+
+
 def pod_connector_roster() -> list[Any]:
     """One's connector tools in an owner-cloud agent; nothing anywhere else."""
     if not owner_cloud_agent():
@@ -83,4 +103,10 @@ def pod_connector_roster() -> list[Any]:
     ]
 
 
-__all__ = ["owner_cloud_agent", "pod_connector_roster", "pod_tool_owner"]
+__all__ = [
+    "calendar_reads_via_door",
+    "calendar_turn_refusal",
+    "owner_cloud_agent",
+    "pod_connector_roster",
+    "pod_tool_owner",
+]

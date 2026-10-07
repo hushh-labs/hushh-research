@@ -16,6 +16,20 @@ from hushh_mcp.services.compute_backend import is_owner_cloud_target
 METADATA_KEY = "googleConnectorTransition"
 REVOCATIONS_KEY = "googleLegacyRevocations"
 _FAMILIES = ("google_provider_connections", "kai_gmail_connections")
+_SELECT_FAMILY = {
+    "google_provider_connections": "SELECT * FROM google_provider_connections WHERE user_id=:owner FOR UPDATE",
+    "kai_gmail_connections": "SELECT * FROM kai_gmail_connections WHERE user_id=:owner FOR UPDATE",
+}
+_CLEAR_FAMILY = {
+    "google_provider_connections": """UPDATE google_provider_connections SET refresh_token_ciphertext=NULL,
+        refresh_token_iv=NULL,refresh_token_tag=NULL,access_token_ciphertext=NULL,
+        access_token_iv=NULL,access_token_tag=NULL,access_token_expires_at=NULL
+        WHERE user_id=:owner AND status='disconnected'""",
+    "kai_gmail_connections": """UPDATE kai_gmail_connections SET refresh_token_ciphertext=NULL,
+        refresh_token_iv=NULL,refresh_token_tag=NULL,access_token_ciphertext=NULL,
+        access_token_iv=NULL,access_token_tag=NULL,access_token_expires_at=NULL
+        WHERE user_id=:owner AND status='disconnected'""",
+}
 
 
 class TransitionRefused(RuntimeError):
@@ -55,13 +69,7 @@ def _state(row: dict) -> dict:
 def _rows(connection: Any, owner: str) -> list[LegacyCredential]:
     records = []
     for family in _FAMILIES:
-        row = (
-            connection.execute(
-                text(f"SELECT * FROM {family} WHERE user_id=:owner FOR UPDATE"), {"owner": owner}
-            )
-            .mappings()
-            .first()
-        )
+        row = connection.execute(text(_SELECT_FAMILY[family]), {"owner": owner}).mappings().first()
         if row:
             records.append(LegacyCredential(family, _revision(dict(row)), dict(row)))
     return records
@@ -260,6 +268,8 @@ def begin_legacy_revocation(connection: Any, *, owner: str, family: str, row: di
 def finish_legacy_revocation(
     db: Any, *, owner: str, family: str, claim: dict | None, confirmed: bool
 ) -> None:
+    if family not in _FAMILIES:
+        raise ValueError("unsupported legacy credential family")
     if claim is None:
         return
     from hushh_mcp.services.google_connection_service import (
@@ -279,13 +289,7 @@ def finish_legacy_revocation(
             else:
                 claims[family] = {**claim, "phase": "unconfirmed"}
             _write_revocations(connection, owner, claims)
-        row = (
-            connection.execute(
-                text(f"SELECT * FROM {family} WHERE user_id=:owner FOR UPDATE"), {"owner": owner}
-            )
-            .mappings()
-            .first()
-        )
+        row = connection.execute(text(_SELECT_FAMILY[family]), {"owner": owner}).mappings().first()
         if (
             not confirmed
             or not row
@@ -295,10 +299,7 @@ def finish_legacy_revocation(
         ):
             return
         connection.execute(
-            text(f"""UPDATE {family} SET refresh_token_ciphertext=NULL,
-            refresh_token_iv=NULL,refresh_token_tag=NULL,access_token_ciphertext=NULL,
-            access_token_iv=NULL,access_token_tag=NULL,access_token_expires_at=NULL
-            WHERE user_id=:owner AND status='disconnected'"""),
+            text(_CLEAR_FAMILY[family]),
             {"owner": owner},
         )
 

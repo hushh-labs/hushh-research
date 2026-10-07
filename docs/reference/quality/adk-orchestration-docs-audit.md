@@ -100,7 +100,7 @@ workflow semantics or bypassing compatibility. Counts overlap.
 The prior combined core run reported 75 protocol and four integration failures.
 It is historical evidence of the interrupted handoff, not a result for the current
 candidate. The final dependency-complete source must pass the current gates;
-no tests, security checks or ratchet budgets are waived. The [fitness baseline](architecture-fitness-baseline.json)
+no tests, security checks or ratchet budgets are waived. The [fitness baseline](./architecture-fitness-baseline.json)
 remains measured debt, not a line-count target.
 
 The [One Wiki hosting section](https://wiki.hushh.ai/wiki/products/one#hosting-choices)
