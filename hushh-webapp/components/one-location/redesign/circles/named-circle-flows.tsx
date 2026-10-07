@@ -2896,7 +2896,7 @@ export function CircleDetailFlow({
 
           {onProceedToSms && hasOtherMember ? (
             <div
-              className="flex justify-end"
+              className="flex justify-center"
               data-testid="one-location-proceed-to-sms-row"
             >
               <Button
