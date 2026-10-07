@@ -25,8 +25,20 @@ _IDENTITIES = {
     "insurance": ("producers", {"source_state", "license_no"}),
     "business": ("businesses", {"source", "source_key"}),
 }
-_CONSUMER_DOMAINS = {"gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com",
-    "live.com", "icloud.com", "aol.com", "proton.me", "protonmail.com", "yahoo.co.in", "mail.com"}
+_CONSUMER_DOMAINS = {
+    "gmail.com",
+    "googlemail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "icloud.com",
+    "aol.com",
+    "proton.me",
+    "protonmail.com",
+    "yahoo.co.in",
+    "mail.com",
+}
 # Local development may use the separately managed Gmail identity that owns
 # the isolated gcloud profile. Keep this explicit rather than permitting an
 # arbitrary consumer account to invoke the directory.
@@ -55,7 +67,10 @@ def _invocation_token(*, local: bool) -> str:
             raise DirectoryUnavailable()
         result = subprocess.run(  # noqa: S603 - resolved CLI, validated account, no shell
             [executable, "auth", "print-identity-token", f"--account={account}", "--quiet"],
-            capture_output=True, text=True, check=True, timeout=15,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
         )
         token = result.stdout.strip()
     else:
@@ -66,12 +81,19 @@ def _invocation_token(*, local: bool) -> str:
     return token
 
 
-def verified_contacts(record: Any, *, phone: str | None = None) -> tuple[str | None, str | None] | None:
+def verified_contacts(
+    record: Any, *, phone: str | None = None
+) -> tuple[str | None, str | None] | None:
     email = getattr(record, "email", None)
-    if (getattr(record, "email_verified", False) is not True or not isinstance(email, str)
-            or len(email) > 254 or not re.fullmatch(
-                r"[^\s@]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}", email
-            ) or ".." in email.split("@")[1]):
+    if (
+        getattr(record, "email_verified", False) is not True
+        or not isinstance(email, str)
+        or len(email) > 254
+        or not re.fullmatch(
+            r"[^\s@]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}", email
+        )
+        or ".." in email.split("@")[1]
+    ):
         email = None
     # Only Firebase or the account OTP claim supplies this verified phone.
     # US directories cannot match +91. Omit it rather than strip a country code.
@@ -84,16 +106,23 @@ def verified_contacts(record: Any, *, phone: str | None = None) -> tuple[str | N
     return (email, phone) if email or phone else None
 
 
-def project_directory_response(payload: Any, *, email: str | None, phone: str | None) -> dict[str, Any]:
+def project_directory_response(
+    payload: Any, *, email: str | None, phone: str | None
+) -> dict[str, Any]:
     """Validate public provenance and recompute exact evidence, not ownership."""
-    if (not isinstance(payload, dict) or payload.get("contract_version") != "b2b-onboarding.v1"
-            or payload.get("scope") != "b2b" or payload.get("ownership_verified") is not False
-            or payload.get("claim_created") is not False
-            or payload.get("status") not in {"draft_ready", "needs_selection", "no_match", "unavailable"}
-            or not isinstance(payload.get("warnings"), list)
-            or type(payload.get("truncated")) is not bool
-            or not isinstance(payload.get("candidates"), list)
-            or len(payload["candidates"]) > 100):
+    if (
+        not isinstance(payload, dict)
+        or payload.get("contract_version") != "b2b-onboarding.v1"
+        or payload.get("scope") != "b2b"
+        or payload.get("ownership_verified") is not False
+        or payload.get("claim_created") is not False
+        or payload.get("status")
+        not in {"draft_ready", "needs_selection", "no_match", "unavailable"}
+        or not isinstance(payload.get("warnings"), list)
+        or type(payload.get("truncated")) is not bool
+        or not isinstance(payload.get("candidates"), list)
+        or len(payload["candidates"]) > 100
+    ):
         raise DirectoryUnavailable()
     candidates, seen = [], set()
     for row in payload["candidates"]:
@@ -106,14 +135,25 @@ def project_directory_response(payload: Any, *, email: str | None, phone: str | 
         identity = row.get("native_identity")
         draft = row.get("draft")
         name = row.get("name")
-        if (row.get("canonical_table") != table or not isinstance(identity, dict)
-                or set(identity) != keys or not isinstance(draft, dict)
-                or not isinstance(name, str) or not name.strip() or len(name) > 160
-                or any(not isinstance(value, str) or not value or len(value) > 512
-                       for value in identity.values())):
+        if (
+            row.get("canonical_table") != table
+            or not isinstance(identity, dict)
+            or set(identity) != keys
+            or not isinstance(draft, dict)
+            or not isinstance(name, str)
+            or not name.strip()
+            or len(name) > 160
+            or any(
+                not isinstance(value, str) or not value or len(value) > 512
+                for value in identity.values()
+            )
+        ):
             raise DirectoryUnavailable()
         source_key = json.dumps(identity, sort_keys=True, separators=(",", ":"))
-        uid = f"urn:hushh:business:directory:{vertical}:" + hashlib.sha256(source_key.encode()).hexdigest()
+        uid = (
+            f"urn:hushh:business:directory:{vertical}:"
+            + hashlib.sha256(source_key.encode()).hexdigest()
+        )
         if uid in seen:
             raise DirectoryUnavailable()
         seen.add(uid)
@@ -122,13 +162,23 @@ def project_directory_response(payload: Any, *, email: str | None, phone: str | 
         if not isinstance(website, str) or len(website) > 512:
             raise DirectoryUnavailable()
         parsed = urlsplit(website if "://" in website else "https://" + website)
-        valid_url = parsed.scheme in {"https", "http"} and bool(parsed.hostname) and not parsed.username and not parsed.password
+        valid_url = (
+            parsed.scheme in {"https", "http"}
+            and bool(parsed.hostname)
+            and not parsed.username
+            and not parsed.password
+        )
         domain = email.split("@")[1] if email else ""
         upstream_evidence = row.get("evidence")
         if not isinstance(upstream_evidence, dict):
             raise DirectoryUnavailable()
         if upstream_evidence.get("exact_website_domain_match") is True:
-            if not domain or domain in _CONSUMER_DOMAINS or not valid_url or parsed.hostname.lower().removeprefix("www.").rstrip(".") != domain:
+            if (
+                not domain
+                or domain in _CONSUMER_DOMAINS
+                or not valid_url
+                or parsed.hostname.lower().removeprefix("www.").rstrip(".") != domain
+            ):
                 raise DirectoryUnavailable()
             evidence.append({"kind": "verified_email_domain", "domain": domain})
         if upstream_evidence.get("exact_phone_match") is True:
@@ -144,36 +194,81 @@ def project_directory_response(payload: Any, *, email: str | None, phone: str | 
         if not evidence:
             raise DirectoryUnavailable()
         public_draft = {"name": name.strip(), "website": parsed.geturl() if valid_url else ""}
-        for key in ("phone", "formatted_address", "address_line1", "street1", "city", "zip", "state", "category"):
+        for key in (
+            "phone",
+            "formatted_address",
+            "address_line1",
+            "street1",
+            "city",
+            "zip",
+            "state",
+            "category",
+        ):
             value = draft.get(key)
             if value is not None:
                 if not isinstance(value, str) or len(value) > 512:
                     raise DirectoryUnavailable()
                 public_draft[key] = value
-        candidates.append({"business_uid": uid, "synthetic": False,
-            "source_identity": {"source": "directory", "source_key": source_key, "vertical": vertical},
-            "match_evidence": evidence, "draft": public_draft,
-            "ownership_verified": False, "claim_created": False,
-            "verification_required": ["business_authority"]})
-    incomplete = bool(payload["warnings"] or payload["truncated"] or payload["status"] == "unavailable")
+        candidates.append(
+            {
+                "business_uid": uid,
+                "synthetic": False,
+                "source_identity": {
+                    "source": "directory",
+                    "source_key": source_key,
+                    "vertical": vertical,
+                },
+                "match_evidence": evidence,
+                "draft": public_draft,
+                "ownership_verified": False,
+                "claim_created": False,
+                "verification_required": ["business_authority"],
+            }
+        )
+    incomplete = bool(
+        payload["warnings"] or payload["truncated"] or payload["status"] == "unavailable"
+    )
     if payload["status"] in {"no_match", "unavailable"} and candidates:
         raise DirectoryUnavailable()
     if payload["status"] in {"draft_ready", "needs_selection"} and not candidates:
         raise DirectoryUnavailable()
-    return {"candidates": candidates, "coverage_incomplete": incomplete,
-            "status": "suggestion_available" if candidates else "unavailable" if incomplete else "no_match"}
+    return {
+        "candidates": candidates,
+        "coverage_incomplete": incomplete,
+        "status": "suggestion_available"
+        if candidates
+        else "unavailable"
+        if incomplete
+        else "no_match",
+    }
 
 
 async def lookup_directory(email: str | None, phone: str | None, *, local: bool) -> dict[str, Any]:
     try:
         token = await asyncio.wait_for(run_in_threadpool(_invocation_token, local=local), 20)
-        async with asyncio.timeout(40), httpx.AsyncClient(timeout=httpx.Timeout(35, connect=5), follow_redirects=False) as client:
-            async with client.stream("POST", DIRECTORY_ORIGIN + "/api/v1/businesses/onboarding/lookup",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={key: value for key, value in {"work_email": email, "phone": phone}.items() if value}) as response:
+        async with (
+            asyncio.timeout(40),
+            httpx.AsyncClient(
+                timeout=httpx.Timeout(35, connect=5), follow_redirects=False
+            ) as client,
+        ):
+            async with client.stream(
+                "POST",
+                DIRECTORY_ORIGIN + "/api/v1/businesses/onboarding/lookup",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    key: value
+                    for key, value in {"work_email": email, "phone": phone}.items()
+                    if value
+                },
+            ) as response:
                 if response.status_code == 422 and (not email or not phone):
                     # Old deployed contracts demand both. Never label it no-match.
-                    return {"status": "insufficient_signals", "candidates": [], "coverage_incomplete": True}
+                    return {
+                        "status": "insufficient_signals",
+                        "candidates": [],
+                        "coverage_incomplete": True,
+                    }
                 response.raise_for_status()
                 body = bytearray()
                 async for chunk in response.aiter_bytes():

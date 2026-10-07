@@ -138,7 +138,11 @@ class ManagedGeminiRuntimeBinding:
         from google import genai
 
         credentials = local_cli_credentials()
-        client_factory = functools.partial(genai.Client, credentials=credentials) if credentials else genai.Client
+        client_factory = (
+            functools.partial(genai.Client, credentials=credentials)
+            if credentials
+            else genai.Client
+        )
 
         if location is not None:
             clean_location = str(location).strip()
@@ -261,7 +265,9 @@ class ManagedGeminiRuntimeBinding:
                 "project": self.project,
                 "location": clean_location,
                 **transport_options,
-                **({"credentials": credentials} if (credentials := local_cli_credentials()) else {}),
+                **(
+                    {"credentials": credentials} if (credentials := local_cli_credentials()) else {}
+                ),
             },
         )
 
@@ -294,7 +300,9 @@ class ManagedGeminiRuntimeBinding:
                 client = VertexRegionalClient(
                     project=self.project,
                     locations=locations,
-                    client_factory=functools.partial(genai.Client, credentials=credentials) if credentials else genai.Client,
+                    client_factory=functools.partial(genai.Client, credentials=credentials)
+                    if credentials
+                    else genai.Client,
                     cooldown_seconds=_vertex_location_cooldown_seconds(),
                 )
                 _REGIONAL_ADK_CLIENTS[key] = client

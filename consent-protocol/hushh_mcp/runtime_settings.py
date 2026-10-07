@@ -508,7 +508,8 @@ def one_business_local_rehearsal_enabled(user_id: str, *, loopback: bool) -> boo
         and not _clean_env("HUSHH_DEPLOY_ENV")
         and not _clean_env("K_SERVICE")
         and _clean_env("GOOGLE_CLOUD_PROJECT") == "hushh-pda-uat"
-        and _clean_env("CLOUDSQL_INSTANCE_CONNECTION_NAME") == "hushh-pda-uat:us-central1:hushh-uat-pg"
+        and _clean_env("CLOUDSQL_INSTANCE_CONNECTION_NAME")
+        == "hushh-pda-uat:us-central1:hushh-uat-pg"
         and _clean_env("DB_HOST") in {"localhost", "127.0.0.1"}
         and bool(user_id)
         and user_id == _clean_env("REVIEWER_UID")
