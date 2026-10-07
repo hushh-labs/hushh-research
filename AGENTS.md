@@ -89,14 +89,26 @@ Parent and child agents must apply [Bacterial Software Architecture](docs/vision
 
 ## Project-Wide Runtime Telemetry Default & Chat Session Naming
 
-When a coding agent runs the local server, run it IN the agent's own terminal session (in-process / background terminal) by default, so the agent streams live logs, errors, and telemetry directly and can act on them. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
+Start local servers only when runtime verification requires them, not for source or documentation review. Reuse an existing server after verifying its worktree and runtime identity. When a coding agent must start a server, run it IN the agent's own terminal session (in-process / background terminal) by default, so logs, errors, and telemetry remain observable. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
 
-- Agent default = THREE separate in-session terminals, one component each (there is no combined `stack` command): `./bin/hushh proxy --mode local` (Cloud SQL proxy on `:6543`), then `./bin/hushh backend --mode local --reload` (FastAPI backend on `:8000`), then `./bin/hushh web --mode local` (Next.js web frontend on `:3000`). Run all three as background/async terminals so the agent streams per-component telemetry continuously.
+- Start only required components, each in a separate in-session terminal (there is no combined `stack` command). For a full local stack: `./bin/hushh proxy --mode local` (Cloud SQL proxy on `:6543`), then `./bin/hushh backend --mode local --reload` (FastAPI backend on `:8000`), then `./bin/hushh web --mode local` (Next.js web frontend on `:3000`). Use background/async terminals so per-component telemetry remains observable.
 - Session Naming Standard: At completion, name and summarize the task/session with a clear, professional, descriptive title reflecting the scope (e.g., `Fix Setup Onboarding, Morphy KYC Polish & Local Server Stack`).
 - Native restart: rely on backend `--reload` hot-restart first; for a full restart, stop only the affected agent-managed terminal, confirm its port is free (`lsof -ti :6543` proxy / `:8000` backend / `:3000` frontend empty), relaunch that in-session command, and verify health (`./bin/hushh doctor --mode local`, web origin, backend `/docs`) before claiming success.
 - Use the visible-OS-terminal wrapper only when the developer explicitly wants to watch logs themselves, or for a detached session the agent does not need to read.
 
 Full playbook in `.codex/skills/repo-operations/references/branch-runtime-ops.md` ("Runtime Terminals" / "Native restart playbook").
+
+## Project-Wide Local Resource and Process Lifecycle Gate
+
+These rules apply to parent sessions, subagents, verification workers and local MCP clients sharing the developer's computer.
+
+1. Before expensive local work, inspect existing runs, process ownership, CPU load and memory pressure. Coordinate a shared host budget across sessions and worktrees, especially while the developer is gaming or running local inference. Reuse valid evidence and existing runtimes instead of spawning another copy.
+2. Run at most one full core verification per worktree at a time. Keep necessary stages parallel within that run, but coordinate other heavy runs on the same host. Use supported worker limits; do not combine automatic CPU-sized pools with overlapping suites. Preserve required gates and the pre-push core mirror: reduce concurrency or wait, never skip checks to save resources.
+3. Start only the MCP tools required by the task. Prefer supported project/session scope for optional local servers over enabling them globally. Coordinate changes to shared configuration; preserve tool definitions, authentication and required integrations. Do not assume editing configuration stops already-running clients.
+4. Finish or cancel agent-owned background jobs and release finished MCP clients through the host's supported lifecycle controls. Check that the selected workers exit, including descendants and temporary-resource cleanup. Explicitly hand off any runtime intentionally left running. Closing a visible chat or returning a final answer is not proof of teardown; preserve conversation history.
+5. Treat repeated process names or idle CPU as investigation signals, not proof of abandonment. Separate legitimate clients for active sessions from retained or orphaned processes using parentage, start time and available session/transport evidence. Stop another session's work only with user authorization or an explicit ownership handoff; never apply blanket `pkill` or keep only one global instance regardless of active clients.
+6. Use graceful shutdown first and a bounded wait. If authorized cleanup requires escalation, recheck process identity before forcing only the selected process tree to exit. Preserve unrelated apps, project servers and databases; verify temporary resources were reconciled. Record uncertain external action outcomes before any retry.
+7. Inspect startup, transport and shutdown failures separately from resource pressure. Keep credentials and full environments/request payloads out of diagnostics. If retention is in the IDE/MCP host, record the evidence and use supported configuration or a checkpointed reload; do not patch vendor caches or add a recurring process killer.
 
 ## Project-Wide Agent Architecture Doctrine
 
