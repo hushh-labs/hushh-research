@@ -4,7 +4,7 @@ import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { useVoiceSurfaceMetadata, getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -161,7 +161,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     active?.invalidate();
     // Pending replacement may still own its predecessor natively. The removal
     // revision is reserved synchronously; a later mount has a newer fence.
-    if (active) void retireNativeChrome(active.projection.ownerEpoch)
+    if (active) void retireOwnedNativeChrome(active.projection)
       .catch(() => console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"));
   }, []);
 

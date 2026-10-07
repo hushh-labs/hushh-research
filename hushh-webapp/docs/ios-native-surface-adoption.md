@@ -1244,6 +1244,15 @@ host/frame continuity cannot establish uninterrupted glass pixels. The earlier
 automation-authorization failure still requires observed OS admission before
 another device batch; it is not a vault-passphrase failure.
 
+The same review exposes an independent teardown boundary: an older mounted
+control could untargetedly remove a newer installation sharing its control ID.
+Back and the generic chrome wrapper now guard unmount removal with the existing
+outstanding document, instance epoch and revision. Its own uncertain handoff
+still removes either native revision; another installation is untouched. The
+actual A/B mounting test fails both older Back and History cleanup paths and
+requires the replacement to remain actionable, then retire on its own unmount.
+This does not qualify other automatic inactive reconciliation or device pixels.
+
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,

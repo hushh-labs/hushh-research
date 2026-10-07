@@ -5,7 +5,7 @@ import { XIcon } from "@/components/icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
-import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -482,7 +482,7 @@ export function NativeChatChrome(props: Props) {
     active?.invalidate();
     // Removal reserves its revision before another mounted slot can prepare.
     // A pending handoff may still own its predecessor, so remove either one.
-    if (active) void retireNativeChrome(active.projection.ownerEpoch, undefined, controlId).catch(() => undefined);
+    if (active) void retireOwnedNativeChrome(active.projection).catch(() => undefined);
   }, [controlId]);
 
   useLayoutEffect(() => {

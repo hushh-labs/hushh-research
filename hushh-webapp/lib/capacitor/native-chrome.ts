@@ -193,6 +193,16 @@ export async function retireNativeChrome(ownerEpoch: string, target?: ChromeIden
   if (!latest || latest.revision <= identity.revision) outstanding.delete(controlId);
 }
 
+/** An unmount owns only its installation, never another mounted instance of
+ * the same slot. Remove either revision of its own uncertain handoff without
+ * targeting a predecessor that may still be installed natively. */
+export async function retireOwnedNativeChrome(target: ChromeIdentity): Promise<void> {
+  const pending = outstanding.get(target.controlId);
+  if (target.documentId !== nativeDocumentId() || !pending || pending.documentId !== target.documentId || pending.ownerEpoch !== target.ownerEpoch ||
+      pending.revision > target.revision) return;
+  await retireNativeChrome(target.ownerEpoch, undefined, target.controlId);
+}
+
 /** Two-phase installation: the native control stays hidden until React commits
  * removal of the DOM interaction. A failed acknowledgement never enables both. */
 export class NativeChromeLease {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createRef, useEffect, useRef, useState } from "react";
-import { NativeChromeLease, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, retireOwnedNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
 import { NativeChatChrome, NativeHistoryClose, NativeHistoryOpener, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
@@ -864,6 +864,32 @@ describe("native chrome presentation lease", () => {
     expect(bridge.retire.mock.calls.at(-1)![0].targetRevision).toBeUndefined();
     await act(async () => handoff.resolve({ ...next, phase: "prepared" }));
     expect(bridge.activate).toHaveBeenCalledOnce();
+  });
+
+  it.each(["back", "history"] as const)("does not remove a newer mounted %s control when its predecessor unmounts", async (kind) => {
+    measureSlot();
+    admitReplacement(kind);
+    const oldAction = vi.fn(), currentAction = vi.fn();
+    const previous = render(retainedControl(kind, "previous", oldAction));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const currentView = render(retainedControl(kind, "current", currentAction));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    const currentControl = bridge.prepare.mock.calls.at(-1)![0];
+    const removals = bridge.retire.mock.calls.length;
+    previous.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.retire).toHaveBeenCalledTimes(removals);
+    expect(hasOutstandingNativeChrome(currentControl.controlId)).toBe(true);
+    const currentDocument = bridge.documentId;
+    bridge.documentId = crypto.randomUUID(); // Old-document cleanup cannot reserve a new-document tombstone.
+    await retireOwnedNativeChrome(currentControl);
+    expect(bridge.retire).toHaveBeenCalledTimes(removals);
+    bridge.documentId = currentDocument;
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...currentControl, sequence: 1, updateSequence: 0, privacyGeneration: 0 }));
+    await waitFor(() => expect(currentAction).toHaveBeenCalledOnce());
+    expect(oldAction).not.toHaveBeenCalled();
+    currentView.unmount();
+    await waitFor(() => expect(hasOutstandingNativeChrome(currentControl.controlId)).toBe(false));
   });
 
   it.each(["back", "history"] as const)("cannot retire a newer %s after an older handoff fails late", async (kind) => {
