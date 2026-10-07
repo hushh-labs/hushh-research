@@ -438,6 +438,19 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(config.autoReviewerLogin)
     }
 
+    func testNativeReviewerCredentialsNeverComeFromLaunchArguments() {
+        let launch = NativeTestConfiguration(arguments: [
+            "App", "-UITestMode", "-UITestVaultPassphrase", "synthetic-argument-value",
+        ], environment: [:])
+        XCTAssertNil(launch.vaultPassphrase)
+        let environment = ["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE": " synthetic memory value "]
+        let admitted = NativeTestConfiguration(arguments: ["App", "-UITestMode"], environment: environment)
+        XCTAssertEqual(admitted.vaultPassphrase, " synthetic memory value ")
+        let ordinary = NativeTestConfiguration(arguments: ["App"], environment: environment)
+        XCTAssertNil(ordinary.vaultPassphrase)
+        XCTAssertFalse(ordinary.injectedScript.contains("synthetic memory value"))
+    }
+
     func testNativeUiFlowConfigurationRequiresExplicitTestMode() {
         let ordinaryLaunch = NativeTestConfiguration(arguments: [
             "App",

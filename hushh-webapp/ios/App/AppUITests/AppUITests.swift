@@ -48,6 +48,21 @@ final class AppUITests: XCTestCase {
         )).firstMatch
         let busy = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Unlocking")).firstMatch
         print("NATIVE_SESSION_STATE unlock=\(unlock.exists) unlock_hittable=\(unlock.exists && unlock.isHittable) composer=\(composer.exists) sign_in=\(web.buttons["Continue with Google"].exists)")
+        // Runner admission alone is not reviewer admission. Classify authored
+        // public entry states without dumping an accessibility tree or account
+        // content when none of the protected-session markers is present.
+        for (code, label) in [
+            ("guest", "Create your One"),
+            ("reconnect", "Reconnect to continue securely"),
+            ("welcome_loading", "Preparing welcome…"),
+            ("chat_loading", "Opening chat…"),
+            ("passphrase_method", "Passphrase"),
+            ("passphrase_fallback", "Use passphrase instead"),
+        ] {
+            let visible = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch.exists
+            print("NATIVE_ENTRY_STATE kind=\(code) present=\(visible)")
+        }
+        print("NATIVE_ENTRY_ALERTS count=\(app.alerts.count)")
         print("VAULT_GATE_STATE enabled=\(unlock.exists && unlock.isEnabled) rejected=\(rejected.exists) busy=\(busy.exists)")
         // Public gate shape only. A token/publication failure is not a wrong
         // passphrase; neither field values nor provider error text is read.
@@ -2126,7 +2141,7 @@ final class AppUITests: XCTestCase {
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
         }
         app.launch()
         defer { app.terminate() }
@@ -2756,7 +2771,7 @@ final class AppUITests: XCTestCase {
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
         }
         app.launch()
         return app
@@ -4964,7 +4979,7 @@ final class AppUITests: XCTestCase {
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
         }
         app.launch()
         return app
