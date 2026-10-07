@@ -492,6 +492,23 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
     const surface = await page.locator("[data-vault-unlock-surface]").elementHandle();
     const supportingText = content.locator("[data-vault-flow-header] p").first();
     const originalTextSize = await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+    const recoveryGeometry = () => page.evaluate(() => {
+      const scroll = document.querySelector<HTMLElement>("[data-vault-flow-content]")!;
+      const dialog = document.querySelector<HTMLElement>("[data-vault-unlock-surface]")!;
+      const box = scroll.getBoundingClientRect();
+      const surface = dialog.getBoundingClientRect();
+      const footer = [...scroll.querySelectorAll<HTMLButtonElement>("button")].filter((button) => ["Recovery key", "Sign out"].includes(button.textContent?.trim() ?? ""));
+      return {
+        centered: Math.abs(surface.left + surface.width / 2 - innerWidth / 2) <= 1,
+        horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
+        contained: footer.every((button) => {
+          const r = button.getBoundingClientRect();
+          return r.top >= box.top - 1 && r.bottom <= box.bottom + 1 &&
+            r.bottom <= innerHeight - Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-height")) + 1;
+        }),
+        targets: footer.length === 2 && footer.every((button) => button.getBoundingClientRect().height >= 44),
+      };
+    });
     // Resize the same dialog through full tablet and split-window widths,
     // including both sides of its responsive inset breakpoint. Rem-based
     // supporting copy grows; pixel-sized headings are not Dynamic Type proof.
@@ -524,6 +541,7 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
         }));
         await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBe(0);
+        expect((await recoveryGeometry()).contained).toBe(false);
         await content.evaluate((node) => { node.style.overflowY = ""; });
         // Synchronize the fixture's deliberate overflow mutation before the
         // next wheel. WebKit failed without this paint boundary.
@@ -533,24 +551,11 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
         await page.mouse.wheel(0, 1000);
         await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
       }
-      const geometry = await page.evaluate(() => {
-        const scroll = document.querySelector<HTMLElement>("[data-vault-flow-content]")!;
-        const dialog = document.querySelector<HTMLElement>("[data-vault-unlock-surface]")!;
-        const box = scroll.getBoundingClientRect();
-        const surface = dialog.getBoundingClientRect();
-        const footer = [...scroll.querySelectorAll<HTMLButtonElement>("button")].filter((button) => ["Recovery key", "Sign out"].includes(button.textContent?.trim() ?? ""));
-        return {
-          centered: Math.abs(surface.left + surface.width / 2 - innerWidth / 2) <= 1,
-          horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-          contained: footer.every((button) => {
-            const r = button.getBoundingClientRect();
-            return r.top >= box.top - 1 && r.bottom <= box.bottom + 1 &&
-              r.bottom <= innerHeight - Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-height")) + 1;
-          }),
-          targets: footer.length === 2 && footer.every((button) => button.getBoundingClientRect().height >= 44),
-        };
-      });
-      expect(geometry).toEqual({ centered: true, horizontalOverflow: false, contained: true, targets: true });
+      // A positive scroll offset proves motion started, not that WebKit has
+      // finished it. Require the full original geometry contract at settlement.
+      await expect.poll(recoveryGeometry, {
+        message: `Recovery footer ${width}x${height}, keyboard inset ${keyboard}`,
+      }).toEqual({ centered: true, horizontalOverflow: false, contained: true, targets: true });
       await recovery.click();
       await expect(content).toHaveAttribute("data-vault-flow-step", "recovery");
       await page.getByRole("button", { name: "Passphrase", exact: true }).click();

@@ -1118,6 +1118,49 @@ isolation, Back, draft preservation and one identified host, without reinstallin
 the app or resetting the session. This qualifies public pane interaction, not
 successful sharing-information retrieval or universal visual acceptance.
 
+The exact `b6b94b3e2` signed production-backed Debug product is installed on
+both devices. Its normal iPhone unlock passes with one accepted submission;
+the Wallet-only warm journey passes all four public panes, Back, draft and
+single-host checks without skips. Its iPad public-layout check passes, still
+without software-keyboard or protected-tablet acceptance.
+
+Exact-head PR validation then exposes stale derived metadata and two distinct
+test/runtime seams. Canonical regeneration changes only 13 native marker
+references across the three route-index copies; action and authority metadata
+is unchanged. The Feed fixture changes only three content-sizing attributes.
+Profile's redundant exact opening-tag assertion is removed; the independent
+group/icon/layout and no-duplicate-workspace/Security contracts remain.
+
+The real Radix close callback can restore Message options focus after Reply's
+animation frame. The nearest owner/route regression now forces that ordering
+and fails the earlier source. Reply hands focus over at actual menu-close
+settlement instead, bound to the current operation and individual menu opening.
+Reopening cannot consume the newer Reply intent; ordinary Escape still returns
+focus to its trigger. All 14 nearest message tests pass.
+
+History's DOM opener also treated pointer entry as keyboard entry, intentionally
+holding a focused web fallback after Close. The existing opener is factored
+beside the authored Close family without moving parent route/drawer authority.
+Explicit pointer clicks may use acknowledged native focus; keyboard/ambiguous
+clicks retain DOM focus until blur. The actual opener/Close component journey
+with delayed capability discovery fails the old pointer policy and passes the
+correction plus its keyboard negative control. This models parent focus return;
+it is not yet physical pointer/assistive-activation or uninterrupted-pixel proof.
+
+Tablet WebKit layout measured footer containment immediately after scrolling
+started. The existing recovery test now polls its unchanged complete geometry
+predicate after real wheel input and additionally proves the footer remains
+uncontained with overflow deliberately hidden. Four Chromium/WebKit checks
+pass twice across portrait/landscape and split-width iterations, with enlarged
+text and fixed-frame keyboard occlusion. No timeout, pixel tolerance or hit
+region is relaxed; this does not simulate native keyboard events.
+
+Verification is selected by the changed seams, not by replaying every accepted
+device journey. New source still requires frozen-head core and exact-head CI.
+The unidentified Wallet hit-region issue and broader accessibility/Release
+performance gates remain open; no family, merge, deployment or distribution is
+promoted by these bounded results.
+
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,
