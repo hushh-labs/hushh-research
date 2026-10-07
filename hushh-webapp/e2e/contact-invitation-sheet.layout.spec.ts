@@ -35,6 +35,8 @@ test.beforeAll(async () => {
       {
         name: "contact-invitation-boundaries",
         load(id) {
+          if (id === "\0fixture-contact-signals")
+            return `export function describeContactSyncOutcome() { return { title: "No eligible contacts matched", remedy: "invite" }; }`;
           if (id === "\0fixture-invitations-service")
             return `export const ContactInvitationsService = { canComposeSms: async () => false };
             export function invitationBody() { return ""; }
@@ -56,6 +58,10 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        {
+          find: "@/lib/one-location/contact-signals",
+          replacement: "\0fixture-contact-signals",
+        },
         {
           find: "@/lib/services/contact-invitations-service",
           replacement: "\0fixture-invitations-service",
@@ -91,7 +97,10 @@ test.beforeAll(async () => {
           id === "tailwindcss"
             ? path.join(root, "node_modules/tailwindcss/index.css")
             : id === "tw-animate-css"
-              ? path.join(root, "node_modules/tw-animate-css/dist/tw-animate.css")
+              ? path.join(
+                  root,
+                  "node_modules/tw-animate-css/dist/tw-animate.css",
+                )
               : path.resolve(base, id);
         return {
           path: file,
@@ -116,7 +125,9 @@ async function mount(page: Page, keyboardPx: number) {
   ).toBeVisible();
   // Measure the settled sheet, not its slide-in frame.
   await page.evaluate(() =>
-    Promise.all(document.getAnimations().map((animation) => animation.finished)),
+    Promise.all(
+      document.getAnimations().map((animation) => animation.finished),
+    ),
   );
   expect(errors).toEqual([]);
 }
@@ -166,7 +177,10 @@ for (const viewport of CASES) {
   test(`contact list stays readable and scrollable: ${viewport.name}`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.setViewportSize({
+      width: viewport.width,
+      height: viewport.height,
+    });
     await mount(page, viewport.keyboard);
     const before = await measure(page);
 
@@ -178,7 +192,8 @@ for (const viewport of CASES) {
     // ...and, with the keyboard up, uses it: it reaches the 1rem top gap. The
     // old `88dvh - keyboard` cap subtracted the keyboard twice and left 68-80px
     // of dead space above the sheet on these phones.
-    if (viewport.keyboard > 0) expect(before.sheetTop).toBeLessThanOrEqual(16.5);
+    if (viewport.keyboard > 0)
+      expect(before.sheetTop).toBeLessThanOrEqual(16.5);
 
     // The rows are their own scroller, never a sliver: at least one full 56px
     // row of height in the worst case (it was 24px), and whole contacts on
@@ -200,3 +215,35 @@ for (const viewport of CASES) {
     );
   });
 }
+
+test.describe("contact sync notification", () => {
+  test.use({ hasTouch: true });
+  for (const input of ["click", "tap"] as const) {
+    test(`Invite them opens the invitation session via ${input}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(
+        input === "tap"
+          ? { width: 393, height: 852 }
+          : { width: 1440, height: 900 },
+      );
+      await page.setContent(
+        `<html data-sync-notification="true"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      );
+      await page.addScriptTag({ content: script });
+      await expect(
+        page.getByRole("dialog", { name: "Contact sync results" }),
+      ).toBeVisible();
+      const action = page
+        .locator("[data-sonner-toaster]")
+        .getByRole("button", { name: "Invite them", exact: true });
+      await action[input]();
+      await expect(
+        page.getByRole("dialog", { name: "Invite your contacts" }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Contact person 1", { exact: true }),
+      ).toBeVisible();
+    });
+  }
+});

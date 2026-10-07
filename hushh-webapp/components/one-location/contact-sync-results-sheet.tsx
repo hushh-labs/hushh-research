@@ -34,6 +34,17 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 const MATCH_PAGE_SIZE = 100;
 
+// Toast actions belong to this sync session. Do not dismiss and clear that
+// session on pointerdown before the notification's click can run.
+function keepSessionForToastAction(
+  event: CustomEvent<{ originalEvent: PointerEvent }>,
+) {
+  const target = event.detail.originalEvent.target;
+  if (target instanceof Element && target.closest("[data-sonner-toaster]")) {
+    event.preventDefault();
+  }
+}
+
 function initials(value: string): string {
   return value
     .split(/\s+/)
@@ -119,6 +130,7 @@ export function ContactSyncResultsSheet({
           side="bottom"
           dragDismiss={false}
           onFocusOutside={(event) => event.preventDefault()}
+          onPointerDownOutside={keepSessionForToastAction}
           overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
           className={cn(
             "mx-auto max-h-[88dvh] w-full max-w-2xl overflow-y-auto rounded-t-[24px] px-6 pb-[max(1rem,env(safe-area-inset-bottom))]",
@@ -205,6 +217,7 @@ export function ContactSyncResultsSheet({
         // The launching menu may restore focus after an async sync opens us.
         // Keep results visible; outside pointer presses, Escape and Close still dismiss.
         onFocusOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={keepSessionForToastAction}
         overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
         className={cn(
           "mx-auto flex w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",

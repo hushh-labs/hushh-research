@@ -17,7 +17,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
-      className="toaster group"
+      // Modal sheets disable body pointer events; notification actions stay tappable.
+      className="toaster group pointer-events-auto"
       position="top-center"
       duration={3600}
       expand={false}
