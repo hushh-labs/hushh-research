@@ -1056,3 +1056,25 @@ full-row hit surfaces and all five action identities in both states. QR
 continuity, pause, rotation and permanent-removal explanations remain intact;
 status/date/count rows retain content sizing. This synthetic, non-private fixture
 does not qualify protected Wallet operations or physical-device appearance.
+
+The `d74f95d48` production-backed Debug product passes four attach-only warm
+iPhone journeys in one batch: Back/Consent query handoff and overlay retirement,
+Chat History/selector/reopen, public Appearance/Accent cancellation and return,
+and the Profile Account/Preferences/Security/Vault/Support stack. No tests are
+skipped. Normal reviewer unlock passes separately with one accepted submission.
+The matching iPad product passes public vault rest/focus/scroll/rotation/resume
+reachability, but exposes no software keyboard and does not qualify protected
+tablet journeys. These receipts remain bound to that installed product, not to
+later source changes. Its exact-head core passes; no native family is promoted.
+
+Freshness integration retains main's `f103bc8bb` Wallet cleanup. Two newly
+characterized regressions fail that source: an earlier owner's introduction
+write blocks the current owner's Continue, and readiness reports `empty-valid`
+while the introduction preference is still loading. The existing Wallet
+workspace now fences the cosmetic write by owner and exact operation, including
+A → B → A return, and reports loading until that preference settles. Both
+negative controls pass after correction, along with the nearest 22 workspace
+tests, typecheck, focused lint, cache/analytics contracts, surface-map and
+service-boundary checks. No vault authority, encrypted persistence, new store
+or automatic retry is introduced. This source proof is not an installed-device
+or latest-head release acceptance claim.

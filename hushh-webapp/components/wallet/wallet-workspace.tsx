@@ -215,7 +215,9 @@ export function WalletWorkspace() {
   const [view, dispatch] = useReducer(walletViewReducer, INITIAL_WALLET_VIEW);
   const [tab, setTab] = useState<WalletTab>("cards");
   const [introduction, setIntroduction] = useState<{ ownerId: string; seen: boolean } | null>(null);
-  const [introductionSaving, setIntroductionSaving] = useState(false);
+  const introductionWriteRef = useRef<{ ownerId: string } | null>(null);
+  const [introductionWrite, setIntroductionWrite] = useState<{ ownerId: string } | null>(null);
+  const introductionSaving = introductionWrite?.ownerId === renderedOwnerId;
   const introductionLoading = !renderedOwnerId || introduction?.ownerId !== renderedOwnerId;
   const introductionOpen = introductionLoading || !introduction?.seen;
   const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
@@ -223,20 +225,38 @@ export function WalletWorkspace() {
   const [removingCardId, setRemovingCardId] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
+    introductionWriteRef.current = null;
+    setIntroductionWrite(null);
     if (renderedOwnerId) {
       void OnboardingLocalService.hasSeenWalletIntroduction(renderedOwnerId).then((seen) => {
         if (!cancelled) setIntroduction({ ownerId: renderedOwnerId, seen });
       });
     }
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      introductionWriteRef.current = null;
+    };
   }, [renderedOwnerId]);
   const completeIntroduction = async () => {
-    if (!renderedOwnerId || introductionSaving) return;
+    if (!renderedOwnerId || introductionWriteRef.current) return;
     const ownerId = renderedOwnerId;
-    setIntroductionSaving(true);
-    await OnboardingLocalService.markWalletIntroductionSeen(ownerId);
-    if (activeOwnerIdRef.current === ownerId) setIntroduction({ ownerId, seen: true });
-    setIntroductionSaving(false);
+    // Object identity fences this visit, including an A → B → A owner change.
+    const write = { ownerId };
+    introductionWriteRef.current = write;
+    setIntroductionWrite(write);
+    const isCurrent = () =>
+      introductionWriteRef.current === write && activeOwnerIdRef.current === ownerId;
+    try {
+      await OnboardingLocalService.markWalletIntroductionSeen(ownerId);
+      if (isCurrent()) setIntroduction({ ownerId, seen: true });
+    } catch {
+      if (isCurrent()) morphyToast.error("Couldn’t open Wallet. Try again.");
+    } finally {
+      if (isCurrent()) {
+        introductionWriteRef.current = null;
+        setIntroductionWrite(null);
+      }
+    }
   };
   const [selectedDeckCardId, setSelectedDeckCardId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
@@ -580,7 +600,7 @@ export function WalletWorkspace() {
               authLoading ? "pending" : user ? "authenticated" : "anonymous"
             }
             dataState={
-              view.kind === "loading"
+              view.kind === "loading" || introductionLoading
                 ? "loading"
                 : view.kind === "error"
                   ? "error"

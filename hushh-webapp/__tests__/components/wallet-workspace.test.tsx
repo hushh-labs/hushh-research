@@ -19,6 +19,7 @@ const authMock = vi.hoisted(() => ({
   user: { uid: "user_1" } as { uid: string } | null,
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
+const nativeBeaconMock = vi.hoisted(() => vi.fn());
 const vaultMock = vi.hoisted(() => ({ locked: false }));
 
 vi.mock("next/navigation", () => ({
@@ -48,7 +49,10 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 }));
 
 vi.mock("@/components/app-ui/native-test-beacon", () => ({
-  NativeTestBeacon: () => null,
+  NativeTestBeacon: (props: { dataState: string }) => {
+    nativeBeaconMock(props);
+    return null;
+  },
 }));
 
 const serviceMock = vi.hoisted(() => ({
@@ -110,6 +114,53 @@ describe("WalletWorkspace at scale", () => {
     view.rerender(<WalletWorkspace />);
     expect(await screen.findByRole("button", { name: "Continue", exact: true })).toBeVisible();
     expect(OnboardingLocalService.hasSeenWalletIntroduction).toHaveBeenCalledWith("other_owner");
+  });
+  it("fences pending introduction writes across owner replacement and return", async () => {
+    const completions: Array<() => void> = [];
+    vi.mocked(OnboardingLocalService.markWalletIntroductionSeen).mockImplementation(
+      () => new Promise<void>((resolve) => { completions.push(resolve); }),
+    );
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    const workspace = render(<WalletWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue", exact: true }));
+    expect(completions).toHaveLength(1);
+
+    authMock.user = { uid: "other_owner" };
+    workspace.rerender(<WalletWorkspace />);
+    await waitFor(() => expect(screen.getByTestId("one-wallet-empty-action")).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+    expect(completions).toHaveLength(2);
+
+    authMock.user = { uid: "user_1" };
+    workspace.rerender(<WalletWorkspace />);
+    await waitFor(() => expect(screen.getByTestId("one-wallet-empty-action")).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+    expect(completions).toHaveLength(3);
+
+    // The earlier write for this same owner must not complete the new visit.
+    await act(async () => { completions[0](); });
+    expect(screen.getByTestId("one-wallet-empty-action")).toBeDisabled();
+    expect(screen.queryByRole("tab", { name: "Cards", exact: true })).toBeNull();
+    await act(async () => { completions[1](); });
+    expect(screen.getByTestId("one-wallet-empty-action")).toBeDisabled();
+    await act(async () => { completions[2](); });
+    expect(screen.getByRole("tab", { name: "Cards", exact: true })).toBeVisible();
+    expect(vi.mocked(OnboardingLocalService.markWalletIntroductionSeen).mock.calls.map(([owner]) => owner))
+      .toEqual(["user_1", "other_owner", "user_1"]);
+  });
+  it("keeps route readiness loading until the owner's introduction preference settles", async () => {
+    let finishPreference!: (seen: boolean) => void;
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => { finishPreference = resolve; }),
+    );
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    render(<WalletWorkspace />);
+    await waitFor(() => expect(screen.getByTestId("one-wallet-workspace")).toHaveAttribute("data-view", "list"));
+    expect(screen.getByRole("status")).toHaveTextContent("Opening your wallet…");
+    expect(nativeBeaconMock.mock.lastCall?.[0].dataState).toBe("loading");
+    await act(async () => { finishPreference(true); });
+    expect(screen.getByRole("tab", { name: "Cards", exact: true })).toBeVisible();
+    expect(nativeBeaconMock.mock.lastCall?.[0].dataState).toBe("empty-valid");
   });
   const fillCard = () => {
     fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "New card" } });
@@ -256,6 +307,8 @@ describe("WalletWorkspace at scale", () => {
   });
 
   beforeEach(() => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockReset().mockResolvedValue(false);
+    vi.mocked(OnboardingLocalService.markWalletIntroductionSeen).mockReset().mockResolvedValue(undefined);
     authMock.user = { uid: "user_1" };
     vaultMock.locked = false;
     navigationMock.search = "";
