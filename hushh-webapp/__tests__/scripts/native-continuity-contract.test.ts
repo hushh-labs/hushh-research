@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +17,23 @@ function source(relativePath: string): string {
 }
 
 describe("native cold-audit and continuity contract", () => {
+  it("exports reviewer credentials as literal shell values, never executable substitutions", () => {
+    const synthetic = 'synthetic $(printf expanded) `printf expanded` "quoted" \'literal\' $HUSHH_SYNTHETIC_EXPANSION';
+    const environment = {
+      ...process.env,
+      REVIEWER_UID: "synthetic-reviewer",
+      REVIEWER_VAULT_PASSPHRASE: synthetic,
+      HUSHH_SYNTHETIC_EXPANSION: "expanded",
+    };
+    const assignments = execFileSync(process.execPath, [join(root, "scripts/testing/export-reviewer-test-env.mjs")], {
+      encoding: "utf8", env: environment,
+    });
+    const value = execFileSync("bash", ["-c", `${assignments}\nprintf '%s' "$REVIEWER_VAULT_PASSPHRASE"`], {
+      encoding: "utf8", env: environment,
+    });
+    expect(value).toBe(synthetic);
+  });
+
   const destructiveAudits = [
     "scripts/native/ios-route-audit.mjs",
     "scripts/native/ios-ui-interaction-audit.mjs",

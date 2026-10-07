@@ -34,20 +34,11 @@ fi
 
 DESTINATION="${IOS_TEST_DESTINATION:-platform=iOS,id=${DEVICE_ID}}"
 
-eval "$(node ./scripts/testing/export-reviewer-test-env.mjs)"
-
-if [[ -z "${HUSHH_UI_TEST_REVIEWER_UID}" || -z "${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE}" ]]; then
-  echo "Missing REVIEWER_UID / REVIEWER_VAULT_PASSPHRASE for device UI automation." >&2
-  exit 1
-fi
-
 if [[ "${IOS_UI_FLOW_FILTER:-}" == "native-investor-kai-import-e2e" ]]; then
   export HUSHH_UI_TEST_INITIAL_ROUTE="${HUSHH_UI_TEST_INITIAL_ROUTE:-/login?redirect=%2Fkai}"
   export HUSHH_UI_TEST_EXPECTED_MARKER="${HUSHH_UI_TEST_EXPECTED_MARKER:-native-route-kai-home}"
   export HUSHH_UI_TEST_EXPECTED_ROUTE="${HUSHH_UI_TEST_EXPECTED_ROUTE:-/kai}"
 fi
-
-echo "==> reviewer identity loaded for device UI automation"
 
 COMMON_FLAGS=(
   -project "$PROJECT"
@@ -121,20 +112,26 @@ echo "==> prepare UAT native build + UI flow artifacts"
 node ./scripts/native/prepare-ios-ui-test-build.mjs
 
 echo "==> build-for-testing on connected iPhone"
-run_xcodebuild_with_log /tmp/ios-device-ui-build.log env \
-  TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$HUSHH_UI_TEST_REVIEWER_UID" \
-  TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="$HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE" \
-  TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE" \
+run_xcodebuild_with_log /tmp/ios-device-ui-build.log \
   xcodebuild "${COMMON_FLAGS[@]}" \
   build-for-testing
 
 echo "==> XCUITest UI interaction flows on device ($TEST_FILTER)"
-run_xcodebuild_with_log /tmp/ios-device-ui-test.log env \
-  TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$HUSHH_UI_TEST_REVIEWER_UID" \
-  TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="$HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE" \
-  TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE" \
-  xcodebuild "${COMMON_FLAGS[@]}" \
-  -only-testing:"$TEST_FILTER" \
-  test-without-building
+(
+  # Load only for execution. An external `env NAME=value` would expose the
+  # assignments as process arguments; shell exports remain in child memory.
+  eval "$(node ./scripts/testing/export-reviewer-test-env.mjs)"
+  if [[ -z "${HUSHH_UI_TEST_REVIEWER_UID}" || -z "${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE}" ]]; then
+    echo "Missing reviewer identity for device UI automation." >&2
+    exit 1
+  fi
+  export TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$HUSHH_UI_TEST_REVIEWER_UID"
+  export TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="$HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"
+  export TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE"
+  run_xcodebuild_with_log /tmp/ios-device-ui-test.log \
+    xcodebuild "${COMMON_FLAGS[@]}" \
+    -only-testing:"$TEST_FILTER" \
+    test-without-building
+)
 
 echo "==> device UI automation finished"
