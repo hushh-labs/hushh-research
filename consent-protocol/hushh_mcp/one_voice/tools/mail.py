@@ -943,6 +943,24 @@ async def _prepare_send_mail(ctx: ToolContext, args: SendMailInput) -> Prepared 
 
 
 async def _send_mail(ctx: ToolContext, args: SendMailInput) -> ToolResult:
+    # Clients that advertise the versioned review surface must enter the same
+    # draft runtime as ``compose_mail``.  Keeping the legacy ``open_mail_draft``
+    # step here loses the server-issued draft binding, so a later voice request
+    # such as "send it" cannot select ``send_reviewed_mail`` safely.  The
+    # confirmed recipient remains canonical; ``resolve_recipient_sources``
+    # re-checks its active connection before creating the review action.
+    compose = ctx.services.get("mail_compose")
+    if compose is not None and getattr(compose, "review_supported", False) is True:
+        from hushh_mcp.one_voice.tools import mail_compose
+
+        return await mail_compose._compose(
+            ctx,
+            mail_compose.ComposeInput(
+                recipients=[mail_compose.RecipientSource(kind="connection", person=args.recipient)],
+                subject=args.subject,
+                message=args.message,
+            ),
+        )
     person = ctx.entities.person(args.recipient.user_id)
     prepared = ctx.prepared or {}
     if (

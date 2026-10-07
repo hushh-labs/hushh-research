@@ -293,6 +293,46 @@ async def test_send_mail_binds_without_gateway_aliases_and_opens_only_a_review_d
 
 
 @pytest.mark.asyncio
+async def test_versioned_review_clients_get_a_bound_card_from_legacy_send_mail(mail_harness):
+    """A confirmed legacy send request must enter the versioned review path.
+
+    ``send_mail`` is still a compatibility tool selected by older model turns,
+    but a client advertising ``mail_draft_review`` can only route a follow-up
+    like "send it" when the card carries a draft binding and prepared action.
+    """
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_voice.tools.mail_compose import MailComposeRuntime
+
+    ctx, _connections, executor = mail_harness
+    ctx.services["mail_compose"] = MailComposeRuntime(review_supported=True)
+    ctx.services["gmail_delivery"] = SimpleNamespace(
+        prepare=AsyncMock(
+            return_value={
+                "action_id": "22222222-2222-4222-8222-222222222222",
+                "state": "prepared",
+                "sender_token": "private-sender",
+                "sender_label": "owner@example.com",
+                "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
+            }
+        )
+    )
+
+    await _confirm_ayesha(ctx, executor)
+    pending = await _pending_draft(ctx, executor)
+    await executor.pending.mark_shown(user_id=OWNER, pending_action_id=pending.id)
+    opened = await executor.call(ctx, "confirm_pending_action", {"pending_action_id": pending.id})
+
+    assert opened.result.status == "review_requested"
+    step = opened.result.client_step
+    assert step is not None
+    assert step["kind"] == "review_mail_draft"
+    assert step["draft_ref"]
+    assert step["revision"] == 1
+    assert step["prepared"]["action_id"] == "22222222-2222-4222-8222-222222222222"
+
+
+@pytest.mark.asyncio
 async def test_pending_row_and_model_receipt_do_not_expose_full_draft(mail_harness):
     ctx, _connections, executor = mail_harness
     await _confirm_ayesha(ctx, executor)
