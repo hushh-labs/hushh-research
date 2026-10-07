@@ -44,9 +44,9 @@ from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistr
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
 from hushh_mcp.services.pod_release import (
     configured_release,
+    installed_release_presentation,
     public_release,
     upgrade_is_supported,
-    validate_release,
 )
 from hushh_mcp.services.pod_update_presentation import (
     _active_update,
@@ -376,23 +376,7 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
         out["installedRelease"] = {"version": running}
         if installed_digest:
             out["installedRelease"]["imageDigest"] = installed_digest
-        stored_release = metadata.get("installedRelease")
-        if (
-            isinstance(stored_release, dict)
-            and image_digest(stored_release.get("image")) == installed_digest
-        ):
-            try:
-                installed_release = validate_release(
-                    stored_release,
-                    target_image=stored_release["image"],
-                    environment=os.getenv("HUSHH_DEPLOY_ENV", ""),
-                )
-                out["installedRelease"].update(
-                    version=installed_release["descriptor"]["version"],
-                    sourceRevision=installed_release["sourceRevision"],
-                )
-            except (ValueError, TypeError):
-                pass
+        out["installedRelease"].update(installed_release_presentation(metadata, installed_digest))
     if running:
         out["runningImage"] = running
     if target:
@@ -434,6 +418,15 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
         out["installedReleaseVerified"] = True
         if approval.get("verifiedAt"):
             out["installedReleaseVerifiedAt"] = str(approval["verifiedAt"])
+            # The completed receipt remains distinct from a later available offer.
+            out["completedUpdate"] = {
+                **installed_release_presentation(metadata, installed_digest),
+                "operationId": approval["operationId"],
+                "releaseId": installed_release_id,
+                "podIncarnation": service_uid,
+                "imageDigest": installed_digest,
+                "verifiedAt": str(approval["verifiedAt"]),
+            }
         if installed_digest == target_digest:
             out["updateVerified"] = True
             # Keep the completed owner operation visible after a refresh. The

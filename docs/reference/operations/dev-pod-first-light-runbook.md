@@ -56,6 +56,32 @@ enforces owner approval (`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`).
 
 ### Release metadata and compatibility
 
+Managed app announcements and pod installation receipts are separate. The authored
+frontend catalog identifies the built app release, its environment, publication
+date and reviewed public changes. Dev has an announcement; UAT and production
+remain inactive until their own rollout is approved and dated. Never reuse a dev
+announcement as a production release or use a hub SHA to identify a frontend build.
+
+After normal unlock and completed setup, existing accounts receive the concise
+release dialog; new accounts baseline that release without a catch-up notice.
+Unknown account dates suppress the notice. Canonical bootstrap dates establish
+the cohort; native restored Firebase metadata does not. Cosmetic acknowledgement
+is scoped to owner, environment and release on that installation, persists through
+ordinary sign-out and is erased on account deletion. Web Locks serialize tabs
+where supported; cross-device acknowledgement is not a server guarantee.
+
+Pod completion uses `completedUpdate`, retained independently of later offers.
+It requires the exact successful owner operation, current incarnation and
+provider-recorded installed digest. Only validated installed metadata supplies
+its notes. Available releases, matching tags and unverified restarts cannot
+announce successful installation. Both notices share one dialog; neither chooses
+hosting, grants access or starts an update.
+
+Before production, qualify the actual existing Shared cohort against migration
+955's predicates and graduate that migration through the production gate.
+Preserve assignments, detached placements and pending setup. Missing placement
+alone must not become Shared; the release dialog cannot perform a migration.
+
 The dev build reads the reviewed version, summary, changelog and supported
 predecessor digests from `deploy/pod-release.json`. The existing build recipe
 resolves the executable image digest and assembles metadata with the exact source

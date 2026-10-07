@@ -37,6 +37,7 @@ resources, selected hosting, trusted identities and concurrent work are preserve
 | Files | Dedicated `agent_files` and `/one/files` explorer retained. Earlier installed-image receipts cover resumed transfer, exact download, undo, trash/restore and organization consent. | Regression, authenticated background completion and overlapping work on the newly installed candidate. Earlier receipts are dated, not transferable proof. |
 | Puppy | Existing trusted identity, owner grant and direct stream retained; earlier response/cancellation/withdrawal receipts remain. | Fresh binding and response after approved update, independent active internet, usable cold latency and bounded overlap. |
 | Updates / recovery | Exact-release owner approval, durable operation, drain and Settings/Feed state retained. | Actual predecessor pair, active-work handoff, one installation, restart, digest/recovery verification and continuation. Historical Dev 4/5 success does not qualify Dev 8. |
+| Release experience | Concise existing-account announcement; new/unknown accounts receive no catch-up. Installed pod notes use exact retained completion receipts, independently of a newer offer. Hosting is untouched. | Frozen-candidate CI and dev serving/UX readback. UAT/production announcement activation and actual legacy Shared cohort qualification remain separate gates. |
 | Computer Use | Authenticated task runtime, isolated ADK runner, scoped PKM, exact reviews, private preview/takeover and encrypted origin-bound remembered sessions with race-safe Forget. One receives metadata only. | Both cloud execution gates are closed. No real owner information or remembered login was admitted. |
 
 ## Blockers with owners
@@ -51,6 +52,21 @@ resources, selected hosting, trusted identities and concurrent work are preserve
 | Owner acceptance | Normal Google-authenticated owner browser, unlocked vault, native device/provider flow and awake Hermes are not established by reviewer-minted sessions or cloud CLI access. | One normal owner acceptance window. Preserve enrollment/consent and distinguish reviewer, personal and repaired-billing owners. |
 
 ## Verification and measured cost
+
+- The follow-up candidate `18c5fc244b2b` passed the local core mirror in **620 seconds**:
+  16,038 protocol, 572 isolated PostgreSQL and 380 integration checks, plus web,
+  governance, secrets and MCP. [Exact-SHA hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/37590686110)
+  also passed. The release-experience addition is a subsequent candidate; it must
+  pass its own completed-candidate checks before deployment.
+- Release-notice review fixed queued-unmount and account-switch replay races.
+  Focused checks pass: 56 frontend and 74 backend; four broken account, cohort,
+  verification and incarnation controls are refused. Chromium/WebKit component
+  fixtures cover 24 responsive/theme states with measured shared start lines.
+  These are synthetic local checks, not owner-cloud or production acceptance.
+  Acknowledgement has a memory fallback and erasure-only cleanup. The status
+  contract moved behind the same API facade; app notifiers retain their provider
+  scope. The existing bootstrap module's reviewed size changes **716 → 719** solely
+  for the server `createdAt` projection; budgets and other debt remain unchanged.
 
 - Source `2d965641308d` passed local core in **495 seconds**, including 16,036 parallel protocol checks,
   572 isolated PostgreSQL checks, web build/type/lint, governance, secrets, MCP and

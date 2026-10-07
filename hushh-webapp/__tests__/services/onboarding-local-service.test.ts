@@ -6,6 +6,7 @@ const { mockPreferences, mockGetLocalItem, mockSetLocalItem, mockRemoveLocalItem
       get: vi.fn(),
       set: vi.fn(),
       remove: vi.fn(),
+      keys: vi.fn(),
     },
     mockGetLocalItem: vi.fn(),
     mockSetLocalItem: vi.fn(),
@@ -176,5 +177,35 @@ describe("Wallet introduction preference", () => {
     expect(mockSetLocalItem).toHaveBeenCalledWith("wallet_introduction_seen_v1:owner-a", "true");
     mockGetLocalItem.mockReturnValue("true");
     expect(await OnboardingLocalService.hasSeenWalletIntroduction("owner-a")).toBe(true);
+  });
+});
+
+describe("Release notice acknowledgement", () => {
+  it("persists only cosmetic state for the exact owner and release", async () => {
+    const stored = new Map<string, string>();
+    mockGetLocalItem.mockImplementation((key) => stored.get(key) ?? null);
+    mockSetLocalItem.mockImplementation((key, value) => { stored.set(key, value); });
+    mockPreferences.get.mockResolvedValue({ value: null });
+    mockPreferences.set.mockRejectedValue(new Error("Native preferences unavailable"));
+    await OnboardingLocalService.markReleaseSeen("owner:a", "app:dev:1");
+    expect(await OnboardingLocalService.hasSeenRelease("owner:a", "app:dev:1")).toBe(true);
+    expect(await OnboardingLocalService.hasSeenRelease("owner:b", "app:dev:1")).toBe(false);
+    expect(await OnboardingLocalService.hasSeenRelease("owner:a", "app:production:1")).toBe(false);
+    expect([...stored.values()]).toEqual(["true"]);
+  });
+
+  it("does not repeat in a session when both persistent stores are unavailable, and erases only the deleted owner", async () => {
+    mockGetLocalItem.mockReturnValue(null);
+    mockPreferences.get.mockRejectedValue(new Error("Unavailable"));
+    mockPreferences.set.mockRejectedValue(new Error("Unavailable"));
+    mockPreferences.keys.mockResolvedValue({ keys: ["release_notice_seen_v1:erased-owner:release", "release_notice_seen_v1:kept-owner:release"] });
+    await OnboardingLocalService.markReleaseSeen("erased-owner", "release");
+    await OnboardingLocalService.markReleaseSeen("kept-owner", "release");
+    expect(await OnboardingLocalService.hasSeenRelease("erased-owner", "release")).toBe(true);
+    await OnboardingLocalService.clearReleaseNotices("erased-owner");
+    expect(await OnboardingLocalService.hasSeenRelease("erased-owner", "release")).toBe(false);
+    expect(await OnboardingLocalService.hasSeenRelease("kept-owner", "release")).toBe(true);
+    expect(mockPreferences.remove).toHaveBeenCalledWith({ key: "release_notice_seen_v1:erased-owner:release" });
+    expect(mockPreferences.remove).not.toHaveBeenCalledWith({ key: "release_notice_seen_v1:kept-owner:release" });
   });
 });

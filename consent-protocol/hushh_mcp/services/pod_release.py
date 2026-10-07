@@ -182,3 +182,17 @@ def public_release(release: dict[str, Any]) -> dict[str, Any]:
         "notes": descriptor["notes"],
         "releasedAt": release["releasedAt"],
     }
+
+
+def installed_release_presentation(metadata: dict[str, Any], digest: str | None) -> dict[str, Any]:
+    """A retained descriptor labels only its exact provider-recorded digest."""
+    stored = metadata.get("installedRelease")
+    if not isinstance(stored, dict) or not digest or image_digest(stored.get("image")) != digest:
+        return {}
+    try:
+        release = validate_release(
+            stored, target_image=stored["image"], environment=os.getenv("HUSHH_DEPLOY_ENV", "")
+        )
+    except (ValueError, TypeError):
+        return {}
+    return {**public_release(release), "sourceRevision": release["sourceRevision"]}

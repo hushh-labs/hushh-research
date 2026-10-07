@@ -59,6 +59,7 @@ describe("PreVaultUserStateService.bootstrapState", () => {
       hasVault: false,
       phoneVerified: false,
       setupCompleted: false,
+      createdAt: 1700000000000,
     });
 
     const first = PreVaultUserStateService.bootstrapState("bootstrap-race-user");
@@ -74,6 +75,7 @@ describe("PreVaultUserStateService.bootstrapState", () => {
       userId: "bootstrap-race-user",
       hasVault: false,
       phoneVerified: false,
+      createdAt: 1700000000000,
     });
     await expect(second).resolves.toMatchObject({
       userId: "bootstrap-race-user",

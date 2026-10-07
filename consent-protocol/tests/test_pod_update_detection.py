@@ -334,7 +334,8 @@ def test_unknown_installed_digest_cannot_be_called_current():
     "tamper",
     [None, "serviceUid", "podIncarnation", "targetDigest", "releaseId", "operationId", "image"],
 )
-def test_update_verification_requires_exact_provider_and_owner_receipts(tamper):
+@pytest.mark.parametrize("newer_offer", [False, True])
+def test_update_verification_requires_exact_provider_and_owner_receipts(tamper, newer_offer):
     from hushh_mcp.services.personal_agent_provisioning_service import upgrade_release_id
 
     digest = "sha256:" + "b" * 64
@@ -347,6 +348,7 @@ def test_update_verification_requires_exact_provider_and_owner_receipts(tamper):
             "releaseId": release,
             "operationId": "operation-1",
             "targetImage": target,
+            "verifiedAt": "2026-09-29T00:00:00Z",
         },
         upgradeAcknowledgement={
             "outcome": "ready",
@@ -360,10 +362,17 @@ def test_update_verification_requires_exact_provider_and_owner_receipts(tamper):
     )
     if tamper:
         row["backend_metadata"]["upgradeAcknowledgement"][tamper] = "mismatch"
-    out = describe_pod_update(row, target_image=target)
-    assert out.get("updateVerified", False) is (tamper is None)
-    assert out.get("update", {}).get("operationId") == ("operation-1" if tamper is None else None)
-    assert out.get("update", {}).get("phase") == ("verified" if tamper is None else None)
+    offered = "hub/pod@sha256:" + "c" * 64 if newer_offer else target
+    out = describe_pod_update(row, target_image=offered)
+    assert out.get("updateVerified", False) is (tamper is None and not newer_offer)
+    completion = out.get("completedUpdate")
+    assert (completion is not None) is (tamper is None)
+    if completion:
+        assert completion["operationId"] == "operation-1"
+        assert completion["imageDigest"] == digest
+        assert completion["podIncarnation"] == "pod-uid"
+    if not newer_offer:
+        assert out.get("update", {}).get("phase") == ("verified" if tamper is None else None)
 
 
 @pytest.mark.asyncio

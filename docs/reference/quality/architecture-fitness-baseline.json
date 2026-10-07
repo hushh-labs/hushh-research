@@ -16682,7 +16682,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/pre-vault-user-state-service.ts",
       "symbol": null,
-      "value": 716
+      "value": 719
     },
     {
       "detail": "module exceeds the advisory operon budget",

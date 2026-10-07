@@ -103,9 +103,7 @@ import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
-import { AgentChatTurnNotifier } from "@/components/agent/agent-chat-turn-notifier";
-import { AgentConsentContinuationNotifier } from "@/components/agent/agent-consent-continuation-notifier";
-import { AgentFeedAttentionNotifier } from "@/components/agent/agent-feed-attention-notifier";
+import { AgentAppNotifiers } from "@/components/agent/agent-app-notifiers";
 import { RenderPerfProbe } from "@/components/app-ui/render-perf-probe";
 import { RenderPerfProfiler } from "@/components/app-ui/render-perf-profiler";
 import { BootRouteCommitted } from "@/components/app-ui/boot-surface";
@@ -657,10 +655,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <InteractionRuntime />
                   {/* One turns outlive the screen that started them: reattach,
                       and say "One replied" when the person is elsewhere. */}
-                  <AgentChatTurnNotifier />
                   {/* A request sent from chat continues once it is answered. */}
-                  <AgentConsentContinuationNotifier />
-                  <AgentFeedAttentionNotifier />
+                  <AgentAppNotifiers />
                   <RenderPerfProbe />
                   <FoundationPublicAmbient />
                   {!hidesPersistentChrome ? (

@@ -60,6 +60,8 @@ export type PreVaultUserState = {
   hasVault: boolean | null;
   vaultStatus: VaultStatus;
   firstLoginAt: number | null;
+  /** Server account date; native Firebase restoration metadata is synthetic. */
+  createdAt?: number | null;
   lastLoginAt: number | null;
   loginCount: number;
   setupCompleted: boolean | null;
@@ -237,6 +239,7 @@ function normalizeResponse(
     hasVault: resolveReportedHasVault(payload),
     vaultStatus: status,
     firstLoginAt: toMillis(payload.firstLoginAt),
+    createdAt: toMillis(payload.createdAt),
     lastLoginAt: toMillis(payload.lastLoginAt),
     loginCount: Number(payload.loginCount || 0),
     setupCompleted: toNullableBool(payload.setupCompleted),

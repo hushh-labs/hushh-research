@@ -25,6 +25,7 @@ import {
   type KaiStreamEnvelope,
 } from "@/lib/streaming/kai-stream-types";
 import { AuthService } from "@/lib/services/auth-service";
+import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 import * as AzureByoc from "@/lib/services/azure-byoc-contract";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import {
@@ -3660,48 +3661,7 @@ export class ApiService {
     return response.json();
   }
 
-  static async getPersonalAgentStatus(options?: { signal?: AbortSignal }): Promise<{
-    filesActivationAvailable?: boolean;
-    state?: string | null;
-    featureEnabled?: boolean;
-    hushhId?: string | null;
-    health?: string | null;
-    lastSeenAt?: string | null;
-    cloudProject?: string | null;
-    cloudRegion?: string | null;
-    deploymentTarget?: string | null;
-    hostingMode?: "shared" | "byoc" | "hussh_pods" | "pending" | "unknown" | "unplaced";
-    credentialMode?: string | null;
-    runningImage?: string | null;
-    targetImage?: string | null;
-    updateAvailable?: boolean;
-    updateOfferable?: boolean;
-    updateInstallable?: boolean;
-    updateInProgress?: boolean;
-    updateFailed?: boolean;
-    updateError?: string | null;
-    updateVerified?: boolean;
-    installedReleaseVerified?: boolean;
-    installedReleaseVerifiedAt?: string;
-    releaseCheckedAt?: string;
-    installedRelease?: { version: string; sourceRevision?: string; imageDigest?: string };
-    availableRelease?: {
-      version: string;
-      summary: string;
-      releasedAt: string;
-      notes: { improvements: string[]; fixes: string[]; security: string[] };
-    };
-    update?: {
-      releaseId?: string;
-      summary: string;
-      presentationState: "ready" | "deferred" | "scheduled" | "updating" | "verified" | "blocked";
-      phase?: "scheduled" | "preparing" | "installing" | "verifying" | "verified" | "blocked";
-      remindAt?: string;
-      reminderDue?: boolean;
-      operationId?: string;
-      verifiedAt?: string;
-    };
-  }> {
+  static async getPersonalAgentStatus(options?: { signal?: AbortSignal }): Promise<PersonalAgentStatus> {
     const token = await ApiService.getFirebaseToken();
     const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
       method: "GET",

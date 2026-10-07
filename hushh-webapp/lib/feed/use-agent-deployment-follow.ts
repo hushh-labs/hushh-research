@@ -15,6 +15,7 @@ import {
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiService } from "@/lib/services/api-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { publishPodUpdateObservation } from "@/lib/agent/pod-update-notice";
 
 import { NO_UPDATE, readUpdateStatus, type AgentUpdateStatus } from "@/lib/feed/agent-update-status";
 export { NO_UPDATE, readUpdateStatus, type AgentUpdateStatus } from "@/lib/feed/agent-update-status";
@@ -296,6 +297,7 @@ export function useAgentDeploymentFollow(options?: {
           // not "not looked yet", and the chat router may act on it.
           setResolved(true);
           setStatus(res);
+          publishPodUpdateObservation(userId, res);
           // Set outside the transition branch below: these are properties of the
           // agent, not of a state CHANGE. A pod that is already `active` when the
           // page loads never transitions, and keying its address off a transition

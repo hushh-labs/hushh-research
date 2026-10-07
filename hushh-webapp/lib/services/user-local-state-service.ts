@@ -29,6 +29,9 @@ export class UserLocalStateService {
   static async clearDeviceSecretsForDeletedAccount(userId: string): Promise<void> {
     if (!userId) return;
     const results = await Promise.allSettled([
+      import("@/lib/services/onboarding-local-service").then(({ OnboardingLocalService }) =>
+        OnboardingLocalService.clearReleaseNotices(userId),
+      ),
       import("@/lib/one-location/encryption").then(({ forgetLocationRecipientKey }) =>
         forgetLocationRecipientKey(userId),
       ),

@@ -18,6 +18,7 @@ import pytest
 from hushh_mcp.services.pod_release import (
     approved_release,
     configured_release,
+    installed_release_presentation,
     upgrade_is_supported,
     validate_release,
 )
@@ -171,6 +172,18 @@ def test_release_requires_verified_installed_digest(release):
     assert not upgrade_is_supported(None, "sha256:" + "a" * 64)
     checked["descriptor"]["supportedUpgradeDigests"] = []
     assert not upgrade_is_supported(checked, "sha256:" + "a" * 64)
+
+
+def test_installed_notes_require_the_exact_retained_image_and_environment(release, monkeypatch):
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    digest = release["image"].rsplit("@", 1)[1]
+    metadata = {"installedRelease": release, "privateContent": "must-not-leave"}
+    presentation = installed_release_presentation(metadata, digest)
+    assert presentation["notes"] == release["descriptor"]["notes"]
+    assert "privateContent" not in presentation
+    assert installed_release_presentation(metadata, "sha256:" + "a" * 64) == {}
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "production")
+    assert installed_release_presentation(metadata, digest) == {}
 
 
 @pytest.mark.parametrize("environment", ["uat", "production", "", "development"])

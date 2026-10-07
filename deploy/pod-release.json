@@ -6,6 +6,7 @@
     "improvements": [
       "Google connections use owner-approved authorization in your own cloud.",
       "Direct mail notifications queue bounded work without starting a model turn.",
+      "Release notes distinguish app changes from verified private-agent updates.",
       "Browser tasks remain unavailable until their cloud isolation checks pass."
     ],
     "fixes": [
