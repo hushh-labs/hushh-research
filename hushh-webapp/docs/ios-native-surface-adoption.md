@@ -1221,6 +1221,29 @@ real Legal rows, centered titles/icons/chevrons, enlarged computed text and both
 authored callbacks. No global description clamp or empty supporting text is
 introduced to manufacture symmetry.
 
+History's stationary header still hard-retired its host on an agent-context
+change, unlike Back's retained handoff. Contract version 2 now negotiates a
+History-only replacement capability through the same state machine. Same
+mounted owner/document/family/label/expanded state and exact frame/viewport are
+required. The host stays visible, but predecessor choices expire immediately;
+fresh activation restores interaction and accessibility. Owner, privacy,
+keyboard, overlay, relocation, unconfirmed updates and unmount still require
+removal. Older wrappers retain their existing strict-install fallback. New
+families remain Debug iPhone opt-in, not Release or iPad qualified.
+
+The nearest pending-choice/uncertainty/unmount/late-failure tests now cover both
+Back and History. Same-frame History replacement fails the earlier source.
+Independent review catches a separate retirement-wait geometry race: the strict
+path remeasures after acknowledgement; a deferred removal with a DOM-only move
+fails the stale measurement. SwiftUI's single Button uses an explicit bounded
+interaction shape; no duplicate tap recognizer or inferred web action is added.
+The existing physical journey is extended with guarded center/cardinal edge
+presses and a separate Debug History display-link probe across One/Puppy
+changes. These new device assertions are authored, not yet physical proof;
+host/frame continuity cannot establish uninterrupted glass pixels. The earlier
+automation-authorization failure still requires observed OS admission before
+another device batch; it is not a vault-passphrase failure.
+
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,

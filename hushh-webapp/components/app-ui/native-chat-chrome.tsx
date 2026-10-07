@@ -79,6 +79,7 @@ export function NativeChatChrome(props: Props) {
   const expanded = props.kind === "history" ? props.expanded ?? false : undefined;
   const current = useRef({ allowed, epoch, context, value, props, owningLayer, theme, expanded });
   const lease = useRef<NativeChromeLease | null>(null);
+  const replacementCandidate = useRef<NativeChromeLease | null>(null);
   const heldFocus = useRef(false);
   const moving = useRef(false);
   const focusPending = useRef(false);
@@ -86,6 +87,7 @@ export function NativeChatChrome(props: Props) {
   const mounted = useRef(true);
   const [supported, setSupported] = useState(false);
   const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
+  const [historyReplacement, setHistoryReplacement] = useState(false);
   const [nativeFocusReturn, setNativeFocusReturn] = useState(false);
   type FocusRequest = { attempt: number; binding: NativeChromeLease | null; resolve: (restored: boolean) => void };
   const nativeFocusPending = useRef<FocusRequest | null>(null);
@@ -271,6 +273,7 @@ export function NativeChatChrome(props: Props) {
         })), retain(nativeChrome.addListener("invalidated", invalidate)), retain(subscribeNativeSessionPrivacy(invalidate))]);
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
+          setHistoryReplacement(capability.historyReplacement === true);
           setNativeFocusReturn(capability.focusReturn === true && kind !== "agent-surface"); setSupported(true);
         }
       } catch {
@@ -385,14 +388,22 @@ export function NativeChatChrome(props: Props) {
     if (!supported) return;
     let cancelled = false;
     let owned: NativeChromeLease | null = null;
+    const previous = replacementCandidate.current;
+    replacementCandidate.current = null;
     lease.current?.invalidate();
     void (async () => {
       let stage: "retire" | "prepare" = "retire";
       try {
-        reportRehearsal(stage, "pending");
-        await retireNativeChrome(epoch, undefined, controlId);
-        if (cancelled) return;
         const { theme, expanded, value, props } = current.current;
+        let geometry = allowed && theme && canAct() && !heldFocus.current && slot.current &&
+          !slot.current.contains(document.activeElement) ? measureNativeChromeGeometry(slot.current, kind) : null;
+        const replacing = historyReplacement && props.kind === "history" && previous && theme && geometry &&
+          previous.canReplaceHistoryWith({ kind: "history", expanded, label: "Chat history", enabled: true, ...theme, ...geometry }, epoch, context);
+        if (!replacing) {
+          reportRehearsal(stage, "pending");
+          await retireNativeChrome(epoch, undefined, controlId);
+          if (cancelled) return;
+        }
         setPrepared(null);
         if (!allowed || !theme || !canAct() || heldFocus.current || !slot.current) {
           setHidden(false);
@@ -405,7 +416,9 @@ export function NativeChatChrome(props: Props) {
           heldFocus.current = true; nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "focused"); return;
         }
-        const geometry = measureNativeChromeGeometry(slot.current, kind);
+        // Strict removal can wait across a DOM-only position change. Its
+        // pre-removal measurement qualifies a handoff, not a new installation.
+        if (!replacing) geometry = measureNativeChromeGeometry(slot.current, kind);
         if (!geometry) {
           setHidden(false);
           nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
@@ -430,13 +443,16 @@ export function NativeChatChrome(props: Props) {
         // handoff. Do not paint an intermediate, clickable web replacement.
         setHidden(true);
         reportRehearsal(stage, "pending");
-        if (await next.prepare() && !cancelled) { reportRehearsal(stage, "acknowledged"); setHidden(true); setPrepared(next); }
+        const ready = replacing ? await next.prepareHistoryReplacement(previous) : await next.prepare();
+        if (ready && !cancelled) { reportRehearsal(stage, "acknowledged"); setHidden(true); setPrepared(next); }
       } catch (error) {
         if (cancelled || (owned && lease.current !== owned)) return;
         reportRehearsal(stage, "rejected", rehearsalFailureCode(error));
         owned?.invalidate();
         try {
-          await retireNativeChrome(epoch, owned?.projection, controlId);
+          // Refusal can leave the predecessor installed; uncertainty can leave
+          // either revision. Only this current reconciler owns removal here.
+          await retireNativeChrome(epoch, undefined, controlId);
           if (!cancelled) {
             setHidden(false);
             restorePendingDomFocus();
@@ -452,11 +468,22 @@ export function NativeChatChrome(props: Props) {
     })();
     return () => {
       cancelled = true;
+      replacementCandidate.current = kind === "history" && owned?.replacementReady ? owned : null;
       owned?.invalidate();
       if (owned && nativeFocusPending.current?.binding === owned) nativeFocusPending.current.binding = null;
-      if (owned) void retireNativeChrome(epoch, owned.projection, controlId).catch(() => undefined);
+      // The next committed layout explicitly replaces or hard-retires this
+      // slot. Actual unmount has its own strict removal below.
     };
-  }, [supported, allowed, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, canAct, reportRehearsal, restorePendingDomFocus]);
+  }, [supported, allowed, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, historyReplacement, canAct, reportRehearsal, restorePendingDomFocus]);
+
+  useLayoutEffect(() => () => {
+    replacementCandidate.current = null;
+    const active = lease.current;
+    active?.invalidate();
+    // Removal reserves its revision before another mounted slot can prepare.
+    // A pending handoff may still own its predecessor, so remove either one.
+    if (active) void retireNativeChrome(active.projection.ownerEpoch, undefined, controlId).catch(() => undefined);
+  }, [controlId]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden) return;

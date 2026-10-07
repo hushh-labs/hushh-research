@@ -108,6 +108,27 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.prepare(.init(document: "a", ownerEpoch: "owner-a", revision: 99)))
         state.invalidate()
         XCTAssertFalse(state.activate(next))
+
+        // History shares the state machine, not Back's presentation identity.
+        let history = HushhNativeChromeState.Identity(document: "c", ownerEpoch: "owner-a", revision: 1,
+                                                       controlId: "chat-history-toggle")
+        let historyNext = HushhNativeChromeState.Identity(document: "c", ownerEpoch: "owner-a", revision: 2,
+                                                           controlId: "chat-history-toggle")
+        XCTAssertTrue(state.prepare(history))
+        XCTAssertFalse(state.prepareHistoryReplacement(historyNext, previousRevision: 1)) // prepared only
+        XCTAssertTrue(state.activate(history))
+        XCTAssertFalse(state.prepareBackReplacement(historyNext, previousRevision: 1)) // wrong family
+        XCTAssertFalse(state.prepareHistoryReplacement(.init(document: "c", ownerEpoch: "other", revision: 2,
+            controlId: "chat-history-toggle"), previousRevision: 1))
+        XCTAssertFalse(state.prepareHistoryReplacement(.init(document: "d", ownerEpoch: "owner-a", revision: 2,
+            controlId: "chat-history-toggle"), previousRevision: 1))
+        XCTAssertEqual(state.identity, history)
+        XCTAssertTrue(state.prepareHistoryReplacement(historyNext, previousRevision: 1))
+        XCTAssertFalse(state.confirm(history, sequence: 3, latestSequence: 3, allowed: true))
+        XCTAssertFalse(state.confirm(historyNext, sequence: 3, latestSequence: 3, allowed: true))
+        XCTAssertTrue(state.activate(historyNext))
+        XCTAssertTrue(state.confirm(historyNext, sequence: 3, latestSequence: 3, allowed: true))
+        XCTAssertFalse(state.confirm(historyNext, sequence: 3, latestSequence: 3, allowed: true))
     }
 
     func testNativeChromeUpdatesFenceOldChoicesWithoutReplacingTheInstallation() {

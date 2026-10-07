@@ -44,6 +44,8 @@ export type NativeChromeCapabilities = {
   independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean;
   /** Same-owner, same-frame stationary Back only; retirement still means removal. */
   backReplacement?: boolean;
+  /** Same-mounted-owner History only, never a relocation to the drawer's Close. */
+  historyReplacement?: boolean;
 };
 
 export interface HushhNativeChromePlugin {
@@ -53,6 +55,7 @@ export interface HushhNativeChromePlugin {
   setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;
   prepareBackReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
+  prepareHistoryReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
   activate(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
   retire(options: ChromeIdentity & { targetRevision?: number }): Promise<ChromeAcknowledgement>;
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
@@ -214,10 +217,18 @@ export class NativeChromeLease {
     return previous.canReplaceBackWith(this.projection, this.projection.ownerEpoch, this.context) &&
       this.projection.documentId === previous.projection.documentId;
   }
+  canReplaceHistoryWith(projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    return this.canReplaceWith("history", projection, ownerEpoch, context) &&
+      projection.kind === "history" && this.projection.kind === "history" &&
+      (projection.expanded ?? false) === (this.projection.expanded ?? false);
+  }
   /** Compare before reserving a revision: ordinary preparation must be newer
    * than the removal tombstone, not merely newer than its predecessor. */
   canReplaceBackWith(projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
-    return projection.kind === "back" && this.projection.kind === "back" &&
+    return this.canReplaceWith("back", projection, ownerEpoch, context);
+  }
+  private canReplaceWith(kind: "back" | "history", projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    return projection.kind === kind && this.projection.kind === kind &&
       nativeDocumentId() === this.projection.documentId && ownerEpoch === this.projection.ownerEpoch &&
       projection.label === this.projection.label && context !== this.context && this.sameGeometry(projection);
   }
@@ -248,9 +259,19 @@ export class NativeChromeLease {
   /** Replace public presentation, never retain the predecessor's action authority. */
   async prepareBackReplacement(previous: NativeChromeLease): Promise<boolean> {
     if (!this.canReplaceBack(previous)) throw new Error("NATIVE_CHROME_REPLACEMENT_REFUSED");
+    return this.prepareReplacement(previous, nativeChrome.prepareBackReplacement.bind(nativeChrome));
+  }
+  async prepareHistoryReplacement(previous: NativeChromeLease): Promise<boolean> {
+    if (!previous.canReplaceHistoryWith(this.projection, this.projection.ownerEpoch, this.context)) {
+      throw new Error("NATIVE_CHROME_REPLACEMENT_REFUSED");
+    }
+    return this.prepareReplacement(previous, nativeChrome.prepareHistoryReplacement.bind(nativeChrome));
+  }
+  private async prepareReplacement(previous: NativeChromeLease,
+    prepare: (projection: ChromeProjection & { previousRevision: number }) => Promise<ChromeAcknowledgement>): Promise<boolean> {
     previous.invalidate();
     outstanding.set(this.projection.controlId, this.projection);
-    const ack = await bounded(nativeChrome.prepareBackReplacement({
+    const ack = await bounded(prepare({
       ...this.projection, previousRevision: previous.projection.revision,
     }));
     return this.acceptPreparation(ack);

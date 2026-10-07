@@ -69,8 +69,14 @@ struct HushhNativeChromeState {
         return true
     }
     mutating func prepareBackReplacement(_ next: Identity, previousRevision: Int) -> Bool {
+        prepareReplacement(next, previousRevision: previousRevision, controlId: "top-shell-back")
+    }
+    mutating func prepareHistoryReplacement(_ next: Identity, previousRevision: Int) -> Bool {
+        prepareReplacement(next, previousRevision: previousRevision, controlId: "chat-history-toggle")
+    }
+    private mutating func prepareReplacement(_ next: Identity, previousRevision: Int, controlId: String) -> Bool {
         guard phase == "active", let previous = identity,
-              previous.controlId == "top-shell-back", next.controlId == previous.controlId,
+              previous.controlId == controlId, next.controlId == previous.controlId,
               previous.revision == previousRevision, previous.document == next.document,
               previous.ownerEpoch == next.ownerEpoch else { return false }
         return prepare(next)
@@ -131,6 +137,9 @@ private struct NativeChromeButton: View {
                 // Fill the proposed label size while retaining the 44pt host.
                 // The accessible control and edge hit area still require device proof.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The symbol and empty label area invoke the same Button.
+                // Stay inside its reserved host; never add a second tap handler.
+                .contentShape(.interaction, Rectangle())
                 .foregroundStyle(Color(uiColor: theme.foreground))
         }
         .buttonStyle(.glass)
@@ -307,6 +316,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setCanvasAppearance", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepare", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepareBackReplacement", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareHistoryReplacement", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "activate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
@@ -324,6 +334,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private var canvasState = HushhNativeChromeState()
     #if DEBUG
     private var backContinuity: NativeBackContinuityProbe?
+    private var historyContinuity: NativeBackContinuityProbe?
     #endif
 
     override func load() {
@@ -333,6 +344,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if self.backAdmitted, ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics"),
                let host = self.bridge?.viewController?.view {
                 self.backContinuity = NativeBackContinuityProbe(host: host)
+                if self.chatControlsAdmitted {
+                    self.historyContinuity = NativeBackContinuityProbe(host: host, identifier: "native-history-continuity")
+                }
             }
             #endif
             for name in [UIApplication.willResignActiveNotification,
@@ -395,6 +409,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "families": families, "canvasAppearance": true, "independentControls": true,
                           "inPlaceUpdates": true,
                           "backReplacement": self?.backAdmitted == true,
+                          "historyReplacement": self?.chatControlsAdmitted == true,
                           "focusReturn": true,
                           "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&
                               ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics")])
@@ -512,6 +527,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             controller.didMove(toParent: parent)
             #if DEBUG
             if kind == "back" { self.backContinuity?.installed(controller.view) }
+            if kind == "history" { self.historyContinuity?.installed(controller.view) }
             #endif
             slot.pendingLayout = call
             controller.didLayout = { [weak self, weak slot, weak controller] in
@@ -532,33 +548,43 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     /// noninteractive and accessibility-hidden until fresh activation. Normal
     /// retire acknowledgements continue to prove physical removal.
     @objc func prepareBackReplacement(_ call: CAPPluginCall) {
+        prepareReplacement(call, kind: "back", controlId: "top-shell-back")
+    }
+    @objc func prepareHistoryReplacement(_ call: CAPPluginCall) {
+        prepareReplacement(call, kind: "history", controlId: "chat-history-toggle")
+    }
+    private func prepareReplacement(_ call: CAPPluginCall, kind: String, controlId: String) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, #available(iOS 26.0, *), self.backAdmitted,
-                  let identity = self.identity(call), identity.controlId == "top-shell-back",
-                  call.getString("kind") == "back", call.getBool("enabled") == true,
+            guard let self, #available(iOS 26.0, *), self.admits(kind, controlId: controlId),
+                  let identity = self.identity(call), identity.controlId == controlId,
+                  call.getString("kind") == kind, call.getBool("enabled") == true,
                   let previousRevision = call.getInt("previousRevision"),
-                  let slot = self.slots[identity.controlId], slot.kind == "back",
+                  let slot = self.slots[identity.controlId], slot.kind == kind,
                   slot.pendingLayout == nil, slot.pendingFocus == nil, slot.presenter == nil,
                   let hosting = slot.hosting, !hosting.view.isHidden,
                   hosting.view.superview != nil, hosting.parent === self.bridge?.viewController,
                   let label = call.getString("label"), label == slot.label,
                   let presentation = ChromePresentation(call), presentation.value == nil,
-                  let frame = self.frame(call, kind: "back"), hosting.view.frame == frame,
+                  presentation.expanded == slot.presentation?.expanded,
+                  let frame = self.frame(call, kind: kind), hosting.view.frame == frame,
                   let viewport = self.viewport(call), viewport == slot.viewport,
                   self.geometryIsCurrent(slot), self.canPresent, self.document == identity.document,
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
-                  !self.retiredDocuments.contains(identity.document),
-                  slot.state.prepareBackReplacement(identity, previousRevision: previousRevision) else {
+                  !self.retiredDocuments.contains(identity.document) else {
                 call.reject("NATIVE_CHROME_REPLACEMENT_REFUSED"); return
             }
+            let accepted = kind == "back"
+                ? slot.state.prepareBackReplacement(identity, previousRevision: previousRevision)
+                : slot.state.prepareHistoryReplacement(identity, previousRevision: previousRevision)
+            guard accepted else { call.reject("NATIVE_CHROME_REPLACEMENT_REFUSED"); return }
             hosting.view.isUserInteractionEnabled = false
             hosting.view.accessibilityElementsHidden = true
             slot.choiceValue = nil
             slot.focus = ChromeFocusRequest()
             slot.presentation = presentation
             hosting.overrideUserInterfaceStyle = presentation.theme.style
-            hosting.rootView = AnyView(NativeChromeButton(label: label, controlId: identity.controlId,
-                symbol: self.symbol("back", expanded: false), theme: presentation.theme,
+            hosting.rootView = AnyView(NativeChromeButton(label: kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
+                symbol: self.symbol(kind, expanded: presentation.expanded), theme: presentation.theme,
                 action: { [weak self] in self?.activateControl(identity.controlId) },
                 layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
             hosting.view.layoutIfNeeded()
@@ -570,7 +596,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("NATIVE_CHROME_LAYOUT_UNCONFIRMED"); return
             }
             #if DEBUG
-            self.backContinuity?.replaced(hosting.view)
+            if kind == "back" { self.backContinuity?.replaced(hosting.view) }
+            if kind == "history" { self.historyContinuity?.replaced(hosting.view) }
             #endif
             call.resolve(self.payload(identity, phase: "prepared", frame: hosting.view.frame))
         }
@@ -589,6 +616,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             hosting.view.accessibilityElementsHidden = false
             #if DEBUG
             if slot.kind == "back" { self.backContinuity?.activated() }
+            if slot.kind == "history" { self.historyContinuity?.activated() }
             #endif
             call.resolve(self.payload(identity, phase: "active"))
         }
@@ -859,6 +887,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         guard let hosting = slot.hosting else { return }
         #if DEBUG
         if slot.kind == "back" { backContinuity?.removed() }
+        if slot.kind == "history" { historyContinuity?.removed() }
         #endif
         hosting.didLayout = nil
         hosting.view.isUserInteractionEnabled = false
@@ -916,9 +945,9 @@ private final class NativeBackContinuityProbe: NSObject {
     private var expected = false
     private var installs = 0, removals = 0, replacements = 0, sampledFrames = 0, missingFrames = 0
 
-    init(host: UIView) {
+    init(host: UIView, identifier: String = "native-back-continuity") {
         super.init()
-        label.accessibilityIdentifier = "native-back-continuity"
+        label.accessibilityIdentifier = identifier
         label.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(label)
         NSLayoutConstraint.activate([

@@ -878,6 +878,39 @@ final class AppUITests: XCTestCase {
             let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
             XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 10), .completed, message)
         }
+        let historyProbe = app.buttons["native-history-continuity"].firstMatch
+        func historyCounters() -> [String: Int]? {
+            guard historyProbe.exists, let json = historyProbe.value as? String, let data = json.data(using: .utf8),
+                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
+                  Set(packet.keys) == Set(["installs", "removals", "replacements", "sampledFrames", "missingFrames"])
+            else { return nil }
+            return packet
+        }
+        func sampledHistoryAfterActivation() -> [String: Int]? {
+            guard history.exists && history.isHittable, let activated = historyCounters() else {
+                XCTFail("NATIVE_HISTORY_MEASUREMENTS_UNAVAILABLE"); return nil
+            }
+            var sampled: [String: Int]?
+            let fresh = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard history.exists && history.isHittable, let packet = historyCounters(),
+                      packet["sampledFrames", default: 0] > activated["sampledFrames", default: 0] else { return false }
+                sampled = packet; return true
+            }, object: historyProbe)
+            guard XCTWaiter.wait(for: [fresh], timeout: 10) == .completed else {
+                XCTFail("NATIVE_HISTORY_POST_ACTIVATION_SAMPLE_MISSING"); return nil
+            }
+            return sampled
+        }
+        func tapNative(_ target: XCUIElement, at point: CGVector) {
+            // Public native target only, never arbitrary transcript coordinates.
+            // AX existence is not proof that an empty part of its label responds.
+            let valid = target.exists && target.isHittable && target.isEnabled &&
+                app.buttons.matching(identifier: target.identifier).count == 1 &&
+                target.frame.width >= 44 && target.frame.height >= 44 && app.frame.contains(target.frame)
+            XCTAssertTrue(valid, "NATIVE_CHROME_PRESS_TARGET_UNAVAILABLE")
+            guard valid else { return }
+            target.coordinate(withNormalizedOffset: point).tap()
+        }
         print("NATIVE_CHAT_ENTRY keyboard=\(app.keyboards.firstMatch.exists) history_dom=\(web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND identifier != %@", "Open chat history", "chat-history-toggle")).firstMatch.exists) picker_native=\(selector.exists)")
         let selectorRoots = app.descendants(matching: .any).matching(identifier: "chat-agent-surface")
         let fallbackNames = web.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", [
@@ -1000,7 +1033,21 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable,
                       "Native selector did not return after History dismissal")
         assertNativeTargets()
-        for _ in 0..<2 {
+        let edgePoints = [CGVector(dx: 0.05, dy: 0.5), CGVector(dx: 0.95, dy: 0.5),
+                          CGVector(dx: 0.5, dy: 0.05), CGVector(dx: 0.5, dy: 0.95)]
+        for point in edgePoints {
+            tapNative(history, at: point)
+            XCTAssertTrue(historyHeading.waitForExistence(timeout: 10) && historyHeading.isHittable)
+            XCTAssertTrue(close.waitForExistence(timeout: 10) && close.isHittable)
+            XCTAssertEqual(app.buttons.matching(identifier: "chat-history-toggle").count, 1)
+            tapNative(close, at: point)
+            awaitAbsent(close, "Native History edge press did not dismiss")
+            XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable,
+                          "History edge press returned a web replacement")
+            assertNativeTargets()
+        }
+        let profilePresses = [CGVector(dx: 0.5, dy: 0.5)] + edgePoints
+        for point in profilePresses {
             let openProfile = web.buttons["Open Profile"].firstMatch
             XCTAssertTrue(openProfile.exists && openProfile.isHittable)
             openProfile.tap()
@@ -1013,13 +1060,15 @@ final class AppUITests: XCTestCase {
             XCTAssertFalse(web.buttons.matching(NSPredicate(
                 format: "label == %@ AND identifier != %@", "Close Profile", "profile-close")).firstMatch.exists,
                 "Profile must not expose duplicate native and web Close controls")
-            nativeClose.tap()
+            tapNative(nativeClose, at: point)
             awaitAbsent(nativeClose, "Native Profile Close did not retire after dismissal")
             XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
             XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable)
             assertSameHost()
         }
-        print("NATIVE_CHROME_REOPEN history=true profile_cycles=2")
+        print("NATIVE_CHROME_REOPEN history=true profile_cycles=5")
+        print("NATIVE_CHROME_PRESS_REGIONS history=5 close=5 profile=5")
+        guard let beforeSurface = historyCounters() else { XCTFail("NATIVE_HISTORY_MEASUREMENTS_UNAVAILABLE"); return }
         segment("puppy").tap()
         let puppyComposer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message Puppy One")).firstMatch
         // A reviewer with no Puppy conversations has an authored empty state,
@@ -1033,11 +1082,27 @@ final class AppUITests: XCTestCase {
                        "Native selector did not enter the authored Puppy surface")
         let puppySelected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: segment("puppy"))
         XCTAssertEqual(XCTWaiter.wait(for: [puppySelected], timeout: 10), .completed, "React selection was not projected back to Picker")
+        XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
+        guard let afterPuppy = sampledHistoryAfterActivation() else { return }
+        XCTAssertEqual(afterPuppy["installs"], beforeSurface["installs"])
+        XCTAssertEqual(afterPuppy["removals"], beforeSurface["removals"])
+        XCTAssertGreaterThan(afterPuppy["replacements", default: 0], beforeSurface["replacements", default: 0])
+        XCTAssertEqual(afterPuppy["missingFrames"], beforeSurface["missingFrames"])
         assertSameHost()
         segment("one").tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 15) && composer.isHittable, "Cloud did not return without sending or resetting")
         let cloudSelected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: segment("one"))
         XCTAssertEqual(XCTWaiter.wait(for: [cloudSelected], timeout: 10), .completed)
+        XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
+        guard let afterSurface = sampledHistoryAfterActivation() else { return }
+        XCTAssertEqual(afterSurface["installs"], beforeSurface["installs"], "Agent switch recreated the History host")
+        XCTAssertEqual(afterSurface["removals"], beforeSurface["removals"], "Agent switch removed the History host")
+        XCTAssertGreaterThanOrEqual(afterSurface["replacements", default: 0] - beforeSurface["replacements", default: 0], 2)
+        XCTAssertGreaterThan(afterSurface["replacements", default: 0], afterPuppy["replacements", default: 0])
+        XCTAssertGreaterThan(afterSurface["sampledFrames", default: 0], beforeSurface["sampledFrames", default: 0],
+                             "History transition was not sampled")
+        XCTAssertEqual(afterSurface["missingFrames"], beforeSurface["missingFrames"], "History moved or vanished during an admitted handoff")
+        print("NATIVE_HISTORY_CONTINUITY retained_switches=2 missing_delta=0")
         composer.tap() // No typeText: preserve the complete existing draft.
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "Keyboard did not open")
         XCTAssertFalse(nativeHistory.exists, "Native History appeared over the keyboard")
