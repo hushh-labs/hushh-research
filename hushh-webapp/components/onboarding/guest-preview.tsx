@@ -2,25 +2,18 @@
 
 import {
   useEffect,
-  useId,
   useRef,
   useState,
   type CSSProperties,
-  type FocusEvent,
-  type PointerEvent,
   type RefObject,
 } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
-  Briefcase,
-  FinanceAgentIcon,
   CalendarAgentIcon,
   LocationAgentIcon,
-  Heart,
   Mic,
-  Users,
 } from "@/components/icons";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
@@ -35,7 +28,6 @@ import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
 import {
-  AgentTabLabel,
   BodyText,
   CaptionText,
   RowDescription,
@@ -43,7 +35,6 @@ import {
 } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import { getGsap } from "@/lib/morphy-ux/gsap";
-import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import {
   ensureMorphyGsapReady,
   getMorphyEaseName,
@@ -52,54 +43,17 @@ import {
   ONE_CAPABILITIES,
   isOneCapabilityEnabled,
 } from "@/lib/onboarding/one-capabilities";
-import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./guest-preview.module.css";
 import welcomeStyles from "./IntroStep.module.css";
 import { OneWelcomeStory, OneWelcomePrivacy } from "./OneWelcomeStory";
 
-const CIRCLES = [
-  {
-    id: "family",
-    title: "Family",
-    icon: Heart,
-    palette: "email",
-    headline: "Family Circle",
-    description: "Share your location with family, when you choose.",
-  },
-  {
-    id: "friends",
-    title: "Friends",
-    icon: Users,
-    palette: "ria",
-    headline: "Friends Circle",
-    description: "Keep your friends and shared plans together.",
-  },
-  {
-    id: "finance",
-    title: "Finance",
-    icon: FinanceAgentIcon,
-    palette: "finance",
-    headline: "Finance Circle",
-    description: "Bring your advisor into your Finance Circle.",
-  },
-  {
-    id: "business",
-    title: "Business",
-    icon: Briefcase,
-    palette: "consent",
-    headline: "Business Circle",
-    description: "Give your work connections a Circle of their own.",
-  },
-] as const;
 const CAPABILITIES = ONE_CAPABILITIES.filter(
   (capability) =>
     capability.isVisibleOnRoster !== false &&
     isOneCapabilityEnabled(capability),
 );
-const PALETTE = DASHBOARD_AGENT_ICON_STYLE_BY_ID;
-const PREVIEW_CYCLE_MS = 2500;
 // Presentation only. Calendar illustrates a connected calendar's free slots;
 // Location illustrates a ready Family Circle with device permission granted.
 // The sharing contract supports duration/early revocation, not arrival triggers.
@@ -228,43 +182,6 @@ function usePreviewMotionPreference() {
   return !reducedMotion && visible;
 }
 
-/** Low-frequency selection changes; no work while hidden or reduced-motion.
- * Hover and keyboard focus hold the description until the reader leaves. */
-function usePreviewCycle(count: number) {
-  const motionEnabled = usePreviewMotionPreference();
-  const [index, setIndex] = useState(0);
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const cycling = motionEnabled && !hovered && !focused;
-  useEffect(() => {
-    if (!cycling || count < 2) return;
-    const timer = window.setTimeout(
-      () => setIndex((value) => (value + 1) % count),
-      PREVIEW_CYCLE_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [count, cycling, index]);
-  return {
-    index,
-    setIndex,
-    motionEnabled,
-    cycling,
-    interactionProps: {
-      onPointerEnter: (event: PointerEvent<HTMLDivElement>) => {
-        if (event.pointerType === "mouse") setHovered(true);
-      },
-      onPointerLeave: () => setHovered(false),
-      onFocusCapture: (event: FocusEvent<HTMLDivElement>) => {
-        setFocused(event.target.matches(":focus-visible"));
-      },
-      onBlurCapture: (event: FocusEvent<HTMLDivElement>) => {
-        if (!event.currentTarget.contains(event.relatedTarget))
-          setFocused(false);
-      },
-    },
-  };
-}
-
 /** One bounded illustration transition, using the app's existing GSAP owner.
  * Route/step transitions remain owned by the shared motion-step-enter utility.
  * A failed/later import leaves the readable static composition intact.
@@ -372,111 +289,36 @@ function useIllustrationMotion(
   }, [enabled, ref, selection]);
 }
 
-function CircleStory() {
-  const { index, setIndex, motionEnabled, cycling, interactionProps } =
-    usePreviewCycle(CIRCLES.length);
-  const illustrationRef = useRef<HTMLDivElement>(null);
-  const helpId = useId();
-  const circle = CIRCLES[index] ?? CIRCLES[0];
-  const CircleIcon = circle.icon;
-  useIllustrationMotion(illustrationRef, index, motionEnabled);
-
+function ChatStory() {
   return (
-    <div
-      ref={illustrationRef}
-      className={styles.circleStory}
-      style={PALETTE.wallet as CSSProperties}
-      data-circle-tour={cycling ? "running" : "stopped"}
-      {...interactionProps}
-    >
-      <p id={helpId} className="sr-only">
-        Choose a Circle to explore it. The tour pauses while you hover or use
-        the keyboard.
-      </p>
-      <div
-        className={styles.orbit}
-        aria-label="Explore Circles"
-        aria-describedby={helpId}
-      >
-        <div
-          className={styles.orbitLight}
-          data-orbit-light
-          aria-hidden="true"
-        />
-        <div className={styles.ring} data-orbit-ring aria-hidden="true" />
-        <div className={styles.innerRing} data-orbit-ring aria-hidden="true" />
-        <div
-          className={styles.orbitRipple}
-          data-orbit-ripple
-          aria-hidden="true"
-        />
-        <div
-          className={styles.orbitRipple}
-          data-orbit-ripple
-          aria-hidden="true"
-        />
-        <div className={styles.brandCenter} data-preview-center>
-          <div className={styles.brandTile} data-preview-intro>
-            <HushhMark
-              className={styles.brandMark}
-              alt="Hussh One"
-              priority
-            />
-          </div>
+    <div className={styles.chatStep}>
+      <div className={styles.chatCardExact}>
+        <div className={styles.chatExampleLabel}>Example conversation</div>
+        <div className={styles.chatUserMessage}>
+          Give me a brief on who I&apos;m meeting tomorrow afternoon.
         </div>
-        {CIRCLES.map((item, position) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              className={styles.circle}
-              style={PALETTE[item.palette] as CSSProperties}
-              data-position={position}
-              aria-pressed={index === position}
-              onClick={() => {
-                setIndex(position);
-              }}
-              onPointerEnter={(event) => {
-                if (event.pointerType !== "mouse") return;
-                setIndex(position);
-              }}
-              onFocus={() => {
-                setIndex(position);
-              }}
-            >
-              <span className={styles.circleLift}>
-                <span
-                  className={styles.circlePill}
-                  data-circle-selected={index === position}
-                  data-preview-intro
-                >
-                  <Icon aria-hidden="true" weight="fill" color="currentColor" />
-                  <AgentTabLabel data-tone="primary">
-                    {item.title}
-                  </AgentTabLabel>
-                </span>
-              </span>
-            </button>
-          );
-        })}
+        <div className={styles.chatChecked}>
+          <span aria-hidden="true">✓</span> Checked your calendar
+        </div>
+        <div className={styles.chatResponse}>
+          You have a meeting with <strong>Manish Sainani</strong> at 3 PM.
+        </div>
+        <div className={styles.chatContext}>
+          [Short bio of Manish Sainani: role, company and how you know each
+          other] ...
+        </div>
+        <div className={styles.chatPrompt}>
+          <span>Ask One</span>
+          <svg width="64" height="28" viewBox="0 0 64 28" aria-hidden="true" fill="currentColor">
+            {[10, 5, 9, 1, 7, 4, 10].map((y, index) => (
+              <rect key={index} x={index * 9} y={y} width="4" height={28 - y * 2} rx="2" />
+            ))}
+          </svg>
+          <button type="button" aria-label="Speak to One" className={styles.chatMic}>
+            <Mic aria-hidden="true" />
+          </button>
+        </div>
       </div>
-      <SurfaceCard
-        className={styles.circleCopy}
-        style={PALETTE[circle.palette] as CSSProperties}
-        aria-live={cycling ? "off" : "polite"}
-        aria-atomic="true"
-      >
-        <div key={circle.id} data-preview-reveal>
-          <div className={styles.circleCopyHeading}>
-            <span className={styles.circleCopyIcon} aria-hidden="true">
-              <CircleIcon weight="fill" color="currentColor" />
-            </span>
-            <MediumRowLabel as="h3">{circle.headline}</MediumRowLabel>
-          </div>
-          <BodyText>{circle.description}</BodyText>
-        </div>
-      </SurfaceCard>
     </div>
   );
 }
@@ -703,7 +545,7 @@ export function GuestPreview({
       : step === 1
         ? "Eight private agents working together to make your life easier."
         : step === 2
-          ? "Your people, closer."
+          ? "Chat with Agent One, out loud or in writing."
           : "Just ask One.";
 
   useEffect(() => {
@@ -797,7 +639,7 @@ export function GuestPreview({
                 {step === 1
                   ? "What you tell one agent helps the others, and you stay in control of all of it."
                   : step === 2
-                    ? "Circles for every part of your life."
+                    ? "One checks your calendar and everything else you have connected, then gives you a direct answer."
                     : "Talk or type. Let One help you."}
               </BodyText>
             </div>
@@ -810,7 +652,7 @@ export function GuestPreview({
               {step === 1 ? (
                 <AgentStory />
               ) : step === 2 ? (
-                <CircleStory />
+                <ChatStory />
               ) : (
                 <div
                   className={styles.invitation}
@@ -858,7 +700,7 @@ export function GuestPreview({
 
           <footer className={styles.footer}>
             <nav className={styles.progress} aria-label="Preview screens">
-              {["Welcome", "Agents", "Circles", "Get started"].map((label, index) => (
+              {["Welcome", "Agents", "Chat", "Get started"].map((label, index) => (
                 <button
                   key={label}
                   type="button"
@@ -882,7 +724,7 @@ export function GuestPreview({
               {step === 1
                 ? "Meet your agents"
                 : step === 2
-                ? "See what’s next"
+                ? "Continue"
                   : invitation?.kind === "circle"
                     ? "Join this Circle"
                     : invitation
