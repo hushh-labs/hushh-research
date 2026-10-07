@@ -1201,6 +1201,17 @@ forwarding the count. Freezing the accessible label fails the new assertion;
 restoring it passes all 69 nearest checks. The parent wiring/singleton/sidebar
 activity checks remain. Neither runtime code nor a CI gate is relaxed.
 
+A further rendered check catches a distinction the height contract missed:
+uniform siblings still vertically center their differently wrapped text blocks,
+moving title starts by 9.5px at 393px WebKit width. The existing fixture now
+requires shared relative title starts as well as equal heights. The shared
+uniform-row policy stretches the content track and anchors text at its start;
+icons and trailing controls keep their centered alignment. All eight existing
+Chromium/WebKit cases pass at 320/393/834/1440px with ordinary and enlarged
+text, unchanged readable descriptions and actual action/busy-state checks.
+Content-sized mixed controls and record lists are unaffected. This CSS/browser
+proof does not inherit physical acceptance from the earlier installed product.
+
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,

@@ -372,6 +372,11 @@ for (const width of [320, 393, 834, 1440]) {
         const heights = await siblings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
         expect(heights.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
         expect(spread(heights)).toBeLessThanOrEqual(1);
+        const titleOffsets = await siblings.evaluateAll((nodes) => nodes.map((node) => {
+          const title = node.querySelector('[data-slot="settings-row-title"]')!;
+          return title.getBoundingClientRect().top - node.getBoundingClientRect().top;
+        }));
+        expect(spread(titleOffsets), `${await source.getAttribute("data-testid")}: uniform siblings retain a shared title start when supporting copy wraps`).toBeLessThanOrEqual(1);
         for (const row of await siblings.all()) {
           // Voice rows intentionally have only a trailing switch or a passive
           // Coming soon badge; they are not full-row navigation actions.
