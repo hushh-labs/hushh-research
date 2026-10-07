@@ -656,10 +656,12 @@ describe("native chrome presentation lease", () => {
     const handle = createRef<NativeChatChromeHandle>();
     const view = render(<ChatHarness handle={handle} />);
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const lifecycle = [bridge.retire.mock.calls.length, bridge.prepare.mock.calls.length, bridge.activate.mock.calls.length];
     let result!: Promise<boolean>;
     act(() => { result = handle.current!.restoreFocus(true); });
     await waitFor(() => expect(bridge.restoreFocus).toHaveBeenCalledOnce());
     expect(await result).toBe(true);
+    expect([bridge.retire.mock.calls.length, bridge.prepare.mock.calls.length, bridge.activate.mock.calls.length]).toEqual(lifecycle);
     expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
     expect(bridge.restoreFocus.mock.calls[0][0]).toMatchObject({
       controlId: "chat-history-toggle", updateSequence: 0, focusSequence: 1,
@@ -677,14 +679,20 @@ describe("native chrome presentation lease", () => {
     const preparations = bridge.prepare.mock.calls.length;
     const preparation = deferred<ChromeAcknowledgement>();
     bridge.prepare.mockReturnValueOnce(preparation.promise);
+    // A moved slot cannot take the retained-focus path, even before resize
+    // notification. Keep failed-preparation recovery on this real boundary.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 3, y: 60, width: 44, height: 44, top: 60, left: 3, right: 47, bottom: 104, toJSON: () => ({}),
+    });
     act(() => { result = handle.current!.restoreFocus(true); });
     await waitFor(() => expect(bridge.prepare.mock.calls.length).toBeGreaterThan(preparations));
     expect(view.getByText("Authored history")).not.toBeVisible();
     await act(async () => { preparation.reject(new Error("NATIVE_CHROME_LAYOUT_UNCONFIRMED")); });
     expect(await result).toBe(true);
     expect(view.getByRole("button", { name: "Authored history" })).toHaveFocus();
+    const activations = bridge.activate.mock.calls.length;
     act(() => { view.getByRole("button", { name: "Authored history" }).blur(); });
-    await waitFor(() => expect(bridge.activate.mock.calls.length).toBeGreaterThan(3));
+    await waitFor(() => expect(bridge.activate.mock.calls.length).toBeGreaterThan(activations));
     const delayedFocus = deferred<Record<string, unknown>>();
     bridge.restoreFocus.mockReturnValueOnce(delayedFocus.promise);
     const focusCalls = bridge.restoreFocus.mock.calls.length;
@@ -699,6 +707,34 @@ describe("native chrome presentation lease", () => {
     expect(await result).toBe(true);
     await act(async () => { delayedFocus.resolve({ ...resized, restored: true }); });
     expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
+
+    const displacedFocus = deferred<Record<string, unknown>>();
+    bridge.restoreFocus.mockReturnValueOnce(displacedFocus.promise);
+    act(() => { result = handle.current!.restoreFocus(true); });
+    const displaced = bridge.restoreFocus.mock.calls.at(-1)![0];
+    const onReplacement = vi.fn();
+    const replacementHandle = createRef<NativeChatChromeHandle>();
+    const replacement = render(<ChatHarness handle={replacementHandle} owner="new-mounted-owner" onAction={onReplacement} />);
+    await waitFor(() => expect(bridge.activate.mock.calls.at(-1)?.[0].ownerEpoch).not.toBe(displaced.ownerEpoch));
+    const replacementIdentity = bridge.activate.mock.calls.at(-1)![0];
+    const retirements = bridge.retire.mock.calls.length;
+    await act(async () => { displacedFocus.resolve({ ...displaced, restored: true }); });
+    expect(await result).toBe(false);
+    expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+    expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
+    expect(view.container.querySelector("button")?.parentElement).toHaveAttribute("inert");
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...replacementIdentity, sequence: 1, privacyGeneration: 0, updateSequence: 0 }));
+    await waitFor(() => expect(onReplacement).toHaveBeenCalledOnce());
+
+    const oldDocumentFocus = deferred<Record<string, unknown>>();
+    bridge.restoreFocus.mockReturnValueOnce(oldDocumentFocus.promise);
+    act(() => { result = replacementHandle.current!.restoreFocus(true); });
+    const oldDocument = bridge.restoreFocus.mock.calls.at(-1)![0];
+    bridge.documentId = crypto.randomUUID();
+    await act(async () => { oldDocumentFocus.resolve({ ...oldDocument, restored: true }); });
+    expect(await result).toBe(false);
+    expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+    expect(replacement.queryByRole("button", { name: "Authored history" })).toBeNull();
   });
 
   it("keeps Drive attention accessible in the actual opener and out of native projections", async () => {

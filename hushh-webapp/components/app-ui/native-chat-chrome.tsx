@@ -7,7 +7,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
 import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
-import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { getVoiceSurfaceMetadata, useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -129,6 +129,58 @@ export function NativeChatChrome(props: Props) {
     current.current = { allowed, epoch, context, value, props, owningLayer, theme, expanded };
   });
 
+  const restorePendingDomFocus = useCallback(() => {
+    const pending = nativeFocusPending.current;
+    nativeFocusPending.current = null;
+    if (!pending) return;
+    const allowed = mounted.current && pending.attempt === focusAttempt.current && canAct();
+    if (!allowed) { pending.resolve(false); return; }
+    heldFocus.current = true; focusPending.current = true;
+    domFocusPending.current = pending;
+    // Preparation already exposes fallback. A ref change and setHidden(false)
+    // alone do not schedule the commit needed to apply its actual focus.
+    commitFocus((count) => count + 1);
+  }, [canAct]);
+  const restoreNativeFocus = useCallback(async (active: NativeChromeLease) => {
+    const pending = nativeFocusPending.current;
+    if (!pending || pending.binding || lease.current !== active) return;
+    pending.binding = active;
+    const isCurrent = () => mounted.current && nativeFocusPending.current === pending &&
+      focusAttempt.current === pending.attempt && pending.binding === active && lease.current === active &&
+      active.projection.documentId === nativeDocumentId() &&
+      active.projection.ownerEpoch === current.current.epoch && active.context === current.current.context &&
+      isCurrentNativeControlAppearance(active.projection, foreground) && canAct();
+    try {
+      if (await active.restoreFocus(() => {
+        const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
+        return isCurrent() && !!geometry && active.matchesGeometry(geometry);
+      }) && isCurrent() && active.ownsInstallation) {
+        nativeFocusPending.current = null; pending.resolve(true); return;
+      }
+    } catch { /* Unsupported/uncertain focus never replays an action. */ }
+    if (!isCurrent() || !active.ownsInstallation) {
+      // Cleanup can rebind the same current attempt to a resized replacement.
+      // Completion from its retired predecessor must not settle that request.
+      if (nativeFocusPending.current === pending && pending.binding === active) {
+        nativeFocusPending.current = null; pending.resolve(false);
+      }
+      return;
+    }
+    active.invalidate();
+    try {
+      await retireNativeChrome(active.projection.ownerEpoch, active.projection, controlId);
+      if (!isCurrent() || hasOutstandingNativeChrome(controlId)) {
+        if (nativeFocusPending.current === pending && pending.binding === active) {
+          nativeFocusPending.current = null; pending.resolve(false);
+        }
+        return;
+      }
+      restorePendingDomFocus(); setPrepared(null); setHidden(false);
+    } catch {
+      if (nativeFocusPending.current === pending) nativeFocusPending.current = null;
+      pending.resolve(false); // Remain quarantined until confirmed retirement.
+    }
+  }, [canAct, controlId, foreground, kind, restorePendingDomFocus]);
   useImperativeHandle(handleRef, () => ({ restoreFocus: async (preferNative = false) => {
     nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
     domFocusPending.current?.resolve(false); domFocusPending.current = null;
@@ -136,6 +188,19 @@ export function NativeChatChrome(props: Props) {
     const attempt = ++focusAttempt.current;
     const isCurrentAttempt = () => mounted.current && focusAttempt.current === attempt &&
       current.current.epoch === request.epoch && current.current.context === request.context;
+    const active = lease.current;
+    const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
+    if (preferNative && supported && nativeFocusReturn && canAct() && !heldFocus.current &&
+        !slot.current?.contains(document.activeElement) && active?.focusReady && geometry &&
+        active.projection.ownerEpoch === request.epoch && active.context === request.context &&
+        active.matchesGeometry(geometry) && isCurrentNativeControlAppearance(active.projection, foreground)) {
+      // Returning focus is not a new installation. Keep an already-active,
+      // stationary control; the acknowledged focus path still fences failure,
+      // resize, owner changes and stale completion before exposing fallback.
+      const result = new Promise<boolean>((resolve) => { nativeFocusPending.current = { attempt, binding: null, resolve }; });
+      void restoreNativeFocus(active);
+      return result;
+    }
     heldFocus.current = true;
     lease.current?.invalidate();
     try {
@@ -173,52 +238,6 @@ export function NativeChatChrome(props: Props) {
       return false;
     }
   } }));
-  const restorePendingDomFocus = useCallback(() => {
-    const pending = nativeFocusPending.current;
-    nativeFocusPending.current = null;
-    if (!pending) return;
-    const allowed = mounted.current && pending.attempt === focusAttempt.current && canAct();
-    if (!allowed) { pending.resolve(false); return; }
-    heldFocus.current = true; focusPending.current = true;
-    domFocusPending.current = pending;
-    // Preparation already exposes fallback. A ref change and setHidden(false)
-    // alone do not schedule the commit needed to apply its actual focus.
-    commitFocus((count) => count + 1);
-  }, [canAct]);
-  const restoreNativeFocus = useCallback(async (active: NativeChromeLease) => {
-    const pending = nativeFocusPending.current;
-    if (!pending || pending.binding || lease.current !== active) return;
-    pending.binding = active;
-    const isCurrent = () => mounted.current && nativeFocusPending.current === pending &&
-      focusAttempt.current === pending.attempt && pending.binding === active && lease.current === active && canAct();
-    try {
-      if (await active.restoreFocus(isCurrent) && isCurrent()) {
-        nativeFocusPending.current = null; pending.resolve(true); return;
-      }
-    } catch { /* Unsupported/uncertain focus never replays an action. */ }
-    if (!isCurrent()) {
-      // Cleanup can rebind the same current attempt to a resized replacement.
-      // Completion from its retired predecessor must not settle that request.
-      if (nativeFocusPending.current === pending && pending.binding === active) {
-        nativeFocusPending.current = null; pending.resolve(false);
-      }
-      return;
-    }
-    active.invalidate();
-    try {
-      await retireNativeChrome(active.projection.ownerEpoch, active.projection, controlId);
-      if (!isCurrent()) {
-        if (nativeFocusPending.current === pending && pending.binding === active) {
-          nativeFocusPending.current = null; pending.resolve(false);
-        }
-        return;
-      }
-      restorePendingDomFocus(); setPrepared(null); setHidden(false);
-    } catch {
-      if (nativeFocusPending.current === pending) nativeFocusPending.current = null;
-      pending.resolve(false); // Remain quarantined until confirmed retirement.
-    }
-  }, [canAct, controlId, restorePendingDomFocus]);
   useLayoutEffect(() => {
     if (!hidden && focusPending.current && canAct()) {
       focusPending.current = false;

@@ -1253,6 +1253,20 @@ actual A/B mounting test fails both older Back and History cleanup paths and
 requires the replacement to remain actionable, then retire on its own unmount.
 This does not qualify other automatic inactive reconciliation or device pixels.
 
+Native focus return also hard-retired an already-active stationary History
+control before requesting focus. The acknowledged focus path now reuses only
+the current document/instance/revision's installed control, with unchanged
+geometry and appearance and no pending update or DOM focus hold. The nearest
+focus test fails the old source's additional retirement/preparation/activation
+cycle; moved geometry, failed preparation, owner changes and resized pending
+focus still exercise strict recovery. Independent review identifies another
+boundary: a delayed focus response from a displaced installation could expose
+its DOM fallback beneath the replacement. The same test reproduces that
+outcome and requires stale-slot/document focus to settle false, preserve the
+fallback quarantine and leave the replacement actionable without removal.
+These source checks do not replace current-candidate iPhone center/edge press,
+appearance continuity, accessibility or Release performance evidence.
+
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,

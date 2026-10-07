@@ -223,6 +223,16 @@ export class NativeChromeLease {
   get replacementReady(): boolean {
     return this.current && this.active && this.layoutConfirmed && this.requestedUpdate === this.appliedUpdate;
   }
+  /** Local references alone cannot establish current slot or document ownership. */
+  get ownsInstallation(): boolean {
+    const installed = outstanding.get(this.projection.controlId);
+    return nativeDocumentId() === this.projection.documentId &&
+      !!installed && matches({ ...installed, phase: "active" }, this.projection, "active");
+  }
+  /** Focus may reuse only the acknowledged installation still owning this slot. */
+  get focusReady(): boolean {
+    return this.replacementReady && this.projection.enabled && this.ownsInstallation;
+  }
   canReplaceBack(previous: NativeChromeLease): boolean {
     return previous.canReplaceBackWith(this.projection, this.projection.ownerEpoch, this.context) &&
       this.projection.documentId === previous.projection.documentId;
@@ -297,8 +307,7 @@ export class NativeChromeLease {
   }
   /** Presentation only; a focus transfer cannot replay an authored action. */
   async restoreFocus(allowed: () => boolean): Promise<boolean> {
-    if (!this.active || !this.current || !this.projection.enabled || !allowed() ||
-        this.requestedUpdate !== this.appliedUpdate) return false;
+    if (!this.focusReady || !allowed()) return false;
     const updateSequence = this.appliedUpdate;
     const focusSequence = ++this.focusSequence;
     const ack = await bounded(nativeChrome.restoreFocus({ ...this.projection, updateSequence, focusSequence }));
@@ -306,7 +315,7 @@ export class NativeChromeLease {
         ack.updateSequence !== updateSequence || ack.focusSequence !== focusSequence || ack.restored !== true) {
       throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
     }
-    return this.current && this.active && allowed() && this.focusSequence === focusSequence &&
+    return this.focusReady && allowed() && this.focusSequence === focusSequence &&
       this.requestedUpdate === updateSequence && this.appliedUpdate === updateSequence;
   }
   private matchesPresentation(presentation: ChromeUpdate): boolean {
