@@ -431,7 +431,25 @@ describe("DirectMessagesPage", () => {
     const view = renderConnectionThread();
     await screen.findByText(message.content);
     fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
+    const reply = await screen.findByRole("menuitem", { name: "Reply" });
+    // Force the observed CI ordering: Reply's frame runs before Radix's
+    // deferred close autofocus. The latter must not steal composer focus.
+    const frames: FrameRequestCallback[] = [];
+    const frame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(reply);
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      act(() => { for (const callback of [...frames]) callback(0); });
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+      frame.mockRestore();
+    }
     expect(screen.getByText("Replying to yourself")).toBeVisible();
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveFocus());
@@ -449,5 +467,39 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(screen.queryByText("Replying to yourself")).not.toBeInTheDocument();
     expect(mocks.deleteMessage).not.toHaveBeenCalled();
+  });
+
+  it("settles Reply focus for the latest menu opening and preserves Escape focus return", async () => {
+    mocks.search = "conversation=conversation-1";
+    const message = { id: "message-1", conversationId: "conversation-1", senderIsViewer: true,
+      content: "Synthetic menu reopen", createdAt: "2026-10-06T10:01:00.000Z", readAt: null };
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: mocks.conversation, items: [message], canSend: true, disconnectedNotice: null, nextBefore: null,
+    });
+    renderConnectionThread();
+    await screen.findByText(message.content);
+    const trigger = screen.getByRole("button", { name: "Message options" });
+    const composer = screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const reply = await screen.findByRole("menuitem", { name: "Reply" });
+    const focus = vi.spyOn(composer, "focus");
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(reply);
+      // Reopen and choose again before the previous menu's close callback runs.
+      fireEvent.keyDown(trigger, { key: "Enter" });
+      fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      expect(composer).toHaveFocus();
+      expect(focus).toHaveBeenCalledOnce();
+      fireEvent.keyDown(trigger, { key: "Enter" });
+      fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      expect(trigger).toHaveFocus();
+      expect(focus).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+      focus.mockRestore();
+    }
   });
 });

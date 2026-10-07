@@ -77,6 +77,13 @@ type ThreadState = {
   nextBefore: string | null;
 };
 
+type MessageMenuOpening = {
+  generation: number;
+  sequence: number;
+  conversationId: string;
+  messageId: string;
+};
+
 const EMPTY_THREAD: ThreadState = {
   conversation: null,
   peerPersonRef: null,
@@ -212,11 +219,16 @@ export function DirectMessagesPage() {
   const loadGeneration = useRef(0);
   const loadedReadScopes = useRef<readonly string[]>([]);
   const operationGeneration = useRef(0);
+  const messageMenuSequence = useRef(0);
+  const messageMenuOpening = useRef<MessageMenuOpening | null>(null);
+  const replyFocus = useRef<MessageMenuOpening | null>(null);
   const actionToastIds = useRef(new Set<number>());
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const invalidateThreadRead = useCallback(() => { ++loadGeneration.current; }, []);
   const invalidateOperations = useCallback(() => {
     ++operationGeneration.current;
+    messageMenuOpening.current = null;
+    replyFocus.current = null;
     for (const id of actionToastIds.current) morphyToast.dismiss(id);
     actionToastIds.current.clear();
   }, []);
@@ -661,13 +673,13 @@ export function DirectMessagesPage() {
   };
 
   const startReply = (message: DirectMessage) => {
+    const opening = messageMenuOpening.current;
+    if (!opening || opening.generation !== operationGeneration.current ||
+        opening.messageId !== message.id || opening.conversationId !== message.conversationId) return;
+    replyFocus.current = opening;
     setOpenMessageMenu(null);
     setActiveMessageActions(message.id);
     setReplyingTo(message);
-    const generation = operationGeneration.current;
-    requestAnimationFrame(() => {
-      if (generation === operationGeneration.current) composerRef.current?.focus();
-    });
   };
 
   const startEditing = (message: DirectMessage) => {
@@ -879,6 +891,9 @@ export function DirectMessagesPage() {
                   </div>
                 ) : null}
                 {visibleMessages.map((message, index) => {
+                  const opening = messageMenuOpening.current?.messageId === message.id &&
+                    messageMenuOpening.current.conversationId === message.conversationId
+                      ? messageMenuOpening.current : null;
                   const nextMessage = visibleMessages[index + 1];
                   const showPeerAvatar =
                     !message.senderIsViewer &&
@@ -1004,6 +1019,15 @@ export function DirectMessagesPage() {
                                   modal={false}
                                   open={openMessageMenu === message.id}
                                   onOpenChange={(open) => {
+                                    if (open) {
+                                      replyFocus.current = null;
+                                      messageMenuOpening.current = {
+                                        generation: operationGeneration.current,
+                                        sequence: ++messageMenuSequence.current,
+                                        conversationId: message.conversationId,
+                                        messageId: message.id,
+                                      };
+                                    }
                                     setOpenMessageMenu(open ? message.id : null);
                                     if (open) setActiveMessageActions(message.id);
                                   }}
@@ -1019,10 +1043,24 @@ export function DirectMessagesPage() {
                                     </button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent
+                                    key={opening?.sequence ?? 0}
                                     side="top"
                                     align={message.senderIsViewer ? "end" : "start"}
                                     collisionPadding={12}
                                     className={styles.messageMenu}
+                                    onCloseAutoFocus={(event) => {
+                                      // Radix owns close settlement. Hand Reply focus over
+                                      // here, not in a competing animation-frame callback.
+                                      if (!opening || opening.generation !== operationGeneration.current ||
+                                          opening !== messageMenuOpening.current) {
+                                        event.preventDefault();
+                                        return;
+                                      }
+                                      if (replyFocus.current !== opening) return;
+                                      replyFocus.current = null;
+                                      event.preventDefault();
+                                      composerRef.current?.focus();
+                                    }}
                                   >
                                     {!message.deletedForEveryoneAt ? (
                                       <DropdownMenuItem onSelect={() => startReply(message)}>
