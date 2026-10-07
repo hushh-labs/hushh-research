@@ -957,8 +957,11 @@ async def test_owner_send_action_is_read_only_through_its_owner(monkeypatch):
     from hushh_mcp.services import gmail_delivery_service as module
 
     row = {
+        "action_id": "action",
         "state": "sent",
         "created_at": datetime(2026, 10, 5, tzinfo=timezone.utc),
+        "sent_at": datetime(2026, 10, 5, 0, 1, tzinfo=timezone.utc),
+        "gmail_message_id": "message-1",
         "gmail_thread_id": "thread-1",
         "safe_error_code": None,
     }
@@ -982,9 +985,18 @@ async def test_owner_send_action_is_read_only_through_its_owner(monkeypatch):
     assert "WHERE action_id = $1 AND user_id = $2" in " ".join(query.split())
     assert args == ("action", "owner")
     assert conn.calls[1][1] == ("unknown", "owner")
-    # What the relay's outcome is decided from: state, freshness, thread, failure code.
+    # What the relay's outcome is decided from: action identity, state,
+    # timestamps/provider identity, thread, and failure code.
     selected = set(re.findall(r"\w+", query.split("FROM")[0]))
-    assert {"state", "created_at", "gmail_thread_id", "safe_error_code"} <= selected
+    assert {
+        "action_id",
+        "state",
+        "created_at",
+        "sent_at",
+        "gmail_message_id",
+        "gmail_thread_id",
+        "safe_error_code",
+    } <= selected
 
 
 @pytest.mark.asyncio

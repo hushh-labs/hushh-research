@@ -23,11 +23,13 @@ const mocks = vi.hoisted(() => {
 
   return {
     router: { push: vi.fn(), replace: vi.fn() },
+    query: "person=person-1",
     user: {
       uid: "viewer-1",
       getIdToken: vi.fn().mockResolvedValue("test-token"),
     },
     conversation,
+    listConversations: vi.fn(),
     getConversationWithPerson: vi.fn(),
     getConversationMessages: vi.fn(),
     markConversationRead: vi.fn(),
@@ -43,7 +45,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
-  useSearchParams: () => new URLSearchParams("person=person-1"),
+  useSearchParams: () => new URLSearchParams(mocks.query),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -59,7 +61,9 @@ vi.mock("@/components/connections/connection-person-avatar", () => ({
 }));
 
 vi.mock("@/components/agent/chat-message-styles", () => ({
-  OneChatBubble: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  OneChatBubble: ({ children, tone: _tone, ...props }: { children: React.ReactNode; tone?: string } & React.HTMLAttributes<HTMLDivElement>) => (
+    <div {...props}>{children}</div>
+  ),
 }));
 
 vi.mock("@/lib/direct-messages/direct-message-events", () => ({
@@ -79,6 +83,7 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 vi.mock("@/lib/services/direct-messages-service", () => ({
   DIRECT_MESSAGE_MAX_LENGTH: 2_000,
   DirectMessagesService: {
+    listConversations: (...args: unknown[]) => mocks.listConversations(...args),
     getConversationWithPerson: (...args: unknown[]) =>
       mocks.getConversationWithPerson(...args),
     getConversationMessages: (...args: unknown[]) =>
@@ -110,7 +115,12 @@ describe("DirectMessagesPage", () => {
   beforeEach(() => {
     mocks.router.push.mockReset();
     mocks.router.replace.mockReset();
+    mocks.query = "person=person-1";
     mocks.user.getIdToken.mockClear();
+    mocks.listConversations.mockResolvedValue({
+      items: [mocks.conversation],
+      unreadCount: 0,
+    });
     mocks.getConversationWithPerson.mockResolvedValue({
       conversation: mocks.conversation,
       peerPersonRef: "person-1",
@@ -162,15 +172,17 @@ describe("DirectMessagesPage", () => {
       readAt: null,
       reactions: [{ emoji: "😀", count: 1, reactedByViewer: true }],
     });
-  });
+    });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
   it("uses the shared Chat dock while sending to the selected connection", async () => {
     renderConnectionThread();
 
+    expect(await screen.findByRole("button", { name: /Ankit Kumar Singh/ })).toBeVisible();
     const composer = await screen.findByRole("textbox", {
       name: "Message Ankit Kumar Singh",
     });
@@ -189,6 +201,22 @@ describe("DirectMessagesPage", () => {
         content: "Hello Ankit",
         recipientPersonRef: "person-1",
       }),
+    );
+  });
+
+  it("keeps the inbox available and opens a selected chat from its row", async () => {
+    mocks.query = "";
+    renderConnectionThread();
+
+    expect(await screen.findByRole("heading", { name: "Chats" })).toBeVisible();
+    expect(screen.getByLabelText("Search conversations")).toBeVisible();
+    expect(screen.getByText("Select a conversation to see the chat here.")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: /Message/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Ankit Kumar Singh/ }));
+    expect(mocks.router.replace).toHaveBeenCalledWith(
+      "/one/messages?conversation=conversation-1",
+      { scroll: false },
     );
   });
 
@@ -216,6 +244,66 @@ describe("DirectMessagesPage", () => {
       ROUTES.HOME,
     );
     expect(mocks.router.push).toHaveBeenCalledWith(ROUTES.HOME);
+  });
+
+  it("keeps day separators and delivery state inside the conversation bubbles", async () => {
+    const messages = [
+      {
+        id: "message-yesterday",
+        conversationId: "conversation-1",
+        senderIsViewer: false,
+        content: "Older message",
+        createdAt: "2026-10-06T10:01:00.000Z",
+        readAt: null,
+        reactions: [],
+      },
+      {
+        id: "message-today",
+        conversationId: "conversation-1",
+        senderIsViewer: true,
+        content: "Read message",
+        createdAt: "2026-10-07T10:02:00.000Z",
+        readAt: "2026-10-07T10:03:00.000Z",
+        reactions: [],
+      },
+      {
+        id: "message-sent",
+        conversationId: "conversation-1",
+        senderIsViewer: true,
+        content: "Sent message",
+        createdAt: "2026-10-07T10:04:00.000Z",
+        readAt: null,
+        reactions: [],
+      },
+    ];
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: messages,
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    const dayLabel = (value: string) => {
+      const date = new Date(value);
+      const now = new Date();
+      if (date.toDateString() === now.toDateString()) return "Today";
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+      return date.toLocaleDateString([], {
+        month: "short",
+        day: "numeric",
+        year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+      });
+    };
+    expect(await screen.findByText(dayLabel(messages[0].createdAt))).toBeVisible();
+    expect(screen.getByText(dayLabel(messages[1].createdAt))).toBeVisible();
+    expect(screen.getByLabelText("Read")).toHaveAttribute("title", "Read");
+    expect(screen.getByLabelText("Sent")).toHaveAttribute("title", "Sent");
+    expect(screen.getAllByRole("article")).toHaveLength(3);
   });
 
   it("exposes message reactions and replies after a bubble is tapped", async () => {

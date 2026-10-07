@@ -37,11 +37,6 @@ import type { CapabilityStatus } from "@/lib/services/capability-setup-state-ser
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import type { RiaHomeResponse } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
-import type { AgentProfileIconStyle } from "@/lib/design/agent-theme-registry";
-import {
-  DASHBOARD_AGENT_ICON_STYLE_BY_ID,
-  DEFAULT_DASHBOARD_AGENT_ICON_STYLE,
-} from "@/lib/design/home-icon-palette";
 
 type OneAgentMode = {
   id: string;
@@ -84,12 +79,6 @@ export function hasActiveLocationActivity(
 }
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
-
-function dashboardAgentIconStyle(mode: OneAgentMode): AgentProfileIconStyle {
-  const palette: Readonly<Record<string, AgentProfileIconStyle>> =
-    DASHBOARD_AGENT_ICON_STYLE_BY_ID;
-  return palette[mode.id] ?? DEFAULT_DASHBOARD_AGENT_ICON_STYLE;
-}
 
 /**
  * The roster only ever mounts client-side (its `/one` route renders a loader
@@ -548,10 +537,9 @@ function AgentGridItem({
         // own comment. Icons stay full color regardless of setup state.
         isActive
         size="roster-lg"
-        treatment="profile"
+        treatment="app"
         glyphContrast="default"
         className="relative z-10"
-        profileStyle={dashboardAgentIconStyle(mode)}
       />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
@@ -590,9 +578,8 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           paletteIndex={mode.paletteIndex}
           isActive
           size="roster"
-          treatment="profile"
+          treatment="app"
           glyphContrast="default"
-          profileStyle={dashboardAgentIconStyle(mode)}
         />
       </span>
       <span className="relative z-10 flex min-w-0 flex-col justify-center">
@@ -616,7 +603,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
+        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] dark:bg-white/[0.09] group-last/agent-row:hidden"
       />
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -780,7 +767,7 @@ export function OneAgentRoster({
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
+              className="grid w-full grid-cols-[repeat(3,minmax(80px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />

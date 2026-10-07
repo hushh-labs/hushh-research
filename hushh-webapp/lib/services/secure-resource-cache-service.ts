@@ -166,6 +166,24 @@ export class SecureResourceCacheService {
     }
   }
 
+  /** Recovery callers must distinguish absence from failed decryption/storage.
+   * Never delete an expired recovery envelope or pretend it is a fresh job. */
+  static async readRequired<T>(params: {
+    userId: string;
+    resourceKey: string;
+    vaultKey: string;
+  }): Promise<T | null> {
+    const database = await openDb();
+    if (!database) throw new Error("Secure recovery storage is unavailable.");
+    const record = await readRecord<SecureResourceCacheRecord>(database,
+      buildStorageKey(params.userId, params.resourceKey));
+    if (!record) return null;
+    const ageMs = Date.now() - Date.parse(record.cachedAt);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > record.ttlMs)
+      throw new Error("The encrypted recovery checkpoint needs review.");
+    return JSON.parse(await decryptData(record.payload, params.vaultKey)) as T;
+  }
+
   static async write<T>(params: {
     userId: string;
     resourceKey: string;

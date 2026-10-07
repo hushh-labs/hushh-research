@@ -20,6 +20,7 @@ from typing import Any, Literal
 from google.genai.types import HttpOptions, HttpOptionsDict
 
 from .gemini_config import resolve_fleet_model_name
+from .local_credentials import local_cli_credentials
 from .registry import ProviderId, normalize_provider
 from .vertex_failover import VertexRegionalClient
 
@@ -136,6 +137,9 @@ class ManagedGeminiRuntimeBinding:
         """
         from google import genai
 
+        credentials = local_cli_credentials()
+        client_factory = functools.partial(genai.Client, credentials=credentials) if credentials else genai.Client
+
         if location is not None:
             clean_location = str(location).strip()
             if not _LOCATION_RE.fullmatch(clean_location):
@@ -149,7 +153,7 @@ class ManagedGeminiRuntimeBinding:
             }
             if http_options is not None:
                 client_kwargs["http_options"] = http_options
-            return genai.Client(**client_kwargs)
+            return client_factory(**client_kwargs)
         if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
             key = (
                 _clean_env("GEMINI_API_KEY")
@@ -169,11 +173,11 @@ class ManagedGeminiRuntimeBinding:
             }
             if http_options is not None:
                 client_kwargs["http_options"] = http_options
-            return genai.Client(**client_kwargs)
+            return client_factory(**client_kwargs)
         return VertexRegionalClient(
             project=self.project,
             locations=locations,
-            client_factory=genai.Client,
+            client_factory=client_factory,
             cooldown_seconds=_vertex_location_cooldown_seconds(),
         )
 
@@ -203,11 +207,15 @@ class ManagedGeminiRuntimeBinding:
                 f"Vertex location {clean_location!r} is not supported for Live model "
                 f"{clean_model!r}"
             )
-        return genai.Client(
-            vertexai=True,
-            project=self.project,
-            location=clean_location,
-        )
+        credentials = local_cli_credentials()
+        client_kwargs: dict[str, Any] = {
+            "vertexai": True,
+            "project": self.project,
+            "location": clean_location,
+        }
+        if credentials is not None:
+            client_kwargs["credentials"] = credentials
+        return genai.Client(**client_kwargs)
 
     def build_adk_model(
         self,
@@ -253,6 +261,7 @@ class ManagedGeminiRuntimeBinding:
                 "project": self.project,
                 "location": clean_location,
                 **transport_options,
+                **({"credentials": credentials} if (credentials := local_cli_credentials()) else {}),
             },
         )
 
@@ -275,7 +284,8 @@ class ManagedGeminiRuntimeBinding:
         locations = self.locations_for_model(clean_model)
         if len(locations) < 2:
             return self.build_adk_model(clean_model)
-        key = (self.project, locations)
+        credentials = local_cli_credentials()
+        key = (self.project, locations, _clean_env("HUSHH_LOCAL_GCLOUD_ACCOUNT"))
         with _REGIONAL_ADK_CLIENTS_LOCK:
             client = _REGIONAL_ADK_CLIENTS.get(key)
             if client is None:
@@ -284,14 +294,14 @@ class ManagedGeminiRuntimeBinding:
                 client = VertexRegionalClient(
                     project=self.project,
                     locations=locations,
-                    client_factory=genai.Client,
+                    client_factory=functools.partial(genai.Client, credentials=credentials) if credentials else genai.Client,
                     cooldown_seconds=_vertex_location_cooldown_seconds(),
                 )
                 _REGIONAL_ADK_CLIENTS[key] = client
         return _regional_gemini_type()(model=clean_model, regional_client=client)
 
 
-_REGIONAL_ADK_CLIENTS: dict[tuple[str, tuple[str, ...]], VertexRegionalClient] = {}
+_REGIONAL_ADK_CLIENTS: dict[tuple[str, tuple[str, ...], str], VertexRegionalClient] = {}
 _REGIONAL_ADK_CLIENTS_LOCK = threading.Lock()
 
 

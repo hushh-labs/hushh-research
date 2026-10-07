@@ -103,6 +103,7 @@
     "pkm_agent_lab_save_button": {"feature": "memory", "class": "memory_agent", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "first_connect_insights": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "drive_read_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
+    "business_profile_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "pkm_structure_agent": {"feature": "memory", "class": "memory_agent", "surfaces": [], "authorization_modes": []},
 
     "pkm_upgrade_orchestrator": {"feature": "pkm_upgrade", "class": "migration", "surfaces": ["system_upgrade"], "authorization_modes": ["upgrade_claim"]}

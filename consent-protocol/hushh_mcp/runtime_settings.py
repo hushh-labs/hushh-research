@@ -162,6 +162,8 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # nearby-presence mode: that flag governs co-presence, and closing
     # co-presence in production must not also close a business directory.
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
+    "one_business_uat_fixture_enabled": "ONE_BUSINESS_UAT_FIXTURE_ENABLED",
+    "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
     # Withdraws One Live Voice mail reads and nothing else. Its own key rather
     # than GMAIL_CHAT_READS, which is owner-available by construction and so has
     # no runtime effect; making that one effective would close typed-chat mail
@@ -475,6 +477,42 @@ def one_career_enabled() -> bool:
     (``/api/one/career/resume/parse``). Defaults off; while off the route answers
     as if it did not exist."""
     return _bool_from_value(_clean_env("ONE_CAREER_ENABLED"), default=False)
+
+
+def one_business_directory_enabled() -> bool:
+    """Real read-only suggestions have an independent default-off rollout gate."""
+    return _clean_env("ONE_BUSINESS_DIRECTORY_ENABLED").lower() == "true"
+
+
+def one_business_uat_fixture_enabled() -> bool:
+    """Synthetic business suggestions only in an explicitly consistent UAT lane."""
+    environment = _clean_env("ENVIRONMENT").lower()
+    deploy = _clean_env("HUSHH_DEPLOY_ENV").lower()
+    profile = _clean_env("APP_RUNTIME_PROFILE").lower()
+    return (
+        environment == "uat"
+        and deploy in {"", "uat"}
+        and profile in {"", "uat"}
+        and _clean_env("ONE_BUSINESS_UAT_FIXTURE_ENABLED").lower() == "true"
+    )
+
+
+def one_business_local_rehearsal_enabled(user_id: str, *, loopback: bool) -> bool:
+    """Default-off localhost exception for the canonical UAT reviewer only."""
+    return (
+        loopback
+        and _clean_env("ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED").lower() == "true"
+        and _clean_env("APP_REVIEW_MODE").lower() == "true"
+        and _clean_env("ENVIRONMENT").lower() == "development"
+        and _clean_env("APP_RUNTIME_PROFILE").lower() == "local"
+        and not _clean_env("HUSHH_DEPLOY_ENV")
+        and not _clean_env("K_SERVICE")
+        and _clean_env("GOOGLE_CLOUD_PROJECT") == "hushh-pda-uat"
+        and _clean_env("CLOUDSQL_INSTANCE_CONNECTION_NAME") == "hushh-pda-uat:us-central1:hushh-uat-pg"
+        and _clean_env("DB_HOST") in {"localhost", "127.0.0.1"}
+        and bool(user_id)
+        and user_id == _clean_env("REVIEWER_UID")
+    )
 
 
 def get_wallet_pass_settings() -> WalletPassSettings:

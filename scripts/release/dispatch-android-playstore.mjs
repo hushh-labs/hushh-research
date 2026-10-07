@@ -2,10 +2,10 @@
 /**
  * Manual Android Google Play production release dispatcher.
  *
- * The workflow is production-only: it resolves an exact green main SHA, builds
- * against the production backend, signs the AAB with the existing upload key,
- * and uploads directly to Google Play's production track. There are no test
- * track or scheduled release modes.
+ * The workflow resolves an exact green main SHA, builds against the UAT backend
+ * (which must already be serving that exact SHA), signs the AAB with the existing
+ * upload key, and uploads directly to Google Play's production track. There are
+ * no test track or scheduled release modes.
  *
  * Usage:
  *   node scripts/release/dispatch-android-playstore.mjs
@@ -144,7 +144,7 @@ async function main() {
   console.log(`  Workflow : ${WORKFLOW_NAME}`);
   console.log(`  Ref      : ${REF}`);
   console.log(`  SHA      : ${sha}`);
-  console.log("  Runtime  : production (hushh-pda)");
+  console.log("  Runtime  : UAT backend (hushh-pda-uat)");
   console.log("  Package  : com.hussh.app");
   console.log("  Track    : production");
   console.log(`  Mode     : ${mode}`);

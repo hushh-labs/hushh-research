@@ -647,6 +647,7 @@ tests/one_voice/test_mail_schedule.py
 tests/services/test_scheduled_mail_drain.py
 tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
+tests/test_business_suggestions.py
 
 # Gmail drafts by voice: list/open/send by position, the send gate and the
 # drafts grant, one ledger row per send, and the draft open route.

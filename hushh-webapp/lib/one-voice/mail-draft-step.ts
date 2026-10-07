@@ -99,6 +99,8 @@ export type ReviewedMailDraftStep = MailDraftBinding & {
   deliveryRef: string | null;
   operationId: string | null;
   reasonCode: string | null;
+  previousActionId: string | null;
+  previousRevision: number | null;
 } & ({ ready: true; actionId: string; expiresAt: string; senderToken: string; senderLabel: string } |
   { ready: false; actionId: null; expiresAt: null; senderToken: null; senderLabel: null });
 
@@ -128,7 +130,13 @@ export function parseReviewedMailDraftStep(payload: unknown): ReviewedMailDraftS
     ...binding, draft: { to, cc, bcc, subject, body }, deliveryRef: parseMailDeliveryRef(payload),
     operationId: typeof value?.operation_id === "string" ? value.operation_id : null,
     reasonCode: typeof value?.reason_code === "string" ? value.reason_code : null,
+    previousActionId: typeof value?.previous_action_id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value.previous_action_id)
+      ? value.previous_action_id : null,
+    previousRevision: typeof value?.previous_revision === "number" && Number.isSafeInteger(value.previous_revision) && value.previous_revision >= 1
+      ? value.previous_revision : null,
   };
+  if ((value?.previous_action_id !== undefined || value?.previous_revision !== undefined) &&
+      (!base.previousActionId || base.previousRevision === null || base.previousRevision >= binding.revision || value?.prepared !== null)) return null;
   if (value?.prepared === null) return { ...base, ready: false, actionId: null, expiresAt: null, senderToken: null, senderLabel: null };
   if (!prepared || !body.trim()) return null;
   const recipients = [to, cc, bcc].flatMap((role) => role ? role.split(",").map((email) => email.trim()) : []);

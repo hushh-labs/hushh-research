@@ -25,9 +25,10 @@
 
   "$comment_branches": "Whole branches that are app state wherever they appear, at any depth. `domain_intent` is already in internal_keys, but it was reaching the catalogue nested as `profile.domain_intent.primary` because the only structural check looked at depth 1 only.",
   "$comment_superseded": "`superseded` holds the earlier values of a detail the person later changed, each with the time it was replaced (hushh-webapp/lib/pkm/pkm-supersede-merge.ts). It is the owner's history, kept so an update never deletes what they said. It is not current information and must never be offered, requested or shared.",
-  "internal_branches": ["setup", "domain_intent", "nav", "onboarding_state", "superseded"],
+  "internal_branches": ["setup", "domain_intent", "nav", "onboarding_state", "superseded", "business_origin"],
 
   "cases": [
+    {"path": "businesses.entities.business.business_origin.business_uid", "internal": true, "why": "Business suggestion origin is encrypted source bookkeeping, never an exportable business fact."},
     {"path": "employment.observations._items", "internal": false, "why": "Scalar arrays have eligible leaf values at the terminal item marker."},
     {"path": "employment.entities._entities.summary", "internal": false, "why": "The schema collection marker represents an entity map, not a private stored key."},
     {"path": "employment.observations._items.summary", "internal": false, "why": "Array collection markers preserve the exact export path."},
