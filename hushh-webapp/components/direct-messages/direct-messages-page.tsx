@@ -887,6 +887,7 @@ export function DirectMessagesPage() {
       <section
         className={styles.page}
         data-one-chat-surface
+        data-direct-message-page="true"
         data-chat-open={hasRouteSelection ? "true" : "false"}
         data-direct-message-composer-docked={
           hasRouteSelection && thread.canSend ? "true" : undefined
@@ -982,7 +983,7 @@ export function DirectMessagesPage() {
                     <time dateTime={lastMessageAt || undefined}>
                       {formatConversationTime(lastMessageAt)}
                     </time>
-                    {conversation.unreadCount > 0 ? (
+                    {conversation.unreadCount > 0 && !active ? (
                       <span className={styles.unreadCount} aria-label={`${conversation.unreadCount} unread`}>
                         {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
                       </span>

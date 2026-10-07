@@ -890,6 +890,23 @@ article[data-message-role="user"] .messageActionError {
   margin-inline: auto;
 }
 
+/* Messages owns the right side of the desktop split view. The persistent
+ * shell is mounted above the route tree, so scope its desktop placement via
+ * the route marker instead of adding a second footer inside the page. Mobile
+ * keeps the shared shell centered across the single-column conversation. */
+@media (min-width: 768px) {
+  :global(body:has([data-direct-message-page="true"]))
+    [data-app-bottom-shell]
+    [data-bottom-shell-motion-stack] {
+    width: min(
+      var(--app-bottom-shell-max-width, 40rem),
+      calc(100% - 2 * var(--app-bottom-shell-inline-inset, 1rem))
+    );
+    max-width: none;
+    margin-inline: auto 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .conversationRow,
   .sendButton,

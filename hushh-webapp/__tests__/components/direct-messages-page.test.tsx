@@ -220,6 +220,38 @@ describe("DirectMessagesPage", () => {
     );
   });
 
+  it("clears the active chat badge while its messages are visible", async () => {
+    const unreadConversation = { ...mocks.conversation, unreadCount: 3 };
+    mocks.listConversations.mockResolvedValue({
+      items: [unreadConversation],
+      unreadCount: 3,
+    });
+    mocks.getConversationWithPerson.mockResolvedValue({
+      conversation: unreadConversation,
+      peerPersonRef: "person-1",
+      peerDisplayName: "Ankit Kumar Singh",
+      peerPhotoUrl: null,
+      canSend: true,
+      disconnectedNotice: null,
+    });
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: unreadConversation,
+      items: [],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    expect(await screen.findByRole("button", { name: /Ankit Kumar Singh/ })).toBeVisible();
+    expect(screen.queryByLabelText("3 unread")).not.toBeInTheDocument();
+    expect(mocks.markConversationRead).toHaveBeenCalledWith({
+      idToken: "test-token",
+      conversationId: "conversation-1",
+    });
+  });
+
   it("offers the full emoji picker and opens One chat for voice", async () => {
     renderConnectionThread();
 
