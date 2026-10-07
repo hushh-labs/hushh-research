@@ -634,7 +634,7 @@ export function WalletWorkspace() {
             tabSetId="wallet"
             activeValue={activeTab}
             onSelectionChange={selectTab}
-            viewportMinHeight="fill"
+            viewportMinHeight="0px"
             heightMode="active"
             holdHeightDuringTransition={false}
           >

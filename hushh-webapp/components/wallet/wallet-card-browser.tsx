@@ -64,7 +64,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   useEffect(() => {
     const element = content.current;
     const root = element?.closest<HTMLElement>("[data-app-scroll-root]");
-    if (!active || !element || !root || root.clientHeight >= 700) return;
+    if (!active || !element || !root) return;
     // On short windows, bring the card workspace above the persistent bottom shelf.
     const observer = new ResizeObserver(() => {
       const top = root.scrollTop + element.getBoundingClientRect().top - root.getBoundingClientRect().top - 16;
