@@ -1180,6 +1180,27 @@ remain failures, not evidence inherited by the newly combined candidate. The
 Wallet accessibility probe now emits only fixed public-copy IDs and unique
 frame/label-match booleans; it does not waive the audit or expose unknown text.
 
+The signed production-backed Debug `50464e5d8` product is installed on both
+devices, with packaged assets and signature verified. Normal iPhone unlock
+passes once; the changed-family batch passes three attach-only warm journeys
+with no skips: Back/query handoff, History/selector/keyboard/reopen, and the
+Profile Account/Preferences/Security/Vault/Support stack. The same iPad product
+passes public vault rest/focus/scroll/rotation/resume reachability, but exposes
+no software keyboard and does not qualify protected-tablet operation. The next
+iPhone theme audit times out enabling automation before its test body enters;
+no vault credential is retried. These action/host receipts do not establish
+frame-continuous glass appearance or resolve the unidentified Wallet hit region.
+
+Exact-head CI then exposes one stale source-location assertion in both the
+targeted-node job and full Vitest shard 1/3: it looks for Drive's accessible
+review label inside the parent after the History opener moved to its leaf.
+The parent still owns and passes the scoped count. The existing native test now
+renders that actual leaf, proving singular/plural counts, attention without a
+visible dot, expanded concealment and zero-count native admission without
+forwarding the count. Freezing the accessible label fails the new assertion;
+restoring it passes all 69 nearest checks. The parent wiring/singleton/sidebar
+activity checks remain. Neither runtime code nor a CI gate is relaxed.
+
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,

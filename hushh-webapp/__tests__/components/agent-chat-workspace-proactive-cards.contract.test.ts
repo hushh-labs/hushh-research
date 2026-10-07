@@ -31,7 +31,9 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');
     expect(source).toContain("open={isHistoryDrawerOpen}");
     expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
-    expect(source).toContain('Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you');
+    // The parent owns the owner-scoped review signal; the actual opener's
+    // accessible copy and native admission are covered in native-chrome.test.
+    expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
   });
 
   it("runs post-setup onboarding as ordinary chat turns, with the tile grid retired", () => {

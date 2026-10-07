@@ -689,6 +689,35 @@ describe("native chrome presentation lease", () => {
     expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
   });
 
+  it("keeps Drive attention accessible in the actual opener and out of native projections", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true });
+    const fallback = createRef<HTMLButtonElement>();
+    const opener = (pendingAttention: number, open = false, showAttentionDot = true) => <NativeHistoryOpener
+      owner="synthetic-owner" context="chat:stable" eligible open={open}
+      pendingAttention={pendingAttention} showAttentionDot={showAttentionDot} focusRef={fallback} onActivate={vi.fn()} />;
+    const view = render(opener(1));
+    await waitFor(() => expect(bridge.getCapabilities).toHaveBeenCalled());
+    expect(view.getByRole("button", { name: "Open chat history, 1 Drive review needs you" })).toBeVisible();
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    view.rerender(opener(2));
+    expect(view.getByRole("button", { name: "Open chat history, 2 Drive reviews need you" })).toBeVisible();
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    view.rerender(opener(2, false, false));
+    expect(view.getByRole("button", { name: "Open chat history, 2 Drive reviews need you" })).toBeVisible();
+    view.rerender(opener(2, true));
+    expect(fallback.current).toHaveAttribute("aria-label", "Close chat history");
+    expect(fallback.current).toHaveAttribute("aria-expanded", "true");
+    expect(fallback.current).not.toBeVisible();
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    view.rerender(opener(0));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    expect(fallback.current).toHaveAttribute("aria-label", "Open chat history");
+    expect(bridge.prepare.mock.calls[0][0]).toMatchObject({ kind: "history", label: "Chat history" });
+    expect(bridge.prepare.mock.calls[0][0]).not.toHaveProperty("pendingAttention");
+    expect(view.queryByRole("button", { name: "Open chat history" })).toBeNull();
+  });
+
   it.each([1, 0])("returns actual History opener focus after delayed capability entry (click detail %s)", async (detail) => {
     measureSlot();
     const discovery = deferred<{ contractVersion: number; families: ["history"]; independentControls: boolean; focusReturn: boolean }>();
