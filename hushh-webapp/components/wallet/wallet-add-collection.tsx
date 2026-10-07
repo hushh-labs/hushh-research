@@ -17,7 +17,7 @@ function EmptyCardPreview() {
       <WalletAddCollection cards={WALLET_DEMO_CARDS} selectedCardId={selected} onSelect={setSelected}
         onAdd={() => {}} onRemove={() => {}} busyCardId={null} preview />
       {selected ? <WalletDemoCardDetails cardId={selected} /> : null}
-      <figcaption className="text-center text-xs text-muted-foreground">Demo cards. Tap a card to see its sample details. Swipe up to explore the stack.</figcaption>
+      <figcaption className="text-center text-xs text-muted-foreground">Example cards</figcaption>
     </figure>
   );
 }
@@ -110,7 +110,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
   };
 
   return (
-    <section className="motion-step-enter mx-auto w-full max-w-[420px] space-y-5 py-4" data-testid={preview ? "wallet-preview-collection" : "wallet-add-collection"} aria-label={preview ? "Demo cards" : "Your cards"}>
+    <section className="motion-step-enter mx-auto w-full max-w-[420px] space-y-5 py-4" data-testid={preview ? "wallet-preview-collection" : "wallet-add-collection"} aria-label={preview ? "Example cards" : "Your cards"}>
       {!preview ? <div className="space-y-1">
         <h2 className={TYPOGRAPHY_CLASSNAMES.mediumRowLabel}>Your cards</h2>
         <p className={TYPOGRAPHY_CLASSNAMES.helperText}>
@@ -139,7 +139,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
             <div aria-hidden="true" style={{ height: isExpanded
               ? `calc(${cards.length} * 100cqw * 53.98 / 85.6 + ${(cards.length - 1) * 16 + (showDetailsLink ? cards.length * 40 : 0)}px)`
               : `calc(100cqw * 53.98 / 85.6 + ${depth * 20}px)` }} />
-            <ul className="absolute inset-x-0 top-0 m-0 list-none p-0" aria-label={preview ? "Demo cards" : "Saved cards"}>
+            <ul className="absolute inset-x-0 top-0 m-0 list-none p-0" aria-label={preview ? "Example cards" : "Saved cards"}>
               {cards.map((card) => {
                 const rank = displayCards.indexOf(card);
                 const active = rank === 0;

@@ -14,12 +14,12 @@ const DEMOS = [
 
 export const WALLET_DEMO_CARDS: WalletCardSummary[] = DEMOS.map((demo, index) => ({
   cardId: `demo-${index}`,
-  nickname: `${demo.name} - Demo`,
+  nickname: demo.name,
   brand: demo.brand,
   last4: demo.number.slice(-4),
   expiryMonth: demo.month,
   expiryYear: 2030,
-  issuingRegion: "Sample card",
+  issuingRegion: "",
   createdAt: "",
 }));
 
@@ -34,7 +34,7 @@ export function WalletDemoCardFace({ summary }: { summary: WalletCardSummary }) 
   if (!demo) return <WalletCardFace summary={summary} collection />;
   return (
     <div className={`${styles.face} ${styles[demo.finish]}`} data-demo-card="true">
-      <WalletCardFace summary={summary} collection revealed={{ pan: demo.number, cardholderName: "Alex Sample" }} />
+      <WalletCardFace summary={summary} collection revealed={{ pan: demo.number, cardholderName: "Alex Morgan" }} />
     </div>
   );
 }
@@ -45,15 +45,15 @@ export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
   if (!demo || !summary) return null;
   const fields = [
     ["Card number", formatCardNumber(summary.brand, demo.number)],
-    ["Cardholder", "Alex Sample"],
+    ["Cardholder", "Alex Morgan"],
     ["Network", cardNetworkLabel(summary.brand)],
     ["Valid until", formatCardExpiry(summary.expiryMonth, summary.expiryYear)],
   ];
   return (
-    <section aria-label="Demo card details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">
+    <section aria-label="Example card details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">
       <div key={cardId} className="motion-step-enter space-y-4">
         <div className="space-y-1">
-          <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Sample card · {demo.tier}</p>
+          <p className={TYPOGRAPHY_CLASSNAMES.helperText}>{demo.tier}</p>
           <h3 className={TYPOGRAPHY_CLASSNAMES.mediumRowLabel}>{demo.name} card</h3>
         </div>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
@@ -64,7 +64,7 @@ export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
             </div>
           ))}
         </dl>
-        <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Demo only. These sample details cannot be used for payments.</p>
+        <p className={TYPOGRAPHY_CLASSNAMES.helperText}>These example details cannot be used for payments.</p>
       </div>
     </section>
   );

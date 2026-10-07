@@ -92,7 +92,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = f
       cardholderName,
       pan,
       cvv: cvv || undefined,
-      pin: pin || undefined,
+      pin: pin.trim() || undefined,
       expiryMonth: month,
       expiryYear: year,
       issuingRegion,
@@ -134,7 +134,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = f
       data-testid="secure-card-add-form"
     >
       {scanEnabled ? <>
-        <div className={styles.heading}><h2 className={TYPOGRAPHY_CLASSNAMES.majorSectionTitle}>Add your card</h2><p>Scan a card or enter its details below.</p></div>
+        <div className={styles.heading}><h2 className={TYPOGRAPHY_CLASSNAMES.sectionTitle}>Add your card</h2><p>Scan a card or enter its details below.</p></div>
         <WalletCardScanner active={active} disabled={submitting} onBusyChange={setScanning} onRead={(fields) => {
           setPan(fields.pan);
           if (fields.expiry) setExpiry((current) => current || fields.expiry!);
@@ -225,6 +225,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = f
           </div>
           <Input
             id="card-pin"
+            placeholder="Leave blank to skip"
+            required={false}
             type={revealSecrets ? "text" : "password"}
             value={pin}
             onChange={(event) => setPin(event.target.value)}

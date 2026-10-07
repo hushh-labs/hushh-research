@@ -83,10 +83,9 @@ and the LlmAgent `name="wallet"` were the two the first pass missed and they cra
 
 ## Wallet entry and card collection
 
-Each visit to `/one/wallet` starts with the Wallet illustration and Continue,
-without a duplicate Wallet page heading. Continue opens the workspace for that
-visit; moving between its tabs does not replay the introduction. This is a
-presentation step, not a persisted onboarding or consent gate.
+The first visit per account on a device to `/one/wallet` starts with the Wallet illustration and Continue,
+without a duplicate Wallet page heading. Continue saves a cosmetic account-scoped device preference; later visits open
+the workspace directly. This does not complete account setup or unlock the vault.
 
 Cards owns the animated collection, safe summary search, and the existing
 explicit reveal/removal actions. An empty collection shows labelled demo
@@ -105,8 +104,8 @@ source artwork.
 ## Card browser
 
 The Cards tab uses `WalletCardBrowser` to coordinate an All overview, the existing
-animated card collection, and a selected-card detail view. Cards open as a scroll-driven stack; Collapse cards switches to a compact deck and View all restores
-a spaced list without overlapping detail links. A thumbnail strip outside the tab pager remains above the shared
+animated card collection, and a selected-card detail view. Cards open as a compact deck; View all opens a scroll-driven stack and Collapse cards restores
+the compact deck without overlapping detail links. A thumbnail strip outside the tab pager remains above the shared
 bottom chrome; its plus action opens the existing Add form. Reduced-motion users
 receive the same controls with a static list and instant selection.
 
@@ -138,25 +137,19 @@ the sole save path. Native camera and bundled worker execution require device QA
 
 ### Sharing: review and manage inside Wallet
 
-Sharing shows real Wallet-specific requests and grants in card-style sections.
-Review and Manage open in shared dialogs inside Wallet. Reviews disclose the
-requester, exact summary/details category, wallet-wide coverage and chosen duration.
-Individual decisions reuse `useConsentActions` and its canonical encrypted export;
-full details require an unlocked vault and explicit approval. Revoke requires
-confirmation and an exact request ID, never a scope-wide fallback. No sample
-grants or card-specific permissions are invented. Reduced motion disables tile
-lift while preserving all controls. Failed reads never appear as empty access.
-
-The sharing guide and Requests/Shared with sections remain visible during reads.
-Reads that exceed 15 seconds show retry rather than an indefinite spinner; late
-results cannot replace a newer read. Recipient search and summary/details filters
-only filter displayed rows, never alter grants or the overall access counts.
+Sharing shows existing Wallet-specific grants with the recipient and information
+shared. Manage opens a shared dialog inside Wallet. Revocation reuses
+`useConsentActions`, requires confirmation and an exact request ID, and never
+falls back to a scope-wide revoke. Pending requests remain in Consent Center.
+No grants or card-specific permissions are invented. Failed reads never appear
+as empty access. Reads exceeding 15 seconds show retry; late results cannot
+replace a newer read.
 
 ### Mail-aligned Wallet surfaces
 
 Cards, Add and Sharing use the shared 820px workspace measure and Mail-style
-feature surface tokens (white surface, blue accent tint, shared border, radius
-and shadow). Desktop feature headings use the same 40px/800 foundation scale.
+feature surface tokens (solid surface, shared border, radius and shadow).
+Feature headings use Location's shared semantic section typography.
 Physical card faces remain capped at 420px inside the wider Cards panel.
 
 Wallet onboarding uses the full-resolution preloaded artwork without a blur
@@ -165,5 +158,10 @@ their separate detail links while pinned and remeasure after expansion settles;
 the card itself remains the details action. Sharing uses a labelled illustrative
 card instead of the header counters; real access remains in the lists below.
 
-Sharing filters update their explanatory content and scoped loading/empty
-states immediately, then filter real records when available.
+Sharing lists existing recipients and the information shared, with Manage and
+confirmed revocation through the existing consent actions. Pending requests stay
+in Consent Center. Loading and read errors are distinct from empty access.
+
+Wallet panels use solid surfaces and Location section typography. The collection
+omits example labels and fictional total-due content. PIN is optional; blank or
+whitespace-only PIN input is omitted before validation and saving.

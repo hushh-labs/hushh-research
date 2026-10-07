@@ -25,18 +25,18 @@ function DemoActivity({ cardId, onPreview }: { cardId: string; onPreview: (actio
   const index = WALLET_DEMO_CARDS.findIndex((card) => card.cardId === cardId);
   const sample = SAMPLE_STATEMENTS[index] ?? SAMPLE_STATEMENTS[0];
   return <div className={styles.activity} data-testid="wallet-demo-activity">
-    <div className={styles.sectionHeading}><h3>September statement</h3><span className={styles.demoBadge}>Demo</span></div>
+    <div className={styles.sectionHeading}><h3 className="ui-text-section-title">September statement</h3></div>
     <button type="button" className={styles.statement} onClick={() => onPreview("Statement")}>
-      <span><span className={styles.eyebrow}>SAMPLE SPENDING</span><strong>{sample.total}</strong><small>Illustrative statement · not a bill</small></span>
+      <span><span className={styles.eyebrow}>Spending</span><strong>{sample.total}</strong></span>
       <ArrowRight aria-hidden="true" className="size-5" />
     </button>
-    <div className={styles.sectionHeading}><h3>Sample activity</h3><span>September</span></div>
-    <ul className={styles.transactions}>{sample.transactions.map(([name, amount]) => <li key={name}><span>{name}<small>Sample transaction</small></span><strong>{amount}</strong></li>)}</ul>
-    <button type="button" className={styles.reward} onClick={() => onPreview("Rewards")}><span><span className={styles.eyebrow}>REWARDS PREVIEW</span><strong>{sample.rewards} sample points</strong><small>Explore how card rewards could look</small></span><ArrowRight aria-hidden="true" className="size-5" /></button>
+    <div className={styles.sectionHeading}><h3 className="ui-text-section-title">Activity</h3><span>September</span></div>
+    <ul className={styles.transactions}>{sample.transactions.map(([name, amount]) => <li key={name}><span>{name}</span><strong>{amount}</strong></li>)}</ul>
+    <button type="button" className={styles.reward} onClick={() => onPreview("Rewards")}><span><span className={styles.eyebrow}>Rewards</span><strong>{sample.rewards} points</strong></span><ArrowRight aria-hidden="true" className="size-5" /></button>
     <div className={styles.quickActions}>
-      {(["Payment", "Autopay", "Card offers"] as const).map((action) => <Button key={action} variant="secondary" size="compact" onClick={() => onPreview(action)}>{action} preview</Button>)}
+      {(["Payment", "Autopay", "Card offers"] as const).map((action) => <Button key={action} variant="secondary" size="compact" onClick={() => onPreview(action)}>{action}</Button>)}
     </div>
-    <p className={styles.disclaimer}>Demo only. Balances, activity and rewards are fictional. No money can be sent and no autopay is enabled.</p>
+    <p className={styles.disclaimer}>Illustrative amounts. Payments are unavailable.</p>
   </div>;
 }
 
@@ -141,18 +141,16 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     <Button variant="secondary" size="compact" disabled={isBusy} aria-label="Add a card" onClick={onAdd} className={styles.plus}><Plus aria-hidden="true" className="size-5" /></Button>
   </nav>;
   return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
-    <h2 className={styles.title}>Your cards</h2>
-    {demo ? <div className={styles.demoNotice}><span className={styles.demoBadge}>Demo collection</span><p>Explore sample cards. Your saved cards will appear here.</p></div> : null}
+    <h2 className={`${styles.title} ui-text-section-title`}>Your cards</h2>
     {mode === "all" ? <>
-      {demo ? <div className={styles.overviewSummary}><span className={styles.eyebrow}>SAMPLE TOTAL DUE</span><strong>₹0.00</strong><span>No payment is due — this is a preview.</span></div> : null}
-      <WalletAddCollection cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} initialExpanded scrollStack showActions={false} showDetailsLink />
+      <WalletAddCollection cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} scrollStack showActions={false} showDetailsLink />
       <div className={styles.quickActions}>
         <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" />{demo ? "Add your first card" : "Add another card"}</Button>
-        {demo ? <><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Statement")}>View sample statements <ArrowRight aria-hidden="true" className="size-4" /></Button><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Autopay")}>Explore autopay preview <ArrowRight aria-hidden="true" className="size-4" /></Button></> : null}
+        {demo ? <><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Statement")}>Statements <ArrowRight aria-hidden="true" className="size-4" /></Button><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Autopay")}>Autopay <ArrowRight aria-hidden="true" className="size-4" /></Button></> : null}
       </div>
     </> : <div key={`${demo ? "demo" : "saved"}-${selected.cardId}`} className="motion-step-enter space-y-5" data-testid="wallet-selected-card">
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" onClick={showAll} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />All cards</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>
-      {demo ? <div className={styles.paymentHeader}><span>Sample card · fully paid</span><Button variant="secondary" size="compact" onClick={() => setPreviewAction("Payment")}>Payment preview</Button></div> : null}
+      {demo ? <div className={styles.paymentHeader}><Button variant="secondary" size="compact" onClick={() => setPreviewAction("Payment")}>Payment</Button></div> : null}
       <div data-swipe-views-horizontal-scroll onTouchStart={(event) => { const point = event.touches[0]; gesture.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null; }} onTouchEnd={finishSwipe} onTouchCancel={() => { gesture.current = null; }} className={styles.selectedFace}>
         {demo ? <WalletDemoCardFace summary={selected} /> : <WalletCardFace summary={selected} collection />}
       </div>
@@ -160,8 +158,8 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     </div>}
     {active && dockHost ? createPortal(dock, dockHost) : null}
     <Dialog modal open={active && Boolean(previewAction)} onOpenChange={(open) => { if (!open) setPreviewAction(null); }}>
-      <DialogContent><DialogHeader><DialogTitle>{previewAction} preview</DialogTitle><DialogDescription>This is a demonstration using fictional cards and amounts. No card is charged, no payment is scheduled, and no banking service is connected.</DialogDescription></DialogHeader>
-        <div className={styles.previewPanel}><span className={styles.demoBadge}>Demo only</span><strong>{previewAction === "Payment" ? "₹0.00 sample amount due" : previewAction === "Autopay" ? "Autopay is not enabled" : previewAction === "Rewards" ? "Sample rewards, ready to explore" : previewAction === "Statement" ? "September · sample statement" : "Illustrative card offers"}</strong><p>Add your own card to keep its details securely in Wallet. Payment and banking features shown here are previews.</p></div>
+      <DialogContent><DialogHeader><DialogTitle>{previewAction}</DialogTitle><DialogDescription>This feature is not connected to a bank. No money moves and no payment is scheduled.</DialogDescription></DialogHeader>
+        <div className={styles.previewPanel}><strong>{previewAction === "Payment" ? "Payments are unavailable" : previewAction === "Autopay" ? "Autopay is not enabled" : previewAction === "Rewards" ? "Rewards are unavailable" : previewAction === "Statement" ? "September statement" : "Illustrative card offers"}</strong><p>Add your own card to keep its details securely in Wallet. Banking services are not connected.</p></div>
         <Button size="standard" onClick={() => setPreviewAction(null)}>Got it</Button>
       </DialogContent>
     </Dialog>

@@ -1,3 +1,9 @@
+vi.mock("@/lib/services/onboarding-local-service", () => ({
+  OnboardingLocalService: {
+    hasSeenWalletIntroduction: vi.fn().mockResolvedValue(false),
+    markWalletIntroductionSeen: vi.fn().mockResolvedValue(undefined),
+  },
+}));
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -93,7 +99,7 @@ describe("Wallet video browser workspace", () => {
   afterEach(() => vi.clearAllMocks());
   const open = async () => {
     const view = render(<WalletWorkspace />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     await screen.findByTestId("wallet-card-browser");
     return view;
   };

@@ -14,7 +14,7 @@ function setup(cards: WalletCardSummary[] = []) {
 describe("Wallet card browser", () => {
   it("switches demo cards and returns to All without selecting or removing real records", () => {
     const { props, dock, host, unmount } = setup();
-    fireEvent.click(dock.getByRole("button", { name: "Open Travel - Demo, ending 4444" }));
+    fireEvent.click(dock.getByRole("button", { name: "Open Travel, ending 4444" }));
     expect(screen.getByTestId("wallet-demo-details")).toHaveTextContent("Travel card");
     expect(screen.getByTestId("wallet-demo-activity")).toHaveTextContent("₹8,640.00");
     expect(props.onSelect).not.toHaveBeenCalled();

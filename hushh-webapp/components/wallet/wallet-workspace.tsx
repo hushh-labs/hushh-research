@@ -1,7 +1,5 @@
 "use client";
 
-import { WalletSharing } from "@/components/wallet/wallet-sharing";
-
 /**
  * Wallet workspace - the /one/wallet owner surface for the reserved
  * wallet PKM domain. Everything decrypts on this device under the
@@ -27,6 +25,7 @@ import {
   type ReactNode,
 } from "react";
 import Image from "next/image";
+import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { WALLET_HERO_SRC } from "@/lib/wallet/wallet-artwork";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -61,6 +60,7 @@ import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handof
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
+import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
 import { prefersReducedMotion } from "@/lib/morphy-ux/gsap";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -214,11 +214,30 @@ export function WalletWorkspace() {
   const searchParams = useSearchParams();
   const [view, dispatch] = useReducer(walletViewReducer, INITIAL_WALLET_VIEW);
   const [tab, setTab] = useState<WalletTab>("cards");
-  const [introductionOpen, setIntroductionOpen] = useState(true);
+  const [introduction, setIntroduction] = useState<{ ownerId: string; seen: boolean } | null>(null);
+  const [introductionSaving, setIntroductionSaving] = useState(false);
+  const introductionLoading = !renderedOwnerId || introduction?.ownerId !== renderedOwnerId;
+  const introductionOpen = introductionLoading || !introduction?.seen;
   const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
   const [formRevision, setFormRevision] = useState(0);
   const [removingCardId, setRemovingCardId] = useState<string | null>(null);
-  useEffect(() => setIntroductionOpen(true), [renderedOwnerId]);
+  useEffect(() => {
+    let cancelled = false;
+    if (renderedOwnerId) {
+      void OnboardingLocalService.hasSeenWalletIntroduction(renderedOwnerId).then((seen) => {
+        if (!cancelled) setIntroduction({ ownerId: renderedOwnerId, seen });
+      });
+    }
+    return () => { cancelled = true; };
+  }, [renderedOwnerId]);
+  const completeIntroduction = async () => {
+    if (!renderedOwnerId || introductionSaving) return;
+    const ownerId = renderedOwnerId;
+    setIntroductionSaving(true);
+    await OnboardingLocalService.markWalletIntroductionSeen(ownerId);
+    if (activeOwnerIdRef.current === ownerId) setIntroduction({ ownerId, seen: true });
+    setIntroductionSaving(false);
+  };
   const [selectedDeckCardId, setSelectedDeckCardId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
   const ready = view.kind === "list" || view.kind === "add" || view.kind === "reveal";
@@ -574,7 +593,8 @@ export function WalletWorkspace() {
           />
 
           {introductionOpen ? (
-            <WalletIntroduction loading={false} onConnect={() => setIntroductionOpen(false)} />
+            introductionLoading ? <div role="status" className="py-6 text-center text-sm text-muted-foreground">Opening your wallet…</div> :
+            <WalletIntroduction loading={introductionSaving} onConnect={() => void completeIntroduction()} />
           ) : <>
           <TopShellTabs
             tabSet={{

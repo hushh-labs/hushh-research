@@ -23,7 +23,7 @@ describe("Wallet Add collection", () => {
     render(<WalletAddCollection {...props} cards={[]} onSelect={onSelect} onRemove={onRemove} />);
     fireEvent.click(screen.getByRole("button", { name: "View all 3 cards" }));
     expect(screen.getByTestId("wallet-preview-stack")).toHaveAttribute("data-expanded", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Travel - Demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Travel" }));
     expect(screen.getByTestId("wallet-preview-layer-demo-1")).toHaveAttribute("data-selected", "true");
     expect(screen.queryByRole("button", { name: "Remove card" })).toBeNull();
     expect(onSelect).not.toHaveBeenCalled();
