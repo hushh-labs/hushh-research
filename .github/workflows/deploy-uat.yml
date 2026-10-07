@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      assert_instagram_ready:
+        description: "Require active Instagram registry, enabled secrets, and candidate bindings before UAT traffic; use only after Meta access approval"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   # write: this workflow tags a healthy release as "last known good"
@@ -291,6 +296,15 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Require backend scope for Instagram readiness gate
+        if: inputs.assert_instagram_ready
+        shell: bash
+        run: |
+          if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            echo "Instagram readiness requires a backend candidate; choose backend or all scope." >&2
+            exit 1
+          fi
 
       - name: Verify prompt UAT Drive worker wake grant
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -808,6 +822,11 @@ jobs:
             --release-environment uat \
             --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
             --report-path /tmp/uat-db-migration-guard-predeploy.json
+          if [ "${{ inputs.assert_instagram_ready }}" = "true" ]; then
+            (cd consent-protocol && "${{ env.PROTOCOL_PYTHON }}" \
+              scripts/ops/reconcile_instagram_connector.py --env uat) \
+              > /tmp/uat-instagram-registry-verify.json
+          fi
           psql --no-psqlrc \
             --file deploy/account-deletion/verify_release_boundary.sql \
             | tee /tmp/uat-account-deletion-boundary.log
@@ -905,6 +924,33 @@ jobs:
           fi
           echo "names=${names}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify Instagram launch secrets
+        if: inputs.assert_instagram_ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in INSTAGRAM_APP_ID INSTAGRAM_APP_SECRET EXTERNAL_CONNECTOR_CREDENTIAL_KEY RATE_LIMIT_STORAGE_URI; do
+            if ! state="$(gcloud secrets versions describe latest \
+                --secret="${secret_name}" --project="${{ env.GCP_PROJECT_ID }}" \
+                --format='value(state)' 2>/dev/null)" || [ "${state}" != "ENABLED" ]; then
+              echo "Instagram launch requires an enabled latest version of ${secret_name}." >&2
+              exit 1
+            fi
+            if ! secret_value="$(gcloud secrets versions access latest \
+                --secret="${secret_name}" --project="${{ env.GCP_PROJECT_ID }}" 2>/dev/null)" \
+                || [ -z "${secret_value}" ]; then
+              echo "Instagram launch requires a nonempty readable value for ${secret_name}." >&2
+              exit 1
+            fi
+            unset secret_value
+          done
+          limiter_uri="$(gcloud secrets versions access latest \
+            --secret=RATE_LIMIT_STORAGE_URI --project="${{ env.GCP_PROJECT_ID }}")"
+          case "${limiter_uri,,}" in
+            redis://*|rediss://*) ;;
+            *) echo "Instagram public embed requires a shared Redis limiter in UAT." >&2; exit 1 ;;
+          esac
+
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -916,6 +962,7 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_INSTAGRAM_APP_ID_SECRET=INSTAGRAM_APP_ID##_INSTAGRAM_APP_SECRET_SECRET=INSTAGRAM_APP_SECRET"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           # Curated connector OAuth client secrets are derived from the checked-in
           # manifests by the "Resolve curated connector secrets" step; empty (the
@@ -1223,6 +1270,20 @@ jobs:
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Instagram candidate secret bindings
+        if: inputs.assert_instagram_ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run revisions describe "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-instagram-backend-candidate.json
+          python3 scripts/ci/assert-instagram-candidate-bindings.py \
+            --revision-json /tmp/uat-instagram-backend-candidate.json \
+            --expected-revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --environment uat
 
       - name: Verify frontend candidate runs the pinned image digest
         if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'

@@ -103,6 +103,8 @@
         "_CURATED_CONNECTOR_SECRETS",
         "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET",
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET",
+        "_INSTAGRAM_APP_ID_SECRET",
+        "_INSTAGRAM_APP_SECRET_SECRET",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET",
         "_DRIVE_SHARING_KEY_V1_SECRET"
       ],
@@ -133,6 +135,8 @@
         "_CURATED_CONNECTOR_SECRETS": "Curated connector OAuth clients (config/curated_connectors) are provisioned for UAT only; dev must not borrow their client identity or grants.",
         "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET": "The constrained Picker developer key is provisioned for the UAT origin only; dev must not use it.",
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET": "UAT connector credential encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
+        "_INSTAGRAM_APP_ID_SECRET": "The Instagram app is configured only for the attested UAT and production HTTPS origins; dev has no registered redirect URI.",
+        "_INSTAGRAM_APP_SECRET_SECRET": "The Instagram app is configured only for the attested UAT and production HTTPS origins; dev must not receive its credential.",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET": "UAT document encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
         "_DRIVE_SHARING_KEY_V1_SECRET": "UAT sharing-receipt encryption material must not cross environment boundaries; dev requires independently provisioned keys."
       }

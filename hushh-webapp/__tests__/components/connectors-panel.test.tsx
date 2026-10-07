@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   token: "synthetic-owner-token" as string | null,
   overview: vi.fn(),
   startOAuthConnect: vi.fn(),
+  instagramOwnedMedia: vi.fn(),
   documents: vi.fn(),
   liveBackground: vi.fn(),
   setLiveBackground: vi.fn(),
@@ -54,9 +55,13 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
   }),
 }));
 vi.mock("@/lib/services/external-connector-service", () => ({
+  INSTAGRAM_ACCOUNT_METRICS: ["reach", "views"],
+  INSTAGRAM_MEDIA_METRICS: ["reach", "likes"],
+  validInstagramNumericId: (value: unknown) => typeof value === "string" && /^[0-9]{1,32}$/.test(value),
   ExternalConnectorService: {
     overview: state.overview,
     startOAuthConnect: state.startOAuthConnect,
+    instagramOwnedMedia: state.instagramOwnedMedia,
     disconnect: state.disconnect,
     documents: state.documents,
     liveBackground: state.liveBackground,
@@ -115,6 +120,7 @@ describe("supported connector catalog", () => {
     state.token = "synthetic-owner-token";
     state.overview.mockReset().mockResolvedValue(overview());
     state.startOAuthConnect.mockReset();
+    state.instagramOwnedMedia.mockReset().mockResolvedValue({ posts: [], nextCursor: null });
     state.documents.mockReset().mockResolvedValue([]);
     state.liveBackground.mockReset().mockResolvedValue(true);
     state.setLiveBackground.mockReset().mockImplementation(async (_token: string, enabled: boolean) => enabled);
@@ -594,6 +600,74 @@ describe("supported connector catalog", () => {
       );
       // The sign-in happens in the popup; this window never leaves the app.
       expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("offers managed Instagram OAuth without the curated MCP rollout flag", async () => {
+      const instagram = {
+        ...hubspot,
+        connectorId: "instagram",
+        displayName: "Instagram",
+        curatedOAuth: false,
+        managedOAuth: true,
+      };
+      state.overview.mockResolvedValue(withFlag([instagram], false));
+      state.startOAuthConnect.mockResolvedValue({
+        authorizeUrl: "https://www.instagram.com/oauth/authorize?state=signed",
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
+        connectorId: "instagram",
+      });
+      const popup = {
+        closed: false,
+        close: vi.fn(),
+        document: { title: "", body: { textContent: "" } },
+        location: { replace: vi.fn() },
+      };
+      vi.mocked(window.open).mockReturnValue(popup as unknown as Window);
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Instagram" }));
+      expect(screen.getByRole("region", { name: "Preview a public Instagram post" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back to connectors" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Connect Instagram" }));
+      await waitFor(() => expect(popup.location.replace).toHaveBeenCalledExactlyOnceWith(
+        "https://www.instagram.com/oauth/authorize?state=signed",
+      ));
+      expect(state.startOAuthConnect).toHaveBeenCalledWith(expect.objectContaining({
+        vaultOwnerToken: "synthetic-owner-token",
+        connectorId: "instagram",
+        flow: "web",
+      }));
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("keeps a connected Instagram grant reachable for owner-confirmed disconnect", async () => {
+      const instagram = {
+        ...hubspot,
+        connectorId: "instagram",
+        displayName: "Instagram",
+        curatedOAuth: false,
+        managedOAuth: true,
+        status: "connected",
+      };
+      state.overview.mockResolvedValue(withFlag([instagram], false));
+      state.disconnect.mockResolvedValue({
+        status: "revoked", connectorId: "instagram", revocationOutcome: "unavailable",
+      });
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Instagram" }));
+      const details = screen.getByRole("region", { name: "Instagram details" });
+      expect(within(details).getByText("Connected")).toBeInTheDocument();
+      expect(await screen.findByRole("region", { name: "Your Instagram posts" })).toBeInTheDocument();
+      expect(state.instagramOwnedMedia).toHaveBeenCalledWith(expect.objectContaining({
+        vaultOwnerToken: "synthetic-owner-token",
+      }));
+      fireEvent.click(within(details).getByRole("button", { name: "Disconnect" }));
+      expect(state.disconnect).not.toHaveBeenCalled();
+      const dialog = await screen.findByRole("alertdialog", { name: "Disconnect this connector?" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+      await waitFor(() => expect(state.disconnect).toHaveBeenCalledExactlyOnceWith({
+        vaultOwnerToken: "synthetic-owner-token", connectorId: "instagram",
+      }));
     });
 
     it("offers Disconnect for a connected connector and confirms first", async () => {

@@ -101,6 +101,56 @@ class ExternalConnectorLifecycleStore:
             )
         )
 
+    async def claim_instagram_publication(
+        self,
+        owner_id: str,
+        instagram_account_id: str,
+        connection_generation: int,
+        container_id: str,
+    ) -> bool:
+        """Persist a one-use media_publish claim before any provider write.
+
+        A claim is deliberately never released on a timeout or provider error:
+        the remote outcome may be unknown. The connection row is locked for
+        share while claiming so a concurrent disconnect cannot invalidate the
+        checked generation before this transaction commits.
+        """
+
+        params = {
+            "owner_id": owner_id,
+            "account_id": instagram_account_id,
+            "generation": connection_generation,
+            "container_id": container_id,
+        }
+
+        def claim(connection: Any) -> bool:
+            row = self._row(
+                connection,
+                """
+                WITH active AS MATERIALIZED (
+                  SELECT user_id
+                  FROM user_external_connector_connections
+                  WHERE user_id = :owner_id AND connector_id = 'instagram'
+                    AND status = 'connected'
+                    AND connection_generation = :generation
+                    AND validation_state = 'verified'
+                  FOR SHARE
+                )
+                INSERT INTO instagram_publication_claims (
+                  owner_user_id, instagram_account_id,
+                  connection_generation, container_id
+                )
+                SELECT user_id, :account_id, :generation, :container_id
+                FROM active WHERE TRUE
+                ON CONFLICT DO NOTHING
+                RETURNING container_id
+                """,
+                params,
+            )
+            return row is not None
+
+        return await self._transaction(claim)
+
     async def purge_expired(self) -> None:
         """Bounded opportunistic retention; no owner lock and no provider I/O.
 

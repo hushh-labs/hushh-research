@@ -71,6 +71,8 @@ that file for the full record; this table is the index.
 | `information_marketplace_delivery` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `information_marketplace_opportunity_signals` | `workflow_state` | `iam-consent-governance` | 1 table |
 | `information_marketplace_requests` | `workflow_state` | `iam-consent-governance` | 1 table |
+| `instagram_publication_claims` *(customer0)* | `workflow_state` | `iam-consent-governance` | 1 table |
+| `instagram_oembed_request_budgets` *(customer0)* | `workflow_state` | `backend-runtime-governance` | 1 table |
 | `kai_gmail_receipts_provider_cache` | `provider_cache` | `backend-runtime-governance` | 4 tables |
 | `gmail_owner_approved_delivery` | `workflow_state` | `backend-runtime-governance` | `gmail_owner_send_actions`, `google_email_send_actions` |
 | `market_reference_and_cache` | `reference` | `backend-runtime-governance` | `tickers`, `ticker_*`, `renaissance_*`, `kai_market_cache_entries` |

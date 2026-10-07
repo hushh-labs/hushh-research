@@ -82,6 +82,10 @@ import {
 } from "@/lib/agent/drive-oauth-chat-recovery";
 import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
+import { InstagramOwnedPosts } from "@/components/agent/instagram-owned-posts";
+import { InstagramPublisher } from "@/components/agent/instagram-publisher";
+import { InstagramPublicEmbed } from "@/components/agent/instagram-public-embed";
+import { InstagramManage } from "@/components/agent/instagram-manage";
 
 type Props = {
   open: boolean;
@@ -409,6 +413,7 @@ function OwnerConnectorsPanel({
   const [curatedBusy, setCuratedBusy] = useState(false);
   const [curatedMessage, setCuratedMessage] = useState("");
   const [curatedPopupPending, setCuratedPopupPending] = useState(false);
+  const [instagramPostsRevision, setInstagramPostsRevision] = useState(0);
   // Coming back from the provider's consent page with Back can restore this page
   // from the bfcache with the in-flight flag still set; nothing is in flight then.
   useEffect(() => {
@@ -1584,14 +1589,16 @@ function OwnerConnectorsPanel({
     setConfirm(target);
   };
   const curatedRolloutEnabled = overview?.features.curated_mcp_connectors === true;
+  const canConnectProvider = (connector: ConnectorOverview["connectors"][number]) =>
+    connector.available === true &&
+    (connector.managedOAuth === true ||
+      (connector.curatedOAuth === true && curatedRolloutEnabled));
   const connectCurated = (connectorId: string, name: string) => {
     if (!vaultOwnerToken || !user?.uid || curatedBusy || curatedLock.current) return;
     const connector = overview?.connectors.find((item) => item.connectorId === connectorId);
     if (
       !connector ||
-      connector.curatedOAuth !== true ||
-      !curatedRolloutEnabled ||
-      connector.available !== true
+      !canConnectProvider(connector)
     ) {
       setCuratedMessage(name + " is unavailable here.");
       return;
@@ -1705,7 +1712,8 @@ function OwnerConnectorsPanel({
       const signal = controller.current?.signal;
       if (
         !overview?.connectors.some(
-          (item) => item.connectorId === connectorId && item.curatedOAuth === true,
+          (item) => item.connectorId === connectorId &&
+            (item.curatedOAuth === true || item.managedOAuth === true),
         ) ||
         !token || !signal || signal.aborted || curatedBusy
       ) return;
@@ -2022,17 +2030,16 @@ function OwnerConnectorsPanel({
         if (item.catalogCard === true) return true;
         // A curated connector shows when it can accept a new grant, or while
         // an existing owner grant still needs a Disconnect/recovery path.
-        if (item.curatedOAuth === true) {
+        if (item.curatedOAuth === true || item.managedOAuth === true) {
           const hasExistingGrant = !["not_connected", "revoked"].includes(item.status);
-          return (curatedRolloutEnabled && item.available === true) || hasExistingGrant;
+          return canConnectProvider(item) || hasExistingGrant;
         }
         return true;
       })
       .map((item): ConnectorListEntry => {
         const storedGrant = !["not_connected", "revoked"].includes(item.status);
-        const curated = item.curatedOAuth === true;
-        const canStartCurated =
-          curated && curatedRolloutEnabled && item.available === true;
+        const curated = item.curatedOAuth === true || item.managedOAuth === true;
+        const canStartCurated = canConnectProvider(item);
         const catalogStateLabel =
           item.catalogState === "setup_pending"
             ? "Setup pending"
@@ -2100,9 +2107,7 @@ function OwnerConnectorsPanel({
   );
   const canStartSelectedCurated = Boolean(
     selectedCatalog &&
-      selectedCatalog.curatedOAuth === true &&
-      curatedRolloutEnabled &&
-      selectedCatalog.available === true,
+      canConnectProvider(selectedCatalog),
   );
 
   const inProfile = surface === "profile";
@@ -2772,16 +2777,16 @@ function OwnerConnectorsPanel({
                 <p className="text-sm text-muted-foreground">{selectedCatalog.description}</p>
                 {selectedCatalog.accountLabel ? <p className="break-all text-sm">{selectedCatalog.accountLabel}</p> : null}
                 <p role="status" className="text-sm">
-                  {selectedCatalog.curatedOAuth === true &&
+                  {(selectedCatalog.curatedOAuth === true || selectedCatalog.managedOAuth === true) &&
                   !canStartSelectedCurated &&
                   !["not_connected", "revoked"].includes(selectedCatalog.status)
                     ? "Unavailable"
-                    : selectedCatalog.curatedOAuth === true &&
+                    : (selectedCatalog.curatedOAuth === true || selectedCatalog.managedOAuth === true) &&
                         selectedCatalog.status === "verifying"
                       ? "Sign-in needed"
                     : (labels[selectedCatalog.status] ?? "Status unavailable")}
                 </p>
-                {selectedCatalog.curatedOAuth === true ? (
+                {selectedCatalog.curatedOAuth === true || selectedCatalog.managedOAuth === true ? (
                   <>
                     <div className="flex flex-wrap gap-2">
                       {canStartSelectedCurated &&
@@ -2817,6 +2822,20 @@ function OwnerConnectorsPanel({
                 ) : null}
               </section>
             )}
+            {selectedCatalog?.connectorId === "instagram" && vaultOwnerToken && (
+              <InstagramPublicEmbed vaultOwnerToken={vaultOwnerToken} />
+            )}
+            {selectedCatalog?.connectorId === "instagram" &&
+              selectedCatalog.status === "connected" && vaultOwnerToken && (
+                <>
+                  <InstagramOwnedPosts key={instagramPostsRevision} vaultOwnerToken={vaultOwnerToken} />
+                  <InstagramManage vaultOwnerToken={vaultOwnerToken} />
+                  <InstagramPublisher
+                    vaultOwnerToken={vaultOwnerToken}
+                    onPublished={() => setInstagramPostsRevision((revision) => revision + 1)}
+                  />
+                </>
+              )}
           </div>
         )}
       </div>

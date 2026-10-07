@@ -28,7 +28,8 @@
     "drive_bulk_share_effects",
     "drive_request_payment_webhook_events",
     "circle_chat_messages",
-    "circle_chat_recipients"
+    "circle_chat_recipients",
+    "instagram_publication_claims"
   ],
   "retention_registry": [
     {
@@ -1257,6 +1258,36 @@
       "trust_boundary": "V2 PKCE verifier and OIDC nonce are encrypted with owner/connector/attempt AAD. Native callbacks may stage an encrypted verified token envelope additionally bound to connection generation; it cannot execute or activate until the original owner finalizes. No plaintext tokens, provider identity, OAuth codes, client secrets, or Vault Owner tokens are stored.",
       "plaintext_posture": "encrypted_pkce_and_pending_credential_no_plaintext_secret_at_rest",
       "expected_row_growth": "low_ttl_workflow"
+    },
+    {
+      "id": "instagram_oembed_request_budgets",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "instagram_oembed_request_budgets"
+      ],
+      "primary_access_path": "Production Instagram public oEmbed route reserves one app-wide provider request in an atomic Postgres minute bucket before calling Meta.",
+      "retention_policy": "Delete buckets older than two hours in bounded batches on later oEmbed requests; idle periods can retain stale aggregate rows until the next request.",
+      "deletion_behavior": "The table contains no account identifier; account deletion does not change shared aggregate counts. Rollback drops the table and makes production oEmbed fail closed.",
+      "trust_boundary": "Contains only a minute timestamp and aggregate request count. No owner, post URL, token, IP address, or provider response is stored. Backend-only write; public and app-user database roles have no grants.",
+      "plaintext_posture": "aggregate_request_counts_only",
+      "expected_row_growth": "at_most_one_row_per_minute_opportunistically_bounded"
+    },
+    {
+      "id": "instagram_publication_claims",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "instagram_publication_claims"
+      ],
+      "primary_access_path": "Vault Owner Instagram media publish route atomically claims an owner/account/generation/container tuple before the Graph media_publish request.",
+      "retention_policy": "Retain each claim while the connector owner record exists, including after provider timeouts and disconnect, so an uncertain publication cannot be retried.",
+      "deletion_behavior": "Account deletion removes the connection row and cascades claims. Disconnect and account reset retain the generation and its claims; a reconnect advances the generation and invalidates older signed handles.",
+      "trust_boundary": "Contains only the owner ID, Instagram account and creation-container IDs, connection generation, and claim time. No media, caption, message, token, secret, or provider response is stored. Backend-only write; public and app-user database roles have no grants.",
+      "plaintext_posture": "opaque_workflow_identifiers_and_timestamp_only",
+      "expected_row_growth": "one_per_publication_attempt"
     },
     {
       "id": "hushh_tech_client_identity_state",

@@ -48,9 +48,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-09-27";
 const LAST_UPDATED_LABEL = "September 27, 2026";
 const VERSION = "2.1";
-const PRIVACY_LAST_UPDATED = "2026-09-30";
-const PRIVACY_LAST_UPDATED_LABEL = "September 30, 2026";
-const PRIVACY_VERSION = "2.2";
+const PRIVACY_LAST_UPDATED = "2026-10-07";
+const PRIVACY_LAST_UPDATED_LABEL = "October 7, 2026";
+const PRIVACY_VERSION = "2.3";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -279,6 +279,16 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       p(
         "For connectors we offer in the app, your credential is stored on our servers, encrypted with a key Hussh holds, and One asks you to review its actions by default.",
+      ),
+      h("Instagram"),
+      p(
+        "If you connect an Instagram Business or Creator account, Instagram asks you to grant access to your basic account details, content publishing, comment management, messages, and insights. The corresponding permissions are instagram_business_basic, instagram_business_content_publish, instagram_business_manage_comments, instagram_business_manage_messages, and instagram_business_manage_insights. We store the access token encrypted on our servers with limited connection details so the connector can work and refresh the grant.",
+      ),
+      p(
+        "When you use an Instagram feature, One requests the information needed for that action from Meta: your account and posts, media you are tagged in, comments on your posts, account or post insights, or messages in an existing conversation you select. The connector returns these results for your request and does not keep separate copies of posts, comments, messages, or insights in its database. Publishing a post, changing a comment, or sending a message requires your review and confirmation in One.",
+      ),
+      p(
+        "If you paste a public Instagram post or Reel URL, One can display Meta's embed for that URL without connecting an Instagram account. The embed is for display only; we do not extract its content into memories, chat context, search, or analytics. Disconnecting Instagram in Profile, Connectors deletes the stored grant and stops One using it. To revoke One's access at Instagram as well, remove the app in Instagram's Apps and Websites settings. Deleting your One account also deletes the connector grant.",
       ),
     ],
   },

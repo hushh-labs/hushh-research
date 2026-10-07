@@ -54,6 +54,11 @@ on:
         required: false
         default: "all"
         type: string
+      assert_instagram_ready:
+        description: "Require active Instagram registry, enabled secrets, and candidate bindings before production traffic; use only after Meta access approval"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   # write: this workflow tags a healthy release as "last known good"
@@ -283,6 +288,15 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Require backend scope for Instagram readiness gate
+        if: inputs.assert_instagram_ready
+        shell: bash
+        run: |
+          if [ "${{ steps.scope.outputs.deploy_backend }}" != "true" ]; then
+            echo "Instagram readiness requires a backend candidate; choose backend or all scope." >&2
+            exit 1
+          fi
 
       - name: Resolve production Drive release mode from serving backend
         id: drive-mode
@@ -796,6 +810,15 @@ jobs:
               "${{ env.PROTOCOL_PYTHON }}" scripts/ops/reconcile_google_drive_prod_connector.py
             )
           fi
+          if [ "${{ inputs.assert_instagram_ready }}" = "true" ]; then
+            (
+              export ENVIRONMENT=production
+              export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"
+              cd consent-protocol
+              "${{ env.PROTOCOL_PYTHON }}" \
+                scripts/ops/reconcile_instagram_connector.py --env production
+            ) > /tmp/prod-instagram-registry-verify.json
+          fi
           psql --no-psqlrc \
             --file deploy/account-deletion/verify_release_boundary.sql \
             | tee /tmp/prod-account-deletion-boundary.log
@@ -869,6 +892,27 @@ jobs:
             /tmp/db-migration-guard-report.json
             /tmp/prod-migration-release-manifest.json
 
+      - name: Verify Instagram launch secrets
+        if: inputs.assert_instagram_ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in INSTAGRAM_APP_ID INSTAGRAM_APP_SECRET EXTERNAL_CONNECTOR_CREDENTIAL_KEY; do
+            if ! state="$(gcloud secrets versions describe latest \
+                --secret="${secret_name}" --project="${{ env.GCP_PROJECT_ID }}" \
+                --format='value(state)' 2>/dev/null)" || [ "${state}" != "ENABLED" ]; then
+              echo "Instagram launch requires an enabled latest version of ${secret_name}." >&2
+              exit 1
+            fi
+            if ! secret_value="$(gcloud secrets versions access latest \
+                --secret="${secret_name}" --project="${{ env.GCP_PROJECT_ID }}" 2>/dev/null)" \
+                || [ -z "${secret_value}" ]; then
+              echo "Instagram launch requires a readable nonempty ${secret_name} payload." >&2
+              exit 1
+            fi
+            unset secret_value
+          done
+
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -879,8 +923,9 @@ jobs:
           fi
           DRIVE_SUBSTITUTIONS=",_BACKEND_RUNTIME_CONFIG_JSON_SECRET=${DRIVE_CANDIDATE_RUNTIME_SECRET}"
           if [ "${{ steps.drive-mode.outputs.active }}" = "true" ]; then
-            DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=true,_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
+            DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=true,_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
           fi
+          DRIVE_SUBSTITUTIONS+=",_INSTAGRAM_APP_ID_SECRET=INSTAGRAM_APP_ID,_INSTAGRAM_APP_SECRET_SECRET=INSTAGRAM_APP_SECRET,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
           # Same sizing as UAT: two gunicorn workers plus the E5 query leaf
           # outgrow the 1Gi default, and an out-of-memory kill drops every
           # chat stream on the instance mid-turn (measured 2026-09-27).
@@ -1156,6 +1201,20 @@ jobs:
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "Backend candidate revision: ${backend_revision:-n/a}"
           echo "Frontend candidate revision: ${frontend_revision:-n/a}"
+
+      - name: Verify Instagram candidate secret bindings
+        if: inputs.assert_instagram_ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run revisions describe "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/prod-instagram-backend-candidate.json
+          python3 scripts/ci/assert-instagram-candidate-bindings.py \
+            --revision-json /tmp/prod-instagram-backend-candidate.json \
+            --expected-revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --environment production
 
       - name: Verify frontend candidate runs the pinned image digest
         if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'

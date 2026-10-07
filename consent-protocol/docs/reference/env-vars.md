@@ -72,6 +72,8 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `GOOGLE_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Google OAuth web-client secret. Falls back to the Gmail-named secret during the compatibility transition. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Optional explicit override. If unset, Calendar derives `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return`; register that exact URI in the OAuth client. |
 | `GOOGLE_OAUTH_TOKEN_KEY` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | AES-GCM key for normalized Google provider credentials and PKCE verifier envelopes. Falls back to `GMAIL_OAUTH_TOKEN_KEY` only while Gmail remains on its legacy table. |
+| `INSTAGRAM_APP_ID` | `hushh_mcp/services/external_connector_instagram_oauth.py` | Instagram connector only | Instagram product App ID from Meta App Dashboard; backend only. The configured account, registry row, and exact HTTPS callback must also be present. |
+| `INSTAGRAM_APP_SECRET` | `hushh_mcp/services/external_connector_instagram_oauth.py` | Instagram connector only | Instagram product App Secret; backend secret store only. Never expose in frontend configuration or logs. |
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | Token TTL (default: 24h). |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | `hushh_mcp/config.py` | No | TrustLink TTL. |
 | `ENVIRONMENT` | `hushh_mcp/config.py` | No | `production` or `development` (default). |

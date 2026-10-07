@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from collections.abc import Awaitable
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
@@ -24,6 +26,7 @@ from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middlewares.rate_limit import consume_shared_rate_limit_budget, limiter
 from hushh_mcp.one_adk import mcp_review_service
 from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
 from hushh_mcp.one_adk.mcp_oauth_connection import mcp_oauth_attempts
@@ -44,6 +47,15 @@ from hushh_mcp.services.external_connector_curated_oauth import (
     is_curated_oauth_connector,
 )
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+from hushh_mcp.services.external_connector_instagram_capabilities import (
+    ExternalConnectorInstagramCapabilities,
+)
+from hushh_mcp.services.external_connector_instagram_oauth import InstagramConnectorError
+from hushh_mcp.services.external_connector_instagram_oembed import (
+    ExternalConnectorInstagramOEmbed,
+    InstagramOEmbedError,
+)
+from hushh_mcp.services.external_connector_instagram_oembed_budget import InstagramOEmbedBudget
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.external_connector_oauth_service import (
     ExternalConnectorOAuthError,
@@ -149,6 +161,8 @@ class ConnectorSummary(BaseModel):
     # provider that has a reviewed manifest. Start and complete re-validate the
     # manifest pins themselves; nothing here is trusted from the client.
     curatedOAuth: bool = False
+    # First-party provider OAuth using this lifecycle without MCP discovery.
+    managedOAuth: bool = False
     # A reviewed configuration-derived card. This is presentation-only: OAuth
     # start and completion still obtain and validate the live registry row.
     catalogCard: bool = False
@@ -156,6 +170,60 @@ class ConnectorSummary(BaseModel):
     # registration-only, and `unavailable` passed neither the feature nor
     # runtime availability check. A null value is ready for Connect.
     catalogState: Literal["setup_pending", "discovery_pending", "unavailable"] | None = None
+
+
+class InstagramConfirmedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmed: StrictBool
+
+
+class InstagramPhotoRequest(InstagramConfirmedRequest):
+    imageUrl: str = Field(min_length=1, max_length=2048, repr=False)
+    caption: str = Field(default="", max_length=2200, repr=False)
+    altText: str | None = Field(default=None, max_length=1000, repr=False)
+    carouselItem: StrictBool = False
+    isAiGenerated: StrictBool = False
+
+
+class InstagramReelRequest(InstagramConfirmedRequest):
+    videoUrl: str = Field(min_length=1, max_length=2048, repr=False)
+    caption: str = Field(default="", max_length=2200, repr=False)
+    shareToFeed: StrictBool = True
+    isAiGenerated: StrictBool = False
+
+
+class InstagramStoryImageRequest(InstagramConfirmedRequest):
+    imageUrl: str = Field(min_length=1, max_length=2048, repr=False)
+
+
+class InstagramStoryVideoRequest(InstagramConfirmedRequest):
+    videoUrl: str = Field(min_length=1, max_length=2048, repr=False)
+
+
+class InstagramCarouselItemRequest(InstagramConfirmedRequest):
+    videoUrl: str = Field(min_length=1, max_length=2048, repr=False)
+
+
+class InstagramCarouselRequest(InstagramConfirmedRequest):
+    children: list[str] = Field(min_length=2, max_length=10, repr=False)
+    caption: str = Field(default="", max_length=2200, repr=False)
+    isAiGenerated: StrictBool = False
+
+
+class InstagramPublishRequest(InstagramConfirmedRequest):
+    containerHandle: str = Field(min_length=1, max_length=1024, repr=False)
+
+
+class InstagramReplyRequest(InstagramConfirmedRequest):
+    message: str = Field(min_length=1, max_length=2200, repr=False)
+
+
+class InstagramHideRequest(InstagramConfirmedRequest):
+    hidden: StrictBool
+
+
+class InstagramMessageRequest(InstagramConfirmedRequest):
+    message: str = Field(min_length=1, max_length=1000, repr=False)
 
 
 class ConnectorsResponse(BaseModel):
@@ -889,6 +957,10 @@ def _registry_summary(
         authStyle=connector.auth_style,
         registrationKind="private" if connector.owner_user_id else "curated",
         curatedOAuth=_curated_oauth_flag(connector),
+        managedOAuth=connector.connector_id == "instagram",
+        catalogState=(
+            "unavailable" if connector.connector_id == "instagram" and not available else None
+        ),
         available=available,
         **_owner_status_fields(status),
     )
@@ -925,6 +997,11 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
         if any(item.connector_id == "google_drive" for item in connectors)
         else False
     )
+    instagram_available = (
+        await oauth_service.instagram().connection_available()
+        if any(item.connector_id == "instagram" for item in connectors)
+        else False
+    )
     result_connectors: list[ConnectorSummary] = []
     active_catalog_ids: set[str] = set()
     for connector in connectors:
@@ -937,6 +1014,8 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                     available=(
                         drive_available
                         if connector.connector_id == "google_drive"
+                        else instagram_available
+                        if connector.connector_id == "instagram"
                         else (
                             curated_available.get(connector.connector_id, False)
                             if is_curated_oauth_connector(connector)
@@ -988,6 +1067,20 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                 authStyle="oauth",
                 available=False,
                 **_owner_status_fields(status),
+            )
+        )
+    if "instagram" in statuses and not any(
+        item.connectorId == "instagram" for item in result.connectors
+    ):
+        result.connectors.append(
+            ConnectorSummary(
+                connectorId="instagram",
+                displayName="Instagram",
+                description="Your Instagram professional account",
+                authStyle="oauth",
+                managedOAuth=True,
+                available=False,
+                **_owner_status_fields(statuses["instagram"]),
             )
         )
 
@@ -1085,6 +1178,7 @@ async def start_oauth_connect(
     except (
         ExternalConnectorOAuthError,
         DriveOAuthError,
+        InstagramConnectorError,
         CuratedConnectorOAuthError,
         ConnectorLifecycleError,
         ExternalConnectorCredentialError,
@@ -1111,6 +1205,7 @@ async def complete_oauth_connect(
     except (
         ExternalConnectorOAuthError,
         DriveOAuthError,
+        InstagramConnectorError,
         CuratedConnectorOAuthError,
         ConnectorLifecycleError,
         ExternalConnectorCredentialError,
@@ -1123,8 +1218,7 @@ async def complete_oauth_connect(
 async def complete_web_popup(
     body: CompleteWebOAuthRequest, user_id: str = Depends(require_firebase_auth)
 ):
-    # Drive and operator-owned curated connectors accept this exception: both
-    # adapters atomically claim an unexpired attempt previously created by this
+    # Reviewed provider adapters atomically claim an unexpired attempt created by this
     # same owner using Vault Owner auth, and seal credentials server-side with
     # no vault-derived key. Every other connector (the legacy generic exchange)
     # is refused here and stays vault-only. No opener token is copied into the
@@ -1139,6 +1233,7 @@ async def complete_web_popup(
     except (
         ExternalConnectorOAuthError,
         DriveOAuthError,
+        InstagramConnectorError,
         CuratedConnectorOAuthError,
         ConnectorLifecycleError,
         ExternalConnectorCredentialError,
@@ -1255,6 +1350,312 @@ async def set_live_background(
         raise _drive_selection_error(error) from None
 
 
+async def _reserve_instagram_oembed_quota() -> bool:
+    """One shared app budget, bounded below Meta's 1,000 requests/hour."""
+    # UAT's Redis limiter and production's Cloud SQL counter are both shared
+    # across workers and Cloud Run instances. Local memory is never accepted.
+    storage_uri = os.getenv("RATE_LIMIT_STORAGE_URI", "").strip().lower()
+    if storage_uri.startswith(("redis://", "rediss://")):
+        if not limiter.enabled:
+            raise RuntimeError("shared Instagram oEmbed quota unavailable")
+        return await asyncio.to_thread(
+            consume_shared_rate_limit_budget,
+            limit_value="4/minute",
+            scope="instagram_oembed_app",
+            key="all",
+        )
+    if get_app_runtime_settings().environment == "production":
+        return (await InstagramOEmbedBudget().reserve()) is True
+    raise RuntimeError("shared Instagram oEmbed quota unavailable")
+
+
+@router.get("/instagram/oembed")
+async def instagram_public_oembed(
+    url: str = Query(min_length=1, max_length=2048),
+    max_width: int = Query(default=540, ge=320, le=658),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Return public post display markup only; never ingest it as connector data."""
+    del token_data  # The owner proof gates the shared presentation budget.
+    try:
+        return await ExternalConnectorInstagramOEmbed(
+            reserve_quota=_reserve_instagram_oembed_quota,
+        ).embed(post_url=url, max_width=max_width)
+    except InstagramOEmbedError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.args[0]) from None
+
+
+@router.get("/instagram/media")
+async def list_instagram_owned_media(
+    limit: int = Query(default=25, ge=1, le=50),
+    after: str | None = Query(default=None, max_length=512),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read only media owned by the Instagram account this owner connected."""
+    try:
+        return (
+            await get_external_connector_oauth_service()
+            .instagram()
+            .owned_media(user_id=_user_id(token_data), limit=limit, after=after)
+        )
+    except (
+        InstagramConnectorError,
+        ConnectorLifecycleError,
+        ExternalConnectorCredentialError,
+    ) as error:
+        raise _oauth_error(error) from None
+
+
+def _instagram_capabilities() -> ExternalConnectorInstagramCapabilities:
+    oauth = get_external_connector_oauth_service().instagram()
+    return ExternalConnectorInstagramCapabilities(
+        oauth,
+        claim_publish=oauth.lifecycle.claim_instagram_publication,
+    )
+
+
+async def _instagram_result(operation: Awaitable[Any]) -> Any:
+    try:
+        return await operation
+    except (
+        InstagramConnectorError,
+        ConnectorLifecycleError,
+        ExternalConnectorCredentialError,
+    ) as error:
+        raise _oauth_error(error) from None
+
+
+@router.get("/instagram/publishing-limit")
+async def instagram_publishing_limit(token_data: dict = Depends(require_vault_owner_token)):
+    return await _instagram_result(
+        _instagram_capabilities().publishing_limit(user_id=_user_id(token_data))
+    )
+
+
+@router.post("/instagram/media/photo-container")
+async def instagram_photo_container(
+    body: InstagramPhotoRequest, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().create_photo_container(
+            user_id=_user_id(token_data),
+            image_url=body.imageUrl,
+            caption=body.caption,
+            alt_text=body.altText,
+            carousel_item=body.carouselItem,
+            is_ai_generated=body.isAiGenerated,
+            confirmed=body.confirmed,
+        )
+    )
+
+
+@router.post("/instagram/media/reel-container")
+async def instagram_reel_container(
+    body: InstagramReelRequest, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().create_reel_container(
+            user_id=_user_id(token_data),
+            video_url=body.videoUrl,
+            caption=body.caption,
+            share_to_feed=body.shareToFeed,
+            is_ai_generated=body.isAiGenerated,
+            confirmed=body.confirmed,
+        )
+    )
+
+
+@router.post("/instagram/media/story-image-container")
+async def instagram_story_image_container(
+    body: InstagramStoryImageRequest, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().create_story_image_container(
+            user_id=_user_id(token_data), image_url=body.imageUrl, confirmed=body.confirmed
+        )
+    )
+
+
+@router.post("/instagram/media/story-video-container")
+async def instagram_story_video_container(
+    body: InstagramStoryVideoRequest, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().create_story_video_container(
+            user_id=_user_id(token_data), video_url=body.videoUrl, confirmed=body.confirmed
+        )
+    )
+
+
+@router.post("/instagram/media/video-carousel-item")
+async def instagram_video_carousel_item(
+    body: InstagramCarouselItemRequest, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().create_video_carousel_item(
+            user_id=_user_id(token_data),
+            video_url=body.videoUrl,
+            confirmed=body.confirmed,
+        )
+    )
+
+
+@router.post("/instagram/media/carousel-container")
+async def instagram_carousel_container(
+    body: InstagramCarouselRequest, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().create_carousel_container(
+            user_id=_user_id(token_data),
+            children=body.children,
+            caption=body.caption,
+            is_ai_generated=body.isAiGenerated,
+            confirmed=body.confirmed,
+        )
+    )
+
+
+@router.get("/instagram/media/containers/{handle}")
+async def instagram_container_status(
+    handle: str, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().container_status(user_id=_user_id(token_data), handle=handle)
+    )
+
+
+@router.post("/instagram/media/publish")
+async def instagram_publish_media(
+    body: InstagramPublishRequest, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().publish_container(
+            user_id=_user_id(token_data), handle=body.containerHandle, confirmed=body.confirmed
+        )
+    )
+
+
+@router.get("/instagram/media/{media_id}/comments")
+async def instagram_comments(
+    media_id: str,
+    limit: int = Query(default=25, ge=1, le=50),
+    after: str | None = Query(default=None, max_length=512),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _instagram_result(
+        _instagram_capabilities().list_comments(
+            user_id=_user_id(token_data), media_id=media_id, limit=limit, after=after
+        )
+    )
+
+
+@router.post("/instagram/comments/{comment_id}/reply")
+async def instagram_reply_to_comment(
+    comment_id: str,
+    body: InstagramReplyRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _instagram_result(
+        _instagram_capabilities().reply_to_comment(
+            user_id=_user_id(token_data),
+            comment_id=comment_id,
+            message=body.message,
+            confirmed=body.confirmed,
+        )
+    )
+
+
+@router.post("/instagram/comments/{comment_id}/hide")
+async def instagram_set_comment_hidden(
+    comment_id: str,
+    body: InstagramHideRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _instagram_result(
+        _instagram_capabilities().set_comment_hidden(
+            user_id=_user_id(token_data),
+            comment_id=comment_id,
+            hidden=body.hidden,
+            confirmed=body.confirmed,
+        )
+    )
+
+
+@router.post("/instagram/comments/{comment_id}/delete")
+async def instagram_delete_comment(
+    comment_id: str,
+    body: InstagramConfirmedRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _instagram_result(
+        _instagram_capabilities().delete_comment(
+            user_id=_user_id(token_data), comment_id=comment_id, confirmed=body.confirmed
+        )
+    )
+
+
+@router.get("/instagram/insights/account")
+async def instagram_account_insight(
+    metric: str = Query(max_length=80), token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().account_insight(user_id=_user_id(token_data), metric=metric)
+    )
+
+
+@router.get("/instagram/insights/media/{media_id}")
+async def instagram_media_insight(
+    media_id: str,
+    metric: str = Query(max_length=80),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _instagram_result(
+        _instagram_capabilities().media_insight(
+            user_id=_user_id(token_data), media_id=media_id, metric=metric
+        )
+    )
+
+
+@router.get("/instagram/tags")
+async def instagram_tagged_media(
+    limit: int = Query(default=25, ge=1, le=50),
+    after: str | None = Query(default=None, max_length=512),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _instagram_result(
+        _instagram_capabilities().tagged_media(
+            user_id=_user_id(token_data), limit=limit, after=after
+        )
+    )
+
+
+@router.get("/instagram/messages/{recipient_id}")
+async def instagram_recent_messages(
+    recipient_id: str, token_data: dict = Depends(require_vault_owner_token)
+):
+    return await _instagram_result(
+        _instagram_capabilities().recent_messages(
+            user_id=_user_id(token_data), recipient_id=recipient_id
+        )
+    )
+
+
+@router.post("/instagram/messages/{recipient_id}/send")
+async def instagram_send_message(
+    recipient_id: str,
+    body: InstagramMessageRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _instagram_result(
+        _instagram_capabilities().send_text_message(
+            user_id=_user_id(token_data),
+            recipient_id=recipient_id,
+            message=body.message,
+            confirmed=body.confirmed,
+        )
+    )
+
+
 @router.post("/{connector_id}/disconnect", response_model=ConnectResultResponse)
 async def disconnect_connector(
     connector_id: str,
@@ -1270,6 +1671,18 @@ async def disconnect_connector(
             ExternalConnectorCredentialError,
         ) as error:
             raise _oauth_error(error) from None
+    if connector_id == "instagram":
+        try:
+            result = (
+                await get_external_connector_oauth_service().instagram().disconnect(user_id=user_id)
+            )
+        except (
+            InstagramConnectorError,
+            ConnectorLifecycleError,
+            ExternalConnectorCredentialError,
+        ) as error:
+            raise _oauth_error(error) from None
+        return ConnectResultResponse(**result)
     # An active operator-registered OAuth connector disconnects through its own
     # lifecycle adapter (revocation fence + attempt invalidation). A row that was
     # deactivated since still falls through so the owner can always scrub it.

@@ -34,6 +34,7 @@ This backend docs home uses the same founder-language matrix as root `docs/`, wh
 - [mulesoft-agentforce-secure-relay.md](./mulesoft-agentforce-secure-relay.md): MuleSoft/Agentforce secure relay contract
 - [env-vars.md](./env-vars.md): backend environment reference
 - [fcm-notifications.md](./fcm-notifications.md): push notification delivery model
+- [instagram-connector.md](./instagram-connector.md): Instagram Login setup, owner capability API, and access limits
 - [kai-agents.md](./kai-agents.md): Kai backend and agent system reference
 - [personal-knowledge-model.md](./personal-knowledge-model.md): PKM model and storage architecture
 - [trusted-device-vault-handoff.md](./trusted-device-vault-handoff.md): PKCE-bound ciphertext delivery for Hermes enrollment

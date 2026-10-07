@@ -1149,6 +1149,26 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "instagram_oembed_request_budgets"
+      ],
+      "id": "instagram_oembed_request_budgets",
+      "lifecycle_status": "customer0",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Production Instagram public oEmbed route reserves one app-wide provider request in an atomic Postgres minute bucket before calling Meta."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "instagram_publication_claims"
+      ],
+      "id": "instagram_publication_claims",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Vault Owner Instagram media publish route atomically claims an owner/account/generation/container tuple before the Graph media_publish request."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "kai_analyze_runs",
         "kai_run_state"
       ],
@@ -5943,7 +5963,7 @@
     "action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
     "agent_registry": "d5b9f001a88245b6b0a643a59e045280e6da0af2692ba79958882300a4d6bab1",
     "cache_manifest": "dcf4ad2bdc42263d49cd3b0bd66b51695e9b2a45c6bbf8c570f54d494c11c1d7",
-    "data_plane": "7b01c32aa1634cd345e2618f09731dd0b55376b57ddf8ad11bfe7f2ce6ba47ac",
+    "data_plane": "c49b5ce9f554d6d254b92f1949db9f8e6d879e1a43632fed60a9cc748c584183",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
     "route_index": "13aa94374eb537f398a27144d2cd73e526409d5e3f6719b40e5af68588cc91f9",
@@ -5962,6 +5982,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 145,
     "semantic_routes": 14,
-    "table_families": 89
+    "table_families": 91
   }
 }
