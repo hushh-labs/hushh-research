@@ -1084,3 +1084,6 @@ tests/test_pkm_packet_orders.py
 tests/test_pkm_credits.py
 tests/test_pkm_payouts.py
 tests/test_one_career_routes.py
+
+# Historical public seed replay preserves refreshed SEC records and explicit curation.
+tests/services/test_marketplace_investor_discovery.py

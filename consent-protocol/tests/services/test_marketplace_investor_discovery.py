@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
 import uuid
+from collections.abc import AsyncIterator
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+import asyncpg
+import pytest
 
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 
@@ -240,7 +247,9 @@ class _FakeMarketplaceDeckConn:
         self.closed = True
 
 
-def test_marketplace_investors_returns_qualified_hushh_and_public_sec_profiles(monkeypatch):
+def test_marketplace_investors_returns_qualified_hushh_and_public_sec_profiles(
+    monkeypatch,
+):
     async def _run() -> None:
         service = RIAIAMService()
         conn = _FakeMarketplaceConn()
@@ -393,3 +402,195 @@ def test_marketplace_public_sec_shortlist_persists_to_action_table(monkeypatch):
         assert action["metadata"]["gesture"] == "right_swipe"
 
     asyncio.run(_run())
+
+
+_INVESTOR_POSTGRES_URL = os.getenv("ONE_COMMAND_TEST_DATABASE_URL", "")
+
+
+def _investor_seed_sql(filename: str) -> str:
+    return (Path(__file__).resolve().parents[2] / "db" / "migrations" / filename).read_text(
+        encoding="utf-8"
+    )
+
+
+def _investor_seed_ciks(sql: str) -> set[str]:
+    return set(re.findall(r"^\s*'(\d{10})',$", sql, flags=re.MULTILINE))
+
+
+@pytest.fixture
+async def investor_replay_conn() -> AsyncIterator[asyncpg.Connection]:
+    """Only this unique database is written or removed; no existing app rows."""
+    if not _INVESTOR_POSTGRES_URL:
+        pytest.skip("Requires explicit disposable PostgreSQL server")
+    database = "codex_investor_replay_" + uuid.uuid4().hex
+    admin = await asyncpg.connect(_INVESTOR_POSTGRES_URL)
+    conn = None
+    try:
+        await admin.execute(f'CREATE DATABASE "{database}"')
+        parts = urlsplit(_INVESTOR_POSTGRES_URL)
+        url = urlunsplit((parts.scheme, parts.netloc, "/" + database, parts.query, ""))
+        conn = await asyncpg.connect(url)
+        yield conn
+    finally:
+        if conn is not None:
+            await conn.close()
+        await admin.execute(f'DROP DATABASE IF EXISTS "{database}"')
+        await admin.close()
+
+
+async def _investor_rows(conn: asyncpg.Connection) -> dict[str, dict[str, object]]:
+    rows = await conn.fetch("SELECT row_to_json(p)::text AS payload FROM investor_profiles p")
+    records = [json.loads(item["payload"]) for item in rows]
+    return {row["cik"]: row for row in records}
+
+
+async def test_public_investor_replay_bootstraps_the_declared_qualified_cohort(
+    investor_replay_conn: asyncpg.Connection,
+) -> None:
+    conn = investor_replay_conn
+    discovery = _investor_seed_sql("056_public_investor_profiles.sql")
+    admission = _investor_seed_sql("057_marketplace_investor_admission.sql")
+    discovery_ciks = _investor_seed_ciks(discovery)
+    admission_ciks = _investor_seed_ciks(admission)
+    assert len(discovery_ciks) == 6
+    assert len(admission_ciks) == 24
+    assert discovery_ciks <= admission_ciks
+    await conn.execute(discovery)
+    assert set(await _investor_rows(conn)) == discovery_ciks
+    await conn.execute(admission)
+    admitted = await _investor_rows(conn)
+    assert set(admitted) == admission_ciks
+    assert all(
+        row["marketplace_eligible"] is True
+        and row["admission_status"] == "qualified"
+        and row["curation_tier"] in {"showcase", "qualified"}
+        and row["quality_score"] >= 80
+        for row in admitted.values()
+    )
+    for _ in range(2):
+        await conn.execute(discovery)
+        await conn.execute(admission)
+        assert await _investor_rows(conn) == admitted
+
+
+async def _refresh_investor_from_sec(conn: asyncpg.Connection, cik: str) -> None:
+    from hushh_mcp.services.marketplace_investor_replenisher import (
+        MarketplaceInvestorReplenisher,
+        candidate_from_sec_submission,
+    )
+
+    candidate = candidate_from_sec_submission(
+        {
+            "cik": cik,
+            "name": "Refreshed SEC fixture",
+            "addresses": {
+                "business": {
+                    "street1": "100 New Street",
+                    "city": "NEW CITY",
+                    "stateOrCountry": "CA",
+                    "zipCode": "90001",
+                }
+            },
+            "filings": {
+                "recent": {
+                    "form": ["13F-HR", "4"],
+                    "filingDate": ["2026-09-30", "2026-09-29"],
+                    "accessionNumber": ["0000000000-26-000101", "0000000000-26-000102"],
+                }
+            },
+        },
+        curated=True,
+    )
+    assert candidate is not None
+    replenisher = MarketplaceInvestorReplenisher(enable_13f_dataset_expansion=False)
+    assert replenisher.validate_candidate(candidate) == (True, None)
+    assert await replenisher.upsert_candidate(conn, candidate) is False
+
+
+async def _arrange_investor_curation(
+    conn: asyncpg.Connection, discovery_ciks: list[str], remaining_ciks: list[str]
+) -> str:
+    suppressed, manual_profile = discovery_ciks[1:3]
+    (
+        manual_pending,
+        partial_tier,
+        partial_eligible,
+        partial_status,
+        partial_quality,
+        bootstrap,
+    ) = remaining_ciks[:6]
+    await conn.execute(
+        """UPDATE investor_profiles SET name='Manual public fixture',
+          name_normalized='manualpublicfixture', firm='Manual firm', title='Manual title',
+          investor_type='fund_manager', location_hint='New City',
+          business_address='{"city":"New City"}'::jsonb,
+          investment_style=ARRAY['manual_style'], biography='Manually curated public profile',
+          data_sources=ARRAY['manual_public_source'], source_urls=ARRAY['https://example.org/new'],
+          evidence='{"curated":true,"latest_accession":"newer"}'::jsonb,
+          last_13f_date=DATE '2026-10-01', last_form4_date=DATE '2026-09-29',
+          updated_at=TIMESTAMPTZ '2026-10-01 00:00:00Z' WHERE cik=$1""",
+        manual_profile,
+    )
+    await conn.executemany(
+        """UPDATE investor_profiles SET marketplace_eligible=$2, curation_tier=$3,
+          admission_status=$4, quality_score=$5, curation_reason=$6 WHERE cik=$1""",
+        [
+            (suppressed, False, "suppressed", "suppressed", 0, "Manual suppression"),
+            (
+                manual_pending,
+                False,
+                "unreviewed",
+                "pending_review",
+                0,
+                "Manual review pending",
+            ),
+            (partial_tier, False, "qualified", "pending_review", 0, None),
+            (partial_eligible, True, "unreviewed", "pending_review", 0, None),
+            (partial_status, False, "unreviewed", "suppressed", 0, None),
+            (partial_quality, False, "unreviewed", "pending_review", 1, None),
+            (bootstrap, False, "unreviewed", "pending_review", 0, None),
+        ],
+    )
+    await conn.execute(
+        """UPDATE investor_profiles SET evidence='{"latest_accession":"fresh"}'::jsonb,
+          last_13f_date=DATE '2026-10-01', biography='Refreshed pending public profile'
+          WHERE cik=$1""",
+        bootstrap,
+    )
+    return bootstrap
+
+
+async def test_public_investor_replay_preserves_refreshes_and_explicit_curation(
+    investor_replay_conn: asyncpg.Connection,
+) -> None:
+    conn = investor_replay_conn
+    discovery = _investor_seed_sql("056_public_investor_profiles.sql")
+    admission = _investor_seed_sql("057_marketplace_investor_admission.sql")
+    await conn.execute(discovery)
+    await conn.execute(admission)
+    initial = await _investor_rows(conn)
+    discovery_ciks = sorted(_investor_seed_ciks(discovery))
+    remaining_ciks = sorted(set(initial) - set(discovery_ciks))
+    await _refresh_investor_from_sec(conn, discovery_ciks[0])
+    bootstrap = await _arrange_investor_curation(conn, discovery_ciks, remaining_ciks)
+    retained = await _investor_rows(conn)
+    await conn.execute(discovery)
+    assert await _investor_rows(conn) == retained
+    await conn.execute(admission)
+    admitted = await _investor_rows(conn)
+    expected_bootstrap = dict(retained[bootstrap])
+    for field in (
+        "marketplace_eligible",
+        "curation_tier",
+        "admission_status",
+        "quality_score",
+        "curation_reason",
+    ):
+        expected_bootstrap[field] = initial[bootstrap][field]
+    expected_bootstrap["updated_at"] = admitted[bootstrap]["updated_at"]
+    expected = {**retained, bootstrap: expected_bootstrap}
+    assert admitted == expected
+    for _ in range(2):
+        await conn.execute(discovery)
+        await conn.execute(admission)
+        assert await _investor_rows(conn) == expected
