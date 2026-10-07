@@ -479,17 +479,20 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 slot?.hosting?.view.setNeedsLayout()
             }
             let root: AnyView
+            // Keep the erased SwiftUI type identical to update/replacement.
+            // Preparation admits only enabled controls; interaction is held
+            // separately by UIKit until the fresh activation acknowledgement.
             if kind == "agent-surface" {
                 root = AnyView(NativeAgentSurfaceSelector(selected: call.getString("value") ?? "one", width: frame.width,
-                    theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout))
+                    theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout).disabled(false))
             } else if kind == "appearance" {
                 root = AnyView(NativeAppearanceSelector(selected: call.getString("value") ?? "system", width: frame.width,
-                    theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout))
+                    theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout).disabled(false))
             } else {
                 root = AnyView(NativeChromeButton(label: kind == "history" ? (call.getBool("expanded") == true ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
                     value: kind == "accent" ? (call.getString("value") == "gold" ? "Molten Gold" : "iOS Blue") : nil,
                     symbol: self.symbol(kind, expanded: call.getBool("expanded") == true), theme: theme,
-                    action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout, focus: slot.focus))
+                    action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout, focus: slot.focus).disabled(false))
             }
             let controller = ChromeHostingController(rootView: root)
             slot.hosting = controller
@@ -557,7 +560,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             hosting.rootView = AnyView(NativeChromeButton(label: label, controlId: identity.controlId,
                 symbol: self.symbol("back", expanded: false), theme: presentation.theme,
                 action: { [weak self] in self?.activateControl(identity.controlId) },
-                layout: { _ in }, focus: slot.focus))
+                layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
             hosting.view.layoutIfNeeded()
             // The already-qualified host is unchanged. A moved/detached view
             // cannot claim layout acknowledgement or retain this presentation.

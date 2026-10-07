@@ -278,6 +278,12 @@ export class NativeChromeLease {
     return this.current && this.active && allowed() && this.focusSequence === focusSequence &&
       this.requestedUpdate === updateSequence && this.appliedUpdate === updateSequence;
   }
+  private matchesPresentation(presentation: ChromeUpdate): boolean {
+    return presentation.appearance === this.projection.appearance && presentation.accentHex === this.projection.accentHex &&
+      presentation.foregroundHex === this.projection.foregroundHex && presentation.enabled === this.projection.enabled &&
+      presentation.value === ("value" in this.projection ? this.projection.value : undefined) &&
+      presentation.expanded === ("expanded" in this.projection ? this.projection.expanded : undefined);
+  }
   /** Fence choices synchronously; only the latest acknowledged snapshot is usable.
    * A stale update failure cannot retire or overwrite a newer presentation. */
   async update(presentation: ChromeUpdate): Promise<boolean> {
@@ -286,11 +292,13 @@ export class NativeChromeLease {
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }
-    if (this.active && this.requestedUpdate === this.appliedUpdate &&
-        presentation.appearance === this.projection.appearance && presentation.accentHex === this.projection.accentHex &&
-        presentation.foregroundHex === this.projection.foregroundHex && presentation.enabled === this.projection.enabled &&
-        presentation.value === ("value" in this.projection ? this.projection.value : undefined) &&
-        presentation.expanded === ("expanded" in this.projection ? this.projection.expanded : undefined)) return true;
+    if (this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation)) {
+      // Admission already contains this snapshot. Waiting for activation must
+      // not manufacture an update or recreate the native control afterward.
+      await this.activate();
+      return this.current && this.active && this.requestedUpdate === this.appliedUpdate &&
+        this.matchesPresentation(presentation);
+    }
     const updateSequence = ++this.requestedUpdate;
     await this.activate();
     if (!this.current || updateSequence !== this.requestedUpdate) return false;

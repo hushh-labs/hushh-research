@@ -1078,3 +1078,16 @@ tests, typecheck, focused lint, cache/analytics contracts, surface-map and
 service-boundary checks. No vault authority, encrypted persistence, new store
 or automatic retry is introduced. This source proof is not an installed-device
 or latest-head release acceptance claim.
+
+A further independent review finds a presentation mechanism the host probe
+cannot see: preparation/replacement erased a bare SwiftUI control, while updates
+erased a `.disabled(...)`-modified control. Changing the erased type recreates
+its hierarchy under [Apple's AnyView contract](https://developer.apple.com/documentation/swiftui/anyview).
+All three phases now use the same per-family modifier shape; UIKit still
+quarantines interaction and accessibility until fresh activation. An unchanged
+snapshot arriving during activation no longer manufactures a native update.
+The nearest combined Back replacement/in-place-update and delayed-activation
+regressions both fail the prior code. All 54 native-control tests pass after the
+correction, preserving genuine changed/reverted updates, exact choice sequences,
+owner/overlay retirement and disabled/focus behavior. This identifies and fixes
+structural churn; visible glass continuity still requires current-device proof.
