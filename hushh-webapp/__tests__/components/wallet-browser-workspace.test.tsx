@@ -56,6 +56,9 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
+vi.mock("@/lib/services/wallet-card-service", () => ({
+  WalletCardService: { getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }) },
+}));
 
 vi.mock("@/lib/services/wallet-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-service")>(

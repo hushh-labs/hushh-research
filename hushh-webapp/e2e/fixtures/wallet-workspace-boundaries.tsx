@@ -103,6 +103,17 @@ export class WalletService {
   }
 }
 
+// Public profile artwork is a different boundary from private payment-card
+// reveals. Exercise its overlay without network or real profile information.
+export class WalletCardService {
+  static async getCard() {
+    return {
+      card: { cardPayload: { full_name: "Alex Rivera" } },
+      shareUrl: "https://example.com/profile/alex",
+    };
+  }
+}
+
 // Secrets vault: the fixture never stages a Secrets card offer, so nothing is
 // decrypted or filed. Inert, like the Wallet service, so the layout bundle
 // never pulls in the PKM, cache and API stack behind the real service.

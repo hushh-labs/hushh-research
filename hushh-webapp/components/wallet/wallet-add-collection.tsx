@@ -7,7 +7,7 @@ import { Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
-import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails } from "@/components/wallet/wallet-demo-cards";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 
@@ -25,7 +25,7 @@ function EmptyCardPreview() {
 }
 
 /** Cards collection presentation of the workspace's summaries; never fetches or reveals secrets. */
-export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, onRemove, busyCardId, disabled = false, preview = false, initialExpanded = false, scrollStack = false, showActions = true, showDetailsLink = false, scrollReveal = false, hintOwnerId, onOpen }: {
+export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, onRemove, busyCardId, disabled = false, preview = false, initialExpanded = false, scrollStack = false, showActions = true, showDetailsLink = false, scrollReveal = false, hintOwnerId, onOpen, demoProfile }: {
   scrollStack?: boolean;
   scrollReveal?: boolean;
   hintOwnerId?: string;
@@ -33,6 +33,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
   initialExpanded?: boolean;
   showActions?: boolean;
   onOpen?: (id: string) => void;
+  demoProfile?: WalletDemoProfile | null;
   disabled?: boolean;
   preview?: boolean;
   cards: WalletCardSummary[];
@@ -218,7 +219,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                         else { onSelect(card.cardId); setExpanded(false); }
                       }}
                       className="block origin-bottom w-full rounded-[3.72cqw] text-left outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-                      {preview ? <WalletDemoCardFace summary={card} /> : <WalletCardFace summary={card} collection />}
+                      {preview ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} collection />}
                     </button>
                     </WalletCardSwipe>
                     {showDetailsLink && isExpanded ? <div data-stack-details className="flex h-10 items-center justify-center"><Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)} onClick={() => onOpen?.(card.cardId)} aria-label={`View details for ${card.nickname || cardNetworkLabel(card.brand)}`}>View details <span aria-hidden="true">›</span></Button></div> : null}

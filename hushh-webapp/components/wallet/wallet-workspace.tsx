@@ -60,6 +60,7 @@ import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handof
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
+import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
 import { prefersReducedMotion } from "@/lib/morphy-ux/gsap";
@@ -71,6 +72,7 @@ import {
   WalletService,
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
+import { WalletCardService } from "@/lib/services/wallet-card-service";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { CARD_CORNER_RADIUS_RATIO } from "@/lib/wallet/wallet-card-presentation";
@@ -206,6 +208,23 @@ export function WalletWorkspace() {
     };
   }, [renderedOwnerId]);
   const { vaultKey, getVaultOwnerToken } = useVault();
+  const profileToken = vaultKey ? getVaultOwnerToken() : null;
+  const profileVisit = useMemo(
+    () => ({ ownerId: renderedOwnerId, authorized: Boolean(vaultKey && profileToken) }),
+    [renderedOwnerId, vaultKey, profileToken],
+  );
+  const profileVisitRef = useRef(profileVisit);
+  profileVisitRef.current = profileVisit;
+  const [loadedProfile, setLoadedProfile] = useState<{
+    visit: typeof profileVisit;
+    profile: WalletDemoProfile;
+  } | null>(null);
+  const fallbackName = user?.displayName?.trim() || null;
+  // Fence rendering as well as settlement: an A → B → A visit or a lock
+  // must not expose the old profile while the next read is still pending.
+  const demoProfile = profileVisit.authorized && loadedProfile?.visit === profileVisit
+    ? loadedProfile.profile
+    : { displayName: fallbackName, shareUrl: null };
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -317,6 +336,45 @@ export function WalletWorkspace() {
     if (!user?.uid || !vaultKey || !token) return null;
     return { userId: user.uid, vaultKey, vaultOwnerToken: token };
   }, [user?.uid, vaultKey]);
+  useEffect(() => {
+    const ownerId = profileVisit.ownerId;
+    if (!ownerId || !profileVisit.authorized) {
+      setLoadedProfile(null);
+      return;
+    }
+    let cancelled = false;
+    let requestSequence = 0;
+    const load = async () => {
+      const sequence = ++requestSequence;
+      const token = getVaultOwnerTokenRef.current();
+      if (!token) {
+        if (!cancelled && profileVisitRef.current === profileVisit) setLoadedProfile(null);
+        return;
+      }
+      const isCurrent = () =>
+        !cancelled && sequence === requestSequence &&
+        profileVisitRef.current === profileVisit &&
+        activeOwnerIdRef.current === ownerId &&
+        getVaultOwnerTokenRef.current() === token;
+      try {
+        const state = await WalletCardService.getCard({ userId: ownerId, vaultOwnerToken: token });
+        if (!isCurrent()) return;
+        const payloadName = state.card?.cardPayload.full_name?.trim() || null;
+        setLoadedProfile({
+          visit: profileVisit,
+          profile: {
+            displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
+            shareUrl: state.shareUrl,
+          },
+        });
+      } catch {
+        if (isCurrent()) setLoadedProfile({ visit: profileVisit, profile: { displayName: fallbackName, shareUrl: null } });
+      }
+    };
+    void load();
+    const timer = window.setInterval(load, 15000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [profileVisit, fallbackName]);
   // Decryption is asynchronous; whether the vault is still open is re-read
   // from the latest render when it settles, never from the tap that began it.
   const vaultContextRef = useRef(vaultContext);
@@ -563,7 +621,7 @@ export function WalletWorkspace() {
   return (
     <AppPageShell
       as="div"
-      width="agent"
+      width="standard"
       fitContent
       className="relative isolate [--app-page-content-bottom-gap:0px]"
     >
@@ -700,7 +758,7 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser ownerId={renderedOwnerId || undefined}
+            <WalletCardBrowser demoProfile={demoProfile} ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId}
               cards={cards}
               selectedCardId={selectedDeckCardId}

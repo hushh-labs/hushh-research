@@ -1364,3 +1364,25 @@ Both physical devices remain paired but unavailable over Wi-Fi, with no observed
 discoverable endpoint or usable tunnel. Cached device metadata and signing
 profiles do not prove transport. iPad, accessibility, visual continuity and
 Release performance qualification remain open; no native family is promoted.
+
+The subsequent `f5a53530a` candidate passes uncontended canonical core, UAT
+package preparation, device/simulator Debug test builds, asset checks and device
+signatures. Its simulator passes all 40 native-support checks, ordinary reviewer
+unlock and an attach-only warm Wallet tab/draft journey. Installed binary and
+configuration match, as do all 1,394 public frontend files. This qualifies that
+simulator candidate, not the unavailable physical devices or a later head.
+
+Incoming Wallet Profile artwork from main retains the existing inert iframe and
+parent hit surface. Its first profile loader fails two nearest negative controls:
+previous-owner artwork remains visible during owner replacement, and an older
+refresh overwrites a newer response. The merged projection binds rendering and
+both success/failure settlement to the current owner/vault/token visit and latest
+request. A locked vault does not initiate the protected profile read. The tests
+then pass with all 34 focused Wallet checks. No new profile store is introduced.
+
+The incoming standard-width shell, profile name/QR overlays and simplified Add
+copy are retained. Duplicate workspace animation-frame scroll resets are not:
+the verified browser-local page-start owner already provides the same behavior.
+All 24 focused Chromium/WebKit cases pass, including exact Location header/tab
+geometry, pane alignment, artwork/name/QR taps, swipes and bottom-chrome clearance.
+This later combined source still requires its own core, native builds and CI.

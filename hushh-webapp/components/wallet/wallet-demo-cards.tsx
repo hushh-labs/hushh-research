@@ -4,6 +4,12 @@ import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { formatCardExpiry, formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
 import styles from "./wallet-demo-cards.module.css";
+import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
+
+export type WalletDemoProfile = {
+  displayName: string | null;
+  shareUrl: string | null;
+};
 
 /** Fixed illustration records, never accepted as saved Wallet cards. */
 const DEMOS = [
@@ -29,9 +35,10 @@ function demoFor(cardId: string) {
 }
 
 /** Only the preview branch calls this; real cards never receive these numbers. */
-export function WalletDemoCardFace({ summary }: { summary: WalletCardSummary }) {
+export function WalletDemoCardFace({ summary, profile }: { summary: WalletCardSummary; profile?: WalletDemoProfile | null }) {
   const demo = demoFor(summary.cardId);
   if (!demo) return <WalletCardFace summary={summary} collection />;
+  const profileArtwork = summary.cardId === "demo-0" ? profile : null;
   return (
     <div className={`${styles.face} ${styles[demo.finish]}`} data-demo-card="true">
       <div className="@container w-full">
@@ -44,6 +51,8 @@ export function WalletDemoCardFace({ summary }: { summary: WalletCardSummary }) 
             className={styles.htmlArtwork}
           />
           <span aria-hidden="true" className={styles.artworkHitSurface} />
+          {profileArtwork?.displayName ? <span className={styles.dynamicCardName}>{profileArtwork.displayName}</span> : null}
+          {profileArtwork?.shareUrl ? <WalletCardQr value={profileArtwork.shareUrl} label="Wallet Profile QR code" className={styles.dynamicCardQr} /> : null}
         </div>
       </div>
     </div>
@@ -80,5 +89,4 @@ export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
     </section>
   );
 }
-
 

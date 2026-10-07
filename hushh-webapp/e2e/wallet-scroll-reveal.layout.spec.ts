@@ -18,6 +18,7 @@ const BOUNDARY_MODULES = [
   "@/hooks/use-auth",
   "@/lib/vault/vault-context",
   "@/lib/services/wallet-service",
+  "@/lib/services/wallet-card-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
   "@/lib/pkm/secrets-vault-service",

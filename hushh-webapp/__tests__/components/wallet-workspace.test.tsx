@@ -18,7 +18,7 @@ const navigationMock = vi.hoisted(() => ({
   replace: vi.fn(),
 }));
 const authMock = vi.hoisted(() => ({
-  user: { uid: "user_1" } as { uid: string } | null,
+  user: { uid: "user_1" } as { uid: string; displayName?: string } | null,
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
 const nativeBeaconMock = vi.hoisted(() => vi.fn());
@@ -63,6 +63,8 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
+const profileMock = vi.hoisted(() => ({ getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }) }));
+vi.mock("@/lib/services/wallet-card-service", () => ({ WalletCardService: profileMock }));
 
 vi.mock("@/lib/services/wallet-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-service")>(
@@ -100,6 +102,61 @@ function makeCards(count: number) {
 }
 
 describe("WalletWorkspace at scale", () => {
+  it("conceals profile artwork across owner replacement, return and lock", async () => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValue(true);
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    authMock.user = { uid: "user_1", displayName: "Public owner A" };
+    const completions: Array<(value: { card: { cardPayload: { full_name: string } }; shareUrl: string | null }) => void> = [];
+    profileMock.getCard.mockImplementation(() => new Promise((resolve) => { completions.push(resolve); }));
+    const workspace = render(<WalletWorkspace />);
+    await screen.findByRole("tab", { name: "Cards", exact: true });
+    await act(async () => { completions[0]!({ card: { cardPayload: { full_name: "Saved owner A" } }, shareUrl: null }); });
+    expect(await screen.findByText("Saved owner A")).toBeVisible();
+
+    authMock.user = { uid: "owner_b", displayName: "Public owner B" };
+    workspace.rerender(<WalletWorkspace />);
+    await screen.findByRole("tab", { name: "Cards", exact: true });
+    expect(screen.queryByText("Saved owner A")).toBeNull();
+    expect(screen.getByText("Public owner B")).toBeVisible();
+
+    authMock.user = { uid: "user_1", displayName: "Public owner A" };
+    workspace.rerender(<WalletWorkspace />);
+    await screen.findByRole("tab", { name: "Cards", exact: true });
+    expect(screen.queryByText("Saved owner A")).toBeNull();
+    await act(async () => { completions[1]!({ card: { cardPayload: { full_name: "Late owner B" } }, shareUrl: null }); });
+    expect(screen.queryByText("Late owner B")).toBeNull();
+    vaultMock.locked = true;
+    workspace.rerender(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-locked");
+    expect(profileMock.getCard).toHaveBeenCalledTimes(3);
+    await act(async () => { completions[2]!({ card: { cardPayload: { full_name: "Late owner A" } }, shareUrl: null }); });
+    vaultMock.locked = false;
+    workspace.rerender(<WalletWorkspace />);
+    await screen.findByRole("tab", { name: "Cards", exact: true });
+    expect(screen.queryByText("Late owner A")).toBeNull();
+  });
+  it("rejects older profile refreshes after a newer result is visible", async () => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValue(true);
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    const completions: Array<(value: { card: { cardPayload: { full_name: string } }; shareUrl: null }) => void> = [];
+    profileMock.getCard.mockImplementation(() => new Promise((resolve) => { completions.push(resolve); }));
+    vi.useFakeTimers();
+    try {
+      await act(async () => { render(<WalletWorkspace />); });
+      expect(completions).toHaveLength(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+      expect(completions).toHaveLength(3);
+      await act(async () => { completions[2]!({ card: { cardPayload: { full_name: "Current profile" } }, shareUrl: null }); });
+      expect(screen.getByText("Current profile")).toBeVisible();
+      await act(async () => {
+        completions[0]!({ card: { cardPayload: { full_name: "Old initial profile" } }, shareUrl: null });
+        completions[1]!({ card: { cardPayload: { full_name: "Old polled profile" } }, shareUrl: null });
+      });
+      expect(screen.getByText("Current profile")).toBeVisible();
+      expect(screen.queryByText("Old initial profile")).toBeNull();
+      expect(screen.queryByText("Old polled profile")).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
   it("skips the introduction for an account that has continued before", async () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
     serviceMock.listCardSummaries.mockResolvedValue([]);
@@ -310,6 +367,7 @@ describe("WalletWorkspace at scale", () => {
   });
 
   beforeEach(() => {
+    profileMock.getCard.mockReset().mockResolvedValue({ card: null, shareUrl: null });
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockReset().mockResolvedValue(false);
     vi.mocked(OnboardingLocalService.markWalletIntroductionSeen).mockReset().mockResolvedValue(undefined);
     authMock.user = { uid: "user_1" };

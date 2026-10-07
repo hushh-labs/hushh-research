@@ -19,6 +19,7 @@ const BOUNDARY_MODULES = [
   "@/hooks/use-auth",
   "@/lib/vault/vault-context",
   "@/lib/services/wallet-service",
+  "@/lib/services/wallet-card-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
   "@/lib/pkm/secrets-vault-service",
@@ -441,6 +442,17 @@ for (const width of [320, 390, 1024]) {
     await assertNavigationInViewport();
     await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
     await expect(page.getByTestId("wallet-demo-details")).toContainText("Everyday card");
+    // The incoming name/QR overlays must preserve the same parent selection
+    // authority as the artwork; neither may swallow the card's pointer input.
+    for (const overlay of ["name", "qr"] as const) {
+      await page.getByRole("button", { name: "All cards", exact: true }).click();
+      await awaitCardsSettled();
+      await (overlay === "name"
+        ? firstCard.getByText("Alex Rivera", { exact: true })
+        : firstCard.getByRole("img", { name: "Wallet Profile QR code" })).click();
+      await assertNavigationInViewport();
+      await expect(page.getByTestId("wallet-demo-details")).toContainText("Everyday card");
+    }
     await page.getByRole("button", { name: "Next card", exact: true }).click();
     await expect(page.getByTestId("wallet-demo-details")).toContainText("Travel card");
     await expect(page.getByTestId("wallet-demo-activity")).toContainText("₹8,640.00");

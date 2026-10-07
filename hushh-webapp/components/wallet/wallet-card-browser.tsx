@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WalletAddCollection } from "./wallet-add-collection";
 import { WalletCardFace } from "./wallet-card-face";
-import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails } from "./wallet-demo-cards";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails, type WalletDemoProfile } from "./wallet-demo-cards";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import styles from "./wallet-card-browser.module.css";
 
@@ -44,7 +44,7 @@ function DemoActivity({ cardId, onPreview }: { cardId: string; onPreview: (actio
   </div>;
 }
 
-export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, ownerId, active = true }: {
+export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, ownerId, active = true, demoProfile }: {
   cards: WalletCardSummary[];
   selectedCardId: string | null;
   onSelect: (id: string) => void;
@@ -56,6 +56,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   details: ReactNode;
   ownerId?: string;
   active?: boolean;
+  demoProfile?: WalletDemoProfile | null;
 }) {
   const demo = cards.length === 0;
   const collection = demo ? WALLET_DEMO_CARDS : cards;
@@ -103,7 +104,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
     <h2 className="sr-only">Your cards</h2>
     {mode === "all" ? <>
-      <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} scrollReveal showActions={false} showDetailsLink />
+      <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} demoProfile={demoProfile} scrollReveal showActions={false} showDetailsLink />
       <div className={styles.quickActions}>
         <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" />{demo ? "Add your first card" : "Add another card"}</Button>
         {demo ? <><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Statement")}>Statements <ArrowRight aria-hidden="true" className="size-4" /></Button><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Autopay")}>Autopay <ArrowRight aria-hidden="true" className="size-4" /></Button></> : null}
@@ -112,7 +113,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" onClick={showAll} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />All cards</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>
       {demo ? <div className={styles.paymentHeader}><Button variant="secondary" size="compact" onClick={() => setPreviewAction("Payment")}>Payment</Button></div> : null}
       <div data-swipe-views-horizontal-scroll onTouchStart={(event) => { const point = event.touches[0]; gesture.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null; }} onTouchEnd={finishSwipe} onTouchCancel={() => { gesture.current = null; }} className={styles.selectedFace}>
-        {demo ? <WalletDemoCardFace summary={selected} /> : <WalletCardFace summary={selected} collection />}
+        {demo ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} collection />}
       </div>
       {demo ? <><DemoActivity cardId={selected.cardId} onPreview={setPreviewAction} /><WalletDemoCardDetails cardId={selected.cardId} /></> : details}
     </div>}
