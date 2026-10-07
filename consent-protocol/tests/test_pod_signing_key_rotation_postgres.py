@@ -87,6 +87,7 @@ def pg():
             "PRIMARY KEY(app_name,user_id,session_id))"
         )
         for name in (
+            "029_setup_state_rename.sql",
             "201_account_deletion_tombstones.sql",
             "114_one_action_directive_ledger.sql",
             "248_adk_chat_action_authority.sql",

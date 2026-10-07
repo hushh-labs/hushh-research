@@ -80,7 +80,15 @@ def _registry(mapping, status="provisioned"):
     class _Repo:
         async def get(self, user_id):
             hushh = mapping.get(user_id)
-            return {"hushh_id": hushh, "status": status} if hushh else None
+            return (
+                {
+                    "hushh_id": hushh,
+                    "status": status,
+                    "backend_metadata": {"serviceUid": "synthetic-current-service"},
+                }
+                if hushh
+                else None
+            )
 
     return _Repo()
 
@@ -561,3 +569,79 @@ async def test_placement_move_during_specialist_read_never_returns_projection(
             reader=read,
         )
     assert error.value.status_code == status
+
+
+@pytest.mark.parametrize(
+    "change,status",
+    [
+        (None, None),
+        ("revoked", 403),
+        ("foreign_owner", 403),
+        ("wrong_scope", 403),
+        ("pod_replaced", 403),
+        ("incarnation_replaced", 403),
+        ("erasure", 403),
+        ("consent_unavailable", 503),
+        ("registry_unavailable", 503),
+    ],
+)
+async def test_generic_specialist_rechecks_fixed_grant_and_serving_incarnation_after_read(
+    flags_on, monkeypatch, shared_compatibility, change, status
+):
+    from unittest.mock import AsyncMock
+
+    _identity(monkeypatch, "hushh-owner")
+    changed = False
+    checks = []
+
+    class Registry:
+        async def get(self, owner_id):
+            assert owner_id == "u-owner"
+            if changed and change == "registry_unavailable":
+                raise RuntimeError("synthetic authority outage")
+            return {
+                "hushh_id": "replacement"
+                if changed and change == "pod_replaced"
+                else "hushh-owner",
+                "status": "provisioned",
+                "backend_metadata": {
+                    "serviceUid": "replacement-service"
+                    if changed and change == "incarnation_replaced"
+                    else "original-service",
+                    **({"erasure": {}} if changed and change == "erasure" else {}),
+                },
+            }
+
+    async def validate(token, *, expected_scope):
+        checks.append((token, expected_scope))
+        assert token == "scope-jwt" and expected_scope == "cap.location.live.view"
+        if changed and change == "consent_unavailable":
+            raise RuntimeError("synthetic consent outage")
+        actual_scope = "foreign.scope" if changed and change == "wrong_scope" else expected_scope
+        valid = not (changed and change == "revoked") and actual_scope == expected_scope
+        return (
+            valid,
+            None,
+            _Parsed(
+                "foreign" if changed and change == "foreign_owner" else "u-owner", actual_scope
+            ),
+        )
+
+    async def read(name, *, owner_id):
+        nonlocal changed
+        assert name == "location" and owner_id == "u-owner"
+        changed = True
+        return {"recipients": [{"userId": "synthetic-friend"}]}
+
+    reader = AsyncMock(side_effect=read)
+    call = _call(
+        monkeypatch, hushh_id="hushh-owner", validator=validate, registry=Registry(), reader=reader
+    )
+    if status is None:
+        assert (await call)["state"] == {"recipients": [{"userId": "synthetic-friend"}]}
+    else:
+        with pytest.raises(broker.HTTPException) as error:
+            await call
+        assert error.value.status_code == status
+    reader.assert_awaited_once()
+    assert checks == [("scope-jwt", "cap.location.live.view")] * 2

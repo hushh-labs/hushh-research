@@ -236,8 +236,9 @@ async def broker_specialist_read(
 
         check = validate_token_with_db
 
+    scope_token = payload.scope_token
     try:
-        valid, reason, parsed = await _run(check, payload.scope_token, required_scope)
+        valid, reason, parsed = await _run(check, scope_token, required_scope)
     except Exception as exc:  # noqa: BLE001
         # The DB is the authority on revocation. Unreachable -> "I do not know",
         # surfaced as 503, never a read on an unverifiable scope.
@@ -304,6 +305,21 @@ async def broker_specialist_read(
 
         run_read = run_pod_data_door_read
 
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.pod_access_audit import _owner_binding_denials
+
+    read_registry = registry if registry is not None else PersonalAgentRegistryRepo()
+    try:
+        initial = await read_registry.get(owner_id)
+    except Exception:
+        raise HTTPException(503, detail="specialist read authority unavailable") from None
+    if _owner_binding_denials(initial, asserted):
+        raise HTTPException(403, detail="scope is not valid for this read")
+    initial_metadata = initial.get("backend_metadata")
+    service_uid = initial_metadata.get("serviceUid") if isinstance(initial_metadata, dict) else None
+    if not isinstance(service_uid, str) or not service_uid.strip():
+        raise HTTPException(403, detail="scope is not valid for this read")
+
     try:
         # run_pod_data_door_read is async (an OAuth-backed reader awaits network
         # I/O); await it. An injected sync test double is still supported -- only
@@ -322,6 +338,23 @@ async def broker_specialist_read(
         logger.warning("pod_specialist.read_failed name=%s %s", name, type(exc).__name__)
         raise HTTPException(status_code=502, detail="specialist read failed") from exc
 
+    # Reader awaits do not carry authority forward. Revalidate the same grant,
+    # owner and serving incarnation before any projection leaves the hub.
+    try:
+        valid_after, _, parsed_after = await _run(check, scope_token, required_scope)
+        current = await read_registry.get(owner_id)
+        current_metadata = current.get("backend_metadata") if isinstance(current, dict) else None
+    except Exception:
+        raise HTTPException(503, detail="specialist read authority unavailable") from None
+    if (
+        not valid_after
+        or parsed_after is None
+        or getattr(parsed_after, "user_id", None) != owner_id
+        or _owner_binding_denials(current, asserted)
+        or not isinstance(current_metadata, dict)
+        or current_metadata.get("serviceUid") != service_uid
+    ):
+        raise HTTPException(403, detail="scope is not valid for this read")
     await _require_shared_specialist_owner(owner_id)
     logger.info("pod_specialist.read pod=%s name=%s", asserted, name)
     return {"name": name, "state": projection}
