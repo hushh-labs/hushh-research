@@ -293,9 +293,88 @@ class ToolExecutor:
                     ctx, spec, args or {}, invalid, phase="arguments", failed=frozenset(missing)
                 )
             return ToolCallOutcome(result=invalid, spec=spec)
+        # Pronoun follow-ups such as "send it" can omit the opaque binding.
+        # Resolve it before duplicate detection so repeated utterances reuse the
+        # same pending row rather than replacing it after prepare.
+        if spec.name == "send_reviewed_mail" and hasattr(parsed, "draft_ref"):
+            compose = ctx.services.get("mail_compose")
+            resolver = getattr(compose, "resolve_binding", None)
+            if callable(resolver):
+                binding = resolver(
+                    getattr(parsed, "draft_ref", ""), getattr(parsed, "revision", None)
+                )
+                if isinstance(binding, tuple) and len(binding) == 2:
+                    parsed = parsed.model_copy(
+                        update={"draft_ref": binding[0], "revision": binding[1]}
+                    )
         problem = self._entity_problem(spec, ctx, parsed)
         if problem is not None:
             return ToolCallOutcome(result=problem, spec=spec, parsed=parsed)
+        if spec.direct_after_review:
+            # A reviewed-mail follow-up is an explicit owner instruction, so it
+            # must not create a second confirmation card.  Keep the tool's
+            # confirm_voice policy for gateway/audit compatibility, but run the
+            # same prepare hook and exact snapshot fence before the handler.
+            if spec.prepare is None:
+                return ToolCallOutcome(
+                    result=Rejected(
+                        reason_code="review_unavailable",
+                        spoken_facts=["I couldn't verify the reviewed action."],
+                    ),
+                    spec=spec,
+                    parsed=parsed,
+                )
+            proof = await self.prove_actor(ctx, spec)
+            if proof != "ok":
+                return ToolCallOutcome(
+                    result=ToolResult(
+                        status=FIREBASE_PROOF_REQUIRED,
+                        reason_code=f"firebase_proof_{proof}",
+                        needs="confirmation",
+                        spoken_facts=[
+                            "I need you to tap Send on the reviewed email to prove it's you."
+                        ],
+                    ),
+                    spec=spec,
+                    parsed=parsed,
+                )
+            prepare_started = time.monotonic()
+            try:
+                prepared = await spec.prepare(ctx, parsed)
+            except Exception as exc:  # noqa: BLE001 - fail closed for direct effects
+                logger.warning(
+                    "one_voice.tool.prepare_failed tool=%s error=%s",
+                    spec.name,
+                    type(exc).__name__,
+                )
+                prepared = Rejected(
+                    reason_code="prepare_failed",
+                    spoken_facts=[
+                        "I couldn't verify that reviewed email right now. Nothing was sent."
+                    ],
+                )
+            timings["prepare"] = _elapsed_ms(prepare_started)
+            if isinstance(prepared, ToolResult):
+                return ToolCallOutcome(result=prepared, spec=spec, parsed=parsed)
+            previous_prepared = ctx.prepared
+            ctx.prepared = {**dict(prepared.snapshot), "_direct_review_send": True}
+            handler_started = time.monotonic()
+            try:
+                result = await spec.handler(ctx, parsed)
+                timings["handler"] = _elapsed_ms(handler_started)
+            except Exception as exc:  # noqa: BLE001 - a broken tool must not end the session
+                logger.warning(
+                    "one_voice.tool.failed tool=%s error=%s", spec.name, type(exc).__name__
+                )
+                result = Rejected(
+                    reason_code="execution_failed",
+                    spoken_facts=["I couldn't send that reviewed email. Nothing was changed."],
+                )
+            finally:
+                ctx.prepared = previous_prepared
+            if spec.ui_refresh and result.status not in {"rejected", "unsupported"}:
+                result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
+            return ToolCallOutcome(result=result, spec=spec, parsed=parsed)
         superseded: list[PendingAction] = []
         lookup_kind = LOOKUP_TOOLS.get(spec.name)
         if lookup_kind is not None:
@@ -472,7 +551,15 @@ class ToolExecutor:
                         result=prepared, spec=spec, parsed=parsed, superseded=superseded
                     )
                 summary = prepared.summary
-                args_json[PREPARED_KEY] = dict(prepared.snapshot)
+                snapshot = dict(prepared.snapshot)
+                args_json[PREPARED_KEY] = snapshot
+                # A tool may bind omitted conversational identifiers to one
+                # current server-side object during prepare. Persist that
+                # canonical binding with the pending row so confirmation cannot
+                # accidentally resolve a later object under the same utterance.
+                canonical_args = snapshot.get("_canonical_args")
+                if isinstance(canonical_args, dict):
+                    args_json.update(canonical_args)
             else:
                 summary = spec.summarize(ctx, parsed) if spec.summarize else spec.description
             if target is not None:

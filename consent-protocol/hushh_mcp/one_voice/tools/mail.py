@@ -498,14 +498,23 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
 
     coverage = dict(outcome.get("coverage") or {})
     items = list(outcome.get("items") or [])
+    # Analysis questions are answered as a spoken digest. The rows contain
+    # third-party subjects/snippets and are useful for an explicit inbox browse,
+    # but rendering them for "sensitive/action/overdue/overview" requests turns
+    # a voice answer into an unnecessary mailbox dump.
+    analysis_mode = bool(coverage.get("analysis_requested"))
+    if analysis_mode:
+        items = []
     # Replace the offer with what this read actually put in front of the person.
     # Replaced, never merged: they are looking at the newest list, so that is the
     # only list a position can mean. A read that cannot name its rows clears the
     # offer rather than leaving positions pointing at a list that is gone.
     handback = outcome.get("offer") or {}
-    offered_ids = [
-        value for value in (handback.get("message_ids") or []) if isinstance(value, str) and value
-    ]
+    offered_ids = (
+        [value for value in (handback.get("message_ids") or []) if isinstance(value, str) and value]
+        if not analysis_mode
+        else []
+    )
     offer_revision: int | None = None
     if offered_ids:
         offer_revision = ctx.entities.offer_mail(
@@ -533,7 +542,7 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
         offer_revision=offer_revision,
         conversation_id=ctx.conversation_id,
         spoken_facts=_spoken(coverage),
-        ui_refresh=["mail"],
+        ui_refresh=[] if analysis_mode else ["mail"],
     )
 
 
@@ -943,6 +952,24 @@ async def _prepare_send_mail(ctx: ToolContext, args: SendMailInput) -> Prepared 
 
 
 async def _send_mail(ctx: ToolContext, args: SendMailInput) -> ToolResult:
+    # Clients that advertise the versioned review surface must enter the same
+    # draft runtime as ``compose_mail``.  Keeping the legacy ``open_mail_draft``
+    # step here loses the server-issued draft binding, so a later voice request
+    # such as "send it" cannot select ``send_reviewed_mail`` safely.  The
+    # confirmed recipient remains canonical; ``resolve_recipient_sources``
+    # re-checks its active connection before creating the review action.
+    compose = ctx.services.get("mail_compose")
+    if compose is not None and getattr(compose, "review_supported", False) is True:
+        from hushh_mcp.one_voice.tools import mail_compose
+
+        return await mail_compose._compose(
+            ctx,
+            mail_compose.ComposeInput(
+                recipients=[mail_compose.RecipientSource(kind="connection", person=args.recipient)],
+                subject=args.subject,
+                message=args.message,
+            ),
+        )
     person = ctx.entities.person(args.recipient.user_id)
     prepared = ctx.prepared or {}
     if (

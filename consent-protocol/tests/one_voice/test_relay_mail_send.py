@@ -6,6 +6,7 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,7 +15,7 @@ from hushh_mcp.one_voice.config import OneVoiceLiveConfig
 from hushh_mcp.one_voice.session import AuthResult, VoiceSession
 from hushh_mcp.one_voice.tickets import TicketClaims
 from hushh_mcp.one_voice.tools import mail
-from hushh_mcp.one_voice.tools.executor import ToolExecutor
+from hushh_mcp.one_voice.tools.executor import FIREBASE_PROOF_REQUIRED, ToolExecutor
 from tests.one_voice.fakes import (
     FakeLive,
     FakeTransport,
@@ -341,8 +342,6 @@ async def test_a_draft_row_that_can_no_longer_be_settled_is_reported_unverified(
 
 @pytest.fixture
 async def reviewed_mail(draft_session, monkeypatch):
-    from unittest.mock import AsyncMock
-
     from hushh_mcp.one_voice.tools import mail_recipients
     from hushh_mcp.one_voice.tools.mail_compose import MailComposeRuntime
 
@@ -367,7 +366,11 @@ async def reviewed_mail(draft_session, monkeypatch):
         ),
         cancel_prepared=AsyncMock(return_value={"cancelled": True, "state": "cancelled"}),
     )
-    session.ctx.services["mail_compose"] = MailComposeRuntime(review_supported=True)
+    session.ctx.services["mail_compose"] = MailComposeRuntime(
+        review_supported=True,
+        input_generation=lambda: session._mail_input_generation,
+        input_active=lambda: session._mail_input_active or session._closed,
+    )
     session.ctx.services["gmail_delivery"] = delivery
     session.executor._actor_proof = AsyncMock(return_value="ok")
     created = await session.executor.call(
@@ -399,30 +402,84 @@ async def _ack_review(harness, **override):
 
 
 @pytest.mark.asyncio
-async def test_spoken_send_requires_exact_render_and_fresh_send_approval(reviewed_mail):
+async def test_spoken_send_requires_exact_render_and_fresh_owner_input(reviewed_mail):
     session, transport, live, pending, delivery, created, _ = reviewed_mail
     args = {"draft_ref": created.result.draft_ref, "revision": created.result.revision}
     before = await session.executor.call(session.ctx, "send_reviewed_mail", args)
     assert before.result.reason_code == "draft_not_reviewed"
     await _ack_review(reviewed_mail)
     assert _events(live)[-1]["status"] == "review_ready"
+    # A model continuation of the review event is not an owner instruction.
     proposal = await session.executor.call(
         session.ctx, "send_reviewed_mail", args, origin_turn_id=session.turn.turn_id
     )
-    assert proposal.result.status == "confirmation_required", proposal.result.public()
+    assert proposal.result.reason_code == "send_approval_required", proposal.result.public()
     delivery.execute.assert_not_awaited()
-    assert proposal.pending is not None
-    await pending.mark_shown(user_id=OWNER, pending_action_id=proposal.pending.id)
-    confirmed = await session.executor.call(
-        session.ctx, "confirm_pending_action", {"pending_action_id": proposal.pending.id}
-    )
+    session._mail_input_generation += 1
+    confirmed = await session.executor.call(session.ctx, "send_reviewed_mail", args)
     assert confirmed.result.status == "sent"
     delivery.execute.assert_awaited_once()
     assert "Hi" not in str(confirmed.result.model_public())
-    again = await session.executor.call(
-        session.ctx, "confirm_pending_action", {"pending_action_id": proposal.pending.id}
-    )
+    again = await session.executor.call(session.ctx, "send_reviewed_mail", args)
     assert again.result.status != "sent"
+    delivery.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_direct_spoken_send_keeps_firebase_actor_proof(reviewed_mail):
+    session, _transport, _live, _pending, delivery, created, _step = reviewed_mail
+    await _ack_review(reviewed_mail)
+    session._mail_input_generation += 1
+    session.executor._actor_proof = AsyncMock(return_value="missing")
+
+    refused = await session.executor.call(
+        session.ctx,
+        "send_reviewed_mail",
+        {"draft_ref": created.result.draft_ref, "revision": created.result.revision},
+    )
+
+    assert refused.result.status == FIREBASE_PROOF_REQUIRED
+    assert refused.result.reason_code == "firebase_proof_missing"
+    delivery.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_review_ready_event_carries_the_binding_for_a_pronoun_follow_up(reviewed_mail):
+    """The model can route "send it" without rediscovering the draft.
+
+    ``send_reviewed_mail`` is intentionally bound to the server-issued draft
+    reference and revision.  The review event must carry that same binding into
+    the model context; otherwise a follow-up can only guess and returns
+    ``draft_unavailable``.
+    """
+    _session, _transport, live, _pending, _delivery, created, _step = reviewed_mail
+
+    await _ack_review(reviewed_mail)
+
+    event = _events(live)[-1]
+    assert event == {
+        "kind": "mail_review",
+        "status": "review_ready",
+        "reason_code": None,
+        "draft_ref": created.result.draft_ref,
+        "revision": created.result.revision,
+        "spoken_facts": [
+            "The email and sending account are open for review. Ask me to send it when you are ready."
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_it_without_binding_persists_the_canonical_review(reviewed_mail):
+    session, _transport, _live, pending, delivery, created, _step = reviewed_mail
+    await _ack_review(reviewed_mail)
+
+    await session.executor.call(
+        session.ctx, "send_reviewed_mail", {}, origin_turn_id=session.turn.turn_id
+    )
+    session._mail_input_generation += 1
+    confirmed = await session.executor.call(session.ctx, "send_reviewed_mail", {})
+    assert confirmed.result.status == "sent"
     delivery.execute.assert_awaited_once()
 
 
@@ -441,9 +498,6 @@ async def test_foreign_review_ack_cannot_enable_send(reviewed_mail):
 async def test_typed_invalid_edit_revokes_approval_before_validation(reviewed_mail):
     session, transport, _live, pending, delivery, created, _ = reviewed_mail
     await _ack_review(reviewed_mail)
-    proposal = await session.executor.call(
-        session.ctx, "send_reviewed_mail", {"draft_ref": created.result.draft_ref, "revision": 1}
-    )
     frame = protocol.parse_client_frame(
         json.dumps(
             {
@@ -456,29 +510,33 @@ async def test_typed_invalid_edit_revokes_approval_before_validation(reviewed_ma
         )
     )
     await session._handle_client_frame(frame)
-    assert pending.rows[proposal.pending.id].status == "cancelled"
+    assert session.ctx.services["mail_compose"].tasks[created.result.draft_ref].state == "composing"
     delivery.cancel_prepared.assert_awaited()
     delivery.execute.assert_not_awaited()
-    assert transport.frames("client_step.request")[-1]["payload"]["status"] == "needs_input"
 
 
 @pytest.mark.asyncio
 async def test_batch_cannot_confirm_and_edit_current_email(reviewed_mail):
     session, _transport, _live, _pending, delivery, created, _ = reviewed_mail
     await _ack_review(reviewed_mail)
+    session._mail_input_generation += 1
     proposal = await session.executor.call(
         session.ctx, "send_reviewed_mail", {"draft_ref": created.result.draft_ref, "revision": 1}
     )
+    assert proposal.result.status == "sent"
     calls = [
-        {"name": "confirm_pending_action", "args": {"pending_action_id": proposal.pending.id}},
+        {
+            "name": "send_reviewed_mail",
+            "args": {"draft_ref": created.result.draft_ref, "revision": 1},
+        },
         {
             "name": "edit_mail_draft",
             "args": {"draft_ref": created.result.draft_ref, "revision": 1, "message": "Corrected"},
         },
     ]
     rejected = await session._conflicting_batch_calls(calls)
-    assert set(rejected) == {0, 1}
-    delivery.execute.assert_not_awaited()
+    assert set(rejected) == set()
+    delivery.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio

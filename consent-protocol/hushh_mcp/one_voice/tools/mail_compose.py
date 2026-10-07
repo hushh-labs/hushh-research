@@ -51,6 +51,10 @@ class ComposeDraft:
     revision: int = 1
     rendered: bool = False
     review_epoch: int = 0
+    # Input generation at which the owner mounted this review. A direct voice
+    # send must arrive from a newer owner utterance, never from the model's
+    # automatic continuation of the review event.
+    review_input_generation: int | None = None
     state: str = "composing"
     prepared: dict[str, Any] = field(default_factory=dict)
     recipients: Any = None
@@ -97,6 +101,34 @@ def _same_destinations(before: dict[str, Any], after: dict[str, Any]) -> bool:
         return False
 
 
+def _recipient_source_payload(source: Any) -> dict[str, Any]:
+    """Serialize a recipient source for the sealed review envelope.
+
+    Production recipients are immutable Pydantic models, but keeping this
+    adapter tolerant of snapshot-like objects makes the compose runtime safe
+    for callers that preserve a typed audience without requiring its concrete
+    model class.  The resulting envelope is validated again on restore.
+    """
+    dump = getattr(source, "model_dump", None)
+    if callable(dump):
+        return dump(mode="json")
+    person = getattr(source, "person", None)
+    person_dump = getattr(person, "model_dump", None)
+    if callable(person_dump):
+        person_payload = person_dump(mode="json")
+    elif person is None:
+        person_payload = None
+    else:
+        person_payload = {"user_id": str(getattr(person, "user_id", ""))}
+    return {
+        "kind": str(getattr(source, "kind", "")),
+        "role": str(getattr(source, "role", "to")),
+        "person": person_payload,
+        "address_parts": list(getattr(source, "address_parts", ()) or ()),
+        "address": str(getattr(source, "address", "") or ""),
+    }
+
+
 class MailComposeRuntime:
     def __init__(
         self,
@@ -112,6 +144,51 @@ class MailComposeRuntime:
         self.approval_input = approval_input
         self.tasks: dict[str, ComposeDraft] = {}
 
+    def resolve_binding(
+        self,
+        ref: str | None,
+        revision: int | None,
+        *,
+        prepared: dict[str, Any] | None = None,
+    ) -> tuple[str, int] | Rejected:
+        """Resolve an omitted binding to the one active draft in this session.
+
+        Live voice often hears a follow-up such as "send it" after the review
+        event. The model may omit opaque refs that were carried by that event;
+        with exactly one live draft the server can bind it without guessing.
+        A prepared snapshot is preferred during confirmation execution, so a
+        later draft cannot borrow the approval.
+        """
+        snapshot = prepared if isinstance(prepared, dict) else {}
+        snapshot_ref = snapshot.get("draft_ref")
+        snapshot_revision = snapshot.get("revision")
+        if (
+            not ref
+            and type(snapshot_ref) is str
+            and snapshot_ref
+            and type(snapshot_revision) is int
+        ):
+            return snapshot_ref, snapshot_revision
+        if ref and type(revision) is int:
+            return ref, revision
+        if ref or revision is not None:
+            return _refusal(
+                "draft_binding_required",
+                "I need the current email draft review before sending.",
+            )
+        active = [
+            task
+            for task in self.tasks.values()
+            if task.state not in {"sent", "cancelled", "failed"}
+        ]
+        if len(active) == 1:
+            task = active[0]
+            return task.ref, task.revision
+        return _refusal(
+            "draft_unavailable",
+            "That draft is no longer available. Please prepare it again.",
+        )
+
     def current(self, ref: str, revision: int) -> ComposeDraft | Rejected:
         task = self.tasks.get(ref)
         if task is None:
@@ -123,6 +200,81 @@ class MailComposeRuntime:
                 "draft_stale", "The draft changed. Review its current version before sending."
             )
         return task
+
+    async def restore_prepared_review(self, ctx: ToolContext, payload: dict[str, Any]) -> bool:
+        """Rehydrate one encrypted prepared review after a voice reconnect.
+
+        The delivery ledger remains the authority for expiry/action state; this
+        method only rebuilds the session-private draft and revalidates the
+        recipient sources before making it ``review_ready`` again.
+        """
+        if not self.review_supported or self.tasks:
+            return False
+        try:
+            ref = payload["draft_ref"]
+            revision = payload["revision"]
+            draft = payload["draft"]
+            raw_sources = payload.get("sources") or []
+            action_id = payload["action_id"]
+            sender_token = payload["sender_token"]
+            sender_label = payload["sender_label"]
+            expires_at = payload["expires_at"]
+            if (
+                not isinstance(ref, str)
+                or not 16 <= len(ref) <= 64
+                or type(revision) is not int
+                or revision < 1
+                or not isinstance(draft, dict)
+                or not isinstance(raw_sources, list)
+                or not isinstance(action_id, str)
+                or not isinstance(sender_token, str)
+                or not isinstance(sender_label, str)
+            ):
+                return False
+            sources = tuple(RecipientSource.model_validate(item) for item in raw_sources)
+            checked = await resolve_recipient_sources(ctx, sources) if sources else None
+            if isinstance(checked, Rejected):
+                return False
+            restored_draft = {
+                "to": "",
+                "cc": "",
+                "bcc": "",
+                "subject": str(draft.get("subject") or ""),
+                "body": str(draft.get("body") or ""),
+            }
+            if checked is not None:
+                restored_draft.update(
+                    {key: ", ".join(value) for key, value in checked.draft_fields().items()}
+                )
+            else:
+                restored_draft.update({key: draft.get(key, "") for key in ("to", "cc", "bcc")})
+            normalize_draft(restored_draft)
+            if not isinstance(expires_at, datetime):
+                expires_at = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            expires_at = expires_at.replace(tzinfo=expires_at.tzinfo or timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                return False
+        except (KeyError, TypeError, ValueError, GmailDeliveryError):
+            return False
+        task = ComposeDraft(
+            ref=ref,
+            draft=restored_draft,
+            revision=revision,
+            rendered=True,
+            review_epoch=1,
+            state="review_ready",
+            prepared={
+                "action_id": action_id,
+                "state": "prepared",
+                "expires_at": expires_at,
+                "sender_token": sender_token,
+                "sender_label": sender_label,
+            },
+            recipients=checked,
+            review_input_generation=self.input_generation() if self.input_generation else None,
+        )
+        self.tasks[ref] = task
+        return True
 
     @staticmethod
     def delivery(ctx: ToolContext) -> Any:
@@ -267,6 +419,17 @@ class MailComposeRuntime:
                     else [],
                 },
                 idempotency_key=f"voice:{ctx.conversation_id}:{task.ref}:{task.revision}",
+                review_payload={
+                    "conversation_id": ctx.conversation_id,
+                    "draft_ref": task.ref,
+                    "revision": task.revision,
+                    "draft": dict(task.draft),
+                    "sources": [
+                        _recipient_source_payload(source) for source in task.recipients.sources
+                    ]
+                    if task.recipients
+                    else [],
+                },
             )
         except (GmailDeliveryError, GmailApiError) as exc:
             if task.revision != expected_revision or task.review_epoch != expected_epoch:
@@ -342,6 +505,7 @@ class MailComposeRuntime:
         ):
             return False
         task.rendered, task.state = True, "review_ready"
+        task.review_input_generation = self.input_generation() if self.input_generation else None
         return True
 
     async def edit(
@@ -510,7 +674,17 @@ class MailComposeRuntime:
                 },
             )
 
-    def prepare_send(self, ref: str, revision: int) -> Prepared | Rejected:
+    def prepare_send(
+        self,
+        ref: str | None,
+        revision: int | None,
+        *,
+        prepared: dict[str, Any] | None = None,
+    ) -> Prepared | Rejected:
+        binding = self.resolve_binding(ref, revision, prepared=prepared)
+        if isinstance(binding, Rejected):
+            return binding
+        ref, revision = binding
         task = self.current(ref, revision)
         if isinstance(task, Rejected):
             return task
@@ -536,6 +710,7 @@ class MailComposeRuntime:
             snapshot={
                 "draft_ref": ref,
                 "revision": revision,
+                "_canonical_args": {"draft_ref": ref, "revision": revision},
                 "action_id": task.prepared["action_id"],
                 **(
                     {"proposal_input_generation": self.input_generation()}
@@ -545,7 +720,17 @@ class MailComposeRuntime:
             },
         )
 
-    async def send(self, ctx: ToolContext, ref: str, revision: int) -> ToolResult:
+    async def send(
+        self,
+        ctx: ToolContext,
+        ref: str | None,
+        revision: int | None,
+    ) -> ToolResult:
+        binding = self.resolve_binding(ref, revision, prepared=ctx.prepared)
+        if isinstance(binding, Rejected):
+            return binding
+        ref, revision = binding
+        direct = bool((ctx.prepared or {}).get("_direct_review_send"))
         # Admission belongs to the received confirmation, before any queue,
         # proof, ledger or task-lock await. Never recapture a later utterance.
         admitted = (
@@ -573,10 +758,23 @@ class MailComposeRuntime:
             if isinstance(prepared, Rejected):
                 return prepared
             approval = dict(ctx.prepared or {})
+            approval.pop("_direct_review_send", None)
             proposed_generation = approval.pop("proposal_input_generation", None)
             expected = dict(prepared.snapshot)
             expected.pop("proposal_input_generation", None)
-            if self.input_generation is not None and (
+            if direct and self.input_generation is not None:
+                review_generation = task.review_input_generation
+                current_generation = self.input_generation()
+                if (
+                    type(review_generation) is not int
+                    or current_generation <= review_generation
+                    or (self.input_active and self.input_active())
+                ):
+                    return _refusal(
+                        "send_approval_required",
+                        "Please ask me to send the reviewed email after it is open.",
+                    )
+            elif self.input_generation is not None and (
                 type(proposed_generation) is not int
                 or admitted is None
                 or admitted[1]
@@ -593,7 +791,13 @@ class MailComposeRuntime:
                     "review_binding_changed", "This approval belongs to a different email review."
                 )
             expected_epoch = task.review_epoch
-            approval_generation = admitted[0] if admitted else None
+            approval_generation = (
+                self.input_generation()
+                if direct and self.input_generation
+                else admitted[0]
+                if admitted
+                else None
+            )
             approval_epoch = task.review_epoch
 
             def authorization_check() -> bool:
@@ -691,6 +895,14 @@ class DraftRefInput(ToolInput):
     revision: int = Field(ge=1, le=10000)
 
 
+class SendDraftInput(ToolInput):
+    # The review event normally supplies both opaque fields. They are optional
+    # for a natural follow-up such as "send it"; the runtime binds an omitted
+    # pair only when there is exactly one active draft in this session.
+    draft_ref: str = Field(default="", max_length=64)
+    revision: int | None = Field(default=None, ge=1, le=10000)
+
+
 class EditDraftInput(DraftRefInput):
     subject: str | None = Field(default=None, max_length=256)
     message: str | None = Field(default=None, max_length=4000)
@@ -718,7 +930,7 @@ async def _compose(ctx: ToolContext, args: ComposeInput) -> ToolResult:
     return await owner.create(ctx, draft, recipients=recipients)
 
 
-async def _prepare_send(ctx: ToolContext, args: DraftRefInput) -> Prepared | ToolResult:
+async def _prepare_send(ctx: ToolContext, args: SendDraftInput) -> Prepared | ToolResult:
     owner = runtime(ctx)
     return (
         owner.prepare_send(args.draft_ref, args.revision)
@@ -727,7 +939,7 @@ async def _prepare_send(ctx: ToolContext, args: DraftRefInput) -> Prepared | Too
     )
 
 
-async def _send(ctx: ToolContext, args: DraftRefInput) -> ToolResult:
+async def _send(ctx: ToolContext, args: SendDraftInput) -> ToolResult:
     owner = runtime(ctx)
     return (
         await owner.send(ctx, args.draft_ref, args.revision)
@@ -884,11 +1096,12 @@ TOOLS: tuple[ToolSpec, ...] = (
         name="send_reviewed_mail",
         gateway_action_id="email.chat.turn",
         policy=ToolPolicy.confirm_voice,
-        input_model=DraftRefInput,
+        input_model=SendDraftInput,
         output_model=ComposeResult,
-        description="Request final send approval for the exact rendered email draft/revision. Only confirmation of this send-specific review delivers it; identity or draft-open approval never sends.",
+        description="Send the exact rendered email draft/revision after the owner explicitly asks to send it. The review card must already be mounted; identity or draft-open approval never sends. Keep the issued draft_ref and revision when available, but a clear 'send it' binds the sole active reviewed draft in this voice session.",
         handler=_send,
         prepare=_prepare_send,
+        direct_after_review=True,
         firebase_plane=True,
         device_step=True,
         correction_group="mail_compose",

@@ -185,7 +185,7 @@ async def test_the_model_never_receives_what_a_sender_wrote(monkeypatch):
     assert result.model_public()["coverage"]["returned"] == 1
 
 
-async def test_analysis_receipt_exposes_counts_but_never_mail_content(monkeypatch):
+async def test_analysis_is_a_spoken_summary_without_a_mailbox_dump(monkeypatch):
     rows = _rows(2)
     rows[0]["body"] = HOSTILE_BODY
     rows[0]["analysis"] = [
@@ -214,7 +214,8 @@ async def test_analysis_receipt_exposes_counts_but_never_mail_content(monkeypatc
         ),
     )
     shown = result.public()
-    assert shown["items"][0]["analysis"][0]["detail"] == "Review the proposal by Friday."
+    assert shown["items"] == []
+    assert result.ui_refresh == []
     receipt = json.dumps(result.model_public())
     assert "analysis_requested" in receipt and "findings_action_items" in receipt
     assert HOSTILE_BODY not in receipt
