@@ -1,6 +1,5 @@
-.face [data-testid="wallet-card-face"] {
-  background-image: var(--demo-finish);
-}
+.face { background: transparent; }
+.face [data-testid="wallet-card-face"] { background: transparent; }
 
 .face [data-testid="wallet-card-face"]::before {
   position: absolute;
@@ -37,3 +36,15 @@
 .face [data-testid="wallet-card-face"]::after { content:""; position:absolute; pointer-events:none; z-index:-1; width:85%; aspect-ratio:1; right:-28%; bottom:-65%; border:1px solid rgb(255 255 255 / 12%); border-radius:50%; box-shadow:0 0 0 18px rgb(255 255 255 / 3%),0 0 0 38px rgb(255 255 255 / 3%),0 0 0 65px rgb(255 255 255 / 2%); transform:rotate(-25deg) scaleX(.8); }
 .gold [data-testid="wallet-card-face"]::after { border-radius:8%; bottom:-50%; transform:rotate(35deg); }
 .face svg[viewBox="0 0 48 36"] { color:#e5d1a0; filter:drop-shadow(0 1px 1px rgb(0 0 0 / 30%)); }
+
+.artworkFrame { position:relative; background:transparent; width:100%; aspect-ratio:85.6/53.98; overflow:hidden; border-radius:calc(100cqw * .055); box-shadow:inset 0 0 0 1px rgb(255 255 255 / 8%), var(--app-shadow-product); background:#111; }
+.artwork { display:block; width:100%; height:100%; object-fit:cover; object-position:center; user-select:none; }
+.face [data-testid="wallet-card-face"]::before,
+.face [data-testid="wallet-card-face"]::after { display:none; }
+/* Supplied artwork owns the entire visual surface; no wrapper sheet or shadow. */
+.face,
+.face > div,
+.face [data-testid="wallet-card-face"],
+.face .artworkFrame { background:transparent !important; box-shadow:none !important; }
+.artwork { object-fit:fill; }
+.artwork { object-fit:fill; }
