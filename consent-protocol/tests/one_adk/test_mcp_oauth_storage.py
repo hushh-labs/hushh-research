@@ -16,10 +16,9 @@ from hushh_mcp.one_adk.mcp_oauth_storage import (
 )
 
 
-def _callback_deadline_controller(monkeypatch):
+def _callback_deadline_controller(monkeypatch, contexts):
     """Expire the real SDK timeout after redirect, independent of metadata latency."""
     original_timeout = asyncio.timeout
-    contexts = []
 
     def capture_timeout(delay):
         context = original_timeout(delay)
@@ -77,8 +76,11 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
     handoff = McpOAuthCallback(owner_id="synthetic-owner", is_current=lambda: True)
     redirect = {}
     visited = []
+    timeout_contexts = []
     expire_callback = (
-        _callback_deadline_controller(monkeypatch) if token_failure == "callback_timeout" else None
+        _callback_deadline_controller(monkeypatch, timeout_contexts)
+        if token_failure == "callback_timeout"
+        else None
     )
 
     async def navigate(url):
@@ -215,6 +217,8 @@ async def test_sdk_authorization_delivers_tokens_once_without_durable_storage(
                 if token_failure == "callback_timeout":
                     assert redirect
                     assert "/token" not in visited
+                    assert len(timeout_contexts) == 1
+                    assert timeout_contexts[0].expired()
                 assert storage._closed
                 assert "synthetic-private-token-body" not in caplog.text
                 assert "synthetic-code" not in caplog.text

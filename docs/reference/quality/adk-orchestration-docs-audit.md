@@ -74,9 +74,12 @@ resources, selected hosting, trusted identities and concurrent work are preserve
   fail. Strict unknown-key refusal remains; no configured secret was removed.
 - The correction's first complete core attempt recorded 20 failures: two clock
   fixtures and existing execution deadlines. The two fixture corrections preserve
-  correlation, secret cleanup and refusal assertions. A two-worker focused run
-  passed 196 checks; four unchanged elapsed/CLI limits still require isolated
-  recheck and exact-SHA hosted proof. No deadline or security gate was widened.
+  correlation, secret cleanup and refusal assertions. OAuth now proves actual
+  timeout expiry outside the provider: 29 nearest cases pass; a disabled-deadline
+  control reproduces old false acceptance and is refused by the correction.
+  The two-worker run passed 196 checks; four unchanged elapsed/CLI limits remain
+  local capacity failures pending exact-SHA proof. Local governance must use the
+  pinned Python 3.13, not the host's 3.14. No deadline or gate was widened.
 - All **181 Mermaid figures** rendered. The reviewed fitness baseline retains
   2,209 findings and budgets 500/250/80; future new or worsened debt still fails.
   The environment-test module is reviewed from 572 to 634 lines for the runtime
