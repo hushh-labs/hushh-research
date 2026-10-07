@@ -394,7 +394,7 @@ describe("Top app bar responsive contract", () => {
       '<ShellActionSurface variant="icon" aria-label="Account actions">',
     );
     expect(source).toContain('variant="destructive"');
-    expect(source).toContain('className="overflow-hidden rounded-[14px] p-1"');
+    expect(source).toContain('className="overflow-hidden rounded-[14px] border-0 bg-transparent p-0 shadow-none"');
     expect(signOutItemSource).toContain("cursor-pointer");
     expect(signOutItemSource).toContain("rounded-[10px]");
     expect(signOutItemSource).toContain("hover:!bg-[color:var(--app-accent)]");

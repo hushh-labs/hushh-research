@@ -70,7 +70,7 @@ describe("profile security deletion contract", () => {
     expect(deleteFlowSource).toContain("UserLocalStateService.clearForUser");
     expect(deleteFlowSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(deleteFlowSource).toContain(
-      "Deletes your live account, vault, memory, chats, and connections. Required records and backups may remain. This can’t be undone.",
+      "Deletes your account, vault, memory, chats, and connections. This can’t be undone.",
     );
     expect(profilePageSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(topAppBarSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
