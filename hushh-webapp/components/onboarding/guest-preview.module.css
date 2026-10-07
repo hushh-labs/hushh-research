@@ -400,6 +400,41 @@
   height: 1.375rem;
   color: currentColor;
 }
+.circleControlStory {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  width: 100%;
+}
+.circleRadar {
+  position: relative;
+  width: min(32.5rem, 100%);
+  aspect-ratio: 1;
+}
+.radarRing {
+  position: absolute;
+  inset: 21%;
+  border: 1px solid #e2e0ec;
+  border-radius: 50%;
+}
+.radarRing:nth-child(2) { inset: 10%; }
+.radarRing:nth-child(3) { inset: 0; border-style: dashed; }
+.radarLine { position: absolute; top: 17%; left: 30%; width: 2px; height: 36%; background: repeating-linear-gradient(to bottom, #8a1f4a 0 2px, transparent 2px 8px); transform: rotate(-30deg); transform-origin: bottom; }
+.radarCenter { position: absolute; inset: 38.5%; display: grid; place-items: center; border: 1px solid #dcdae6; border-radius: 50%; background: #fff; box-shadow: 0 16px 40px rgb(60 40 120 / 14%); font-size: clamp(3.5rem, 10vw, 5.6rem); }
+.circleChipExact { position: absolute; display: inline-flex; align-items: center; gap: .625rem; padding: .5rem 1.25rem .5rem .5rem; border-radius: 999px; background: #fff; box-shadow: 0 6px 18px rgb(60 40 120 / 10%); color: #2e2e3a; font-weight: 600; white-space: nowrap; }
+.circleChipExact span { display: grid; width: 2.25rem; height: 2.25rem; place-items: center; border-radius: 50%; }
+.familyChip { top: 17%; left: 31%; border: 2px solid #8a1f4a; font-weight: 700; transform: translate(-50%, -50%); }
+.familyChip span { background: #f8e3ec; color: #8a1f4a; }
+.friendsChip { top: 31%; right: 0; }.friendsChip span { background: #ebe4f8; color: #5b34a8; }
+.financeChip { bottom: 0; right: 19%; }.financeChip span { background: #ddf0e8; color: #1f6b4f; }
+.businessChip { top: 57%; left: 0; }.businessChip span { background: #f6e6da; color: #9a4416; }
+.circleDetailCard { display: flex; gap: 1.125rem; align-items: flex-start; width: 100%; max-width: 30rem; padding: 1.5rem 1.75rem; border: 1px solid rgb(220 218 230 / 40%); border-radius: 1.5rem; background: #fff; box-shadow: 0 10px 30px rgb(60 40 120 / 8%); color: #16161d; text-align: left; }
+.circleDetailAvatar { display: grid; width: 2.875rem; height: 2.875rem; flex: none; place-items: center; border-radius: 50%; background: #f8e3ec; color: #8a1f4a; }
+.circleDetailCard h3 { margin: 0; font-size: 1.25rem; font-weight: 800; }.circleDetailCard p { margin: .25rem 0 0; color: #3c3c4a; font-size: 1rem; line-height: 1.45; }
+.circleToggleRow { display: flex; align-items: center; gap: .75rem; margin-top: .875rem; color: #2e2e3a; font-size: .875rem; font-weight: 600; line-height: 1.4; }
+.circleToggle { position: relative; display: inline-block; width: 2.75rem; height: 1.625rem; flex: none; border-radius: 999px; background: #2f6be0; }.circleToggle span { position: absolute; top: 3px; right: 3px; width: 1.25rem; height: 1.25rem; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgb(0 0 0 / 15%); }
+@media (max-width: 639px) { .circleRadar { width: min(26rem, 100%); }.circleDetailCard { padding: 1.25rem; }.circleChipExact { font-size: .875rem; padding-right: .875rem; }.circleChipExact span { width: 2rem; height: 2rem; } }
 .conversation {
   position: relative;
   padding: 0.5rem 0;

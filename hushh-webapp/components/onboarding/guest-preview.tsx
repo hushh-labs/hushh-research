@@ -4,29 +4,18 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type RefObject,
 } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
-  CalendarAgentIcon,
-  LocationAgentIcon,
   Mic,
 } from "@/components/icons";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
-import { AgentMarkdown } from "@/components/agent/agent-markdown";
-import { ConnectorBrandMark } from "@/components/agent/connector-brand-mark";
-import { AppStreamSection } from "@/components/app-ui/stream-progress-panel";
-import {
-  CHAT_USER_BUBBLE_CLASSNAME,
-  CHAT_ASSISTANT_BODY_CLASSNAME,
-} from "@/components/agent/chat-message-styles";
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { SurfaceCard } from "@/components/app-ui/surfaces";
 import {
   BodyText,
   CaptionText,
@@ -57,24 +46,6 @@ const CAPABILITIES = ONE_CAPABILITIES.filter(
 // Presentation only. Calendar illustrates a connected calendar's free slots;
 // Location illustrates a ready Family Circle with device permission granted.
 // The sharing contract supports duration/early revocation, not arrival triggers.
-const CHAT_TURNS = [
-  {
-    agent: "calendar",
-    title: "Calendar",
-    prompt: "Find 30 free minutes tomorrow afternoon",
-    response:
-      "Open 30-minute slots tomorrow:\n\n**12:00–12:30 PM** · **12:30–1:00 PM** · **1:00–1:30 PM**",
-  },
-  {
-    agent: "location",
-    title: "Location",
-    prompt:
-      "Can you share my location with my Family Circle for the next 2 hours, until I reach home?",
-    response:
-      "Sharing with **Family Circle** for **2 hours**. Stop sharing early when you reach home.",
-  },
-] as const;
-
 /** A finite, local illustration: no input, microphone or agent request. */
 function animateChatPreview(
   gsap: NonNullable<Awaited<ReturnType<typeof getGsap>>>,
@@ -360,153 +331,22 @@ function AgentStory() {
   );
 }
 
-function ConversationStory() {
-  const motionEnabled = usePreviewMotionPreference();
-  const illustrationRef = useRef<HTMLDivElement>(null);
-  const [autoPlay, setAutoPlay] = useState(true);
-  const [scene, setScene] = useState(0);
-  useIllustrationMotion(illustrationRef, scene, motionEnabled);
-  useEffect(() => {
-    if (!motionEnabled || !autoPlay || scene !== 0) return;
-    const timer = window.setTimeout(() => setScene(1), 6800);
-    return () => window.clearTimeout(timer);
-  }, [motionEnabled, autoPlay, scene]);
+function CircleControlStory() {
+  const shushingFace = String.fromCodePoint(0x1f92b);
   return (
-    <div
-      ref={illustrationRef}
-      className={styles.conversation}
-      data-motion={motionEnabled ? "playing" : "static"}
-    >
-      <div className={styles.voiceVisual} aria-hidden="true">
-        <span className={styles.voiceHalo} />
-        <span className={styles.voiceHalo} />
-        <span className={styles.voiceCore}>
-          <Mic />
-        </span>
-        <div className={styles.waveform}>
-          {[0.3, 0.55, 0.8, 0.45, 1, 0.7, 0.4, 0.85, 0.6, 0.35, 0.7].map(
-            (height, index) => (
-              <i
-                key={index}
-                style={
-                  {
-                    "--bar-height": height,
-                    animationDelay: index * -90 + "ms",
-                  } as CSSProperties
-                }
-              />
-            ),
-          )}
-        </div>
+    <div className={styles.circleControlStory}>
+      <div className={styles.circleRadar} aria-label="Circles you control">
+        <span className={styles.radarRing} /><span className={styles.radarRing} /><span className={styles.radarRing} /><span className={styles.radarLine} />
+        <div className={styles.radarCenter} aria-label="Hussh One">{shushingFace}</div>
+        <div className={`${styles.circleChipExact} ${styles.familyChip}`}><span>&hearts;</span>Family</div>
+        <div className={`${styles.circleChipExact} ${styles.friendsChip}`}><span>&clubs;</span>Friends</div>
+        <div className={`${styles.circleChipExact} ${styles.financeChip}`}><span>&#9635;</span>Finance</div>
+        <div className={`${styles.circleChipExact} ${styles.businessChip}`}><span>&#9632;</span>Business</div>
       </div>
-      <SurfaceCard
-        className={styles.chatPreview}
-        onPointerDown={() => setAutoPlay(false)}
-        onFocusCapture={() => setAutoPlay(false)}
-      >
-        <div
-          className={styles.chatHeader}
-          role="group"
-          aria-label="Conversation previews"
-          onFocus={() => setAutoPlay(false)}
-        >
-          {CHAT_TURNS.map((turn, index) => {
-            const Icon =
-              turn.agent === "calendar" ? CalendarAgentIcon : LocationAgentIcon;
-            return (
-              <ShellActionSurface
-                key={turn.agent}
-                variant="pill"
-                className={styles.chatAgent}
-                aria-pressed={scene === index}
-                onClick={() => {
-                  setAutoPlay(false);
-                  setScene(index);
-                }}
-              >
-                {Icon && <Icon aria-hidden="true" className="size-4" />}
-                {turn.title}
-              </ShellActionSurface>
-            );
-          })}
-          <CaptionText className={styles.sampleLabel}>Preview</CaptionText>
-        </div>
-        <div
-          className={`${styles.chatScenes} text-sm leading-6`}
-          role="region"
-          aria-label="Sample conversation with One"
-          data-chat-scenes
-        >
-          {CHAT_TURNS.map((turn, turnIndex) => (
-            <div
-              key={turn.prompt}
-              className={styles.chatTurn}
-              data-chat-turn={turn.agent}
-              data-chat-active={scene === turnIndex}
-              aria-hidden={scene !== turnIndex}
-              inert={scene !== turnIndex}
-            >
-              <div
-                className={`${styles.question} ${CHAT_USER_BUBBLE_CLASSNAME}`}
-                data-chat-prompt
-              >
-                <span className="sr-only">You: {turn.prompt}</span>
-                <span aria-hidden="true" data-testid="preview-chat-prompt">
-                  {turn.prompt.split(" ").map((word, wordIndex, words) => (
-                    <span key={wordIndex}>
-                      <span className={styles.chatWord}>
-                        {Array.from(word).map((character, index) => (
-                          <span key={index} data-chat-character>
-                            {character}
-                          </span>
-                        ))}
-                      </span>
-                      {wordIndex < words.length - 1 ? " " : null}
-                    </span>
-                  ))}
-                </span>
-              </div>
-              {turn.agent === "calendar" && (
-                <div className={styles.calendarActivity} data-chat-activity>
-                  <AppStreamSection
-                    title="Activity"
-                    count={1}
-                    defaultOpen={false}
-                    items={[
-                      {
-                        id: "calendar-preview",
-                        label: "Google Calendar",
-                        message: "Finding free time on your calendar.",
-                        status: "done",
-                        mark: <ConnectorBrandMark brand="calendar" size="sm" />,
-                      },
-                    ]}
-                  />
-                </div>
-              )}
-              <div className={styles.replySlot}>
-                <span
-                  className={styles.typingDots}
-                  data-chat-typing
-                  aria-hidden="true"
-                >
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <div
-                  className={`${styles.answer} ${CHAT_ASSISTANT_BODY_CLASSNAME}`}
-                  data-chat-answer
-                  data-testid="preview-chat-reply"
-                >
-                  <span className="sr-only">One:</span>
-                  <AgentMarkdown text={turn.response} />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </SurfaceCard>
+      <div className={styles.circleDetailCard}>
+        <span className={styles.circleDetailAvatar} aria-hidden="true">&hearts;</span>
+        <div><h3>Family Circle</h3><p>Let the people in your family see where you are, and only when you want them to.</p><div className={styles.circleToggleRow}><span className={styles.circleToggle} aria-hidden="true"><span /></span><span>Location sharing is on. You can turn it off whenever you like.</span></div></div>
+      </div>
     </div>
   );
 }
@@ -546,7 +386,7 @@ export function GuestPreview({
         ? "Eight private agents working together to make your life easier."
         : step === 2
           ? "Chat with Agent One, out loud or in writing."
-          : "Just ask One.";
+          : "Put the people in your life into circles that you control.";
 
   useEffect(() => {
     onReadyChange?.(step === 3);
@@ -640,7 +480,7 @@ export function GuestPreview({
                   ? "What you tell one agent helps the others, and you stay in control of all of it."
                   : step === 2
                     ? "One checks your calendar and everything else you have connected, then gives you a direct answer."
-                    : "Talk or type. Let One help you."}
+                    : "Group your people into different circles and choose what each one can see."}
               </BodyText>
             </div>
 
@@ -658,7 +498,7 @@ export function GuestPreview({
                   className={styles.invitation}
                   data-has-invitation={Boolean(invitation)}
                 >
-                  <ConversationStory />
+                  <CircleControlStory />
 
                   {invitation && (
                     <div className={styles.inviteContext}>
