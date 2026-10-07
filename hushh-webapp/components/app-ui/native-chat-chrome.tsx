@@ -375,7 +375,7 @@ export function NativeChatChrome(props: Props) {
         ancestor.removeEventListener("animationcancel", animation);
       }
     };
-  }, [preference, context]);
+  }, [preference, context, kind]);
 
   // Legacy wrappers reinstall; capable wrappers preserve containment and focus.
   const installationPresentation = inPlaceUpdates ? "in-place" : JSON.stringify({ theme, value, expanded });

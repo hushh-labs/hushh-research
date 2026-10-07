@@ -1022,9 +1022,10 @@ the nearest test enforces the native monotonic admission fence.
 
 The opt-in Debug probe records only bounded host/removal/handoff/frame counts.
 The strengthened warm test requires a frame after replacement/activation and a
-physical-removal negative control under Profile. It does not measure rendered
-glass appearance or ancestor occlusion. The final strengthened candidate requires
-its own device run; earlier DOM visibility assertions are not substituted for it.
+physical-removal negative control under Profile. Both that test and the public
+Preferences journey pass on the physical iPhone at `619066d88`, with one host and
+the original preferences restored. It does not measure rendered glass appearance
+or ancestor occlusion; earlier DOM visibility assertions are not substituted for it.
 
 Stationary public preferences avoid an unconditional 150ms mount delay only when
 animation inspection and initial geometry affirm admission. Pre-existing motion,
@@ -1041,3 +1042,6 @@ it does not qualify docked software-keyboard, split-view or protected-session
 continuity. New SwiftUI families remain disabled on iPad and Release. Whole-app
 visual/accessibility acceptance, three Release frame-pacing runs and exact-head
 CI remain separate gates; this entry does not imply merge, deployment or distribution.
+The `619066d88` core run passes protocol but finds a missing `kind` dependency in
+the preference effect. The dependency is explicit in the follow-up; no lint or
+release gate is relaxed. Its exact-head core result remains required before push.
