@@ -355,9 +355,14 @@ for (const width of [320, 393, 834, 1440]) {
     expect(spread(await measure())).toBeLessThanOrEqual(1);
     for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
     const originalHeight = (await measure())[0]!;
-    const sourceGroups = ["portfolio-source-add-group", "portfolio-import-source-options"].map((id) => page.getByTestId(id));
-    async function verifySources() {
-      for (const source of sourceGroups) {
+    const walletGroups = ["active", "paused"].map((status) => page.getByTestId(`consumer-wallet-${status}`)
+      .getByTestId("settings-group").filter({ hasText: "Sharing controls" }));
+    const boundedGroups = [
+      ...["portfolio-source-add-group", "portfolio-import-source-options"].map((id) => page.getByTestId(id)),
+      ...walletGroups,
+    ];
+    async function verifyBoundedConsumers() {
+      for (const source of boundedGroups) {
         const siblings = source.locator("[data-row-layout]");
         const heights = await siblings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
         expect(heights.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
@@ -375,11 +380,12 @@ for (const width of [320, 393, 834, 1440]) {
           })).toBe(true);
         }
       }
+      for (const wallet of walletGroups) expect(await wallet.locator("[data-row-layout]").count()).toBe(5);
     }
-    await verifySources();
+    await verifyBoundedConsumers();
     // Enlarged text makes two-line support copy grow rather than disappear.
-    await page.addStyleTag({ content: '[data-testid$="navigation"], [data-testid="portfolio-source-add-group"], [data-testid="portfolio-import-source-options"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
-    await verifySources();
+    await page.addStyleTag({ content: '[data-testid$="navigation"], [data-testid="portfolio-source-add-group"], [data-testid="portfolio-import-source-options"], [data-testid^="consumer-wallet-"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
+    await verifyBoundedConsumers();
     expect(spread(await measure())).toBeLessThanOrEqual(1);
     expect((await measure())[0]!).toBeGreaterThan(originalHeight);
     for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
@@ -408,6 +414,14 @@ for (const width of [320, 393, 834, 1440]) {
     await clearEvents(page);
     await group.getByRole("switch", { name: "Synthetic security switch" }).click();
     expect(await events(page)).toEqual(["uniform:switch"]);
+    for (const [index, status] of ["active", "paused"].entries()) {
+      const walletRows = walletGroups[index]!.locator("[data-row-layout]");
+      for (const [row, action] of ["preview", "edit", status === "active" ? "pause" : "resume", "rotate", "remove"].entries()) {
+        await clearEvents(page);
+        await clickAt(page, walletRows.nth(row), "trailing");
+        expect(await events(page)).toEqual([`wallet:${status}:${action}`]);
+      }
+    }
   });
 }
 
@@ -448,6 +462,8 @@ for (const width of [393, 1440])
         "profile-settings": "consumer-profile-settings",
         "consent-center": "consumer-consent-center",
         "chat-card": "consumer-chat-card",
+        "wallet-active": "consumer-wallet-active",
+        "wallet-paused": "consumer-wallet-paused",
       };
       for (const [name, testId] of Object.entries(consumers)) {
         await page.getByTestId(testId).screenshot({

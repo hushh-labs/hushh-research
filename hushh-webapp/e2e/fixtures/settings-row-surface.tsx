@@ -29,6 +29,8 @@ import { Switch } from "../../components/ui/switch";
 import { MaterialRipple } from "../../lib/morphy-ux/material-ripple";
 import { PortfolioSourceSwitcher } from "../../components/kai/portfolio-source-switcher";
 import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
+import { WalletCardManage } from "../../components/wallet-card/wallet-card-manage";
+import type { WalletCardRecord } from "../../lib/services/wallet-card-service";
 import type { ConsentScopeItem } from "../../lib/consent/consent-scope-items";
 
 declare global {
@@ -318,6 +320,18 @@ function UniformNavigation({ uniform = true }: { uniform?: boolean }) {
   </SettingsGroup>;
 }
 
+function WalletManagement({ status }: { status: "active" | "paused" }) {
+  const card: WalletCardRecord = {
+    passSerial: null, status, shareTokenVersion: 1, cardPayload: {},
+    displayName: null, headline: null, avatarUrl: null, expiresAt: null,
+    createdAt: null, updatedAt: null, revokedAt: null, lastScannedAt: null, scanCount: 0,
+  };
+  return <section data-testid={`consumer-wallet-${status}`}>
+    <WalletCardManage card={card} shareLink={null} applePassSupported={false} busyAction={null}
+      onAction={(action) => record(`wallet:${status}:${action}`)} />
+  </section>;
+}
+
 function Fixture() {
   return (
     <main className="min-h-dvh space-y-8 bg-[color:var(--app-grouped-background,var(--background))] p-4 text-foreground">
@@ -336,6 +350,8 @@ function Fixture() {
         <PortfolioImportView onFileSelect={() => undefined} onSkip={() => undefined}
           onConnectPlaid={() => record("finance:connect")} onPreloadSchema={() => record("finance:sample")} />
       </section>
+      <WalletManagement status="active" />
+      <WalletManagement status="paused" />
     </main>
   );
 }

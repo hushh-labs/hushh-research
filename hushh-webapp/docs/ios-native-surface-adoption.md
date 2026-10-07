@@ -1043,5 +1043,16 @@ continuity. New SwiftUI families remain disabled on iPad and Release. Whole-app
 visual/accessibility acceptance, three Release frame-pacing runs and exact-head
 CI remain separate gates; this entry does not imply merge, deployment or distribution.
 The `619066d88` core run passes protocol but finds a missing `kind` dependency in
-the preference effect. The dependency is explicit in the follow-up; no lint or
-release gate is relaxed. Its exact-head core result remains required before push.
+the preference effect. The dependency is explicit at `a75090a6a`; its exact-head
+core passes. No lint or release gate is relaxed, and later changes still require
+their own exact-head proof before push.
+
+The bounded-row audit then extends to the actual active and paused Wallet
+management component, not just its Back/navigation entry. Its five Sharing
+controls reproduce a 64px sibling-height spread with enlarged text before
+adopting the existing uniform group policy. Eight Chromium/WebKit checks pass
+afterward across the same phone/tablet/desktop widths, including readable copy,
+full-row hit surfaces and all five action identities in both states. QR
+continuity, pause, rotation and permanent-removal explanations remain intact;
+status/date/count rows retain content sizing. This synthetic, non-private fixture
+does not qualify protected Wallet operations or physical-device appearance.
