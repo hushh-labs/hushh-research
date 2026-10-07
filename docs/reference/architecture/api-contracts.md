@@ -1679,6 +1679,10 @@ connector, revision, SDK state and issuer. Its no-store result contains tokens a
 client registration for **browser-encrypted vault delivery only**. Both proxy and
 backend bound request bodies to 64KB. Restart or another worker fails closed;
 multiworker affinity and aggregate admission remain deployment prerequisites.
+This is a confirmed scaling limitation for the custom SDK flow, distinct from
+the database-backed curated OAuth flow. Persisting a resumable attempt would
+require an explicit encrypted-state storage design; do not persist the SDK's live
+task, credentials or PKCE state as ordinary database fields.
 Custom connector Settings now offers web Sign in when encrypted Chat recovery is
 available. It starts the private attempt, saves the existing encrypted recovery
 capsule plus opaque connector/revision references, and navigates in the same tab.
