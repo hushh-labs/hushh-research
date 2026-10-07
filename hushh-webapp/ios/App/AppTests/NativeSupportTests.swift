@@ -7,11 +7,27 @@ final class NativeSupportTests: XCTestCase {
     @MainActor
     func testNativeContinuityStillObservesNewFramesAndGapsAfterALongWarmSession() {
         let probe = NativeBackContinuityProbe(host: UIView())
-        for _ in 0..<100_000 { probe.recordFrame(isMissing: false) }
+        for _ in 0..<100_000 { probe.recordFrame(isMissing: true) }
         let baseline = probe.sampledFrames
+        let missingBaseline = probe.missingFrames
         probe.recordFrame(isMissing: true)
         XCTAssertEqual(probe.sampledFrames - baseline, 1, "A long warm session must still prove fresh sampling")
-        XCTAssertEqual(probe.missingFrames, 1, "A newly missing control must remain observable")
+        XCTAssertEqual(probe.missingFrames - missingBaseline, 1, "A newly missing control must remain observable")
+    }
+
+    func testPublicLayoutObservationsRejectInactiveShieldedAndSupersededSamples() {
+        typealias Snapshot = HushhSessionPrivacyShield.Snapshot
+        let admitted = Snapshot(shielded: false, generation: 7, cause: "inactive", appIsActive: true)
+        XCTAssertTrue(NativeVaultLayoutProbe.acceptsSample(captured: admitted, current: admitted))
+        let refused = [
+            Snapshot(shielded: true, generation: 7, cause: "inactive", appIsActive: true),
+            Snapshot(shielded: false, generation: 7, cause: "inactive", appIsActive: false),
+            Snapshot(shielded: false, generation: 8, cause: "inactive", appIsActive: true),
+        ]
+        for snapshot in refused {
+            XCTAssertFalse(NativeVaultLayoutProbe.acceptsSample(captured: admitted, current: snapshot))
+            XCTAssertFalse(NativeVaultLayoutProbe.acceptsSample(captured: snapshot, current: admitted))
+        }
     }
     #endif
 

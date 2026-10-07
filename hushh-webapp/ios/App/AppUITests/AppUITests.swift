@@ -1120,21 +1120,38 @@ final class AppUITests: XCTestCase {
                              "History transition was not sampled")
         XCTAssertEqual(afterSurface["missingFrames"], beforeSurface["missingFrames"], "History moved or vanished during an admitted handoff")
         print("NATIVE_HISTORY_CONTINUITY retained_switches=2 missing_delta=0")
-        func reportComposerAdmission(_ stage: String) {
+        func reportComposerAdmission(_ stage: String, after previousSequence: Int? = nil) -> Int? {
             let probe = app.buttons["native-vault-layout"].firstMatch
-            guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8),
-                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            func readPacket() -> [String: Any]? {
+                guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8) else { return nil }
+                return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            }
+            if let previousSequence {
+                let fresh = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    (readPacket()?["sequence"] as? Int ?? 0) > previousSequence
+                }, object: probe)
+                guard XCTWaiter.wait(for: [fresh], timeout: 3) == .completed else {
+                    print("NATIVE_CHAT_FOCUS_UNAVAILABLE stage=\(stage)"); return nil
+                }
+            }
+            guard let packet = readPacket(), let sequence = packet["sequence"] as? Int else {
+                print("NATIVE_CHAT_FOCUS_UNAVAILABLE stage=\(stage)"); return nil
+            }
             let keys = Set(["chatCount", "chatFocused", "chatDisabled", "chatInert", "chatHit",
-                            "chatWidth", "chatHeight", "nativeGuideHeight", "nativeBottomSafeArea", "cssInset", "kbOpen"])
+                            "chatWidth", "chatHeight", "nativeGuideHeight", "nativeBottomSafeArea", "cssInset", "kbOpen", "sequence"])
             let values = packet.filter { keys.contains($0.key) && $0.value is NSNumber }
             guard let encoded = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
-                  let result = String(data: encoded, encoding: .utf8) else { return }
+                  let result = String(data: encoded, encoding: .utf8) else {
+                print("NATIVE_CHAT_FOCUS_UNAVAILABLE stage=\(stage)"); return nil
+            }
             print("NATIVE_CHAT_FOCUS stage=\(stage) packet=\(result)")
+            return sequence
         }
-        reportComposerAdmission("before")
+        let focusSequence = reportComposerAdmission("before")
         composer.tap() // No typeText: preserve the complete existing draft.
         let keyboardAppeared = app.keyboards.firstMatch.waitForExistence(timeout: 10)
-        reportComposerAdmission("after")
+        if let focusSequence { _ = reportComposerAdmission("after", after: focusSequence) }
+        else { print("NATIVE_CHAT_FOCUS_UNAVAILABLE stage=after") }
         XCTAssertTrue(keyboardAppeared, "Keyboard did not open")
         XCTAssertFalse(nativeHistory.exists, "Native History appeared over the keyboard")
         awaitAbsent(selector, "Native selector remained accessible over the keyboard")
