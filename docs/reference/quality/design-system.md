@@ -118,6 +118,15 @@ Forbidden:
 
 ## Visual Tokens
 
+Agents home artwork uses `AgentSectionIcon treatment="app"`: one native SVG
+tile with continuous corners and an optically centered glyph. The 40px list and
+68px grid share the same 64-unit vector artwork; gradients have instance-unique
+IDs. Opaque capability colours and white glyphs retain their identity in both
+themes, with only the surrounding elevation adapting. Mail uses a provider-neutral
+envelope. Keep the glyphs in `components/icons/agents/app-icons.tsx` and colours
+in `AGENT_APP_ICON_PALETTE` in `lib/design/home-icon-palette.ts`; embedded raster
+images, emoji, and provider logos are not home-agent artwork.
+
 1. Keep color, typography, radius, and motion centralized through existing tokens and CSS variables.
 2. Avoid legacy references and hardcoded old theme narratives in feature code.
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.

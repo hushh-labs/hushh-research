@@ -420,7 +420,7 @@ describe("native MCP review card", () => {
       const onActionableChange = vi.fn();
       const view = render(<McpCallReviewCard review={makeReview()} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onActionableChange={onActionableChange} />);
       await screen.findByText("Synthetic exact phrase");
-      expect(onActionableChange).toHaveBeenLastCalledWith(true);
+      await waitFor(() => expect(onActionableChange).toHaveBeenLastCalledWith(true));
       view.unmount();
       expect(onActionableChange).toHaveBeenLastCalledWith(false);
     });

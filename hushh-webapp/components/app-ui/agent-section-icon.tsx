@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import Image from "next/image";
 
+import { AgentAppIcon, hasAgentAppIcon } from "@/components/icons/agents/app-icons";
+
 import {
   ONE_CAPABILITY_ICON_CLASS_BY_TONE,
   type OneCapabilityIcon,
@@ -140,7 +142,7 @@ export function AgentSectionIcon({
   paletteIndex?: number;
   size?: AgentSectionIconSize;
   /** Profile-style rows need one full-bleed icon well, not an inset glass chip. */
-  treatment?: "default" | "profile";
+  treatment?: "default" | "profile" | "app";
   /** Use only when a route intentionally reverses the Profile glyph ink. */
   glyphContrast?: "default" | "inverted";
   className?: string;
@@ -148,6 +150,27 @@ export function AgentSectionIcon({
   profileStyle?: CSSProperties;
 }) {
   const classes = ICON_SIZE_CLASS[size];
+
+  if (treatment === "app" && hasAgentAppIcon(id)) {
+    return (
+      <span
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center",
+          classes.surface,
+          isActive === false && "opacity-40 grayscale",
+          className,
+        )}
+        data-testid={`one-agent-icon-${id}`}
+        data-agent-icon-kind="svg"
+        aria-hidden="true"
+      >
+        <AgentAppIcon
+          id={id}
+          className="block h-full w-full overflow-visible drop-shadow-[0_2px_3px_rgba(0,0,0,0.12)] dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.28)]"
+        />
+      </span>
+    );
+  }
 
   const toneClassName = tone
     ? ONE_CAPABILITY_ICON_CLASS_BY_TONE[tone]

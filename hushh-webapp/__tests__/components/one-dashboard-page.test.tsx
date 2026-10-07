@@ -122,7 +122,7 @@ describe("OneDashboardPage", () => {
     expect(financeLink.getAttribute("href")).toBe(
       financeSetupFromOne,
     );
-    const expectedProfileFormatIcons = [
+    const expectedAppIcons = [
       "finance",
       "wallet",
       "location",
@@ -132,46 +132,18 @@ describe("OneDashboardPage", () => {
       "pkm",
       "consent",
     ] as const;
-    for (const id of expectedProfileFormatIcons) {
+    for (const id of expectedAppIcons) {
       const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
       expect(icon).toBeTruthy();
-      expect(icon).toHaveAttribute("data-agent-icon-kind", "custom");
-      expect(icon.querySelector("svg")).toBeTruthy();
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "svg");
+      expect(icon.querySelector("svg")).toHaveAttribute("viewBox", "0 0 64 64");
+      expect(icon.querySelector("img, image")).toBeNull();
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    // Greyscale-until-onboarded is reverted for now: icons stay full color
-    // regardless of setup state, so "finance" ("not-started" in this
-    // fixture) still carries its palette color -- see the dedicated
-    // palette-color coverage below with an all-completed fixture.
-    //
-    // Palette slots are assigned by roster position regardless of active
-    // state, so this list must still track ONE_CAPABILITIES order: the
-    // palette exists to keep adjacent rows distinguishable.
-    const rosterPaletteOrder = [
-      "finance",
-      "wallet",
-      "location",
-      "ria",
-      "gmail",
-      "calendar",
-      "pkm",
-      "consent",
-    ] as const;
-    const rosterPaletteSlots = rosterPaletteOrder.map((id) =>
-      screen
-        .getAllByTestId(`one-agent-icon-${id}`)[0]
-        .getAttribute("data-agent-icon-palette-index"),
+    // An unfinished workspace keeps its recognizable full-color artwork.
+    expect(financeIcon.querySelector("stop")).toHaveAttribute(
+      "stop-color", "#43CF73",
     );
-    expect(rosterPaletteSlots).toEqual([
-      "0",
-      "1",
-      "2",
-      "3",
-      "4",
-      "5",
-      "6",
-      "7",
-    ]);
     expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
       "grayscale",
     );
@@ -243,14 +215,11 @@ describe("OneDashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
 
-    // Icons stay full color regardless of setup state (see the mixed-state
-    // fixture above), so this is the palette assignment-by-position coverage:
-    // every capability keeps its own per-position mineral palette color.
+    // Completed setup keeps the same capability artwork as unfinished setup.
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    expect(financeIcon).toHaveStyle({
-      "--agent-icon-profile-bg": "#D1FAE5",
-      "--agent-icon-profile-fg": "#065F46",
-    });
+    expect(financeIcon.querySelector("stop")).toHaveAttribute(
+      "stop-color", "#43CF73",
+    );
     const rosterPaletteOrder = [
       "finance",
       "wallet",
@@ -266,29 +235,14 @@ describe("OneDashboardPage", () => {
         id,
         screen
           .getAllByTestId(`one-agent-icon-${id}`)[0]
-          .style.getPropertyValue("--agent-icon-profile-bg"),
+          .querySelector("stop")?.getAttribute("stop-color"),
       ]),
     );
-    expect(iconBackgrounds.finance).toBe("#D1FAE5");
-    expect(iconBackgrounds.wallet).toBe("#FEF3C7");
-    expect(iconBackgrounds.location).toBe("#E0F2FE");
-    expect(iconBackgrounds.ria).toBe("#EDE9FE");
-    expect(iconBackgrounds.gmail).toBe("#FFE4E6");
-    expect(iconBackgrounds.calendar).toBe("#E0F7FA");
-    expect(iconBackgrounds.pkm).toBe("#F1F5F9");
-    expect(iconBackgrounds.consent).toBe("#FFEDD5");
+    expect(Object.values(iconBackgrounds).every(Boolean)).toBe(true);
     expect(new Set(Object.values(iconBackgrounds)).size).toBe(
       rosterPaletteOrder.length,
     );
-    expect(financeIcon.className).toContain(
-      "dark:bg-[var(--agent-icon-profile-bg-dark)]",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
-      "text-current",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
-      "dark:!text-[#1d1d1f]",
-    );
+    expect(financeIcon.querySelector("svg g")).toHaveAttribute("fill", "white");
   });
 
   it("renders authored setup actions instead of transient checking states", () => {
@@ -320,7 +274,7 @@ describe("OneDashboardPage", () => {
     const grid = container.querySelector(
       '[data-agent-roster-layout="grouped-icon-grid"]',
     );
-    expect(grid?.className).toContain("grid-cols-[repeat(3,minmax(84px,1fr))]");
+    expect(grid?.className).toContain("grid-cols-[repeat(3,minmax(80px,1fr))]");
     expect(grid?.className).not.toContain("sm:grid-cols-[repeat(4");
   });
 
