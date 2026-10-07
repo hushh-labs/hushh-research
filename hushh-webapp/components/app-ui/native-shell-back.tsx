@@ -192,9 +192,14 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   useLayoutEffect(() => {
     if (!prepared || !hidden) return;
     void prepared.activate().catch(async () => {
-      if (lease.current !== prepared) return;
+      const isCurrent = () => lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
+        prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
+      if (!isCurrent()) return;
       prepared.invalidate();
-      try { await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection); if (lease.current === prepared) setHidden(false); }
+      try {
+        await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection);
+        if (isCurrent()) { setPrepared(null); setHidden(hasOutstandingNativeChrome()); }
+      }
       catch { console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
     });
   }, [prepared, hidden]);
@@ -202,9 +207,14 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   useLayoutEffect(() => {
     if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
     void prepared.update({ ...theme, enabled: true }).catch(async () => {
-      if (lease.current !== prepared) return;
+      const isCurrent = () => lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
+        prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
+      if (!isCurrent()) return;
       prepared.invalidate();
-      try { await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection); if (lease.current === prepared) setHidden(false); }
+      try {
+        await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection);
+        if (isCurrent()) { setPrepared(null); setHidden(hasOutstandingNativeChrome()); }
+      }
       catch { console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
     });
   }, [prepared, hidden, inPlaceUpdates, theme]);

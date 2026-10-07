@@ -938,6 +938,43 @@ describe("native chrome presentation lease", () => {
     expect(bridge.activate).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ["back", "activation"], ["history", "activation"],
+    ["back", "update"], ["history", "update"],
+  ] as const)("keeps displaced %s fallback concealed after late %s failure", async (kind, phase) => {
+    measureSlot();
+    admitReplacement(kind);
+    const pending = deferred<ChromeAcknowledgement>();
+    if (phase === "activation") bridge.activate.mockReturnValueOnce(pending.promise);
+    const oldAction = vi.fn(), currentAction = vi.fn();
+    const previous = render(retainedControl(kind, "previous", oldAction));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    if (phase === "update") {
+      bridge.update.mockReturnValueOnce(pending.promise);
+      act(() => {
+        document.documentElement.style.setProperty("--app-accent", "#667788");
+        writeAccent("gold");
+      });
+      await waitFor(() => expect(bridge.update).toHaveBeenCalledOnce());
+    }
+    const fallback = within(previous.container).getByRole("button", { hidden: true });
+    const focus = vi.spyOn(fallback, "focus");
+    const currentView = render(retainedControl(kind, "current", currentAction));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    const currentControl = bridge.prepare.mock.calls.at(-1)![0];
+    const retirements = bridge.retire.mock.calls.length;
+    await act(async () => pending.reject(new Error("NATIVE_CHROME_ACK_UNCERTAIN")));
+    expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+    expect(fallback).not.toBeVisible();
+    expect(focus).not.toHaveBeenCalled();
+    expect(hasOutstandingNativeChrome(currentControl.controlId)).toBe(true);
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...currentControl, sequence: 1, updateSequence: 0, privacyGeneration: 0 }));
+    await waitFor(() => expect(currentAction).toHaveBeenCalledOnce());
+    expect(oldAction).not.toHaveBeenCalled();
+    previous.unmount(); currentView.unmount();
+    await waitFor(() => expect(hasOutstandingNativeChrome(currentControl.controlId)).toBe(false));
+  });
+
   it.each(["back", "history"] as const)("does not remove a newer mounted %s control when its predecessor becomes inactive or unmounts", async (kind) => {
     measureSlot();
     admitReplacement(kind);

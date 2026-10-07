@@ -546,18 +546,24 @@ export function NativeChatChrome(props: Props) {
         if (!inPlaceUpdates) void restoreNativeFocus(prepared);
       }
     }).catch(async (error) => {
-      if (lease.current !== prepared) return;
+      const isCurrent = () => mounted.current && lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
+        prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
+      if (!isCurrent()) return;
       reportRehearsal("activate", "rejected", rehearsalFailureCode(error));
       prepared.invalidate();
       try {
         await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection);
-        if (lease.current === prepared) { restorePendingDomFocus(); setPrepared(null); setHidden(false); }
+        if (!isCurrent()) return;
+        const occupied = hasOutstandingNativeChrome(controlId);
+        if (!occupied) restorePendingDomFocus();
+        else { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
+        setPrepared(null); setHidden(occupied);
       } catch {
         if (lease.current === prepared) { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
         // Quarantine until confirmed retirement.
       }
     });
-  }, [prepared, hidden, reportRehearsal, inPlaceUpdates, restoreNativeFocus, restorePendingDomFocus]);
+  }, [prepared, hidden, controlId, reportRehearsal, inPlaceUpdates, restoreNativeFocus, restorePendingDomFocus]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
@@ -567,18 +573,24 @@ export function NativeChatChrome(props: Props) {
         reportRehearsal("update", "acknowledged"); void restoreNativeFocus(prepared);
       }
     }).catch(async (error) => {
-      if (lease.current !== prepared) return;
+      const isCurrent = () => mounted.current && lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
+        prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
+      if (!isCurrent()) return;
       reportRehearsal("update", "rejected", rehearsalFailureCode(error));
       prepared.invalidate();
       try {
         await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection);
-        if (lease.current === prepared) { restorePendingDomFocus(); setPrepared(null); setHidden(false); }
+        if (!isCurrent()) return;
+        const occupied = hasOutstandingNativeChrome(controlId);
+        if (!occupied) restorePendingDomFocus();
+        else { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
+        setPrepared(null); setHidden(occupied);
       } catch {
         if (lease.current === prepared) { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
         // Uncertain updates cannot restore a duplicate DOM control.
       }
     });
-  }, [prepared, hidden, inPlaceUpdates, theme, value, expanded, reportRehearsal, restoreNativeFocus, restorePendingDomFocus]);
+  }, [prepared, hidden, controlId, inPlaceUpdates, theme, value, expanded, reportRehearsal, restoreNativeFocus, restorePendingDomFocus]);
 
   return <div ref={slot} className={className} style={props.style} data-native-chrome-slot={controlId}>
     <div inert={hidden} aria-hidden={hidden || undefined} style={{ visibility: hidden ? "hidden" : undefined }}>{children}</div>

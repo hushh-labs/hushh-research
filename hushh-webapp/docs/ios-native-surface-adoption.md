@@ -154,6 +154,9 @@ The Back pilot has a bounded `UIHostingController` child, not a full-screen
 transparent touch surface. Preparation acknowledges both SwiftUI geometry and
 UIKit layout while hidden and noninteractive. React then hides/disables its DOM
 control before activation. The original layout reservation remains unchanged.
+Late activation/update failure recovery rechecks document, owner and installation
+occupancy after targeted retirement. A no-op retirement that preserves a newer
+mount does not authorize revealing or focusing the displaced web fallback.
 Retirement is acknowledged only after touch, accessibility, child containment and
 any owned presented controller are removed. Popup retirement waits for actual
 UIKit dismissal completion. An uncertain acknowledgement quarantines the control until removal
@@ -364,13 +367,13 @@ add its explicit owner, public projection, evidence and rollback here.
 
 ### Route Coverage and Device Admission
 
-#### Complete screen accounting and batch order — 2026-10-06
+#### Complete screen accounting and batch order — 2026-10-07
 
 The existing [generated surface map](../frontend-native-surface-map.generated.json)
 accounts for **145 route entries / 144 physical pages**: 75 standard, 47 redirect,
 17 hidden and 6 flow layouts. `/agent` is a virtual compatibility entry. There are
 98 nonredirect physical pages, not 145 distinct native screens. The authored
-[native inventory](../native-route-inventory.json) has 125 rows: 98 functional,
+[native inventory](../native-route-inventory.json) has 126 rows: 99 functional,
 3 callback and 24 excluded; 20 required rows are explicitly legacy inputs.
 These counts describe source obligations, not passing device journeys.
 
@@ -394,8 +397,8 @@ canonical loaded/empty/unavailable states. No route or action authority changed.
 | Finance, Wallet and RIA | Workspace taps/swipes, holdings detail, Wallet Back, authorized advisor/client details | Wallet Back/return passed independently. The latest Finance test observed its introductory setup screen, not a completed workspace. Authorized Finance-complete and RIA detail fixtures remain unavailable. |
 | Public, auth and setup | Welcome/claim, login/back, invites, callback return, recovery | Source/fixture coverage exists; cold flows must not replace or reset the warm device session. |
 
-The following **20 map entries have no native-inventory row**. Together with
-the 125 classified rows, this accounts for every map entry without hiding gaps:
+The following **19 map entries have no native-inventory row**. Together with
+the 126 classified rows, this accounts for every map entry without hiding gaps:
 
 | Entries | Accounting and required proof |
 | --- | --- |
@@ -404,8 +407,10 @@ the 125 classified rows, this accounts for every map entry without hiding gaps:
 | `/c/[token]`, `/one/location/invite/[token]`, `/one/location/request/[token]`, `/one/location/view/[token]` | Four hidden token flows; authorized live fixtures required. Never invent or persist private tokens for coverage. |
 | `/products/hushh-tech/launch` | Hidden external-authorization flow; requires its owning launch prerequisites. |
 | `/one/connected-systems/[systemId]` | Localhost-only CRM detail; Capacitor export rejects it. Web proof, not a native acceptance obligation. |
-| `/one/messages` | Functional selected-conversation surface; current-owner selection and an authorized conversation fixture required. |
 | `/ria/clients/[userId]`, `/ria/clients/[userId]/accounts/[accountId]`, `/ria/clients/[userId]/requests/[requestId]` | Three functional role-bound detail templates; authorized RIA/client fixtures required before accepted device journeys. |
+
+`/one/messages` is now classified in the native inventory. Current-owner
+selection and an authorized conversation fixture remain required for device proof.
 
 Use one combined source candidate, nearest family contracts, core, export/sync,
 packaged-runtime verification and installation. Installation is preparation, not
