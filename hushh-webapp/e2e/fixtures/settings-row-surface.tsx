@@ -30,6 +30,8 @@ import { MaterialRipple } from "../../lib/morphy-ux/material-ripple";
 import { PortfolioSourceSwitcher } from "../../components/kai/portfolio-source-switcher";
 import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
 import { WalletCardManage } from "../../components/wallet-card/wallet-card-manage";
+import { MailActionsGroup } from "../../components/profile/mail-actions-group";
+import { VoiceControlDomainsGroup } from "../../components/profile/voice-control-domains-group";
 import type { WalletCardRecord } from "../../lib/services/wallet-card-service";
 import type { ConsentScopeItem } from "../../lib/consent/consent-scope-items";
 
@@ -332,6 +334,26 @@ function WalletManagement({ status }: { status: "active" | "paused" }) {
   </section>;
 }
 
+function PublicSettingsGroups() {
+  const [disabledDomains, setDisabledDomains] = useState<string[]>([]);
+  return <>
+    <VoiceControlDomainsGroup enabled disabledDomains={disabledDomains}
+      onDomainChange={(domain, allowed) => {
+        record(`voice:${domain}:${allowed}`);
+        setDisabledDomains((current) => allowed ? current.filter((key) => key !== domain) : [...current, domain]);
+      }} />
+    {(["connected", "reconnect", "unavailable", "busy", "connected-busy"] as const).map((state) =>
+      <section key={state} data-testid={`consumer-mail-${state}`}>
+        <MailActionsGroup connected={state === "connected" || state === "connected-busy"} needsReauthentication={state === "reconnect"}
+          configured={state !== "unavailable"} busy={state === "busy" || state === "connected-busy"}
+          onSync={() => record(`mail:${state}:sync`)} onConnect={() => record(`mail:${state}:connect`)}
+          onRefresh={() => record(`mail:${state}:refresh`)} onOpenReceipts={() => record(`mail:${state}:receipts`)}
+          onDisconnect={() => record(`mail:${state}:disconnect`)} />
+      </section>,
+    )}
+  </>;
+}
+
 function Fixture() {
   return (
     <main className="min-h-dvh space-y-8 bg-[color:var(--app-grouped-background,var(--background))] p-4 text-foreground">
@@ -352,6 +374,7 @@ function Fixture() {
       </section>
       <WalletManagement status="active" />
       <WalletManagement status="paused" />
+      <PublicSettingsGroups />
     </main>
   );
 }

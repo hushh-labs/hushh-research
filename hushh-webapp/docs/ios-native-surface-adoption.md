@@ -1161,6 +1161,25 @@ The unidentified Wallet hit-region issue and broader accessibility/Release
 performance gates remain open; no family, merge, deployment or distribution is
 promoted by these bounded results.
 
+The row audit now covers Voice's finite domain group and Mail's existing Actions
+group through small presentation-only leaves; the original preferences and Mail
+workspace retain all operation/state ownership. Source-equivalent content sizing
+fails the nearest WebKit geometry contract with 19px and 33px sibling spreads at
+393px. The shared uniform policy passes all eight Chromium/WebKit cases across
+320/393/834/1440px, including actual enlarged copy, one readable description per
+row, Voice's switch-only interaction and Mail's connected/reconnect/unavailable/
+busy states. Busy connected Sync/Disconnect do not execute. All 25 nearest owner
+and row contracts pass; no permission or deletion explanation is removed. Mixed
+Appearance/Accent controls and protected record lists deliberately retain their
+existing content geometry rather than a global uniform-height override.
+
+Canonical route-index repair also requires dependent topology, capability-graph
+and workflow-card regeneration. Semantic action/workflow nodes are unchanged;
+mirror equality and repeated generator checks pass. Failed earlier core runs
+remain failures, not evidence inherited by the newly combined candidate. The
+Wallet accessibility probe now emits only fixed public-copy IDs and unique
+frame/label-match booleans; it does not waive the audit or expose unknown text.
+
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,

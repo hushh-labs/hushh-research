@@ -26,14 +26,12 @@ import {
   DeleteRowIcon,
   DeveloperToolsProfileIcon,
   DevicesProfileIcon,
-  DisconnectRowIcon,
   DiscoverableRowIcon,
   FingerprintProfileIcon,
   GmailAgentIcon,
   InboxRowIcon,
   LocationAgentIcon,
   MarketplaceAgentIcon,
-  MemoryAgentIcon,
   PhoneRowIcon,
   PreferencesProfileIcon,
   InviteFriendsProfileIcon,
@@ -78,6 +76,7 @@ import { CommunicationPreferencesSection } from "@/components/profile/communicat
 import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
+import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
 import {
@@ -3862,65 +3861,17 @@ function ProfilePageContent({
   );
 
   const gmailActionsContent = (
-    <SettingsGroup title="Actions">
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={SyncRowIcon}
-          iconTone="capability"
-          title="Sync now"
-          description="Fetch new receipt mail messages and refresh extracted records."
-          disabled={gmailActionsBusy || !gmailPresentation.isConnected}
-          chevron
-          onClick={() => void handleSyncGmailNow()}
-        />
-      ) : (
-        <SettingsRow
-          icon={GmailAgentIcon}
-          iconTone="capability"
-          title={
-            gmailPresentation.state === "needs_reauthentication"
-              ? "Reconnect Mail"
-              : "Connect Mail"
-          }
-          description="Review Mail data use, then authorize read-only receipt sync."
-          disabled={gmailActionsBusy || gmail.status?.configured === false}
-          chevron
-          onClick={() => router.push(ROUTES.GMAIL)}
-        />
-      )}
-
-      <SettingsRow
-        icon={SyncRowIcon}
-        iconTone="capability"
-        title="Refresh status"
-        description="Re-check your Mail connection, sync status, and inbox details."
-        disabled={gmailActionsBusy}
-        chevron
-        onClick={() => void gmail.refreshStatus({ force: true })}
-      />
-
-      <SettingsRow
-        icon={MemoryAgentIcon}
-        iconTone="capability"
-        title="Open receipts"
-        description="Review synced receipts, merchants, and extracted totals."
-        chevron
-        onClick={() => router.push(ROUTES.GMAIL)}
-      />
-
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={DisconnectRowIcon}
-          iconTone="capability"
-          title="Disconnect Mail"
-          description="Revoke Mail, stop future syncs, and delete Mail receipt data."
-          tone="destructive"
-          disabled={gmailActionsBusy}
-          chevron
-          onClick={() => void handleDisconnectGmail()}
-        />
-      ) : null}
-    </SettingsGroup>
+    <MailActionsGroup
+      connected={gmailPresentation.isConnected}
+      needsReauthentication={gmailPresentation.state === "needs_reauthentication"}
+      configured={gmail.status?.configured !== false}
+      busy={gmailActionsBusy}
+      onSync={() => void handleSyncGmailNow()}
+      onConnect={() => router.push(ROUTES.GMAIL)}
+      onRefresh={() => void gmail.refreshStatus({ force: true })}
+      onOpenReceipts={() => router.push(ROUTES.GMAIL)}
+      onDisconnect={() => void handleDisconnectGmail()}
+    />
   );
 
   const financialContextControls = (
