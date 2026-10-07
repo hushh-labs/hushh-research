@@ -24,8 +24,10 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[]): FeedDri
     ) continue;
     byRequest.set(requestId, {
       requestId,
-      title: "Pay $10 for your document request",
-      description: "Your Trusted Circle request is ready. Pay $10 to continue sharing.",
+      // The row's "Pay $10" button carries the amount; nothing is shared
+      // before payment (the progress projection skips unpaid requests).
+      title: "Document request ready",
+      description: "Sharing starts after payment.",
       requestedAt: parseConsentInstant(entry.issued_at),
     });
   }

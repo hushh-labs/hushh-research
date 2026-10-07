@@ -33,7 +33,9 @@ describe("projectFeedDriveProgress", () => {
     } })]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("One is finding documents");
+    expect(rows[0]?.title).toBe("Finding your documents");
+    // A received request always carries its consent context.
+    expect(rows[0]?.description).toBe("Trusted Circle request. Sharing is automatic.");
     expect(rows[0]?.href).toContain("requestId=document_share_request");
     expect(rows[0]?.href).not.toContain("requestView=sent");
     expect(JSON.stringify(rows)).not.toMatch(/unconfirmed\.pdf|candidate_count|7 files/i);
@@ -46,7 +48,15 @@ describe("projectFeedDriveProgress", () => {
     })]);
 
     expect(rows[0]?.href).toContain("requestView=sent");
-    expect(rows[0]?.description).toContain("your Trusted Circle request");
+    expect(rows[0]?.title).toBe("Preparing your request");
+    expect(rows[0]?.description).toBe("Files appear once access is confirmed.");
+
+    // A sent request never reads as if the person's own files are moving.
+    const sharing = projectFeedDriveProgress([entry({
+      kind: "outgoing_request",
+      metadata: { ...entry().metadata, direction: "outgoing", automatic_progress_stage: "sharing" },
+    })]);
+    expect(sharing[0]?.title).toBe("Sharing documents with you");
   });
 
   it("keeps one row after a confirmed grant and opens the active detail", () => {
@@ -58,7 +68,7 @@ describe("projectFeedDriveProgress", () => {
     const rows = projectFeedDriveProgress([pending, active]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("One is sharing documents");
+    expect(rows[0]?.title).toBe("Sharing your documents");
     expect(rows[0]?.href).toContain("tab=active");
   });
 
@@ -81,7 +91,11 @@ describe("projectFeedDriveProgress", () => {
     expect(projectFeedDriveProgress([payment])).toEqual([]);
     const rows = projectFeedDrivePayments([payment]);
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toContain("Pay $10");
+    // The amount rides on the row's "Pay $10" button; the row says what payment unlocks.
+    expect(rows[0]).toMatchObject({
+      title: "Document request ready",
+      description: "Sharing starts after payment.",
+    });
     expect(JSON.stringify(rows)).not.toContain("private.pdf");
     expect(projectFeedDrivePayments([entry({ metadata: payment.metadata })])).toEqual([]);
     expect(projectFeedDrivePayments([entry({ kind: "outgoing_request", metadata: {
