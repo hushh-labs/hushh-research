@@ -1025,7 +1025,7 @@ test.describe("Circle detail responsive layout", () => {
   }
 
   for (const width of WIDTHS) {
-    test(`places Proceed to SMS after the roster and against its right edge at ${width}px`, async ({
+    test(`places Proceed to SMS after the roster, centred, at ${width}px`, async ({
       page,
     }) => {
       const proceedClass = cn(
@@ -1041,7 +1041,7 @@ test.describe("Circle detail responsive layout", () => {
       <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Rashid</div>
     </div>
   </section>
-  <div data-proceed-row style="display:flex;justify-content:flex-end;margin-top:20px">
+  <div data-proceed-row style="display:flex;justify-content:center;margin-top:20px">
     <button data-proceed class="${proceedClass}">Proceed to SMS</button>
   </div>
 </main>`;
@@ -1057,8 +1057,13 @@ test.describe("Circle detail responsive layout", () => {
       ]);
 
       expect(proceed[0].top).toBeGreaterThanOrEqual(members[0].bottom);
-      expect(Math.abs(proceed[0].right - flow[0].right)).toBeLessThanOrEqual(1);
-      expect(proceed[0].width).toBeLessThanOrEqual(320);
+      expect(
+        Math.abs(
+          proceed[0].left + proceed[0].width / 2 -
+            (flow[0].left + flow[0].width / 2),
+        ),
+      ).toBeLessThanOrEqual(1);
+      expect(proceed[0].width).toBeLessThanOrEqual(244);
       expect(proceed[0].height).toBe(48);
 
       const evidenceDir = process.env.CIRCLE_CTA_EVIDENCE_DIR;

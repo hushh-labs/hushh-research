@@ -265,11 +265,10 @@ describe("named Circle flows", () => {
       members.compareDocumentPosition(proceed) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(proceed).toHaveClass("max-w-[320px]", "min-h-12");
-    expect(proceed).not.toHaveClass("mx-auto");
+    expect(proceed).toHaveClass("max-w-[244px]", "min-h-12", "rounded-full");
     expect(screen.getByTestId("one-location-proceed-to-sms-row")).toHaveClass(
       "flex",
-      "justify-end",
+      "justify-center",
     );
     fireEvent.click(proceed);
     expect(onProceedToSms).toHaveBeenCalledTimes(1);
