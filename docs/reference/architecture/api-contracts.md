@@ -2505,3 +2505,16 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+### Custom connector read-only intent
+
+An optional strict boolean `readOnly` on the vault-owned custom connector record
+preserves the person's read-only choice across sign-in and catalog refresh. The
+transient turn projection retains this flag. Every Chat/review discovery filters
+tools without a non-contradictory `readOnlyHint=true`, including newly added tools
+and reads whose contract changes into a write. Settings discovery keeps these
+tools visible as blocked and does not offer per-tool unblock on this connection.
+Remove and reconnect with full access to change that choice. Existing records
+without the flag retain their existing per-tool rules. Provider annotations remain
+provider claims; this restriction does not grant independent assurance about an
+untrusted server's behavior or replace its OAuth scopes.

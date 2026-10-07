@@ -72,7 +72,7 @@ async def discover_catalog(
     )
     # Settings must keep blocked tools visible for an explicit unblock. The
     # discovery-only scope cannot execute, while Chat/review use the saved rule.
-    visible_record = {**record, "blockedTools": []}
+    visible_record = {**record, "blockedTools": [], "readOnly": False}
     blocked = {(entry["id"], entry["fingerprint"]) for entry in record.get("blockedTools", [])}
     blocked_ids = {tool_id for tool_id, _ in blocked}
     async with mcp_turn_scope(thread, owner_id=owner, configurations=[visible_record]) as scope:
@@ -94,6 +94,7 @@ async def discover_catalog(
                     "fingerprint": mcp_tool_fingerprint(tool.descriptor),
                     "permission": "blocked"
                     if (tool.name, mcp_tool_fingerprint(tool.descriptor)) in blocked
+                    or (record.get("readOnly", False) and not _annotated_read_only(tool.descriptor))
                     else "ask_first",
                     "review": "required"
                     if mcp_review_outcome(

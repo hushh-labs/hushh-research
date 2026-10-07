@@ -17,11 +17,13 @@ describe("vault-backed custom connector configuration", () => {
   const oauthResult = { tokens: { access_token: "synthetic-access", refresh_token: "synthetic-refresh", token_type: "Bearer" },
     clientInfo: { client_id: "synthetic-client", client_secret: "synthetic-client-secret", redirect_uris: ["https://app.example/return"] }, expiresAt: 4070908800 };
   it("encrypts an OAuth result only against a fresh unchanged record and strips registration from turn state", async () => {
-    const domain = { connectors: { [record.connectorId]: JSON.stringify(record) } };
+    const domain = { connectors: { [record.connectorId]: JSON.stringify({ ...record, readOnly: true }) } };
     storage.loadDomainSnapshot.mockResolvedValue({ data: domain });
     storage.loadDomainData.mockResolvedValue(domain);
     const saved = await saveCustomConnectorOAuthResult(access, record.connectorId, record.revision, oauthResult, confirmation, () => true);
     expect(storage.loadDomainSnapshot).toHaveBeenCalledWith({ ...access, domain: "runtime_secrets", force: true });
+    expect(saved.readOnly).toBe(true);
+    expect(projectCustomConnectorTurnConfigurations([saved])[0].readOnly).toBe(true);
     expect(saved.authentication).toMatchObject({ kind: "oauth", clientInfo: oauthResult.clientInfo });
     expect(JSON.stringify(projectCustomConnectorTurnConfigurations([saved]))).not.toContain("synthetic-client");
     expect(JSON.stringify(projectCustomConnectorTurnConfigurations([saved]))).not.toContain("synthetic-refresh");

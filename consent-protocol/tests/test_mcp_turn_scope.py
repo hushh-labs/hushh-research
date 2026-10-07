@@ -501,3 +501,38 @@ async def test_scope_forwards_the_reviewed_read_list_to_the_native_toolset(runti
         native = await scope.acquire(context(), "provider", authorize_call=AsyncMock())
         assert native.review_policy == "reviewed_writes"
         assert native.free_read_tool_ids == free
+
+
+@pytest.mark.asyncio
+async def test_read_only_connection_blocks_new_changed_and_unannotated_writes(runtime, monkeypatch):
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    record = {**configuration(), "readOnly": True}
+    read = {
+        "name": "list",
+        "inputSchema": {"type": "object"},
+        "annotations": {"readOnlyHint": True},
+    }
+    writes = [
+        {"name": "new_write", "inputSchema": {"type": "object"}},
+        {**read, "name": "changed_read", "annotations": {"readOnlyHint": False}},
+        {
+            **read,
+            "name": "contradiction",
+            "annotations": {"readOnlyHint": True, "destructiveHint": True},
+        },
+    ]
+    async with module.mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
+        resolved = await scope.resolve_connection(authorized_context(), record["connectorId"])
+        assert resolved.catalog_policy([read, *writes]) == [read]
+    # Ordinary owner connectors retain their existing, explicitly chosen behavior.
+    async with module.mcp_turn_scope(
+        "thread", owner_id="owner", configurations=[configuration()]
+    ) as scope:
+        resolved = await scope.resolve_connection(authorized_context(), record["connectorId"])
+        assert resolved.catalog_policy([read, *writes]) == [read, *writes]
+
+
+@pytest.mark.parametrize("read_only", ["true", 1, None])
+def test_read_only_restriction_requires_a_strict_boolean(read_only):
+    with pytest.raises(ExternalMcpError):
+        module.validate_mcp_turn_configurations([{**configuration(), "readOnly": read_only}])
