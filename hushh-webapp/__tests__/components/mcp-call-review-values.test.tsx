@@ -139,3 +139,23 @@ describe("review arguments", () => {
     expect(container.querySelector("pre")!.textContent).toBe("{}");
   });
 });
+
+it("escapes invisible direction controls in every view without changing the payload", () => {
+  const args = { ["recipient\u202e"]: "a\u202e@example.test", tags: ["ok", "\u2066hidden"] };
+  const original = JSON.stringify(args);
+  const { container } = render(<ReviewArguments args={args} />);
+  expect(container.textContent).not.toMatch(/[\u202e\u2066]/);
+  expect(container.textContent).toContain("\\u202e");
+  openDisclosure(container);
+  expect(container.querySelector("pre")!.textContent).not.toMatch(/[\u202e\u2066]/);
+  expect(container.querySelector("pre")!.textContent).toContain("\\u2066");
+  expect(JSON.stringify(args)).toBe(original);
+});
+
+it("refuses excessively deep arguments before serializing or rendering them", () => {
+  let deep: unknown = "bottom";
+  for (let i = 0; i < 10000; i++) deep = { nested: deep };
+  const { container } = render(<ReviewArguments args={{ deep }} />);
+  expect(container.textContent).toContain("too complex to review safely");
+  expect(container.querySelector("details")).toBeNull();
+});

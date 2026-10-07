@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { parseMcpCallReview } from "@/lib/agent/mcp-call-review";
+import { parseMcpCallPreview, parseMcpCallReview } from "@/lib/agent/mcp-call-review";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -174,4 +174,11 @@ describe("ephemeral MCP review", () => {
     await expect(ExternalConnectorService.confirmMcpCall({ ...input(), reference: preview }))
       .rejects.toThrow("could not be verified");
   });
+});
+
+it("rejects a deeply nested preview before it can become an approval", () => {
+  let deep: unknown = "synthetic";
+  for (let i = 0; i < 128; i++) deep = { nested: deep };
+  expect(parseMcpCallPreview({ ...preview, arguments: { deep } }, reference)).toBeNull();
+  expect(parseMcpCallPreview(preview, reference)?.arguments).toEqual(preview.arguments);
 });

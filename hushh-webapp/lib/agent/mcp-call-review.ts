@@ -1,3 +1,5 @@
+import { serializeReviewArguments } from "@/lib/agent/mcp-review-display";
+
 /** Ephemeral review references, never conversation descriptors or capabilities. */
 export type McpCallReviewReference = {
   kind: "mcp_call_review";
@@ -69,9 +71,7 @@ export function parseMcpCallPreview(
       !preview.toolLabel.trim() || preview.toolLabel.length > 256) return null;
   if (typeof preview.connectorLabel !== "string" || !preview.connectorLabel.trim() ||
       preview.connectorLabel.length > 100) return null;
-  try {
-    if (new TextEncoder().encode(JSON.stringify(args)).length > 32_768) return null;
-  } catch { return null; }
+  if (serializeReviewArguments(args) === null) return null;
   return { ...reference, connectorLabel: preview.connectorLabel, toolLabel: preview.toolLabel, arguments: args };
 }
 

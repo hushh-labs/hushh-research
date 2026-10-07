@@ -2505,3 +2505,11 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+### Custom connector call review presentation
+
+Call review text renders invisible direction controls as visible Unicode escapes
+in labels, values and raw details without changing the approved arguments. Preview
+admission bounds arguments to 32,768 UTF-8 bytes, depth 64 and 8,192 visited values
+before serialization. Unreviewable previews are refused rather than approved from
+a truncated display. These payloads remain transient and are not chat history.
