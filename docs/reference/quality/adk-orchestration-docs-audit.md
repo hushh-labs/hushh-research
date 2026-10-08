@@ -11,6 +11,8 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 **The economical BYOC candidate is integrated on the infrastructure branch.
 Dev 9 remains the last verified serving release; no owner upgrade is implied.**
 New-owner defaults are 1 vCPU, 2 GiB, minimum zero, maximum one and one worker.
+GCP request concurrency is explicitly eight, including pods without Files;
+an explicit fractional-CPU choice requires concurrency one.
 Existing hosting selections remain authoritative. Computer Use stays disabled.
 
 ### Candidate changes and verification
@@ -45,7 +47,9 @@ Existing hosting selections remain authoritative. Computer Use stays disabled.
 Application digests: backend
 `sha256:7d18b84b1881d3e9c02ea914cd0109437665072e90759316ba917812859cd754`;
 frontend `sha256:b643c857b276d07e6a8b028db401901b693c6ef6e5dd483f493a302fd8e92ae9`.
-Captured rollback revisions remain backend `00144-rs9` and frontend `00123-f6c`.
+The October 8 predeployment readback selects the currently serving backend
+`00146-mld` and frontend `00124-lp8` as the next deployment's rollback targets.
+The earlier Dev 9 deployment retained `00144-rs9` and `00123-f6c` historically.
 The [previous failed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37607407334)
 and its mixed serving pair remain historical evidence.
 
@@ -109,9 +113,21 @@ The pod key and synthetic configuration survived. Live Files then passed a
 4 MiB + 1 KiB upload with durable resume, duplicate-chunk idempotency, byte-exact
 download, rename/move/undo and trash/restore in 22.5 seconds. Analysis remained off;
 storage reported seven-day soft deletion, so trash is not physical deletion.
-These receipts establish storage and bounded recovery, not normal-owner Settings
-approval, organization or concurrent chat. Chat returned provider 403 without text;
-model and latency acceptance remain unverified.
+Automatic organization then completed through authenticated Cloud Tasks delivery
+after explicit analysis opt-in; exclusions refused access and cancellation retained
+original bytes. Analysis was disabled again after the synthetic rehearsal.
+Owner-project inference returned 403. The explicitly approved personal dev model
+bridge subsequently completed a real pod turn: first text 26.176 seconds, total
+33.336 seconds. Custody and recovery remain in the owner project. This is one
+post-restart sample, not a genuine scale-to-zero sample or a p95 result.
+Normal-owner Settings approval and bounded concurrent acceptance remain open.
+
+The disposable runtime's inherited concurrency of 80 exposed the no-Files renderer
+gap. The corrected renderer and Files adapter pass 95 nearest tests, preserving
+existing owner sizing and concurrency. Authenticated idle handoff changed only the
+disposable fixture to concurrency eight; the image, service identity, 1 vCPU / 2 GiB
+and minimum-zero / maximum-one limits were preserved. Sleep/wake and full capacity
+qualification remain separate live gates.
 
 Hosted `48721ce9c` found two stale icon assertions and a merged, unused native
 environment resolver. The reviewed correction preserves vector/color/route and

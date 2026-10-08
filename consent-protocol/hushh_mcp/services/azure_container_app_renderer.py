@@ -12,8 +12,8 @@ adjusted exactly where an owner Azure subscription differs:
 * ``APP_SIGNING_KEY`` is a Key Vault secret REFERENCE resolved by the platform with
   the agent's own identity, never a value in the body.
 
-Shape: single revision mode, 0..1 replicas (one writer, scales to zero), 0.5 vCPU /
-1 GiB, HTTP startup and liveness probes on ``/health``, external ingress (Container
+Shape: single revision mode, 0..1 replicas (one writer, scales to zero), 1 vCPU /
+2 GiB by default, HTTP startup and liveness probes on ``/health``, external ingress (Container
 Apps has no invoker lock; the in-pod wall ``api/middlewares/pod_ingress.py`` is the
 lock), image pulled by digest from the person's own registry with the agent identity.
 

@@ -187,12 +187,9 @@ class GcpBackend:
         # sleeps when idle and wakes on demand. Warm (minScale>=1) is a paid upgrade a
         # user chooses in their profile, not what everyone silently gets.
         #
-        # This reversed on measured cost, not preference. A warm pod cannot be bought
-        # at the 500m sizing the economics were modelled on -- Cloud Run refuses
-        # fractional CPU when CPU is always allocated (see `_cpu_for_allocation`), so a
-        # warm pod is a full vCPU always on, billed instance-based, per month in us-central1:
-        # 2,628,000 s x ($0.000018 + $0.000002) = $52.56 at list, $47.34 after the free tier
-        # (240,000 vCPU-s, 450,000 GiB-s); 82% over $28.91 for the 0.5 vCPU it cannot be.
+        # Cloud Run requires a full vCPU for always-allocated CPU. Keep this
+        # constraint explicit; dated usage and pricing belong in the operating
+        # economics, rather than renderer comments (see `_cpu_for_allocation`).
         #
         # What economy costs instead is latency on wake, and that is the honest trade:
         # a cold pod answers slower, a warm pod answers now. The liveness evaluator
@@ -337,15 +334,8 @@ class GcpBackend:
             # its own default of 1 vCPU / 512 MiB, which is how a per-user pod ended up
             # costing ~$65/user/month on a request nobody made.
             #
-            # cpu 500m: the workload is network-bound -- it waits on model APIs far more
-            # than it computes -- and the one CPU-bound moment, boot, is covered by the
-            # startup boost above.
-            #
-            # memory 1Gi, deliberately ABOVE the 512 MiB default even though a pod
-            # measured 211.9 MB. That measurement is IDLE: taken before any specialist
-            # loaded and before any model call, so it is a floor and not a ceiling. An
-            # OOM restart destroys the always-alive property the warm floor is paid for,
-            # and memory is the cheapest axis to buy safety on.
+            # New-owner qualification uses 1 vCPU / 2 GiB. Explicit owner sizing
+            # remains authoritative; idle memory measurements do not prove capacity.
             "resources": {
                 "limits": {
                     "cpu": _cpu_for_allocation(self._cpu, always_allocated=min_instances >= 1),
@@ -525,7 +515,12 @@ class GcpBackend:
                         "valueFrom": {"secretKeyRef": {"name": secret_name, "key": "latest"}},
                     }
                 )
-        inner_spec: dict[str, Any] = {"containers": [container]}
+        inner_spec: dict[str, Any] = {
+            "containers": [container],
+            "containerConcurrency": (
+                1 if _cpu_millis(container["resources"]["limits"]["cpu"]) < 1000 else 8
+            ),
+        }
         # Only pin a runtime service account when one is configured; an empty value
         # is rejected by the live API (and the project default is used otherwise).
         if self._service_account:
@@ -1171,7 +1166,7 @@ def _cpu_for_allocation(cpu: str, *, always_allocated: bool) -> str:
 
     The warm tier needs always-allocated CPU because the pod's heartbeat is a
     background asyncio loop -- throttled, it stalls between beats and the hub reads
-    a healthy pod's silence as a fault. The default 500m was chosen for a
+    a healthy pod's silence as a fault. The former default 500m was chosen for a
     network-bound workload, and on its own that reasoning is sound. The two are
     simply not combinable on this platform, and the combination is what the
     renderer emitted: every warm-tier provision was rejected with HTTP 400 before
@@ -1182,8 +1177,8 @@ def _cpu_for_allocation(cpu: str, *, always_allocated: bool) -> str:
     it, so the config was verified against our expectations instead of against the
     platform that has to accept it.
 
-    The economy tier is untouched: min=0 means throttled, where 500m is valid and
-    is the cheaper, correct choice.
+    Explicit fractional-CPU selections remain valid on a throttled economy pod
+    with concurrency one. New qualification defaults use a full vCPU.
     """
     if always_allocated and _cpu_millis(cpu) < 1000:
         return "1"

@@ -3,6 +3,8 @@
 # ruff: noqa: S106 -- inert fake credentials only.
 from copy import deepcopy
 
+import pytest
+
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.pod_files.provisioning import (
     bucket_matches,
@@ -39,8 +41,10 @@ def test_azure_organization_reports_its_own_queue_and_model_contract(monkeypatch
     assert _files_organization()["reason"] == "model_not_configured"
 
 
-def test_files_queue_is_scoped_and_does_not_replace_runtime_identity(monkeypatch):
+@pytest.mark.parametrize("cpu,concurrency", [("1000m", 8), ("500m", 1)])
+def test_files_queue_is_scoped_and_does_not_replace_runtime_identity(monkeypatch, cpu, concurrency):
     monkeypatch.setenv("HUSSH_POD_FILES_ENABLED", "true")
+    monkeypatch.setenv("HUSSH_POD_CPU", cpu)
     spec = PodSpec(
         hushh_id="owner-123",
         phone_e164_hash="opaque",
@@ -72,9 +76,9 @@ def test_files_queue_is_scoped_and_does_not_replace_runtime_identity(monkeypatch
     )
     cfg = backend.render_deploy_config(spec)
     template = cfg["spec"]["template"]
-    assert template["spec"]["containerConcurrency"] == 8
+    assert template["spec"]["containerConcurrency"] == concurrency
     assert template["spec"]["containers"][0]["resources"]["limits"] == {
-        "cpu": "1000m",
+        "cpu": cpu,
         "memory": "2Gi",
     }
     assert template["metadata"]["annotations"]["autoscaling.knative.dev/minScale"] == "0"
@@ -202,8 +206,6 @@ def test_queue_receipt_keeps_only_verified_planned_configuration():
 def test_files_teardown_requires_acknowledgement_and_never_replays_uncertain_delete():
     from unittest.mock import Mock
 
-    import pytest
-
     from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
     from hushh_mcp.services.pod_files.provisioning import coordinates, queue_creation_observation
     from hushh_mcp.services.pod_files.teardown import reconcile_resource
@@ -279,8 +281,6 @@ def test_files_teardown_requires_acknowledgement_and_never_replays_uncertain_del
 
 def test_files_worker_teardown_targets_captured_unique_identity():
     from unittest.mock import Mock
-
-    import pytest
 
     from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
     from hushh_mcp.services.pod_files.teardown import reconcile_resource
@@ -382,8 +382,6 @@ def legacy_files_fixture():
 
 
 def test_existing_files_plan_binds_observed_custody_and_refuses_changed_configuration():
-    import pytest
-
     from hushh_mcp.services.pod_files.capability_update import plan_from_observation
 
     row, image, service = legacy_files_fixture()
@@ -451,8 +449,6 @@ def test_existing_files_plan_binds_observed_custody_and_refuses_changed_configur
 
 
 def test_files_activation_requires_separate_approval_and_durable_step_acknowledgements():
-    import pytest
-
     from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
     from hushh_mcp.services.pod_files.capability_update import plan_from_observation
     from hushh_mcp.services.pod_update_identity import approved_files_plan, release_identity

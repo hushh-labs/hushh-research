@@ -40,7 +40,7 @@ def configure_new_service(
         if not any(entry["name"] == "POD_IDLE_GRACE_SECONDS" for entry in env):
             env.append({"name": "POD_IDLE_GRACE_SECONDS", "value": "600"})
         annotations["autoscaling.knative.dev/maxScale"] = "1"
-        template["spec"]["containerConcurrency"] = 8
+        template["spec"].setdefault("containerConcurrency", 8)
         # Resource sizing belongs to the backend's explicit owner configuration.
         # Files adds its queue and bounded admission without replacing that choice.
 
