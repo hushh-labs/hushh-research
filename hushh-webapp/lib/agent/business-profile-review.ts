@@ -41,6 +41,11 @@ export type BusinessReviewJob = {
   cards: AgentPkmPreviewCard[];
   scopes: string[];
   committed: string[];
+  /** Kept encrypted with the review; never substitute newer discovery fields. */
+  candidate?: BusinessCandidate;
+  candidateSnapshot?: string;
+  reviewedName?: string;
+  reviewedWebsite?: string;
 };
 export type BusinessReviewCheckpoint = {
   version: 1;
@@ -65,11 +70,27 @@ export async function loadBusinessReview(ownerId: string, vaultKey: string, busi
     !Array.isArray(value.job.cards) || value.job.cards.length > 64 ||
     value.job.cards.length !== value.job.scopes?.length ||
     !Array.isArray(value.job.committed) || typeof value.job.revision !== "string" ||
-    typeof value.job.message !== "string" || !value.job.scopes.every(scope => typeof scope === "string") ||
+    typeof value.job.message !== "string" || !value.job.revision.trim() ||
+    !value.job.scopes.every((scope, index) => scope ===
+      `business-review:${ownerId}:${businessUid}:${value.job!.revision}:${index}`) ||
+    value.job.cards.some(card => !card || typeof card.card_id !== "string" || !card.card_id.trim()) ||
+    new Set(value.job.committed).size !== value.job.committed.length ||
     new Set(value.job.cards.map(card => card.card_id)).size !== value.job.cards.length ||
     !value.job.committed.every(id => value.job!.cards.some(card => card.card_id === id))))
     throw new Error("The saved review needs to be restarted.");
+  if (value.job?.candidate && (value.job.candidate.businessUid !== businessUid ||
+    value.job.candidateSnapshot !== businessCandidateSnapshot(value.job.candidate) ||
+    typeof value.job.reviewedName !== "string" || typeof value.job.reviewedWebsite !== "string"))
+    throw new Error("The saved review needs to be restarted.");
   return value;
+}
+
+/** Legacy jobs have no listing snapshot and must never authorize new writes. */
+export function assertBusinessReviewFresh(job: BusinessReviewJob, candidate: BusinessCandidate) {
+  if (!job.candidate || !job.candidateSnapshot || job.businessUid !== candidate.businessUid ||
+    job.candidateSnapshot !== businessCandidateSnapshot(job.candidate) ||
+    job.candidateSnapshot !== businessCandidateSnapshot(candidate))
+    throw new Error("The listing changed since this review. Pending details have not been overwritten.");
 }
 
 export async function persistBusinessReview(ownerId: string, vaultKey: string, value: BusinessReviewCheckpoint, businessUid?: string) {
@@ -169,11 +190,15 @@ export function attachBusinessOrigin(card: AgentPkmPreviewCard, candidate: Busin
   return copy;
 }
 
-export function createBusinessReviewJob(ownerId: string, candidate: BusinessCandidate, message: string, cards: AgentPkmPreviewCard[]): BusinessReviewJob {
-  if (!cards.length || cards.length > 64 || new Set(cards.map(card => card.card_id)).size !== cards.length)
+export function createBusinessReviewJob(ownerId: string, candidate: BusinessCandidate, message: string, cards: AgentPkmPreviewCard[],
+  edited = { name: candidate.draft.name, website: candidate.draft.website }): BusinessReviewJob {
+  if (!cards.length || cards.length > 64 || cards.some(card => !card.card_id?.trim()) ||
+    new Set(cards.map(card => card.card_id)).size !== cards.length)
     throw new Error("Select valid details to save.");
   const revision = crypto.randomUUID();
   return { version: 1, ownerId, businessUid: candidate.businessUid, revision, message,
+    candidate: structuredClone(candidate), candidateSnapshot: businessCandidateSnapshot(candidate),
+    reviewedName: edited.name, reviewedWebsite: edited.website,
     cards: cards.map(card => attachBusinessOrigin(card, candidate)),
     scopes: cards.map((_, index) => `business-review:${ownerId}:${candidate.businessUid}:${revision}:${index}`), committed: [] };
 }
@@ -183,6 +208,8 @@ export async function saveBusinessReview(input: {
   job: BusinessReviewJob; vaultKey: string; vaultOwnerToken: string;
   assertCurrent: () => Promise<void>; isCurrent: () => boolean;
   sharingImpactAcknowledged: boolean;
+  /** Recheck the directory only when a new mutation is needed, not for receipts. */
+  assertListingFresh: () => Promise<void>;
 }): Promise<{ saved: number; remaining: number } | null> {
   return withPkmSaveJobLock(`business-review:${input.job.ownerId}`, async () => {
     await input.assertCurrent();
@@ -204,6 +231,12 @@ export async function saveBusinessReview(input: {
       await input.assertCurrent();
       let acknowledged = rows[0]?.exists === true && rows[0].dataVersion !== null;
       if (!acknowledged) {
+        // A legacy checkpoint can reconcile an acknowledged commit, but cannot
+        // write a card whose original public listing was never checkpointed.
+        if (!job.candidate) throw new Error("This pending review has no original listing snapshot. No new details were saved.");
+        assertBusinessReviewFresh(job, job.candidate);
+        await input.assertListingFresh();
+        await input.assertCurrent();
         const result = await saveConnectorMemoryReview({
           ...input, userId: job.ownerId, cards: [card], message: job.message,
           source: "business_profile_review", idempotencyScopes: [job.scopes[index]!],
