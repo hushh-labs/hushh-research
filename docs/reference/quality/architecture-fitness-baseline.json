@@ -7520,7 +7520,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
       "symbol": "test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked_access",
-      "value": 119
+      "value": 131
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16781,7 +16781,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
       "symbol": null,
-      "value": 720
+      "value": 732
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21511,6 +21511,23 @@
         "slot": 0
       }
     ],
+    "snapshot_fence_review_20261008": {
+      "changes": [
+        {
+          "key": "function_size|consent-protocol/tests/test_encrypted_adk_session_service.py|test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked_access|function exceeds the advisory gene budget",
+          "previous": 119,
+          "reviewed": 131
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_encrypted_adk_session_service.py||module exceeds the advisory operon budget",
+          "previous": 720,
+          "reviewed": 732
+        }
+      ],
+      "rationale": "Nearest existing recovery case adds erasure between projection completion and final request admission. Independent security review, 16 passing tests and a failing removed-final-fence negative control. No extraction warranted; budgets unchanged.",
+      "reviewed_at": "2026-10-08T19:51:43.522523+00:00",
+      "source_sha256": "ede48565225ee7a9f7e9b739f774bb80a1f3ee1a95de91a3d8e7650fc7033186"
+    },
     "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
   },
   "review": {

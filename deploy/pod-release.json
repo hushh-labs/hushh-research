@@ -1,25 +1,18 @@
 {
-  "version": "2026.10-dev.12",
+  "version": "2026.10-dev.13",
   "channel": "dev",
-  "summary": "Encrypted recovery and storage updates for your private agent.",
+  "summary": "A leaner conversation startup for your private agent.",
   "notes": {
     "improvements": [
-      "Encrypted checkpoints reduce repeated history reads when your agent wakes.",
-      "Storage connections are reused without caching private information.",
-      "Saved conversations and selected settings are preserved through the qualified update."
+      "Conversation loading avoids a repeated storage read.",
+      "Encrypted checkpoints preserve the existing recovery path."
     ],
-    "fixes": [
-      "Mail notification progress survives retries without skipping unprocessed changes.",
-      "Software updates retain recovery authority when a cloud operation has an uncertain result.",
-      "Existing hosting choices remain unchanged when new setup defaults evolve."
-    ],
+    "fixes": [],
     "security": [
       "Files analysis remains opt-in and uses the approved provider boundary.",
       "Existing pods require a qualified image transition and exact owner approval before installation.",
       "Computer Use remains disabled until its cloud isolation gates pass."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:ace34069a9eb348d27ace62e0f9aa6de804f0cee6e7dfebc8c8c28628ae4f14a"
-  ]
+  "supportedUpgradeDigests": []
 }

@@ -138,14 +138,19 @@ class PodAdkSessionRepository:
         self._owner_id, self._hushh_id = projection.owner_id, projection.hushh_id
         self._log, self._require_access = projection.log, require_access
 
-    async def _admit(self, user: str) -> None:
+    async def _admit_owner(self, user: str) -> None:
         if user != self._owner_id or self._log._owner_id != self._hushh_id:
             raise PodAdkSessionUnavailable("Pod conversation owner mismatch.")
         await self._require_access()
+
+    async def _admit(self, user: str) -> None:
+        await self._admit_owner(user)
         await self._log.require_open()
 
     async def _snapshot(self, user: str) -> tuple[int, dict[tuple[str, str], dict]]:
-        await self._admit(user)
+        # The projection opens and fences its own log read. Recheck both the
+        # caller and the log afterward before exposing any sealed records.
+        await self._admit_owner(user)
         result = await self._projection.snapshot()
         await self._admit(user)
         return result

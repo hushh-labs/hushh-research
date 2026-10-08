@@ -480,7 +480,19 @@ async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked
     with pytest.raises(PodLogTampered):
         await repository().get(**coords)
     await log._store.put_if_generation(pod_adk_checkpoint.KEY, blob, corrupted_generation)
-    await log.fence_for_erasure(owner_id="HA1fixture", attempt_id="fixture-erasure")
+    # Erasure can race after a valid projection read; a warm result must still
+    # pass the final log fence before leaving the request-bound repository.
+    snapshot = restarted_repo._projection.snapshot
+
+    async def erased_after_snapshot():
+        result = await snapshot()
+        await log.fence_for_erasure(owner_id="HA1fixture", attempt_id="fixture-erasure")
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(restarted_repo._projection, "snapshot", erased_after_snapshot)
+        with pytest.raises(PodLogFenced):
+            await restarted.get_session(**identity)
     with pytest.raises(PodLogFenced):
         await restarted.get_session(**identity)
 
