@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from analytics_stream_validation import validate_expected_streams
+
 if TYPE_CHECKING:
     from google.auth.transport.requests import AuthorizedSession
 
@@ -437,50 +439,9 @@ def validate(summary: dict) -> dict:
         if "WEB_DATA_STREAM" not in types or "IOS_APP_DATA_STREAM" not in types or "ANDROID_APP_DATA_STREAM" not in types:
             findings["high"].append(f"{label}: missing one or more primary stream types")
 
-        for expected_stream in DEFAULTS["expected_streams"][label]:
-            stream_id = expected_stream["stream_id"]
-            stream = streams_by_id.get(stream_id)
-            if not stream:
-                findings["high"].append(f"{label}: missing expected stream {stream_id}")
-                continue
-            expected_type = expected_stream["type"]
-            if stream.get("type") != expected_type:
-                findings["high"].append(
-                    f"{label}: stream {stream_id} type is {stream.get('type')} not {expected_type}"
-                )
-            package_name = expected_stream.get("package_name")
-            if package_name and stream.get("androidAppStreamData", {}).get("packageName") != package_name:
-                findings["high"].append(f"{label}: stream {stream_id} Android package mismatch")
-            if expected_stream.get("export_required"):
-                resource = stream["name"]
-                if not any(resource in link.get("exportStreams", []) and link.get("dailyExportEnabled") for link in payload["bigquery_links"]):
-                    findings["high"].append(f"{label}: Android stream {stream_id} missing from daily BigQuery export")
-            measurement_id = expected_stream.get("measurement_id")
-            if measurement_id:
-                actual_measurement_id = (
-                    stream.get("webStreamData", {}).get("measurementId")
-                    if isinstance(stream.get("webStreamData"), dict)
-                    else None
-                )
-                if actual_measurement_id != measurement_id:
-                    findings["high"].append(
-                        f"{label}: stream {stream_id} measurement ID is {actual_measurement_id} not {measurement_id}"
-                    )
-            firebase_app_id = expected_stream.get("firebase_app_id")
-            if firebase_app_id:
-                stream_data_key = {
-                    "ANDROID_APP_DATA_STREAM": "androidAppStreamData",
-                    "IOS_APP_DATA_STREAM": "iosAppStreamData",
-                    "WEB_DATA_STREAM": "webStreamData",
-                }.get(expected_type)
-                stream_data = stream.get(stream_data_key) if stream_data_key else None
-                actual_firebase_app_id = (
-                    stream_data.get("firebaseAppId") if isinstance(stream_data, dict) else None
-                )
-                if actual_firebase_app_id != firebase_app_id:
-                    findings["high"].append(
-                        f"{label}: stream {stream_id} Firebase app ID is {actual_firebase_app_id} not {firebase_app_id}"
-                    )
+        findings["high"].extend(validate_expected_streams(
+            label, DEFAULTS["expected_streams"][label], streams_by_id, payload["bigquery_links"]
+        ))
 
         for event_name in DEFAULTS["required_key_events"]:
             if event_name not in key_event_names:
