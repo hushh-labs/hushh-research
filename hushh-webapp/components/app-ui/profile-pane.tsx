@@ -222,7 +222,7 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
         data-testid="profile-pane"
       >
         <ProfilePaneDrag open={open} panelRef={panelRef} scrimRef={scrimRef} onClose={() => onOpenChange(false)} />
-        <SheetHeader className="profile-pane-header shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left">
+        <SheetHeader className={`profile-pane-header ${canGoBack ? "profile-pane-header--inner " : ""}shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left`}>
           <div className="flex min-w-0 items-center gap-2">
             {canGoBack ? (
               <button
@@ -236,7 +236,7 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : null}
-            <SheetTitle className="truncate font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
+            <SheetTitle className={`${canGoBack ? "whitespace-normal text-center" : "truncate"} font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal`}>
               {title}
             </SheetTitle>
           </div>
