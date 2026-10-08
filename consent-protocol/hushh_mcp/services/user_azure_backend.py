@@ -50,13 +50,10 @@ from hushh_mcp.services.azure_registry_prune import RegistryPruneHook
 from hushh_mcp.services.azure_setup_plan import (
     NONCE_TAG,
     PlanInputs,
-    Scopes,
     app_id,
     environment_id,
-    group_id,
     identity_id,
     resource_group_name,
-    resource_names,
 )
 from hushh_mcp.services.compute_backend import (
     BACKEND_USER_AZURE,
@@ -233,16 +230,12 @@ class UserAzureBackend(RegistryPruneHook):
         }
 
     def render_deploy_config(self, spec: PodSpec) -> dict[str, Any]:
-        """The dry-run agent body: real names, ``${placeholders}`` for setup outputs."""
-        from hushh_mcp.services.azure_agent_setup import plan_factory  # noqa: PLC0415
+        from hushh_mcp.services.azure_agent_setup import render_agent_config
 
-        plan = plan_factory(
+        return render_agent_config(
             spec,
-            source_registry="<source-registry>",
-            source_repository="<source-repository>",
-            incarnation="${incarnation}",
-        )(self.plan_inputs(spec.hushh_id, "0" * 16, files_enabled=spec.files_library_enabled))
-        return dict(next(step.body for step in plan.steps if step.path == self.app_id))
+            self.plan_inputs(spec.hushh_id, "0" * 16, files_enabled=spec.files_library_enabled),
+        )
 
     # -- observation ---------------------------------------------------------------
 
@@ -270,43 +263,16 @@ class UserAzureBackend(RegistryPruneHook):
     # -- the ComputeBackend contract -----------------------------------------------
 
     async def provision(self, spec: PodSpec) -> BackendHandle:
-        """Attach to the agent the person's setup created; never create one here."""
-        observation = await self.observe()
-        if not observation.present:
-            raise observation.refusal("attach")
-        handle = self.verified_handle(spec.hushh_id, observation)
-        self._require_files_installation(spec.hushh_id, observation, spec.files_library_enabled)
-        spec.emit_stage("host_created")
-        if spec.provision_attempt_id and spec.on_provision_ack is not None:
-            metadata = handle.backend_metadata or {}
-            await asyncio.to_thread(
-                spec.on_provision_ack,
-                {
-                    "service": self.app_id,
-                    "serviceUid": metadata["serviceUid"],
-                    "project": group_id(self._subscription, self._group),
-                    "region": self._location,
-                    "backend": self.backend_id,
-                    "image": metadata["image"],
-                },
-            )
-        if handle.status == "live":
-            spec.emit_stage("host_serving")
-        return handle
+        from hushh_mcp.services.pod_files.azure_provisioning import attach_with_files
+
+        return await attach_with_files(self, spec)
 
     def _require_files_installation(
         self, hushh_id: str, observation: AzureAgentObservation, enabled: bool
     ) -> None:
-        if enabled:
-            from hushh_mcp.services.pod_files.azure_provisioning import require_installation
+        from hushh_mcp.services.pod_files.azure_provisioning import require_files_installation
 
-            inputs = self.plan_inputs(
-                hushh_id, observation.tags.get(NONCE_TAG, ""), files_enabled=True
-            )
-            scopes = Scopes(inputs, resource_names(inputs))
-            require_installation(
-                observation.app, storage_id=scopes.storage, identity_id=scopes.identity
-            )
+        require_files_installation(self, hushh_id, observation, enabled)
 
     async def discover(self, hushh_id: str) -> Optional[BackendHandle]:
         """Adopt only this person's bound agent, on its recorded identity and an approved digest.
@@ -388,40 +354,14 @@ class UserAzureBackend(RegistryPruneHook):
         return await asyncio.to_thread(upgrade_agent, self, spec, self._person_factory(token))
 
     async def inspect_files_capability(self, spec: PodSpec) -> dict:
-        observation = await self.observe()
-        if not observation.present:
-            raise observation.refusal("inspect Files on")
-        handle = self.verified_handle(spec.hushh_id, observation)
-        if (handle.backend_metadata or {}).get("serviceUid") != spec.expected_service_uid:
-            raise ValueError("Files requires the current pod incarnation")
-        return observation.app
+        from hushh_mcp.services.pod_files.azure_provisioning import inspect_files_capability
+
+        return await inspect_files_capability(self, spec)
 
     async def discover_files_upgrade_ack(self, spec: PodSpec) -> dict | None:
-        from hushh_mcp.services.azure_agent_upgrade import revision_suffix
-        from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
-        from hushh_mcp.services.pod_release import image_digest
+        from hushh_mcp.services.pod_files.azure_provisioning import discover_files_upgrade_ack
 
-        plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
-        app = await self.inspect_files_capability(spec)
-        revision = f"ca-hussh-one-pod--{revision_suffix(spec.upgrade_attempt_id or '')}"
-        props = app.get("properties") or {}
-        if (
-            props.get("latestRevisionName") != revision
-            or props.get("latestReadyRevisionName") != revision
-        ):
-            return None
-        plan.require_installed(app)
-        image = props["template"]["containers"][0]["image"]
-        if image_digest(image) != image_digest(plan.targetImage):
-            return None
-        return {
-            "version": 1,
-            "service": self.app_id,
-            "serviceUid": plan.serviceUid,
-            "revision": revision,
-            "attemptId": spec.upgrade_attempt_id,
-            "image": image,
-        }
+        return await discover_files_upgrade_ack(self, spec)
 
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]

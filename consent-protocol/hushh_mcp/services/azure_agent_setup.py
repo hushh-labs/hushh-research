@@ -175,6 +175,18 @@ def plan_factory(
     return _plan
 
 
+def render_agent_config(spec: PodSpec, inputs: PlanInputs) -> dict[str, Any]:
+    """Render the canonical setup plan without performing provider operations."""
+    plan = plan_factory(
+        spec,
+        source_registry="<source-registry>",
+        source_repository="<source-repository>",
+        incarnation="${incarnation}",
+    )(inputs)
+    app_id = Scopes(inputs, resource_names(inputs)).app
+    return dict(next(step.body for step in plan.steps if step.path == app_id))
+
+
 def _await_health(fqdn: str, *, http: Any, sleep: Callable[[float], None]) -> bool:
     for delay in (0.0, *_HEALTH_DELAYS):
         if delay:

@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2211,
+  "finding_count": 2243,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -32,7 +32,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
       "symbol": "OneLocationCircleService",
-      "value": 5354
+      "value": 5389
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -59,7 +59,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "GmailReceiptsService",
-      "value": 4621
+      "value": 4659
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -86,7 +86,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "VoiceSession",
-      "value": 2944
+      "value": 3382
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -113,7 +113,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "DriveBulkShareStore",
-      "value": 2641
+      "value": 2658
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -149,7 +149,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py",
       "symbol": "PersonalAgentRegistryRepo",
-      "value": 1991
+      "value": 1996
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -185,7 +185,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py",
       "symbol": "PersonalGmailInformationRequestService",
-      "value": 1678
+      "value": 1681
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -203,7 +203,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "DriveSharingStore",
-      "value": 1663
+      "value": 1691
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -239,7 +239,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/direct_messages_service.py",
       "symbol": "DirectMessagesService",
-      "value": 1460
+      "value": 1466
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -302,7 +302,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_delivery_service.py",
       "symbol": "GmailDeliveryService",
-      "value": 1071
+      "value": 1353
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -410,7 +410,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gcp_backend.py",
       "symbol": "GcpBackend",
-      "value": 903
+      "value": 908
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -842,7 +842,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "DriveRequestPaymentService",
-      "value": 421
+      "value": 541
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1202,7 +1202,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py",
       "symbol": "PodGmailDoorbell",
-      "value": 317
+      "value": 293
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1490,7 +1490,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_share_notification_store.py",
       "symbol": "DriveShareNotificationStore",
-      "value": 251
+      "value": 255
     },
     {
       "detail": "agent tool imports a concrete service or database module",
@@ -2205,6 +2205,51 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
+      "value": 175
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
+      "value": 173
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
+      "value": 107
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
+      "value": 102
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|_sanitize_intent_frame|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -2291,7 +2336,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gcp_backend.py",
       "symbol": "render_deploy_config",
-      "value": 313
+      "value": 318
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2462,7 +2507,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_delivery_service.py",
       "symbol": "execute",
-      "value": 288
+      "value": 374
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2525,7 +2570,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "_complete_authorized_connect",
-      "value": 277
+      "value": 278
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2570,7 +2615,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "_dispatch_tool_call_inner",
-      "value": 286
+      "value": 324
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2957,7 +3002,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "prepare_review",
-      "value": 217
+      "value": 222
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3051,6 +3096,24 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/ria_verification.py|verify|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/ria_verification.py",
+      "symbol": "verify",
+      "value": 99
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/ria_verification.py|verify|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/ria_verification.py",
+      "symbol": "verify",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/connections_service.py|create_request_from_nearby_alias|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3083,7 +3146,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "checkout",
-      "value": 203
+      "value": 214
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3173,7 +3236,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/direct_messages_service.py",
       "symbol": "send_message",
-      "value": 199
+      "value": 205
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3219,6 +3282,15 @@
       "path": "consent-protocol/hushh_mcp/services/pkm_sqlite_engine.py",
       "symbol": "work",
       "value": 196
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/pkm_sqlite_engine.py|work|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/pkm_sqlite_engine.py",
+      "symbol": "work",
+      "value": 92
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3425,7 +3497,43 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 187
+      "value": 192
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "operation",
+      "value": 153
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "operation",
+      "value": 109
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "operation",
+      "value": 105
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "operation",
+      "value": 86
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3686,7 +3794,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "claim",
-      "value": 177
+      "value": 182
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3776,7 +3884,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "approve",
-      "value": 174
+      "value": 186
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3906,21 +4014,12 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
-      "value": 170
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|approve_review|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "approve_review",
-      "value": 170
+      "value": 179
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4149,15 +4248,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
-      "value": 161
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/scripts/uat_kai_regression_smoke.py|run|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -4235,7 +4325,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
       "symbol": "test_progressive_batch_claims_keep_search_running_and_aggregate_delivery",
-      "value": 159
+      "value": 166
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4289,7 +4379,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
       "symbol": "_end_membership",
-      "value": 157
+      "value": 192
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4325,7 +4415,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "process_webhook",
-      "value": 156
+      "value": 258
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4406,7 +4496,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "adopt_orphan",
-      "value": 155
+      "value": 156
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4712,7 +4802,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_scheduled_mail_drain.py",
       "symbol": "_run",
-      "value": 145
+      "value": 152
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4730,15 +4820,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "_name_edit",
-      "value": 144
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "operation",
       "value": 144
     },
     {
@@ -4865,7 +4946,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "_handle_live_event",
-      "value": 142
+      "value": 155
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6026,7 +6107,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "_handle_client_frame",
-      "value": 121
+      "value": 136
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6098,7 +6179,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_delivery_service.py",
       "symbol": "prepare",
-      "value": 120
+      "value": 138
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6359,7 +6440,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "settle",
-      "value": 116
+      "value": 204
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6665,7 +6746,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": "__init__",
-      "value": 114
+      "value": 130
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6953,7 +7034,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
       "symbol": "_ensure_ready",
-      "value": 110
+      "value": 111
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7052,15 +7133,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/curated_connector_manifest.py",
       "symbol": "parse_manifest",
-      "value": 109
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "operation",
       "value": 109
     },
     {
@@ -7214,7 +7286,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
       "symbol": "test_request_freezes_all_525_matches_for_only_b",
-      "value": 108
+      "value": 115
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7295,15 +7367,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "batches_by_request",
-      "value": 107
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
       "value": 107
     },
     {
@@ -7430,7 +7493,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": "entry",
-      "value": 106
+      "value": 113
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7547,15 +7610,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/consent_db.py",
       "symbol": "is_token_active",
-      "value": 105
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "operation",
       "value": 105
     },
     {
@@ -7929,15 +7983,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
-      "value": 102
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/location_chat_service.py|_handle_selection_result|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -8132,7 +8177,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/pod_connectors.py",
       "symbol": "run_connector_put",
-      "value": 100
+      "value": 106
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8384,15 +8429,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pkm_sqlite_engine.py",
       "symbol": "get_domain_snapshot",
-      "value": 99
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/ria_verification.py|verify|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/ria_verification.py",
-      "symbol": "verify",
       "value": 99
     },
     {
@@ -9405,15 +9441,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/pkm_sqlite_engine.py|work|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/pkm_sqlite_engine.py",
-      "symbol": "work",
-      "value": 92
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/pod_consent_client.py|verify_consent|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -9590,7 +9617,7 @@
       "limit": 80,
       "path": "consent-protocol/pod_server.py",
       "symbol": "_pod_startup",
-      "value": 91
+      "value": 107
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9765,15 +9792,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py|_advance|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py",
-      "symbol": "_advance",
-      "value": 90
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/pod_owner_feed_envelope.py|project_feed_projection|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -9860,7 +9878,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_files_selection_postgres.py",
       "symbol": "test_selection_is_bound_to_current_job_and_preserves_unrelated_metadata",
-      "value": 90
+      "value": 98
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9936,15 +9954,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
-      "value": 89
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/external_mcp_client.py|validate_tool_schema|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -10013,15 +10022,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/location_command_continuation.py",
       "symbol": "renew_remaining_command",
-      "value": 89
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/ria_verification.py|verify|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/ria_verification.py",
-      "symbol": "verify",
       "value": 89
     },
     {
@@ -10440,15 +10440,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "operation",
-      "value": 86
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/location_command_workflow.py|start_command_workflow|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -10508,7 +10499,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
       "symbol": "test_metadata_only_previews_counts_and_filtered_pages",
-      "value": 86
+      "value": 107
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10967,7 +10958,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": "test_hosted_backend_bounds_database_connection_fanout",
-      "value": 84
+      "value": 86
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11660,7 +11651,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/one_voice/test_tool_registry_contract.py",
       "symbol": "test_voice_mail_is_exactly_read_open_access_and_a_reviewed_draft",
-      "value": 81
+      "value": 87
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11925,6 +11916,15 @@
     },
     {
       "detail": "top-level runtime initialization weakens import safety",
+      "key": "import_initialization|consent-protocol/hushh_mcp/runtime_settings.py|load_dotenv|top-level runtime initialization weakens import safety",
+      "kind": "import_initialization",
+      "limit": null,
+      "path": "consent-protocol/hushh_mcp/runtime_settings.py",
+      "symbol": "load_dotenv",
+      "value": 16
+    },
+    {
+      "detail": "top-level runtime initialization weakens import safety",
       "key": "import_initialization|consent-protocol/tests/test_feed_counterpart_lookup_postgres.py|getenv|top-level runtime initialization weakens import safety",
       "kind": "import_initialization",
       "limit": null,
@@ -11970,15 +11970,6 @@
     },
     {
       "detail": "top-level runtime initialization weakens import safety",
-      "key": "import_initialization|consent-protocol/scripts/apply_consent_notify_trigger.py|load_dotenv|top-level runtime initialization weakens import safety",
-      "kind": "import_initialization",
-      "limit": null,
-      "path": "consent-protocol/scripts/apply_consent_notify_trigger.py",
-      "symbol": "load_dotenv",
-      "value": 18
-    },
-    {
-      "detail": "top-level runtime initialization weakens import safety",
       "key": "import_initialization|consent-protocol/tests/integration/test_public_profile_bridge.py|getenv|top-level runtime initialization weakens import safety",
       "kind": "import_initialization",
       "limit": null,
@@ -11988,12 +11979,12 @@
     },
     {
       "detail": "top-level runtime initialization weakens import safety",
-      "key": "import_initialization|consent-protocol/hushh_mcp/runtime_settings.py|load_dotenv|top-level runtime initialization weakens import safety",
+      "key": "import_initialization|consent-protocol/scripts/apply_consent_notify_trigger.py|load_dotenv|top-level runtime initialization weakens import safety",
       "kind": "import_initialization",
       "limit": null,
-      "path": "consent-protocol/hushh_mcp/runtime_settings.py",
+      "path": "consent-protocol/scripts/apply_consent_notify_trigger.py",
       "symbol": "load_dotenv",
-      "value": 16
+      "value": 18
     },
     {
       "detail": "top-level runtime initialization weakens import safety",
@@ -12074,7 +12065,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 10462
+      "value": 10617
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12092,7 +12083,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
       "symbol": null,
-      "value": 9861
+      "value": 9866
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12173,7 +12164,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_location_circle_service.py",
       "symbol": null,
-      "value": 5778
+      "value": 5813
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12218,7 +12209,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": null,
-      "value": 4981
+      "value": 5019
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12398,7 +12389,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
       "symbol": null,
-      "value": 3349
+      "value": 3793
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12551,7 +12542,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": null,
-      "value": 2773
+      "value": 2790
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12686,7 +12677,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_receipts_service.py",
       "symbol": null,
-      "value": 2414
+      "value": 2475
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12695,7 +12686,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
       "symbol": null,
-      "value": 2362
+      "value": 2383
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12749,7 +12740,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/one-voice/session-reducer.test.ts",
       "symbol": null,
-      "value": 2310
+      "value": 2316
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12758,7 +12749,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/consent-center-page-deeplink.test.tsx",
       "symbol": null,
-      "value": 2250
+      "value": 2294
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12776,7 +12767,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-voice/voice-session-provider.tsx",
       "symbol": null,
-      "value": 2235
+      "value": 2245
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12794,7 +12785,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py",
       "symbol": null,
-      "value": 2212
+      "value": 2217
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12803,7 +12794,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py",
       "symbol": null,
-      "value": 2190
+      "value": 2193
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12875,7 +12866,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_voice/tools/mail.py",
       "symbol": null,
-      "value": 2162
+      "value": 2224
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12902,7 +12893,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_byoc_bootstrap_and_custody.py",
       "symbol": null,
-      "value": 2079
+      "value": 2083
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12911,7 +12902,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_personal_information_request_service.py",
       "symbol": null,
-      "value": 2075
+      "value": 2123
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13082,7 +13073,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/document-share-review.tsx",
       "symbol": null,
-      "value": 1837
+      "value": 1860
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13181,7 +13172,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": null,
-      "value": 1707
+      "value": 1735
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13208,7 +13199,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/direct_messages_service.py",
       "symbol": null,
-      "value": 1698
+      "value": 1704
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13262,7 +13253,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-voice/__tests__/voice-session-provider.test.tsx",
       "symbol": null,
-      "value": 1656
+      "value": 1679
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13307,7 +13298,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_delivery_service.py",
       "symbol": null,
-      "value": 1636
+      "value": 2002
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13424,7 +13415,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_delivery_service.py",
       "symbol": null,
-      "value": 1520
+      "value": 1805
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13505,7 +13496,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/use-feed-actionables.ts",
       "symbol": null,
-      "value": 1483
+      "value": 1486
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13550,7 +13541,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-share-review.test.tsx",
       "symbol": null,
-      "value": 1459
+      "value": 1473
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13604,7 +13595,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/gmail/gmail-information-requests-section.tsx",
       "symbol": null,
-      "value": 1442
+      "value": 1446
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13658,7 +13649,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-voice/session-reducer.ts",
       "symbol": null,
-      "value": 1431
+      "value": 1435
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13784,7 +13775,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
       "symbol": null,
-      "value": 1337
+      "value": 1363
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13820,7 +13811,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_tools_mail.py",
       "symbol": null,
-      "value": 1325
+      "value": 1402
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13982,7 +13973,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gcp_backend.py",
       "symbol": null,
-      "value": 1282
+      "value": 1287
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14135,7 +14126,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 1254
+      "value": 1493
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14144,7 +14135,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1227
+      "value": 1259
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14162,7 +14153,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/settings-ui.tsx",
       "symbol": null,
-      "value": 1220
+      "value": 1224
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14207,7 +14198,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_payment.py",
       "symbol": null,
-      "value": 1188
+      "value": 1343
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14522,7 +14513,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
       "symbol": null,
-      "value": 1086
+      "value": 1099
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14621,7 +14612,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/__tests__/email-draft-card.test.tsx",
       "symbol": null,
-      "value": 1051
+      "value": 1060
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14630,7 +14621,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/capacitor/native-chrome.test.tsx",
       "symbol": null,
-      "value": 1047
+      "value": 1376
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14909,7 +14900,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_scheduled_mail_drain.py",
       "symbol": null,
-      "value": 984
+      "value": 991
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15404,7 +15395,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_scheduled_mail_postgres.py",
       "symbol": null,
-      "value": 951
+      "value": 1084
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15854,7 +15845,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/email-draft-card.tsx",
       "symbol": null,
-      "value": 812
+      "value": 859
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15953,7 +15944,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 802
+      "value": 879
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15989,7 +15980,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-voice/live-client.ts",
       "symbol": null,
-      "value": 799
+      "value": 805
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16133,7 +16124,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
       "symbol": null,
-      "value": 779
+      "value": 782
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16214,7 +16205,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_owner_search_postgres.py",
       "symbol": null,
-      "value": 768
+      "value": 776
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16277,7 +16268,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
       "symbol": null,
-      "value": 759
+      "value": 780
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16709,7 +16700,7 @@
       "limit": 500,
       "path": "consent-protocol/pod_server.py",
       "symbol": null,
-      "value": 711
+      "value": 739
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16880,7 +16871,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/__tests__/agent-turn-stream-panel.test.tsx",
       "symbol": null,
-      "value": 702
+      "value": 721
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16916,7 +16907,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_gmail_delivery_routes.py",
       "symbol": null,
-      "value": 699
+      "value": 715
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16934,7 +16925,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/boot-surface.layout.spec.ts",
       "symbol": null,
-      "value": 714
+      "value": 715
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16979,7 +16970,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/tool_selection_eval_support.py",
       "symbol": null,
-      "value": 696
+      "value": 726
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17006,7 +16997,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/one-voice/live-client.test.ts",
       "symbol": null,
-      "value": 695
+      "value": 699
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17222,7 +17213,7 @@
       "limit": 500,
       "path": "scripts/env/doctor.sh",
       "symbol": null,
-      "value": 676
+      "value": 680
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17231,7 +17222,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/specialist-directive-card.tsx",
       "symbol": null,
-      "value": 673
+      "value": 679
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17519,7 +17510,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 650
+      "value": 762
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17843,7 +17834,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_providers/factory.py",
       "symbol": null,
-      "value": 623
+      "value": 641
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18212,7 +18203,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/secure-resource-cache-service.ts",
       "symbol": null,
-      "value": 596
+      "value": 614
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18680,7 +18671,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_puppy_relay_route.py",
       "symbol": null,
-      "value": 565
+      "value": 566
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18689,7 +18680,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/drive-query-request-card.test.tsx",
       "symbol": null,
-      "value": 565
+      "value": 570
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18743,7 +18734,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": null,
-      "value": 560
+      "value": 626
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18833,7 +18824,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/contact-invitation-sheet.tsx",
       "symbol": null,
-      "value": 553
+      "value": 561
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18860,7 +18851,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_live_mail_tool_selection_eval.py",
       "symbol": null,
-      "value": 552
+      "value": 911
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18905,7 +18896,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_voice/protocol.py",
       "symbol": null,
-      "value": 549
+      "value": 573
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19238,7 +19229,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/native-chat-chrome.tsx",
       "symbol": null,
-      "value": 528
+      "value": 648
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19490,7 +19481,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/native/ios-route-audit.mjs",
       "symbol": null,
-      "value": 517
+      "value": 541
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19499,7 +19490,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/gmail_information_requests.py",
       "symbol": null,
-      "value": 516
+      "value": 518
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19859,7 +19850,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-voice/__tests__/one-voice-mail-draft-bridge.test.tsx",
       "symbol": null,
-      "value": 502
+      "value": 792
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19895,7 +19886,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_mail_send.py",
       "symbol": null,
-      "value": 612
+      "value": 771
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19904,10 +19895,1533 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 548
+      "value": 728
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py|MailComposeRuntime|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py",
+      "symbol": "MailComposeRuntime",
+      "value": 576
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|DriveRequestPaymentStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
+      "symbol": "DriveRequestPaymentStore",
+      "value": 267
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_native_ship_artifact_workflows.py|test_android_release_is_green_main_uat_backed_play_production_and_fail_closed|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_native_ship_artifact_workflows.py",
+      "symbol": "test_android_release_is_green_main_uat_backed_play_production_and_fail_closed",
+      "value": 138
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/business_directory_suggestions.py|project_directory_response|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/business_directory_suggestions.py",
+      "symbol": "project_directory_response",
+      "value": 135
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py|send|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py",
+      "symbol": "send",
+      "value": 128
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/one_voice/test_live_mail_tool_selection_eval.py|make_responder|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/one_voice/test_live_mail_tool_selection_eval.py",
+      "symbol": "make_responder",
+      "value": 124
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_client_step_result|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
+      "symbol": "_client_step_result",
+      "value": 117
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/cloudrun-retention.py|main|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/cloudrun-retention.py",
+      "symbol": "main",
+      "value": 106
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail.py|_get_mail_access|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail.py",
+      "symbol": "_get_mail_access",
+      "value": 102
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail_recipients.py|resolve_recipient_sources|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail_recipients.py",
+      "symbol": "resolve_recipient_sources",
+      "value": 99
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/runtime-capacity-budget.py|collect|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/runtime-capacity-budget.py",
+      "symbol": "collect",
+      "value": 96
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/one_voice/test_live_mail_tool_selection_eval.py|test_live_model_selects_mail_tools|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/one_voice/test_live_mail_tool_selection_eval.py",
+      "symbol": "test_live_model_selects_mail_tools",
+      "value": 93
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py|_prepare|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py",
+      "symbol": "_prepare",
+      "value": 90
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_conflicting_batch_calls|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
+      "symbol": "_conflicting_batch_calls",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/business_suggestion_service.py|get_business_suggestion|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/business_suggestion_service.py",
+      "symbol": "get_business_suggestion",
+      "value": 84
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py",
+      "symbol": null,
+      "value": 906
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/one-voice/one-voice-mail-draft-bridge.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/one-voice/one-voice-mail-draft-bridge.tsx",
+      "symbol": null,
+      "value": 706
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
+      "symbol": null,
+      "value": 617
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/settings-row-surface.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/settings-row-surface.layout.spec.ts",
+      "symbol": null,
+      "value": 558
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
+      "symbol": null,
+      "value": 546
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/one_voice/test_relay_mail_send.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/one_voice/test_relay_mail_send.py",
+      "symbol": null,
+      "value": 536
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/scripts/native-continuity-contract.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/scripts/native-continuity-contract.test.ts",
+      "symbol": null,
+      "value": 535
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/agent/agent-turn-stream-panel.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/agent/agent-turn-stream-panel.tsx",
+      "symbol": null,
+      "value": 532
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/one_voice/test_mail_compose.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/one_voice/test_mail_compose.py",
+      "symbol": null,
+      "value": 515
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/one-voice/protocol.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/one-voice/protocol.ts",
+      "symbol": null,
+      "value": 501
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|deploy/observability/reconcile_capacity.py|reconcile|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "deploy/observability/reconcile_capacity.py",
+      "symbol": "reconcile",
+      "value": 231
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_user_azure_backend.py|test_files_late_receipts_keep_exact_owner_inventory_during_erasure|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_user_azure_backend.py",
+      "symbol": "test_files_late_receipts_keep_exact_owner_inventory_during_erasure",
+      "value": 138
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_gmail_local.py|test_owner_read_settles_only_returned_notification_ids_and_fences_replay|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_pod_gmail_local.py",
+      "symbol": "test_owner_read_settles_only_returned_notification_ids_and_fences_replay",
+      "value": 84
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_azure_agent_upgrade_handoff.py|test_files_update_uses_exact_approval_and_checkpoints_even_on_same_image|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_azure_agent_upgrade_handoff.py",
+      "symbol": "test_files_update_uses_exact_approval_and_checkpoints_even_on_same_image",
+      "value": 83
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_user_azure_backend.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_user_azure_backend.py",
+      "symbol": null,
+      "value": 581
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_files_jobs.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_files_jobs.py",
+      "symbol": null,
+      "value": 579
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_files_provisioning.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_files_provisioning.py",
+      "symbol": null,
+      "value": 532
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/one/byoc_azure.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/one/byoc_azure.py",
+      "symbol": null,
+      "value": 531
     }
   ],
   "inspected_files": 6149,
+  "integration_review": {
+    "commerce_parent": "18c3db9ab3b03e07d070eeba70e0031ff74f3059",
+    "frozen_adk": "31932bb01ae9059ac3b7996785f2bf3ed458f078",
+    "pilot": "Gmail history checkpoint port; Azure custody plan, replacement configuration and Files provisioning adapters. Existing public facades retained.",
+    "reviewed_at": "2026-10-08T05:03:48.565368+00:00",
+    "scope": "Only these reviewed sorted-multiset slots; original size budgets and complete ratchet unchanged. Existing debt is visible, not a claim of architecture completion.",
+    "slots": [
+      {
+        "before": 5354,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py|OneLocationCircleService|class exceeds the advisory operon budget",
+        "measured": 5389,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 2944,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/one_voice/session.py|VoiceSession|class exceeds the advisory operon budget",
+        "measured": 3382,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 2641,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|DriveBulkShareStore|class exceeds the advisory operon budget",
+        "measured": 2658,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1663,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+        "measured": 1691,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1460,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|DirectMessagesService|class exceeds the advisory operon budget",
+        "measured": 1466,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py|MailComposeRuntime|class exceeds the advisory operon budget",
+        "measured": 576,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 421,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|DriveRequestPaymentService|class exceeds the advisory operon budget",
+        "measured": 541,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|DriveRequestPaymentStore|class exceeds the advisory operon budget",
+        "measured": 267,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 251,
+        "disposition": "imported ADK debt",
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_share_notification_store.py|DriveShareNotificationStore|class exceeds the advisory operon budget",
+        "measured": 255,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 170,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+        "measured": 175,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 1
+      },
+      {
+        "before": 161,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+        "measured": 173,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 2
+      },
+      {
+        "before": 286,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_dispatch_tool_call_inner|function exceeds the advisory gene budget",
+        "measured": 324,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 277,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|_complete_authorized_connect|function exceeds the advisory gene budget",
+        "measured": 278,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 156,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|process_webhook|function exceeds the advisory gene budget",
+        "measured": 258,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 217,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|prepare_review|function exceeds the advisory gene budget",
+        "measured": 222,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 203,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|checkout|function exceeds the advisory gene budget",
+        "measured": 214,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 199,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|send_message|function exceeds the advisory gene budget",
+        "measured": 205,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 116,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|settle|function exceeds the advisory gene budget",
+        "measured": 204,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 187,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "measured": 192,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 144,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "measured": 153,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 1
+      },
+      {
+        "before": 157,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py|_end_membership|function exceeds the advisory gene budget",
+        "measured": 192,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 174,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|approve|function exceeds the advisory gene budget",
+        "measured": 186,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 177,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|claim|function exceeds the advisory gene budget",
+        "measured": 182,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 170,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|approve_review|function exceeds the advisory gene budget",
+        "measured": 179,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 159,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py|test_progressive_batch_claims_keep_search_running_and_aggregate_delivery|function exceeds the advisory gene budget",
+        "measured": 166,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 142,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_handle_live_event|function exceeds the advisory gene budget",
+        "measured": 155,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 120,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_delivery_service.py|prepare|function exceeds the advisory gene budget",
+        "measured": 138,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/tests/test_native_ship_artifact_workflows.py|test_android_release_is_green_main_uat_backed_play_production_and_fail_closed|function exceeds the advisory gene budget",
+        "measured": 138,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 121,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_handle_client_frame|function exceeds the advisory gene budget",
+        "measured": 136,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/business_directory_suggestions.py|project_directory_response|function exceeds the advisory gene budget",
+        "measured": 135,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 114,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|__init__|function exceeds the advisory gene budget",
+        "measured": 130,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py|send|function exceeds the advisory gene budget",
+        "measured": 128,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/tests/one_voice/test_live_mail_tool_selection_eval.py|make_responder|function exceeds the advisory gene budget",
+        "measured": 124,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_client_step_result|function exceeds the advisory gene budget",
+        "measured": 117,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 108,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py|test_request_freezes_all_525_matches_for_only_b|function exceeds the advisory gene budget",
+        "measured": 115,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 106,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py|entry|function exceeds the advisory gene budget",
+        "measured": 113,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 110,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|_ensure_ready|function exceeds the advisory gene budget",
+        "measured": 111,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 86,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/tests/services/test_drive_sharing_center.py|test_metadata_only_previews_counts_and_filtered_pages|function exceeds the advisory gene budget",
+        "measured": 107,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|scripts/ci/cloudrun-retention.py|main|function exceeds the advisory gene budget",
+        "measured": 106,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail.py|_get_mail_access|function exceeds the advisory gene budget",
+        "measured": 102,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail_recipients.py|resolve_recipient_sources|function exceeds the advisory gene budget",
+        "measured": 99,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|scripts/ci/runtime-capacity-budget.py|collect|function exceeds the advisory gene budget",
+        "measured": 96,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/tests/one_voice/test_live_mail_tool_selection_eval.py|test_live_model_selects_mail_tools|function exceeds the advisory gene budget",
+        "measured": 93,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py|_prepare|function exceeds the advisory gene budget",
+        "measured": 90,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_conflicting_batch_calls|function exceeds the advisory gene budget",
+        "measured": 89,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 81,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/tests/one_voice/test_tool_registry_contract.py|test_voice_mail_is_exactly_read_open_access_and_a_reviewed_draft|function exceeds the advisory gene budget",
+        "measured": 87,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 84,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py|test_hosted_backend_bounds_database_connection_fanout|function exceeds the advisory gene budget",
+        "measured": 86,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "function_size|consent-protocol/hushh_mcp/services/business_suggestion_service.py|get_business_suggestion|function exceeds the advisory gene budget",
+        "measured": 84,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 9861,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/components/one-location-agent-page.test.tsx||module exceeds the advisory operon budget",
+        "measured": 9866,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 5778,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py||module exceeds the advisory operon budget",
+        "measured": 5813,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 3349,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/session.py||module exceeds the advisory operon budget",
+        "measured": 3793,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 2773,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py||module exceeds the advisory operon budget",
+        "measured": 2790,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 2362,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py||module exceeds the advisory operon budget",
+        "measured": 2383,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 2310,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/one-voice/session-reducer.test.ts||module exceeds the advisory operon budget",
+        "measured": 2316,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 2250,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/components/consent-center-page-deeplink.test.tsx||module exceeds the advisory operon budget",
+        "measured": 2294,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 2235,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/one-voice/voice-session-provider.tsx||module exceeds the advisory operon budget",
+        "measured": 2245,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 2162,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/tools/mail.py||module exceeds the advisory operon budget",
+        "measured": 2224,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1837,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/consent/document-share-review.tsx||module exceeds the advisory operon budget",
+        "measured": 1860,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1707,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
+        "measured": 1735,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1698,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/services/direct_messages_service.py||module exceeds the advisory operon budget",
+        "measured": 1704,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1656,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/one-voice/__tests__/voice-session-provider.test.tsx||module exceeds the advisory operon budget",
+        "measured": 1679,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1483,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
+        "measured": 1486,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1459,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/components/document-share-review.test.tsx||module exceeds the advisory operon budget",
+        "measured": 1473,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1442,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/gmail/gmail-information-requests-section.tsx||module exceeds the advisory operon budget",
+        "measured": 1446,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1431,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/lib/one-voice/session-reducer.ts||module exceeds the advisory operon budget",
+        "measured": 1435,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1047,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+        "measured": 1376,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1337,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
+        "measured": 1363,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1188,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_payment.py||module exceeds the advisory operon budget",
+        "measured": 1343,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1220,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/app-ui/settings-ui.tsx||module exceeds the advisory operon budget",
+        "measured": 1224,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 1051,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/agent/__tests__/email-draft-card.test.tsx||module exceeds the advisory operon budget",
+        "measured": 1060,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 552,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/one_voice/test_live_mail_tool_selection_eval.py||module exceeds the advisory operon budget",
+        "measured": 911,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/tools/mail_compose.py||module exceeds the advisory operon budget",
+        "measured": 906,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 802,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "measured": 879,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 812,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/agent/email-draft-card.tsx||module exceeds the advisory operon budget",
+        "measured": 859,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 502,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/one-voice/__tests__/one-voice-mail-draft-bridge.test.tsx||module exceeds the advisory operon budget",
+        "measured": 792,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 759,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/services/test_drive_sharing_center.py||module exceeds the advisory operon budget",
+        "measured": 780,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 768,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/services/test_drive_owner_search_postgres.py||module exceeds the advisory operon budget",
+        "measured": 776,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 612,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/one_voice/test_mail_send.py||module exceeds the advisory operon budget",
+        "measured": 771,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 650,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+        "measured": 762,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 696,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/one_voice/tool_selection_eval_support.py||module exceeds the advisory operon budget",
+        "measured": 726,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 702,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/agent/__tests__/agent-turn-stream-panel.test.tsx||module exceeds the advisory operon budget",
+        "measured": 721,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/one-voice/one-voice-mail-draft-bridge.tsx||module exceeds the advisory operon budget",
+        "measured": 706,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 695,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/one-voice/live-client.test.ts||module exceeds the advisory operon budget",
+        "measured": 699,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 676,
+        "disposition": "imported ADK debt",
+        "key": "module_size|scripts/env/doctor.sh||module exceeds the advisory operon budget",
+        "measured": 680,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 673,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/agent/specialist-directive-card.tsx||module exceeds the advisory operon budget",
+        "measured": 679,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 528,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/app-ui/native-chat-chrome.tsx||module exceeds the advisory operon budget",
+        "measured": 648,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 560,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
+        "measured": 626,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py||module exceeds the advisory operon budget",
+        "measured": 617,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 549,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/hushh_mcp/one_voice/protocol.py||module exceeds the advisory operon budget",
+        "measured": 573,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 565,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/components/drive-query-request-card.test.tsx||module exceeds the advisory operon budget",
+        "measured": 570,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 553,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/connections/contact-invitation-sheet.tsx||module exceeds the advisory operon budget",
+        "measured": 561,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/e2e/settings-row-surface.layout.spec.ts||module exceeds the advisory operon budget",
+        "measured": 558,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+        "measured": 546,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 517,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/scripts/native/ios-route-audit.mjs||module exceeds the advisory operon budget",
+        "measured": 541,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/one_voice/test_relay_mail_send.py||module exceeds the advisory operon budget",
+        "measured": 536,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/__tests__/scripts/native-continuity-contract.test.ts||module exceeds the advisory operon budget",
+        "measured": 535,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/components/agent/agent-turn-stream-panel.tsx||module exceeds the advisory operon budget",
+        "measured": 532,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|consent-protocol/tests/one_voice/test_mail_compose.py||module exceeds the advisory operon budget",
+        "measured": 515,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "imported ADK debt",
+        "key": "module_size|hushh-webapp/lib/one-voice/protocol.ts||module exceeds the advisory operon budget",
+        "measured": 501,
+        "rationale": "Incoming source verified at frozen ADK31932bb01ae9; no parallel authority introduced.",
+        "slot": 0
+      },
+      {
+        "before": 4621,
+        "disposition": "reviewed coupled contract",
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|GmailReceiptsService|class exceeds the advisory operon budget",
+        "measured": 4659,
+        "rationale": "The new account-subject checks bracket token refresh, direct-owner hub content refusal retires legacy sync, and transition/revocation publication stays with its established receipts owner. Moving guards away from their await/credential effects solely for size would weaken reviewability.",
+        "slot": 0
+      },
+      {
+        "before": 1991,
+        "disposition": "reviewed coupled contract",
+        "key": "class_size|consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py|PersonalAgentRegistryRepo|class exceeds the advisory operon budget",
+        "measured": 1996,
+        "rationale": "The only added five lines expose provider-schema admission through the existing repository facade; the authority stays in capability_contract. This is a small cohesive facade addition.",
+        "slot": 0
+      },
+      {
+        "before": 1678,
+        "disposition": "reviewed coupled contract",
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py|PersonalGmailInformationRequestService|class exceeds the advisory operon budget",
+        "measured": 1681,
+        "rationale": "The three-line addition passes the prepared sender token into the existing reply delivery call, preserving the reviewed sender identity through that exact dispatch.",
+        "slot": 0
+      },
+      {
+        "before": 1071,
+        "disposition": "reviewed coupled contract",
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_delivery_service.py|GmailDeliveryService|class exceeds the advisory operon budget",
+        "measured": 1353,
+        "rationale": "The new dispatch placement gate and bound-envelope definitely-unsent settlement are coupled to provider_attempted, the claimed action, and failure handling in execute. They preserve current action identity, unknown-outcome semantics, and retry safety.",
+        "slot": 0
+      },
+      {
+        "before": 903,
+        "disposition": "reviewed coupled contract",
+        "key": "class_size|consent-protocol/hushh_mcp/services/gcp_backend.py|GcpBackend|class exceeds the advisory operon budget",
+        "measured": 908,
+        "rationale": "The five-line min_instances == 0 idle window belongs to existing pod environment rendering; it preserves the already-authored idle policy without a second provider-selection or lifecycle authority.",
+        "slot": 0
+      },
+      {
+        "before": 317,
+        "disposition": "bounded extraction; tightened ceiling",
+        "key": "class_size|consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py|PodGmailDoorbell|class exceeds the advisory operon budget",
+        "measured": 293,
+        "rationale": "Bounded history traversal was a valid pilot extraction; the remaining sealed snapshot CAS, connection/account binding, consent check, queue receipt and settlement are one authority owner and must stay cohesive.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "resolved by bounded extraction",
+        "key": "class_size|consent-protocol/hushh_mcp/services/user_azure_backend.py|UserAzureBackend|class exceeds the advisory operon budget",
+        "measured": null,
+        "rationale": "Capability inspection, acknowledgement discovery and installation qualification have a genuine existing Azure provisioning seam. The backend facades remain part of the canonical provider contract.",
+        "slot": 0
+      },
+      {
+        "before": 288,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/hushh_mcp/services/gmail_delivery_service.py|execute|function exceeds the advisory gene budget",
+        "measured": 374,
+        "rationale": "The new dispatch placement gate and bound-envelope definitely-unsent settlement are coupled to provider_attempted, the claimed action, and failure handling in execute. They preserve current action identity, unknown-outcome semantics, and retry safety.",
+        "slot": 0
+      },
+      {
+        "before": 313,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/hushh_mcp/services/gcp_backend.py|render_deploy_config|function exceeds the advisory gene budget",
+        "measured": 318,
+        "rationale": "The five-line min_instances == 0 idle window belongs to existing pod environment rendering; it preserves the already-authored idle policy without a second provider-selection or lifecycle authority.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|deploy/observability/reconcile_capacity.py|reconcile|function exceeds the advisory gene budget",
+        "measured": 231,
+        "rationale": "The extra ten function lines compose commerce metric/dashboard selection in the existing capacity reconciler. This is actual merge worsening, but its flags and selected outputs are one operational workflow; an exact exception needs repo-operations/commerce owner review, not BYOC unilateral restructuring.",
+        "slot": 0
+      },
+      {
+        "before": 155,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|adopt_orphan|function exceeds the advisory gene budget",
+        "measured": 156,
+        "rationale": "The one-line adopt_orphan increase carries files_library_enabled into the existing adoption PodSpec. It is part of the same adoption state and owner restoration contract.",
+        "slot": 0
+      },
+      {
+        "before": 145,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/tests/services/test_scheduled_mail_drain.py|_run|function exceeds the advisory gene budget",
+        "measured": 152,
+        "rationale": "The seven-line net fixture increase adds the required send_at field to the existing claimed-row projection and formats that tuple; this is not a new behavioral subsystem. Fragmenting _run for this measurement would be line-count-driven.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/tests/test_user_azure_backend.py|test_files_late_receipts_keep_exact_owner_inventory_during_erasure|function exceeds the advisory gene budget",
+        "measured": 138,
+        "rationale": "The 138-line late-receipt test exercises the actual SQL owner inventory/erasure refusal contract and exact negative bindings as one sequence. The module groups canonical Azure backend authority tests. Keep its core assertions cohesive; only genuinely repeated fixture setup should move.",
+        "slot": 0
+      },
+      {
+        "before": 90,
+        "disposition": "resolved by bounded extraction",
+        "key": "function_size|consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py|_advance|function exceeds the advisory gene budget",
+        "measured": null,
+        "rationale": "Bounded history traversal was a valid pilot extraction; the remaining sealed snapshot CAS, connection/account binding, consent check, queue receipt and settlement are one authority owner and must stay cohesive.",
+        "slot": 0
+      },
+      {
+        "before": 91,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/pod_server.py|_pod_startup|function exceeds the advisory gene budget",
+        "measured": 107,
+        "rationale": "Paired Azure Files worker start/stop is lifecycle composition in the existing pod process owner, with the app-owned task and shutdown cancellation. The entrypoint must retain startup ordering and the exact machine wall.",
+        "slot": 0
+      },
+      {
+        "before": 100,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/api/routes/one/pod_connectors.py|run_connector_put|function exceeds the advisory gene budget",
+        "measured": 106,
+        "rationale": "The six added lines arm Gmail watch only after successful connector put and confirmed legacy cleanup. Keeping this order beside successful-connect finalization makes the admission boundary explicit.",
+        "slot": 0
+      },
+      {
+        "before": 90,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/tests/test_pod_files_selection_postgres.py|test_selection_is_bound_to_current_job_and_preserves_unrelated_metadata|function exceeds the advisory gene budget",
+        "measured": 98,
+        "rationale": "The eight-line addition is an explicit cross-deployment negative control: a job selected for user_gcp must not publish after deployment_target switches to gcp. Its reset continues the same current-job CAS test.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "resolved by bounded extraction",
+        "key": "function_size|consent-protocol/hushh_mcp/services/azure_container_app_renderer.py|render_container_app|function exceeds the advisory gene budget",
+        "measured": null,
+        "rationale": "The new Files validator/render helper has a cohesive existing configuration seam; after that pilot, the established Container App rendering contract should retain its facade and single checked resource binding.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/tests/test_pod_gmail_local.py|test_owner_read_settles_only_returned_notification_ids_and_fences_replay|function exceeds the advisory gene budget",
+        "measured": 84,
+        "rationale": "The 84-line owner-read test deliberately sequences returned-ID settlement, replay fencing, revocation/reconnection and bounded deletion recovery; these authority effects are one regression scenario, not duplicate unit coverage.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "reviewed coupled contract",
+        "key": "function_size|consent-protocol/tests/test_azure_agent_upgrade_handoff.py|test_files_update_uses_exact_approval_and_checkpoints_even_on_same_image|function exceeds the advisory gene budget",
+        "measured": 83,
+        "rationale": "The 83-line test proves exact approved Files activation and checkpointing even on an unchanged image, then immutable recovery-prefix refusal. It is one update/recovery safety contract; keep the assertions together.",
+        "slot": 0
+      },
+      {
+        "before": 10462,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+        "measured": 10617,
+        "rationale": "The 71-line increase composes explicit connector transition review, exact reviewed-card identity, uncertain queued-delivery settlement gating, and the separately gated ComputerUseOwnerBridge. Those callbacks are bound to the existing vault/session/workspace state. A future queued-delivery controller is a valid bounded seam, but forcing a split during qualification risks losing the receipt/owner binding.",
+        "slot": 0
+      },
+      {
+        "before": 4981,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py||module exceeds the advisory operon budget",
+        "measured": 5019,
+        "rationale": "The new account-subject checks bracket token refresh, direct-owner hub content refusal retires legacy sync, and transition/revocation publication stays with its established receipts owner. Moving guards away from their await/credential effects solely for size would weaken reviewability.",
+        "slot": 0
+      },
+      {
+        "before": 2414,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/services/test_gmail_receipts_service.py||module exceeds the advisory operon budget",
+        "measured": 2475,
+        "rationale": "The focused actual-account/current-grant test protects send-token rotation and revocation races in the nearest receipts test owner. Keep the parameterized security negative control cohesive.",
+        "slot": 0
+      },
+      {
+        "before": 2212,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py||module exceeds the advisory operon budget",
+        "measured": 2217,
+        "rationale": "The only added five lines expose provider-schema admission through the existing repository facade; the authority stays in capability_contract. This is a small cohesive facade addition.",
+        "slot": 0
+      },
+      {
+        "before": 2190,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py||module exceeds the advisory operon budget",
+        "measured": 2193,
+        "rationale": "The three-line addition passes the prepared sender token into the existing reply delivery call, preserving the reviewed sender identity through that exact dispatch.",
+        "slot": 0
+      },
+      {
+        "before": 2075,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/services/test_gmail_personal_information_request_service.py||module exceeds the advisory operon budget",
+        "measured": 2123,
+        "rationale": "The added dedicated-reply regression protects the exact prepared sender review through reply dispatch in the nearest request test owner.",
+        "slot": 0
+      },
+      {
+        "before": 2079,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/test_byoc_bootstrap_and_custody.py||module exceeds the advisory operon budget",
+        "measured": 2083,
+        "rationale": "The four-line addition checks the exact frozen owner HTTP job URI against an actually mounted POST route for both existing/new scheduler jobs. It is the negative control for the scheduler mount regression, not incidental wiring.",
+        "slot": 0
+      },
+      {
+        "before": 1636,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/services/test_gmail_delivery_service.py||module exceeds the advisory operon budget",
+        "measured": 2002,
+        "rationale": "The nine-line fixture explicitly selects shared placement for pre-existing Gmail delivery contract tests; it makes the new admission guard observable without altering the delivery assertions.",
+        "slot": 0
+      },
+      {
+        "before": 1520,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_delivery_service.py||module exceeds the advisory operon budget",
+        "measured": 1805,
+        "rationale": "The new dispatch placement gate and bound-envelope definitely-unsent settlement are coupled to provider_attempted, the claimed action, and failure handling in execute. They preserve current action identity, unknown-outcome semantics, and retry safety.",
+        "slot": 0
+      },
+      {
+        "before": 1254,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+        "measured": 1493,
+        "rationale": "The sole added line snapshots editingContent before an awaited edit operation. It fixes mutable UI state continuity within that exact operation; there is no new subsystem to extract.",
+        "slot": 0
+      },
+      {
+        "before": 1325,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/one_voice/test_tools_mail.py||module exceeds the advisory operon budget",
+        "measured": 1402,
+        "rationale": "The seven-line fixture explicitly qualifies shared owner placement for the existing mail tool contract. It retains the existing consent/tool owner rather than duplicating it.",
+        "slot": 0
+      },
+      {
+        "before": 1282,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/hushh_mcp/services/gcp_backend.py||module exceeds the advisory operon budget",
+        "measured": 1287,
+        "rationale": "The five-line min_instances == 0 idle window belongs to existing pod environment rendering; it preserves the already-authored idle policy without a second provider-selection or lifecycle authority.",
+        "slot": 0
+      },
+      {
+        "before": 1227,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+        "measured": 1259,
+        "rationale": "The net growth against common92 is the cohesive commerce directory/UAT/local-rehearsal flag getters and environment map; the commerce merge already reduced 1266 to 1259 by using runtime_environment. Existing public getter ordering and keys must remain stable; review exact 1259 with the commerce/runtime owner.",
+        "slot": 0
+      },
+      {
+        "before": 1086,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|hushh-webapp/lib/agent/agent-pkm-memory.ts||module exceeds the advisory operon budget",
+        "measured": 1099,
+        "rationale": "The net five-line increase repairs idempotency: per-card scope takes precedence, otherwise an operation scope is made unique by cardId. This belongs beside the existing canonical PKM write coordinator and creates no second persistence authority.",
+        "slot": 0
+      },
+      {
+        "before": 951,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/services/test_scheduled_mail_postgres.py||module exceeds the advisory operon budget",
+        "measured": 1084,
+        "rationale": "The real Postgres fixture binds the synchronous placement authority to the same disposable database, plus one parameterized refusal regression distinguishes unplaced from unavailable owners. It preserves the exact sealed payload and definitely-unsent semantics.",
+        "slot": 0
+      },
+      {
+        "before": 984,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/services/test_scheduled_mail_drain.py||module exceeds the advisory operon budget",
+        "measured": 991,
+        "rationale": "The seven-line net fixture increase adds the required send_at field to the existing claimed-row projection and formats that tuple; this is not a new behavioral subsystem. Fragmenting _run for this measurement would be line-count-driven.",
+        "slot": 0
+      },
+      {
+        "before": 799,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|hushh-webapp/lib/one-voice/live-client.ts||module exceeds the advisory operon budget",
+        "measured": 805,
+        "rationale": "The four added lines translate AGENT_PRIVATE_RUNTIME_REQUIRED and AGENT_HOSTING_UNAVAILABLE into existing public voice refusal reasons. This is the existing error-frame mapping contract.",
+        "slot": 0
+      },
+      {
+        "before": 779,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
+        "measured": 782,
+        "rationale": "The three-line net increase preserves an existing Azure job\u2019s explicit Files selection when signing in again; it is coupled to setup continuation rather than a new selection authority.",
+        "slot": 0
+      },
+      {
+        "before": 711,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/pod_server.py||module exceeds the advisory operon budget",
+        "measured": 739,
+        "rationale": "Paired Azure Files worker start/stop is lifecycle composition in the existing pod process owner, with the app-owned task and shutdown cancellation. The entrypoint must retain startup ordering and the exact machine wall.",
+        "slot": 0
+      },
+      {
+        "before": 548,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+        "measured": 728,
+        "rationale": "The modified existing edit/retry assertions protect content snapshot continuity through asynchronous message editing. They remain with the nearest direct-message behavioral test.",
+        "slot": 0
+      },
+      {
+        "before": 699,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/test_one_gmail_delivery_routes.py||module exceeds the advisory operon budget",
+        "measured": 715,
+        "rationale": "The ten-line fixture explicitly qualifies shared owner placement for existing route contract tests under the new route/service admission boundary.",
+        "slot": 0
+      },
+      {
+        "before": 714,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|hushh-webapp/e2e/boot-surface.layout.spec.ts||module exceeds the advisory operon budget",
+        "measured": 715,
+        "rationale": "The net one-line composition refines the existing boot/viewport scenario and reuse of its assertions. Browser layout gates remain owned by CI; this source review does not claim live browser qualification.",
+        "slot": 0
+      },
+      {
+        "before": 623,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/hushh_mcp/runtime_providers/factory.py||module exceeds the advisory operon budget",
+        "measured": 641,
+        "rationale": "The added provider controls carry the exact owner runtime binding and gated Puppy selection/refusal through the existing factory. It remains the single provider router; moving a guard solely to reduce size is not an authority improvement.",
+        "slot": 0
+      },
+      {
+        "before": 596,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|hushh-webapp/lib/services/secure-resource-cache-service.ts||module exceeds the advisory operon budget",
+        "measured": 614,
+        "rationale": "The eighteen-line readRequired addition distinguishes absence from corrupt/unavailable/expired encrypted recovery storage, refusing rather than deleting an envelope or inventing a new job. It belongs with the canonical encrypted cache read/write owner.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/test_user_azure_backend.py||module exceeds the advisory operon budget",
+        "measured": 581,
+        "rationale": "The 138-line late-receipt test exercises the actual SQL owner inventory/erasure refusal contract and exact negative bindings as one sequence. The module groups canonical Azure backend authority tests. Keep its core assertions cohesive; only genuinely repeated fixture setup should move.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "resolved by bounded extraction",
+        "key": "module_size|consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py||module exceeds the advisory operon budget",
+        "measured": null,
+        "rationale": "Bounded history traversal was a valid pilot extraction; the remaining sealed snapshot CAS, connection/account binding, consent check, queue receipt and settlement are one authority owner and must stay cohesive.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/test_pod_files_jobs.py||module exceeds the advisory operon budget",
+        "measured": 579,
+        "rationale": "The new nearest Files jobs test owner covers one lifecycle contract: lease/ack durability, duplicate/restart, cancel/drain, and scoped information access. A 579-line module alone is not evidence that the contract tests should be fragmented.",
+        "slot": 0
+      },
+      {
+        "before": 565,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/test_pod_puppy_relay_route.py||module exceeds the advisory operon budget",
+        "measured": 566,
+        "rationale": "The net one-line increase parameterizes the existing idle-heartbeat regression for 600 and 900 seconds. It preserves the same signed owner/pod/device relay negative control.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "resolved by bounded extraction",
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_setup_plan.py||module exceeds the advisory operon budget",
+        "measured": null,
+        "rationale": "The key/secret/blob/queue custody builder is a valid cohesive pilot extraction; role/resource authority remains with the existing canonical setup-plan contracts.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "resolved by bounded extraction",
+        "key": "module_size|consent-protocol/hushh_mcp/services/azure_agent_upgrade.py||module exceeds the advisory operon budget",
+        "measured": null,
+        "rationale": "Pure replacement/suffix/import-source configuration has a valid pilot seam. Provider write ordering, exact approval, checkpoint evidence, same-image behavior and terminal observation must stay together in upgrade orchestration.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/tests/test_pod_files_provisioning.py||module exceeds the advisory operon budget",
+        "measured": 532,
+        "rationale": "The 532-line module is the nearest cohesive Files capability/owner resource/teardown/receipt admission contract test owner; preserve the existing negative controls instead of splitting only to reach 500.",
+        "slot": 0
+      },
+      {
+        "before": null,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/api/routes/one/byoc_azure.py||module exceeds the advisory operon budget",
+        "measured": 531,
+        "rationale": "This is the existing Azure authorize/setup/upgrade API surface: typed public models, route authority, selection and admission compose one flow. Its 531-line module has no over-budget class/function finding; a 500-line split alone would not establish a better authority boundary.",
+        "slot": 0
+      },
+      {
+        "before": 516,
+        "disposition": "reviewed coupled contract",
+        "key": "module_size|consent-protocol/api/routes/one/gmail_information_requests.py||module exceeds the advisory operon budget",
+        "measured": 518,
+        "rationale": "The two-line module increase installs the shared hub_content_owner dependency and hub_content_inline monitor guard across existing endpoints. This keeps authority at the route boundary; the earlier generic delivery-projection extraction suggestion is not the source change here.",
+        "slot": 0
+      }
+    ],
+    "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
+  },
   "review": {
     "account_service_deprovision_fix": "Reviewed 2026-10-06: 2793 to 2797, the account erasure deprovision built as the route builds it (registry + backend); a bare constructor raised TypeError since 2026-09-08.",
     "additional_reviewed_entries": [

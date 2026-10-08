@@ -21,15 +21,19 @@ from typing import Any, Awaitable, Callable, Optional
 import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
+from hushh_mcp.services import pod_gmail_history as history
 from hushh_mcp.services import pod_gmail_work as work_queue
 from hushh_mcp.services.pod_connector_tokens import ConnectorTokenError, google_token_source
+from hushh_mcp.services.pod_gmail_history import (
+    GmailDoorbellUnavailable as GmailDoorbellUnavailable,
+)
+from hushh_mcp.services.pod_gmail_history import history_id as _history_id
 
 logger = logging.getLogger(__name__)
 
 WATCH_KIND = "pod_gmail_watch_v1"
 RENEW_WATCH = "renew-watch"
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
-_MAX_PAGES = 5
 Listener = Callable[[list[str]], Awaitable[None]]
 _LISTENERS: list[Listener] = []
 
@@ -44,11 +48,6 @@ def on_new_mail(listener: Listener) -> None:
         _LISTENERS.append(listener)
 
 
-def _history_id(value: Any) -> Optional[int]:
-    text = str(value or "").strip()
-    return int(text) if text.isascii() and text.isdigit() and len(text) <= 20 else None
-
-
 def mail_topic() -> str:
     """Explicit topic in the OAuth developer project, on either owner cloud."""
     topic = (os.environ.get("POD_GMAIL_TOPIC") or "").strip()
@@ -57,10 +56,6 @@ def mail_topic() -> str:
         if re.fullmatch(r"projects/[a-z0-9-]+/topics/[A-Za-z][A-Za-z0-9_.~+%-]{2,254}", topic)
         else ""
     )
-
-
-class GmailDoorbellUnavailable(RuntimeError):
-    """Provider delivery retries; expired history remains pending for explicit recovery."""
 
 
 class PodGmailDoorbell:
@@ -193,179 +188,23 @@ class PodGmailDoorbell:
         return email, history
 
     async def _history_page(self, token: str, start: int, page: str = "") -> dict[str, Any]:
-        params = {
-            "startHistoryId": str(start),
-            "historyTypes": "messageAdded",
-            "labelId": "INBOX",
-            "maxResults": 100,
-        }
-        if page:
-            params["pageToken"] = page
-        status, body = await self._call("GET", "/history", token, params=params)
-        if status == 404:
-            raise GmailDoorbellUnavailable("HISTORY_GAP_REQUIRES_RECOVERY")
-        if status != 200 or _history_id(body.get("historyId")) is None:
-            raise GmailDoorbellUnavailable("HISTORY_UNAVAILABLE")
-        ids: list[str] = []
-        for entry in body.get("history") or []:
-            for added in (entry or {}).get("messagesAdded") or []:
-                message_id = str(((added or {}).get("message") or {}).get("id") or "")
-                if message_id and message_id not in ids:
-                    if len(message_id) > 256 or len(ids) >= 1000:
-                        raise GmailDoorbellUnavailable("HISTORY_PAGE_TOO_LARGE")
-                    ids.append(message_id)
-        next_page = str(body.get("nextPageToken") or "")
-        if len(next_page) > 4096:
-            raise GmailDoorbellUnavailable("HISTORY_PAGE_TOO_LARGE")
-        return {"ids": ids, "next": next_page, "newest": str(body["historyId"])}
+        return await history.read_page(self, token, start, page)
+
+    @property
+    def history_sequence(self) -> int:
+        return self._cursor.seq if self._cursor else 0
 
     async def _advance(
         self, token: str, email: str, to: Optional[int], binding: dict[str, str]
     ) -> dict[str, Any]:
-        work_queue.require_binding(binding)
-        point = await self.stored_point()
-        start = _history_id((point or {}).get("historyId"))
-        if start is None:
-            raise GmailDoorbellUnavailable("WATCH_BASELINE_REQUIRED")
-        if (
-            point.get("emailAddress") != email
-            or point.get("accountSubject") != binding["accountSubject"]
-        ):
-            raise GmailDoorbellUnavailable("MAILBOX_CHANGED_REQUIRES_RECOVERY")
-        if (point.get("work") or {}).get("messageIds"):
-            work_queue.require_binding(point["work"])
-        pending = dict(point.get("pending") or {})
-        if pending.get("batch") and not pending.get("binding"):
-            raise GmailDoorbellUnavailable("MAILBOX_CHANGED_REQUIRES_RECOVERY")
-        if pending.get("binding"):
-            work_queue.require_binding(pending["binding"])
-        if to is not None and to <= start and not pending:
-            return {"status": "duplicate", "new": 0}
-        target = max(_history_id(pending.get("target")) or start, to or start)
-        if not pending or target != _history_id(pending.get("target")):
-            pending.update(target=str(target), binding=binding)
-            await self._store(start, email, **self._watch_fields(point), pending=pending)
-        count = 0
-        for _ in range(_MAX_PAGES):
-            point = await self.stored_point()
-            observed_seq = self._cursor.seq if self._cursor else 0
-            if int(point["historyId"]) != start:
-                raise GmailDoorbellUnavailable("WORK_CHANGED_RETRY")
-            pending = dict(point.get("pending") or {})
-            batch = pending.get("batch")
-            if batch is None:
-                try:
-                    batch = await self._history_page(token, start, str(pending.get("page") or ""))
-                except GmailDoorbellUnavailable as exc:
-                    pending["errorCode"] = str(exc)
-                    await self._store(
-                        start,
-                        email,
-                        expected_seq=observed_seq,
-                        **self._watch_fields(point),
-                        pending=pending,
-                    )
-                    raise
-                pending["batch"] = batch
-                pending.pop("errorCode", None)
-                await self._store(
-                    start,
-                    email,
-                    expected_seq=observed_seq,
-                    **self._watch_fields(point),
-                    pending=pending,
-                )
-                observed_seq = self._cursor.seq if self._cursor else 0
-            # Sinks must commit durably before returning and dedupe replayed IDs.
-            # A crash can repeat a page, but can never publish a cursor ahead of it.
-            try:
-                # The identifier consumer and cursor share one sealed CAS below.
-                # Optional sinks must also be durable and idempotent before return.
-                work = work_queue.enqueue(point, list(batch["ids"]), binding)
-                for listener in tuple(_LISTENERS):
-                    await listener(list(batch["ids"]))
-                work_queue.require_binding(binding)
-            except Exception as exc:
-                reason = str(exc)
-                pending["errorCode"] = (
-                    reason
-                    if reason
-                    in {
-                        "OWNER_READ_BACKLOG_FULL",
-                        "MAILBOX_CHANGED_REQUIRES_RECOVERY",
-                        "MAILBOX_CONNECTION_UNAVAILABLE",
-                    }
-                    else "LISTENER_UNAVAILABLE"
-                )
-                await self._store(
-                    start,
-                    email,
-                    expected_seq=observed_seq,
-                    **self._watch_fields(point),
-                    pending=pending,
-                )
-                raise
-            count += len(batch["ids"])
-            fields = {**self._watch_fields(point), "work": work}
-            if batch["next"]:
-                pending.pop("batch", None)
-                pending.pop("errorCode", None)
-                pending.update(
-                    page=batch["next"],
-                    newest=str(
-                        max(_history_id(pending.get("newest")) or start, int(batch["newest"]))
-                    ),
-                )
-                await self._store(
-                    start,
-                    email,
-                    expected_seq=observed_seq,
-                    **fields,
-                    pending=pending,
-                )
-                continue
-            newest = max(start, int(batch["newest"]), _history_id(pending.get("newest")) or start)
-            # Only Gmail's fully drained history supplies the completed highwater.
-            remaining = {"target": pending["target"]} if target > newest else {}
-            await self._store(
-                newest,
-                email,
-                expected_seq=observed_seq,
-                **fields,
-                pending=remaining,
-            )
-            return {"status": "pending" if remaining else "queued_for_owner_read", "new": count}
-        return {"status": "pending", "new": count}
+        return await history.advance(self, token, email, to, binding, tuple(_LISTENERS))
 
     @staticmethod
     def _watch_fields(point: dict[str, Any]) -> dict[str, Any]:
-        return {
-            key: point[key]
-            for key in (
-                "watchExpiresMs",
-                "watchRenewedMs",
-                "watchTopic",
-                "watchConfigGeneration",
-                "work",
-                "accountSubject",
-            )
-            if key in point
-        }
+        return history.watch_fields(point)
 
     async def notification_status(self) -> dict[str, Any]:
-        """Owner/operator projection; no mailbox address or message identifiers."""
-        point = await self.stored_point() or {}
-        pending = point.get("pending") or {}
-        queued = len((point.get("work") or {}).get("messageIds") or [])
-        return {
-            "status": "pending" if pending else "queued_for_owner_read" if queued else "idle",
-            "errorCode": pending.get("errorCode"),
-            "pagePending": bool(pending.get("page")),
-            "batchCount": len((pending.get("batch") or {}).get("ids", [])),
-            "queuedCount": queued,
-            "watchExpiresMs": point.get("watchExpiresMs"),
-            "configGeneration": point.get("watchConfigGeneration"),
-        }
+        return await history.notification_status(self)
 
     async def queued_work(self) -> dict[str, Any] | None:
         """Private receipt used by the owner reader; never sent through the hub."""

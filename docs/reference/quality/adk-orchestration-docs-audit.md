@@ -108,19 +108,25 @@ access or starts an update. The current announcement catalog is dev-only.
 
 ### Reviewed integration debt
 
-The reviewed baseline adjusts only 25 measured findings on 18 paths: 19 match
-incoming main; six combine incoming behavior with owner/admission fences.
-Direct-message negative controls cover stale authorization, success and failure.
-Generated contracts and workflow compatibility aliases come from their owners.
-All other debt and 500/250/80 budgets remain; new or worsened debt still blocks.
-Prior source rendered 181 Mermaid figures; that dated result is not cloud acceptance.
+At integrated source `27375a3d2`, the unchanged ratchet identified 99 imported
+ADK findings and 53 composition findings. The review preserves exact source and
+per-finding rationale in [the baseline](./architecture-fitness-baseline.json).
+Bounded Gmail history, Azure custody/configuration and Files-adapter extractions
+resolve six findings and tighten one. The remaining 46 are individually reviewed
+coupled authority, lifecycle, merge and core-test additions. This is visible debt;
+500/250/80 budgets and the full new-or-worsened gate remain unchanged.
+Compatibility facades retain existing callers. Nearest checks passed (107
+Gmail/Azure checks, 76 Azure lifecycle checks and 40 Files/setup checks; overlapping
+suites are not additive). Prior source rendered 181 Mermaid figures; that dated
+result is not cloud acceptance.
 
 ## Next gate and historical boundaries
 
 One normal-owner window must prove setup/provider transitions, Files, direct
 Puppy, exact update/recovery and bounded wake/idle behavior on the qualified image.
-Computer Use acceptance remains separate for each cloud. Source and dev release
-verification are complete for the named candidate; the journey matrix is not.
+Computer Use acceptance remains separate for each cloud. The dated dev release
+receipts above remain historical; the combined candidate requires its own CI,
+deployment and journey receipts.
 The isolated restore target is removed. Its restricted recovery point is retained
 only until a successful routine backup newer than this release is verified; the
 operations owner then deletes that exact rehearsal copy. Existing backups remain.

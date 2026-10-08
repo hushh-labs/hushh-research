@@ -22,18 +22,16 @@ and from the same pod-only release repository setup imports from (``import_sourc
 
 from __future__ import annotations
 
-import copy
 import logging
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
-from hushh_mcp.services.azure_agent_setup import binding_is_valid, parse_source_image
+from hushh_mcp.services.azure_agent_setup import binding_is_valid
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
 from hushh_mcp.services.azure_container_app_renderer import (
     INCARNATION_TAG,
     image_reference,
-    refuse_metered_configuration,
 )
 from hushh_mcp.services.azure_image_source import import_credentials, release_source
 from hushh_mcp.services.azure_setup_applier import AzureSetupRefused, resolve
@@ -43,6 +41,18 @@ from hushh_mcp.services.azure_setup_plan import (
     Scopes,
     import_image_step,
     resource_names,
+)
+from hushh_mcp.services.azure_upgrade_configuration import (
+    IDLE_GRACE_ENV as IDLE_GRACE_ENV,
+)
+from hushh_mcp.services.azure_upgrade_configuration import (
+    replacement_body as replacement_body,
+)
+from hushh_mcp.services.azure_upgrade_configuration import (
+    revision_suffix as revision_suffix,
+)
+from hushh_mcp.services.azure_upgrade_configuration import (
+    verified_import_source,
 )
 from hushh_mcp.services.compute_backend import BackendHandle, PodSpec
 from hushh_mcp.services.pod_release import is_immutable_image_reference
@@ -78,56 +88,6 @@ UNCONFIRMED_MESSAGE = (
 #: agent or any other refusal is no proof either way, so it is unconfirmed at once.
 _TRANSIENT_ARM_KINDS = frozenset({"throttled", "server"})
 
-#: Writable fields of a container app; everything else ARM computes.
-_WRITABLE = ("location", "tags", "identity")
-_WRITABLE_PROPERTIES = ("environmentId", "workloadProfileName", "configuration", "template")
-
-
-def revision_suffix(attempt_id: str) -> str:
-    """Lowercase alphanumeric, short, and unique to one upgrade attempt."""
-    clean = "".join(ch for ch in str(attempt_id or "").lower() if ch.isalnum())
-    if len(clean) < 8:
-        raise ValueError("an upgrade needs its attempt id to name the new revision")
-    return f"u{clean[:12]}"
-
-
-#: The economy idle window every scale-to-zero agent runs with (the renderer's value).
-IDLE_GRACE_ENV = {"name": "POD_IDLE_GRACE_SECONDS", "value": "600"}
-
-
-def _carry_idle_window(template: dict[str, Any], container: dict[str, Any]) -> None:
-    """Give a scale-to-zero agent set up before the idle window existed that window.
-
-    Azure has one profile (minReplicas 0), so this is part of it, not an opt-in; an
-    agent without it never released an idle Puppy socket and stayed warm. A value the
-    agent already carries is never changed.
-    """
-    if ((template.get("scale") or {}).get("minReplicas")) != 0:
-        return
-    env = container.setdefault("env", [])
-    if not any(entry.get("name") == IDLE_GRACE_ENV["name"] for entry in env):
-        env.append(dict(IDLE_GRACE_ENV))
-
-
-def replacement_body(app: dict[str, Any], *, image: str, suffix: str) -> dict[str, Any]:
-    """The existing agent with one image and one revision suffix changed."""
-    body = {key: copy.deepcopy(app[key]) for key in _WRITABLE if key in app}
-    properties = app.get("properties") or {}
-    body["properties"] = {
-        key: copy.deepcopy(properties[key]) for key in _WRITABLE_PROPERTIES if key in properties
-    }
-    template = body["properties"].setdefault("template", {})
-    template["revisionSuffix"] = suffix
-    containers = template.get("containers") or []
-    if len(containers) != 1:
-        raise ValueError("the agent runs exactly one container")
-    containers[0]["image"] = image
-    _carry_idle_window(template, containers[0])
-    # Secrets are Key Vault references (name, URL, identity), so the GET shape is
-    # exactly what a replace must carry; no secret value ever transits Hussh here.
-    refuse_metered_configuration(body)
-    return body
-
 
 def _fence(app: dict[str, Any], spec: PodSpec, expected_uid: str) -> tuple[str, str]:
     tags = app.get("tags") or {}
@@ -143,20 +103,7 @@ def _image(app: dict[str, Any]) -> str:
 
 
 def import_source(approved: str) -> tuple[str, str, str]:
-    """(registry, repository, digest) the person's registry imports the approved image from.
-
-    The approval, the acknowledgement and the agent's reported image all stay bound to
-    ``approved``; only where those bytes are read from moves, to the pod-only release
-    repository the image reader is granted (``release_source``), exactly as setup does.
-    Reading the hub's own reference instead would ask the reader for a repository it is
-    deliberately not granted. A digest names exact bytes, so a mapping that reads any
-    other digest is refused.
-    """
-    _, _, approved_digest = parse_source_image(approved)
-    registry, repository, digest = parse_source_image(release_source(approved))
-    if digest != approved_digest:
-        raise RuntimeError("the import source must name the approved digest")
-    return registry, repository, digest
+    return verified_import_source(approved, release_source(approved))
 
 
 def upgrade_agent(
