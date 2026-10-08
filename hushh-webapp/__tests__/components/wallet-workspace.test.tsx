@@ -174,14 +174,14 @@ describe("WalletWorkspace at scale", () => {
     await screen.findByTestId("wallet-add-collection");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     fillCard();
-    fireEvent.click(screen.getByTestId("secure-card-save"));
+    await act(async () => { fireEvent.click(screen.getByTestId("secure-card-save")); });
     await screen.findByTestId("wallet-selected-card");
     expect(screen.getByRole("button", { name: "Open New card, ending 4242" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
-    // Use the visible navigation action, then wait for the deck to render after
-    // the save-to-Cards transition instead of reading during its lifecycle.
-    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    // Await the user interactions so the save-to-Cards lifecycle commits
+    // before returning to the deck; its complete storage order stays asserted.
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true })); });
     await waitFor(() => expect(screen.getAllByTestId(/^wallet-add-layer-/).map((el) => el.getAttribute("data-testid"))).toEqual(["wallet-add-layer-agent-one-profile", "wallet-add-layer-agent-one-referral", "wallet-add-layer-agent-one-nws", "wallet-add-layer-1000", "wallet-add-layer-1001", "wallet-add-layer-4242"]));
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
   });
