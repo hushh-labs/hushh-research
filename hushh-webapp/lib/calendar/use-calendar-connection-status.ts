@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   GoogleCalendarService,
@@ -40,38 +40,84 @@ export function useCalendarConnectionStatus({
   idTokenProvider,
   enabled = true,
 }: UseCalendarConnectionStatusParams): UseCalendarConnectionStatusResult {
-  const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [state, setState] = useState<{
+    owner: string | null;
+    status: GoogleCalendarStatus | null;
+    loading: boolean;
+    loaded: boolean;
+    error: string | null;
+  }>({ owner: null, status: null, loading: false, loaded: false, error: null });
+  const active = useRef(userId);
+  active.current = userId;
+  const sequence = useRef(0);
+  const inFlight = useRef<string | null>(null);
+  const invalidate = useCallback(() => {
+    sequence.current += 1;
+    inFlight.current = null;
+  }, []);
+  useEffect(() => () => invalidate(), [userId, enabled, invalidate]);
 
   const canLoad = Boolean(enabled && userId && idTokenProvider);
 
   const load = useCallback(async () => {
-    if (!userId || !idTokenProvider) return;
-    setLoading(true);
-    setError(null);
+    if (!enabled || !userId || !idTokenProvider || inFlight.current === userId)
+      return;
+    const request = ++sequence.current;
+    const current = () =>
+      active.current === userId && sequence.current === request;
+    inFlight.current = userId;
+    setState((previous) => ({
+      ...previous,
+      owner: userId,
+      status: previous.owner === userId ? previous.status : null,
+      loading: true,
+      loaded: false,
+      error: null,
+    }));
     try {
       const idToken = await idTokenProvider();
-      setStatus(await GoogleCalendarService.status(idToken, userId));
+      if (!current()) return;
+      const status = await GoogleCalendarService.status(idToken, userId);
+      if (current())
+        setState({
+          owner: userId,
+          status,
+          loading: false,
+          loaded: true,
+          error: null,
+        });
     } catch {
-      setError("Calendar connection details couldn’t load. Refresh to try again.");
+      if (current())
+        setState({
+          owner: userId,
+          status: null,
+          loading: false,
+          loaded: true,
+          error:
+            "Calendar connection details couldn’t load. Refresh to try again.",
+        });
     } finally {
-      setLoaded(true);
-      setLoading(false);
+      if (sequence.current === request) inFlight.current = null;
     }
-  }, [userId, idTokenProvider]);
+  }, [userId, idTokenProvider, enabled]);
 
   useEffect(() => {
-    if (canLoad && !loaded && !loading) void load();
-  }, [canLoad, loaded, loading, load]);
+    if (
+      canLoad &&
+      (state.owner !== userId || (!state.loaded && inFlight.current !== userId))
+    )
+      void load();
+  }, [canLoad, state.owner, state.loaded, state.loading, userId, load]);
+
+  const owned = canLoad && state.owner === userId;
+  const status = owned ? state.status : null;
 
   return {
     status,
     connected: status?.connected === true && status.status !== "needs_reauth",
-    loading,
-    error,
-    loaded,
+    loading: owned && state.loading,
+    error: owned ? state.error : null,
+    loaded: owned && state.loaded,
     refresh: () => void load(),
   };
 }

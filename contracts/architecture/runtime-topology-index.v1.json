@@ -701,6 +701,18 @@
       "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "calendar_reminder_preferences",
+        "calendar_reminder_instances",
+        "calendar_reminder_deliveries"
+      ],
+      "id": "calendar_meeting_reminders",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Owner Firebase preferences; vault-owner live resolve/Join; dedicated OIDC Calendar reminder drain. Google remains the meeting source."
+    },
+    {
       "data_class": "personal_encrypted",
       "exact_tables": [
         "circle_chat_messages",
@@ -2692,8 +2704,8 @@
       "alias": null,
       "api_dependencies": [
         {
-          "backend_endpoint_family": "/api/one/calendar/{status,connect/*,proposals/*}",
-          "native_transport": "Web-only Google OAuth; Calendar does not claim native authorization support.",
+          "backend_endpoint_family": "/api/one/calendar/{status,connect/*,proposals/*,reminders/*,meetings/join}",
+          "native_transport": "ApiService direct native HTTP; HushhAuth native Calendar OAuth; FCM/APNs background alerts and HushhOAuthReturn.openExternalUrl for explicit Google Meet joins.",
           "nextjs_api_route": "/api/one/{path*}",
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
           "service_file": "lib/services/google-calendar-service.ts",
@@ -2701,7 +2713,10 @@
             "status",
             "startConnect",
             "disconnect",
-            "executeProposal"
+            "executeProposal",
+            "reminderPreferences",
+            "resolveReminder",
+            "joinMeeting"
           ]
         }
       ],
@@ -4926,7 +4941,7 @@
       "api_dependencies": [
         {
           "backend_endpoint_family": "/api/one/calendar/{status,connect/*}",
-          "native_transport": "Web-only Google OAuth; Calendar setup does not claim native authorization support.",
+          "native_transport": "ApiService direct native HTTP and HushhAuth.connectCalendar for native Google Calendar OAuth.",
           "nextjs_api_route": "/api/one/{path*}",
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
           "service_file": "lib/services/google-calendar-service.ts",
@@ -5943,12 +5958,12 @@
     "action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
     "agent_registry": "d5b9f001a88245b6b0a643a59e045280e6da0af2692ba79958882300a4d6bab1",
     "cache_manifest": "a6f8f117fa4683cbb28bb247a7d12a4ae144c12b036118fcfb663d829958174b",
-    "data_plane": "7b01c32aa1634cd345e2618f09731dd0b55376b57ddf8ad11bfe7f2ce6ba47ac",
+    "data_plane": "8bd7d30a98da299ba8b8aae6470f142d154ba02d7013d05c4ff5e6e660691b99",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
     "route_index": "666164d521beccc0a5f6c1cd04bf60133ea1e4a8a73ffb28a7f3bc364b690ac0",
     "route_layout": "5a77364b3aca34fca4d2249ae26fc5d8dc85c33fcf34ce2ae8d7cddd4be2fa46",
-    "surface_map": "f4f66948b7ed911441ef3dcbb59579521e3c6d0b9e6e238d05524b703c7dae15",
+    "surface_map": "03a8404980eb2a57f1da7cb98ab618f5c71c7a8d2e17b8f748d968765e8477e4",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5962,6 +5977,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 145,
     "semantic_routes": 14,
-    "table_families": 89
+    "table_families": 90
   }
 }

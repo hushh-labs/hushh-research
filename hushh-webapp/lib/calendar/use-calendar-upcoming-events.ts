@@ -99,17 +99,19 @@ export function useCalendarUpcomingEvents({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const identity = `${userId}:${vaultOwnerToken}:${isConnected}`;
+  const identity = `${userId}:${vaultOwnerToken}:${isConnected}:${reminderId ?? ""}`;
   const active = useRef(identity);
   active.current = identity;
   const request = useRef(0);
   const inFlight = useRef<{ owner: string; sequence: number } | null>(null);
   const [resultIdentity, setResultIdentity] = useState(identity);
 
-  const canLoad = Boolean(isConnected && userId && vaultOwnerToken);
+  const canLoad = Boolean(
+    (isConnected || reminderId) && userId && vaultOwnerToken,
+  );
 
   const load = useCallback(async () => {
-    if (!userId || !vaultOwnerToken || !isConnected) return;
+    if (!userId || !vaultOwnerToken || (!isConnected && !reminderId)) return;
     const owner = identity;
     if (inFlight.current?.owner === owner) return;
     const sequence = ++request.current;
@@ -122,11 +124,13 @@ export function useCalendarUpcomingEvents({
       const now = new Date();
       const rangeEnd = new Date(now.getTime() + windowHours * 60 * 60 * 1000);
       const [list, selection] = await Promise.allSettled([
-        GoogleCalendarService.listEvents({
-          vaultOwnerToken,
-          startAt: now.toISOString(),
-          endAt: rangeEnd.toISOString(),
-        }),
+        isConnected
+          ? GoogleCalendarService.listEvents({
+              vaultOwnerToken,
+              startAt: now.toISOString(),
+              endAt: rangeEnd.toISOString(),
+            })
+          : Promise.resolve({ events: [] }),
         reminderId
           ? GoogleCalendarService.resolveReminder(vaultOwnerToken, reminderId)
           : Promise.resolve(null),

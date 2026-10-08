@@ -32,10 +32,22 @@ const RAW_EVENT = {
 
 describe("useCalendarUpcomingEvents", () => {
   it("fences a pending owner read across account switch", async () => {
-    let complete!: (value: { events: typeof RAW_EVENT[] }) => void;
-    mockedListEvents.mockReturnValueOnce(new Promise(resolve => { complete = resolve; }));
+    let complete!: (value: { events: (typeof RAW_EVENT)[] }) => void;
+    mockedListEvents.mockReturnValueOnce(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
     mockedListEvents.mockResolvedValueOnce({ events: [] });
-    const { result, rerender } = renderHook(({ owner }) => useCalendarUpcomingEvents({ userId: owner, vaultOwnerToken: `${owner}-vault`, isConnected: true }), { initialProps: { owner: "old" } });
+    const { result, rerender } = renderHook(
+      ({ owner }) =>
+        useCalendarUpcomingEvents({
+          userId: owner,
+          vaultOwnerToken: `${owner}-vault`,
+          isConnected: true,
+        }),
+      { initialProps: { owner: "old" } },
+    );
     rerender({ owner: "new" });
     await waitFor(() => expect(result.current.loaded).toBe(true));
     await act(async () => complete({ events: [RAW_EVENT] }));
@@ -44,10 +56,23 @@ describe("useCalendarUpcomingEvents", () => {
 
   it("resolves the exact reminder independently of a failed ordinary listing", async () => {
     mockedListEvents.mockRejectedValueOnce(new Error("offline"));
-    vi.mocked(GoogleCalendarService.resolveReminder).mockResolvedValueOnce({ ...RAW_EVENT, end: { dateTime: "2099-01-01T00:00:00Z" } });
-    const { result } = renderHook(() => useCalendarUpcomingEvents({ userId: "owner", vaultOwnerToken: "vault", isConnected: true, reminderId: "11111111-2222-3333-4444-555555555555" }));
+    vi.mocked(GoogleCalendarService.resolveReminder).mockResolvedValueOnce({
+      ...RAW_EVENT,
+      end: { dateTime: "2099-01-01T00:00:00Z" },
+    });
+    const { result } = renderHook(() =>
+      useCalendarUpcomingEvents({
+        userId: "owner",
+        vaultOwnerToken: "vault",
+        isConnected: true,
+        reminderId: "11111111-2222-3333-4444-555555555555",
+      }),
+    );
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    expect(result.current.events[0]).toMatchObject({ id: "e1", reminderSelected: true });
+    expect(result.current.events[0]).toMatchObject({
+      id: "e1",
+      reminderSelected: true,
+    });
     expect(result.current.error).toBeTruthy();
   });
   afterEach(() => {
@@ -63,6 +88,27 @@ describe("useCalendarUpcomingEvents", () => {
       }),
     );
     expect(mockedListEvents).not.toHaveBeenCalled();
+  });
+
+  it("checks a tapped reminder against the live backend even when connection status has not loaded", async () => {
+    vi.mocked(GoogleCalendarService.resolveReminder).mockRejectedValueOnce(
+      new Error("Calendar was disconnected"),
+    );
+    const { result } = renderHook(() =>
+      useCalendarUpcomingEvents({
+        userId: "owner",
+        vaultOwnerToken: "vault",
+        isConnected: false,
+        reminderId: "11111111-2222-3333-4444-555555555555",
+      }),
+    );
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(mockedListEvents).not.toHaveBeenCalled();
+    expect(GoogleCalendarService.resolveReminder).toHaveBeenCalledWith(
+      "vault",
+      "11111111-2222-3333-4444-555555555555",
+    );
+    expect(result.current.error).toBeTruthy();
   });
 
   it("redacts description, location, attendees, and html_link before returning events", async () => {
@@ -149,7 +195,8 @@ describe("useCalendarUpcomingEvents", () => {
 
     await waitFor(() => expect(mockedListEvents).toHaveBeenCalledTimes(1));
     const call = mockedListEvents.mock.calls[0][0];
-    const spanMs = new Date(call.endAt).getTime() - new Date(call.startAt).getTime();
+    const spanMs =
+      new Date(call.endAt).getTime() - new Date(call.startAt).getTime();
     expect(spanMs).toBeCloseTo(48 * 60 * 60 * 1000, -3);
   });
 

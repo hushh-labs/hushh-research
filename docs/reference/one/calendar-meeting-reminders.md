@@ -81,6 +81,8 @@ polling rather than Google watch channels. Push arrival also depends on OS
 notification permission, focus/battery settings, connectivity and provider health.
 Existing registration remains one token per owner/platform (latest registration
 wins); this PR does not promise multiple devices on the same platform.
+Authenticated registration atomically transfers a reused installation token to
+its current owner, including when prior logout cleanup could not complete.
 
 ## Testing and rollout before main
 
