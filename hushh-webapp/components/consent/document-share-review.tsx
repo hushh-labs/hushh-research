@@ -248,6 +248,11 @@ function errorCopy(cause: unknown): string {
     return "Reconnect Drive in Connections, then retry.";
   if (code === "date_range_required")
     return "Ask the requester to send a new request with exact start and end dates.";
+  if (code === "request_unavailable")
+    return "This document request is no longer available.";
+  if (code === "request_expired") return "This document request expired.";
+  if (code === "owner_share_expired")
+    return "This document search expired. Start a new request.";
   return "Refresh to try again.";
 }
 
@@ -405,8 +410,24 @@ function UnlockedDocumentReview({
       guard();
       let status = await DriveSharingService.status(token, requestId, guard);
       guard();
+      const optionalOutgoingDelivery = async (): Promise<SharingDelivery | undefined> => {
+        try {
+          return await DriveSharingService.delivery(token, requestId, guard);
+        } catch (cause) {
+          if (
+            cause instanceof DriveSharingError &&
+            [
+              "recipient_verification_unavailable",
+              "recipient_changed",
+              "recipient_google_identity_required",
+              "recipient_verified_email_required",
+            ].includes(cause.code)
+          ) return undefined;
+          throw cause;
+        }
+      };
       if (status.direction !== "incoming")
-        return { status, delivery: await DriveSharingService.delivery(token, requestId, guard) };
+        return { status, delivery: await optionalOutgoingDelivery() };
       if (!UNDECIDED.has(status.status)) {
         const delivery = await DriveSharingService.delivery(token, requestId, guard);
         guard();
@@ -498,7 +519,9 @@ function UnlockedDocumentReview({
       if (status.direction !== "incoming" || !UNDECIDED.has(status.status))
         return {
           status,
-          delivery: await DriveSharingService.delivery(token, requestId, guard),
+          delivery: status.direction === "incoming"
+            ? await DriveSharingService.delivery(token, requestId, guard)
+            : await optionalOutgoingDelivery(),
         };
       return {
         status,

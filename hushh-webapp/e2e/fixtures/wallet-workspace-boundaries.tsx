@@ -148,7 +148,32 @@ export function VaultUnlockDialog({ open, title }: { open: boolean; title?: stri
 }
 
 export const trackEvent = () => undefined;
+// The wallet fixture aliases the observability boundary so layout tests never
+// initialize analytics adapters. Keep the API-service surface complete while
+// recording no external events.
+export const toDurationBucket = (durationMs: number) => {
+  if (durationMs < 100) return "lt_100ms";
+  if (durationMs < 300) return "100ms_300ms";
+  if (durationMs < 1000) return "300ms_1s";
+  if (durationMs < 3000) return "1s_3s";
+  if (durationMs < 10000) return "3s_10s";
+  return "gte_10s";
+};
+export const trackApiRequestCompleted = () => undefined;
 export const NativeTestBeacon = () => null;
+
+// The production Wallet Card service imports ApiService through the shared
+// client. Keep that transport inert in this fixture so a layout test never
+// initializes Firebase or performs a network request just to load an empty
+// card state.
+export const ApiService = {
+  getDirectBackendUrl: () => "",
+  apiFetch: async () =>
+    new Response(JSON.stringify({}), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+};
 
 export class ConsentCenterService {
   static async listEntries({ surface, page }: { surface: string; page: number }) {

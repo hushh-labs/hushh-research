@@ -135,9 +135,8 @@ async def test_only_new_accepted_trusted_request_gets_auto_marker(
             ).all()
         }
     assert payment_flags[accepted["requestId"]] is True
-    assert all(
-        payment_flags[item["requestId"]] is False for item in (unaccepted, owner_selected, removed)
-    )
+    assert all(payment_flags[item["requestId"]] is True for item in (unaccepted, removed))
+    assert payment_flags[owner_selected["requestId"]] is False
     # A pre-deploy or ordinary request does not become automatic on replay.
     with sharing.db.engine.begin() as connection:
         connection.execute(text("UPDATE connection_origins SET status='active'"))

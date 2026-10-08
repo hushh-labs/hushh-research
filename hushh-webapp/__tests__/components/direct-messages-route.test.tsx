@@ -11,12 +11,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(mocks.query),
 }));
 
-vi.mock("@/components/navigation/client-redirect", () => ({
-  ClientRedirect: ({ to }: { to: string }) => (
-    <output data-testid="messages-route-redirect">{to}</output>
-  ),
-}));
-
 vi.mock("@/components/direct-messages/direct-messages-page", () => ({
   DirectMessagesPage: () => <div data-testid="direct-message-thread" />,
 }));
@@ -26,13 +20,10 @@ describe("DirectMessagesRoute", () => {
     mocks.query = "";
   });
 
-  it("returns the retired bare inbox address to Connect", () => {
+  it("renders the inbox at the bare messages address", () => {
     render(<DirectMessagesRoute />);
 
-    expect(screen.getByTestId("messages-route-redirect")).toHaveTextContent(
-      "/one/connect",
-    );
-    expect(screen.queryByTestId("direct-message-thread")).toBeNull();
+    expect(screen.getByTestId("direct-message-thread")).toBeVisible();
   });
 
   it.each(["person=connected-person", "conversation=conversation-opaque-1"])(
@@ -42,7 +33,6 @@ describe("DirectMessagesRoute", () => {
       render(<DirectMessagesRoute />);
 
       expect(screen.getByTestId("direct-message-thread")).toBeVisible();
-      expect(screen.queryByTestId("messages-route-redirect")).toBeNull();
     },
   );
 });

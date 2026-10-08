@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] Backend 5xx Rate High",
   "documentation": {
-    "content": "Backend 5xx rate crossed threshold for consent-protocol.",
+    "content": "Backend 5xx rate crossed threshold for consent-protocol.\n\nInspect failing routes and serving revision; mitigate the backend regression.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
@@ -9,7 +9,8 @@
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "ops"
+    "scope": "ops",
+    "incident_purpose": "actionable"
   },
   "conditions": [
     {
@@ -31,5 +32,12 @@
         }
       }
     }
-  ]
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
 }

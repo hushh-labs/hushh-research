@@ -1,4 +1,6 @@
 import { Capacitor } from "@capacitor/core";
+import { App } from "@capacitor/app";
+import { shouldDisableExternalTelemetryForAutomation } from "@/lib/testing/native-test";
 
 import type {
   PrimitiveEventValue,
@@ -9,6 +11,17 @@ import type {
 let firebaseAnalyticsModulePromise:
   | Promise<typeof import("@capacitor-firebase/analytics")>
   | null = null;
+
+// Read native versionName/CFBundleShortVersionString, not the web package version.
+// Cache once per process; no network, user identifiers or installation state needed.
+let nativeReleasePromise: Promise<{ app_version: string; app_build?: string }> | null = null;
+function nativeRelease() {
+  nativeReleasePromise ??= App.getInfo().then((info) => ({
+    app_version: /^\d+\.\d+[\w.+-]{0,40}$/.test(info.version) ? info.version : "unknown",
+    ...(/^\d{1,12}$/.test(info.build) ? { app_build: info.build } : {}),
+  })).catch(() => ({ app_version: "unknown" }));
+  return nativeReleasePromise;
+}
 
 function getFirebaseAnalyticsModule() {
   firebaseAnalyticsModulePromise =
@@ -35,7 +48,7 @@ export const nativeFirebaseAdapter: ObservabilityAdapter = {
   name: "native-firebase",
 
   isAvailable(): boolean {
-    return Capacitor.isNativePlatform();
+    return Capacitor.isNativePlatform() && !shouldDisableExternalTelemetryForAutomation();
   },
 
   async track(
@@ -43,10 +56,16 @@ export const nativeFirebaseAdapter: ObservabilityAdapter = {
     payload: Record<string, PrimitiveEventValue>
   ): Promise<void> {
     if (!this.isAvailable()) return;
+    const release = await nativeRelease();
+    // Reviewer admission can change while loading the bridge. Recheck before sending.
+    if (!this.isAvailable()) return;
     const { FirebaseAnalytics } = await getFirebaseAnalyticsModule();
+    if (!this.isAvailable()) return;
+    const nativePayload = { ...payload };
+    delete nativePayload.app_build;
     await FirebaseAnalytics.logEvent({
       name: eventName,
-      params: toFirebaseParams(payload),
+      params: toFirebaseParams({ ...nativePayload, ...release }),
     });
   },
 };

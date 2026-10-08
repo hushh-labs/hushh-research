@@ -115,6 +115,7 @@ import {
 import { isBareReviewReply } from "@/lib/agent/mcp-review-typed-reply";
 import { serverNow } from "@/lib/agent/server-clock";
 import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
+import { BusinessProfileSuggestion } from "@/components/agent/business-profile-suggestion";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
   AgentConnectionsDrawer,
@@ -1842,6 +1843,7 @@ export function AgentBubble({
   onRetryMemorySave,
   pendingMemoryCards,
   onUnlockVault,
+  businessProfileCard,
 }: {
   message: AgentMessage;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
@@ -1874,6 +1876,8 @@ export function AgentBubble({
   onRetryMemorySave?: () => Promise<void>;
   pendingMemoryCards?: readonly AgentPkmPreviewCard[];
   onUnlockVault?: () => void;
+  /** App-owned suggestion, never model HTML or persisted chat content. */
+  businessProfileCard?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   // The rating is owned by the workspace so it survives a reload; the bubble
@@ -2130,6 +2134,7 @@ export function AgentBubble({
               {message.errorNotice}
             </p>
           ) : null}
+          {!isUser && businessProfileCard ? <div className="mt-3">{businessProfileCard}</div> : null}
         </OneChatBubble>
         {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
         {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} onRetry={onRetryMemorySave} pendingCards={pendingMemoryCards} onUnlock={onUnlockVault} /> : null}
@@ -8025,6 +8030,35 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }),
   );
   const visibleMessageIds = visibleMessages.map((message) => message.id);
+  const businessAnchorCandidate = visibleMessageIds.at(-1) ?? null;
+  // A contextual One turn belongs at the point it entered this conversation,
+  // not in a dashboard after every subsequent reply. Keep public suggestions
+  // session-only: they must not enter chat history or the model's context.
+  const businessSuggestionEnabled = hasChatAccess && !isPuppySurface && !sessionVerificationRequired;
+  const [businessSuggestionVisible, setBusinessSuggestionVisible] = useState(false);
+  const [businessTurnAnchor, setBusinessTurnAnchor] = useState<{
+    ownerId: string; conversationId: string | null; afterId: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!businessSuggestionEnabled || !user?.uid || !vaultKey || !vaultOwnerToken) {
+      setBusinessTurnAnchor(null);
+      return;
+    }
+    setBusinessTurnAnchor(current => current?.ownerId === user.uid && current.conversationId === conversationId
+      ? current : { ownerId: user.uid, conversationId, afterId: businessAnchorCandidate });
+  }, [businessSuggestionEnabled, user?.uid, conversationId, vaultKey, vaultOwnerToken, businessAnchorCandidate]);
+  const renderBusinessTurn = () => businessTurnAnchor && businessTurnAnchor.ownerId === user?.uid &&
+    businessTurnAnchor.conversationId === conversationId ? (
+      <BusinessProfileSuggestion
+        ownerId={user?.uid ?? null} vaultKey={vaultKey ?? null}
+        vaultOwnerToken={vaultOwnerToken ?? null} tokenExpiresAt={tokenExpiresAt ?? null}
+        enabled={businessSuggestionEnabled}
+        onVisibleChange={setBusinessSuggestionVisible}
+        renderMessage={(id, text, card) => <AgentBubble
+          message={{ id: `business-suggestion:${id}`, role: "assistant", text,
+            timestamp: "", status: "done", ephemeral: true }} businessProfileCard={card} />}
+      />
+    ) : null;
   const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
     <ChatOnboardingTurns
       controller={chatOnboarding}
@@ -8950,6 +8984,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {chatOnboarding.turns.length ? (
                 renderChatOnboarding({ kind: "top" })
               ) : !hasStartedConversation && !voiceActive ? (
+                businessSuggestionVisible ? null : (
                 <>
                   <AgentWelcomePanel
                     name={displayName}
@@ -8965,8 +9000,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     />
                   ) : null}
                 </>
+                )
               ) : null}
 
+              {!businessTurnAnchor?.afterId || !visibleMessageIds.includes(businessTurnAnchor.afterId) ? renderBusinessTurn() : null}
               {visibleMessages.map((message) => (
                 <Fragment key={message.id}>
                   {renderChatOnboarding({ kind: "before", messageId: message.id, visibleMessageIds })}
@@ -9265,6 +9302,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   {message.id === emailDraftAnchorMessageId
                     ? renderEmailDraftCard()
                     : null}
+                  {message.id === businessTurnAnchor?.afterId ? renderBusinessTurn() : null}
                 </Fragment>
               ))}
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
@@ -9380,6 +9418,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 vaultOwnerToken={vaultOwnerToken ?? null}
                 enabled={hasChatAccess && !isPuppySurface}
               />
+
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
                 <McpCallReviewCard

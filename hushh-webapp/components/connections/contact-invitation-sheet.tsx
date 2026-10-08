@@ -101,14 +101,22 @@ export function ContactInvitationSheet({
 
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
-    return controller.candidates.filter(
-      (candidate) =>
-        !search ||
-        candidate.displayName.toLowerCase().includes(search) ||
-        candidate.destinations.some((destination) =>
-          destination.value.toLowerCase().includes(search),
-        ),
-    );
+    return controller.candidates
+      .filter(
+        (candidate) =>
+          !search ||
+          candidate.displayName.toLowerCase().includes(search) ||
+          candidate.destinations.some((destination) =>
+            destination.value.toLowerCase().includes(search),
+          ),
+      )
+      .sort(
+        (left, right) =>
+          left.displayName.localeCompare(right.displayName, undefined, {
+            sensitivity: "base",
+            numeric: true,
+          }) || left.id.localeCompare(right.id),
+      );
   }, [query, controller.candidates]);
   const selectedKeys = new Set(Object.values(selected).map(destinationKey));
   const previewCandidate =

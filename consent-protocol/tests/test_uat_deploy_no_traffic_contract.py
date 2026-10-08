@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -428,50 +429,21 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # multiplies by the gunicorn worker count before it multiplies by instances.
     # UAT: 7 per worker, 14 per instance, 70 total across 5 instances.
     #
-    # Two incidents shaped this number, in opposite directions.
-    #
-    # 2026-08-23: the bound was 5 per worker (3 + 2 + 0). Cloud Run admits 80
-    # concurrent requests per instance and every asyncpg call site did a plain
-    # pool.acquire() with no timeout, so once three connections were held by
-    # slow routes every later request waited forever and died at Cloud Run's
-    # 3600s request timeout, holding a concurrency slot for the full hour.
-    #
-    # 2026-08-24: raising it to 18 per worker to fix that exhausted Postgres.
-    # db-custom-1-3840 gets a Cloud SQL default max_connections near 100 — NOT
-    # the ~400 the first fix assumed from the disk/tier size. 18 x 2 workers x
-    # 3 instances is 108 on its own, and a revision cutover briefly runs a
-    # fourth instance, so UAT started answering
-    # "FATAL: remaining connection slots are reserved for non-replication
-    # superuser connections" as soon as traffic scaled out.
-    #
-    # 2026-08-24 later the same day: maxScale=3 saturated the Cloud Run request
-    # plane under long-lived consent event requests, so UAT answered Cloud Run's
-    # own "no available instance" 429 before authenticated setup calls could hit
-    # app code. Rebalance toward more instances and smaller deterministic pools:
-    # request headroom grows, while deploy peak stays under the same Postgres cap.
-    #
-    # So the ceiling is Postgres, not the app. Keep the total under ~70 and the
-    # cutover peak under ~85 to leave room for migrations, cron jobs, ad-hoc
-    # psql, and the extra instance a deploy briefly adds. Starvation is no
-    # longer a hang: db/connection.py bounds pool.acquire(), so a pool that is
-    # too small fails fast with a 503 instead of queueing until Cloud Run kills
-    # the request.
-    #
-    # Overflow stays pinned at 0 so the ceiling remains deterministic.
-    POSTGRES_MAX_CONNECTIONS = 100  # Cloud SQL default for db-custom-1-3840
+    # The admission check counts serving, rollback, and new candidate
+    # revisions at revision-level maxScale, plus jobs and administration.
+    budget = json.loads(_read("config/runtime-capacity.json"))
+    assert budget["database_max_connections"] == 1000
+    assert budget["admission_limit"] == 800
+    assert budget["administrative_reserve"] == 100
 
     uat_per_worker = 4 + 3 + 0
     assert uat_per_worker == 7
     assert uat_per_worker * gunicorn_workers == 14
     uat_total = uat_per_worker * gunicorn_workers * 5
     assert uat_total == 70
-    # A revision cutover briefly runs one instance more than the cap.
-    uat_peak_during_deploy = uat_per_worker * gunicorn_workers * 6
-    assert uat_peak_during_deploy <= POSTGRES_MAX_CONNECTIONS * 0.85, (
-        f"UAT would use {uat_peak_during_deploy} of ~{POSTGRES_MAX_CONNECTIONS} "
-        "Postgres connections during a deploy, leaving no room for migrations, "
-        "cron, or psql"
-    )
+    uat_candidate = budget["environments"]["uat"]["services"]["consent-protocol"]["candidate"]
+    assert uat_candidate["workers_per_instance"] == gunicorn_workers
+    assert uat_total * 3 <= budget["admission_limit"] - budget["administrative_reserve"]
 
     assert "_DB_POOL_MIN_SIZE=1" in production_workflow
     assert "_DB_POOL_MAX_SIZE=4" in production_workflow
@@ -489,12 +461,14 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert prod_per_worker * gunicorn_workers == 16
     prod_total = prod_per_worker * gunicorn_workers * 5
     assert prod_total == 80
-    # Prod runs a larger instance, but pin the same shape so a future bump has
-    # to state the ceiling it is sizing against rather than assume one.
-    assert prod_total <= 100
+    prod_candidate = budget["environments"]["production"]["services"]["consent-protocol"][
+        "candidate"
+    ]
+    assert prod_candidate["workers_per_instance"] == gunicorn_workers
+    assert prod_total * 3 <= budget["admission_limit"] - budget["administrative_reserve"]
 
     for workflow in (uat_workflow, production_workflow):
-        assert 'BACKEND_REVISION_RETENTION: "3"' in workflow
+        assert 'BACKEND_REVISION_RETENTION: "2"' in workflow
         assert 'FRONTEND_REVISION_RETENTION: "10"' in workflow
 
 
