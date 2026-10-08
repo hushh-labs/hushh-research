@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import contextmanager, nullcontext
 from typing import Any
@@ -219,7 +220,7 @@ class PodChatContext:
         from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
         from hushh_mcp.one_adk.text_runtime import _resolve_pod_memory_service
 
-        service = _resolve_pod_memory_service()
+        service = await asyncio.to_thread(_resolve_pod_memory_service)
         memory = PodChatMemory(self, service) if service is not None else None
 
         async def prepare(input):

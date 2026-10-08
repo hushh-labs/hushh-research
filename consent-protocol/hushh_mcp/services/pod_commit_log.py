@@ -424,17 +424,9 @@ class GcsObjectStore:
     generation of the very bytes it returned. A COLD read is two, because the
     first call on a fresh store also mints the access credential.
 
-    The credential cache is per INSTANCE, and ``resolve_pod_storage()``
-    constructs a new instance on every call (pod_identity_store,
-    pod_memory_service, pod_pkm_resolver, and one per ``/one/pod/migration``
-    request each build their own), so a pod process holds several caches and
-    mints once per instance, not once per process. That is a deliberate pick
-    over a module-global cache: a process-wide credential keyed to nothing is
-    shared mutable state that outlives any owner's request, and the honest fix
-    for the duplication is for the resolver to memoize the store, which is
-    that module's call to make. The saving that matters is already here --
-    one instance serves many reads, and a log replay reads every record
-    through a single store.
+    Credentials belong to each store instance. Startup may reuse that store;
+    request-owned resolvers retain their own custody boundary. HTTP connections
+    are pooled per store and worker, with no response or information cache.
     """
 
     # Stop reusing a minted credential this long before the issuer says it dies,
@@ -463,9 +455,9 @@ class GcsObjectStore:
         # body) on every read would be paying for the same answer repeatedly.
         self._media_states_generation = True
         if session is None:
-            import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+            from hushh_mcp.services.pod_storage_transport import PodStorageTransport
 
-            session = requests
+            session = PodStorageTransport()
         self._session = session
 
     @staticmethod
@@ -608,6 +600,9 @@ class GcsObjectStore:
         """
         response = send(self._headers())
         if getattr(response, "status_code", 0) in self._CREDENTIAL_REFUSED:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
             self._forget_token()
             response = send(self._headers())
         return response

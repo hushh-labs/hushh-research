@@ -102,6 +102,76 @@ def test_resolver_uses_tier_agnostic_key_resolution_for_byoc(monkeypatch, tmp_pa
     assert type(storage).__name__ == "CommitLogPodStorage"
 
 
+def test_storage_transport_reuses_connections_without_sharing_authority():
+    import gc
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from hushh_mcp.services.pod_commit_log import GcsObjectStore
+
+    received = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *_args):
+            pass
+
+        def do_GET(self):
+            received.append(
+                (self.client_address, self.headers.get("Authorization"), self.headers.get("Cookie"))
+            )
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.send_header("Set-Cookie", "unexpected=authority; Path=/")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    transport = GcsObjectStore("synthetic-one")._session
+    other = GcsObjectStore("synthetic-two")._session
+    url = f"http://127.0.0.1:{server.server_port}/"
+    try:
+        assert (
+            transport.get(url, headers={"Authorization": "Bearer synthetic"}, timeout=2).content
+            == b"ok"
+        )
+        assert transport.get(url, timeout=2).content == b"ok"
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            assert pool.submit(transport.get, url, timeout=2).result().content == b"ok"
+        assert other.get(url, timeout=2).content == b"ok"
+        assert received[0][0] == received[1][0]  # one connection, not four TLS handshakes
+        assert len({row[0] for row in received}) == 3  # workers and stores stay separate
+        assert [row[1] for row in received] == ["Bearer synthetic", None, None, None]
+        assert all(row[2] is None for row in received)
+    finally:
+        del transport, other
+        gc.collect()
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=2)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_storage_closes_refused_stream_before_credential_retry(monkeypatch, status):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_commit_log import GcsObjectStore
+
+    store = GcsObjectStore("synthetic", session=object())
+    events = []
+    monkeypatch.setattr(store, "_headers", lambda: {})
+    monkeypatch.setattr(store, "_forget_token", lambda: events.append("remint"))
+    refused = SimpleNamespace(status_code=status, close=lambda: events.append("closed"))
+    success = SimpleNamespace(status_code=200)
+    responses = iter([refused, success])
+    assert store._authorized(lambda _headers: next(responses)) is success
+    assert events == ["closed", "remint"]
+
+
 def test_resolver_still_reads_env_key_for_managed(monkeypatch, tmp_path):
     """Managed custody (env log key, no KMS) keeps working through the same path."""
     monkeypatch.setenv("POD_STORAGE_BACKEND", "commit_log")
