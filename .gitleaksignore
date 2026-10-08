@@ -48,3 +48,24 @@ f4edb2c474adfb071fdac4998e746021e195fa08:contracts/kai/one-capability-graph.v1.j
 f4edb2c474adfb071fdac4998e746021e195fa08:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
 f4edb2c474adfb071fdac4998e746021e195fa08:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
 f4edb2c474adfb071fdac4998e746021e195fa08:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+
+# Reviewed SHA-256 location_workflow_api_contract digests in immutable PR history.
+# Exact finding fingerprints only; generated files and new values remain scanned.
+5cddbe80d46cf385d56053e0b72027e4a58699c6:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+5cddbe80d46cf385d56053e0b72027e4a58699c6:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+5cddbe80d46cf385d56053e0b72027e4a58699c6:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+5cddbe80d46cf385d56053e0b72027e4a58699c6:contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+5cddbe80d46cf385d56053e0b72027e4a58699c6:contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+5cddbe80d46cf385d56053e0b72027e4a58699c6:contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+5cddbe80d46cf385d56053e0b72027e4a58699c6:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+5cddbe80d46cf385d56053e0b72027e4a58699c6:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+5cddbe80d46cf385d56053e0b72027e4a58699c6:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+8669d492d072eadf13642d5f6483e7cd5a3801eb:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+8669d492d072eadf13642d5f6483e7cd5a3801eb:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+8669d492d072eadf13642d5f6483e7cd5a3801eb:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+8669d492d072eadf13642d5f6483e7cd5a3801eb:contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+8669d492d072eadf13642d5f6483e7cd5a3801eb:contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+8669d492d072eadf13642d5f6483e7cd5a3801eb:contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+8669d492d072eadf13642d5f6483e7cd5a3801eb:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+8669d492d072eadf13642d5f6483e7cd5a3801eb:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+8669d492d072eadf13642d5f6483e7cd5a3801eb:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
