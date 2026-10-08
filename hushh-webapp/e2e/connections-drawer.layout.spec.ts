@@ -366,6 +366,13 @@ for (const width of [390, 1440])
     // Let the opening settle, then exercise the same owner in the other
     // direction. WebKit and Chromium must follow the finger, not wait for up.
     await expect(page.locator('[data-side-panel-body="left"]')).not.toHaveAttribute("style", /will-change/);
+    // Removing the gesture hint is not a rendered-position receipt. WebKit
+    // can still be completing the CSS handoff; that is a valid interrupted
+    // re-grab, tested separately, not this fully-open closing contract.
+    await expect.poll(async () => {
+      const bounds = await page.locator('[data-side-panel-body="left"]').boundingBox();
+      return bounds?.x;
+    }).toBeCloseTo(0, 0);
     const closing = await page.evaluate(async () => {
       const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
       const panel = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;

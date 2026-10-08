@@ -138,6 +138,10 @@ final class AppUITests: XCTestCase {
               [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state)
         else { throw XCTSkip("Requires the existing app session") }
         app.activate()
+        // An existing unlocked session can be on One or a setup surface, not
+        // Chat. Use only authored in-app navigation before deciding whether
+        // the vault gate is present; no cold route or authentication bootstrap.
+        returnToRehearsalChat(app)
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15), "Vault WebView unavailable")
         let publicReceipt = app.buttons["native-vault-layout"]
