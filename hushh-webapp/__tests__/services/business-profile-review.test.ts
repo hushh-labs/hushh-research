@@ -11,7 +11,7 @@ vi.mock("@/lib/services/secure-resource-cache-service", () => ({ SecureResourceC
 vi.mock("@/lib/agent/connector-memory-review", () => ({ saveConnectorMemoryReview: mocks.save }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: { lookupMutationCommits: mocks.lookup } }));
 vi.mock("@/lib/pkm/pkm-save-job", () => ({ withPkmSaveJobLock: async (_id: string, task: () => unknown) => task() }));
-import { attachBusinessOrigin, businessDraftMessage, createBusinessReviewJob, decideBusinessReview, loadBusinessReview, saveBusinessReview } from "@/lib/agent/business-profile-review";
+import { assertBusinessReviewFresh, attachBusinessOrigin, businessDraftMessage, createBusinessReviewJob, decideBusinessReview, loadBusinessReview, saveBusinessReview } from "@/lib/agent/business-profile-review";
 
 export const candidate: BusinessCandidate = { businessUid: "urn:hushh:business:uat:hushh.ai:v1", synthetic: true,
   sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" }, matchEvidence: [{ kind: "verified_email_domain", domain: "hushh.ai" }],
@@ -31,9 +31,41 @@ beforeEach(() => {
 });
 const args = (cards = [card()]) => ({ job: createBusinessReviewJob("owner", candidate, "Reviewed synthetic details", cards),
   vaultKey: "test-key", vaultOwnerToken: "test-token", assertCurrent: vi.fn(async () => undefined),
-  isCurrent: () => true, sharingImpactAcknowledged: false });
+  isCurrent: () => true, sharingImpactAcknowledged: false, assertListingFresh: vi.fn(async () => undefined) });
 
 describe("business profile reviewed-memory boundary", () => {
+  it("recovers existing receipts during an outage but blocks unacknowledged stale writes", async () => {
+    const assertListingFresh = vi.fn(async () => { throw new Error("Listing unavailable"); });
+    const input = { ...args(), assertListingFresh };
+    await expect(saveBusinessReview(input)).rejects.toThrow("Listing unavailable");
+    expect(mocks.save).not.toHaveBeenCalled();
+    mocks.lookup.mockResolvedValue([{ exists: true, dataVersion: 2 }]);
+    assertListingFresh.mockClear();
+    expect(await saveBusinessReview(input)).toEqual({ saved: 1, remaining: 0 });
+    expect(assertListingFresh).not.toHaveBeenCalled();
+  });
+  it("binds recovered cards and user edits to the original listing, not a same-UID refresh", async () => {
+    const job = createBusinessReviewJob("owner", candidate, "Approved edits", [card()],
+      { name: "My correction", website: "https://edited.test" });
+    checkpoint = { version: 1, job };
+    const recovered = await loadBusinessReview("owner", "key", candidate.businessUid);
+    expect(recovered?.job?.reviewedName).toBe("My correction");
+    expect(recovered?.job?.reviewedWebsite).toBe("https://edited.test");
+    expect(() => assertBusinessReviewFresh(job, structuredClone(candidate))).not.toThrow();
+    const changed = { ...candidate, draft: { ...candidate.draft, name: "New public name" } };
+    expect(() => assertBusinessReviewFresh(job, changed)).toThrow("listing changed");
+    expect(job.candidate?.draft.name).toBe(candidate.draft.name);
+  });
+  it("legacy pending reviews reconcile receipts but cannot initiate new writes", async () => {
+    const input = args();
+    delete input.job.candidate; delete input.job.candidateSnapshot;
+    checkpoint = { version: 1, job: input.job };
+    await expect(saveBusinessReview(input)).rejects.toThrow("no original listing snapshot");
+    expect(mocks.save).not.toHaveBeenCalled();
+    mocks.lookup.mockResolvedValue([{ exists: true, dataVersion: 2 }]);
+    expect(await saveBusinessReview(input)).toEqual({ saved: 1, remaining: 0 });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it("isolates real business checkpoints and preserves real provenance on retry", async () => {
     const real: BusinessCandidate = { ...candidate, synthetic: false,
       businessUid: `urn:hushh:business:directory:hotel:${"a".repeat(64)}`,
@@ -145,7 +177,15 @@ describe("business profile reviewed-memory boundary", () => {
   });
   it("does not restore a checkpoint belonging to a different owner", async () => {
     checkpoint = { version: 1, job: { ...args().job, ownerId: "another-owner" } };
-    await expect(loadBusinessReview("owner", "test-key")).rejects.toThrow();
+    await expect(loadBusinessReview("owner", "test-key", candidate.businessUid)).rejects.toThrow();
+  });
+  it("rejects scope replay and duplicate acknowledgement IDs before any mutation", async () => {
+    const job = args([card("one"), card("two")]).job;
+    checkpoint = { version: 1, job: { ...job, scopes: [job.scopes[0]!, job.scopes[0]!] } };
+    await expect(loadBusinessReview("owner", "key", candidate.businessUid)).rejects.toThrow();
+    checkpoint = { version: 1, job: { ...job, committed: ["one", "one"] } };
+    await expect(loadBusinessReview("owner", "key", candidate.businessUid)).rejects.toThrow();
+    expect(mocks.save).not.toHaveBeenCalled();
   });
   it("a stale Later preserves the other tab's exact pending job", async () => {
     const job = args().job; checkpoint = { version: 1, job };
