@@ -932,7 +932,24 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(web.buttons["Continue with Google"].exists, "No reviewer bootstrap in continuity proof")
         returnToRehearsalChat(app)
         let editor = app.textViews["native-dock-editor"].firstMatch
-        XCTAssertTrue(editor.waitForExistence(timeout: 10) && editor.isHittable, "NATIVE_DOCK_EDITOR_UNAVAILABLE")
+        guard editor.waitForExistence(timeout: 10) && editor.isHittable else {
+            // Classify presentation versus accessibility admission before any
+            // private input. Never inspect values, private labels, projections or the
+            // accessibility tree, including when an existing draft is present.
+            let exact = app.descendants(matching: .any).matching(identifier: "native-dock-editor")
+            let nativeDock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
+            let namedEditors = app.textViews.matching(NSPredicate(format: "label == %@", "Message One"))
+            let namedWebEditors = web.textViews.matching(NSPredicate(format: "label == %@", "Message One"))
+            print("NATIVE_DOCK_ADMISSION editor_exists=\(editor.exists) editor_hittable=\(editor.exists && editor.isHittable) identifier_count=\(exact.count) named_editor_count=\(namedEditors.count) named_web_editor_count=\(namedWebEditors.count) dock_exists=\(nativeDock.exists) dock_hittable=\(nativeDock.exists && nativeDock.isHittable)")
+            for (name, element) in [("window", app), ("dock", nativeDock), ("editor", editor)] {
+                let frame = element.exists ? element.frame : .zero
+                let bounds = [frame.minX, frame.minY, frame.width, frame.height]
+                let finite = bounds.allSatisfy { $0.isFinite }
+                let bounded = bounds.map { $0.isFinite ? Int(max(-100_000, min(100_000, $0))) : 0 }
+                print("NATIVE_DOCK_ADMISSION_GEOMETRY control=\(name) finite=\(finite) x=\(bounded[0]) y=\(bounded[1]) width=\(bounded[2]) height=\(bounded[3])")
+            }
+            XCTFail("NATIVE_DOCK_EDITOR_UNAVAILABLE"); return
+        }
         guard (editor.value as? String ?? "").isEmpty else {
             XCTFail("NATIVE_DOCK_REQUIRES_EMPTY_REVIEWER_DRAFT"); return // Never overwrite an existing draft.
         }
@@ -5024,6 +5041,14 @@ final class AppUITests: XCTestCase {
     }
 
     private func perfTapNav(_ app: XCUIApplication, label: String) {
+        // UITabBarItem labels are system-owned and need not be bare titles.
+        // Prefer the authored item identifier already used for admission;
+        // finding an item must not then tap a different DOM/label match.
+        let authoredTab = app.buttons["one-native-tab-\(label.lowercased())"].firstMatch
+        if authoredTab.exists && authoredTab.isHittable {
+            authoredTab.tap()
+            return
+        }
         let nativeTab = app.descendants(matching: .any)
             .matching(identifier: "one-native-navigation").firstMatch.buttons[label]
         if nativeTab.exists && nativeTab.isHittable {
