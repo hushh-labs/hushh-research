@@ -1445,3 +1445,27 @@ existence-only admission and passes the stronger guard. Failed focus attempts
 still blur through the authored header. No native product retirement code changed;
 the cause of the missing onscreen keyboard is unconfirmed. Headless simulator
 checks do not qualify software-keyboard, physical-device or visual acceptance.
+
+### Debug product metadata compatibility
+
+The App target's Debug configuration opts out of the separate debug dylib.
+At `f6a6207e3`, an otherwise successful default Debug build omitted required
+App Intents metadata on device and simulator. The unchanged product validator
+rejected both bundles. A controlled monolithic Debug build restored the
+metadata, with 19 actions and 10 shortcuts observed in the simulator bundle.
+The earlier dylib build succeeded, so neither an SDK defect nor a universal
+dylib incompatibility is established.
+
+This is an App-target compatibility setting, not a workspace-wide override;
+Release, packages and test targets remain unchanged. Apple supports the
+[per-target opt-out](https://developer.apple.com/documentation/xcode/understanding-build-product-layout-changes).
+It removes modern Previews eligibility for App, while separate framework and
+package Previews remain available. No authored App previews were found in
+the inspected source. The metadata gate is not relaxed or replaced with copied
+output. Require ordinary device and simulator builds without a command-line
+override, their actual bundle checks, and independent runtime acceptance.
+
+Ordinary device and simulator builds with the target setting now pass the
+unchanged product-bundle validator, and all 40 native-support tests pass on
+the simulator product. These are packaging and host-contract results, not
+physical-device, Siri discovery, visual or release acceptance.
