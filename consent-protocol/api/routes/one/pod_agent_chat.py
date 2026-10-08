@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import aclosing
 from typing import Any, Literal
 
+import anyio
 from ag_ui.core import RunAgentInput
 from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -51,6 +52,21 @@ from hushh_mcp.services.message_feedback_service import MessageFeedbackError
 router = APIRouter(
     prefix="/api/one/pod/agent-chat", tags=["personal-agent"], route_class=PrivateConnectorRoute
 )
+
+
+class PodChatResponse(EventSourceResponse):
+    """Close the bridge even when the transport is cancelled during send()."""
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            # sse-starlette closes on send timeout, but a disconnect while its
+            # generator is suspended at yield can otherwise defer aclose to GC.
+            with anyio.CancelScope(shield=True):
+                close = getattr(self.body_iterator, "aclose", None)
+                if close is not None:
+                    await close()
 
 
 async def context(request: Request) -> PodChatContext:
@@ -157,7 +173,13 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         raise HTTPException(400, detail={"code": exc.code}) from None
     agent = await owner.build_agent(options)
     # Never merge client state or forward credentials into SDK/session state.
-    admitted = input.model_copy(update={"state": state, "forwarded_props": {}})
+    forwarded = input.forwarded_props if isinstance(input.forwarded_props, dict) else {}
+    admitted = input.model_copy(
+        update={
+            "state": state,
+            "forwarded_props": {"notifyOnDetach": forwarded.get("notifyOnDetach") is True},
+        }
+    )
     encoder = EventEncoder(accept="text/event-stream")
 
     async def events():
@@ -170,7 +192,14 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
             # outside the SDK's error projection. Never serialize their details.
             yield encoder.encode(safe_exception_event(exc)).encode("utf-8")
 
-    return EventSourceResponse(events(), headers={"Cache-Control": "no-store"})
+    return PodChatResponse(events(), headers={"Cache-Control": "no-store"})
+
+
+@router.post("/holds/{hold_id}", include_in_schema=False)
+async def hold_turn_request(hold_id: str, owner: PodChatContext = Depends(owner_context)):
+    from hushh_mcp.one_adk.pod_chat_hold import serve_hold
+
+    return await serve_hold(hold_id, owner)
 
 
 @router.get("/conversations/{user_id}")

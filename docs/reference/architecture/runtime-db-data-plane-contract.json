@@ -127,9 +127,35 @@
       "primary_access_path": "account, persona, notification, verified email alias, and identity-cache services",
       "retention_policy": "Retain while account exists; refresh from authoritative identity sources where possible.",
       "deletion_behavior": "Delete or invalidate on account deletion; unregister push tokens on sign-out/delete.",
-      "trust_boundary": "Metadata only; no vault keys, passphrases, tokens, or decrypted PKM.",
+      "trust_boundary": "Identity metadata and restricted push registration tokens only; no vault keys, passphrases, authentication credentials, or decrypted PKM. Push token transfers serialize by token; unregister supports one exact device token.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "one_reply_deliveries",
+      "owner": "backend-agents-operons",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": ["one_reply_deliveries"],
+      "primary_access_path": "OneReplyDelivery owner/event CAS claims from signed current serving owner-cloud POD completion signals; existing authenticated maintenance tick retries sealed pending signals.",
+      "retention_policy": "Signals expire six hours after completion; accepting a signal prunes rows expired for at least one day. Inactive environments require the existing retention maintenance lane before a production rollout. Sealed POD log receipts remain until owner erasure; checkpoint retains at most 512 live entries.",
+      "deletion_behavior": "Actor-profile account deletion cascades. POD crypto-erasure closes the reply projection slot before object deletion.",
+      "trust_boundary": "Hub runtime only, RLS default deny. Opaque conversation/run/event identifiers, timestamps, state and SHA256 device-token hashes; no answer text, titles, chat keys or owner-supplied recipient/copy. Postgres owns durable dedup and leases; a future Redis adapter must retain the same CAS and durable receipt contract.",
+      "plaintext_posture": "opaque_routing_metadata_and_device_hashes",
+      "expected_row_growth": "one_per_detached_completed_turn_bounded_by_expiry"
+    },
+    {
+      "id": "one_push_devices",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "dev_only",
+      "exact_tables": ["user_push_devices"],
+      "primary_access_path": "PushTokensService dual-writes and cleans the additive multi-device registry whenever its schema exists, including while PERSONAL_AGENT_ENABLED is off; latest-per-platform user_push_tokens remains compatible. Flag-enabled delivery selects the deduplicated union when the additive schema is available.",
+      "retention_policy": "Retain registered devices while account exists; remove exact token on device sign-out and invalid-provider-token response.",
+      "deletion_behavior": "Actor-profile account deletion cascades; exact-token unregister preserves other devices and accounts. Older clients retain their historical owner/platform unregister behavior.",
+      "trust_boundary": "Firebase-authenticated registration, token transfer serialized by transaction advisory lock; server-only registry with RLS default deny. Raw FCM device tokens are restricted routing credentials, never chat or vault keys. Postgres owns token transfer; any Redis replacement must preserve atomic cross-owner transfer and account erasure.",
+      "plaintext_posture": "restricted_device_routing_tokens",
+      "expected_row_growth": "one_per_registered_device"
     },
     {
       "id": "account_deletion_lifecycle",

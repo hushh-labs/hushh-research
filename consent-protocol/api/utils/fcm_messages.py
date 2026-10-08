@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import time
+from datetime import timedelta
 from typing import Any
 
 CONSENT_NOTIFICATION_CATEGORY = "CONSENT_REQUEST"
@@ -85,6 +88,7 @@ def build_push_message(
     request_url: str,
     notification_tag: str,
     show_alert: bool,
+    expires_at: int | None = None,
 ):
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
@@ -130,20 +134,8 @@ def build_push_message(
 
     android = None
     if normalized_platform == "android" and show_alert:
-        android = messaging.AndroidConfig(
-            priority="high",
-            notification=messaging.AndroidNotification(
-                title=title,
-                body=body,
-                channel_id=(
-                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL if is_sms_emergency else None
-                ),
-                tag=notification_tag,
-                ticker="Emergency SMS alert" if is_sms_emergency else None,
-                priority="max" if is_sms_emergency else None,
-                visibility="public" if is_sms_emergency else None,
-                vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
-            ),
+        android = _android_alert(
+            messaging, title, body, notification_tag, expires_at, is_sms_emergency
         )
 
     apns = None
@@ -152,6 +144,14 @@ def build_push_message(
             headers={
                 "apns-push-type": "alert",
                 "apns-priority": "10",
+                **(
+                    {
+                        "apns-expiration": str(expires_at),
+                        "apns-collapse-id": hashlib.sha256(notification_tag.encode()).hexdigest(),
+                    }
+                    if expires_at is not None
+                    else {}
+                ),
             },
             payload=messaging.APNSPayload(
                 aps=messaging.Aps(
@@ -194,4 +194,25 @@ def build_push_message(
         webpush=webpush,
         apns=apns,
         android=android,
+    )
+
+
+def _android_alert(messaging, title, body, notification_tag, expires_at, is_sms_emergency):
+    return messaging.AndroidConfig(
+        priority="high",
+        **(
+            {"ttl": timedelta(seconds=max(0, expires_at - int(time.time())))}
+            if expires_at is not None
+            else {}
+        ),
+        notification=messaging.AndroidNotification(
+            title=title,
+            body=body,
+            channel_id=(ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL if is_sms_emergency else None),
+            tag=notification_tag,
+            ticker="Emergency SMS alert" if is_sms_emergency else None,
+            priority="max" if is_sms_emergency else None,
+            visibility="public" if is_sms_emergency else None,
+            vibrate_timings_millis=([0, 240, 120, 240, 120, 520] if is_sms_emergency else None),
+        ),
     )

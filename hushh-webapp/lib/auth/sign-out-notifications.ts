@@ -1,9 +1,11 @@
 import type { User } from "firebase/auth";
+import { getFCMSessionEpoch } from "@/lib/notifications/fcm-session";
 
 const NOTIFICATION_CLEANUP_BUDGET_MS = 2_000;
 
 /** Notifications are best effort; they cannot hold the auth teardown open. */
 export async function settleSignOutNotifications(user: User): Promise<void> {
+  const sessionEpoch = getFCMSessionEpoch();
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<void>((resolve) => {
@@ -19,7 +21,7 @@ export async function settleSignOutNotifications(user: User): Promise<void> {
     if (controller.signal.aborted) return;
     const { deleteFCMToken } = await import("@/lib/notifications/fcm-service");
     if (controller.signal.aborted) return;
-    await deleteFCMToken(user.uid, idToken, { signal: controller.signal });
+    await deleteFCMToken(user.uid, idToken, { signal: controller.signal, sessionEpoch });
   };
 
   try {

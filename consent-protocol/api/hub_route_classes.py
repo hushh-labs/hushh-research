@@ -21,11 +21,10 @@ Classes:
 * ``CIPHERTEXT``: sealed records the hub stores and indexes but does not open.
 * ``CONNECTOR_ADMIN``: connect, disconnect and status of a provider link.
 * ``SUPPORT``: public reference information, settings and retired responders.
-* ``OPS``: placement, provisioning, setup, heartbeat and lifecycle.
+* ``OPS``: provisioning, placement, heartbeat and lifecycle, including signed completion metadata.
 
-``@pending:<lane>`` marks a ``CONTENT`` route whose module is owned by another lane of
-the private-agent plan; it is listed in ``CONTENT_GUARD_PENDING`` and the inventory
-test fails as soon as it is guarded, so the ledger only shrinks.
+``@pending:<lane>`` names ``CONTENT`` routes owned by another private-agent lane.
+``CONTENT_GUARD_PENDING`` lists them; the inventory test requires removal once guarded.
 """
 
 from __future__ import annotations
@@ -422,6 +421,7 @@ POST /api/one/personal-agent/update/defer
 POST /api/one/personal-agent/update/failure-report
 POST /api/one/personal-agent/update/files-plan
 POST /api/one/pod/heartbeat
+POST /api/one/pod/reply-notifications
 GET /api/one/pod/lifecycle
 GET /api/one/pod/lifecycle/stream
 POST /api/one/pod/wake

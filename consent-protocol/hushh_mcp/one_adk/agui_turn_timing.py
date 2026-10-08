@@ -22,7 +22,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, cast
 from uuid import uuid4
 
@@ -39,6 +39,7 @@ from ag_ui_adk import ADKAgent
 from google.adk.models.llm_response import LlmResponse
 
 from hushh_mcp.one_adk import queued_input
+from hushh_mcp.one_adk.detach_watch import _CURRENT_DETACH, DetachWatch
 from hushh_mcp.one_adk.drive_result_privacy import (
     ConfirmationWireProjection,
     governed_call_ids,
@@ -190,28 +191,6 @@ CONSUMER_SETTLE_GRACE_SECONDS = 5.0
 NOTIFY_ON_DETACH_PROP = "notifyOnDetach"
 
 DetachedTurnHook = Callable[[str, str], Awaitable[None]]
-
-
-@dataclass
-class DetachWatch:
-    """Whether the stream consumer left before the bridge's background run settled.
-
-    The bridge runs the ADK turn in its own task and keeps it running after the
-    client disconnects, so the turn still finishes and persists. This records
-    only what the completion notice needs: the owner and the conversation id. It
-    never holds message text, state or a key.
-    """
-
-    owner_id: str
-    conversation_id: str
-    consumer_detached: bool = False
-    # Set once the reader either handed on the terminal event or left.
-    resolved: asyncio.Event = field(default_factory=asyncio.Event)
-
-
-_CURRENT_DETACH: contextvars.ContextVar[DetachWatch | None] = contextvars.ContextVar(
-    "one_chat_detach_watch", default=None
-)
 
 
 def run_label(input_data: RunAgentInput) -> str:
@@ -685,7 +664,7 @@ class TimedADKAgent(ADKAgent):
             finally:
                 # A reader that left never received the settlement; close the
                 # inbox when the run itself ends so nothing waits in memory.
-                queued_input.settle(queued_input.current_run())
+                self._record_turn_settlement(queued_input.settle(queued_input.current_run()))
             # Still inside the retained binding: the hook reads the sealed
             # session with the key this turn received and never stores it.
             await self._settle_detached_turn()
@@ -706,7 +685,7 @@ class TimedADKAgent(ADKAgent):
             with contextlib.suppress(TimeoutError):
                 async with asyncio.timeout(CONSUMER_SETTLE_GRACE_SECONDS):
                     await watch.resolved.wait()
-        if not watch.consumer_detached:
+        if not watch.consumer_detached or watch.stopped:
             return
         try:
             async with asyncio.timeout(DETACHED_TURN_HOOK_TIMEOUT_SECONDS):
@@ -715,6 +694,11 @@ class TimedADKAgent(ADKAgent):
             logger.warning(
                 "one.detached_turn_hook_failed kind=%s", _bridge_failure_kind((type(exc),))
             )
+
+    def _record_turn_settlement(self, settlement: queued_input.Settlement) -> None:
+        watch = _CURRENT_DETACH.get()
+        if watch is not None:
+            watch.stopped = settlement.stopped
 
     async def _release_execution(self, input: RunAgentInput) -> None:
         """Drop the bridge's execution entry for a run that ended in error or disconnect.

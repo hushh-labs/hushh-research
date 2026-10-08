@@ -203,6 +203,14 @@ the authoritative request settles; late deltas cannot repopulate a cancelled tur
 
 ## Typed-chat emoji reactions
 
+Native detached POD turns keep the same AG-UI event contract. Qualified GCP
+deployments retain the event consumer through final persistence using a bounded,
+authenticated request hold. Stop, errors and drain never publish successful
+completion. Retry jobs drain sealed completion signals only; they never resume
+inference or extend the original request key. Hosting limits, rollback and device
+acceptance are documented in
+[private agent reply notifications](../operations/pod-response-notifications.md).
+
 One may call `react_to_message(emoji)` during the normal typed-chat turn. The
 existing AG-UI tool-result frame carries `status: shown` and a validated emoji;
 an optional `clientMessageId` comes only from server-owned joined-input metadata.

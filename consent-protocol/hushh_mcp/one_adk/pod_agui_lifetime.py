@@ -10,8 +10,9 @@ from typing import Any
 
 from ag_ui.core import BaseEvent, EventType, RunAgentInput, RunErrorEvent
 
-from hushh_mcp.one_adk.agui_turn_timing import TimedADKAgent
+from hushh_mcp.one_adk.agui_turn_timing import TimedADKAgent, server_is_draining
 from hushh_mcp.one_adk.mcp_turn_scope import McpTurnResources
+from hushh_mcp.one_adk.pod_detached_turn import run_retained_turn
 from hushh_mcp.services.chat_key import retain_request_chat_key
 from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
 
@@ -24,6 +25,11 @@ def _cleanup_finished(task: asyncio.Task) -> None:
     _CLEANUP_TASKS.discard(task)
     if not task.cancelled() and task.exception() is not None:
         logger.error("pod_chat.cleanup_failed")
+
+
+def _track_cleanup_task(task):
+    _CLEANUP_TASKS.add(task)
+    task.add_done_callback(_cleanup_finished)
 
 
 class PodTimedADKAgent(TimedADKAgent):
@@ -43,6 +49,8 @@ class PodTimedADKAgent(TimedADKAgent):
         before_run: Any = None,
         after_run: Any = None,
         mcp_owner_admission: Any = None,
+        detached_completion: Any = None,
+        request_lifetime: Any = None,
     ) -> None:
         self._pod_require_access = require_access
         self._pod_runtime_scope = runtime_scope
@@ -53,6 +61,16 @@ class PodTimedADKAgent(TimedADKAgent):
         self._pod_persistence_failed = False
         self._pod_mcp_scope: McpTurnResources | None = None
         self._pod_mcp_owner_admission = mcp_owner_admission
+        self._pod_detached_completion = detached_completion
+        self._pod_request_lifetime = request_lifetime
+        self._pod_consumer_detached = False
+        self._pod_turn_stopped = False
+        self._pod_consumer_resolved = asyncio.Event()
+        self._pod_retained = False
+
+    def _record_turn_settlement(self, settlement) -> None:
+        super()._record_turn_settlement(settlement)
+        self._pod_turn_stopped = settlement.stopped
 
     @asynccontextmanager
     async def _mcp_turn_resources(self, conversation_id: str, *, owner_id, configurations):
@@ -158,7 +176,7 @@ class PodTimedADKAgent(TimedADKAgent):
                 finally:
                     _ACTIVE_THREADS.discard(thread)
 
-    async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
+    async def _run_owned(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
         if self._pod_started:
             raise RuntimeError("Pod chat request cannot be reused.")
         self._pod_started = True
@@ -203,14 +221,51 @@ class PodTimedADKAgent(TimedADKAgent):
                             terminal = True
                         yield event
         finally:
-            cleanup = asyncio.create_task(
-                self._settle(cancel=not terminal, permit=permit, thread=input.thread_id)
-            )
-            _CLEANUP_TASKS.add(cleanup)
-            cleanup.add_done_callback(_cleanup_finished)
             try:
-                await asyncio.wait_for(asyncio.shield(cleanup), timeout=10)
-            except TimeoutError:
-                # Keep the permit held while any cancellation-resistant producer
-                # is still running. Update handoff must never report false idle.
-                logger.error("pod_chat.cleanup_pending update_handoff=held")
+                if (
+                    terminal
+                    and self._pod_retained
+                    and not self._pod_turn_stopped
+                    and not server_is_draining()
+                ):
+                    # The saved terminal can still be queued behind a suspended
+                    # display reader. Let that reader resolve before deciding.
+                    await self._pod_consumer_resolved.wait()
+                    if self._pod_consumer_detached:
+                        try:
+                            await self._pod_require_access()
+                            await self._pod_detached_completion(input)
+                        except Exception:
+                            logger.warning("pod_chat.completion_signal_pending")
+            finally:
+                # Cancellation during completion must never skip settlement.
+                cleanup = asyncio.create_task(
+                    self._settle(cancel=not terminal, permit=permit, thread=input.thread_id)
+                )
+                _CLEANUP_TASKS.add(cleanup)
+                cleanup.add_done_callback(_cleanup_finished)
+                try:
+                    await asyncio.wait_for(asyncio.shield(cleanup), timeout=10)
+                except TimeoutError:
+                    logger.error("pod_chat.cleanup_pending update_handoff=held")
+                    if self._pod_retained:
+                        # Retain request CPU through actual settlement, bounded
+                        # by the hold's original key/session deadline.
+                        await asyncio.shield(cleanup)
+
+    async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
+        forwarded = input.forwarded_props if isinstance(input.forwarded_props, dict) else {}
+        retained = (
+            forwarded.get("notifyOnDetach") is True
+            and self._pod_detached_completion is not None
+            and self._pod_request_lifetime is not None
+        )
+        if not retained:
+            async with aclosing(self._run_owned(input)) as stream:
+                async for event in stream:
+                    yield event
+            return
+
+        async with aclosing(run_retained_turn(self, input, _track_cleanup_task)) as stream:
+            async for event in stream:
+                yield event

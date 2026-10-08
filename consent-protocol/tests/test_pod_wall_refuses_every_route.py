@@ -129,6 +129,7 @@ _REAL = {
     "user_id": "owner-a",
     "client_message_id": "client-msg-0001",
     "command_id": "0b6f6a1e-2f4c-4d1a-9a59-5f1f3c1e2d3b",
+    "hold_id": "a" * 32,
 }
 
 
@@ -173,6 +174,8 @@ def test_every_agent_chat_route_is_named_on_the_app_surface(walled):
 
 def test_agent_chat_app_surface_patterns_do_not_widen_to_neighbours(walled):
     for path in (
+        "/api/one/pod/agent-chat/holds/" + "a" * 31,
+        "/api/one/pod/agent-chat/holds/" + "a" * 32 + "/extra",
         "/api/one/pod/agent-chat/runs/conv-1/queue/client-msg-0001/extra",
         "/api/one/pod/agent-chat/runs/conv-1/queue/short",
         "/api/one/pod/agent-chat/runs/conv-1/start",

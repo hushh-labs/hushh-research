@@ -1121,3 +1121,10 @@ tests/test_one_career_routes.py
 
 # Historical public seed replay preserves refreshed SEC records and explicit curation.
 tests/services/test_marketplace_investor_discovery.py
+
+# POD completion notification trust, durable receipt and delivery contracts.
+tests/test_pod_reply_notifications.py
+tests/services/test_pod_reply_delivery_postgres.py
+
+tests/test_pod_chat_disconnect.py
+tests/services/test_pod_reply_native_push.py

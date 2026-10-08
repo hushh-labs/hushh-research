@@ -849,42 +849,7 @@ export const HushhSync = registerPlugin<HushhSyncPlugin>("HushhSync", {
 // ==================== HushhNotificationsPlugin ====================
 // Push notification token registration (FCM/APNs)
 
-export interface HushhNotificationsPlugin {
-  /**
-   * Register push notification token for consent notifications.
-   * Next.js source of truth: POST /api/notifications/register
-   * Backend: POST /api/notifications/register
-   */
-  registerPushToken(options: {
-    userId: string;
-    token: string;
-    platform: "web" | "ios" | "android";
-    idToken: string; // Firebase ID token
-    backendUrl?: string;
-  }): Promise<{ success: boolean }>;
-
-  /**
-   * Unregister push notification token(s).
-   * Next.js source of truth: DELETE /api/notifications/unregister
-   * Backend: DELETE /api/notifications/unregister
-   */
-  unregisterPushToken(options: {
-    userId: string;
-    idToken: string; // Firebase ID token
-    platform?: "web" | "ios" | "android";
-    backendUrl?: string;
-  }): Promise<{ success: boolean }>;
-}
-
-export const HushhNotifications = registerPlugin<HushhNotificationsPlugin>(
-  "HushhNotifications",
-  {
-    web: () =>
-      import("./plugins/notifications-web").then(
-        (m) => new m.HushhNotificationsWeb(),
-      ),
-  },
-);
+export { HushhNotifications, type HushhNotificationsPlugin } from "./notifications";
 
 // ==================== HushhLocationPlugin ====================
 // Foreground-only location capture for One Location Agent.

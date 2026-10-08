@@ -117,6 +117,22 @@ describe("authenticated root entry", () => {
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 
+  it("preserves a notification conversation through sign-in", () => {
+    mocks.user = null;
+    mocks.search = "conversation=conversation_123";
+    render(<Home />);
+    screen.getByRole("button", { name: "Welcome" }).click();
+    expect(mocks.push).toHaveBeenCalledWith("/login?redirect=%2F%3Fconversation%3Dconversation_123");
+  });
+
+  it.each(["conversation=../evil", "conversation=conversation_123&conversation=other_123"])("does not retain malformed or ambiguous notification targets (%s)", search => {
+    mocks.user = null;
+    mocks.search = search;
+    render(<Home />);
+    screen.getByRole("button", { name: "Welcome" }).click();
+    expect(mocks.push).toHaveBeenCalledWith("/login");
+  });
+
   it.each([
     "",
     "invite=other",

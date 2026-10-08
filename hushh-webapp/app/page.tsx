@@ -19,6 +19,7 @@ import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { useVault } from "@/lib/vault/vault-context";
+import { isAgentConversationId } from "@/lib/agent/agent-chat-turn-watch";
 
 function HomeContent() {
   const router = useRouter();
@@ -26,10 +27,15 @@ function HomeContent() {
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get("redirect") || "";
   const inviteMarkers = searchParams.getAll("invite");
+  const conversationIds = searchParams.getAll("conversation");
+  const conversationReturnTo = conversationIds.length === 1 &&
+    isAgentConversationId(conversationIds[0])
+    ? `${ROUTES.HOME}?${new URLSearchParams({ conversation: conversationIds[0] })}`
+    : "";
   const isOneInvitation =
     inviteMarkers.length === 1 && inviteMarkers[0] === "one" && !redirectPath;
   const loginReturnTo =
-    redirectPath || (isOneInvitation ? INVITE_TO_ONE_PATH : "");
+    redirectPath || conversationReturnTo || (isOneInvitation ? INVITE_TO_ONE_PATH : "");
   const loginUrl = loginReturnTo
     ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(loginReturnTo)}`
     : ROUTES.LOGIN;

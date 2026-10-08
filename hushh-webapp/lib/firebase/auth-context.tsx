@@ -43,6 +43,12 @@ import {
   removeLocalItem,
 } from "@/lib/utils/session-storage";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  withinAccountSessionValidationBudget,
+  hasJsonResponseContentType,
+  readBoundedAccountSessionStatusBody,
+} from "@/lib/auth/account-session-status-body";
+import { clearFCMSession } from "@/lib/notifications/fcm-session";
 import { setObservabilityUserId } from "@/lib/observability/identity";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
@@ -82,7 +88,6 @@ const SESSION_VERIFICATION_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000] as c
 const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
 const ACCOUNT_DELETION_REPROBE_DEFAULT_DELAY_MS = 2_000;
 const ACCOUNT_DELETION_REPROBE_MAX_DELAY_MS = 2_000;
-const ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES = 4_096;
 
 type AccountSessionValidationResult =
   | { outcome: "active" | "unavailable" }
@@ -98,70 +103,6 @@ type AccountSessionStatusInspection =
       code: "account_not_found" | "session_invalid";
     };
 
-function withinAccountSessionValidationBudget<T>(
-  promise: Promise<T>,
-  deadlineMs: number,
-): Promise<T> {
-  const remainingMs = Math.max(0, deadlineMs - Date.now());
-  if (remainingMs === 0) {
-    return Promise.reject(
-      Object.assign(new Error("Account session validation timed out."), {
-        name: "TimeoutError",
-      }),
-    );
-  }
-
-  return new Promise<T>((resolve, reject) => {
-    const timeout = globalThis.setTimeout(() => {
-      reject(
-        Object.assign(new Error("Account session validation timed out."), {
-          name: "TimeoutError",
-        }),
-      );
-    }, remainingMs);
-    promise.then(
-      (value) => {
-        globalThis.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        globalThis.clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
-
-function hasJsonResponseContentType(response: Response): boolean {
-  const contentType = response.headers.get("Content-Type")?.toLowerCase() ?? "";
-  const mediaType = contentType.split(";", 1)[0]?.trim() ?? "";
-  return mediaType === "application/json" || mediaType.endsWith("+json");
-}
-
-async function readBoundedAccountSessionStatusBody(
-  response: Response,
-  deadlineMs: number,
-): Promise<string> {
-  const declaredLength = Number(response.headers.get("Content-Length"));
-  if (
-    Number.isFinite(declaredLength) &&
-    declaredLength > ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES
-  ) {
-    throw new Error("Account session status response is too large.");
-  }
-
-  const payload = await withinAccountSessionValidationBudget(
-    response.clone().text(),
-    deadlineMs,
-  );
-  if (
-    new TextEncoder().encode(payload).byteLength >
-    ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES
-  ) {
-    throw new Error("Account session status response is too large.");
-  }
-  return payload;
-}
 
 function isAuthoritativeActiveSessionPayload(payload: string): boolean {
   try {
@@ -445,6 +386,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // must never republish the deleted identity while sign-out is settling.
       return;
     }
+    if ((userRef.current?.uid ?? null) !== (nextUser?.uid ?? null)) clearFCMSession();
     if (!nextUser && terminalLatch && !terminalLatch.observedAnonymous) {
       terminalInvalidationLatchRef.current = {
         ...terminalLatch,
@@ -903,6 +845,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (signOutPromiseRef.current) {
         return signOutPromiseRef.current;
       }
+      clearFCMSession();
 
       let terminalNavigationCommitted = false;
       const operation = (async () => {

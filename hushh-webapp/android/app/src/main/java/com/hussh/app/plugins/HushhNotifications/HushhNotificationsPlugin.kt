@@ -152,6 +152,7 @@ class HushhNotificationsPlugin : Plugin() {
         val userId = call.getString("userId")
         val idToken = call.getString("idToken")
         val platform = call.getString("platform")
+        val token = call.getString("token")
 
         if (userId.isNullOrBlank() || idToken.isNullOrBlank()) {
             call.reject("Missing required parameters: userId, idToken")
@@ -164,6 +165,7 @@ class HushhNotificationsPlugin : Plugin() {
         Thread {
             try {
                 val bodyObj = JSONObject().put("user_id", userId)
+                if (!token.isNullOrBlank()) bodyObj.put("token", token)
                 if (!platform.isNullOrBlank()) bodyObj.put("platform", platform)
 
                 val request = Request.Builder()

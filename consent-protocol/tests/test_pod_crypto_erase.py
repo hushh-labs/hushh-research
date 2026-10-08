@@ -159,14 +159,14 @@ async def test_a_live_process_cannot_write_after_the_erase(store):
 
 
 @pytest.mark.parametrize("existing", [False, True])
-async def test_erasure_fences_delayed_projection_writes(store, monkeypatch, existing):
-    from hushh_mcp.services.pod_recovery_projection import KEY as PROJECTION
-    from hushh_mcp.services.pod_recovery_projection import OwnerRecoveryProjection
+@pytest.mark.parametrize("reply", [False, True])
+async def test_erasure_fences_delayed_projection_writes(store, monkeypatch, existing, reply):
+    from tests.pod_projection_probes import erasure_projection
 
     log = await _agent(store)
-    projection = OwnerRecoveryProjection(owner=OWNER)
+    PROJECTION, prepare, save = erasure_projection(reply, log, OWNER)
     if existing:
-        await projection.replay(log)
+        await prepare()
     entered, release = asyncio.Event(), asyncio.Event()
     original = store.put_if_generation
 
@@ -177,7 +177,7 @@ async def test_erasure_fences_delayed_projection_writes(store, monkeypatch, exis
         return await original(key, data, generation)
 
     monkeypatch.setattr(store, "put_if_generation", delayed)
-    writer = asyncio.create_task(projection.recover(log, force_save=True))
+    writer = asyncio.create_task(save())
     await asyncio.wait_for(entered.wait(), 2)
     try:
         await crypto_erase(

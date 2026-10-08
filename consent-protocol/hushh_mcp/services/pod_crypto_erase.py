@@ -290,11 +290,12 @@ async def _close_fences(store: ObjectStore) -> None:
     from hushh_mcp.one_adk.pod_adk_checkpoint import KEY as SESSION_PROJECTION
     from hushh_mcp.services.pod_memory_bank import MEMORY_BANK_RECORD_KEY  # noqa: PLC0415
     from hushh_mcp.services.pod_recovery_projection import KEY as OWNER_PROJECTION
+    from hushh_mcp.services.pod_reply_notifications import KEY as REPLY_PROJECTION
 
     await _replace(store, MEMORY_BANK_RECORD_KEY, ERASED_MEMORY_RECORD)
     # Retain closed slots: deleting them would let a delayed ABSENT write restore
     # sealed records after erasure. Older writers lose their CAS against this marker.
-    for key in (SESSION_PROJECTION, OWNER_PROJECTION):
+    for key in (SESSION_PROJECTION, OWNER_PROJECTION, REPLY_PROJECTION):
         await _replace(store, key, ERASED_PROJECTION)
     head = await store.get(PodCommitLog.HEAD)
     if head is None:

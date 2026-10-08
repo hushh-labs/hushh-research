@@ -41,6 +41,8 @@ _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
 # Every edge is checked against the creating migration below. The parent must
 # itself be deleted or lead to another checked cascade edge.
 _CASCADE_PARENT = {
+    "one_reply_deliveries": "actor_profiles",
+    "user_push_devices": "actor_profiles",
     "one_referral_circle_contributions": "actor_profiles",
     "one_referral_circle_selections": "actor_profiles",
     "one_referral_display_handles": "actor_profiles",
@@ -98,7 +100,7 @@ def _user_keyed_tables() -> dict[str, str]:
         text = path.read_text(errors="ignore")
         for match in _CREATE.finditer(text):
             if _USER_KEY.search(match.group(2)):
-                created[match.group(1)] = path.name
+                created[match.group(1)] = path.relative_to(MIGRATIONS).as_posix()
         dropped.update(match.group(1) for match in _DROP.finditer(text))
     return {name: src for name, src in created.items() if name not in dropped}
 

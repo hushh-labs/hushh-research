@@ -1,3 +1,5 @@
+import { lastAssistantMessageId } from "@/lib/agent/last-assistant-message";
+export { lastAssistantMessageId } from "@/lib/agent/last-assistant-message";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { ApiService } from "@/lib/services/api-service";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
@@ -267,21 +269,6 @@ export type AgentChatStreamHandlers = {
   onStreamHealth?: (signal: AgentStreamHealthSignal) => void;
 };
 
-/** The last assistant message with content in a messages snapshot: this turn's answer. */
-export function lastAssistantMessageId(messages: unknown): string | null {
-  if (!Array.isArray(messages)) return null;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = asRecord(messages[index]);
-    if (!message || message.role !== "assistant") continue;
-    const content = message.content;
-    const hasContent =
-      (typeof content === "string" && content.trim().length > 0) ||
-      (Array.isArray(content) && content.length > 0);
-    const id = typeof message.id === "string" ? message.id.trim() : "";
-    if (hasContent && id) return id;
-  }
-  return null;
-}
 
 // Reject legacy reasoning before the SDK stores it, including replay snapshots.
 // Server continuation signatures remain server-owned and never enter this UI.
@@ -1285,7 +1272,13 @@ export async function streamAgentChat(input: {
     streamLost = false;
     liveness.start();
     try {
-      await agent.runAgent(parameters, subscriber);
+      await agent.runAgent({
+        ...parameters,
+        forwardedProps: {
+          ...parameters?.forwardedProps,
+          notifyOnDetach: Capacitor.isNativePlatform(),
+        },
+      }, subscriber);
     } finally {
       liveness.stop();
     }

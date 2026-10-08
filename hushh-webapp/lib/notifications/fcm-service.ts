@@ -14,6 +14,8 @@
 import { Capacitor } from "@capacitor/core";
 import { circleChatNotificationTarget } from "@/lib/circle-chat/routes";
 import { ApiService } from "@/lib/services/api-service";
+import { beginFCMSession, clearFCMSession, getFCMSessionEpoch, lastKnownSession } from "./fcm-session";
+export { clearFCMSession } from "./fcm-session";
 import {
   buildDirectMessageRoute,
   ROUTES,
@@ -28,9 +30,12 @@ import {
   documentShareNotificationCopy,
   documentShareNotificationRequestId,
   documentShareNotificationSelection,
-  isDocumentShareNotificationCandidate,
-  isDocumentShareNotificationType,
 } from "@/lib/consent/document-share-consent";
+import {
+  normalizedDocumentShareType,
+  sanitizeDocumentShareNotificationData,
+  sanitizeDocumentShareNotificationDetail,
+} from "./fcm-document-share";
 import {
   assignWindowLocation,
   requestInternalAppNavigation,
@@ -58,81 +63,6 @@ export const DOCUMENT_SHARE_NOTIFICATION_COPY = {
   title: "Document request",
   body: "Open One for next steps.",
 } as const;
-
-function normalizedDocumentShareType(
-  data: Record<string, unknown> | undefined,
-): string {
-  return typeof data?.type === "string" ? data.type.trim().toLowerCase() : "";
-}
-
-/**
- * A Drive-sharing transport payload is deliberately reduced before it crosses
- * the FCM boundary. The route is derived from the reviewed UUID alone; all
- * provider URLs and content fields are discarded.
- */
-function sanitizeDocumentShareNotificationData(
-  data: Record<string, unknown> | undefined,
-): Record<string, string> | null {
-  // Even an unknown `document_share_*` payload must not reach logs or UI
-  // unchanged. It remains unacknowledged by the Consent provider below, but
-  // the transport boundary still reduces it to the non-sensitive type.
-  if (!isDocumentShareNotificationCandidate(data)) return null;
-
-  const safe: Record<string, string> = {
-    type: normalizedDocumentShareType(data),
-  };
-  if (!isDocumentShareNotificationType(data)) return safe;
-  const requestId = documentShareNotificationRequestId(data);
-  if (requestId) safe.request_id = requestId;
-
-  // Retain only the addressed identity for the existing signed-in-user fence.
-  // It is never rendered, logged here, or used to construct a URL.
-  const userId = typeof data?.user_id === "string" ? data.user_id.trim() : "";
-  if (userId && userId.length <= 128) safe.user_id = userId;
-  return safe;
-}
-
-function sanitizeDocumentShareNotificationDetail<T>(detail: T): T {
-  if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
-    return detail;
-  }
-  const record = detail as Record<string, unknown>;
-  const data =
-    record.data &&
-    typeof record.data === "object" &&
-    !Array.isArray(record.data)
-      ? (record.data as Record<string, unknown>)
-      : record.notification &&
-          typeof record.notification === "object" &&
-          !Array.isArray(record.notification) &&
-          (record.notification as Record<string, unknown>).data &&
-          typeof (record.notification as Record<string, unknown>).data ===
-            "object" &&
-          !Array.isArray((record.notification as Record<string, unknown>).data)
-        ? ((record.notification as Record<string, unknown>).data as Record<
-            string,
-            unknown
-          >)
-        : undefined;
-  const safeData = sanitizeDocumentShareNotificationData(data);
-  if (!safeData) return detail;
-
-  const notification =
-    record.notification &&
-    typeof record.notification === "object" &&
-    !Array.isArray(record.notification)
-      ? {
-          ...(record.notification as Record<string, unknown>),
-          data: safeData,
-          ...documentShareNotificationCopy(safeData),
-        }
-      : record.notification;
-  return {
-    ...record,
-    data: safeData,
-    ...(notification ? { notification } : {}),
-  } as T;
-}
 
 /**
  * Builds the only Drive-sharing click target. This intentionally does not
@@ -295,6 +225,7 @@ export interface FCMInitResult {
 }
 
 export type FCMInitOptions = {
+  sessionEpoch?: number;
   requestPermission?: boolean;
 };
 
@@ -302,7 +233,55 @@ let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;
 let webListenerConfigured = false;
 let webServiceWorkerBridgeConfigured = false;
-let lastKnownSession: { userId: string; idToken: string } | null = null;
+let registeredPush: { userId: string; token: string; platform: "web" | "ios" | "android" } | null = null;
+let registrationIntent: { session: { userId: string }; token: string; platform: "web" | "ios" | "android" } | null = null;
+
+async function registerCurrentDevice(
+  session: { userId: string } | null, token: string,
+  platform: "web" | "ios" | "android", idToken: string,
+  recoverTransfer = true,
+): Promise<Response> {
+  if (!session || lastKnownSession !== session) return new Response(null, { status: 409 });
+  const intent = { session, token, platform };
+  registrationIntent = intent;
+  const response = await ApiService.registerPushToken(session.userId, token, platform, idToken);
+  if (lastKnownSession !== session) {
+    // An account transfer owns this token now; cleanup is scoped to the old
+    // owner and exact token, so it cannot remove the next owner's registration.
+    if (lastKnownSession?.userId !== session.userId) {
+      await ApiService.unregisterPushToken(session.userId, idToken, platform, undefined, token).catch(() => undefined);
+      // The old HTTP request may have committed after the new account's
+      // registration. Reassert the current device only with fresh authority.
+      const current = lastKnownSession;
+      const device = registrationIntent;
+      if (recoverTransfer && current && device?.session === current && device.token === token) {
+        const { AuthService } = await import("@/lib/services/auth-service");
+        const fresh = await AuthService.getIdTokenWithRetry({ expectedUserId: current.userId }).catch(() => null);
+        if (fresh && lastKnownSession === current) {
+          await registerCurrentDevice(current, token, device.platform, fresh, false).catch(() => undefined);
+        }
+      }
+    }
+    return new Response(null, { status: 409 });
+  }
+  if (response.ok && registrationIntent === intent) {
+    registeredPush = { userId: session.userId, token, platform };
+  }
+  return response;
+}
+
+async function renewCurrentNativeDevice(): Promise<void> {
+  const session = lastKnownSession;
+  const device = registrationIntent;
+  if (!session || device?.session !== session || device.platform === "web") return;
+  const token = await getFCMToken();
+  if (!token || lastKnownSession !== session) return;
+  const { AuthService } = await import("@/lib/services/auth-service");
+  const fresh = await AuthService.getIdTokenWithRetry({ expectedUserId: session.userId });
+  if (fresh && lastKnownSession === session) {
+    await registerCurrentDevice(session, token, device.platform, fresh);
+  }
+}
 const FIREBASE_WEB_PUSH_DATABASES = [
   "firebase-messaging-database",
   "firebase-installations-database",
@@ -582,11 +561,12 @@ async function clearFirebaseWebPushDatabases(): Promise<void> {
 async function clearFirebaseWebPushState(
   registration: ServiceWorkerRegistration,
   signal?: AbortSignal,
+  stillOwnsCleanup: () => boolean = () => true,
 ): Promise<void> {
-  if (signal?.aborted) return;
+  if (signal?.aborted || !stillOwnsCleanup()) return;
   try {
     const subscription = await registration.pushManager.getSubscription();
-    if (signal?.aborted) return;
+    if (signal?.aborted || !stillOwnsCleanup()) return;
     if (subscription) {
       const endpoint = subscription.endpoint;
       await subscription.unsubscribe();
@@ -596,7 +576,7 @@ async function clearFirebaseWebPushState(
     console.warn("[FCM] Failed to clear existing push subscription:", error);
   }
 
-  if (!signal?.aborted) await clearFirebaseWebPushDatabases();
+  if (!signal?.aborted && stillOwnsCleanup()) await clearFirebaseWebPushDatabases();
 }
 
 /**
@@ -611,7 +591,10 @@ export async function initializeFCM(
   options: FCMInitOptions = {},
 ): Promise<FCMInitResult> {
   const isNative = Capacitor.isNativePlatform();
-  lastKnownSession = { userId, idToken };
+  if (options.sessionEpoch !== undefined && options.sessionEpoch !== getFCMSessionEpoch()) {
+    return { status: "push_failed", detail: "auth_session_changed" };
+  }
+  beginFCMSession(userId);
 
   if (isNative) {
     return initializeNativeFCM(userId, idToken, options);
@@ -731,6 +714,7 @@ async function initializeNativeFCM(
   idToken: string,
   options: FCMInitOptions,
 ): Promise<FCMInitResult> {
+  const session = lastKnownSession;
   try {
     if (
       typeof window !== "undefined" &&
@@ -781,8 +765,8 @@ async function initializeNativeFCM(
 
     // Step 3: Register token with backend
     const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
-    const response = await ApiService.registerPushToken(
-      userId,
+    const response = await registerCurrentDevice(
+      session,
       token,
       platform,
       idToken,
@@ -835,6 +819,7 @@ async function initializeWebFCM(
   idToken: string,
   options: FCMInitOptions,
 ): Promise<FCMInitResult> {
+  const session = lastKnownSession;
   try {
     console.log("[FCM] Initializing for web platform...");
 
@@ -1027,8 +1012,8 @@ async function initializeWebFCM(
 
     // Register token with backend
     console.log("[FCM] Registering token with backend...");
-    const response = await ApiService.registerPushToken(
-      userId,
+    const response = await registerCurrentDevice(
+      session,
       token,
       "web",
       idToken,
@@ -1248,14 +1233,13 @@ function setupNativeListeners(): Promise<void> {
           console.log("[FCM] Push token refreshed");
           const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
           try {
-            if (lastKnownSession) {
-              await ApiService.registerPushToken(
-                lastKnownSession.userId,
-                event.token,
-                platform,
-                lastKnownSession.idToken,
-              );
-              console.log("[FCM] Refreshed token re-registered with backend");
+            const session = lastKnownSession;
+            if (session) {
+              const { AuthService } = await import("@/lib/services/auth-service");
+              const idToken = await AuthService.getIdTokenWithRetry({ expectedUserId: session.userId });
+              if (idToken && lastKnownSession === session) {
+                await registerCurrentDevice(session, event.token, platform, idToken);
+              }
             }
           } catch (err) {
             console.warn("[FCM] Token refresh re-registration failed:", err);
@@ -1432,27 +1416,43 @@ export async function clearDeliveredConsentNotifications(options: {
 export async function deleteFCMToken(
   userId?: string,
   idToken?: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; sessionEpoch?: number },
 ): Promise<void> {
   const signal = options?.signal;
   if (signal?.aborted) return;
+  if (options?.sessionEpoch !== undefined && options.sessionEpoch !== getFCMSessionEpoch()) return;
+  if (lastKnownSession && lastKnownSession.userId !== userId) return;
   const isNative = Capacitor.isNativePlatform();
 
   // A stalled backend must not prevent removal of the device's push state.
   // Both operations start within the caller's budget, independently.
-  const unregister = userId && idToken
-    ? ApiService.unregisterPushToken(userId, idToken, undefined, signal)
+  const registration = registeredPush?.userId === userId ? registeredPush : null;
+  clearFCMSession();
+  registeredPush = null;
+  registrationIntent = null;
+  const cleanupEpoch = getFCMSessionEpoch();
+  const stillOwnsCleanup = () => cleanupEpoch === getFCMSessionEpoch();
+  const unregister = userId && idToken && registration
+    ? ApiService.unregisterPushToken(userId, idToken, registration.platform, signal, registration.token)
     : Promise.resolve();
   const clearLocalPushState = async () => {
-    if (signal?.aborted) return;
+    if (signal?.aborted || !stillOwnsCleanup()) return;
     if (isNative) {
       const { FirebaseMessaging } =
         await import("@capacitor-firebase/messaging");
-      if (signal?.aborted) return;
-      await FirebaseMessaging.deleteToken();
+      if (signal?.aborted || !stillOwnsCleanup()) return;
+      try {
+        await FirebaseMessaging.deleteToken();
+      } finally {
+        // The native SDK cannot abort an in-flight deletion. If another login
+        // took over, restore its device token using that owner's fresh authority.
+        if (!stillOwnsCleanup()) {
+          await renewCurrentNativeDevice().catch(() => undefined);
+        }
+      }
     } else {
       const { app } = await import("@/lib/firebase/config");
-      if (signal?.aborted) return;
+      if (signal?.aborted || !stillOwnsCleanup()) return;
       if (!hasValidWebMessagingConfig(app)) {
         console.warn(
           "[FCM] Missing Firebase Messaging config. Skipping token deletion.",
@@ -1465,9 +1465,9 @@ export async function deleteFCMToken(
       const registration = "serviceWorker" in navigator
         ? await navigator.serviceWorker.getRegistration(FIREBASE_MESSAGING_SW_PATH)
         : undefined;
-      if (signal?.aborted) return;
+      if (signal?.aborted || !stillOwnsCleanup()) return;
       if (registration) {
-        await clearFirebaseWebPushState(registration, signal);
+        await clearFirebaseWebPushState(registration, signal, stillOwnsCleanup);
       } else {
         await clearFirebaseWebPushDatabases();
       }

@@ -140,6 +140,7 @@ the calendar is an event record, never a timekeeping or performance measure.
 - [coding-agent-mcp.md](./coding-agent-mcp.md): MCP host operations for local engineering environments.
 - [subtree-maintainers.md](./subtree-maintainers.md): maintainer-only subtree sync and upstream coordination.
 - [dev-fast-lane.md](./dev-fast-lane.md): the hosted dev environment agentic lane.
+- [pod-response-notifications.md](./pod-response-notifications.md): private agent reply push delivery, hosting qualification, rollback and device acceptance.
 - [crm-registry-operations.md](./crm-registry-operations.md): CRM registry check, probe, apply, and deactivate operations.
 - [hussh-mcp-partner-integration-guide.md](./hussh-mcp-partner-integration-guide.md): partner-facing MCP integration guide.
 - [hussh-rebrand-classification.md](./hussh-rebrand-classification.md): non-breaking rebrand bucket model.

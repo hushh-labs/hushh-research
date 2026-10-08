@@ -48,6 +48,7 @@ from hushh_mcp.services.compute_backend import (
     PodSpec,
     is_owner_cloud_target,
 )
+from hushh_mcp.services.pod_request_cpu import qualified_request_spec
 
 logger = logging.getLogger(__name__)
 
@@ -515,12 +516,9 @@ class GcpBackend:
                         "valueFrom": {"secretKeyRef": {"name": secret_name, "key": "latest"}},
                     }
                 )
-        inner_spec: dict[str, Any] = {
-            "containers": [container],
-            "containerConcurrency": (
-                1 if _cpu_millis(container["resources"]["limits"]["cpu"]) < 1000 else 8
-            ),
-        }
+        inner_spec = qualified_request_spec(
+            container, _cpu_millis(container["resources"]["limits"]["cpu"])
+        )
         # Only pin a runtime service account when one is configured; an empty value
         # is rejected by the live API (and the project default is used otherwise).
         if self._service_account:

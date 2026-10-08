@@ -35,6 +35,7 @@ export class HushhNotificationsWeb extends WebPlugin implements HushhNotificatio
     userId: string;
     idToken: string;
     platform?: "web" | "ios" | "android";
+    token?: string;
   }): Promise<{ success: boolean }> {
     const response = await fetch("/api/notifications/unregister", {
       method: "DELETE",
@@ -45,6 +46,7 @@ export class HushhNotificationsWeb extends WebPlugin implements HushhNotificatio
       body: JSON.stringify({
         user_id: options.userId,
         ...(options.platform ? { platform: options.platform } : {}),
+        ...(options.token ? { token: options.token } : {}),
       }),
     });
 
