@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 import type { ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
 import { useAuth } from "@/hooks/use-auth";
+import styles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import type { ProfileDetail } from "@/lib/navigation/profile-routes";
 import {
   activeChatConnectorRecoveryHost,
@@ -78,15 +79,17 @@ export function ProfileConnectorsSection({
   const stayInProfile = useCallback(() => undefined, []);
 
   return (
-    <ConnectorsPanel
-      open
-      surface="profile"
-      activeConnector={connectorId}
-      onActiveConnectorChange={onConnectorChange}
-      onBack={stayInProfile}
-      onPrepareRecovery={prepareSignInReturn}
-      onClearRecovery={clearSignInReturn}
-    />
+    <div className={styles.connectors}>
+      <ConnectorsPanel
+        open
+        surface="profile"
+        activeConnector={connectorId}
+        onActiveConnectorChange={onConnectorChange}
+        onBack={stayInProfile}
+        onPrepareRecovery={prepareSignInReturn}
+        onClearRecovery={clearSignInReturn}
+      />
+    </div>
   );
 }
 

@@ -1,0 +1,181 @@
+/* Profile's secondary screens inherit the sheet's glass and typography.
+   The explicit pane ancestor keeps the full-page connector and support routes untouched. */
+:global(.profile-pane-scroll-root) .connectors,
+:global(.profile-pane-scroll-root) .support {
+  min-width: 0;
+  width: 100%;
+  color: var(--ios-account-label);
+  font-family: var(--font-app-body);
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-testid^="profile-connectors-"] > div:first-child) {
+  margin: 0 0 7px;
+  padding-inline: 6px;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-testid^="profile-connectors-"] + [data-testid^="profile-connectors-"] > div:first-child) {
+  margin-top: 16px;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-group-heading"]) {
+  color: var(--ios-account-secondary-label) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  line-height: 14px !important;
+  letter-spacing: 0.02em !important;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-group-shell"]) {
+  overflow: hidden;
+  border: 1px solid var(--profile-pane-card-border) !important;
+  border-radius: 17px !important;
+  background: var(--profile-pane-card-surface) !important;
+  box-shadow: inset 0 1px 0 var(--profile-pane-card-highlight), 0 8px 24px rgba(35, 42, 51, 0.05) !important;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-row-layout="settings"]) {
+  --settings-row-px: 14px;
+  --settings-row-py: 11px;
+  --settings-row-gap: 12px;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-row-layout="settings"]:not(:last-child)::after) {
+  background: var(--profile-pane-hair) !important;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-title"]) {
+  color: var(--ios-account-label) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.3 !important;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-description"]) {
+  color: var(--ios-account-secondary-label) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  line-height: 1.35 !important;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global(.profile-pane-icon) {
+  color: var(--ios-account-label);
+}
+
+:global(.profile-pane-scroll-root) .connectors :global(.profile-pane-icon-accent) {
+  stroke: var(--ios-account-accent);
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-trailing"] button) {
+  min-width: 72px;
+  min-height: 34px;
+  border: 1px solid var(--profile-pane-hair);
+  border-radius: 999px;
+  background: var(--profile-pane-surface-soft);
+  color: var(--ios-account-accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-connector-detail] > section) {
+  border-color: var(--profile-pane-card-border);
+  border-radius: 17px;
+  background: var(--profile-pane-card-surface);
+}
+
+:global(.profile-pane-scroll-root) .support {
+  padding: 4px 0 18px;
+}
+
+:global(.profile-pane-scroll-root) .support :global(form > div > p:first-child),
+:global(.profile-pane-scroll-root) .support :global(label[for="support-message"]) {
+  color: var(--ios-account-label) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 18px !important;
+}
+
+:global(.profile-pane-scroll-root) .support :global([role="group"][aria-labelledby="support-intent-label"]) {
+  min-width: 0;
+}
+
+:global(.profile-pane-scroll-root) .support :global([data-ui-role="segmented-tabs"]) {
+  padding: 3px;
+  border: 1px solid var(--profile-pane-hair);
+  border-radius: 999px;
+  background: var(--profile-pane-surface-soft);
+  backdrop-filter: none;
+}
+
+:global(.profile-pane-scroll-root) .support :global([data-ui-role="segmented-tabs"] > button) {
+  min-height: 38px;
+  border-radius: 999px;
+  padding-inline: 8px;
+}
+
+:global(.profile-pane-scroll-root) .support :global([data-ui-role="segmented-tabs"] [data-ui-contract="required-title"]) {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+:global(.profile-pane-scroll-root) .support :global([data-ui-role="segmented-tabs"] > button[data-state="active"]) {
+  background: var(--profile-pane-surface-strong) !important;
+  color: var(--ios-account-label) !important;
+}
+
+:global(.profile-pane-scroll-root) .support :global(textarea#support-message) {
+  min-height: 150px;
+  border: 1px solid var(--profile-pane-hair) !important;
+  border-radius: 15px !important;
+  background: var(--profile-pane-surface-soft) !important;
+  color: var(--ios-account-label) !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+:global(.profile-pane-scroll-root) .support :global(textarea#support-message[aria-invalid="true"]) {
+  border-color: var(--app-destructive) !important;
+}
+
+:global(.profile-pane-scroll-root) .support :global(textarea#support-message::placeholder) {
+  color: var(--ios-account-secondary-label);
+}
+
+:global(.profile-pane-scroll-root) .support :global(form > p:not([role="alert"])),
+:global(.profile-pane-scroll-root) .support :global(section[aria-labelledby="support-success-heading"] p) {
+  color: var(--ios-account-secondary-label) !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+:global(.profile-pane-scroll-root) .support :global(button[type="submit"]),
+:global(.profile-pane-scroll-root) .support :global(section[aria-labelledby="support-success-heading"] > button) {
+  min-height: 48px;
+  border-radius: 999px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+:global(.profile-pane-scroll-root) .support :global(#support-success-heading) {
+  color: var(--ios-account-label) !important;
+  font-size: 20px !important;
+  line-height: 1.15 !important;
+}
+
+@media (max-width: 380px) {
+  :global(.profile-pane-scroll-root) .connectors :global([data-row-layout="settings"]) {
+    --settings-row-px: 10px;
+    --settings-row-gap: 8px;
+  }
+
+  :global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-trailing"] button) {
+    min-width: 61px;
+    padding-inline: 7px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.profile-pane-scroll-root) .connectors :global([data-row-layout="settings"]),
+  :global(.profile-pane-scroll-root) .support :global(button) {
+    transition: none !important;
+  }
+}

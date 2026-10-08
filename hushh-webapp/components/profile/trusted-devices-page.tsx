@@ -6,6 +6,7 @@ import {
   TrashIcon as Trash2,
 } from "@/components/icons";
 import { DevicesProfileIcon } from "@/components/icons/agents";
+import { ProfilePaneDevicesIcon } from "@/components/profile/profile-pane-icons";
 
 import {
   AppPageContentRegion,
@@ -53,7 +54,11 @@ interface TrustedDevice {
 }
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
-export default function TrustedDevicesPage() {
+export default function TrustedDevicesPage({
+  panePresentation = false,
+}: {
+  panePresentation?: boolean;
+}) {
   const { user } = useAuth();
   const [error, setError] = useState("");
   const [pendingRevocation, setPendingRevocation] =
@@ -113,7 +118,8 @@ export default function TrustedDevicesPage() {
           title="Trusted devices"
           // The pane's top bar already names this screen; one title per screen.
           titleVisuallyHidden
-          description="Computers connected as an extension of your private agent."
+          description={panePresentation ? undefined : "Computers connected as an extension of your private agent."}
+          className={panePresentation ? "sr-only" : undefined}
           accent="neutral"
         />
       </AppPageHeaderRegion>
@@ -128,14 +134,14 @@ export default function TrustedDevicesPage() {
             <p className="text-sm text-destructive">{visibleError}</p>
           ) : null}
           {devices.length > 0 ? (
-            <SettingsGroup separatorInset>
+            <SettingsGroup title={panePresentation ? "Connected devices" : undefined} separatorInset>
               {devices.map((device) => {
                 const sync = deriveSyncDisplay(device, nowMs);
                 const isActive = device.status === "active";
                 return (
                   <SettingsRow
                     key={device.device_id}
-                    icon={DevicesProfileIcon}
+                    icon={panePresentation ? ProfilePaneDevicesIcon : DevicesProfileIcon}
                     iconTone="capability"
                     title={device.device_name}
                     description={sync.label}
@@ -199,5 +205,5 @@ export default function TrustedDevicesPage() {
     </>
   );
 
-  return <div className="w-full">{pageContent}</div>;
+  return <div className="profile-inner-devices w-full">{pageContent}</div>;
 }
