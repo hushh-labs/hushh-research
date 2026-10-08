@@ -263,6 +263,9 @@ def test_the_hub_identity_opens_the_wall_by_url_or_host_audience(walled, monkeyp
 def test_the_tick_audience_is_accepted_when_configured(walled, monkeypatch):
     from fastapi.testclient import TestClient
 
+    from api.routes.one import pod_maintenance
+    from hushh_mcp.services import scheduler_identity
+
     monkeypatch.setenv("HUSSH_POD_TICK_AUDIENCE", "hussh-pod-tick:HA1")
     monkeypatch.setenv("HUSSH_POD_TICK_ALLOWED_EMAILS", "tick@example.iam.gserviceaccount.com")
     monkeypatch.setattr(
@@ -272,6 +275,26 @@ def test_the_tick_audience_is_accepted_when_configured(walled, monkeypatch):
     )
     client = TestClient(pod_server.app, raise_server_exceptions=False)
     assert client.get("/pod/info", headers={"Authorization": "Bearer t"}).status_code == 200
+    tick_identity = type("TickIdentity", (), {"email": "tick@example.iam.gserviceaccount.com"})()
+    monkeypatch.setattr(scheduler_identity, "verify_scheduler_request", lambda **_: tick_identity)
+
+    async def no_work():
+        return {"outcome": "not_needed"}
+
+    monkeypatch.setattr(pod_maintenance, "memory_bank_rebuild_job", no_work)
+    monkeypatch.setattr(pod_maintenance, "gmail_notification_job", no_work)
+    for path in ("/pod/tick", "/api/one/pod/maintenance/tick"):
+        assert client.post(path).status_code == 404
+        response = client.post(path, headers={"Authorization": "Bearer t"})
+        assert response.status_code == 200
+        assert response.json()["gmailNotifications"] == {"outcome": "not_needed"}
+    monkeypatch.setattr(walled, "identity_verifier", _hub_identity(email="other@example.invalid"))
+    assert (
+        client.post(
+            "/api/one/pod/maintenance/tick", headers={"Authorization": "Bearer t"}
+        ).status_code
+        == 404
+    )
 
 
 def test_the_app_surface_is_reachable_without_a_hub_identity(walled):

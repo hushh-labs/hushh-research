@@ -64,11 +64,11 @@ and its mixed serving pair remain historical evidence.
 
 | Owner | Required next evidence |
 | --- | --- |
-| Release / recovery | Normally admitted disposable owner; actual predecessor/target images, encrypted continuity, cold recovery and revocation. Qualify only that digest, then exact Settings approval. |
-| Owner / device | Normal Google-authenticated browser and unlocked vault; native provider flow and a second independent internet path. Reviewer-minted sessions and cloud CLI access cannot substitute. The existing Hermes relay is available without re-enrollment. |
+| Release / recovery | Isolated synthetic authority qualifies image-pair recovery separately from normal-owner Settings approval. Dedicated reader access is repaired. A fresh GCP fixture has verified recovery infrastructure and the immutable predecessor; Azure's Free Trial subscription refuses a second Container Apps environment. Resolve that account prerequisite without changing the existing personal pod. |
+| Owner / device | Normal Google-authenticated browser and unlocked vault; native provider flow and a second independent internet path. Google refused the automated Chromium sign-in on October 7; that attempt was stopped. Reviewer-minted sessions and cloud CLI access cannot substitute. The existing Hermes relay is available without re-enrollment. |
 | Native / provider | Live iOS authorization and qualified Android public-client registration. Android live opt-in remains false; no client-secret fallback. |
 | GCP / browser | Supported non-root worker identity, Chromium sandbox, private broker bridge, denied egress and lifecycle evidence. Required identity switch currently refuses; no unsandboxed fallback. |
-| Azure / browser | Qualified Deny/Full policy schema, private bridge, Chromium, isolation and teardown. General availability and group membership do not establish these. |
+| Azure / browser | The earlier bounded preview policy/readback passed; a later read returned 403 and disposable cleanup was confirmed. Worker identity, private bridge, Chromium and enforced isolation remain unqualified. General availability and group membership do not establish execution readiness. |
 | Production / placement | Qualify the actual legacy Shared cohort against 955's predicates, then graduate its migration and release channels. Repeat IAM, billing, recovery and product acceptance in UAT. Publish separately reviewed production notes. |
 
 ## Existing-user transition
@@ -86,6 +86,19 @@ digest, independently of a newer offer. Neither notice changes hosting, grants
 access or starts an update. The current announcement catalog is dev-only.
 
 ## Verification and performance
+
+The combined local core run at `25858979c` found ten integration failures;
+`a40a9c740` corrected route classifications and stale lifecycle fixtures (82 nearest
+checks passed). The 16,530 other parallel cases passed; 137 were skipped.
+The isolated database lane passed all 645 cases across its initial and resumed
+files after using the required local test identity. MCP and 380 integration
+checks passed, alongside web-core, secrets and governance. Collection admits
+23,417 tests. Hosted validation and the new deployment remain separate receipts.
+
+Gmail now queues identifiers into its durable application consumer and settles
+only processed deliveries. The frozen migration-956 Scheduler URL reaches the
+same authenticated handler as `/pod/tick`; positive and negative route controls
+pass. Existing images need the verified release before that correction is live.
 
 - Exact application local core passed in **438 seconds**: 16,094 protocol,
   572 isolated PostgreSQL and 380 integration checks, plus web, governance,
@@ -120,6 +133,34 @@ Gmail/Azure checks, 76 Azure lifecycle checks and 40 Files/setup checks; overlap
 suites are not additive). Prior source rendered 181 Mermaid figures; that dated
 result is not cloud acceptance.
 
+### Historical model and economic qualification — October 7
+
+At `92e9bfd54` plus the named local model/adaptor changes, 80 Files/Azure/erasure,
+67 setup/connector, two PostgreSQL selection, three route controls and both
+Scheduler receipt cases passed. Those earlier fixtures did not qualify cloud
+custody or an owner-image transition. Azure's new-source default is GPT-6 Luna
+(`2026-09-22`, Global Standard); the inspected personal deployment still used
+GPT-5.6 Luna. Historical first-tool scores were 54/60 and 45–49/60 respectively;
+Google's governed default was unchanged.
+
+| Bounded probe | Observed result | Limit |
+| --- | --- | --- |
+| Flash-Lite native tools | 3/3; valid call IDs/arguments and nonempty result-based answers; no 429 | Approved dev provider, not owner-pod acceptance. |
+| Flash-Lite One selection | 4/6 at LOW and MEDIUM; Drive/email delegation missed | Not qualified as One's default. |
+| Gemini 3.8 Flash native tools | 2/3; one HTTP 504 after 28.64 seconds; no 429 | Completion, first-tool quality and capacity remain unqualified. |
+| Azure GPT-6 Luna | Catalog and synthetic deployment succeeded; operator inference returned 401 on both models | Pod-native console probe produced no rows; neither success nor inference refusal. Temporary role/deployment removed with absence readback. |
+| Resources | Local boot 3.07 s / 281.5 MiB; 64 MiB Files with 4 MiB encrypted chunks, 1/2/4/8 transfers, byte-exact, peak 601.8 MiB. Azure low-load maximum 369.6 MiB | No constrained combined-cloud workload, cold-start p95 or quota proof; edge 404s are not feature evidence. |
+
+Whole monthly estimates at 30 billable hours, 50 GiB and 1,500 modeled calls are
+$38.69 Google/Flash and $18.74 Azure/Luna, including a $5 planning reserve.
+Different models are not equivalent quality. [Package assumptions and VM comparison](../operations/private-files-library.md#whole-package-planning-budget)
+include disks, retained addresses and a hypothetical wake service. Model calls,
+resource hours and scale-down tails remain separate meters. Promotional credits
+and invoices still need reconciliation; Computer Use is excluded and separately
+gated. The matched qualification target is 1 vCPU / 2 GiB; existing selections
+remain authoritative. Twenty cold/warm samples per cloud, bounded overlap and
+idle return remain required. No observed 429 establishes quota capacity.
+
 ## Next gate and historical boundaries
 
 One normal-owner window must prove setup/provider transitions, Files, direct
@@ -127,6 +168,9 @@ Puppy, exact update/recovery and bounded wake/idle behavior on the qualified ima
 Computer Use acceptance remains separate for each cloud. The dated dev release
 receipts above remain historical; the combined candidate requires its own CI,
 deployment and journey receipts.
+An October 7 readback placed the personal Hermes owner on Azure Dev 7 with
+direct readiness and the selected device grant recorded. These are metadata
+observations, not new inference, recovery or Dev 9 compatibility receipts.
 The isolated restore target is removed. Its restricted recovery point is retained
 only until a successful routine backup newer than this release is verified; the
 operations owner then deletes that exact rehearsal copy. Existing backups remain.
