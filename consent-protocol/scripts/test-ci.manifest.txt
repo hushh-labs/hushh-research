@@ -442,6 +442,7 @@ tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
 tests/test_conversation_titles.py
 tests/scripts/test_eval_one_first_tool.py
+tests/scripts/test_eval_one_first_tool_context.py
 tests/scripts/test_eval_pkm_structure_agent.py
 tests/scripts/test_eval_pkm_latency.py
 tests/scripts/test_eval_kai_adk_synthetic.py

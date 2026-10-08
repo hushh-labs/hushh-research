@@ -1002,3 +1002,117 @@ The skipped direct-database cases retain their hosted CI-service requirement.
 Full hosted CI on the concurrently advanced shared branch remains independent
 release evidence. A fresh reviewer identity lookup under the approved ADC still
 returned HTTP 403; no Firebase permission or reviewer fixture was changed.
+
+### Admin execution and release 284 readback — 2026-10-08 UTC
+
+This dated execution supersedes the earlier open-PR, reviewer-permission and
+baseline-283-only statements above. It does not establish payment acceptance.
+
+The explicitly authorized Admin SOP landed
+[PR #7613](https://github.com/hushh-labs/hushh-research/pull/7613) at
+`ee409d16770006947de76811cc8a045b9048bec0` after live exact-head protection,
+checks, mergeability and unresolved-thread verification. This was an Admin queue
+bypass. [Main post-merge smoke](https://github.com/hushh-labs/hushh-research/actions/runs/37741784219)
+passed before preview dispatch. The merged temporary deployment-definition
+branch and its clean worktree were removed after ancestry preservation checks.
+The developer remains on `claude/hushh-infrastructure-analysis-7o991c`.
+
+[Application CI](https://github.com/hushh-labs/hushh-research/actions/runs/37738518079)
+passed at `eff9466572b9d2b150566b1471ef1a5dfdec097f`, including native and
+frontend lanes. The dedicated database then advanced through that source's
+canonical production release manifest to 284, preserving the historical
+`baseline:283` marker. A checksummed PostgreSQL 15 backup, disposable restore
+and unchanged exact catalog, row and foreign-key comparison authorized
+`baseline:284`. Only differing disposable-clone deparser expressions were
+reconstructed from authored migration DDL. Source records, migration checksums
+and comparison gates were preserved. Runtime application-table ownership was
+read back; the clone was removed. The sanitized receipt dated
+`2026-10-08T08:30:29Z` records zero financial transactions. Schema initialization
+copies no shared-environment records.
+
+[Preview deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37742197280)
+has three failed attempts before application promotion: inherited-IAM read
+denial, dedicated runtime service-account use denial, then Cloud Run v2's
+always-allocated CPU default with the 256 MiB bootstrap. Actual resource-scoped
+read permissions and service-account-use permissions were provisioned without
+ancestry policy-write or project-wide service-account-use grants. The canonical
+bootstrap now sets `resources.cpuIdle=true`; safe failure receipts contain only
+fixed codes, stages and bounded HTTP statuses. A paused preview accepts unknown
+cost configuration only when both new-commerce and provider admission are
+explicitly false; active US country-policy requirements remain intact.
+
+The reviewed root snapshot `3ab8992ec034f6bfc13de31d254519badabc6719` passed
+the core bundle in 413 seconds with the pinned scanner and public CI fixtures.
+Its [hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/37749515091)
+initially passed frontend/native lanes but failed a voice test's fixed-sleep
+card-arrival assumption before cancellation was sent. Its second attempt passed
+at `2026-10-08T09:14:37Z`; the initial failure remains recorded. The separately
+committed deterministic arrival/FIFO cancellation barrier preserves row,
+resolution, model-event and close assertions. No deployment gate was waived.
+
+The approved ADC principal provisioned a dedicated Firebase Auth Viewer identity
+for the existing identity project. Its newly issued credential is stored only
+in the preview's prefixed Secret Manager namespace, with dedicated runtime
+access; neither existing credentials nor reviewer records were replaced. Both
+reviewers were verified enabled. A separate Firebase iOS app was registered for
+`com.hushh.app.scopecommerce.sandbox`, with verified project/bundle identity and
+native Google client configuration. A dedicated Android Firebase app was also
+registered for `com.hussh.app.scopecommerce.sandbox`, and its actual local debug
+certificate SHA-1/SHA-256 fingerprints were registered using the provider enum
+contract. Existing app settings were preserved. The
+dedicated runtime's Vertex prerequisites and the actual build identity's scoped
+secret/service-account access were verified. New signing and vault values are
+isolated; provider credentials remain separate from MCP OAuth.
+
+Aggregate commerce metric descriptors and the dedicated runtime metric-writer
+grant were provisioned through the existing commerce-only monitoring setup.
+The first alert-policy creation encountered the provider's metric propagation
+delay. An idempotent retry completed the commerce-only alert and isolated
+dashboard setup without analytics, shared dashboards or scheduler changes.
+Runtime time-series readback remains pending. No synthetic worker-freshness or
+provider-balance observations were published.
+
+At readback the physical iPhone remains paired but disconnected, and the physical
+iPad is unavailable. Simulator presence does not establish physical acceptance.
+Official host Stripe remains uninstalled at the last discovery. There is still
+no verified frontend HTTPS callback or serving application. Human OAuth/device
+prompts and exact financial confirmations remain interactive steps; routine
+engineering checkpoints require no renewed merge/deploy permission.
+
+[The subsequent preview run](https://github.com/hushh-labs/hushh-research/actions/runs/37756894407)
+created the IAM-private backend bootstrap but stopped before frontend creation:
+Cloud Run v2 returned a short traffic revision identifier where the inspector
+expected a fully qualified resource. The observed backend origin is
+`https://consent-protocol-commerce-sandbox-aqahj4iyha-uc.a.run.app`; it serves only
+the inert bootstrap, and anonymous readback returned 403. No application traffic
+or payment activity was promoted. The source fix `8578a22c340d598f9ba29ffc7b221bec17ee6fc2`
+normalizes only the exact service's valid short identifier, preserves full
+resource-parent checks and bootstrap ready-revision checks, and allows an
+application's explicitly serving baseline to differ from its latest ready
+candidate. All 43 focused tests passed; the actual short-response fixture fails
+against the old helper. Private readback independently verified the existing
+bootstrap's revision, image digest and runtime identity.
+
+The new core run exposed growth in a concurrently committed evaluation helper.
+Its synthetic context/admission/provenance contract was extracted into an
+import-safe helper behind the existing harness facade; the new admission test
+moved into its bounded owning file. The architecture ratchet passed with zero
+new or worsened findings, without baseline changes, and 66 focused tests passed.
+This is required release-dependency repair, not payment acceptance evidence.
+
+Continue using the main-owned `deploy-dev.yml` workflow with the fixed
+`scope-commerce-sandbox` target and an exact CI-green SHA reachable from the
+preserved branch. Retry resource provisioning idempotently; never dispatch the
+old source to bypass the corrected bootstrap. Derive both HTTPS origins from
+the actual services before creating webhook endpoints, the exact drain audience,
+association documents and native builds. Unknown Connect costs leave paid
+admission closed while free owner-approved sharing remains available.
+
+Retain the private backup/evidence and isolated credentials while obligations
+remain. Cleanup first disables new paid activity and retains reconciliation,
+access enforcement and financial history. Remove disposable clones only after
+verified receipts; remove dedicated preview OAuth registrations, Firebase app,
+Auth service-account key and secret access only when they are no longer needed.
+Never alter shared identity registrations, environments or existing Stripe
+integrations during cleanup. Keep #7587 In Progress until both reviewers'
+financial receipts, physical iOS journeys and One's authenticated reads pass.

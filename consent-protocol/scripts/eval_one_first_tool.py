@@ -70,6 +70,20 @@ CONSENT_PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
 if str(CONSENT_PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(CONSENT_PROTOCOL_ROOT))
 
+from scripts.eval_one_first_tool_context import (  # noqa: E402
+    Case,
+    admitted_instructions,
+    compose_instruction,
+    instruction_fingerprints,
+    instruction_overrides,
+)
+from scripts.eval_one_first_tool_context import (  # noqa: E402
+    _EmptyReadonlyContext as _EmptyReadonlyContext,
+)
+from scripts.eval_one_first_tool_context import (  # noqa: E402
+    parse_case as _parse_case,
+)
+
 SCHEMA_VERSION = "one.first_tool_evals.v1"
 NO_TOOL = "no_tool"
 RUN_APP_ACTION = "run_app_action"
@@ -90,16 +104,6 @@ _LABEL_SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 # (instruction, prompt, screen) -> first tool name, "run_app_action:<id>", or None.
 FirstToolFn = Callable[[str, str, str | None], str | None]
-
-
-@dataclass(frozen=True)
-class Case:
-    id: str
-    family: str
-    prompt: str
-    expected: tuple[str, ...]
-    screen: str | None = None
-    runtime_context: str = "empty"
 
 
 @dataclass
@@ -135,50 +139,9 @@ class CaseResult:
         }
 
 
-class _EmptyReadonlyContext:
-    """Stub ReadonlyContext with empty state: the runtime instruction's neutral shape."""
-
-    state: dict[str, Any] = {}
-
-
 # ---------------------------------------------------------------------------
 # Cases
 # ---------------------------------------------------------------------------
-
-
-def _parse_case(raw: Any, position: int) -> Case:
-    if not isinstance(raw, dict):
-        raise ValueError(f"case #{position} is not an object")
-    case_id = raw.get("id")
-    family = raw.get("family")
-    prompt = raw.get("prompt")
-    expected = raw.get("expected")
-    screen = raw.get("screen")
-    runtime_context = raw.get("runtime_context", "empty")
-    if not isinstance(case_id, str) or not case_id.strip():
-        raise ValueError(f"case #{position} has no id")
-    if not isinstance(family, str) or not family.strip():
-        raise ValueError(f"case {case_id!r} has no family")
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError(f"case {case_id!r} has no prompt")
-    if (
-        not isinstance(expected, list)
-        or not expected
-        or not all(isinstance(item, str) and item.strip() for item in expected)
-    ):
-        raise ValueError(f"case {case_id!r} needs a non-empty expected list of strings")
-    if screen is not None and not isinstance(screen, str):
-        raise ValueError(f"case {case_id!r} screen must be a string")
-    if runtime_context not in ("empty", "typed_chat"):
-        raise ValueError(f"case {case_id!r} has an unsupported runtime context")
-    return Case(
-        id=case_id,
-        family=family,
-        prompt=prompt,
-        expected=tuple(dict.fromkeys(expected)),
-        screen=screen or None,
-        runtime_context=runtime_context,
-    )
 
 
 def load_cases(path: Path = DEFAULT_CASES_PATH) -> list[Case]:
@@ -236,16 +199,7 @@ def production_instruction(runtime_context: str = "empty") -> str:
     Context qualifies tool selection only; this harness never executes a tool
     or grants access to an owner's connector or information.
     """
-    tree = _agent_tree()
-    context = _EmptyReadonlyContext()
-    if runtime_context == "typed_chat":
-        context.state = {
-            tree.STATE_EXECUTION_SURFACE: "typed_chat",
-            tree.STATE_USER_ID: "synthetic-first-tool-evaluation",
-        }
-    elif runtime_context != "empty":
-        raise ValueError("unsupported runtime context")
-    return str(tree._one_runtime_instruction(context))
+    return compose_instruction(_agent_tree(), runtime_context)
 
 
 def _canonical_roster() -> list[Any]:
@@ -357,19 +311,7 @@ def score_cases(
         raise ValueError("reps must be at least 1")
     if not math.isfinite(call_gap_seconds) or call_gap_seconds < 0:
         raise ValueError("call_gap_seconds must be finite and nonnegative")
-    instructions = {
-        case.id: (instruction_overrides or {}).get(case.id, instruction) for case in cases
-    }
-    # An inadmissible expected tool is an invalid experiment, not a model miss.
-    for case in cases:
-        composed = instructions[case.id]
-        forbidden: set[str] = set()
-        if "MAIL READ ADMISSION: disabled." in composed:
-            forbidden.add("ask_email_agent")
-        if "DRIVE READ ADMISSION: disabled." in composed:
-            forbidden.update(("ask_documents_agent", "inspect_selected_drive_files"))
-        if all(tool in forbidden for tool in case.expected):
-            raise ValueError(f"case {case.id!r} expects a tool forbidden by its runtime context")
+    instructions = admitted_instructions(cases, instruction, instruction_overrides)
     results: list[CaseResult] = []
     stopped = False
     for case in cases:
@@ -707,6 +649,19 @@ def _instruction_plan(instruction_files: Sequence[str] | None) -> list[tuple[str
     return plan
 
 
+def _first_infrastructure_failure(
+    results: Sequence[CaseResult], label: str
+) -> dict[str, Any] | None:
+    return next(
+        (
+            {"label": label, "case_id": result.id, **result.infrastructure_failure}
+            for result in results
+            if result.infrastructure_failure is not None
+        ),
+        None,
+    )
+
+
 def run_eval(
     *,
     families: Sequence[str] | None = None,
@@ -743,14 +698,8 @@ def run_eval(
     stopped = False
     stop_reason: dict[str, Any] | None = None
     for label, source, instruction in _instruction_plan(instruction_files):
-        overrides = (
-            {
-                case.id: production_instruction(case.runtime_context)
-                for case in cases
-                if case.runtime_context != "empty"
-            }
-            if not instruction_files
-            else {}
+        overrides = instruction_overrides(
+            cases, custom=bool(instruction_files), compose=production_instruction
         )
         if not quiet:
             print(f"\n----- {label} ({len(cases)} cases x {reps} reps) -----")
@@ -772,14 +721,7 @@ def run_eval(
         )
         stopped = stopped or any(result.status == "infrastructure_error" for result in results)
         if stop_reason is None:
-            stop_reason = next(
-                (
-                    {"label": label, "case_id": result.id, **result.infrastructure_failure}
-                    for result in results
-                    if result.infrastructure_failure is not None
-                ),
-                None,
-            )
+            stop_reason = _first_infrastructure_failure(results, label)
         report = build_report(
             results=results,
             model=model,
@@ -793,15 +735,9 @@ def run_eval(
             roster_tools=roster_tools,
         )
         report["stopped_after_infrastructure_failure"] = stop_reason
-        report["case_instructions"] = {
-            case.id: {
-                "runtime_context": case.runtime_context
-                if not instruction_files
-                else "custom_instruction",
-                "sha256": hashlib.sha256(overrides.get(case.id, instruction).encode()).hexdigest(),
-            }
-            for case in cases
-        }
+        report["case_instructions"] = instruction_fingerprints(
+            cases, instruction, overrides, custom=bool(instruction_files)
+        )
         named, latest = write_report(report, report_dir=report_dir)
         if not quiet:
             _print_summary(report)
