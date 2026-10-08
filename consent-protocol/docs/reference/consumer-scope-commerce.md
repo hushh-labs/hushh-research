@@ -1165,3 +1165,54 @@ Physical transport, device automation, both owner OAuth grants, reviewer
 financial journeys and One's authenticated account/balance reads remain pending.
 Do not use SDK identity readback as an OAuth receipt or persist reviewer vault
 passphrases to enable hosted test authentication. Keep issue #7587 In Progress.
+
+
+### Admin repair and human admission evidence — 2026-10-08
+
+Workflow-only PR [#7620](https://github.com/hushh-labs/hushh-research/pull/7620)
+landed through the authorized Admin queue bypass at
+`5d441f01e2125626d51793b256fbc947fab4b186`. PR validation
+[37769019500](https://github.com/hushh-labs/hushh-research/actions/runs/37769019500)
+and exact-landed-SHA post-merge smoke
+[37770431818](https://github.com/hushh-labs/hushh-research/actions/runs/37770431818)
+both succeeded. Intentional frontend/native path skips belong to the workflow-only
+repair; they do not replace full application verification.
+
+The application repair at `11441511d` passed its protocol, serial, web-core and
+MCP stages. Its integration stage initially failed because concurrent validation
+checkouts shared a mutable Python environment. Separate frozen environments fixed
+that operator setup error; the affected canonical integration rerun passed all
+380 tests, and the independent pod cold-import regression passed. The original
+failed command is retained; this is affected-stage recovery, not a claim that the
+original core invocation exited successfully.
+
+The canonical reviewer harness now supports explicitly selected
+`REVIEWER_AUTH_MODE=human_authenticated` with canonical UID-only bindings.
+Normal Google sign-in and vault unlock remain human actions. The bridge contains
+no injected credential, and wrong/missing/lost identity, authentication reverification
+or vault relocking invalidates admission. An owner-bound visible challenge is
+required before accepting an unlocked session; cold recovery uses a new context.
+The exact application/provider binding, synthetic fixtures, action admission and
+cumulative financial caps still apply. This mode is never an automatic fallback
+from failed credential-pair authentication. Apple provider exchanges remain outside
+the human rehearsal allowlist. See the canonical
+[reviewer preflight](../../../.codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md#explicit-human-authentication).
+
+Focused reviewer tests and the reviewer skill gate passed; a removed live-mode
+manual-login guard caused the negative control to fail as expected. These source
+checks do not prove browser provider sign-in, physical iOS acceptance, One OAuth,
+funding settlement, purchases, maturity, transfers or bank-payout simulation.
+Both paid-admission switches remain disabled pending the existing account-cost
+policy decision and deployment/acceptance gates. No financial action was submitted.
+
+
+The final reviewer-focused selection passed 128 tests across 11 files. The
+analytics repair preserves `events.ts` exports, the single sanitizer and
+`validate(summary)` entrypoint, extracting existing action declarations,
+governed-value checks and credential-free stream checks into import-safe leaves.
+The unchanged analytics verification passed 151 tests plus all three offline
+Android stream/package/export acceptance tests. Corresponding governed-string
+cases moved into one focused file and remain included in `verify:analytics`.
+The architecture baseline is unchanged; inherited-main growth is repaired in
+source rather than reclassified as accepted debt. These analytics checks are
+local contract proof, not a claim of new deployed GA4 or BigQuery observations.

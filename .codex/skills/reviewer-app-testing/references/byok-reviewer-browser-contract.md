@@ -11,6 +11,11 @@ Use this contract for browser rehearsals whose result depends on protected infor
    automation bridge; defer the specific Terms and Privacy dialog with “Not now”.
    Keep legal-acceptance writes blocked unless that separate agreement is explicitly
    authorized. Do not use an interactive sign-in click as an automation fallback.
+   An isolated preview may instead explicitly select `human_authenticated` before
+   preflight, as defined in [reviewer preflight](reviewer-rehearsal-preflight.md#explicit-human-authentication).
+   This observes ordinary human Google sign-in and manual vault unlock without
+   injecting mint credentials; it never converts a failed automatic run to human mode.
+   Apple exchanges are not admitted by this rehearsal contract.
 
 ## Memory-only BYOK boundary
 

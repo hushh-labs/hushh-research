@@ -11,6 +11,8 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import { VaultService } from "@/lib/services/vault-service";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
+import { isHumanReviewerSession, humanReviewerAdmissionStage } from "@/lib/testing/reviewer-authentication-policy.mjs";
+import { updateBootstrapStatus } from "@/lib/testing/reviewer-bootstrap-status";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -19,46 +21,6 @@ function uidPrefix(uid: string | null | undefined): string {
   return String(uid ?? "").slice(0, 6);
 }
 
-function updateBootstrapStatus(
-  stage: string,
-  options?: { userId?: string | null; errorClass?: string | null; detail?: string | null }
-) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const bridge = window.__HUSHH_NATIVE_TEST__;
-  if (!bridge?.enabled) {
-    return;
-  }
-  const stageRank: Record<string, number> = {
-    waiting_auth: 10,
-    authenticating: 20,
-    authenticated: 30,
-    waiting_vault_user: 35,
-    loading_vault_state: 40,
-    unlocking_vault: 50,
-    vault_unlocked: 60,
-    auth_error: 70,
-    uid_mismatch: 70,
-    vault_error: 70,
-  };
-  const currentStage = bridge.bootstrapState || "";
-  const currentRank = stageRank[currentStage] ?? 0;
-  const nextRank = stageRank[stage] ?? 0;
-  const failureStages = new Set(["auth_error", "uid_mismatch", "vault_error"]);
-  const isRecoveringFromFailure =
-    failureStages.has(currentStage) && !failureStages.has(stage);
-  if (nextRank < currentRank && !isRecoveringFromFailure) {
-    return;
-  }
-  bridge.bootstrapState = stage;
-  bridge.bootstrapUserId = options?.userId ?? bridge.bootstrapUserId ?? "";
-  bridge.bootstrapError = "";
-  bridge.bootstrapErrorClass = options?.errorClass ?? "";
-  // Where the identity that decided this stage came from, plus a uid prefix,
-  // so a device run explains a mismatch without a console attached.
-  bridge.bootstrapDetail = options?.detail ?? "";
-}
 
 function nativeTestErrorClass(error: unknown): string {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
@@ -150,6 +112,7 @@ async function withNativeTestVaultRetry<T>(
 
 export function NativeTestBootstrap() {
   const config = useNativeTestConfig();
+  const humanReviewer = isHumanReviewerSession(config);
   const { loading: authLoading, user, setNativeUser } = useAuth();
   const { isVaultUnlocked, unlockVault } = useVault();
   const [authRetryTick, setAuthRetryTick] = useState(0);
@@ -168,6 +131,17 @@ export function NativeTestBootstrap() {
 
   useEffect(() => {
     if (!config.enabled || !config.autoReviewerLogin) {
+      return undefined;
+    }
+
+    if (humanReviewer) {
+      const stage = humanReviewerAdmissionStage(config.expectedUserId, user?.uid ?? null,
+        authLoading, Boolean(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId));
+      updateBootstrapStatus(stage, {
+        userId: stage === "authenticated" ? user?.uid ?? "" : "",
+        invalidate: stage !== "authenticated",
+        errorClass: stage === "uid_mismatch" ? "identity" : stage === "auth_error" ? "authentication" : null,
+      });
       return undefined;
     }
 
@@ -326,6 +300,7 @@ export function NativeTestBootstrap() {
     config.autoReviewerLogin,
     config.enabled,
     config.expectedUserId,
+    humanReviewer,
     config.reviewerSessionPassphrase,
     config.vaultPassphrase,
     setNativeUser,
@@ -333,6 +308,15 @@ export function NativeTestBootstrap() {
   ]);
 
   useEffect(() => {
+    if (humanReviewer) {
+      if (humanReviewerAdmissionStage(config.expectedUserId, user?.uid ?? null,
+        authLoading, Boolean(window.__HUSHH_NATIVE_TEST__?.bootstrapUserId)) === "authenticated") {
+        updateBootstrapStatus(isVaultUnlocked ? "vault_unlocked" : "authenticated", {
+          userId: user!.uid, invalidate: !isVaultUnlocked,
+        });
+      }
+      return;
+    }
     if (!config.enabled || !config.autoReviewerLogin || (!config.vaultPassphrase && !isVaultUnlocked)) {
       return;
     }
@@ -340,8 +324,7 @@ export function NativeTestBootstrap() {
     // The Firebase singleton is the last in-memory fallback across a provider
     // remount during native bridge initialization. It is never serialized and
     // remains scoped to the authenticated Firebase session.
-    const vaultUser =
-      user ??
+    const vaultUser = user ??
       bootstrapUser ??
       nativeTestBootstrapUser ??
       AuthService.getCurrentUser();
@@ -488,10 +471,12 @@ export function NativeTestBootstrap() {
       }
     })();
   }, [
+    authLoading,
     config.autoReviewerLogin,
     bootstrapUser,
     config.enabled,
     config.expectedUserId,
+    humanReviewer,
     config.vaultPassphrase,
     isVaultUnlocked,
     setNativeUser,

@@ -1,3 +1,4 @@
+import { resolveReviewerAuthMode } from "../../../../hushh-webapp/lib/testing/reviewer-authentication-policy.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -42,11 +43,14 @@ export async function commercePreflight(repoRoot, options) {
   commerceEvidence(/^acct_[A-Za-z0-9]+$/.test(options.accountId) &&
     /^https:\/\//.test(options.appOrigin) && new URL(options.appOrigin).origin === options.appOrigin,
   "EXPLICIT_SANDBOX_ORIGIN_REQUIRED");
-  const identityOptions = { envFiles: defaultReviewerIdentityEnvFiles({ repoRoot, webDir: path.join(repoRoot, "hushh-webapp") }) };
+  const authMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE);
+  const humanAuthenticated = authMode === "human_authenticated";
+  const identityOptions = { envFiles: humanAuthenticated ? [] : defaultReviewerIdentityEnvFiles({ repoRoot, webDir: path.join(repoRoot, "hushh-webapp") }),
+    requireVaultPassphrase: !humanAuthenticated, required: true };
   const identities = { primary: resolveReviewerTestIdentity(identityOptions), counterpart: resolveReviewerCounterpartIdentity(identityOptions) };
   commerceEvidence(identities.primary.reviewerUid && identities.counterpart.reviewerUid &&
     identities.primary.reviewerUid !== identities.counterpart.reviewerUid &&
-    identities.primary.reviewerVaultPassphrase && identities.counterpart.reviewerVaultPassphrase,
+    (humanAuthenticated || identities.primary.reviewerVaultPassphrase && identities.counterpart.reviewerVaultPassphrase),
   "CANONICAL_REVIEWER_PAIR_REQUIRED");
   const bindings = await privateJson(options.reviewerBindingFile);
   commerceEvidence(bindings.schema_version === 1 && exactKeys(bindings.reviewers, ["primary", "counterpart"]), "OPERATOR_REVIEWER_BINDING_REQUIRED");
@@ -61,7 +65,7 @@ export async function commercePreflight(repoRoot, options) {
   // Configured identities already resolved: no Secret Manager or env-file writes.
   await prepareReviewerRehearsal({ repoRoot, appOrigin: options.appOrigin, secretProject: "" });
   const proof = await providerPreflight(repoRoot, options);
-  const schema = JSON.parse(await fs.readFile(path.join(repoRoot, "consent-protocol/db/contracts/dev_minimum_schema.json"), "utf8"));
+  const schema = JSON.parse(await fs.readFile(path.join(repoRoot, "consent-protocol/db/contracts/prod_core_schema.json"), "utf8"));
   commerceEvidence(Number.isSafeInteger(schema.expected_migration_version), "CANONICAL_SCHEMA_HEAD_REQUIRED");
-  return { identities, fixtures, proof, schemaHead: schema.expected_migration_version };
+  return { identities, fixtures, proof, authMode, schemaHead: schema.expected_migration_version };
 }

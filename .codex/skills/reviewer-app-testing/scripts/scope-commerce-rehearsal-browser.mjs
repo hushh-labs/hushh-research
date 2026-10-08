@@ -46,12 +46,12 @@ export async function openCommerceBrowsers(repoRoot, options, preflight) {
   try {
     for (const role of ["primary", "counterpart"]) {
       const admission = createCommerceMutationAdmission({ appOrigin: options.appOrigin, role });
-      const harness = await createReviewerSessionHarness({ repoRoot, appOrigin: options.appOrigin, timeoutMs: 90_000,
+      const harness = await createReviewerSessionHarness({ repoRoot, appOrigin: options.appOrigin, timeoutMs: preflight.authMode === "human_authenticated" ? 360_000 : 90_000,
         reviewerIdentity: preflight.identities[role], admitMutation: request => admission.admit(request) });
-      if (!browser) browser = await harness.chromium.launch({ headless: true });
-      await harness.assertVisibleVaultChallenge(browser, "/one");
+      if (!browser) browser = await harness.chromium.launch({ headless: preflight.authMode !== "human_authenticated" });
+      if (preflight.authMode !== "human_authenticated") await harness.assertVisibleVaultChallenge(browser, "/one");
       const session = await harness.openSession(browser, "/one");
-      actors[role] = { role, harness, session, admission, assertCommerce: installCommerceObserver(session.page) };
+      actors[role] = { role, harness, session, admission, authMode: preflight.authMode, assertCommerce: installCommerceObserver(session.page) };
       await harness.navigateInApp(session.page, "/one/connect");
       await session.capture.identityToken();
       const readiness = await checkedCall(session, `/api/scope-commerce/sandbox-readiness?app_origin=${encodeURIComponent(options.appOrigin)}`);
@@ -67,7 +67,7 @@ export async function coldCommerceRecovery(runtime, role, destination) {
   const actor = runtime.actors[role];
   const commitment = actor.harness.vaultKeyCommitment(await actor.session.capture.vaultState());
   await actor.session.context.close();
-  await actor.harness.assertVisibleVaultChallenge(runtime.browser, destination);
+  if (actor.authMode !== "human_authenticated") await actor.harness.assertVisibleVaultChallenge(runtime.browser, destination);
   actor.session = await actor.harness.openSession(runtime.browser, destination);
   actor.assertCommerce = installCommerceObserver(actor.session.page);
   commerceEvidence(actor.harness.vaultKeyCommitment(await actor.session.capture.vaultState()) === commitment,

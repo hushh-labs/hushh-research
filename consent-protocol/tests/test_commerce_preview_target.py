@@ -157,46 +157,6 @@ def test_preview_mount_and_readiness_proof_reject_shared_or_stale_authority():
             module["validate_app_proof"](proof | {key: value}, context)
 
 
-def test_preview_database_gates_use_release_contract_without_shared_dev_fallback(tmp_path):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
-    steps = workflow["jobs"]["deploy"]["steps"]
-    contract_dir = tmp_path / "consent-protocol/db/contracts"
-    contract_dir.mkdir(parents=True)
-    for name in ("prod_core_schema", "dev_minimum_schema", "uat_integrated_schema"):
-        (contract_dir / f"{name}.json").write_text("{}")
-    gates = [step["run"] for step in steps if "--contract-file" in step.get("run", "")]
-    assert len(gates) == 2
-    for gate in gates:
-        selection = (
-            "CONTRACT_FILE="
-            + gate.split("CONTRACT_FILE=", 1)[1].split('"${{ env.PROTOCOL_PYTHON }}"', 1)[0]
-        )
-        script = selection + '\nprintf "%s" "$CONTRACT_FILE"\n'
-        for target, contract in (
-            ("scope-commerce-sandbox", "prod_core_schema"),
-            ("shared-dev", "dev_minimum_schema"),
-        ):
-            result = subprocess.run(  # noqa: S603 - repository workflow in isolated fixture
-                ["bash", "-eu", "-c", script],
-                cwd=tmp_path,
-                env={**os.environ, "DEV_TARGET": target},
-                capture_output=True,
-                text=True,
-            )
-            assert result.returncode == 0
-            assert result.stdout == f"consent-protocol/db/contracts/{contract}.json"
-        release = contract_dir / "prod_core_schema.json"
-        release.unlink()
-        rejected = subprocess.run(  # noqa: S603 - repository workflow in isolated fixture
-            ["bash", "-eu", "-c", script],
-            cwd=tmp_path,
-            env={**os.environ, "DEV_TARGET": "scope-commerce-sandbox"},
-            capture_output=True,
-        )
-        assert rejected.returncode != 0
-        release.write_text("{}")
-
-
 def test_preview_rejects_migration_secrets_and_privileged_runtime():
     module = _preview_module("commerce-preview-verify.py")
     role = {

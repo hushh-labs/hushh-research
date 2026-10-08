@@ -1,3 +1,5 @@
+import { resolveReviewerAuthMode, isHumanReviewerAuthenticationRequest } from "../../../../hushh-webapp/lib/testing/reviewer-authentication-policy.mjs";
+import { createReviewerBootstrap } from "./reviewer-session-bootstrap.mjs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -67,6 +69,7 @@ export async function installReadOnlyMutationGuard(context, {
   appOrigin,
   allowMemoryPreparation = false,
   admitMutation = null,
+  reviewerAuthMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE),
 } = {}) {
   const blockedMutations = [];
   let suppressedAnalytics = 0;
@@ -116,10 +119,15 @@ export async function installReadOnlyMutationGuard(context, {
     if (
       !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
       (method === "POST" && READ_ONLY_SAFE_POST_PATHS.has(pathname)
-        && (!admitMutation || new URL(request.url()).origin === appOrigin)) ||
+        && (reviewerAuthMode !== "human_authenticated" ||
+          pathname !== "/api/app-config/review-mode/session")
+        && ((!admitMutation && reviewerAuthMode !== "human_authenticated") ||
+          new URL(request.url()).origin === appOrigin)) ||
       memoryPreparation ||
       preparationBootstrap ||
-      AUTH_ONLY_HOSTS.has(requestHostname(request))
+      (reviewerAuthMode === "human_authenticated"
+        ? isHumanReviewerAuthenticationRequest(request.url(), method)
+        : AUTH_ONLY_HOSTS.has(requestHostname(request)))
     ) {
       await route.continue();
       return;
@@ -199,15 +207,22 @@ export async function createReviewerSessionHarness({
   const identityModule = await import(
     pathToFileURL(path.join(webDir, "scripts/testing/reviewer-test-identity.mjs")).href
   );
+  const reviewerAuthMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE);
+  const humanAuthenticated = reviewerAuthMode === "human_authenticated";
   const identity = reviewerIdentity ?? identityModule.resolveReviewerTestIdentity({
+    requireVaultPassphrase: !humanAuthenticated,
     envFiles: identityModule.defaultReviewerIdentityEnvFiles({ repoRoot, webDir }),
   });
   const reviewerUid = identity.reviewerUid;
-  const reviewerPassphrase = identity.reviewerVaultPassphrase;
-  if (!reviewerUid || !reviewerPassphrase) {
+  const reviewerPassphrase = humanAuthenticated ? "" : identity.reviewerVaultPassphrase;
+  if (!reviewerUid || !humanAuthenticated && !reviewerPassphrase) {
     throw new Error("Reviewer identity requires both configured values.");
   }
   const normalizedOrigin = String(appOrigin).replace(/\/$/, "");
+  const { installBridge, waitForUnlock } = createReviewerBootstrap({
+    reviewerUid, reviewerPassphrase, reviewerAuthMode, allowMemoryPreparation,
+    admitMutation, deferLegalAcceptance, timeoutMs,
+  });
 
   function vaultKeyCommitment(vaultState) {
     const commitment = String(vaultState?.vaultKeyHash || vaultState?.vault_key_hash || "");
@@ -217,45 +232,6 @@ export async function createReviewerSessionHarness({
     return commitment;
   }
 
-  async function installBridge(page, { includePassphrase = true } = {}) {
-    const reviewerMutationPolicy = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
-      ? admitMutation ? "bounded_mutation" : "mutation_authorized"
-      : allowMemoryPreparation
-        ? "preparation_only"
-        : "read_only";
-    const reviewerAuthMode = process.env.REVIEWER_AUTH_MODE === "custom_token"
-      ? "custom_token"
-      : "local_credentials";
-    await page.addInitScript(
-      ({
-        expectedUserId,
-        vaultPassphrase,
-        reviewerSessionPassphrase,
-        reviewerMutationPolicy,
-        reviewerAuthMode,
-      }) => {
-        window.__HUSHH_NATIVE_TEST__ = {
-          ...(window.__HUSHH_NATIVE_TEST__ || {}),
-          enabled: true,
-          autoReviewerLogin: true,
-          expectedUserId,
-          reviewerMutationPolicy,
-          reviewerAuthMode,
-          // The backend review-session mint requires the reviewer passphrase
-          // even when this context must not auto-unlock the vault.
-          reviewerSessionPassphrase,
-          ...(vaultPassphrase ? { vaultPassphrase } : {}),
-        };
-      },
-      {
-        expectedUserId: reviewerUid,
-        vaultPassphrase: includePassphrase ? reviewerPassphrase : "",
-        reviewerSessionPassphrase: reviewerPassphrase,
-        reviewerMutationPolicy,
-        reviewerAuthMode,
-      }
-    );
-  }
 
   function attachMemoryOnlyCapture(page) {
     let vaultState = null;
@@ -350,93 +326,17 @@ export async function createReviewerSessionHarness({
     }
   }
 
-  async function waitForUnlock(page, readOnlyGuard, unlockTimeoutMs = timeoutMs, requireVaultUnlocked = true) {
-    const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
-    const unlockInput = page.locator("#unlock-passphrase");
-    const passphraseFallback = page.locator('[data-testid="vault-use-passphrase-instead"]');
-    const unlockButton = page
-      .getByRole("button", { name: /^unlock/i })
-      .first();
-    const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
-    const deadline = Date.now() + unlockTimeoutMs;
-    let reviewerLoginSubmitted = false;
-    let manualPassphraseFilled = false;
-    let manualUnlockSubmitted = false;
-    let passphraseFallbackClicked = false;
-
-    const safeBootstrapState = async () =>
-      page.evaluate((expectedUserId) => {
-        const bridge = window.__HUSHH_NATIVE_TEST__;
-        const bootstrapUserId = String(bridge?.bootstrapUserId || "");
-        return {
-          state: String(bridge?.bootstrapState || ""),
-          errorClass: String(bridge?.bootstrapErrorClass || ""),
-          mismatchStage: String(bridge?.bootstrapDetail || "").split(":", 1)[0],
-          path: window.location.pathname,
-          userMatches: Boolean(bootstrapUserId && bootstrapUserId === expectedUserId),
-        };
-      }, reviewerUid);
-
-    while (Date.now() < deadline) {
-      readOnlyGuard.assertNoBlockedMutation();
-      await deferLegalAcceptance(page);
-      const bootstrap = await safeBootstrapState();
-      if (bootstrap.userMatches &&
-        (bootstrap.state === "vault_unlocked" ||
-          (!requireVaultUnlocked && bootstrap.state === "authenticated"))) return;
-      if (terminalFailures.has(bootstrap.state)) {
-        const error = new Error(
-          `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, stage=${["signin_result", "auth_context", "native_session", "vault_context"].includes(bootstrap.mismatchStage) ? bootstrap.mismatchStage : "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
-        );
-        error.code = "REVIEWER_TERMINAL_BOOTSTRAP";
-        throw error;
-      }
-
-      if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
-        reviewerLoginSubmitted = await page.evaluate(() => {
-          const trigger = window.__HUSHH_NATIVE_TEST__?.triggerReviewerLogin;
-          if (typeof trigger !== "function") return false;
-          trigger();
-          return true;
-        });
-      }
-
-      if (requireVaultUnlocked && !passphraseFallbackClicked &&
-        !(await unlockInput.isVisible().catch(() => false)) &&
-        await passphraseFallback.isVisible().catch(() => false)) {
-        await passphraseFallback.click({ noWaitAfter: true });
-        passphraseFallbackClicked = true;
-      }
-
-      if (requireVaultUnlocked && !manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
-        if (!manualPassphraseFilled) {
-          await unlockInput.fill(reviewerPassphrase);
-          manualPassphraseFilled = true;
-        }
-        if (await unlockButton.isEnabled().catch(() => false)) {
-          await unlockButton.click({ noWaitAfter: true });
-          manualUnlockSubmitted = true;
-        }
-      }
-
-      await page.waitForTimeout(250);
-    }
-
-    const bootstrap = await safeBootstrapState();
-    throw new Error(
-      `Reviewer vault bootstrap timed out (state=${bootstrap.state || "unknown"}, error_class=${bootstrap.errorClass || "none"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
-    );
-  }
 
   async function assertVaultContinuity(page, label) {
     await deferLegalAcceptance(page);
     const unlockVisible = await page.locator("#unlock-passphrase").isVisible().catch(() => false);
     if (unlockVisible) throw new Error(`${label} lost the reviewer vault key.`);
-    const state = await page.evaluate(
-      () => window.__HUSHH_NATIVE_TEST__?.bootstrapState || ""
-    );
-    if (state !== "vault_unlocked") {
-      throw new Error(`${label} changed vault bootstrap state to ${state}.`);
+    const bootstrap = await page.evaluate((expectedUid) => ({
+      state: window.__HUSHH_NATIVE_TEST__?.bootstrapState || "",
+      userMatches: window.__HUSHH_NATIVE_TEST__?.bootstrapUserId === expectedUid,
+    }), reviewerUid);
+    if (bootstrap.state !== "vault_unlocked" || !bootstrap.userMatches) {
+      throw new Error(`${label} lost the owner-bound unlocked vault session.`);
     }
   }
 
@@ -476,7 +376,7 @@ export async function createReviewerSessionHarness({
     requireVaultUnlocked = true,
     onPageCreated,
   } = {}) {
-    const maxAttempts = 3;
+    const maxAttempts = humanAuthenticated ? 1 : 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
     const redirectUrl = new URL(redirect, normalizedOrigin);
@@ -489,7 +389,7 @@ export async function createReviewerSessionHarness({
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
       try {
-        const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation });
+        const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, reviewerAuthMode });
         const capture = attachMemoryOnlyCapture(page);
         await installBridge(page, { includePassphrase: requireVaultUnlocked });
         if (onPageCreated) onPageCreated(page);
@@ -536,7 +436,7 @@ export async function createReviewerSessionHarness({
     const challengeTimeoutMs = Math.min(timeoutMs, 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
-    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation });
+    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, reviewerAuthMode });
     const capture = attachMemoryOnlyCapture(page);
     try {
       // Authenticate the canonical reviewer through the test bridge, but do
@@ -552,7 +452,15 @@ export async function createReviewerSessionHarness({
         readOnlyGuard.assertNoBlockedMutation();
         await deferLegalAcceptance(page);
         capture.assertNoCriticalApiFailures("visible vault challenge");
-        if (await unlockInput.isVisible().catch(() => false)) return;
+        const owner = await page.evaluate(expectedUid => ({
+          matches: window.__HUSHH_NATIVE_TEST__?.bootstrapUserId === expectedUid,
+          state: window.__HUSHH_NATIVE_TEST__?.bootstrapState,
+        }), reviewerUid);
+        if (["auth_error", "uid_mismatch", "vault_error"].includes(owner.state)) {
+          throw new Error("Visible vault challenge lost expected reviewer authentication.");
+        }
+        if (owner.matches && owner.state === "authenticated" &&
+            await unlockInput.isVisible().catch(() => false)) return;
         await page.waitForTimeout(250);
       }
       const diagnostics = await page.evaluate(() => ({

@@ -1,5 +1,6 @@
 "use client";
 
+import { canStartReviewerLogin, shouldAutoAuthenticateReviewer, shouldBootstrapReviewerVault } from "@/lib/testing/reviewer-authentication-policy.mjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -163,11 +164,7 @@ export function AuthStep({
   const [reviewModeConfig, setReviewModeConfig] = useState<{
     enabled: boolean;
   }>({ enabled: false });
-  const shouldUseNativeTestBootstrap =
-    nativeTestConfig.enabled &&
-    nativeTestConfig.autoReviewerLogin &&
-    Boolean(nativeTestConfig.expectedUserId) &&
-    Boolean(nativeTestConfig.vaultPassphrase);
+  const shouldUseNativeTestBootstrap = shouldBootstrapReviewerVault(nativeTestConfig);
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
     nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_FINANCE &&
@@ -424,11 +421,7 @@ export function AuthStep({
         typeof window !== "undefined" ? window.location.hostname : null,
       );
 
-      if (
-        !reviewModeConfig.enabled &&
-        !nativeTestConfig.autoReviewerLogin &&
-        !localReviewerCredentials
-      ) {
+      if (!canStartReviewerLogin(getNativeTestConfig(), reviewModeConfig.enabled, Boolean(localReviewerCredentials))) {
         throw new Error("Reviewer mode is not enabled");
       }
 
@@ -534,7 +527,7 @@ export function AuthStep({
     let attempts = 0;
     const tryAutoReviewerLogin = () => {
       const liveConfig = getNativeTestConfig();
-      const requested = liveConfig.enabled && liveConfig.autoReviewerLogin;
+      const requested = shouldAutoAuthenticateReviewer(liveConfig);
       setNativeReviewerVisible(requested);
       if (!requested) {
         attempts += 1;
@@ -912,7 +905,7 @@ export function AuthStep({
         },
       ];
 
-  const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
+  const showReviewer = shouldAutoAuthenticateReviewer(nativeTestConfig) && nativeReviewerVisible;
 
   return (
     <main
@@ -931,7 +924,7 @@ export function AuthStep({
         dataState={nativeDataState}
         attachToBridge={(bridge) => {
           bridge.triggerReviewerLogin = () => {
-            if (autoReviewerLoginStartedRef.current) {
+            if (autoReviewerLoginStartedRef.current || !shouldAutoAuthenticateReviewer(getNativeTestConfig())) {
               return;
             }
             autoReviewerLoginStartedRef.current = true;

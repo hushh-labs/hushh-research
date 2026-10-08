@@ -125,4 +125,14 @@ describe("reviewer counterpart identity resolver", () => {
     expect(identity?.reviewerUid).toBe("env_uid");
     expect(identity?.reviewerVaultPassphrase).toBe("env-passphrase");
   });
+  it("permits an explicit UID-only human counterpart while legacy mode still requires a pair", () => {
+    process.env.REVIEWER_COUNTERPART_UID = "human_counterpart";
+    expect(resolveReviewerCounterpartIdentity({ requireVaultPassphrase: false })).toMatchObject({
+      reviewerUid: "human_counterpart", reviewerVaultPassphrase: "",
+    });
+    expect(resolveReviewerCounterpartIdentity()).toBeNull();
+    delete process.env.REVIEWER_COUNTERPART_UID;
+    expect(() => resolveReviewerCounterpartIdentity({ required: true, requireVaultPassphrase: false })).toThrow(/REVIEWER_COUNTERPART_UID/);
+  });
+
 });

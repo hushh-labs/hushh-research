@@ -101,13 +101,13 @@ describe("reviewer route bootstrap contract", () => {
         "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
       ),
       "utf8",
-    );
+    ) + readFileSync(resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs"), "utf8");
 
     expect(source).toContain('page.locator("#unlock-passphrase")');
     expect(source).toContain("unlockInput.fill(reviewerPassphrase)");
     expect(source).toContain("bootstrapErrorClass");
     expect(source).toContain("userMatches");
-    expect(source).toContain("const maxAttempts = 3");
+    expect(source).toContain("const maxAttempts = humanAuthenticated ? 1 : 3");
     expect(source).toContain("await context.close().catch(() => undefined)");
   });
 
@@ -130,12 +130,14 @@ describe("reviewer route bootstrap contract", () => {
       "utf8",
     );
 
-    expect(harness).not.toContain("unlock with passphrase");
+    const bootstrap = readFileSync(resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs"), "utf8");
+    const admission = harness + bootstrap;
+    expect(admission).not.toContain("unlock with passphrase");
     // The submit button renders "Unlock" (and "Unlocking..." while busy).
-    expect(harness).toContain('getByRole("button", { name: /^unlock/i })');
+    expect(admission).toContain('getByRole("button", { name: /^unlock/i })');
     expect(vaultFlow).toContain('"Unlock"');
     // The passphrase fallback is addressed by a stable testid, which the vault renders.
-    expect(harness).toContain('[data-testid="vault-use-passphrase-instead"]');
+    expect(admission).toContain('[data-testid="vault-use-passphrase-instead"]');
     expect(vaultFlow).toContain('data-testid="vault-use-passphrase-instead"');
   });
 });

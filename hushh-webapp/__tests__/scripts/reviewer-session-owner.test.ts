@@ -3,6 +3,8 @@ import { EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { prepareReviewerRehearsal } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs";
+import { createReviewerBootstrap } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs";
 import { createReviewerSessionHarness } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -180,4 +182,44 @@ it("closes contexts when request interception cannot be installed", async () => 
   await expect(reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false })).rejects.toThrow("bootstrap failed");
   expect(b.context.close).toHaveBeenCalledTimes(3);
   expect(b.page.goto).not.toHaveBeenCalled();
+});
+
+it("requires an owner-bound visible human unlock without injecting or submitting credentials", async () => {
+    const b = browser();
+    const click = vi.fn(), fill = vi.fn(), trigger = vi.fn();
+    Object.assign(b.window.__HUSHH_NATIVE_TEST__, { triggerReviewerLogin: trigger });
+    b.page.locator = () => ({ ...b.page.getByRole(), isVisible: async () => true, fill, click });
+    b.page.waitForTimeout = vi.fn(async () => { b.window.__HUSHH_NATIVE_TEST__.bootstrapState = "vault_unlocked"; });
+    const bootstrap = createReviewerBootstrap({ reviewerUid: "synthetic-owner", reviewerPassphrase: "",
+      reviewerAuthMode: "human_authenticated", deferLegalAcceptance: async () => {}, timeoutMs: 1000 });
+    await bootstrap.installBridge(b.page);
+    const payload = b.page.addInitScript.mock.calls[0][1];
+    const isolatedWindow = {};
+    runInNewContext(`(${b.page.addInitScript.mock.calls[0][0].toString()})(argument)`, { window: isolatedWindow, argument: payload });
+    expect(isolatedWindow.__HUSHH_NATIVE_TEST__).not.toHaveProperty("vaultPassphrase");
+    expect(isolatedWindow.__HUSHH_NATIVE_TEST__).not.toHaveProperty("reviewerSessionPassphrase");
+    await bootstrap.waitForUnlock(b.page, { assertNoBlockedMutation() {} });
+    expect(fill).not.toHaveBeenCalled(); expect(click).not.toHaveBeenCalled(); expect(trigger).not.toHaveBeenCalled();
+    await expect(bootstrap.waitForUnlock(b.page, { assertNoBlockedMutation() {} })).rejects.toThrow("visible vault challenge");
+    b.window.__HUSHH_NATIVE_TEST__.bootstrapState = "uid_mismatch";
+    await expect(bootstrap.waitForUnlock(b.page, { assertNoBlockedMutation() {} })).rejects.toThrow("bootstrap failed");
+  });
+
+
+
+it("human preflight requires explicit identity and HTTPS without a credential or backend mint read", async () => {
+  vi.stubEnv("REVIEWER_AUTH_MODE", "human_authenticated");
+  vi.stubEnv("REVIEWER_UID", "synthetic-owner");
+  vi.stubEnv("REVIEWER_VAULT_PASSPHRASE", "");
+  const fetchSpy = vi.spyOn(globalThis, "fetch");
+  try {
+    const options = { repoRoot: resolve(process.cwd(), ".."), appOrigin: "https://synthetic.example", secretProject: "must-not-read-secrets" };
+    expect(await prepareReviewerRehearsal(options)).toMatchObject({ authMode: "human_authenticated", identitySource: "configured_uid_human_authentication" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await expect(prepareReviewerRehearsal({ ...options, appOrigin: "http://synthetic.example" })).rejects.toThrow("explicit canonical UID and exact HTTPS");
+    vi.stubEnv("REVIEWER_UID", "");
+    await expect(prepareReviewerRehearsal(options)).rejects.toThrow("explicit canonical UID");
+    vi.stubEnv("REVIEWER_AUTH_MODE", "unrecognized");
+    await expect(prepareReviewerRehearsal(options)).rejects.toThrow("Unsupported reviewer authentication mode");
+  } finally { fetchSpy.mockRestore(); }
 });

@@ -245,3 +245,18 @@ test("the rehearsal entrypoint cannot gain blanket spending or choose ambient de
   assert.throws(() => parseCommerceArguments([...argumentsList, "--allow-all", "true"]), /EXPLICIT_REHEARSAL_ARGUMENTS_REQUIRED/);
   assert.throws(() => parseCommerceArguments([...argumentsList, "--approve-action", "all"]), /EXACT_OPERATOR_ACTION_INVALID/);
 });
+
+
+test("human authentication admits exact provider exchanges but never custom-token minting or payments", async () => {
+  let handler;
+  const guard = await installReadOnlyMutationGuard({ route: async (_pattern, callback) => { handler = callback; } },
+    { appOrigin: APP_ORIGIN, reviewerAuthMode: "human_authenticated" });
+  for (const url of ["https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=public-synthetic", "https://identitytoolkit.googleapis.com/v1/accounts:lookup", "https://securetoken.googleapis.com/v1/token"]) {
+    assert.equal((await requestFor(handler, "POST", url)).forwarded, true);
+  }
+  assert.doesNotThrow(() => guard.assertNoBlockedMutation());
+  for (const url of ["https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken", "https://identitytoolkit.googleapis.com/v1/accounts:delete", "https://identitytoolkit.googleapis.com.attacker.example/v1/accounts:signInWithIdp", "http://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp", "https://checkout.stripe.com/pay", `${APP_ORIGIN}/api/app-config/review-mode/session`]) {
+    assert.equal((await requestFor(handler, "POST", url)).forwarded, false);
+  }
+  assert.throws(() => guard.assertNoBlockedMutation(), /blocked state-changing request/);
+});
