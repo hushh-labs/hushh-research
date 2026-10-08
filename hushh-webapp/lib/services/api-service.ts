@@ -1788,6 +1788,14 @@ export class ApiService {
     }
   }
 
+  /** Firebase Auth's own creation time for the signed-in account. */
+  static async getAccountCreatedAt(idToken: string): Promise<Response> {
+    return apiFetch("/api/account/created-at", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+  }
+
   static async refreshAccountIdentityShadow(
     idToken?: string,
     options?: { force?: boolean },

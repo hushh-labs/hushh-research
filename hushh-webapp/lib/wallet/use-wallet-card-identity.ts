@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ReferralService } from "@/lib/services/referral-service";
 import { WALLET_CARD_CHANGED_EVENT, WalletCardService } from "@/lib/services/wallet-card-service";
 import {
@@ -28,6 +29,14 @@ interface LoadedReferral {
   url: string;
 }
 
+interface LoadedAccount {
+  ownerId: string;
+  /** The account's saved name when Firebase carries none. */
+  name: string | null;
+  /** Firebase's creation time from the backend when the client carries none. */
+  createdAt: string | null;
+}
+
 /** Runs `refresh` whenever the person could have changed something elsewhere. */
 function subscribeToRefreshSignals(refresh: () => void): () => void {
   const onVisible = () => {
@@ -48,9 +57,14 @@ function subscribeToRefreshSignals(refresh: () => void): () => void {
 /**
  * The one authenticated source behind every Agent One card in Wallet.
  *
- * - name: the saved Wallet Profile name, then the account display name;
- * - member since / valid through: Firebase `metadata.creationTime`, read live
- *   from the signed-in user, so they never wait on a network call;
+ * - name: the saved Wallet Profile name (`full_name`, then the card's display
+ *   name), then Firebase `displayName`, then the backend account identity's
+ *   `display_name`. Nothing else: no email, no sample;
+ * - member since / valid through: Firebase `metadata.creationTime` from the
+ *   signed-in user (web SDK, or the native plugin's `metadata.creationTime`),
+ *   so they never wait on a network call. Only when the client has none, the
+ *   backend's `GET /api/account/created-at` (Firebase Admin creation timestamp).
+ *   Neither depends on the Wallet Profile, the vault or any QR;
  * - profile QR and `profileStatus`: the owner's Wallet Profile as the server
  *   reports it, plus the share link this device holds for it;
  * - referral QR: the server's Invite friends link for this owner. It loads on
@@ -67,6 +81,7 @@ export function useWalletCardIdentity(): WalletCardIdentity {
   const ownerId = user?.uid ?? null;
   const [profile, setProfile] = useState<LoadedProfile | null>(null);
   const [referral, setReferral] = useState<LoadedReferral | null>(null);
+  const [account, setAccount] = useState<LoadedAccount | null>(null);
 
   // The token getter's identity changes with the vault context; reading it
   // through a ref keeps it out of the effect deps and the poll from restarting.
@@ -157,14 +172,62 @@ export function useWalletCardIdentity(): WalletCardIdentity {
     };
   }, [ownerId]);
 
+  // Account facts the Firebase user may not carry. Asked only for what is
+  // missing, independently of the Wallet Profile and the vault, and never again
+  // once answered.
+  const ownAccount = account?.ownerId === ownerId ? account : null;
+  const needsAccountName = Boolean(ownerId) && !user?.displayName?.trim() && !ownAccount?.name;
+  const needsCreatedAt =
+    Boolean(ownerId) && !deriveWalletCardDates(user?.metadata?.creationTime) && !ownAccount?.createdAt;
+  useEffect(() => {
+    if (!ownerId || (!needsAccountName && !needsCreatedAt)) return;
+    let cancelled = false;
+    let inflight = false;
+    const load = async () => {
+      const activeUser = userRef.current;
+      if (inflight || !activeUser || activeUser.uid !== ownerId) return;
+      inflight = true;
+      try {
+        const [identity, createdAt] = await Promise.all([
+          needsAccountName
+            ? AccountIdentityService.getIdentitySwr(activeUser)
+                .then((result) => result.identity)
+                .catch(() => null)
+            : Promise.resolve(null),
+          needsCreatedAt
+            ? AccountIdentityService.getAccountCreatedAt(activeUser).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+        if (cancelled || userRef.current?.uid !== ownerId) return;
+        const name = identity?.user_id === ownerId ? identity.display_name?.trim() || null : null;
+        setAccount((previous) => {
+          const own = previous?.ownerId === ownerId ? previous : null;
+          return { ownerId, name: name ?? own?.name ?? null, createdAt: createdAt ?? own?.createdAt ?? null };
+        });
+      } finally {
+        inflight = false;
+      }
+    };
+
+    void load();
+    const timer = window.setInterval(() => void load(), REFRESH_MS);
+    const unsubscribe = subscribeToRefreshSignals(() => void load());
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      unsubscribe();
+    };
+  }, [ownerId, needsAccountName, needsCreatedAt]);
+
   if (!user || !ownerId) return EMPTY_WALLET_CARD_IDENTITY;
 
   const ownProfile = profile?.ownerId === ownerId ? profile : null;
   const ownReferral = referral?.ownerId === ownerId ? referral : null;
-  const dates = deriveWalletCardDates(user.metadata?.creationTime);
+  const dates =
+    deriveWalletCardDates(user.metadata?.creationTime) ?? deriveWalletCardDates(ownAccount?.createdAt);
   return {
     ownerId,
-    name: ownProfile?.cardName || user.displayName?.trim() || null,
+    name: ownProfile?.cardName || user.displayName?.trim() || ownAccount?.name || null,
     memberSince: dates?.memberSince ?? null,
     validThru: dates?.validThru ?? null,
     profileUrl: ownProfile?.profileUrl ?? null,

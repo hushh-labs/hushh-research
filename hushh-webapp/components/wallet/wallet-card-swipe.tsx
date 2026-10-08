@@ -7,9 +7,11 @@ import { cardNetworkLabel } from "./card-network-mark";
 import styles from "./wallet-card-gesture.module.css";
 
 /** Card-local gestures only; opening this panel never reveals encrypted details. */
-export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismissHint }: {
+export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismissHint, controls }: {
   card: WalletCardSummary; children: ReactNode; disabled: boolean;
   onOpen: () => void; hint: boolean; dismissHint: () => void;
+  /** Replaces the network/last-four and expiry lines for cards that are not payment cards. */
+  controls?: { title: string; detail: string };
 }) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -78,8 +80,8 @@ export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismis
     onPointerCancel={() => finish(true)}
     onClickCapture={event => { if (suppressClick.current && !(event.target as HTMLElement).closest("[data-card-controls]")) { event.preventDefault(); event.stopPropagation(); suppressClick.current=false; } }}>
     <div className={styles.controls} data-card-controls inert={!opened || undefined} aria-hidden={!opened || undefined}>
-      <p>{cardNetworkLabel(card.brand)} •••• {card.last4}</p>
-      <span>Expires {String(card.expiryMonth).padStart(2,"0")}/{String(card.expiryYear).slice(-2)}</span>
+      <p>{controls ? controls.title : `${cardNetworkLabel(card.brand)} •••• ${card.last4}`}</p>
+      <span>{controls ? controls.detail : `Expires ${String(card.expiryMonth).padStart(2,"0")}/${String(card.expiryYear).slice(-2)}`}</span>
       <Button size="compact" disabled={disabled} onClick={onOpen}>View card details</Button>
       <Button size="compact" variant="ghost" onClick={() => { setOpened(false); moveCard(0); }}>Back to card</Button>
     </div>

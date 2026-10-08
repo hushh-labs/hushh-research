@@ -6,7 +6,7 @@ import { WalletCardFace } from "@/components/wallet/wallet-card-face";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
-import { formatCardExpiry, formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
+import { formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
 import styles from "./wallet-demo-cards.module.css";
 import { useRouter } from "next/navigation";
 
@@ -36,6 +36,8 @@ export const WALLET_DEMO_CARDS: WalletCardSummary[] = DEMOS.map((demo, index) =>
   brand: demo.brand,
   last4: demo.number.slice(-4),
   expiryMonth: demo.month,
+  // Required by the card summary shape, never printed: faces, details and swipe
+  // controls show the owner's real valid-through (see `walletDemoControls`).
   expiryYear: 2030,
   issuingRegion: "",
   createdAt: "",
@@ -142,15 +144,25 @@ function WalletArtworkFace({ summary, finish, name, identity }: { summary: Walle
   );
 }
 
-export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
+/** What the swipe-left controls print for an illustration card: the owner's real valid-through, never a sample date. */
+export function walletDemoControls(cardId: string, identity: WalletCardIdentity | null | undefined) {
+  const artwork = ARTWORK[cardId as keyof typeof ARTWORK];
+  if (!artwork) return undefined;
+  return {
+    title: `Agent One ${artwork === "nws" ? "NWS" : artwork === "profile" ? "Profile" : "Referral"}`,
+    detail: identity?.validThru ? `Valid through ${identity.validThru}` : "Valid through —",
+  };
+}
+
+export function WalletDemoCardDetails({ cardId, identity }: { cardId: string; identity?: WalletCardIdentity | null }) {
   const demo = demoFor(cardId);
   const summary = WALLET_DEMO_CARDS.find((card) => card.cardId === cardId);
   if (!demo || !summary) return null;
   const fields = [
     ["Card number", formatCardNumber(summary.brand, demo.number)],
-    ["Cardholder", "Alex Morgan"],
+    ["Cardholder", identity?.name || "—"],
     ["Network", cardNetworkLabel(summary.brand)],
-    ["Valid until", formatCardExpiry(summary.expiryMonth, summary.expiryYear)],
+    ["Valid until", identity?.validThru || "—"],
   ];
   return (
     <section aria-label="Example card details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">

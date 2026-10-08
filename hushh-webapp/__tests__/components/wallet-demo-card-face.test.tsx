@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
-import { WALLET_DEMO_CARDS, WalletDemoCardFace } from "@/components/wallet/wallet-demo-cards";
+import { WalletAddCollection } from "@/components/wallet/wallet-add-collection";
+import { WALLET_DEMO_CARDS, WalletDemoCardDetails, WalletDemoCardFace } from "@/components/wallet/wallet-demo-cards";
 import {
   EMPTY_WALLET_CARD_IDENTITY,
   buildWalletArtworkQr,
@@ -137,5 +138,33 @@ describe("Profile and Referral artwork", () => {
       fromArtwork(frame, OPEN);
       expect(push).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("View details and swipe controls", () => {
+  it.each(WALLET_DEMO_CARDS.map((card) => card.cardId))("%s prints the owner's real name and valid-through, no sample", (cardId) => {
+    const { container } = render(<WalletDemoCardDetails cardId={cardId} identity={identity} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Ada Lovelace");
+    expect(text).toContain("12/28");
+    expect(text).not.toMatch(/Alex Morgan|2030/);
+  });
+
+  it("shows an empty dash, never a sample, before the owner's details are known", () => {
+    const { container } = render(<WalletDemoCardDetails cardId="demo-0" identity={EMPTY_WALLET_CARD_IDENTITY} />);
+    expect(container.textContent).not.toMatch(/Alex Morgan|2030|12\/30/);
+    expect(container.textContent).toContain("—");
+  });
+
+  it("uses the same real valid-through on the card controls revealed by swiping", () => {
+    const { container } = render(
+      <WalletAddCollection cards={WALLET_DEMO_CARDS} selectedCardId={null} onSelect={vi.fn()} onAdd={vi.fn()} onRemove={vi.fn()} busyCardId={null} preview identity={identity} />,
+    );
+    const controls = Array.from(container.querySelectorAll("[data-card-controls]")).map((node) => node.textContent ?? "");
+    expect(controls.length).toBe(WALLET_DEMO_CARDS.length);
+    for (const text of controls) {
+      expect(text).toContain("Valid through 12/28");
+      expect(text).not.toMatch(/Expires|12\/30|4242|4444|1234/);
+    }
   });
 });

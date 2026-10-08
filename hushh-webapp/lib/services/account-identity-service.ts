@@ -136,6 +136,26 @@ export class AccountIdentityService {
     return payload?.identity ?? null;
   }
 
+  /**
+   * When Firebase created this account, from the backend, for clients whose
+   * Firebase user carries no creation metadata. `null` means unknown: a failed
+   * request, another owner's answer, or an unreadable value. It is never "now".
+   */
+  static async getAccountCreatedAt(user: User | null | undefined): Promise<string | null> {
+    if (!user?.uid) return null;
+    const idToken = await user.getIdToken().catch(() => undefined);
+    if (!idToken) return null;
+    const response = await ApiService.getAccountCreatedAt(idToken).catch(() => null);
+    if (!response?.ok) return null;
+    const payload = (await response.json().catch(() => null)) as {
+      user_id?: string;
+      account_created_at?: unknown;
+    } | null;
+    if (payload?.user_id !== user.uid) return null;
+    const value = payload.account_created_at;
+    return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
+  }
+
   static async refreshIdentityForSession(
     userId: string,
     idToken: string,
