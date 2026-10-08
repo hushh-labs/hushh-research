@@ -37,7 +37,8 @@ API_VERSIONS: dict[str, str] = {
     "storage": "2023-05-01",
     "container_registry": "2023-07-01",
     "cognitive_services": "2024-10-01",
-    "container_apps": "2024-03-01",
+    # Stable schema with CustomScaleRule.identity for secretless Files queue wake.
+    "container_apps": "2025-01-01",
     "authorization": "2022-04-01",
 }
 

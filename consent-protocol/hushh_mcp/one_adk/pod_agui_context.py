@@ -17,6 +17,7 @@ from hushh_mcp.one_adk.pod_adk_session_repository import (
 from hushh_mcp.services.chat_key import bind_request_chat_key_owner, request_has_chat_key
 
 _projection: PodAdkSessionProjection | None = None
+_memory_replay: tuple[Any, Any] | None = None
 
 
 class PodChatContext:
@@ -50,7 +51,7 @@ class PodChatContext:
             raise HTTPException(403, detail={"code": "POD_CHAT_OWNER_MISMATCH"})
         self.sessions = EncryptedAdkSessionService(
             repository=PodAdkSessionRepository(
-                projection=_projection, require_access=self.require_access
+                projection=_projection, require_access=self._require_session_access
             )
         )
         self.runtime: Any = None
@@ -112,7 +113,8 @@ class PodChatContext:
         )
         return browser_task_invocation(runtime, owner)
 
-    async def require_access(self) -> None:
+    async def _require_session_access(self) -> None:
+        """Revalidate this request's authority; the repository owns its log fence."""
         from api.routes.one.pod_session import verified_session
         from hushh_mcp.services.pod_session_authority import ROLE_APP, SCOPE_PKM_READ
 
@@ -122,6 +124,9 @@ class PodChatContext:
         if authority is not self.authority or claims != self.claims:
             raise HTTPException(403, detail={"code": "POD_CHAT_SESSION_CHANGED"})
         await authority.require_held()
+
+    async def require_access(self) -> None:
+        await self._require_session_access()
         await self.log.require_open()
 
     async def _files_access(self, *, manage: bool = False) -> None:
@@ -219,8 +224,17 @@ class PodChatContext:
         )
         from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
         from hushh_mcp.one_adk.text_runtime import _resolve_pod_memory_service
+        from hushh_mcp.services.pod_memory_replay import PodMemoryReplay
 
-        service = await asyncio.to_thread(_resolve_pod_memory_service)
+        global _memory_replay
+        if _memory_replay is None or _memory_replay[0] is not self.authority:
+            _memory_replay = (
+                self.authority,
+                PodMemoryReplay(owner=self.hushh_id, incarnation=self.authority.epoch),
+            )
+        service = await asyncio.to_thread(
+            _resolve_pod_memory_service, replay_projection=_memory_replay[1]
+        )
         memory = PodChatMemory(self, service) if service is not None else None
 
         async def prepare(input):

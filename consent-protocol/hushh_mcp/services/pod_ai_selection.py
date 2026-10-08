@@ -272,7 +272,9 @@ def public_selection(selection: Optional[AiSelection]) -> dict[str, Any]:
     }
 
 
-async def load_active_ai_selection(log: Any = None) -> Optional[AiSelection]:
+async def load_active_ai_selection(
+    log: Any = None, *, records: Any = None
+) -> Optional[AiSelection]:
     """Startup (and self-heal): load this owner's selection from the pod's own log.
 
     Never raises. A pod with no durable store has no selection by construction; a store
@@ -286,9 +288,13 @@ async def load_active_ai_selection(log: Any = None) -> Optional[AiSelection]:
             from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
 
             log = _resolve_log()
-        selection, _floor = (
-            await read_ai_selection(log, hushh_id=hushh_id) if hushh_id else (None, 0)
-        )
+        selection, _floor = None, 0
+        if hushh_id:
+            selection, _floor = (
+                selection_from_records(records, hushh_id=hushh_id, strict=True)
+                if records is not None
+                else await read_ai_selection(log, hushh_id=hushh_id)
+            )
     except Exception as exc:  # noqa: BLE001 - startup must never fail on this read
         logger.warning("pod_ai_selection.load_failed reason=%s", type(exc).__name__)
         _LOAD_FAILED = True
@@ -302,12 +308,12 @@ async def load_active_ai_selection(log: Any = None) -> Optional[AiSelection]:
     return selection
 
 
-async def load_owner_configuration(log: Any = None) -> None:
+async def load_owner_configuration(log: Any = None, *, records: Any = None) -> None:
     """Pod startup: the configuration record, then the AI selection. Never raises."""
     from hushh_mcp.services.pod_config import load_active_pod_config  # noqa: PLC0415
 
-    await load_active_pod_config(log)
-    await load_active_ai_selection(log)
+    await load_active_pod_config(log, records=records)
+    await load_active_ai_selection(log, records=records)
 
 
 __all__ = [

@@ -176,7 +176,7 @@ class AnalysisSettings(BaseModel):
 
 @router.get("/settings")
 async def read_settings(owner: Owner):
-    import os
+    from hushh_mcp.services.pod_files.runtime import custody_key_reference
 
     try:
         async with operation() as library:
@@ -184,7 +184,7 @@ async def read_settings(owner: Owner):
             return {
                 **settings,
                 **organization_model_status(),
-                "retention": await library.store.verify_bucket(os.getenv("HUSSH_POD_KMS_KEY", "")),
+                "retention": await library.store.verify_bucket(custody_key_reference()),
             }
     except FilesRefused as exc:
         raise refusal(exc) from exc

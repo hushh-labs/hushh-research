@@ -607,7 +607,7 @@ class PodMemoryStore:
         return len(self._records)
 
 
-def resolve_pod_memory_service() -> Optional[Any]:
+def resolve_pod_memory_service(*, replay_projection: Any = None) -> Optional[Any]:
     """The single decision point for whether a runtime gets memory at all.
 
     Returns ``None`` — meaning ``Runner(memory_service=None)``, today's exact behaviour —
@@ -632,6 +632,8 @@ def resolve_pod_memory_service() -> Optional[Any]:
 
     from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
         byoc_custody_configured,
+        derive_memory_key,
+        resolve_pod_log_key,
         resolve_pod_memory_key,
     )
 
@@ -650,7 +652,10 @@ def resolve_pod_memory_service() -> Optional[Any]:
         )
         return None
     try:
-        pod_key = resolve_pod_memory_key()
+        # Resolve custody once for this construction. Do not cache it across
+        # requests: revoked cloud access must still refuse a later resolution.
+        log_key = resolve_pod_log_key() if byoc_custody_configured() else None
+        pod_key = derive_memory_key(log_key) if log_key is not None else resolve_pod_memory_key()
         # Memory Bank on the person's own Vertex, when this pod has one ready. None
         # until the engine is known, so a turn before it exists (or after it failed)
         # recalls from the sealed log and says so in its logs.
@@ -661,15 +666,16 @@ def resolve_pod_memory_service() -> Optional[Any]:
         return build_pod_memory_service(
             hushh_id=hushh_id,
             pod_key=pod_key,
-            log=_resolve_log(),
+            log=_resolve_log(log_key=log_key) if log_key is not None else _resolve_log(),
             bank=resolve_memory_bank_service(),
+            replay_projection=replay_projection,
         )
     except Exception as exc:  # noqa: BLE001 -- preserve startup, never log custody details
         logger.warning("pod_memory.build_failed reason=%s", type(exc).__name__)
         return None
 
 
-def _resolve_log() -> Optional[Any]:
+def _resolve_log(*, log_key: bytes | None = None) -> Optional[Any]:
     """The pod's commit log, or ``None`` when durable state is not configured.
 
     Returning ``None`` gives an in-process store that forgets on restart -- lossy but
@@ -682,7 +688,7 @@ def _resolve_log() -> Optional[Any]:
     """
     from hushh_mcp.services.pod_storage import resolve_pod_storage
 
-    storage = resolve_pod_storage()
+    storage = resolve_pod_storage(log_key=log_key) if log_key is not None else resolve_pod_storage()
     # Duck-typed rather than isinstance: NullPodStorage holds no log, the commit-log
     # backend does, and nothing else should be guessed at.
     return getattr(storage, "_log", None)
@@ -695,6 +701,7 @@ def build_pod_memory_service(
     log: Any = None,
     bank: Any = None,
     provider_consent: Optional[bool] = None,
+    replay_projection: Any = None,
 ) -> Any:
     """Construct the ADK-facing memory service for THIS pod.
 
@@ -831,7 +838,12 @@ def build_pod_memory_service(
                     return
                 loaded = 0
                 skipped_foreign = 0
-                for record in await self.log.replay():
+                records = (
+                    await replay_projection.replay(self.log)
+                    if replay_projection is not None
+                    else await self.log.replay()
+                )
+                for record in records:
                     if record.get("kind") not in MEMORY_RECORD_KINDS:
                         continue  # other subsystems' records (PKM, config, pointers)
                     if self._apply_record(record):

@@ -167,3 +167,29 @@ def test_container_apps_writes_carry_no_if_match():
     client, _ = _client(session)
     client.put(_PATH, api_version=API_VERSIONS["container_apps"], body={})
     assert "If-Match" not in session.sent[0]["headers"]
+
+
+def test_files_scaler_uses_managed_identity_supported_api():
+    """The older live ARM schema refused CustomScaleRule.identity with HTTP 400."""
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_files.azure_provisioning import configure_files
+
+    group = "/subscriptions/s/resourceGroups/g"
+    identity = group + "/providers/Microsoft.ManagedIdentity/userAssignedIdentities/pod"
+    body = {"properties": {"template": {"containers": [{"env": []}], "scale": {}}}}
+    configure_files(
+        body,
+        SimpleNamespace(
+            files_storage_resource_id=group + "/providers/Microsoft.Storage/storageAccounts/owner",
+            identity_id=identity,
+            blob_url="https://owner.blob.core.windows.net/pod",
+        ),
+    )
+    session = _Session(_Response(200, {"id": _PATH}))
+    client, _ = _client(session)
+    client.put(_PATH, api_version=API_VERSIONS["container_apps"], body=body)
+    request = session.sent[0]
+    assert request["url"].endswith("?api-version=2025-01-01")
+    rule = request["json"]["properties"]["template"]["scale"]["rules"][1]["custom"]
+    assert rule["identity"] == identity and "auth" not in rule

@@ -381,7 +381,7 @@ def connector_permissions(credential: Optional[ConnectorCredential]) -> dict[str
     return {"accessLevel": access_level, "capabilities": capabilities}
 
 
-async def load_connector_credentials(log: Any = None) -> None:
+async def load_connector_credentials(log: Any = None, *, records: Any = None) -> None:
     """Startup (and self-heal): load this owner's logins from the pod's own log. Never raises."""
     global _LOAD_FAILED
     hushh_id = (os.environ.get("HUSSH_ID") or "").strip()
@@ -392,7 +392,11 @@ async def load_connector_credentials(log: Any = None) -> None:
             log = _resolve_log()
         if log is None or not hushh_id:
             raise ConnectorStoreMissing("connector custody is not initialized")
-        current, floors = await read_connector_credentials(log, hushh_id=hushh_id)
+        current, floors = (
+            credentials_from_records(records, hushh_id=hushh_id)
+            if records is not None
+            else await read_connector_credentials(log, hushh_id=hushh_id)
+        )
     except Exception as exc:  # noqa: BLE001 - startup must never fail on this read
         logger.warning("pod_connector_credentials.load_failed reason=%s", type(exc).__name__)
         _LOAD_FAILED = True

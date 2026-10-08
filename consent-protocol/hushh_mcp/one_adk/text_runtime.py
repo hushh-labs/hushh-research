@@ -922,7 +922,7 @@ async def _catch_up_memory_review(
         return None
 
 
-def _resolve_pod_memory_service():
+def _resolve_pod_memory_service(*, replay_projection=None):
     """The pod's memory service, or None everywhere else.
 
     Fail-safe by construction: a pod that cannot resolve its memory must still answer,
@@ -934,7 +934,7 @@ def _resolve_pod_memory_service():
             resolve_pod_memory_service,
         )
 
-        return resolve_pod_memory_service()
+        return resolve_pod_memory_service(replay_projection=replay_projection)
     except Exception:  # noqa: BLE001 -- never block a turn on memory
         logger.exception("one_text.pod_memory_unavailable")
         return None

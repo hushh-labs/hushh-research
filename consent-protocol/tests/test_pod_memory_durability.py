@@ -73,6 +73,120 @@ def _log(tmp_path: Path, key: bytes = KEY) -> PodCommitLog:
     return PodCommitLog(LocalObjectStore(str(tmp_path / "store")), key, owner_id=OWNER)
 
 
+async def test_fresh_services_replay_only_verified_tail_and_keep_revocations(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_memory_replay import PodMemoryReplay
+
+    log = _log(tmp_path)
+    seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+    fact = await seed.remember("the synthetic violet radiator")
+    await seed.set_provider_consent(True)
+    projection = PodMemoryReplay(owner=OWNER, incarnation=1)
+
+    def fresh(**kwargs):
+        return build_pod_memory_service(
+            hushh_id=OWNER,
+            pod_key=KEY,
+            log=_log(tmp_path),
+            replay_projection=projection,
+            **kwargs,
+        )
+
+    first = fresh()
+    await first._ensure_hydrated()
+    anchor = projection._cursor
+    await log.append("pod.adk.session.v1", {"unrelated": "sealed-session-fixture"})
+    await seed.revoke([fact])
+    await seed.set_provider_consent(False)
+    bank = SimpleNamespace(search_memory=AsyncMock())
+    second = fresh(bank=bank)
+    original_get, reads = second.log._store.get, []
+
+    async def get(key):
+        reads.append(key)
+        return await original_get(key)
+
+    monkeypatch.setattr(second.log._store, "get", get)
+    assert not (await second.search_memory(app_name="one", user_id=OWNER, query="violet")).memories
+    assert len(reads) == 3 and anchor.key not in reads
+    assert projection._cursor.seq == anchor.seq + 3
+    assert second.provider_consent is False
+    bank.search_memory.assert_not_awaited()
+    assert first is not second and first.store is not second.store
+    await log.fence_for_erasure(owner_id=OWNER, attempt_id="projection-erasure")
+    with pytest.raises(PodLogFenced):
+        await fresh()._ensure_hydrated()
+
+
+async def test_memory_projection_refuses_changed_binding_and_unverified_tail(tmp_path, monkeypatch):
+    from hushh_mcp.services.pod_memory_replay import PodMemoryReplay
+
+    log = _log(tmp_path)
+    seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+    await seed.remember("synthetic violet")
+    projection = PodMemoryReplay(owner=OWNER, incarnation=1)
+    await projection.replay(log)
+    anchor, sealed = projection._cursor, projection._sealed
+    for wrong in (_log(tmp_path, OTHER_KEY), _log(tmp_path / "other")):
+        with pytest.raises(PodLogTampered):
+            await projection.replay(wrong)
+    projection.incarnation = 2
+    with pytest.raises(PodLogTampered):
+        await projection.replay(log)
+    projection.incarnation = 1
+    foreign = PodCommitLog(log._store, KEY, owner_id=OTHER)
+    with pytest.raises(PodLogTampered):
+        await projection.replay(foreign)
+    await seed.remember("synthetic indigo")
+    original_fold = log.fold_since
+
+    async def failed_tail(cursor, visit):
+        await original_fold(cursor, visit)
+        raise PodLogTampered("synthetic incomplete verification")
+
+    monkeypatch.setattr(log, "fold_since", failed_tail)
+    with pytest.raises(PodLogTampered):
+        await projection.replay(log)
+    assert projection._cursor == anchor and projection._sealed == sealed
+    monkeypatch.setattr(log, "fold_since", original_fold)
+    assert len(await projection.replay(log)) == 2
+
+
+async def test_memory_projection_budget_falls_back_without_losing_tombstones(tmp_path, monkeypatch):
+    from hushh_mcp.services import pod_memory_replay as replay
+
+    log = _log(tmp_path)
+    seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+    fact = await seed.remember("synthetic violet")
+    await seed.revoke([fact])
+    monkeypatch.setattr(replay, "MAX_RECORDS", 1)
+    projection = replay.PodMemoryReplay(owner=OWNER, incarnation=1)
+    service = build_pod_memory_service(
+        hushh_id=OWNER, pod_key=KEY, log=log, replay_projection=projection
+    )
+    assert not (await service.search_memory(app_name="one", user_id=OWNER, query="violet")).memories
+    assert projection._uncached and projection._sealed is None
+    assert await projection.replay(log) == await log.replay()
+
+
+async def test_memory_projection_bounds_actual_sealed_bytes(tmp_path, monkeypatch):
+    import json
+
+    from hushh_mcp.services import pod_memory_replay as replay
+
+    log = _log(tmp_path)
+    seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+    await seed.remember("synthetic violet")
+    records = await log.replay()
+    # Enough for the records, but not the binding and authenticated seal.
+    monkeypatch.setattr(replay, "MAX_BYTES", len(json.dumps(records).encode()) + 2)
+    projection = replay.PodMemoryReplay(owner=OWNER, incarnation=1)
+    assert await projection.replay(log) == records
+    assert projection._uncached and projection._sealed is None
+
+
 def test_memory_survives_the_death_of_the_pod(tmp_path: Path) -> None:
     """The whole point: a second generation recalls what the first was told."""
 

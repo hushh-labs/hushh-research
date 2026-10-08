@@ -281,3 +281,115 @@ async def test_reusing_boot_storage_still_claims_a_fresh_incarnation(monkeypatch
     with pytest.raises(psa.PodSessionRefused) as caught:
         await first.require_held()
     assert caught.value.code == "fenced"
+
+
+async def test_boot_recovery_shares_verified_scan_without_changing_authority(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import pod_config, pod_self_registration
+    from hushh_mcp.services import pod_session_authority as psa
+
+    owner, key = "ha1_boot_owner", b"S" * 32
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), key, owner_id=owner)
+    monkeypatch.setenv("HUSSH_ID", owner)
+    monkeypatch.setattr(psa, "_ACTIVE", None)
+    monkeypatch.setattr(
+        pod_self_registration,
+        "pod_keypair",
+        lambda: SimpleNamespace(key_id="boot-key", public_key_b64="public-key"),
+    )
+    await log.append("unrelated_history", {"synthetic": "not part of startup"})
+    await log.append("pod_config_v1", {"hushh_id": owner, "config": {"puppy_broker": False}})
+    for role in ("app", "device"):
+        await log.append(
+            "authority_trust_v1",
+            {
+                "hushh_id": owner,
+                "subject_id": "subject",
+                "role": role,
+                "version": 2,
+            },
+        )
+    await log.append(
+        " authority_tombstone_v1 ",
+        {
+            "hushh_id": owner,
+            "subject_id": "subject",
+            "at_version": 2,
+        },
+    )
+    original_fold, folds = log.fold_since, []
+
+    async def fold(cursor, visit):
+        folds.append(cursor)
+        return await original_fold(cursor, visit)
+
+    async def unexpected_replay():
+        pytest.fail("startup must not replay the same chain for each subsystem")
+
+    monkeypatch.setattr(log, "fold_since", fold)
+    monkeypatch.setattr(log, "replay", unexpected_replay)
+    try:
+        authority = await psa.build_pod_session_authority(
+            instance_id="boot", log=log, dek=key, recover_owner_state=True
+        )
+        assert folds == [None]
+        assert pod_config.active_pod_config().puppy_broker is False
+        status = authority.store.subject("subject")
+        assert status.state == "tombstoned" and status.trust.role == "app"
+    finally:
+        pod_config.set_active_pod_config(None)
+
+
+async def test_startup_projection_never_publishes_partial_or_truncated_history(
+    tmp_path, monkeypatch
+):
+    from hushh_mcp.services import pod_startup_recovery as recovery
+    from hushh_mcp.services.pod_commit_log import PodLogFenced
+
+    owner = "ha1_boot_owner"
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"S" * 32, owner_id=owner)
+    await log.append("pod_config_v1", {"hushh_id": owner, "config": {"puppy_broker": False}})
+    monkeypatch.setattr(recovery, "MAX_RECORDS", 0)
+    assert await recovery.startup_records(log) is None  # caller must use full recovery
+    monkeypatch.setattr(recovery, "MAX_RECORDS", 10_000)
+    original_fold = log.fold_since
+
+    async def fenced_fold(cursor, visit):
+        await original_fold(cursor, visit)
+        await log.fence_for_erasure(owner_id=owner, attempt_id="test-erasure")
+        await log.require_open()
+
+    monkeypatch.setattr(log, "fold_since", fenced_fold)
+    with pytest.raises(PodLogFenced):
+        await recovery.startup_records(log)
+
+
+async def test_replacement_during_startup_cannot_publish_old_authority(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import pod_self_registration
+    from hushh_mcp.services import pod_session_authority as psa
+
+    owner, key = "ha1_boot_owner", b"S" * 32
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), key, owner_id=owner)
+    monkeypatch.setenv("HUSSH_ID", owner)
+    monkeypatch.setattr(psa, "_ACTIVE", None)
+    monkeypatch.setattr(
+        pod_self_registration,
+        "pod_keypair",
+        lambda: SimpleNamespace(key_id="boot-key", public_key_b64="public-key"),
+    )
+    original_fold = log.fold_since
+
+    async def replaced(cursor, visit):
+        result = await original_fold(cursor, visit)
+        await authority.claim_incarnation(log._store, key, instance_id="replacement")
+        return result
+
+    monkeypatch.setattr(log, "fold_since", replaced)
+    with pytest.raises(psa.PodSessionRefused) as error:
+        await psa.build_pod_session_authority(
+            instance_id="old", log=log, dek=key, recover_owner_state=True
+        )
+    assert error.value.code == "fenced" and psa.active_session_authority() is None

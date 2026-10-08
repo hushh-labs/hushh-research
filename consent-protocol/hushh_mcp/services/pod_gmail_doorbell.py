@@ -339,6 +339,8 @@ class PodGmailDoorbell:
 
     async def renew_if_due(self) -> dict[str, Any]:
         """Daily maintenance calls this; no process-lifetime timer is required."""
+        if not mail_topic():
+            return {"status": "not_configured"}
         point = await self.stored_point() or {}
         if point and point.get("accountSubject") != work_queue.current_binding()["accountSubject"]:
             raise GmailDoorbellUnavailable("MAILBOX_CHANGED_REQUIRES_RECOVERY")

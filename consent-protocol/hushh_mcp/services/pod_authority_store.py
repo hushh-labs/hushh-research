@@ -138,9 +138,11 @@ class PodAuthorityStore:
 
     # -- replay -------------------------------------------------------------------
 
-    async def load(self) -> None:
+    async def load(self, *, records: Any = None) -> None:
         """Replay the log once. A fenced log refuses; nothing is cached from it."""
-        records = await self._log.replay()
+        if records is None:
+            records = await self._log.replay()
+        await self._log.require_open()
         self._trust = {}
         self._tombstones = {}
         self.apply_records(records)

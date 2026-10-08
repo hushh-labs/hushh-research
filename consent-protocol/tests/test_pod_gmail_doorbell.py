@@ -481,6 +481,19 @@ async def test_watch_renewal_is_daily_durable_and_config_revision_bound(agent, m
     assert (await restarted.stored_point())["historyId"] == "100"
 
 
+async def test_unconfigured_watch_does_not_replay_private_history(agent, monkeypatch):
+    monkeypatch.delenv("POD_GMAIL_TOPIC")
+
+    def unavailable_store():
+        raise AssertionError("An unconfigured watch must not open private history")
+
+    doorbell = bell.PodGmailDoorbell(log_resolver=unavailable_store)
+    assert await doorbell.renew_if_due() == {"status": "not_configured"}
+    monkeypatch.setenv("POD_GMAIL_TOPIC", "projects/oauth-project/topics/one-mail-owner")
+    with pytest.raises(AssertionError, match="must not open private history"):
+        await doorbell.renew_if_due()
+
+
 async def test_incomplete_authority_generation_refuses_before_dispatch(agent, monkeypatch):
     monkeypatch.setenv("POD_GMAIL_PUSH_AUDIENCE", "https://different.example")
     response = await pod_gmail_push.run_gmail_push(

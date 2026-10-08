@@ -19,6 +19,13 @@ _active = 0
 _draining = False
 
 
+def custody_key_reference() -> str:
+    """The same owner key reference for operation and retention checks."""
+    from hushh_mcp.services.byoc_key_custody import KEY_VAULT_KEY_ENV, KMS_KEY_ENV
+
+    return os.getenv(KEY_VAULT_KEY_ENV) or os.getenv(KMS_KEY_ENV, "")
+
+
 def active_library() -> FilesLibrary:
     global _library
     if os.getenv("POD_FILES_ENABLED", "").lower() not in {"1", "true"}:
@@ -78,9 +85,7 @@ async def operation(*, mutation: bool = False):
         permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
         library = active_library()
         await library.check()
-        await library.store.verify_bucket(
-            os.getenv("HUSSH_POD_KEY_VAULT_KEY") or os.getenv("HUSSH_POD_KMS_KEY", "")
-        )
+        await library.store.verify_bucket(custody_key_reference())
         if mutation:
             async with _mutation:
                 await require_files_access(manage=True)

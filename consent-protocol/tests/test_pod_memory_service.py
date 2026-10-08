@@ -163,13 +163,45 @@ def test_memory_initialization_never_logs_private_custody_failures(monkeypatch, 
     def unavailable():
         raise byoc_key_custody.ByocKeyCustodyError("private-provider-body-sentinel")
 
-    monkeypatch.setattr(byoc_key_custody, "resolve_pod_memory_key", unavailable)
+    monkeypatch.setattr(byoc_key_custody, "resolve_pod_log_key", unavailable)
     caplog.set_level("INFO")
     assert resolve_pod_memory_service() is None
     assert "pod_memory.build_failed reason=ByocKeyCustodyError" in caplog.text
     assert "private-owner-sentinel" not in caplog.text
     assert "private-provider-body-sentinel" not in caplog.text
     assert all(record.exc_info is None for record in caplog.records)
+
+
+def test_byoc_memory_rechecks_custody_without_duplicate_unwrap(monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import byoc_key_custody, pod_memory_bank, pod_storage
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("POD_AGENT_MEMORY_ENABLED", "1")
+    monkeypatch.setenv("HUSSH_ID", "ha1_alice")
+    monkeypatch.setattr(byoc_key_custody, "byoc_custody_configured", lambda: True)
+    attempts = []
+    log_keys = []
+
+    def custody():
+        attempts.append(True)
+        if len(attempts) > 1:
+            raise byoc_key_custody.ByocKeyCustodyError("access withdrawn")
+        return _KEY_A
+
+    def storage(*, log_key):
+        log_keys.append(log_key)
+        return SimpleNamespace(_log=None)
+
+    monkeypatch.setattr(byoc_key_custody, "resolve_pod_log_key", custody)
+    monkeypatch.setattr(pod_storage, "resolve_pod_storage", storage)
+    monkeypatch.setattr(pod_memory_bank, "resolve_memory_bank_service", lambda: None)
+    assert resolve_pod_memory_service() is not None
+    assert log_keys == [_KEY_A]
+    # A later request cannot reuse custody after cloud authorization is lost.
+    assert resolve_pod_memory_service() is None
+    assert len(attempts) == 2
 
 
 # -- authenticated sealing (AES-256-GCM) ---------------------------------------

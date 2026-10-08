@@ -517,24 +517,8 @@ async def _pod_startup() -> None:
     except Exception:  # noqa: BLE001 - a pod must boot even with no durable identity
         logger.warning("pod.durable_identity_unavailable", exc_info=True)
 
-    # Generate the keypair now rather than on the first request, so the key exists before
-    # the hub can ask for it and two concurrent requests cannot race to create two.
-    # One owner: one configuration record and one sealed AI selection, loaded once here,
-    # read on every request, replaced in place by a write. Neither blocks the boot; an
-    # unreadable selection refuses turns rather than falling back (pod_ai_selection).
-    try:
-        from hushh_mcp.services.pod_ai_selection import load_owner_configuration  # noqa: PLC0415
-
-        await load_owner_configuration(boot_log)
-    except Exception:  # noqa: BLE001 - configuration never blocks the boot
-        logger.warning("pod.config_unavailable", exc_info=True)
-
-    # Hydrate sealed connector custody before admitting owner turns. An unreadable
-    # store remains unavailable; it must not be mistaken for an absent login.
-    from hushh_mcp.services.pod_connector_credentials import load_connector_credentials
-
-    await load_connector_credentials(boot_log)
-
+    # Generate identity before authority; recover configuration, credentials and
+    # trust together below before admitting any owner turn.
     keypair_is_durable = False
     pod_keypair()
     try:
@@ -557,9 +541,14 @@ async def _pod_startup() -> None:
             build_pod_session_authority,
         )
 
-        await build_pod_session_authority(log=boot_log, dek=boot_dek)
+        await build_pod_session_authority(log=boot_log, dek=boot_dek, recover_owner_state=True)
     except Exception as exc:  # noqa: BLE001 - the hub path keeps serving
         logger.warning("pod.local_authority_unavailable reason=%s", type(exc).__name__)
+        # Preserve the existing loaders' explicit unreadable states if a fence
+        # or recovery failure prevents local authority from being constructed.
+        from hushh_mcp.services.pod_startup_recovery import load_owner_state
+
+        await load_owner_state(boot_log)
 
     # The existing active authority owns its key; discard boot-only references.
     boot_storage = boot_log = boot_dek = None

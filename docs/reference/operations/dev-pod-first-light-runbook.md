@@ -157,6 +157,13 @@ A longer startup allowance does not qualify cold latency. Capture recovery phase
 and replay work separately; the existing 150-second update observation window can
 leave slower starts unconfirmed until reconciliation verifies the installed digest.
 
+Startup recovers configuration, model selection, connector credentials and trust
+from one verified log scan before admission. The bounded in-memory projection
+retains original records and falls back to the existing full loaders on overflow;
+it does not bound total historical scan work. Memory replay retains only sealed
+records, binds owner/incarnation/storage, resolves custody afresh and verifies the
+new tail and erasure on each request. Do not remove those fences to reduce latency.
+
 ### Isolated image recovery rehearsal safeguards
 
 When constructing a fixture `PodSpec`, retain its registry `billing_space_id`
@@ -189,6 +196,12 @@ Completion requires the installed Files environment, exact queue scaler, managed
 identity and single-instance configuration to match approval. Record same-image
 activation as a configuration restart. The separate `azureFilesInventory` retains
 cleanup obligations; it is not a Google substrate receipt or proof of live erasure.
+
+Managed-identity queue scaling requires the Container Apps `2025-01-01` API;
+`2024-03-01` rejects the scaler's identity field. Verify the scaler and worker use
+the same approved identity after deployment. Files settings and transfer custody
+checks must use the same cloud-specific key reference; an Azure library must not
+be checked against an empty Google KMS reference.
 
 ### Recovering a denied Files queue creation
 

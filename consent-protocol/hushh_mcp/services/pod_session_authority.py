@@ -756,7 +756,11 @@ def set_active_session_authority(authority: Optional[PodSessionAuthority]) -> No
 
 
 async def build_pod_session_authority(
-    *, instance_id: Optional[str] = None, log: Any = None, dek: bytes | None = None
+    *,
+    instance_id: Optional[str] = None,
+    log: Any = None,
+    dek: bytes | None = None,
+    recover_owner_state: bool = False,
 ) -> PodSessionAuthority:
     """Claim a fresh incarnation and replay authority; failure leaves admission unavailable."""
     from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key  # noqa: PLC0415
@@ -783,7 +787,13 @@ async def build_pod_session_authority(
         instance_id=_clean(instance_id or pod_revision_name()) or secrets.token_hex(8),
     )
     store = PodAuthorityStore(log, hushh_id=hushh_id)
-    await store.load()
+    records = None
+    if recover_owner_state:
+        from hushh_mcp.services.pod_startup_recovery import load_owner_state, startup_records
+
+        records = await startup_records(log)
+        await load_owner_state(log, records=records)
+    await store.load(records=records)
     keypair = pod_keypair()
     authority = PodSessionAuthority(
         store=store,
@@ -792,6 +802,8 @@ async def build_pod_session_authority(
         pod_key_id=keypair.key_id,
         pod_public_key=keypair.public_key_b64,
     )
+    # A replacement can win while recovery is reading. Never publish that lease.
+    await authority.require_held()
     set_active_authority_store(store)
     set_active_session_authority(authority)
     logger.info(

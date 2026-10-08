@@ -20,7 +20,18 @@ async def test_read_only_app_cannot_write_and_device_cannot_read(tmp_path, hub_k
     authority = await world.boot()
     monkeypatch.setattr("api.routes.one.pod_session.authority_or_503", lambda: authority)
     store = FilesLocalStore(str(tmp_path / "files"))
-    store.verify_bucket = AsyncMock(return_value={})
+    azure_key = "https://owner.vault.azure.net/keys/pod/version"
+    monkeypatch.setenv("HUSSH_POD_KEY_VAULT_KEY", azure_key)
+    monkeypatch.delenv("HUSSH_POD_KMS_KEY", raising=False)
+
+    async def verify_bucket(key):
+        from hushh_mcp.services.pod_files.contracts import FilesRefused
+
+        if key != azure_key:
+            raise FilesRefused("FILES_BUCKET_CUSTODY_UNVERIFIED", 503)
+        return {"softDeleteSeconds": 0}
+
+    store.verify_bucket = AsyncMock(side_effect=verify_bucket)
     library = FilesLibrary(
         owner=authority.hushh_id, key=b"K" * 32, store=store, check=runtime.require_files_access
     )
@@ -45,6 +56,9 @@ async def test_read_only_app_cannot_write_and_device_cannot_read(tmp_path, hub_k
     with TestClient(app) as client:
         headers = {"Authorization": "Bearer " + read_token}
         assert client.get("/api/one/pod/files/list", headers=headers).status_code == 200
+        settings = client.get("/api/one/pod/files/settings", headers=headers)
+        assert settings.status_code == 200
+        assert settings.json()["retention"]["softDeleteSeconds"] == 0
         body = {"name": "Folder", "folder": True, "request_id": "folder-request"}
         denied = client.post("/api/one/pod/files/create", headers=headers, json=body)
         assert denied.status_code == 403
