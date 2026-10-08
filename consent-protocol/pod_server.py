@@ -499,24 +499,17 @@ async def _pod_startup() -> None:
         bool(os.getenv("HUSSH_BILLING_SPACE_ID")),
     )
 
-    # Recover this pod's DURABLE identity before the keypair is resolved.
-    #
-    # `pod_self_registration` has always read `HUSSH_POD_PRIVATE_KEY`, and nothing
-    # in this repository ever wrote it -- so every pod minted a fresh keypair on
-    # every boot and reported `podKeyDurable: False`, which is the north star's
-    # Identity requirement failing in public. This fills that existing seam from
-    # the pod's OWN sealed storage, which is why it needs no new IAM: the key
-    # lives beside the commit log's wrapped key, in the pod's own prefix, under
-    # a key derived from the pod's own DEK.
-    #
-    # Strictly BEFORE `pod_keypair()`, which caches for the process lifetime.
-    # After it, this would be a no-op that looks like it worked.
+    from hushh_mcp.services.pod_storage import resolve_boot_custody
+
+    boot_storage, boot_dek = await resolve_boot_custody()
+    boot_log = getattr(boot_storage, "_log", None)
+    # Recover durable identity strictly before pod_keypair() caches it.
     try:
         from hushh_mcp.services.pod_identity_store import (  # noqa: PLC0415
             resolve_durable_private_key_b64,
         )
 
-        durable = await resolve_durable_private_key_b64()
+        durable = await resolve_durable_private_key_b64(storage=boot_storage, dek=boot_dek)
         if durable and not os.getenv("HUSSH_POD_PRIVATE_KEY"):
             # In-process only. This is the same seam a BYOC secretKeyRef would
             # populate, so it never reaches a service description or a log.
@@ -532,7 +525,7 @@ async def _pod_startup() -> None:
     try:
         from hushh_mcp.services.pod_ai_selection import load_owner_configuration  # noqa: PLC0415
 
-        await load_owner_configuration()
+        await load_owner_configuration(boot_log)
     except Exception:  # noqa: BLE001 - configuration never blocks the boot
         logger.warning("pod.config_unavailable", exc_info=True)
 
@@ -540,7 +533,7 @@ async def _pod_startup() -> None:
     # store remains unavailable; it must not be mistaken for an absent login.
     from hushh_mcp.services.pod_connector_credentials import load_connector_credentials
 
-    await load_connector_credentials()
+    await load_connector_credentials(boot_log)
 
     keypair_is_durable = False
     pod_keypair()
@@ -564,9 +557,12 @@ async def _pod_startup() -> None:
             build_pod_session_authority,
         )
 
-        await build_pod_session_authority()
+        await build_pod_session_authority(log=boot_log, dek=boot_dek)
     except Exception as exc:  # noqa: BLE001 - the hub path keeps serving
         logger.warning("pod.local_authority_unavailable reason=%s", type(exc).__name__)
+
+    # The existing active authority owns its key; discard boot-only references.
+    boot_storage = boot_log = boot_dek = None
 
     _start_heartbeat_loop()
     # Bounded restart continuation; no polling worker or model inference. The

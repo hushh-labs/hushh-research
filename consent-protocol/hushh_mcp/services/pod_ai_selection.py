@@ -302,12 +302,12 @@ async def load_active_ai_selection(log: Any = None) -> Optional[AiSelection]:
     return selection
 
 
-async def load_owner_configuration() -> None:
+async def load_owner_configuration(log: Any = None) -> None:
     """Pod startup: the configuration record, then the AI selection. Never raises."""
     from hushh_mcp.services.pod_config import load_active_pod_config  # noqa: PLC0415
 
-    await load_active_pod_config()
-    await load_active_ai_selection()
+    await load_active_pod_config(log)
+    await load_active_ai_selection(log)
 
 
 __all__ = [

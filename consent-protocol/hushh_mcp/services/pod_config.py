@@ -168,7 +168,7 @@ def set_active_pod_config(config: Optional[PodConfig]) -> None:
     _ACTIVE = config
 
 
-async def load_active_pod_config() -> PodConfig:
+async def load_active_pod_config(log: Any = None) -> PodConfig:
     """Pod startup: load this owner's configuration from the pod's own log.
 
     Fail-safe by construction. A pod that cannot read its configuration boots on
@@ -178,9 +178,9 @@ async def load_active_pod_config() -> PodConfig:
     try:
         from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
 
-        config = (
-            await resolve_pod_config(_resolve_log(), hushh_id=hushh_id) if hushh_id else _DEFAULT
-        )
+        if log is None and hushh_id:
+            log = _resolve_log()
+        config = await resolve_pod_config(log, hushh_id=hushh_id) if hushh_id else _DEFAULT
     except Exception as exc:  # noqa: BLE001 - configuration must never block startup
         logger.warning("pod_config.load_failed reason=%s", type(exc).__name__)
         config = _DEFAULT

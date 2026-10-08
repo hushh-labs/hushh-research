@@ -22,7 +22,7 @@ RUN uv venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project --active
+    uv sync --frozen --no-dev --no-install-project --active --compile-bytecode
 
 # Stage 2: production runtime
 FROM python:3.13-slim

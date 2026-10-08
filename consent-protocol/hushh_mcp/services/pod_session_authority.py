@@ -755,13 +755,10 @@ def set_active_session_authority(authority: Optional[PodSessionAuthority]) -> No
     _ACTIVE = authority
 
 
-async def build_pod_session_authority(*, instance_id: Optional[str] = None) -> PodSessionAuthority:
-    """Pod startup: claim the incarnation, replay the authority records, derive the session key.
-
-    Raises on every failure. The caller (``pod_server._pod_startup``) logs and leaves the
-    active copy unset, and the routes answer 503 "local authority unavailable" rather
-    than admitting anyone on a half-built authority.
-    """
+async def build_pod_session_authority(
+    *, instance_id: Optional[str] = None, log: Any = None, dek: bytes | None = None
+) -> PodSessionAuthority:
+    """Claim a fresh incarnation and replay authority; failure leaves admission unavailable."""
     from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key  # noqa: PLC0415
     from hushh_mcp.services.pod_authority_store import (  # noqa: PLC0415
         claim_incarnation,
@@ -771,13 +768,15 @@ async def build_pod_session_authority(*, instance_id: Optional[str] = None) -> P
     from hushh_mcp.services.pod_self_registration import pod_keypair  # noqa: PLC0415
 
     hushh_id = _clean(os.getenv("HUSSH_ID"))
-    log = _resolve_log()
+    if log is None:
+        log = _resolve_log()
     if log is None:
         raise RuntimeError("this pod has no durable log; local authority stays unavailable")
     store_backend = getattr(log, "_store", None)
     if store_backend is None:
         raise RuntimeError("the pod log exposes no object store for the incarnation fence")
-    dek = resolve_pod_log_key()
+    if dek is None:
+        dek = resolve_pod_log_key()
     incarnation = await claim_incarnation(
         store_backend,
         dek,

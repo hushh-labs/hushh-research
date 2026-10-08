@@ -178,7 +178,9 @@ async def load_or_create_private_key(store: Any, dek: bytes) -> tuple[bytes, boo
     return open_private_key(dek, winner), False
 
 
-async def resolve_durable_private_key_b64() -> Optional[str]:
+async def resolve_durable_private_key_b64(
+    *, storage: Any = None, dek: bytes | None = None
+) -> Optional[str]:
     """The pod's durable private key as base64, or None if unavailable.
 
     The seam ``pod_self_registration`` consumes. Returns None for every ordinary
@@ -199,7 +201,8 @@ async def resolve_durable_private_key_b64() -> Optional[str]:
             resolve_pod_storage,
         )
 
-        storage = resolve_pod_storage()
+        if storage is None:
+            storage = resolve_pod_storage()
         if getattr(storage, "backend_id", "") != BACKEND_COMMIT_LOG:
             logger.info("pod_identity.no_durable_storage -- identity key stays ephemeral")
             return None
@@ -207,7 +210,8 @@ async def resolve_durable_private_key_b64() -> Optional[str]:
         store = getattr(log, "_store", None)
         if store is None:
             return None
-        dek = resolve_pod_log_key()
+        if dek is None:
+            dek = resolve_pod_log_key()
     except Exception:  # noqa: BLE001 - never let identity persistence break a boot
         logger.warning("pod_identity.custody_unavailable -- identity key stays ephemeral")
         return None

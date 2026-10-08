@@ -32,6 +32,8 @@ seam cannot leak PKM.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
@@ -217,7 +219,7 @@ def pod_storage_backend() -> str:
     return (os.getenv(_BACKEND_ENV) or "").strip().lower()
 
 
-def resolve_pod_storage() -> PodStorage:
+def resolve_pod_storage(*, log_key: bytes | None = None) -> PodStorage:
     """Resolve the configured pod-storage backend. Default is the inert Null one.
 
     ``commit_log`` builds the real thing from environment; every missing piece
@@ -244,11 +246,31 @@ def resolve_pod_storage() -> PodStorage:
         return CommitLogPodStorage(
             RoleAwareCommitLog(
                 store,
-                resolve_pod_log_key(),
+                resolve_pod_log_key() if log_key is None else log_key,
                 owner_id=(os.getenv("HUSSH_ID") or "").strip() or None,
             )
         )
     raise NotImplementedError(f"pod storage backend {selected!r} is not wired yet")
+
+
+async def resolve_boot_custody() -> tuple[PodStorage | None, bytes | None]:
+    """Resolve once for one startup; callers retain fresh replay and fencing.
+
+    No global cache: later requests and erasure use their existing custody paths.
+    Failed resolution preserves the existing loaders' explicit unavailable states.
+    """
+    if pod_storage_backend() != BACKEND_COMMIT_LOG:
+        return None, None
+    try:
+        from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
+
+        key = await asyncio.to_thread(resolve_pod_log_key)
+        return resolve_pod_storage(log_key=key), key
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "pod.boot_custody_unavailable reason=%s", type(exc).__name__
+        )
+        return None, None
 
 
 def resolve_pod_object_store() -> Any:

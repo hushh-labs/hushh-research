@@ -244,3 +244,40 @@ async def test_a_corrupt_fence_object_stops_the_claim_rather_than_minting_over_i
     await store.put(authority.INCARNATION_OBJECT, b"not a sealed object at all")
     with pytest.raises(authority.PodIncarnationError):
         await authority.claim_incarnation(store, _DEK, instance_id="rev-a")
+
+
+async def test_reusing_boot_storage_still_claims_a_fresh_incarnation(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import (
+        byoc_key_custody,
+        pod_authority_store,
+        pod_memory_service,
+        pod_self_registration,
+    )
+    from hushh_mcp.services import pod_session_authority as psa
+
+    key = b"B" * 32
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), key, owner_id="ha1_owner")
+    monkeypatch.setenv("HUSSH_ID", "ha1_owner")
+    monkeypatch.setattr(psa, "_ACTIVE", None)
+    monkeypatch.setattr(pod_authority_store, "_ACTIVE", None)
+    monkeypatch.setattr(
+        pod_self_registration,
+        "pod_keypair",
+        lambda: SimpleNamespace(key_id="boot-key", public_key_b64="public-key"),
+    )
+
+    def unexpected_resolution():
+        raise AssertionError("boot custody must not be resolved again")
+
+    monkeypatch.setattr(byoc_key_custody, "resolve_pod_log_key", unexpected_resolution)
+    monkeypatch.setattr(pod_memory_service, "_resolve_log", unexpected_resolution)
+    first = await psa.build_pod_session_authority(instance_id="first", log=log, dek=key)
+    await first.require_held()
+    second = await psa.build_pod_session_authority(instance_id="second", log=log, dek=key)
+    await second.require_held()
+    assert await first.lease.is_current(force=True) is False
+    with pytest.raises(psa.PodSessionRefused) as caught:
+        await first.require_held()
+    assert caught.value.code == "fenced"

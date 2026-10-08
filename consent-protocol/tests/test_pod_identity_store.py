@@ -245,6 +245,27 @@ async def test_unreachable_kms_degrades_to_ephemeral(monkeypatch):
     assert await resolve_durable_private_key_b64() is None
 
 
+async def test_boot_storage_reuse_preserves_identity_and_refuses_wrong_key(monkeypatch, tmp_path):
+    from hushh_mcp.services import byoc_key_custody, pod_storage
+    from hushh_mcp.services.pod_commit_log import PodCommitLog
+    from hushh_mcp.services.pod_identity_store import resolve_durable_private_key_b64
+
+    monkeypatch.setenv("POD_DURABLE_IDENTITY_ENABLED", "1")
+    store = _store(tmp_path)
+    storage = pod_storage.CommitLogPodStorage(PodCommitLog(store, _DEK))
+
+    def unexpected_resolution():
+        raise AssertionError("boot custody must not be resolved again")
+
+    monkeypatch.setattr(byoc_key_custody, "resolve_pod_log_key", unexpected_resolution)
+    monkeypatch.setattr(pod_storage, "resolve_pod_storage", unexpected_resolution)
+    first = await resolve_durable_private_key_b64(storage=storage, dek=_DEK)
+    assert first is not None
+    assert await resolve_durable_private_key_b64(storage=storage, dek=_DEK) == first
+    assert await resolve_durable_private_key_b64(storage=storage, dek=_OTHER_DEK) is None
+    assert await resolve_durable_private_key_b64(storage=storage, dek=_DEK) == first
+
+
 # --------------------------------------------------------------------------- #
 # The wiring: it must run BEFORE the keypair is cached
 # --------------------------------------------------------------------------- #
@@ -260,7 +281,7 @@ def test_startup_fills_the_key_before_the_keypair_is_resolved():
     from pathlib import Path
 
     source = Path("pod_server.py").read_text(encoding="utf-8")
-    fill = source.index("resolve_durable_private_key_b64()")
+    fill = source.index("await resolve_durable_private_key_b64(")
     resolve = source.index("    pod_keypair()")
 
     assert fill < resolve, "the durable key is recovered after the keypair is cached"
