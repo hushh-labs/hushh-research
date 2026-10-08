@@ -32,7 +32,7 @@ function ciWorkers(): number {
  *
  * Environment:
  *   BASE_URL - override the dev server URL (default: http://localhost:3000)
- *   CI       - set in GitHub Actions; disables retries and video recording
+ *   CI       - enables GitHub reporting and two retries in GitHub Actions
  */
 export default defineConfig({
   testDir: "./e2e",

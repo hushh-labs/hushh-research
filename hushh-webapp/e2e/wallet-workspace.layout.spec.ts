@@ -473,6 +473,16 @@ for (const width of [320, 390, 1024]) {
       }
       return true;
     }))).toBe(true);
+    // Detail animation and ResizeObserver publication finish independently.
+    // Admit wheel input only after the existing pager owns the expanded height,
+    // rather than treating text availability as settled scrolling geometry.
+    await awaitWalletCardsSettled(page);
+    await expect.poll(() => page.evaluate(() => {
+      const pager = document.querySelector('[data-swipe-views-root="true"]');
+      const panel = document.querySelector("#top-shell-wallet-panel-cards");
+      if (!pager || !panel) return Infinity;
+      return Math.abs(pager.getBoundingClientRect().height - panel.getBoundingClientRect().height);
+    })).toBeLessThanOrEqual(1);
     const finalValue = details.locator("dd").last();
     await recordWalletLayout(page, "profile-before-wheel");
     await page.mouse.move(width / 2, 400);
