@@ -2,6 +2,27 @@ import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 
 export type BusinessMemoryOrigin = { businessUid: string };
 
+/** Find identities in the current domain on every conflict-aware rebuild. */
+function businessIdentityPaths(current: Record<string, unknown>, businessUid: string): string[] {
+  const matches: string[] = [];
+  const visited = new WeakSet<object>();
+  const walk = (value: unknown, path: string[]) => {
+    if (!value || typeof value !== "object" || Array.isArray(value) || visited.has(value)) return;
+    visited.add(value);
+    const record = value as Record<string, unknown>;
+    const origin = record._business_origin;
+    if (path.at(-2) === "entities" && origin && typeof origin === "object" &&
+      !Array.isArray(origin) && (origin as Record<string, unknown>).business_uid === businessUid)
+      matches.push(path.join("."));
+    for (const [key, child] of Object.entries(record)) {
+      if (["__proto__", "prototype", "constructor"].includes(key)) throw new Error("Invalid business destination.");
+      if (key !== "_business_origin") walk(child, [...path, key]);
+    }
+  };
+  walk(current, []);
+  return matches;
+}
+
 /** One incoming entity; the merge stage may select a different destination scope. */
 export function businessMemoryEntity(card: AgentPkmPreviewCard) {
   const entities: Array<{ value: Record<string, unknown>; path: string[] }> = [];
@@ -41,6 +62,8 @@ export function assertBusinessMemoryTarget(
   if (!proposed || typeof proposed !== "object" || Array.isArray(proposed) ||
     (proposed as Record<string, unknown>).business_uid !== origin.businessUid)
     throw new Error("The proposed business identity needs a fresh review.");
+  if (businessIdentityPaths(current, origin.businessUid).some(existing => existing !== path))
+    throw new Error("This business is already saved at another destination. Review the existing record instead of creating a duplicate.");
   let value: unknown = current;
   for (const segment of segments) {
     if (!value || typeof value !== "object" || Array.isArray(value) ||

@@ -34,6 +34,18 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
 describe("post-onboarding business suggestion", () => {
+  it("retries an unreadable checkpoint without preparing or replacing the pending review", async () => {
+    mocks.load.mockRejectedValueOnce(new Error("Cache unavailable"));
+    render(<BusinessProfileSuggestion {...props} />);
+    const retry = await screen.findByRole("button", { name: "Retry saved review" });
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.decide).not.toHaveBeenCalled();
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: "Review details", exact: true })).toBeTruthy();
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
   it("offers multiple businesses separately; rejecting one keeps the other available", async () => {
     const second = { ...candidate, businessUid: "second", draft: { name: "Second business", website: "https://second.test" } };
     mocks.get.mockResolvedValue({ candidates: [candidate, second] });

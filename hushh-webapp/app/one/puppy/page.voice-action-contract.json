@@ -11,7 +11,7 @@
         "puppy_one"
       ],
       "hidden_navigable": true,
-      "navigation_prerequisites": []
+      "navigation_prerequisites": ["Signed-in user; destination retains its existing access checks."]
     },
     "guard_ids": [
       "auth_signed_in"

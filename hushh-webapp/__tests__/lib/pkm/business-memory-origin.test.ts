@@ -6,6 +6,14 @@ const card: AgentPkmPreviewCard = { card_id: "test", source_text: "Synthetic bus
   merge_decision: { target_entity_path: "businesses.entities.chosen", merge_mode: "extend_entity" } };
 const current = (uid: string) => ({ businesses: { entities: { chosen: { _business_origin: { business_uid: uid }, summary: "Synthetic" } } } });
 describe("one owner with independent businesses", () => {
+  it("rejects the same UID at another entity or scope without choosing a new destination", () => {
+    const existing = { profile: { entities: { old: { _business_origin: { business_uid: "business-A" } } } } };
+    expect(() => assertBusinessMemoryTarget(existing, card, { businessUid: "business-A" })).toThrow("already saved");
+    expect(() => assertBusinessMemoryTarget({ ...existing, ...current("business-A") }, card,
+      { businessUid: "business-A" })).toThrow("already saved");
+    const different = { profile: { entities: { old: { _business_origin: { business_uid: "business-B" } } } } };
+    expect(() => assertBusinessMemoryTarget(different, card, { businessUid: "business-A" })).not.toThrow();
+  });
   it("allows new business memory and same-UID updates", () => {
     expect(() => assertBusinessMemoryTarget({}, card, { businessUid: "business-A" })).not.toThrow();
     expect(() => assertBusinessMemoryTarget(current("business-A"), card, { businessUid: "business-A" })).not.toThrow();

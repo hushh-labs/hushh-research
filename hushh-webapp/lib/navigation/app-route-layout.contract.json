@@ -42,7 +42,7 @@
       ],
       "kind": "root",
       "reason": "Chat entry is an application root.",
-      "sourceRevision": "3877bfd930d7ad4e684bce13029ba3a6be18156eec46f8241e11efa18ae179f9"
+      "sourceRevision": "bda5b1ff4f3a114cfbecb0535d889a55d753a593fdde5132f53cd31464ed5b6c"
     }
   },
   {
@@ -1562,13 +1562,11 @@
     "voicePlaybook": {
       "playbookId": "route.one.email",
       "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-      "screen": "email_agent",
+      "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
-      "primaryActionId": "route.mail_connections",
-      "happyPathActionIds": [
-        "route.mail_connections"
-      ],
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1952,13 +1950,11 @@
     "voicePlaybook": {
       "playbookId": "route.one.wallet.card",
       "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-      "screen": "one_wallet_card",
+      "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
-      "primaryActionId": "route.wallet_profile_cards",
-      "happyPathActionIds": [
-        "route.wallet_profile_cards"
-      ],
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2055,13 +2051,11 @@
     "voicePlaybook": {
       "playbookId": "route.one.puppy",
       "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-      "screen": "puppy_one",
+      "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
-      "primaryActionId": "route.puppy_agents",
-      "happyPathActionIds": [
-        "route.puppy_agents"
-      ],
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2230,13 +2224,11 @@
     "voicePlaybook": {
       "playbookId": "route.one.connected.systems.systemid",
       "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-      "screen": "connected_systems",
+      "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
-      "primaryActionId": "route.connected_system_list",
-      "happyPathActionIds": [
-        "route.connected_system_list"
-      ],
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2350,13 +2342,11 @@
     "voicePlaybook": {
       "playbookId": "route.one.messages",
       "purpose": "Read and send private one-to-one messages with accepted connections.",
-      "screen": "one_messages",
+      "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
-      "primaryActionId": "route.messages_connections",
-      "happyPathActionIds": [
-        "route.messages_connections"
-      ],
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain that messaging requires an active connection and retain the current conversation.",
