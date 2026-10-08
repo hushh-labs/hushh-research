@@ -1431,3 +1431,17 @@ The deferred date grid also fails a held-scheduler negative control: a day from
 the previous year can commit while the selector already shows the new year.
 Pending cells are now disabled and their commit handler rejects the stale grid;
 selectors stay responsive and current-grid selection remains accepted.
+
+At `736511f9f`, canonical core passes in 204 seconds, both Debug native builds,
+bundle/signature checks and all 40 native-support tests pass. Installed simulator
+binary/configuration and all 1,394 frontend files match. Normal unlock and warm
+Wallet tab/draft return pass. Chat still fails keyboard isolation. Fresh public
+measurements report focused input but no keyboard inset; a subsequent stronger
+Mail check confirms an offscreen keyboard at y=922 in an 844-point window.
+
+The shared test guard now requires finite positive geometry with visible window
+intersection, including settlement and dismissal. Its regression fails
+existence-only admission and passes the stronger guard. Failed focus attempts
+still blur through the authored header. No native product retirement code changed;
+the cause of the missing onscreen keyboard is unconfirmed. Headless simulator
+checks do not qualify software-keyboard, physical-device or visual acceptance.

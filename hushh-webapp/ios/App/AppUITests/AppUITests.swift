@@ -2,6 +2,53 @@ import Foundation
 import XCTest
 
 final class AppUITests: XCTestCase {
+    private static func softwareKeyboardIsOnscreen(exists: Bool, frame: CGRect, window: CGRect) -> Bool {
+        let coordinates = [frame.minX, frame.minY, frame.width, frame.height,
+                           window.minX, window.minY, window.width, window.height]
+        guard exists, !frame.isNull, !frame.isInfinite, !window.isNull, !window.isInfinite,
+              coordinates.allSatisfy({ $0.isFinite }),
+              frame.width > 0, frame.height > 0, window.width > 0, window.height > 0 else { return false }
+        let visible = frame.intersection(window)
+        return !visible.isNull && visible.width > 0 && visible.height > 0
+    }
+
+    private func softwareKeyboardIsOnscreen(_ keyboard: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard keyboard.exists else { return false }
+        return Self.softwareKeyboardIsOnscreen(exists: true, frame: keyboard.frame, window: app.frame)
+    }
+
+    private func waitForSoftwareKeyboard(_ app: XCUIApplication) -> Bool {
+        let keyboard = app.keyboards.firstMatch
+        let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.softwareKeyboardIsOnscreen(keyboard, in: app)
+        }, object: keyboard)
+        if XCTWaiter.wait(for: [visible], timeout: 10) == .completed { return true }
+        // Geometry only: no labels, key values, draft or accessibility tree.
+        let window = app.frame
+        let keyboardFrame = keyboard.exists ? keyboard.frame : .zero
+        for (source, frame) in [("window", window), ("keyboard", keyboardFrame),
+                                ("intersection", keyboardFrame.intersection(window))] {
+            let values = [frame.minX, frame.minY, frame.width, frame.height]
+            let finite = values.allSatisfy { $0.isFinite }
+            let bounded = values.map { $0.isFinite ? Int(max(-100_000, min(100_000, $0))) : 0 }
+            print("NATIVE_KEYBOARD_GEOMETRY source=\(source) finite=\(finite) x=\(bounded[0]) y=\(bounded[1]) width=\(bounded[2]) height=\(bounded[3])")
+        }
+        return false
+    }
+
+    func testSoftwareKeyboardAdmissionRejectsOffscreenAccessibilityElements() {
+        let window = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let visible = CGRect(x: 0, y: 611, width: 390, height: 233)
+        XCTAssertFalse(Self.softwareKeyboardIsOnscreen(exists: true,
+            frame: CGRect(x: 0, y: 922, width: 390, height: 233), window: window),
+            "An existing offscreen keyboard must not qualify software-keyboard isolation")
+        XCTAssertTrue(Self.softwareKeyboardIsOnscreen(exists: true, frame: visible, window: window))
+        XCTAssertFalse(Self.softwareKeyboardIsOnscreen(exists: false, frame: visible, window: window))
+        XCTAssertFalse(Self.softwareKeyboardIsOnscreen(exists: true, frame: .null, window: window))
+        XCTAssertFalse(Self.softwareKeyboardIsOnscreen(exists: true, frame: .infinite, window: window))
+        XCTAssertFalse(Self.softwareKeyboardIsOnscreen(exists: true, frame: .zero, window: window))
+    }
+
     private var vaultUnlockSubmitted = false
     /// The session walk captures the vault gate with its keyboard up, before
     /// anything is typed (a stop the host screenshots).
@@ -629,7 +676,9 @@ final class AppUITests: XCTestCase {
             }
         guard titles.count == 1 else { return }
         titles[0].tap()
-        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)
+        }, object: app.keyboards.firstMatch)
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 10), .completed,
                        "REHEARSAL_KEYBOARD_NOT_SETTLED")
     }
@@ -1016,9 +1065,10 @@ final class AppUITests: XCTestCase {
         let historyHeading = web.staticTexts["Chats"].firstMatch
         let close = app.buttons.matching(NSPredicate(
             format: "identifier == %@ AND label == %@", "chat-history-toggle", "Close chat history")).firstMatch
+        var composerFocusAttempted = false
         addTeardownBlock {
             if close.exists && close.isHittable { close.tap() }
-            if app.keyboards.firstMatch.exists { blurThroughAuthoredTitle() }
+            if composerFocusAttempted || app.keyboards.firstMatch.exists { blurThroughAuthoredTitle() }
             // Restore only the permitted Cloud surface, never select/delete a
             // conversation, send a draft, alter an account, or dump its AX tree.
             let cloud = segment("one")
@@ -1154,17 +1204,18 @@ final class AppUITests: XCTestCase {
               let beforeKeyboard = historyCounters() else {
             XCTFail("NATIVE_CHAT_KEYBOARD_MEASUREMENTS_UNAVAILABLE"); return
         }
+        composerFocusAttempted = true
         composer.tap() // No typeText: preserve the complete existing draft.
-        let keyboardAppeared = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+        let keyboardAppeared = waitForSoftwareKeyboard(app)
         guard reportComposerAdmission("after", after: focusSequence) != nil else {
             XCTFail("NATIVE_CHAT_KEYBOARD_MEASUREMENTS_UNAVAILABLE"); return
         }
-        guard keyboardAppeared else { XCTFail("Keyboard did not open"); return }
+        guard keyboardAppeared else { XCTFail("SOFTWARE_KEYBOARD_NOT_ONSCREEN"); return }
         // Require one joint state within the existing ten-second boundary:
         // a present keyboard, retired hosts and absent accessibility controls.
         // A non-hittable control alone does not prove retirement.
         let keyboardIsolation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            app.keyboards.firstMatch.exists && !nativeHistory.exists && !selector.exists &&
+            self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app) && !nativeHistory.exists && !selector.exists &&
                 (historyCounters()?["removals"] ?? -1) > beforeKeyboard["removals", default: 0]
         }, object: historyProbe)
         guard XCTWaiter.wait(for: [keyboardIsolation], timeout: 10) == .completed else {
@@ -1173,7 +1224,11 @@ final class AppUITests: XCTestCase {
         assertSameHost()
         print("NATIVE_KEYBOARD_ISOLATION keyboard_present=true history_removed=true selector_removed=true")
         blurThroughAuthoredTitle()
-        awaitAbsent(app.keyboards.firstMatch, "Keyboard did not dismiss through the public header")
+        let keyboardDismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)
+        }, object: app.keyboards.firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [keyboardDismissed], timeout: 10), .completed,
+                       "Keyboard did not dismiss through the public header")
         XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
         XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable)
         assertNativeTargets()
@@ -1337,18 +1392,19 @@ final class AppUITests: XCTestCase {
         // Open the actual software keyboard; do not overwrite or submit a draft.
         composer.tap()
         let keyboard = app.keyboards.firstMatch
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "SOFTWARE_KEYBOARD_NOT_PRESENT")
+        guard waitForSoftwareKeyboard(app) else { XCTFail("SOFTWARE_KEYBOARD_NOT_ONSCREEN"); return }
         let clearOfKeyboard = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            composer.frame.maxY <= keyboard.frame.minY + 2
+            self.softwareKeyboardIsOnscreen(keyboard, in: app) && composer.frame.maxY <= keyboard.frame.minY + 2
         }, object: composer)
         XCTAssertEqual(XCTWaiter.wait(for: [clearOfKeyboard], timeout: 10), .completed,
                        "COMPOSER_DID_NOT_SETTLE_ABOVE_KEYBOARD")
+        XCTAssertTrue(softwareKeyboardIsOnscreen(keyboard, in: app), "SOFTWARE_KEYBOARD_NOT_ONSCREEN")
         XCTAssertLessThanOrEqual(composer.frame.maxY, keyboard.frame.minY + 2,
                                  "COMPOSER_OBSCURED_BY_SOFTWARE_KEYBOARD")
         XCTAssertGreaterThanOrEqual(composer.frame.minX, web.frame.minX)
         XCTAssertLessThanOrEqual(composer.frame.maxX, web.frame.maxX)
         dismissRehearsalChatKeyboard(app)
-        XCTAssertFalse(keyboard.exists, "SOFTWARE_KEYBOARD_NOT_DISMISSED")
+        XCTAssertFalse(softwareKeyboardIsOnscreen(keyboard, in: app), "SOFTWARE_KEYBOARD_NOT_DISMISSED")
         XCTAssertTrue((composer.value as? String) == draft, "KEYBOARD_CHANGED_UNSENT_DRAFT")
         perfTapNav(app, label: "One")
         let mail = web.links.matching(NSPredicate(format: "label == %@", "Open Mail")).firstMatch
