@@ -359,6 +359,23 @@ export class AuthService {
     return "";
   }
 
+  /**
+   * The account's real creation time as the native Firebase SDK reports it
+   * (`metadata.creationTime`, epoch milliseconds), in the same RFC 1123 shape the
+   * web SDK uses. Returns `undefined` when the plugin did not supply one: a
+   * "member since" year must come from the account, never from today.
+   */
+  private static getNativeCreationTime(
+    nativeUser: Record<string, unknown> | null | undefined,
+  ): string | undefined {
+    const metadata = nativeUser?.metadata as { creationTime?: unknown } | undefined;
+    const raw = metadata?.creationTime;
+    if (typeof raw !== "number" && typeof raw !== "string") return undefined;
+    if (raw === "") return undefined;
+    const created = new Date(raw);
+    return Number.isFinite(created.getTime()) ? created.toUTCString() : undefined;
+  }
+
   private static async resolveLiveNativeIdToken(
     initialToken: string,
     forceRefresh = false,
@@ -942,7 +959,7 @@ export class AuthService {
       emailVerified,
       isAnonymous: false,
       metadata: {
-        creationTime: new Date().toISOString(),
+        creationTime: this.getNativeCreationTime(nativeUser),
         lastSignInTime: new Date().toISOString(),
       },
       providerData: [
