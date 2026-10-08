@@ -4346,11 +4346,15 @@ describe("OneLocationAgentPage", () => {
       hasMore: false,
       totalCount: 1,
     });
-    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    mockGetSmsContacts.mockResolvedValue([]);
 
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("action=settings"));
+    rerender(<OneLocationAgentPage />);
+    await waitFor(() => expect(screen.getByTestId("one-location-sms-contacts-entry")).toHaveTextContent("0"));
     mockGetSmsContacts.mockClear();
+    mockGetSmsContacts.mockResolvedValue(["user_a", "user_b", "user_b"]);
     mockUseSearchParams.mockReturnValue(
       new URLSearchParams(
         "action=circle-detail&circleId=circle-sms&source=sos",
@@ -4372,6 +4376,20 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalled());
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("action=settings"));
+    rerender(<OneLocationAgentPage />);
+    await waitFor(() => expect(screen.getByTestId("one-location-sms-contacts-entry")).toHaveTextContent("1"));
+    mockGetSmsContacts.mockClear();
+    mockGetSmsContacts.mockResolvedValue([]);
+    act(() => {
+      dispatchOneLocationStateChanged("user_a", ["workspace", "circles", "sms_roster"], {
+        notificationType: "location_circle_member_removed",
+        circleId: "circle-sms",
+        eventId: "sms-count-removal",
+      });
+    });
+    await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("one-location-sms-contacts-entry")).toHaveTextContent("0"));
   });
 
   it("renders the canonical Location Settings URL and owns Saved Locations there", async () => {
