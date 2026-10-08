@@ -117,6 +117,16 @@ final class AppUITests: XCTestCase {
             format: "label CONTAINS %@", "Vault opened, but we could not complete access setup. Please try again."
         )).firstMatch.exists
         print("VAULT_GATE_NOTICE unlock_count=\(web.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).count) access_setup_failure=\(accessSetupFailure)")
+        let publicReceipt = app.buttons["native-vault-layout"]
+        if let raw = publicReceipt.exists ? publicReceipt.value as? String : nil,
+           let data = raw.data(using: .utf8),
+           let values = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
+            for key in ["dockOptIn", "chromeOptIn", "methodClicks", "methodPointerUps", "passphraseFields", "dockActive"] {
+                if let value = values[key], value.doubleValue.isFinite, (0...100_000).contains(value.doubleValue) {
+                    print("NATIVE_PUBLIC_ADMISSION key=\(key) value=\(value.intValue)")
+                }
+            }
+        }
         if unlock.exists {
             // Credential-free clipping diagnosis: public geometry only, no
             // screenshots, field values, account text or accessibility dump.

@@ -12,7 +12,7 @@ describe("native plugin contract verifier", () => {
     const script = source.slice(source.indexOf("final class NativeVaultLayoutProbe"))
       .match(/private static let script = """\n([\s\S]*?)\n    """/)?.[1];
     if (!script) throw new Error("Native vault probe script missing");
-    document.body.innerHTML = '<div data-vault-unlock-surface><div data-vault-flow-content><input id="private-probe-input"><button>Unlock</button></div></div>';
+    document.body.innerHTML = '<div data-vault-unlock-surface><div data-vault-flow-content><input id="unlock-passphrase"><button>Unlock</button><button data-testid="vault-use-passphrase-instead">Passphrase</button></div></div>';
     const input = document.querySelector<HTMLInputElement>("input")!;
     const forbiddenRead = vi.fn(() => { throw new Error("PRIVATE_INPUT_READ"); });
     Object.defineProperty(input, "value", { get: forbiddenRead });
@@ -25,13 +25,14 @@ describe("native plugin contract verifier", () => {
     vi.stubGlobal("visualViewport", undefined);
     const sample = (body: string) => new Function(`return ${body.trim()}`)() as Record<string, unknown>;
     try {
-      expect(sample(script)).toMatchObject({ presentCount: 1, unlockClicks: 0, unlockAccepted: 0 });
+      expect(sample(script)).toMatchObject({ presentCount: 1, unlockClicks: 0, unlockAccepted: 0,
+        methodClicks: 0, methodPointerUps: 0, passphraseFields: 1, dockActive: false });
       expect(sample(script)).toMatchObject({ unlockClicks: 0, unlockAccepted: 0 });
       expect(forbiddenRead).not.toHaveBeenCalled();
       expect(operation).not.toHaveBeenCalled();
       // Negative control: an accidental credential read in this real native
       // script must trip the boundary, not merely disappear from its payload.
-      const unsafe = script.replace("return Object.fromEntries", "document.querySelector('#private-probe-input').value; return Object.fromEntries");
+      const unsafe = script.replace("return Object.fromEntries", "document.querySelector('#unlock-passphrase').value; return Object.fromEntries");
       expect(() => sample(unsafe)).toThrow("PRIVATE_INPUT_READ");
     } finally {
       for (const [type, listener, options] of documentListeners.mock.calls) document.removeEventListener(type, listener, options);
