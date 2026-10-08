@@ -164,7 +164,6 @@ export function SegmentedTabs({
               data-ui-truncation="forbid"
               data-ui-id={`segmented-tab-${option.value}`}
               className={cn(
-                !isSubordinate && "border",
                 variant === "agent-top"
                   ? "ui-text-agent-tab-label relative z-10 block min-w-0 truncate text-center"
                   : "ui-text-form-label relative z-10 block min-w-0 text-center",
