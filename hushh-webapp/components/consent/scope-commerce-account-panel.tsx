@@ -35,7 +35,7 @@ export function ScopeCommerceAccountPanel() {
           {account.recent_withdrawals.map(withdrawal => <div key={withdrawal.id} className="space-y-1 text-sm">
             <p>{money(withdrawal.net_cents)} · {new Date(withdrawal.created_at).toLocaleString()}</p>
             <p role="status">{commerceWithdrawalStatusCopy(withdrawal.status)}</p>
-            <p className="text-xs text-muted-foreground">{withdrawal.fees_final ? "Final" : "Current attributed"} costs: {formatCommerceMicroUsd(withdrawal.fee_micro_usd)}.</p>
+            <p className="text-xs text-muted-foreground">{withdrawal.fees_final ? "Final" : "Reserved"} costs: {formatCommerceMicroUsd(withdrawal.fee_micro_usd)}.</p>
           </div>)}
         </div> : null}
         <Button variant="ghost" disabled={busy} onClick={() => void state.refresh()}>Refresh payment status</Button>
@@ -44,7 +44,11 @@ export function ScopeCommerceAccountPanel() {
     <AlertDialog open={Boolean(review)} onOpenChange={open => { if (!open) state.closeReview(); }}>
       <AlertDialogContent><AlertDialogHeader>
         <AlertDialogTitle>{review?.kind === "withdraw" ? "Confirm withdrawal" : "Confirm balance refund"}</AlertDialogTitle>
-        <AlertDialogDescription>{review ? <>Amount {money(review.preview.amount_cents)}. Processing costs {money(review.preview.fee_cents)}. You receive {money(review.preview.net_cents)}. {review.preview.blocked_reason || "Review these costs before continuing."}</> : null}</AlertDialogDescription>
+        <AlertDialogDescription>{review ? <>
+          Amount {money(review.preview.amount_cents)}. {review.kind === "withdraw" ? "Estimated processing cost reserve" : "Refund processing costs"} {money(review.preview.fee_cents)}. You receive {money(review.preview.net_cents)}.
+          {review.kind === "withdraw" ? " Final costs are reconciled from provider receipts." : " The refund returns to your original payment method."}
+          {" "}{review.preview.blocked_reason || "Review these costs before continuing."}
+        </> : null}</AlertDialogDescription>
       </AlertDialogHeader><AlertDialogFooter>
         <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
         <AlertDialogAction disabled={busy || Boolean(review?.preview.blocked_reason)} onClick={event => {
