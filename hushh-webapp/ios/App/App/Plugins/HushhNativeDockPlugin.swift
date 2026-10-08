@@ -156,10 +156,17 @@ final class NativeDockPlacement {
         NSLayoutConstraint.activate([leading, width, height, bottom,
             dock.topAnchor.constraint(greaterThanOrEqualTo: parent.safeAreaLayoutGuide.topAnchor)])
     }
-    func update(frame: CGRect, height desired: CGFloat, editing: Bool) {
+    @discardableResult
+    func update(frame: CGRect, height desired: CGFloat, editing: Bool) -> Bool {
+        // The host calls this from viewDidLayoutSubviews. Reapplying unchanged
+        // constraints must not request another parent layout indefinitely.
+        guard leading.constant != frame.minX || width.constant != frame.width ||
+              height.constant != desired || bottom.constant != frame.maxY ||
+              keyboardCeiling.isActive != editing else { return false }
         leading.constant = frame.minX; width.constant = frame.width
         height.constant = desired; bottom.constant = frame.maxY
         keyboardCeiling.isActive = editing
+        return true
     }
 }
 
@@ -481,9 +488,10 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         let scale = parent.view.bounds.width / max(1, viewport.width)
         guard let dockHost = host as? NativeDockHostingController else { return }
         let desired = min(340, max(52, dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height))
-        placement?.update(frame: CGRect(x: frame.minX * scale, y: frame.minY * scale,
-            width: frame.width * scale, height: frame.height * scale), height: desired, editing: model.mode == "text")
-        parent.view.setNeedsLayout()
+        if placement?.update(frame: CGRect(x: frame.minX * scale, y: frame.minY * scale,
+            width: frame.width * scale, height: frame.height * scale), height: desired, editing: model.mode == "text") == true {
+            parent.view.setNeedsLayout()
+        }
     }
     @MainActor
     private func publishLayout() {

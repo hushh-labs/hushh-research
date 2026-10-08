@@ -16,9 +16,15 @@ final class NativeSupportTests: XCTestCase {
         NSLayoutConstraint.activate([top, keyboard.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
             keyboard.widthAnchor.constraint(equalTo: parent.widthAnchor), keyboard.heightAnchor.constraint(equalToConstant: 0)])
         let placement = NativeDockPlacement(parent: parent, dock: dock, keyboard: keyboard)
-        placement.update(frame: CGRect(x: 16, y: 700, width: 358, height: 52), height: 52, editing: true)
+        let frame = CGRect(x: 16, y: 700, width: 358, height: 52)
+        XCTAssertTrue(placement.update(frame: frame, height: 52, editing: true))
         parent.layoutIfNeeded()
         XCTAssertEqual(dock.frame.maxY, 752, accuracy: 0.5)
+        for _ in 0..<10 {
+            XCTAssertFalse(placement.update(frame: frame, height: 52, editing: true),
+                "A settled host layout must not schedule another dock layout")
+            parent.layoutIfNeeded()
+        }
         var receipts = NativeDockLayoutState()
         XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))
         XCTAssertEqual(receipts.sequence, 1)
@@ -29,7 +35,9 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))
         XCTAssertEqual(receipts.sequence, 2) // Equal height does not hide occlusion movement.
         XCTAssertFalse(receipts.record(dock.frame, update: 1, privacy: 0))
-        placement.update(frame: CGRect(x: 16, y: 700, width: 358, height: 52), height: 52, editing: false)
+        XCTAssertFalse(placement.update(frame: frame, height: 52, editing: true),
+            "Keyboard-guide movement is system-owned, not another bridge apply")
+        XCTAssertTrue(placement.update(frame: frame, height: 52, editing: false))
         parent.layoutIfNeeded()
         XCTAssertEqual(dock.frame.maxY, 752, accuracy: 0.5)
         XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))

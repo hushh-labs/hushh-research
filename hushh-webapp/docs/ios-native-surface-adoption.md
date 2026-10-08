@@ -45,6 +45,14 @@ include equal-height keyboard movement; the existing transcript layout owner
 uses them for local clearance and reveal. Position-only receipts do not rerender
 the feature tree or introduce a second keyboard offset.
 
+The 2026-10-08 physical candidate produced a UIKit main-thread run-loop hang
+inside dock apply/layout. The report's app UUID matched the installed binary.
+Host layout re-entered dock placement, which unconditionally requested another
+parent layout. Placement now reports only actual constraint changes; an unchanged
+host pass cannot schedule itself again. The nearest keyboard-placement contract
+also checks repeated settled updates. Physical rerun remains required; this is not
+a claim that every observed admission failure had the same cause.
+
 Native input is document/owner/conversation/editing-purpose/revision-bound. Send
 consumes one confirmed snapshot; its editor is held noneditable until owner
 settlement. An uncertain consumption retires the replica before restoring the
