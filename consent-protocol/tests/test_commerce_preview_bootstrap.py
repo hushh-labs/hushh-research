@@ -107,6 +107,9 @@ def test_fixed_preview_bootstrap_creates_only_missing_lanes_and_preserves_applic
         assert not body["template"].get("volumes") and not body["template"]["containers"][0].get(
             "env"
         )
+        # Cloud Run v2 otherwise defaults an explicit limits object to always-on
+        # CPU, which rejects this 256Mi private provisioning responder.
+        assert body["template"]["containers"][0]["resources"]["cpuIdle"] is True
 
 
 def test_preview_bootstrap_does_not_treat_access_denial_as_missing(monkeypatch):

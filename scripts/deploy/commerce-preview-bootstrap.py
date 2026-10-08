@@ -161,7 +161,7 @@ def bootstrap_template(image, sha):
             {
                 "image": image_reference(image),
                 "ports": [{"containerPort": 8080}],
-                "resources": {"limits": {"cpu": "1", "memory": "256Mi"}},
+                "resources": {"limits": {"cpu": "1", "memory": "256Mi"}, "cpuIdle": True},
                 "startupProbe": {
                     "tcpSocket": {"port": 8080},
                     "periodSeconds": 5,
