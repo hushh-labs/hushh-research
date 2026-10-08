@@ -23,7 +23,6 @@ import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
 import {
-  buildDirectMessageRoute,
   buildKaiMarketRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -94,17 +93,11 @@ function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
   return metadata[key] === true;
 }
 
-const DIRECT_MESSAGE_CONVERSATION_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function directMessageFeedHref(metadata: Record<string, unknown>): string {
-  const conversationId = metadataString(
-    metadata,
-    "direct_message_conversation_id",
-  );
-  return DIRECT_MESSAGE_CONVERSATION_ID.test(conversationId)
-    ? buildDirectMessageRoute({ conversationId })
-    : ROUTES.ONE_MESSAGES;
+  const token = metadataString(metadata, "direct_message_route_token");
+  if (token.startsWith("dm1.")) return `${ROUTES.ONE_MESSAGES}?token=${encodeURIComponent(token)}`;
+  const conversationId = metadataString(metadata, "direct_message_conversation_id");
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId) ? `${ROUTES.ONE_MESSAGES}?conversation=${encodeURIComponent(conversationId)}` : ROUTES.ONE_MESSAGES;
 }
 
 /**

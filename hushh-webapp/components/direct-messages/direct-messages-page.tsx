@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
+import { useRouter } from "next/navigation";
 import {
   FormEvent,
   useCallback,
@@ -11,7 +12,7 @@ import {
 } from "react";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
-import { AgentDockPortal } from "@/components/agent/agent-dock";
+
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
@@ -34,11 +35,14 @@ import {
 import { Button } from "@/lib/morphy-ux/button";
 import {
   ArrowLeft,
+  Check,
   CheckCheck,
+  Search,
+  RefreshCw,
   Loader2,
   MessageCircle,
   Mic,
-  MoreVertical,
+  ChevronDown,
   Pencil,
   Phone,
   Quote,
@@ -57,7 +61,6 @@ import {
   type DirectMessageConversation,
 } from "@/lib/services/direct-messages-service";
 import {
-  buildDirectMessageRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
@@ -104,11 +107,9 @@ function formatMessageFeedMarker(value: string | null | undefined): string {
   const day = sameDay
     ? "Today"
     : date.toLocaleDateString([], { month: "short", day: "numeric" });
-  const time = date.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return `${day} ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  return date.toDateString() === yesterday.toDateString() ? "Yesterday" : day;
 }
 
 function isNewMessageDay(
@@ -183,14 +184,39 @@ function threadFromConversation(
   };
 }
 
-export function DirectMessagesPage() {
+export function DirectMessagesPage({ selection, resolvingSelection = false }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean } = {}) {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const requestedPersonRef = String(searchParams?.get("person") || "").trim();
+  const requestedPersonRef = selection?.kind === "person" ? selection.ref : "";
   const requestedConversationId = String(
-    searchParams?.get("conversation") || "",
+    selection?.kind === "conversation" ? selection.ref : "",
   ).trim();
+  const [conversations, setConversations] = useState<DirectMessageConversation[]>([]);
+  const [inboxSearch, setInboxSearch] = useState("");
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [inboxError, setInboxError] = useState(false);
+  const [messageSearch, setMessageSearch] = useState<string | null>(null);
+  const inboxGeneration = useRef(0);
+  const loadInbox = useCallback(async () => {
+    if (!user) return;
+    const generation = ++inboxGeneration.current;
+    setInboxLoading(true);
+    setInboxError(false);
+    try {
+      const result = await DirectMessagesService.listConversations({ idToken: await user.getIdToken() });
+      if (generation === inboxGeneration.current) setConversations(result.items);
+    } catch {
+      if (generation === inboxGeneration.current) setInboxError(true);
+    } finally {
+      if (generation === inboxGeneration.current) setInboxLoading(false);
+    }
+  }, [user]);
+  useEffect(() => {
+    const generationRef = inboxGeneration;
+    setConversations([]);
+    void loadInbox();
+    return () => { generationRef.current++; };
+  }, [loadInbox, user?.uid]);
   const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -213,7 +239,7 @@ export function DirectMessagesPage() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const activeConversationId = thread.conversation?.id ?? null;
-  const hasRouteSelection = Boolean(requestedPersonRef || requestedConversationId);
+  const hasRouteSelection = Boolean(resolvingSelection || requestedPersonRef || requestedConversationId);
 
   const openOneVoiceChat = useCallback(() => {
     requestAgentConversationAfterRoute(ROUTES.HOME);
@@ -374,8 +400,9 @@ export function DirectMessagesPage() {
   }, [loadThread, user]);
 
   const refresh = useCallback(() => {
+    void loadInbox();
     if (hasRouteSelection) void loadThread({ preserveMessages: true });
-  }, [hasRouteSelection, loadThread]);
+  }, [hasRouteSelection, loadThread, loadInbox]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -474,10 +501,16 @@ export function DirectMessagesPage() {
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
-  const visibleMessages = messages;
+  const visibleMessages = messageSearch?.trim()
+    ? messages.filter((message) => message.content.toLocaleLowerCase().includes(messageSearch.toLocaleLowerCase()))
+    : messages;
+  const filteredConversations = conversations.filter((conversation) => {
+    const query = inboxSearch.trim().toLocaleLowerCase();
+    return !query || `${conversation.peerDisplayName || ""} ${conversation.latestMessage?.content || ""}`.toLocaleLowerCase().includes(query);
+  });
 
   const backToConnections = () => {
-    router.replace(ROUTES.CONNECT, { scroll: false });
+    router.push(ROUTES.ONE_MESSAGES, { scroll: false });
   };
 
   const sendDraft = async (event?: FormEvent<HTMLFormElement>) => {
@@ -516,14 +549,9 @@ export function DirectMessagesPage() {
         messageId: result.message.id,
         source: "send",
       });
-      // The route becomes conversation-addressed after the first send. Keep
-      // the optimistically rendered, server-returned record visible while the
-      // matching history refresh resolves.
-      loadedRouteKey.current = `conversation:${result.conversation.id}`;
-      router.replace(
-        buildDirectMessageRoute({ conversationId: result.conversation.id }),
-        { scroll: false },
-      );
+      // The encrypted person selection also restores the newly created
+      // conversation. Keep it stable rather than risking a second network
+      // failure after a successful send.
     } catch {
       setDraft(content);
       morphyToast.error("Message could not be sent. Check your connection and try again.");
@@ -669,23 +697,54 @@ export function DirectMessagesPage() {
   }
 
   return (
-    <AppPageShell width="agent" fitContent={false}>
+    <AppPageShell width="expanded" fitContent={false} className={styles.shell}>
       <section
         className={styles.page}
         data-one-chat-surface
-        data-chat-open="true"
-        data-direct-message-composer-docked={
-          hasRouteSelection && thread.canSend ? "true" : undefined
-        }
+        data-chat-open={hasRouteSelection ? "true" : "false"}
         data-native-route="native-route-direct-messages"
       >
+        <aside className={styles.inbox} aria-label="Conversations">
+          <header className={styles.inboxHeader}>
+            <h1>Chats</h1>
+            <button className={styles.refreshButton} aria-label="Refresh conversations" disabled={inboxLoading} onClick={() => void loadInbox()}>
+              <RefreshCw className="h-5 w-5" aria-hidden="true" />
+            </button>
+          </header>
+          <label className={styles.inboxSearch}>
+            <Search className="h-4 w-4" aria-hidden="true" />
+            <input aria-label="Search conversations" placeholder="Search or start a new chat" value={inboxSearch} onChange={(event) => setInboxSearch(event.target.value)} />
+          </label>
+          {inboxError ? <p className={styles.errorState} role="alert">Conversations could not be loaded. Refresh to try again.</p> : null}
+          <ul className={styles.conversationList}>
+            {filteredConversations.map((conversation) => (
+              <li key={conversation.id}>
+                <button className={styles.conversationRow} data-active={activeConversationId === conversation.id} onClick={() => { setMessageSearch(null); void navigateDirectMessage(router, { conversationId: conversation.id }); }}>
+                  <ConnectionPersonAvatar label={conversation.peerDisplayName || "Connection"} photoUrl={conversation.peerPhotoUrl} size="list" className={styles.conversationAvatar} />
+                  <span className={styles.conversationCopy}>
+                    <span className={styles.conversationName}>{conversation.peerDisplayName || "Connection"}</span>
+                    <span className={styles.conversationPreview}>
+                      {conversation.latestMessage?.senderIsViewer ? <><Check className="inline h-4 w-4" aria-hidden="true" /> You: </> : null}
+                      {conversation.latestMessage?.content || "Start a conversation"}
+                    </span>
+                  </span>
+                  <span className={styles.conversationMeta} data-unread={conversation.unreadCount > 0}>
+                    <time>{formatMessageTime(conversation.lastMessageAt)}</time>
+                    {conversation.unreadCount > 0 ? <span className={styles.unreadCount}>{conversation.unreadCount}</span> : null}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {!inboxLoading && filteredConversations.length === 0 ? <div className={styles.emptyInbox}><p>{inboxSearch ? "No conversations found." : "No conversations yet."}</p><Link href={ROUTES.CONNECT}>Start a new chat</Link></div> : null}
+        </aside>
         <main className={styles.thread} aria-live="polite">
               <header className={styles.threadHeader}>
                 <div className={styles.threadHeaderContent}>
                   <button
                     type="button"
                     className={styles.backButton}
-                    aria-label="Back to connections"
+                    aria-label="Back to chats"
                     onClick={backToConnections}
                   >
                     <ArrowLeft className="h-6 w-6" aria-hidden="true" />
@@ -711,6 +770,9 @@ export function DirectMessagesPage() {
                     </div>
                   </div>
                   <div className={styles.threadHeaderActions}>
+                    <button type="button" className={styles.headerAction} aria-label="Search messages" onClick={() => setMessageSearch((current) => current === null ? "" : null)}>
+                      <Search className="h-5 w-5" aria-hidden="true" />
+                    </button>
                     <button
                       type="button"
                       className={styles.headerAction}
@@ -725,13 +787,14 @@ export function DirectMessagesPage() {
                 </div>
               </header>
 
+              {messageSearch !== null ? <label className={styles.threadSearch}><span className="sr-only">Search this conversation</span><input autoFocus placeholder="Search messages" value={messageSearch} onChange={(event) => setMessageSearch(event.target.value)} /></label> : null}
               <div
                 className={styles.messageList}
                 ref={messageListRef}
                 data-testid="direct-message-list"
                 aria-label={`${selectedLabel} message feed`}
               >
-                {loadingThread && messages.length === 0 ? (
+                {(resolvingSelection || loadingThread) && messages.length === 0 ? (
                   <p className={styles.loading}>Loading messages…</p>
                 ) : null}
                 {threadError && messages.length === 0 && !thread.disconnectedNotice ? (
@@ -759,28 +822,21 @@ export function DirectMessagesPage() {
                     {loadingOlder ? "Loading…" : "Load older messages"}
                   </Button>
                 ) : null}
-                {!loadingThread && messages.length === 0 && thread.disconnectedNotice ? (
+                {!resolvingSelection && !loadingThread && messages.length === 0 && thread.disconnectedNotice ? (
                   <div className={styles.emptyThread} role="status">
                     <MessageCircle className="h-7 w-7" aria-hidden="true" />
                     <p>{thread.disconnectedNotice}</p>
                   </div>
                 ) : null}
-                {!loadingThread && messages.length === 0 && !threadError && !thread.disconnectedNotice ? (
+                {!resolvingSelection && !loadingThread && messages.length === 0 && !threadError && !thread.disconnectedNotice ? (
                   <div className={styles.emptyThread}>
                     <MessageCircle className="h-7 w-7" aria-hidden="true" />
-                    <p>Start the conversation with {selectedLabel}.</p>
+                    <p>{hasRouteSelection ? `Start the conversation with ${selectedLabel}.` : "Select a conversation to start messaging."}</p>
                   </div>
                 ) : null}
                 {visibleMessages.map((message, index) => {
-                  const nextMessage = visibleMessages[index + 1];
-                  const showPeerAvatar =
-                    !message.senderIsViewer &&
-                    (!nextMessage ||
-                      nextMessage.senderIsViewer ||
-                      isNewMessageDay(nextMessage, message));
-
                   return (
-                    <div key={message.id} className={styles.messageFeedItem}>
+                    <div key={message.id} className={styles.messageFeedItem} data-group-start={index === 0 || isNewMessageDay(message, visibleMessages[index - 1]) || message.senderIsViewer !== visibleMessages[index - 1]?.senderIsViewer}>
                       {isNewMessageDay(message, visibleMessages[index - 1]) ? (
                         <div className={styles.messageDateMarker}>
                           <time dateTime={message.createdAt}>
@@ -810,16 +866,6 @@ export function DirectMessagesPage() {
                             message.senderIsViewer && "flex-row-reverse",
                           )}
                         >
-                          {showPeerAvatar ? (
-                            <ConnectionPersonAvatar
-                              label={selectedLabel}
-                              photoUrl={thread.peerPhotoUrl}
-                              size="list"
-                              className={styles.messageAvatar}
-                            />
-                          ) : !message.senderIsViewer ? (
-                            <span className={styles.messageAvatarSpacer} aria-hidden="true" />
-                          ) : null}
                           <div className={styles.messageContent}>
                             <div className={styles.messageBubbleWrap}>
                               <OneChatBubble
@@ -868,7 +914,7 @@ export function DirectMessagesPage() {
                                     </div>
                                   </div>
                                 ) : message.deletedForEveryoneAt ? (
-                                  <p className={styles.deletedMessage}>This message was deleted.</p>
+                                  <p className={styles.deletedMessage}>⊘ This message was deleted.</p>
                                 ) : (
                                   <>
                                     {message.replyTo ? (
@@ -883,6 +929,18 @@ export function DirectMessagesPage() {
                                     {message.editedAt ? <span className={styles.editedLabel}>Edited</span> : null}
                                   </>
                                 )}
+                            <time
+                              className={cn(
+                                styles.messageMeta,
+                                message.senderIsViewer && styles.messageMetaOwn,
+                              )}
+                              dateTime={message.createdAt}
+                            >
+                              {formatMessageTime(message.createdAt)}
+                              {message.senderIsViewer ? (
+                                message.readAt ? <CheckCheck className="h-3 w-3" aria-label="Read" /> : <Check className="h-3 w-3" aria-label="Sent" />
+                              ) : null}
+                            </time>
                               </OneChatBubble>
                               <div className={styles.messageActions}>
                                 {!message.deletedForEveryoneAt ? (
@@ -908,7 +966,7 @@ export function DirectMessagesPage() {
                                       aria-label="Message options"
                                       aria-expanded={openMessageMenu === message.id}
                                     >
-                                      <MoreVertical className="h-4 w-4" aria-hidden="true" />
+                                      <ChevronDown className="h-4 w-4" aria-hidden="true" />
                                     </button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent
@@ -972,23 +1030,7 @@ export function DirectMessagesPage() {
                                 ))}
                               </div>
                             ) : null}
-                            <time
-                              className={cn(
-                                styles.messageMeta,
-                                message.senderIsViewer && styles.messageMetaOwn,
-                              )}
-                              dateTime={message.readAt || message.createdAt}
-                            >
-                              {message.senderIsViewer && message.readAt
-                                ? `Read ${formatMessageTime(message.readAt)}`
-                                : formatMessageTime(message.createdAt)}
-                              {message.senderIsViewer && message.readAt ? (
-                                <CheckCheck
-                                  className="h-3 w-3"
-                                  aria-label="Read"
-                                />
-                              ) : null}
-                            </time>
+
                           </div>
                         </div>
                       </article>
@@ -1002,11 +1044,6 @@ export function DirectMessagesPage() {
                   {thread.disconnectedNotice || "You are no longer connected."}
                 </div>
               ) : null}
-              <AgentDockPortal
-                enabled={hasRouteSelection}
-                visible={thread.canSend}
-                suppressed={!thread.canSend}
-              >
                 {thread.canSend ? (
                   <form
                     className={styles.composer}
@@ -1035,7 +1072,7 @@ export function DirectMessagesPage() {
                       ref={composerRef}
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
-                      placeholder={`Message ${selectedLabel}`}
+                      placeholder="Type a message"
                       maxLength={DIRECT_MESSAGE_MAX_LENGTH}
                       disabled={sending}
                       rows={1}
@@ -1059,15 +1096,15 @@ export function DirectMessagesPage() {
                       }
                     />
                     <div className={styles.composerActions}>
-                      <button
+                      {!draft.trim() ? <button
                         type="button"
                         className={styles.voiceButton}
                         aria-label="Talk to One"
                         onClick={openOneVoiceChat}
                       >
-                        <Mic className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                      <button
+                        <Mic className="h-5 w-5" aria-hidden="true" />
+                      </button> : null}
+                      {draft.trim() ? <button
                         type="submit"
                         className={styles.sendButton}
                         disabled={sending || !draft.trim()}
@@ -1078,14 +1115,14 @@ export function DirectMessagesPage() {
                         ) : (
                           <Send className="h-5 w-5" aria-hidden="true" />
                         )}
-                      </button>
+                      </button> : null}
                     </div>
                     <span className="sr-only" aria-live="polite">
                       {draft.length}/{DIRECT_MESSAGE_MAX_LENGTH}
                     </span>
                   </form>
                 ) : null}
-              </AgentDockPortal>
+
               <AlertDialog
                 open={Boolean(deleteRequest)}
                 onOpenChange={(open) => {

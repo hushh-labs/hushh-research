@@ -321,3 +321,15 @@ private vault and saves the encrypted key through the existing settings route.
 - [api-contracts.md](./api-contracts.md) describes the API surface itself.
 - `hushh-webapp/lib/navigation/routes.ts` is the code-owned navigation source of truth.
 - [../mobile/capacitor-parity-audit.md](../mobile/capacitor-parity-audit.md) defines the stricter mobile release gate layered on top of route contracts.
+
+
+The `/one/messages` workspace uses the standard shared header and persistent
+bottom navigation, with no route-specific footer styling. Its white two-pane
+message area sits below the shared header, and its composer remains in normal
+flow inside the conversation. The shell reserves space for the footer on both panes;
+active global commands and voice controls remain available and measured. On
+mobile, a selected conversation replaces the inbox and Back to chats restores
+it. Inbox filtering matches contact names and message previews; an empty inbox
+links to the existing Connect entry point. Browser selection restoration uses
+the authenticated encrypted-token contract described in
+[API Contracts](./api-contracts.md).

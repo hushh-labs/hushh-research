@@ -15,7 +15,6 @@ import { Capacitor } from "@capacitor/core";
 import { circleChatNotificationTarget } from "@/lib/circle-chat/routes";
 import { ApiService } from "@/lib/services/api-service";
 import {
-  buildDirectMessageRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { isAgentConversationId } from "@/lib/agent/agent-chat-turn-watch";
@@ -213,13 +212,9 @@ export function directMessageNotificationTapTarget(
 ): string | null {
   const type = String(data?.type || "").trim().toLowerCase();
   if (type !== "direct_message") return null;
-  const conversationId = String(
-    data?.conversation_id || data?.conversationId || "",
-  ).trim();
-  if (!conversationId || conversationId.length > 256 || /[\x00-\x1f]/.test(conversationId)) {
-    return ROUTES.ONE_MESSAGES;
-  }
-  return buildDirectMessageRoute({ conversationId });
+  const routeToken = String(data?.route_token || "");
+  if (routeToken.startsWith("dm1.")) return `/one/messages?token=${encodeURIComponent(routeToken)}`;
+  return ROUTES.ONE_MESSAGES;
 }
 
 export function buildNotificationTapTarget(

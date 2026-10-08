@@ -125,3 +125,40 @@ def test_message_actions_keep_participant_identity_server_side():
     service.react_to_message.assert_called_once_with(
         "viewer-user", conversation_id, message_id, emoji="😀"
     )
+
+
+def test_route_tokens_require_participation_on_mint_and_restore(monkeypatch):
+    import base64
+
+    monkeypatch.setenv(
+        "DIRECT_MESSAGE_ENCRYPTION_KEY_V1", base64.urlsafe_b64encode(b"t" * 32).decode()
+    )
+    service = MagicMock()
+    conversation = "11111111-1111-4111-8111-111111111111"
+    service._normalize_conversation_id.side_effect = lambda value: value
+    service._conversation_for_participant.return_value = {"id": conversation}
+    with patch("api.routes.one.messages._service", return_value=service):
+        client = _client()
+        minted = client.post("/api/one/messages/route-token", json={"conversationId": conversation})
+        assert minted.status_code == 200
+        assert minted.headers["cache-control"] == "private, no-store"
+        token = minted.json()["token"]
+        assert conversation not in token
+        restored = client.post("/api/one/messages/route-token", json={"token": token})
+        assert restored.status_code == 200
+        assert restored.json()["ref"] == conversation
+        service._conversation_for_participant.assert_called_with("viewer-user", conversation)
+        service._conversation_for_participant.return_value = None
+        assert (
+            client.post("/api/one/messages/route-token", json={"token": token}).status_code == 404
+        )
+        assert (
+            client.post(
+                "/api/one/messages/route-token", json={"conversationId": conversation}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post("/api/one/messages/route-token", json={"token": "dm1.invalid"}).status_code
+            == 400
+        )

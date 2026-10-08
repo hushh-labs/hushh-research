@@ -230,6 +230,19 @@ export function normalizeDirectMessageContent(value: string): string {
  * a route query or a cached relationship as permission to send.
  */
 export class DirectMessagesService {
+  static async routeSelection(input: { idToken: string; token?: string; conversationId?: string; personRef?: string }): Promise<{ token: string; kind: "conversation" | "person"; ref: string }> {
+    const { idToken, ...selection } = input;
+    const response = await ApiService.apiFetch("/api/one/messages/route-token", {
+      method: "POST", cache: "no-store", headers: authHeaders(idToken), body: JSON.stringify(selection),
+    });
+    return jsonOrThrow(response);
+  }
+
+  static async routeHref(input: { idToken: string; conversationId?: string; personRef?: string }): Promise<string> {
+    const selection = await this.routeSelection(input);
+    return `/one/messages?token=${encodeURIComponent(selection.token)}`;
+  }
+
   static async listConversations(input: {
     idToken: string;
   }): Promise<DirectMessageInbox> {

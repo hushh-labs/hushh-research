@@ -263,7 +263,7 @@ describe("native system-notification routing", () => {
     });
   });
 
-  it("opens the authenticated direct-message thread from an opaque message push", async () => {
+  it("opens the inbox for a legacy direct-message push without an encrypted token", async () => {
     await prepareFCMListeners();
     mocks.listeners.get("notificationActionPerformed")?.({
       actionId: "tap",
@@ -277,9 +277,15 @@ describe("native system-notification routing", () => {
     });
 
     expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
-      href: "/one/messages?conversation=conversation-opaque-1",
+      href: "/one/messages",
       scroll: false,
     });
+  });
+
+  it("opens encrypted direct-message tokens without exposing the conversation id", async () => {
+    await prepareFCMListeners();
+    mocks.listeners.get("notificationActionPerformed")?.({ actionId: "tap", notification: { data: { type: "direct_message", route_token: "dm1.opaque", conversation_id: "internal-id" } } });
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({ href: "/one/messages?token=dm1.opaque", scroll: false });
   });
 
   it("ignores dismiss actions", async () => {

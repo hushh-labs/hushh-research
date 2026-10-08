@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => {
       getIdToken: vi.fn().mockResolvedValue("test-token"),
     },
     conversation,
+    listConversations: vi.fn().mockResolvedValue({ items: [], unreadCount: 0 }),
+    routeHref: vi.fn().mockResolvedValue("/one/messages?token=dm1.fixture"),
     getConversationWithPerson: vi.fn(),
     getConversationMessages: vi.fn(),
     markConversationRead: vi.fn(),
@@ -74,6 +76,8 @@ vi.mock("@/lib/agent/agent-voice-settings", () => ({
 vi.mock("@/lib/services/direct-messages-service", () => ({
   DIRECT_MESSAGE_MAX_LENGTH: 2_000,
   DirectMessagesService: {
+    listConversations: (...args: unknown[]) => mocks.listConversations(...args),
+    routeHref: (...args: unknown[]) => mocks.routeHref(...args),
     getConversationWithPerson: (...args: unknown[]) =>
       mocks.getConversationWithPerson(...args),
     getConversationMessages: (...args: unknown[]) =>
@@ -96,7 +100,7 @@ function renderConnectionThread() {
           <span>Talk to One</span>
         </AgentBarSurface>
       </AgentDockVoiceBoundary>
-      <DirectMessagesPage />
+      <DirectMessagesPage selection={{ kind: "person", ref: "person-1" }} />
     </AgentDockProvider>,
   );
 }
@@ -160,17 +164,13 @@ describe("DirectMessagesPage", () => {
     vi.clearAllMocks();
   });
 
-  it("uses the shared Chat dock while sending to the selected connection", async () => {
+  it("keeps the composer in the conversation while sending to the selected connection", async () => {
     renderConnectionThread();
 
     const composer = await screen.findByRole("textbox", {
       name: "Message Ankit Kumar Singh",
     });
-    expect(screen.getByTestId("shared-chat-dock")).toHaveAttribute(
-      "data-agent-dock-surface",
-      "text",
-    );
-    expect(screen.getByText("Talk to One")).not.toBeVisible();
+    expect(composer.closest("main")).toHaveAttribute("aria-live", "polite");
 
     fireEvent.change(composer, { target: { value: "Hello Ankit" } });
     fireEvent.submit(composer.closest("form")!);
@@ -203,6 +203,7 @@ describe("DirectMessagesPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
     expect(composer).toHaveValue("😀");
 
+    fireEvent.change(composer, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Talk to One" }));
     expect(mocks.requestAgentConversationAfterRoute).toHaveBeenCalledWith(
       ROUTES.HOME,
@@ -245,5 +246,26 @@ describe("DirectMessagesPage", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
     expect(screen.getByText("Replying to yourself")).toBeVisible();
+  });
+});
+
+
+describe("inbox search", () => {
+  it("filters by name and preview and restores the list when cleared", async () => {
+    mocks.listConversations.mockResolvedValue({ items: [
+      { ...mocks.conversation, id: "inbox-a", peerDisplayName: "Alice", latestMessage: { content: "Bring coffee" } },
+      { ...mocks.conversation, id: "inbox-b", peerDisplayName: "Bob", latestMessage: { content: "See you tomorrow" } },
+    ], unreadCount: 0 });
+    renderConnectionThread();
+    const search = await screen.findByRole("textbox", { name: "Search conversations" });
+    await screen.findAllByText("Alice");
+    fireEvent.change(search, { target: { value: "coffee" } });
+    expect(screen.getAllByText("Alice")[0]!).toBeVisible();
+    expect(screen.queryByText("Bob")).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "bob" } });
+    expect(screen.getAllByText("Bob")[0]!).toBeVisible();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getAllByText("Alice")[0]!).toBeVisible();
+    expect(screen.getAllByText("Bob")[0]!).toBeVisible();
   });
 });

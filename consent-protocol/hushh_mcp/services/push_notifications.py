@@ -555,7 +555,10 @@ def send_direct_message_push(
     if not recipient or not conversation or not message:
         return 0
     notification_id = f"direct-message:{message}"
-    deep_link = f"/one/messages?conversationId={quote(conversation, safe='')}"
+    from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
+    route_token = DirectMessageRouteCipher().seal(recipient, "conversation", conversation)
+    deep_link = f"/one/messages?token={quote(route_token, safe='')}"
     return send_user_data_push(
         recipient,
         notification_type="direct_message",
@@ -567,6 +570,7 @@ def send_direct_message_push(
         data={
             "message_id": notification_id,
             "conversation_id": conversation,
+            "route_token": route_token,
             "direct_message_id": message,
         },
         # Firebase does not need a raw recipient id to route an opaque message

@@ -878,6 +878,7 @@ connection ended.
 
 | Method | Path | Description |
 | --- | --- | --- |
+| POST | `/api/one/messages/route-token` | Mint with exactly one of `{conversationId, personRef}`, or restore with `{token}`. Firebase authenticated, participant checked on both mint and restore, and private/no-store. Returns `{token, kind, ref}`; business identifiers remain in memory and API bodies. |
 | GET | `/api/one/messages/conversations` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. |
 | GET | `/api/one/messages/with/person/{personRef}` | Open the viewer's existing conversation with an opaque public person reference, or return a no-conversation draft state. Internal `/with/{userId}` compatibility remains Firebase-authenticated and is never exposed as a profile route. |
 | POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content, replyToMessageId?}`. A reply must reference a message in the same participant conversation. Creates the canonical pair conversation on first message and returns the conversation plus sender/receiver-safe message projection. Empty text, self-send, unconnected pair, and a block fail closed. |
@@ -895,6 +896,18 @@ service boundary and expose `senderIsViewer`, never a peer's raw user id. Push
 and realtime payloads contain no message content. Stable `403` failures are
 `DIRECT_MESSAGE_CONNECTION_REQUIRED`, `DIRECT_MESSAGE_BLOCKED`, and
 `DIRECT_MESSAGE_SENDER_FORBIDDEN`; malformed/self/empty requests are `422`.
+
+Browser selections use `/one/messages?token=dm1.…`. AES-256-GCM seals a
+conversation or person selection with a random 12-byte IV, base64url encoding,
+and viewer-bound authenticated information. A purpose-specific route key derives
+from server-only `DIRECT_MESSAGE_ENCRYPTION_KEY_V1`; rotating that deployment key
+invalidates existing links as well as affecting message-envelope recovery. No
+client key or development fallback exists. Tokens conceal navigation identifiers
+and do not grant access: participant and connection checks remain authoritative.
+Legacy `conversation`, `conversationId`, and `person` URLs are accepted only as
+inbound compatibility links and replaced after authenticated token minting.
+Invalid/tampered selections return to the inbox. New Feed and push links use
+viewer-bound tokens; old notifications without a token open the inbox.
 
 Each newly received Direct Message also creates one recipient-only Feed row.
 That row contains only the opaque source message id; it never stores a body,

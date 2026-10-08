@@ -3,6 +3,7 @@ import type { ReactNode, TextareaHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  messageSelection: vi.fn(),
   search: "",
   vaultKey: null as string | null,
   vaultOwnerToken: null as string | null,
@@ -17,6 +18,13 @@ const mocks = vi.hoisted(() => ({
   user: null as { uid: string; getIdToken: () => Promise<string> } | null,
   authLoading: false,
   isVaultUnlocked: true,
+}));
+
+vi.mock("@/lib/direct-messages/navigate-direct-message", () => ({
+  navigateDirectMessage: (router: { push: (href: string) => void }, selection: unknown) => {
+    mocks.messageSelection(selection);
+    router.push("/one/messages?token=opaque-test-token");
+  },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -343,8 +351,9 @@ describe("PersonProfilePage native profile route", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Message" }));
     expect(mocks.push).toHaveBeenCalledWith(
-      "/one/messages?person=actual-public-ref",
+      "/one/messages?token=opaque-test-token",
     );
+    expect(mocks.messageSelection).toHaveBeenCalledWith({ personRef: "actual-public-ref" });
   });
 
   it("opens the catalogue nested, one row per area rather than every scope at once", async () => {

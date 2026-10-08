@@ -414,6 +414,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         isAuthenticated &&
         !authLoading &&
         (pathname === ROUTES.HOME || pathname === ROUTES.ONE_MESSAGES),
+      composerInFlow: pathname === ROUTES.ONE_MESSAGES,
       hidden: bottomChromeHidden,
     }),
     [

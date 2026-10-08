@@ -1,5 +1,7 @@
 "use client";
 
+import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
+
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
 import {
@@ -55,7 +57,6 @@ import {
   type PersonRequestHistoryPage,
 } from "@/lib/services/person-profile-service";
 import {
-  buildDirectMessageRoute,
   resolvePersonRefFromProfilePathname,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -800,11 +801,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     effect="fill"
                     className={styles.message}
                     onClick={() =>
-                      router.push(
-                        buildDirectMessageRoute({
-                          personRef: resolvedPersonRef,
-                        }),
-                      )
+                      void navigateDirectMessage(router, { personRef: resolvedPersonRef })
                     }
                   >
                     <MessageCircle className="h-5 w-5" aria-hidden="true" />

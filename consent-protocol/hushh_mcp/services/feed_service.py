@@ -320,7 +320,7 @@ class FeedService:
         rows = self._with_direct_message_previews(user_id, rows)
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return {
-            "items": [self._to_item(row) for row in rows],
+            "items": [self._to_item(row, user_id) for row in rows],
             "next_cursor": next_cursor,
             "unread_count": self.unread_count(user_id),
         }
@@ -791,7 +791,7 @@ class FeedService:
         return {"status": "ok"}
 
     @staticmethod
-    def _to_item(row: dict[str, Any]) -> dict[str, Any]:
+    def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
         if row.get("event_type") == _DIRECT_MESSAGE_RECEIVED_EVENT:
             # These fields originate only from `_with_direct_message_previews`.
@@ -807,6 +807,17 @@ class FeedService:
             conversation_id = _direct_message_source_id(row.get(_DIRECT_MESSAGE_CONVERSATION_FIELD))
             if conversation_id is not None:
                 metadata["direct_message_conversation_id"] = conversation_id
+                if viewer_user_id:
+                    from hushh_mcp.services.direct_message_route_cipher import (
+                        DirectMessageRouteCipher,
+                    )
+
+                    try:
+                        metadata["direct_message_route_token"] = DirectMessageRouteCipher().seal(
+                            viewer_user_id, "conversation", conversation_id
+                        )
+                    except DirectMessagesError:
+                        pass  # Keep Feed readable; unavailable messaging opens the inbox.
 
             preview = _direct_message_preview(row.get(_DIRECT_MESSAGE_PREVIEW_FIELD))
             if preview is not None:

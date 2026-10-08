@@ -1,5 +1,7 @@
 "use client";
 
+import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -87,7 +89,6 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import {
-  buildDirectMessageRoute,
   buildPersonProfileRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -3291,11 +3292,7 @@ export default function ConnectPageClient() {
                                           className="!border !border-[color:var(--app-accent)] !bg-transparent !px-3 !text-[color:var(--app-accent)]"
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            router.push(
-                                              buildDirectMessageRoute({
-                                                personRef: connection.publicPersonRef,
-                                              }),
-                                            );
+                                            void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
                                           }}
                                         >
                                           Message
