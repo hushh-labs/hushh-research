@@ -17905,6 +17905,157 @@
     },
     {
       "aliases": [
+        "Finish cloud setup",
+        "finish cloud setup",
+        "finish my cloud",
+        "use this project",
+        "continue with my cloud"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "setup.finish_cloud",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Keeps the person's own cloud as the home for their private agent and returns to the One setup hub.",
+      "execution": {
+        "binding_ref": "semantic_action:setup.finish_cloud",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "setup.finish_cloud"
+        }
+      },
+      "goal_id": "goal.setup.finish_cloud",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Finish cloud setup",
+      "navigation": {
+        "fallback": "setup.finish_cloud",
+        "routes": [
+          "/one/setup/cloud"
+        ],
+        "screens": [
+          "one_setup_cloud"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "finish",
+        "cloud",
+        "project",
+        "subscription",
+        "byoc"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Finish AI access setup",
         "finish AI access setup",
         "finish AI access",
@@ -31024,6 +31175,158 @@
     },
     {
       "aliases": [
+        "Set up your cloud",
+        "set up my cloud",
+        "connect my cloud",
+        "open cloud setup",
+        "use my own google cloud"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "setup.open_cloud",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the step where the person names and authorizes their own Google Cloud project for their private agent.",
+      "execution": {
+        "binding_ref": "route:/one/setup/cloud",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/setup/cloud"
+        }
+      },
+      "goal_id": "goal.setup.open_cloud",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Set up your cloud",
+      "navigation": {
+        "fallback": "/one/setup/cloud",
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "cloud",
+        "project",
+        "google cloud",
+        "byoc",
+        "own compute"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Choose your AI",
         "choose my ai",
         "set up AI access",
@@ -37459,7 +37762,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "0b5458c4e77ff8dba011435a7e6f8ad3ac886a594dcb91c008b168b526e75736",
+      "projection_digest": "59520ea098a12bb587be3a178955630d72ff4a942f5418ead752072360d82fbb",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37469,16 +37772,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
-        "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+        "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
+        "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+        "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
         "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
+        "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "5009d0612016fd66",
+      "source_revision": "7d29dd99f31ad3ca",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -38996,7 +39299,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "5009d0612016fd66",
+    "source_revision": "7d29dd99f31ad3ca",
     "web": {
       "actions": [
         {
@@ -39039,7 +39342,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "c495fe5ff4ff7dbf4106b19c6a67c5795c989a57af3c33be08bd37b117dc3805",
+      "projection_digest": "64ae16a10b3e70990168f3e8f9aaf1138990693d3cf02e111c96fc36a4f4e86a",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39049,16 +39352,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
-        "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+        "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
+        "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+        "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
         "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
+        "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "5009d0612016fd66",
+      "source_revision": "7d29dd99f31ad3ca",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -40615,7 +40918,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "5009d0612016fd66",
+  "revision": "7d29dd99f31ad3ca",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41038,6 +41341,15 @@
       "kind": "screen",
       "label": "one_feed",
       "route_pattern": "/one/feed",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/one/files",
+      "kind": "screen",
+      "label": "app",
+      "route_pattern": "/one/files",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -41635,6 +41947,15 @@
     },
     {
       "action_ids": [],
+      "capability_id": "screen:/one/profile/discovery",
+      "kind": "screen",
+      "label": "profile_discovery",
+      "route_pattern": "/one/profile/discovery",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
       "capability_id": "screen:/one/profile/gmail",
       "kind": "screen",
       "label": "profile_gmail_panel",
@@ -41675,6 +41996,15 @@
       "kind": "screen",
       "label": "calendar",
       "route_pattern": "/one/profile/google/oauth/return",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/one/profile/hosting",
+      "kind": "screen",
+      "label": "profile_hosting",
+      "route_pattern": "/one/profile/hosting",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -41879,6 +42209,15 @@
       "version": 1
     },
     {
+      "action_ids": [],
+      "capability_id": "screen:/one/profile/software-updates",
+      "kind": "screen",
+      "label": "profile_software-updates",
+      "route_pattern": "/one/profile/software-updates",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
       "action_ids": [
         "route.profile_support_panel"
       ],
@@ -41924,6 +42263,7 @@
       "action_ids": [
         "setup.hub_master_ack",
         "setup.open_calendar",
+        "setup.open_cloud",
         "setup.open_connected_systems",
         "setup.open_connections",
         "setup.open_email",
@@ -41958,6 +42298,28 @@
       "kind": "screen",
       "label": "one_setup_calendar",
       "route_pattern": "/one/setup/calendar",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "capability_id": "screen:/one/setup/cloud",
+      "kind": "screen",
+      "label": "one_setup_cloud",
+      "route_pattern": "/one/setup/cloud",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "capability_id": "screen:/one/setup/cloud/azure/return",
+      "kind": "screen",
+      "label": "one_setup_cloud",
+      "route_pattern": "/one/setup/cloud/azure/return",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42352,12 +42714,25 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:setup.finish_cloud",
+      "actions:setup.open_cloud",
+      "screens:screen:/one/files",
+      "screens:screen:/one/profile/discovery",
+      "screens:screen:/one/profile/hosting",
+      "screens:screen:/one/profile/software-updates",
+      "screens:screen:/one/setup/cloud",
+      "screens:screen:/one/setup/cloud/azure/return",
+      "services:service.cloud",
+      "workflows:workflow.setup.cloud"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/setup"
+    ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "6b7a0c817a0f0da5",
+    "from_revision": "5009d0612016fd66",
     "migrated": [],
     "removed": []
   },
@@ -42529,6 +42904,65 @@
       "schema_version": "one.dynamic_service_knowledge.v1",
       "service_id": "calendar",
       "specialist_agent_id": "agent_calendar",
+      "telemetry_event": "app_intelligence.service_discovery",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "setup.finish_cloud",
+        "setup.open_cloud"
+      ],
+      "api_endpoints": [],
+      "capability_id": "service.cloud",
+      "completion": {
+        "claim_policy": "verified_persisted_state_only",
+        "skip_is_success": false,
+        "success_state_capability_id": "cloud",
+        "visual_computer_use": "excluded_from_primary_path"
+      },
+      "executor_hierarchy": [
+        {
+          "action_ids": [],
+          "discovered_endpoint_count": 0,
+          "kind": "backend_api",
+          "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
+          "status": "adapter_required"
+        },
+        {
+          "actions": [],
+          "kind": "native_semantic_action",
+          "reason": "No generated native semantic prerequisite is registered for this setup flow.",
+          "status": "not_required_or_unregistered"
+        },
+        {
+          "action_ids": [
+            "setup.open_cloud",
+            "setup.finish_cloud"
+          ],
+          "kind": "existing_ui_semantic_action",
+          "route_pattern": "/one/setup/cloud",
+          "status": "registered"
+        },
+        {
+          "kind": "typed_render",
+          "render_surface": "existing_route_surface",
+          "route_pattern": "/one/setup/cloud",
+          "status": "approved_existing_surface"
+        }
+      ],
+      "kind": "service",
+      "knowledge_package": null,
+      "knowledge_projection": null,
+      "label": "Cloud",
+      "native_semantic_actions": [],
+      "onboarding_workflow_id": "workflow.setup.cloud",
+      "one_exposure": null,
+      "route_patterns": [
+        "/one/setup/cloud"
+      ],
+      "schema_version": "one.dynamic_service_knowledge.v1",
+      "service_id": "cloud",
+      "specialist_agent_id": null,
       "telemetry_event": "app_intelligence.service_discovery",
       "version": 1
     },
@@ -44583,27 +45017,28 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
-    "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+    "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
+    "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
-    "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+    "kai_action_gateway": "9f022d8c7acf93d12e8dc96f8b39ff61c12e74f5c26f9a1ca9c62bd3bfdcc558",
+    "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "d5b9f001a88245b6b0a643a59e045280e6da0af2692ba79958882300a4d6bab1",
-    "route_orchestration_index": "666164d521beccc0a5f6c1cd04bf60133ea1e4a8a73ffb28a7f3bc364b690ac0",
-    "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
+    "product_agent_registry": "f39677c975a982267939a4e90f803cb992ac2a7d54b008b1500e228b8c38d416",
+    "route_orchestration_index": "20d422a49c4c98ad150545ad1fde4b442ee8217ce25235fb394de7dd896e13b1",
+    "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "5009d0612016fd66",
+  "source_revision": "7d29dd99f31ad3ca",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "5009d0612016fd66",
+    "current_graph_revision": "7d29dd99f31ad3ca",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
         "compatible_graph_revisions": [
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05f5a43ac04150f7",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "1016f2f0efc0cbd7",
@@ -44623,6 +45058,7 @@
           "41fcabe47a6c84ca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
+          "5009d0612016fd66",
           "511758965444c3bb",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
@@ -44630,6 +45066,7 @@
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
           "6448b901792d40a4",
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
@@ -44640,18 +45077,23 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "8065981a6233598e",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
           "94e751d14ffa29a9",
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9f73e84abaa708e0",
           "a165740521c96115",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -44665,6 +45107,7 @@
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -44694,8 +45137,25 @@
       },
       {
         "compatible_graph_revisions": [
+          "05f5a43ac04150f7",
+          "60f9c47270b215a8",
+          "8065981a6233598e",
+          "82b0f2c85fa6d4da",
+          "83966cd4fefe54f6",
+          "9c1f8b9bcf9e2d4b",
+          "cb10ee16c62231b2"
+        ],
+        "migration_required_graph_revisions": [],
+        "rejected_graph_revisions": [],
+        "workflow_digest": "b31fd84656bbddd7fd3b2985736c9d587d6220ae7fae712a5cbc6ca593d7b5cb",
+        "workflow_id": "workflow.setup.cloud",
+        "workflow_version": 1
+      },
+      {
+        "compatible_graph_revisions": [
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05f5a43ac04150f7",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "1016f2f0efc0cbd7",
@@ -44715,6 +45175,7 @@
           "41fcabe47a6c84ca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
+          "5009d0612016fd66",
           "511758965444c3bb",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
@@ -44722,6 +45183,7 @@
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
           "6448b901792d40a4",
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
@@ -44732,18 +45194,23 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "8065981a6233598e",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
           "94e751d14ffa29a9",
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9f73e84abaa708e0",
           "a165740521c96115",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -44757,6 +45224,7 @@
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -44791,6 +45259,7 @@
           "32b235f681091788",
           "3c364d0a46aab416",
           "40d5079952d7dc69",
+          "5009d0612016fd66",
           "60f052ad508244d1",
           "6a987992e57a50e3",
           "6b7a0c817a0f0da5",
@@ -44881,6 +45350,7 @@
         "compatible_graph_revisions": [
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05f5a43ac04150f7",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "1016f2f0efc0cbd7",
@@ -44900,6 +45370,7 @@
           "41fcabe47a6c84ca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
+          "5009d0612016fd66",
           "511758965444c3bb",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
@@ -44907,6 +45378,7 @@
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
           "6448b901792d40a4",
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
@@ -44917,18 +45389,23 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "8065981a6233598e",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
           "94e751d14ffa29a9",
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9f73e84abaa708e0",
           "a165740521c96115",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -44942,6 +45419,7 @@
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -44973,6 +45451,7 @@
         "compatible_graph_revisions": [
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05f5a43ac04150f7",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "1016f2f0efc0cbd7",
@@ -44992,6 +45471,7 @@
           "41fcabe47a6c84ca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
+          "5009d0612016fd66",
           "511758965444c3bb",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
@@ -44999,6 +45479,7 @@
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
           "6448b901792d40a4",
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
@@ -45009,18 +45490,23 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "8065981a6233598e",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
           "94e751d14ffa29a9",
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9f73e84abaa708e0",
           "a165740521c96115",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45034,6 +45520,7 @@
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -45065,6 +45552,7 @@
         "compatible_graph_revisions": [
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05f5a43ac04150f7",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "1016f2f0efc0cbd7",
@@ -45084,6 +45572,7 @@
           "41fcabe47a6c84ca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
+          "5009d0612016fd66",
           "511758965444c3bb",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
@@ -45091,6 +45580,7 @@
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
           "6448b901792d40a4",
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
@@ -45101,18 +45591,23 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "8065981a6233598e",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
           "94e751d14ffa29a9",
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9f73e84abaa708e0",
           "a165740521c96115",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45126,6 +45621,7 @@
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -45157,6 +45653,7 @@
         "compatible_graph_revisions": [
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "05f5a43ac04150f7",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "1016f2f0efc0cbd7",
@@ -45176,6 +45673,7 @@
           "41fcabe47a6c84ca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
+          "5009d0612016fd66",
           "511758965444c3bb",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
@@ -45183,6 +45681,7 @@
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "60f9c47270b215a8",
           "6448b901792d40a4",
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
@@ -45193,18 +45692,23 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "8065981a6233598e",
+          "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
+          "83966cd4fefe54f6",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
           "94e751d14ffa29a9",
           "982f6c71300d5430",
           "99f8c9ff56a09d49",
+          "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9f73e84abaa708e0",
           "a165740521c96115",
           "a470a69ce2ec2250",
+          "a4adf08da1a10229",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45218,6 +45722,7 @@
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
+          "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
           "cccecbbc8438b3aa",
           "ce3d0f0b6b9d9199",
@@ -45499,6 +46004,151 @@
       ],
       "terminal_route_patterns": [
         "/one/setup/calendar"
+      ],
+      "version": 1
+    },
+    {
+      "aliases": [
+        "set up my cloud",
+        "connect my cloud",
+        "open cloud setup",
+        "use my own google cloud",
+        "onboard me for Cloud",
+        "onboard me for cloud",
+        "onboard Cloud",
+        "start Cloud onboarding",
+        "resume Cloud onboarding",
+        "Cloud onboarding"
+      ],
+      "api_endpoints": [],
+      "authorization": {
+        "server_revalidation": "identity_and_persisted_onboarding_state"
+      },
+      "available_action_ids": [
+        "setup.finish_cloud"
+      ],
+      "capability_id": "workflow.setup.cloud",
+      "completion_action_ids": [
+        "setup.finish_cloud"
+      ],
+      "description": "Opens the step where the person names and authorizes their own Google Cloud project for their private agent.",
+      "entry_action_id": "setup.open_cloud",
+      "execution": {
+        "mode": "generated_setup_workflow",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/setup/cloud"
+        }
+      },
+      "kind": "service_onboarding",
+      "label": "Onboard me for Cloud",
+      "native_semantic_actions": [],
+      "non_completion_action_ids": [],
+      "plan": {
+        "completion": {
+          "claim_policy": "verified_persisted_state_only",
+          "skip_is_success": false,
+          "success_state_capability_id": "cloud",
+          "visual_computer_use": "excluded_from_primary_path"
+        },
+        "durability": "derived_from_persisted_onboarding_state",
+        "executor_hierarchy": [
+          {
+            "action_ids": [],
+            "discovered_endpoint_count": 0,
+            "kind": "backend_api",
+            "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
+            "status": "adapter_required"
+          },
+          {
+            "actions": [],
+            "kind": "native_semantic_action",
+            "reason": "No generated native semantic prerequisite is registered for this setup flow.",
+            "status": "not_required_or_unregistered"
+          },
+          {
+            "action_ids": [
+              "setup.open_cloud",
+              "setup.finish_cloud"
+            ],
+            "kind": "existing_ui_semantic_action",
+            "route_pattern": "/one/setup/cloud",
+            "status": "registered"
+          },
+          {
+            "kind": "typed_render",
+            "render_surface": "existing_route_surface",
+            "route_pattern": "/one/setup/cloud",
+            "status": "approved_existing_surface"
+          }
+        ],
+        "resumable": true,
+        "schema_version": "one.service_onboarding_workflow.v1"
+      },
+      "resume": {
+        "active_capability": "cloud",
+        "expected_phase": "capability_setup",
+        "expected_route": "/one/setup/cloud",
+        "expected_screen": "one_setup_cloud",
+        "settlement": "persisted_onboarding_state",
+        "state_source": "vault_keys"
+      },
+      "route_pattern": "/one/setup/cloud",
+      "schema_version": "one.service_onboarding_workflow.v1",
+      "screen": "one_setup_cloud",
+      "search_keywords": [
+        "cloud",
+        "project",
+        "google cloud",
+        "byoc",
+        "own compute"
+      ],
+      "service_id": "cloud",
+      "state_capability_id": "cloud",
+      "steps": [
+        {
+          "action_id": "setup.open_cloud",
+          "executor": "existing_ui_semantic_action",
+          "outcome": "NAVIGATE",
+          "route_pattern": "/one/setup/cloud",
+          "step_id": "workflow.setup.cloud.navigate"
+        },
+        {
+          "description": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
+          "directive": null,
+          "outcome": "RENDER",
+          "render_surface": "existing_route_surface",
+          "route_pattern": "/one/setup/cloud",
+          "screen": "one_setup_cloud",
+          "step_id": "workflow.setup.cloud.surface"
+        },
+        {
+          "action_ids": [
+            "setup.finish_cloud"
+          ],
+          "completion_action_ids": [
+            "setup.finish_cloud"
+          ],
+          "executor": "existing_ui_semantic_action",
+          "non_completion_action_ids": [],
+          "outcome": "EXECUTE",
+          "settlement": "persisted_onboarding_state",
+          "step_id": "workflow.setup.cloud.settle",
+          "success_requires": {
+            "condition": "setup_capability_ids_contains_service",
+            "source": "vault_keys",
+            "state_capability_id": "cloud"
+          }
+        }
+      ],
+      "telemetry_event": "app_intelligence.service_onboarding",
+      "terminal_action_ids": [
+        "setup.finish_cloud"
+      ],
+      "terminal_route_patterns": [
+        "/one/setup/cloud"
       ],
       "version": 1
     },

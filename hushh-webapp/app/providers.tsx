@@ -39,6 +39,7 @@ import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-actio
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
 import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
 import { AccountLifecycleStepBridge } from "@/components/profile/account-lifecycle-step-bridge";
+import { NativePrivateGoogleConnectorHandoff } from '@/components/connections/native-private-google-connector-handoff';
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
@@ -102,9 +103,7 @@ import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
-import { AgentChatTurnNotifier } from "@/components/agent/agent-chat-turn-notifier";
-import { AgentConsentContinuationNotifier } from "@/components/agent/agent-consent-continuation-notifier";
-import { AgentFeedAttentionNotifier } from "@/components/agent/agent-feed-attention-notifier";
+import { AgentAppNotifiers } from "@/components/agent/agent-app-notifiers";
 import { RenderPerfProbe } from "@/components/app-ui/render-perf-probe";
 import { RenderPerfProfiler } from "@/components/app-ui/render-perf-profiler";
 import { BootRouteCommitted } from "@/components/app-ui/boot-surface";
@@ -162,6 +161,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { isAuthenticated, loading: authLoading, userId } = useAuth();
+  const profileReturnFocus = useRef<{ owner: string | null; target: HTMLElement } | null>(null);
   const [profilePaneResume, setProfilePaneResume] = useState<{
     ownerId: string | null;
     location: ProfilePaneLocation;
@@ -508,6 +508,8 @@ function AppShellFrame({ children }: ProvidersProps) {
         report?.("already_open");
         return;
       }
+      const target = (event as CustomEvent<ProfilePaneOpenDetail>).detail?.returnFocus;
+      profileReturnFocus.current = target?.isConnected ? { owner: userId, target } : null;
       openProfilePane(
         pathname || ROUTES.ONE_HOME,
         searchParams,
@@ -528,6 +530,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     profilePaneResumeLocation,
     profilePaneUrlState.open,
     searchParams,
+    userId,
   ]);
 
   const profilePaneIsOpen = profilePaneUrlState.open;
@@ -652,10 +655,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <InteractionRuntime />
                   {/* One turns outlive the screen that started them: reattach,
                       and say "One replied" when the person is elsewhere. */}
-                  <AgentChatTurnNotifier />
                   {/* A request sent from chat continues once it is answered. */}
-                  <AgentConsentContinuationNotifier />
-                  <AgentFeedAttentionNotifier />
+                  <AgentAppNotifiers />
                   <RenderPerfProbe />
                   <FoundationPublicAmbient />
                   {!hidesPersistentChrome ? (
@@ -672,8 +673,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <AppProfileEdgeGesture enabled={profilePaneEnabled} />
                   <AppBottomShell model={bottomShellModel} />
                   <ProfilePane
+                    owner={userId}
                     open={profilePaneOpen}
                     onOpenChange={handleProfilePaneOpenChange}
+                    returnFocusRef={profileReturnFocus}
                   />
                   {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
@@ -828,6 +831,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   here: it needs the vault-owner token this provider holds and
                   must work from Home, not only with Profile mounted. */}
               <AccountLifecycleStepBridge />
+              <NativePrivateGoogleConnectorHandoff />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
         </VaultProvider>

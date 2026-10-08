@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_vault_owner_token
 from api.routes.kai import router as kai_router
+from hushh_mcp.services import owner_placement_guard
 
 # ---------------------------------------------------------------------------
 # App fixture: minimal FastAPI app with the Kai router (prefix /api/kai).
@@ -40,7 +41,7 @@ def client() -> TestClient:
 
 
 @pytest.fixture
-def authorized_client() -> TestClient:
+def authorized_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Exercise field bounds after canonical auth, without a live DB or LLM.
 
     FastAPI resolves dependencies before route-field validation. The separate
@@ -52,6 +53,13 @@ def authorized_client() -> TestClient:
         "user_id": _GOOD_USER_ID,
         "token": "fixture-owner-capability",
     }
+
+    async def shared_owner(user_id: str) -> str:
+        assert user_id == _GOOD_USER_ID
+        return "shared"
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", shared_owner)
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -150,8 +158,8 @@ class TestAnalyzeStreamQueryBounds:
             },
             headers=_auth_headers(),
         )
-        # 422 would mean validation failed; anything else means bounds passed
-        assert resp.status_code != 422
+        # Bounded anonymous requests still fail at the canonical auth boundary.
+        assert resp.status_code in {401, 403}
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +201,7 @@ class TestAnalyzeRunActiveQueryBounds:
             },
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
 
     def test_exactly_128_char_user_id_passes_validation(self, client: TestClient):
         uid128 = "u" * 128
@@ -205,7 +213,7 @@ class TestAnalyzeRunActiveQueryBounds:
             },
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +246,7 @@ class TestAnalyzeRunStreamBounds:
             params={"user_id": _GOOD_USER_ID},
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
 
     def test_exactly_128_char_run_id_passes_validation(self, client: TestClient):
         run_id_128 = "r" * 128
@@ -247,7 +255,7 @@ class TestAnalyzeRunStreamBounds:
             params={"user_id": _GOOD_USER_ID},
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
 
 
 # ---------------------------------------------------------------------------
@@ -280,4 +288,24 @@ class TestAnalyzeRunCancelBounds:
             params={"user_id": _GOOD_USER_ID},
             headers=_auth_headers(),
         )
-        assert resp.status_code != 422
+        assert resp.status_code in {401, 403}
+
+
+@pytest.mark.parametrize("mode,status", [("unknown", 503), ("unplaced", 409), ("byoc", 409)])
+def test_non_shared_analysis_refuses_before_query_processing(
+    authorized_client, monkeypatch, mode, status
+):
+    async def observed_owner(user_id: str) -> str:
+        assert user_id == _GOOD_USER_ID
+        return mode
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", observed_owner)
+    response = authorized_client.get(
+        "/api/kai/analyze/stream",
+        params={"ticker": _LONG_TICKER, "user_id": _GOOD_USER_ID},
+        headers=_auth_headers(),
+    )
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == (
+        "AGENT_HOSTING_UNAVAILABLE" if mode == "unknown" else "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    )

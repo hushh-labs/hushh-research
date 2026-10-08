@@ -7,6 +7,9 @@ import { INITIAL_VOICE_SESSION_STATE } from "../../lib/one-voice/session-types";
 import { AgentDockProvider, AgentDockPortal } from "../../components/agent/agent-dock";
 import { AgentBarSurface } from "../../components/agent/agent-bar-surface";
 import { ShellActionSurface } from "../../components/app-ui/shell-action-surface";
+import { NativeAccentChoice } from "../../components/app-ui/native-accent-choice";
+import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
+import { useAccent } from "../../lib/theme/accent";
 
 /**
  * The persistent bottom chrome exactly as `app/providers.tsx` mounts it: the
@@ -19,6 +22,13 @@ import { ShellActionSurface } from "../../components/app-ui/shell-action-surface
  *   data-path="/one/location" the route the navigation resolves against
  */
 const dataset = document.documentElement.dataset;
+
+function PublicColorPreference() {
+  const value = useAccent();
+  return <SettingsGroup><SettingsRow title="Accent" description="Choose the app accent."
+    trailing={<NativeAccentChoice value={value} owner="fixture-owner" context="preferences" eligible />}
+    stackTrailingOnMobile /></SettingsGroup>;
+}
 
 if (dataset.voice === "expanded") {
   useVoiceSessionStore.setState({
@@ -65,6 +75,7 @@ function Page() {
         style={{ minHeight: "180vh", padding: "24px 16px" }}
         className="bg-background text-foreground"
       >
+        {dataset.preferences === "true" ? <PublicColorPreference /> : null}
         {Array.from({ length: 12 }, (_, index) => (
           <p key={index} className="py-3">
             Route content row {index + 1}

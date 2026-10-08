@@ -1,0 +1,29 @@
+{
+  "skill_name": "puppy-one-harness",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "run the on-device model harness for Puppy One and report its capability profile",
+        "top_k": 3
+      },
+      {
+        "prompt": "grade the Puppy One review queue with the local model judge and ingest every verdict",
+        "top_k": 3
+      },
+      {
+        "prompt": "compare the latest Puppy One benchmark against its evolution ledger",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "fix the backend provider routing gate that selects the on-device model",
+        "owner": "backend-runtime-governance"
+      },
+      {
+        "prompt": "fix ciphertext-only vault persistence for PKM writes",
+        "owner": "vault-pkm-governance"
+      }
+    ]
+  }
+}

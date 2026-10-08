@@ -9,9 +9,9 @@ Produce a shareable PDF-style artifact that follows the docs-home, founder-langu
 ## Steps
 
 1. Start with `docs-governance` and route artifact-specific execution to `founder-brief-curation`.
-2. Open only the required reads listed in `workflow.json`.
+2. Open only the required reads listed in `workflow.json`; the Codex bridge directs PDF behavior to `skills/pdf-artifact-generation/SKILL.md`.
 3. Keep implementation proof grounded in current repo truth; keep future-state claims visibly scoped.
-4. Verify shareable links, diagram legibility, and docs parity before handoff.
+4. Verify the cross-platform artifact contract, shareable links, diagram legibility, and docs parity before handoff.
 
 ## Common Drift Risks
 

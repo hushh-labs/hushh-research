@@ -136,7 +136,7 @@ async def test_expired_invocation_and_revoked_owner_are_rejected(monkeypatch):
 
 
 async def test_disabled_feature_is_unavailable(monkeypatch):
-    # Owner-available reads ignore the env switch; admission itself still gates.
+    # Admission remains authoritative even when owner reads ignore rollout flags.
     from hushh_mcp.adk_bridge import email_agent
 
     monkeypatch.setattr(email_agent, "connector_feature_enabled", lambda *_: False)
@@ -144,6 +144,13 @@ async def test_disabled_feature_is_unavailable(monkeypatch):
     with pytest.raises(PermissionError):
         await EmailAgentA2A(service=service).handle(_task())
     assert not service.calls
+
+
+async def test_owner_email_reads_remain_available_without_rollout_flag(monkeypatch):
+    monkeypatch.setenv("GMAIL_CHAT_READS", "false")
+    service = _FakeEmailService()
+    await EmailAgentA2A(service=service).handle(_task())
+    assert len(service.calls) == 1
 
 
 def test_get_email_a2a_is_singleton():

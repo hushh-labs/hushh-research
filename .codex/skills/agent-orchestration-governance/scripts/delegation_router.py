@@ -16,7 +16,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
-AGENTS_DIR = Path(".codex/agents")
+AGENTS_DIR = Path("agents")
 WORKFLOWS_DIR = Path(".codex/workflows")
 REPO_GLOBAL_AUTO_SPAWN_MARKER = "repo_global_auto_spawn"
 REPO_INTENT_LANE_MATCH_MARKER = "repo_intent_lane_match"

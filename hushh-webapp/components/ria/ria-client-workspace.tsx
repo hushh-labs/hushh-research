@@ -506,11 +506,12 @@ export function RiaClientWorkspace({
           ? "loading"
           : iamUnavailable
             ? "unavailable-valid"
-            : workspace || detail
-              ? "loaded"
-              : "empty-valid",
+            : detailError
+              ? "error"
+              : workspace || detail
+                ? "loaded"
+                : "empty-valid",
         errorCode: detailError ? "ria_client_workspace" : null,
-        errorMessage: detailError,
       }}
       actions={
         detail && !detail.is_self_relationship && !isTestProfile ? (

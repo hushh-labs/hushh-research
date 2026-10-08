@@ -51,7 +51,7 @@ describe("AuthStep layout contract", () => {
     );
 
     expect(source).toContain(
-      "const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;",
+      "const showReviewer = shouldAutoAuthenticateReviewer(nativeTestConfig) && nativeReviewerVisible;",
     );
     expect(source).not.toContain("isLocalReviewerSurface");
   });

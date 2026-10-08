@@ -626,10 +626,7 @@ describe("ConnectCirclesTab", () => {
     expect(href).toContain("tab=circles");
     expect(href).toContain("action=circle-detail");
     expect(href).toContain("circleId=mine");
-    // The thing this replaced. `/one/location` runs a first-run onboarding
-    // takeover that no query parameter bypasses, so a person who had never
-    // used Location was shown "Share your location easily with anyone" after
-    // asking to open a group of friends.
+    // Avoid Location's first-run onboarding takeover.
     expect(href).not.toContain("/one/location");
   });
 
@@ -665,9 +662,7 @@ describe("ConnectCirclesTab", () => {
   });
 
   it("names the tab explicitly on every navigation", async () => {
-    // The App Router refuses a navigation whose only change is the whole query
-    // string disappearing, so `tab=circles` is written out even when closing a
-    // flow -- otherwise back out of a Circle is a dead press.
+    // Keep tab=circles on every navigation, including closing a flow.
     mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
 
     render(<ConnectCirclesTab />);
@@ -713,9 +708,7 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
   });
 
   it("renders Create a circle in place when ?action=create-circle", async () => {
-    // The whole point. Before this, the same tap was a router.push into
-    // /one/location, where a first-run onboarding takeover -- decided without
-    // reading any query parameter -- rendered instead.
+    // Create stays on Connect without Location's first-run takeover.
     mocks.searchParams = new URLSearchParams(
       "tab=circles&action=create-circle",
     );

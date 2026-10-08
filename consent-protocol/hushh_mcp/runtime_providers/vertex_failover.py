@@ -146,31 +146,61 @@ class VertexRegionalClient:
 
     def _call_sync(self, method_name: str, kwargs: dict[str, Any]) -> Any:
         last_error: Exception | None = None
+        prior_failures = 0
         for location in self._available_locations():
             try:
                 method = getattr(self._client_for(location).models, method_name)
-                return method(**kwargs)
+                result = method(**kwargs)
+                if prior_failures:
+                    logger.info(
+                        "vertex_region_failover stage=%s outcome=success attempts=%s location=%s",
+                        method_name,
+                        prior_failures + 1,
+                        location,
+                    )
+                return result
             except Exception as error:  # noqa: BLE001 - provider boundary
                 if not is_retryable_vertex_error(error):
                     raise
                 last_error = error
+                prior_failures += 1
                 self._mark_transient_failure(location, error)
         if last_error is not None:
+            logger.warning(
+                "vertex_region_failover stage=%s outcome=exhausted attempts=%s",
+                method_name,
+                prior_failures,
+            )
             raise last_error
         raise RuntimeError("Vertex regional failover exited without an attempt")
 
     async def _call_async(self, method_name: str, kwargs: dict[str, Any]) -> Any:
         last_error: Exception | None = None
+        prior_failures = 0
         for location in self._available_locations():
             try:
                 method = getattr(self._client_for(location).aio.models, method_name)
-                return await method(**kwargs)
+                result = await method(**kwargs)
+                if prior_failures:
+                    logger.info(
+                        "vertex_region_failover stage=%s outcome=success attempts=%s location=%s",
+                        method_name,
+                        prior_failures + 1,
+                        location,
+                    )
+                return result
             except Exception as error:  # noqa: BLE001 - provider boundary
                 if not is_retryable_vertex_error(error):
                     raise
                 last_error = error
+                prior_failures += 1
                 self._mark_transient_failure(location, error)
         if last_error is not None:
+            logger.warning(
+                "vertex_region_failover stage=%s outcome=exhausted attempts=%s",
+                method_name,
+                prior_failures,
+            )
             raise last_error
         raise RuntimeError("Vertex regional failover exited without an attempt")
 

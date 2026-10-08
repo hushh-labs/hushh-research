@@ -98,9 +98,26 @@ tests/test_mcp_log_redaction.py
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_developer_commerce_contracts.py
+# Consumer-paid scope admission and accounting: real isolated PostgreSQL,
+# signed provider receipts, and OIDC-only reconciliation through rollback.
+tests/services/test_scope_commerce_store_postgres.py
+tests/services/test_scope_commerce_core_money_postgres.py
+tests/services/test_scope_commerce_treasury_postgres.py
+tests/services/test_scope_commerce_core_workflow_postgres.py
+tests/services/test_scope_commerce_core_erasure_postgres.py
+tests/services/test_scope_commerce_provider_integration_postgres.py
+tests/services/test_scope_commerce_provider_receipts_postgres.py
+tests/test_scope_commerce_provider.py
+tests/test_scope_commerce_sandbox.py
+tests/test_scope_commerce_contracts_postgres.py
+tests/test_scope_commerce_delivery_contracts_postgres.py
+tests/test_scope_commerce_lineage_contracts_postgres.py
+tests/test_scope_commerce_receipt_contracts_postgres.py
+tests/test_scope_commerce_work.py
+tests/test_marketplace_consent_delivery.py
+tests/test_marketplace_earnings_accrual.py
 tests/test_encrypted_blob_bounds.py
-tests/test_data_model_audit_script.py
-tests/test_data_model_audit_postgres.py
 tests/test_gmail_receipt_cache_cutover.py
 tests/services/test_gmail_receipt_live_service.py
 tests/test_gmail_receipt_live_routes.py
@@ -121,7 +138,9 @@ tests/test_mcp_encrypted_scoped_export_tool.py
 tests/test_request_consent_local_keypair.py
 tests/test_mcp_remote_endpoint.py
 tests/test_mcp_public_contract_v030.py
+tests/test_mcp_flat_profile.py
 tests/test_mcp_public_tools_v030.py
+tests/test_mcp_commerce_projection.py
 tests/test_mcp_protocol_negotiation_v030.py
 tests/test_campaign_context_tool.py
 tests/quality/test_kai_route_auth_compliance.py
@@ -276,6 +295,9 @@ tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
+# Inventory all user-keyed migration tables against executed deletes, checked
+# FK cascades, specialized Drive erasure, or an explicit retention contract.
+tests/services/test_account_erasure_covers_every_user_table.py
 tests/test_pool_acquire_is_bounded.py
 
 # Deleted-account session invalidation is a cross-client privacy boundary.
@@ -420,6 +442,7 @@ tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
 tests/test_conversation_titles.py
 tests/scripts/test_eval_one_first_tool.py
+tests/scripts/test_eval_one_first_tool_context.py
 tests/scripts/test_eval_pkm_structure_agent.py
 tests/scripts/test_eval_pkm_latency.py
 tests/scripts/test_eval_kai_adk_synthetic.py
@@ -542,9 +565,67 @@ tests/one_voice/test_one_voice_postgres.py
 tests/test_plaid_vault_routes.py
 tests/test_plaid_server_custody_retire.py
 
-tests/test_dev_candidate_gate.py
-
+# Hosting, pod authority/recovery, exact-reviewed MCP and dev candidate acceptance.
+# These runtime/script contracts block the shared and BYOC release lanes.
+tests/test_hosting_mode_resolution.py
+tests/test_pod_binding_service.py
+tests/test_pod_browser_boundary.py
+tests/test_pod_browser_information.py
+tests/test_pod_browser_sessions.py
+tests/test_pod_binding_transactions.py
+tests/test_pod_consent_authority.py
+tests/test_pod_ingress_axis.py
+tests/test_pod_session_authority.py
+tests/test_pod_turn_route.py
+tests/test_pod_turn_memory_authority.py
+tests/test_one_adk_text_runtime.py
+tests/test_pod_files_library.py
+tests/test_pod_files_routes.py
+tests/test_pod_files_jobs.py
+tests/test_pod_files_queue_recovery.py
+tests/test_pod_specialist_capability_matrix.py
+tests/test_pod_files_provisioning.py
+tests/test_pod_files_selection_postgres.py
+tests/test_puppy_activation.py
+tests/test_pod_command_routes.py
+tests/test_personal_agent_renewal_authority.py
+tests/test_pod_session_routes.py
+tests/test_pod_puppy_relay_route.py
+tests/test_puppy_envelope.py
+tests/test_puppy_broker.py
+tests/test_puppy_local_transport.py
+tests/test_puppy_capability_seam.py
+tests/test_pod_upgrade_admission.py
+tests/test_pod_upgrade_control_auth.py
+tests/test_pod_upgrade_handoff.py
+tests/test_pod_upgrade_rollback_guard.py
+tests/test_pod_update_detection.py
+tests/test_pod_image_upgrade_path.py
+tests/test_governed_mcp_toolset.py
+tests/test_stripe_mcp_admission.py
+tests/test_stripe_mcp_reads.py
+tests/test_external_crm_mcp_transport.py
+tests/test_registered_mcp_toolset.py
+tests/test_mcp_review_service.py
+tests/test_mcp_resume_receipt.py
+tests/test_mcp_pending_call.py
+tests/test_mcp_turn_scope.py
+tests/test_workspace_mcp_tools.py
+tests/test_drive_result_privacy.py
 tests/test_cloudrun_revision_provenance.py
+tests/test_dev_candidate_gate.py
+tests/test_commerce_preview_bootstrap.py
+tests/test_commerce_preview_target.py
+
+# Profile discovery authority, claims, and optional isolated bridge rehearsal.
+tests/services/test_profile_claim_receipts.py
+tests/services/test_public_profile_discovery.py
+tests/test_profile_discovery_routes.py
+tests/test_profile_discovery_work_drain_routes.py
+tests/integration/test_public_profile_bridge.py
+tests/services/test_public_profile_prepared_boundary.py
+
+tests/test_pod_release.py
 # Person-to-person export readback binds on the status owner (2026-09-25 regression),
 # the second chat turn survives empty replayed history parts, and governed custom
 # connector calls pause for exact-call review without leaking arguments or results.
@@ -553,7 +634,6 @@ tests/test_one_output_privacy.py
 # A long paste travels as its own text/plain document part: the model reads it as a
 # named, delimited document and history restores it as a chip, not message text.
 tests/test_one_text_attachments.py
-tests/test_governed_mcp_toolset.py
 tests/one_adk/test_mcp_oauth_storage.py
 tests/services/test_external_mcp_client.py
 tests/services/test_external_mcp_result.py
@@ -561,7 +641,6 @@ tests/services/test_external_mcp_safe_logging.py
 tests/services/test_mcp_catalog_cache.py
 tests/services/test_mcp_connector_probe.py
 tests/services/test_mcp_public_http.py
-tests/test_workspace_mcp_tools.py
 tests/services/test_google_calendar_mcp_service.py
 tests/services/test_google_gmail_mcp_service.py
 tests/test_registered_connector_keys.py
@@ -570,20 +649,19 @@ tests/test_external_mcp_schema_dialects.py
 tests/test_external_mcp_client_failure_logging.py
 tests/test_external_mcp_schema_evaluation_budget.py
 tests/test_one_turn_location.py
+
 # Owner standing style: closed schema, template-only prompt section, no authority.
 tests/test_one_owner_style.py
-tests/test_mcp_pending_call.py
-tests/test_mcp_review_service.py
 tests/test_mcp_review_wire_contract.py
+
+# Placement compare-and-swap preserves assigned pods during setup.
+tests/test_personal_agent_cloud_assignment.py
+
 # Custom connectors: reads free, writes reviewed. The review policy follows the
 # person's credential, a stale owner block forces review, and only opaque
 # connector ids and review outcomes reach the browser wire.
-tests/test_mcp_turn_scope.py
-tests/test_drive_result_privacy.py
-tests/test_registered_mcp_toolset.py
 # A review ledger outage reads as "review unavailable", never a declined approval;
 # OAuth sign-in admits metadata a real (streaming) transport has not yet read.
-tests/test_mcp_resume_receipt.py
 tests/test_one_run_errors.py
 tests/one_adk/test_mcp_oauth_connection.py
 # Returning to a chat restores its Activity rows and connect card from the turn's
@@ -599,6 +677,15 @@ tests/test_chat_history_byok.py
 # replay. CI runs the static checks; the behaviour checks run only when
 # CHAT_CUTOVER_TEST_DATABASE_URL points at a throwaway real-schema Postgres.
 tests/test_chat_history_cutover_migration.py
+
+tests/test_chat_history_rollout.py
+
+tests/test_one_agent_chat_ingress.py
+
+tests/test_pod_server.py
+
+# Execute the real deploy shell with immutable-artifact fixtures.
+tests/test_personal_agent_deploy_lane.py
 tests/test_structure_agent_prompt_is_unambiguous.py
 # One's own attention moments: the picked-up card after a first connection
 # (nothing stored server-side, once per source, out-of-contract output rejected)
@@ -635,8 +722,369 @@ tests/test_shared_with_me_card.py
 tests/test_curated_connector_deploy_wiring.py
 tests/test_provision_curated_connector.py
 
+# Restored 2026-10-02. Merge 0d514ebe2 (2026-09-16) silently dropped these from
+# the manifest while they still existed, so the architecture guards (deployment
+# boundary, compute backend, BYOC, pod architecture, merge guard) stopped gating
+# merges. Each was re-run before being restored; every file below passes.
+tests/test_a2a_agent_card_well_known.py
+tests/test_agent_manifest_index.py
+tests/test_agent_promises_match_tools.py
+tests/test_agent_prompt_routes.py
+tests/test_agent_prompt_service.py
+tests/test_agent_runtime_tool_resolution_error.py
+tests/test_ai_connection_gate.py
+tests/test_bootstrap_token_blames_the_right_party.py
+tests/test_byoc_authorization_instructions_route.py
+tests/test_byoc_authorization_script_matches_the_applier.py
+tests/test_byoc_billing_refusals.py
+tests/test_byoc_bootstrap_and_custody.py
+tests/test_byoc_bootstrap_plan_matches_the_applier.py
+tests/test_byoc_cloud_parked_before_record.py
+tests/test_byoc_oauth_authorizer_state.py
+tests/test_byoc_one_click_authorize_routes.py
+tests/test_byoc_pod_image_copy.py
+tests/test_byoc_project_naming.py
+tests/test_byoc_project_save_route.py
+tests/test_byoc_setup_job_repo.py
+tests/test_byoc_substrate.py
+tests/test_byoc_substrate_first_light_gaps.py
+tests/test_byoc_substrate_teardown.py
+tests/test_byoc_substrate_teardown_is_loud.py
+tests/test_byoc_substrate_teardown_surfacing.py
+tests/test_byoc_tenancy_is_per_person.py
+tests/test_compute_backend.py
+tests/test_compute_backend_contract.py
+tests/test_compute_backend_parity.py
+tests/test_consent_audit_chain.py
+tests/test_consent_audit_key_separation.py
+tests/test_consent_audit_signing_explicit.py
+tests/test_consent_signing_dev_rollout_contract.py
+tests/test_consent_token_asymmetric.py
+tests/test_database_connection_ceiling.py
+tests/test_dco_signoff_is_unmissable.py
+tests/test_debug_route_is_local_only.py
+tests/test_deprovision_routes_by_the_row.py
+tests/test_dev_migration_lane.py
+tests/test_dev_simulation_guard.py
+tests/test_firebase_auth_contract.py
+tests/test_fleet_sweep_lock.py
+tests/test_fleet_sweep_lock_postgres.py
+tests/test_fleet_sweep_lock_wiring.py
+tests/test_gcp_backend.py
+tests/test_gcp_backend_cost_labels.py
+tests/test_gcp_backend_cpu_allocation.py
+tests/test_gcp_backend_pod_project.py
+tests/test_gcp_run_client.py
+tests/test_gcp_run_invoker_binding.py
+tests/test_health_ready.py
+tests/test_health_ready_pod_fleet.py
+tests/test_hosted_cloud_choice.py
+tests/test_hosted_tier_guard.py
+tests/test_journey_is_traceable.py
+tests/test_journey_parity.py
+tests/test_kms_key_resolver.py
+tests/test_managed_runtime_selection.py
+tests/test_memory_judge.py
+tests/test_model_access_policy.py
+tests/test_one_adk_live_protocol.py
+tests/test_one_memory_service.py
+tests/test_one_relay_identity.py
+tests/test_one_session_service.py
+tests/test_owner_direct_acceptance.py
+tests/test_parked_cloud_reaches_the_person.py
+tests/test_personal_agent_adopt.py
+tests/test_personal_agent_autoprovision.py
+tests/test_personal_agent_feed_events.py
+tests/test_personal_agent_fleet_cap.py
+tests/test_personal_agent_full_cycle.py
+tests/test_personal_agent_grant_service.py
+tests/test_personal_agent_health_presence.py
+tests/test_personal_agent_identity_service.py
+tests/test_personal_agent_orphan_sweep.py
+tests/test_orphan_erase_backoff.py
+tests/test_personal_agent_provisioning_service.py
+tests/test_personal_agent_reconcile_attach.py
+tests/test_personal_agent_reconcile_worker.py
+tests/test_personal_agent_registry_repo.py
+tests/test_personal_agent_routes.py
+tests/test_personal_agent_wiring.py
+tests/test_phone_verify_resumes_ai_connection.py
+tests/test_pkm_engine_conformance_postgres.py
+tests/test_pkm_engine_conformance_sqlite.py
+tests/test_pkm_grounding_service.py
+tests/test_pkm_sqlite_commit_binding.py
+tests/test_pod_access_audit.py
+tests/test_pod_agent_chat_store.py
+tests/test_pod_agent_evolution_simulation.py
+tests/test_pod_architecture_is_authoritative.py
+tests/test_pod_architecture_merge_guard.py
+tests/test_pod_authority_store.py
+tests/test_pod_capability_wiring_is_closed_loop.py
+tests/test_pod_cold_resume_state.py
+tests/test_pod_commit_log.py
+tests/test_pod_completion_judge.py
+tests/test_pod_config.py
+tests/test_pod_connector_keypair_service.py
+tests/test_pod_cost_is_attributable.py
+tests/test_pod_data_door_calendar.py
+tests/test_pod_data_door_projection.py
+tests/test_pod_directive_authority.py
+tests/test_pod_handshake_is_immediate.py
+tests/test_pod_heartbeat_loop.py
+tests/test_pod_heartbeat_route.py
+tests/test_pod_hub_data_path.py
+tests/test_pod_hub_specialist_read.py
+tests/test_pod_identity_byoc_binding.py
+tests/test_pod_identity_store.py
+tests/test_pod_image_build_contract.py
+tests/test_pod_journey_parity.py
+tests/test_pod_journey_trace.py
+tests/test_pod_key_collection.py
+tests/test_pod_key_custody.py
+tests/test_pod_key_custody_derivation.py
+tests/test_pod_lifecycle_drill.py
+tests/test_pod_lifecycle_log.py
+tests/test_pod_live_courier.py
+tests/test_pod_live_relay.py
+tests/test_pod_live_session.py
+tests/test_pod_live_transport.py
+tests/test_pod_liveness_adapters.py
+tests/test_pod_liveness_attach.py
+tests/test_pod_liveness_service.py
+tests/test_pod_liveness_worker.py
+tests/test_pod_memory_bank.py
+tests/test_pod_memory_boundary.py
+tests/test_pod_memory_durability.py
+tests/test_pod_memory_review.py
+tests/test_pod_memory_service.py
+tests/test_pod_migration_bundle.py
+tests/test_pod_migration_freeze.py
+tests/test_pod_migration_job.py
+tests/test_pod_migration_live_steps.py
+tests/test_pod_migration_routes.py
+tests/test_pod_migration_sequence.py
+tests/test_pod_migration_transport.py
+tests/test_pod_mode.py
+tests/test_pod_model_diagnostic.py
+tests/test_pod_observability_contract.py
+tests/test_pod_parity_probe.py
+tests/test_pod_pkm_resolver.py
+tests/test_pod_reconcile.py
+tests/test_pod_relay.py
+tests/test_pod_relay_refuses_own_cloud.py
+tests/test_pod_resource_tier_is_per_person.py
+tests/test_pod_service_account_id_fits_google.py
+tests/test_pod_spec_deployment_axes.py
+tests/test_pod_specialist_broker.py
+tests/test_pod_specialist_runtime.py
+tests/test_pod_status_vocabulary_is_one_vocabulary.py
+tests/test_pod_storage.py
+tests/test_pod_tombstone_courier.py
+tests/test_pod_turn_grounding.py
+tests/test_pod_turn_reports_specialists.py
+tests/test_pod_upgrade_lease_against_postgres.py
+tests/test_pod_wake_reachability.py
+tests/test_product_agent_registry_v2.py
+tests/test_provision_uses_the_persons_own_cloud.py
+tests/test_puppy_relay.py
+tests/test_puppy_reasoning_stream.py
+tests/test_rca_runner_can_say_it_did_not_look.py
+tests/test_relay_ticket_nonces.py
+tests/test_scheduler_identity.py
+tests/test_standing_read_reissue.py
+tests/test_timeout_ladder.py
+tests/test_user_adc_turn.py
+tests/test_user_cloud_parked_fallback.py
+tests/test_user_gcp_backend.py
+tests/test_user_gcp_liveness_mode.py
+tests/test_user_gcp_model_access_boundary.py
+tests/test_webauthn_aal.py
+tests/test_webauthn_mds.py
+tests/test_webauthn_repo.py
+tests/test_webauthn_routes.py
+tests/test_webauthn_service.py
+
+# Restored with the owner-cloud predicate that made it pass (2026-10-02).
+tests/test_deployment_boundary_holds.py
+
+# Restored with the pod regressions they caught (2026-10-02): memory recall,
+# private-voice directives and scoped pod Mail reads.
+tests/test_pod_memory_is_actually_used.py
+tests/test_pod_live_authority.py
+tests/test_pod_data_door_email.py
+tests/test_email_chat_service.py
+
+# Restored after updating to the deliberate product changes they predated (2026-10-02).
+tests/test_pod_memory_routes.py
+tests/test_pod_turn_relay.py
+tests/test_one_grounding_honesty.py
+tests/test_pod_data_door_specialist.py
+tests/test_pod_fleet_wiring.py
+tests/test_pod_no_trace_reset.py
+tests/test_no_orphaned_agents.py
+
+# Azure lane pod-seams (2026-10-02)
+tests/test_pod_boots_off_google_cloud.py
+tests/test_pod_key_vault_custody.py
+tests/test_pod_object_store_contract.py
+tests/test_pod_platform_incarnation.py
+tests/test_pod_workload_identity.py
+# Azure lane identity (2026-10-02): cloud-neutral pod-to-hub request signing.
+tests/test_pod_request_signing.py
+tests/test_pod_request_verifier.py
+tests/test_pod_signing_key_recording.py
+tests/test_pod_request_signing_postgres.py
+tests/test_pod_signing_key_rotation_postgres.py
+# Azure lane model (2026-10-02): the person's own Azure OpenAI deployment as the
+# agent's model (mode user_azure_mi), streamed tool calls, and the pod's own
+# deployment reachability probe, and every pod door that runs a model on it.
+tests/test_azure_openai_transport.py
+tests/test_azure_openai_responses_transport.py
+tests/test_azure_openai_owner_mode.py
+tests/test_azure_runtime_config_wiring.py
+tests/test_azure_openai_model_diagnostic.py
+tests/test_azure_openai_turn_doors.py
+# Azure lane hub-azure (2026-10-02)
+tests/test_azure_arm_client.py
+tests/test_azure_federation.py
+tests/test_azure_entra_authorizer.py
+tests/test_azure_home_directory.py
+tests/test_azure_setup_settling_and_limits.py
+tests/test_azure_setup_plan.py
+tests/test_azure_container_app_renderer.py
+tests/test_azure_pod_ingress_wall.py
+tests/test_azure_agent_setup.py
+tests/test_user_azure_backend.py
+tests/test_user_cloud_azure_coordinates.py
+tests/test_azure_registry_migration.py
+tests/test_azure_setup_job.py
+tests/test_azure_hosting_rebuild.py
+tests/test_azure_hosting_rebuild_routes.py
+tests/test_byoc_azure_routes.py
+tests/test_azure_agent_upgrade_handoff.py
+tests/test_azure_upgrade_admission.py
+# Azure lane lifecycle (2026-10-02): in-pod crypto-erase behind the erasure fence,
+# owner-access erasure through a typed capability, heal through the backend, and
+# read-only recovery of a crashed owner Azure upgrade.
+tests/test_pod_crypto_erase.py
+tests/test_owner_access_erasure.py
+tests/test_owner_access_erasure_migration.py
+tests/test_azure_upgrade_recovery.py
+# Azure lane honest-capabilities (2026-10-02): a non-Gemini head (Azure OpenAI,
+# Puppy) is built without Google Search and says so; /pod/info reports webSearch.
+tests/test_one_web_search_honesty.py
+# Azure lane image-source (2026-10-02): the importImage source credential, minted by
+# impersonating the dedicated image reader, never the hub's own token.
+tests/test_azure_image_source.py
+
+# Placement detach (2026-10-02): keep the host and data, free the slot.
+tests/test_personal_agent_placement_detach_postgres.py
+
+# Standby sync pod-sync (2026-10-03): range bundle (sealed to the standby, signed by the
+# primary), the sealed pod_role_v1 object (fail closed, forward-only epoch), the
+# standby refusal gate, and the head/export/import/set-role pod routes.
+tests/test_pod_sync_bundle.py
+tests/test_pod_role.py
+tests/test_pod_sync_routes.py
+
+# Standby sync hub-standby (2026-10-03): migration 950, the standby store under the
+# real registry guards, the key-and-epoch fence (E4), deletion refusal (E10).
+tests/test_personal_agent_standby_store_postgres.py
+tests/test_personal_agent_standby_swap_postgres.py
+tests/test_pod_placement_fence.py
+tests/test_account_standby_deletion.py
+
+# Standby sync sync-service (2026-10-03): the hub ferry (sync_once, sweep, on-demand route),
+# end to end through two pods' real sync routes, the real store's lease on PostgreSQL,
+# and the pod's signed role epoch (E4).
+tests/test_pod_standby_sync.py
+tests/test_pod_standby_sync_pods.py
+tests/test_pod_standby_sync_postgres.py
+tests/test_pod_standby_sync_wiring.py
+
+# Azure setup-job admission under the full dev chain (2026-10-03)
+tests/test_byoc_setup_job_azure_admission_postgres.py
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py
+# Bring your own AI (2026-10-04): the owner's provider, model and key sealed to their
+# own pod (C1 envelope + golden vector), the set/read/clear doors, every turn and door
+# on exactly that selection with typed refusals, and the agent advert plus the catalog.
+tests/test_pod_ai_selection_seal.py
+tests/test_pod_ai_selection_doors.py
+tests/test_pod_ai_selection_turns.py
+tests/test_pod_ai_selection_voice.py
+tests/test_pod_ai_selection_advert.py
+
+# Provision claim for an Azure home and after a detached placement (2026-10-05)
+tests/test_personal_agent_provision_after_detach_postgres.py
+tests/test_pod_key_pull_during_attach_postgres.py
+
+# Never-hosted erasure: the hub releases its own access, deletes nothing (2026-10-06)
+tests/test_personal_agent_never_hosted_erasure_postgres.py
+
+# Public-by-construction ingress admitted to owner-direct chat on a beat (2026-10-05)
+tests/test_pod_external_ingress_admission.py
+tests/test_pod_external_ingress_admission_postgres.py
+# Google own-cloud agents start public behind the wall, admitted the same way (2026-10-06)
+tests/test_owner_direct_ingress.py
+tests/test_pod_wall_refuses_every_route.py
+tests/test_owner_cloud_attach.py
+tests/test_azure_openai_tool_wire.py
+
+# Azure release path, honest commands, admission keying (2026-10-05)
+tests/test_azure_upgrade_release_source.py
+tests/test_azure_pod_release_publish_step.py
+tests/test_pod_admission_rate_limit_key.py
+tests/test_pod_capabilities_private_commands.py
+tests/test_endpoint_version_across_homes.py
+tests/test_azure_idle_window.py
+tests/test_puppy_tool_result_dates.py
+
+# Azure update answers on the revision verdict; typed outcomes, plain setup copy (2026-10-05)
+tests/test_azure_upgrade_waits_for_ready.py
+tests/test_byoc_setup_copy_hides_exception_class.py
+
+# Azure free trial named on the setup record; registry keeps current + previous image (2026-10-06)
+tests/test_azure_subscription_offer.py
+tests/test_azure_registry_prune.py
+
+# Pod cost meter prices cold starts at the boosted CPU Google bills (2026-10-06)
+tests/test_measure_pod_cost_counts_startup_boost.py
+
+# Owner-cloud admission, connector custody and direct notification boundaries.
+tests/test_account_deletion_with_setup_intent_postgres.py
+tests/test_byoc_hub_blocked_proof.py
+tests/test_google_recorded_setup_is_ready_postgres.py
+tests/test_hosting_choice_backfill_postgres.py
+tests/test_hosting_placement_unplaced.py
+tests/test_hub_content_routes_guarded.py
+tests/test_owner_cloud_attach_after_record.py
+tests/test_owner_cloud_attach_retry.py
+tests/test_owner_direct_widen.py
+tests/test_owner_direct_widen_postgres.py
+tests/test_personal_agent_direct_ingress_route.py
+tests/test_phone_verify_resume_runs_in_background.py
+tests/test_pod_action_proposals.py
+tests/test_pod_actions.py
+tests/test_pod_agent_chat_connectors.py
+tests/test_pod_agent_chat_runs.py
+tests/test_pod_command_proposals.py
+tests/test_pod_connector_advert.py
+tests/test_pod_connector_credential_seal.py
+tests/test_pod_connector_doors.py
+tests/test_pod_connector_shared_grant.py
+tests/test_pod_connector_tokens.py
+tests/test_pod_custody_mcp.py
+tests/test_pod_drive_local.py
+tests/test_pod_external_ingress_admission_strict.py
+tests/test_pod_gmail_doorbell.py
+tests/test_pod_gmail_local.py
+tests/test_pod_gmail_push_config.py
+tests/test_pod_local_consent.py
+tests/test_pod_owner_feed.py
+
+tests/test_personal_agent_notification_checkpoint.py
+tests/test_pod_browser_azure_probe.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
 # send-time rules, and the schedule/list/cancel tools against the sealed ledger.
@@ -668,3 +1116,6 @@ tests/test_pkm_packet_orders.py
 tests/test_pkm_credits.py
 tests/test_pkm_payouts.py
 tests/test_one_career_routes.py
+
+# Historical public seed replay preserves refreshed SEC records and explicit curation.
+tests/services/test_marketplace_investor_discovery.py

@@ -1,0 +1,29 @@
+{
+  "skill_name": "tri-flow-parity",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "declare Web iOS Android tri-flow parity for a new route in native-route-inventory.json",
+        "top_k": 3
+      },
+      {
+        "prompt": "review the excluded-route reason contract for this iOS and Android N/A declaration",
+        "top_k": 3
+      },
+      {
+        "prompt": "answer the PR Tri-Flow Architecture Check for a route move and classify native-required versus excluded",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "run the iOS and Android simulator parity audit for release readiness",
+        "owner": "mobile-parity-audit"
+      },
+      {
+        "prompt": "implement a Capacitor plugin bridge and register native methods on iOS and Android",
+        "owner": "mobile-plugin-contracts"
+      }
+    ]
+  }
+}

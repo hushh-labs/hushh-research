@@ -12,6 +12,7 @@ import {
 } from "@/components/icons";
 import { ReservedOfferRows } from "@/components/agent/reserved-offer-rows";
 import { Button } from "@/components/ui/button";
+import { describeOwnerMemoryReview } from "@/lib/agent/agent-pkm-explicit-save";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import {
   pkmSaveReceiptWrote,
@@ -152,23 +153,27 @@ export function AgentMemorySaveCard({
   onOpenOffer,
   onRetry,
   pendingCards = [],
+  canConfirmNeedsOwner = false,
 }: {
   receipt: PkmSaveReceipt;
   memoryHref: string;
   /** The host's router link; a plain anchor is used when absent. */
   renderLink?: (props: { href: string; className: string; children: string }) => ReactNode;
-  onConfirmNeedsOwner?: () => Promise<void>;
+  onConfirmNeedsOwner?: (reviewedCards: readonly AgentPkmPreviewCard[]) => Promise<void>;
   /** Opens the app screen that owns a fact; the prefill travels in memory only. */
   onOpenOffer?: (offer: ReservedOfferItem) => void;
   /** Continue the save job for the lines not yet saved. */
   onRetry?: () => Promise<void>;
   /** Full proposed details, held only in this unlocked chat session. */
   pendingCards?: readonly AgentPkmPreviewCard[];
+  canConfirmNeedsOwner?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState(false);
+  const reviewComplete = pendingCards.length === receipt.needsOwner &&
+    pendingCards.every((card) => describeOwnerMemoryReview(card) !== null);
   const notes = footnotes(receipt);
   const coverage = receipt.coverage;
   const retry = async () => {
@@ -186,11 +191,11 @@ export function AgentMemorySaveCard({
   const linkClass =
     "inline-flex min-h-12 items-center text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
   const confirm = async () => {
-    if (!onConfirmNeedsOwner) return;
+    if (!onConfirmNeedsOwner || !canConfirmNeedsOwner || !reviewComplete) return;
     setConfirming(true);
     setConfirmError(false);
     try {
-      await onConfirmNeedsOwner();
+      await onConfirmNeedsOwner(pendingCards);
     } catch {
       setConfirmError(true);
     } finally {
@@ -254,16 +259,28 @@ export function AgentMemorySaveCard({
           {pendingCards.length ? (
             <div className="max-h-56 overflow-y-auto rounded-lg bg-[color:var(--app-card-surface-data)] p-2" data-testid="memory-save-owner-review">
               <ul className="space-y-2">
-                {pendingCards.map((card) => (
-                  <li key={card.card_id} className="break-words rounded-md bg-background p-2 text-xs leading-5">
-                    <p>{card.source_text}</p>
-                    {(card.sharing_impact?.active_recipient_count || 0) > 0 ? (
-                      <p className="mt-1 font-medium text-destructive">
-                        This may change information shared with {plural(card.sharing_impact!.active_recipient_count, "person", "people")}.
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
+                {pendingCards.map((card) => {
+                  const review = describeOwnerMemoryReview(card);
+                  return (
+                    <li key={card.card_id} className="break-words rounded-md bg-background p-2 text-xs leading-5">
+                      <p>{card.source_text}</p>
+                      {review ? (
+                        <>
+                          <p className="mt-2 font-medium">{review.destination}</p>
+                          <p className="mt-2 font-medium">Proposed details</p>
+                          <pre className="whitespace-pre-wrap break-all font-mono text-[11px]">{review.proposedPayload}</pre>
+                          {review.recipientLabels.length > 0 ? (
+                            <p className="mt-2 font-medium text-destructive">
+                              This change enters the next shared export for: {review.recipientLabels.join(", ")}.
+                            </p>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p className="mt-2 text-destructive">The proposed change or affected people could not be verified. Prepare this detail again before saving.</p>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : (
@@ -274,8 +291,8 @@ export function AgentMemorySaveCard({
               That didn’t save. Nothing changed. Try again.
             </p>
           ) : null}
-          {onConfirmNeedsOwner && pendingCards.length === receipt.needsOwner ? (
-            <Button size="standard" onClick={() => void confirm()} isLoading={confirming} disabled={confirming}>
+          {onConfirmNeedsOwner && pendingCards.length > 0 ? (
+            <Button size="standard" onClick={() => void confirm()} isLoading={confirming} disabled={confirming || !canConfirmNeedsOwner || !reviewComplete}>
               {`Save ${receipt.needsOwner === 1 ? "it" : `these ${receipt.needsOwner}`} too`}
             </Button>
           ) : null}

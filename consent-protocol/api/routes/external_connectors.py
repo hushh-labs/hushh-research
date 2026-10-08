@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
@@ -21,17 +21,39 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from mcp.shared.auth import OAuthClientInformationFull
-from pydantic import AnyUrl, BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import (
+    AnyUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StrictBool,
+    field_validator,
+    model_serializer,
+)
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.routes.connector_mcp_contracts import (
+    McpConfigurationRequest,
+    McpOAuthAttemptRequest,
+    McpOAuthBeginRequest,
+    McpOAuthCompleteRequest,
+)
 from hushh_mcp.one_adk import mcp_review_service
 from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
 from hushh_mcp.one_adk.mcp_oauth_connection import mcp_oauth_attempts
-from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.connector_feature_admission import connector_features
+from hushh_mcp.services.curated_connector_catalog import (
+    catalog_card_is_hidden,
+    catalog_summary_fields,
+    registry_summary_fields,
+)
+from hushh_mcp.services.curated_connector_catalog import (
+    owner_status_fields as _owner_status_fields,
+)
 from hushh_mcp.services.curated_connector_manifest import all_catalog_entries, get_manifest
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
 from hushh_mcp.services.drive_selection_service import DriveSelectionService
@@ -56,6 +78,10 @@ from hushh_mcp.services.external_connector_registry_service import (
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.mcp_public_http import UnsafeMcpEndpoint
+from hushh_mcp.services.pod_mcp_approval import PodMcpMutation, PodMcpTerms, mutate_review
+from hushh_mcp.services.stripe_mcp_policy import (
+    StripeMcpReadiness,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +95,11 @@ class PrivateConnectorRoute(APIRoute):
                 if self.path.endswith(
                     (
                         "/mcp/review",
+                        "/mcp-approval/issue",
+                        "/mcp-approval/consume",
                         "/mcp/confirm",
                         "/mcp/catalog",
+                        "/mcp/verify",
                         "/mcp/oauth/begin",
                         "/mcp/oauth/complete",
                         "/mcp/oauth/cancel",
@@ -156,6 +185,14 @@ class ConnectorSummary(BaseModel):
     # registration-only, and `unavailable` passed neither the feature nor
     # runtime availability check. A null value is ready for Connect.
     catalogState: Literal["setup_pending", "discovery_pending", "unavailable"] | None = None
+    stripeReadiness: StripeMcpReadiness | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_summary(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        result: dict[str, Any] = handler(self)
+        if self.stripeReadiness is None:
+            result.pop("stripeReadiness", None)
+        return result
 
 
 class ConnectorsResponse(BaseModel):
@@ -169,21 +206,6 @@ class RegisterConnectorRequest(BaseModel):
     displayName: str = Field(min_length=1, max_length=100)
     endpoint: str = Field(min_length=1, max_length=4096)
     authStyle: Literal["api_key", "oauth"]
-
-
-class McpConfigurationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    connectorConfiguration: dict[str, Any] | None = Field(default=None, repr=False, exclude=True)
-
-    @field_validator("connectorConfiguration")
-    @classmethod
-    def validate_configuration(cls, value):
-        if value is None:
-            return None
-        try:
-            return next(iter(validate_mcp_turn_configurations([value]).values()))
-        except ExternalMcpError:
-            raise ValueError("Invalid connector configuration.") from None
 
 
 class McpReviewRequest(McpConfigurationRequest):
@@ -206,31 +228,13 @@ class McpConfirmRequest(McpReviewRequest):
     confirmed: StrictBool
 
 
-class McpRegisteredClient(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    issuer: str = Field(min_length=1, max_length=2048, repr=False)
-    clientId: str = Field(min_length=1, max_length=8192, repr=False)
-    clientSecret: str | None = Field(default=None, min_length=1, max_length=8192, repr=False)
-    tokenEndpointAuthMethod: Literal["none", "client_secret_basic", "client_secret_post"]
+class PodMcpConfirmRequest(BaseModel):
+    """Browser-only confirmation of the preview fetched directly from its pod."""
 
-
-class McpOAuthBeginRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    revision: UUID
-    endpoint: str = Field(min_length=1, max_length=4096, repr=False)
-    registeredClient: McpRegisteredClient | None = Field(default=None, repr=False)
-
-
-class McpOAuthAttemptRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    revision: UUID
-    attemptId: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$", repr=False)
-
-
-class McpOAuthCompleteRequest(McpOAuthAttemptRequest):
-    code: str = Field(min_length=1, max_length=8192, repr=False)
-    state: str = Field(min_length=1, max_length=512, repr=False)
-    issuer: str | None = Field(default=None, max_length=4096, repr=False)
+    model_config = ConfigDict(extra="forbid", strict=True)
+    podReview: PodMcpTerms
+    directiveId: str = Field(pattern=r"^dir_[0-9a-f]{32}$")
+    confirmed: StrictBool
 
 
 def _mcp_oauth_binding(connector_id: str, token: dict) -> str:
@@ -281,7 +285,7 @@ async def begin_private_mcp_oauth(
                     client_id=body.registeredClient.clientId,
                     client_secret=body.registeredClient.clientSecret,
                     token_endpoint_auth_method=body.registeredClient.tokenEndpointAuthMethod,
-                    redirect_uris=cast("list[AnyUrl]", [redirect_uri]),
+                    redirect_uris=[AnyUrl(redirect_uri)],
                 )
                 if body.registeredClient
                 else None
@@ -346,9 +350,9 @@ async def cancel_private_mcp_oauth(
         ) from None
 
 
-async def _mcp_review_response(operation, **kwargs):
+async def _mcp_review_response(handler, **kwargs):
     try:
-        return await operation(**kwargs)
+        return await handler(**kwargs)
     except CHAT_KEY_ERRORS:
         # The review reads the owner's person-key conversation. Without that key
         # it refuses (403 via the app handler); it is never a retryable outage.
@@ -400,6 +404,22 @@ async def refresh_mcp_catalog(
     )
 
 
+@router.post("/{connector_id}/mcp/verify")
+async def verify_mcp_account(
+    connector_id: str,
+    body: McpConfigurationRequest,
+    token: dict = Depends(require_vault_owner_token),
+):
+    if body.connectorConfiguration is None:
+        raise HTTPException(400, detail="Unlock and provide the current connector settings.")
+    return await _mcp_review_response(
+        mcp_review_service.verify_account,
+        token=token,
+        connector_id=connector_id,
+        configuration=body.connectorConfiguration,
+    )
+
+
 @router.post("/{connector_id}/mcp/review")
 async def prepare_mcp_review(
     connector_id: str, body: McpReviewRequest, token: dict = Depends(require_vault_owner_token)
@@ -422,10 +442,23 @@ async def prepare_mcp_review(
 
 @router.post("/{connector_id}/mcp/confirm")
 async def confirm_mcp_review(
-    connector_id: str, body: McpConfirmRequest, token: dict = Depends(require_vault_owner_token)
+    connector_id: str,
+    body: McpConfirmRequest | PodMcpConfirmRequest,
+    token: dict = Depends(require_vault_owner_token),
 ):
     if body.confirmed is not True:
         raise HTTPException(status_code=400, detail="Confirm the exact call before continuing.")
+    if isinstance(body, PodMcpConfirmRequest):
+        if (
+            body.podReview.ownerId != str(token["user_id"])
+            or body.podReview.connectorId != connector_id
+        ):
+            raise HTTPException(403, detail="Private connector owner changed.")
+        return await _mcp_review_response(
+            mutate_review,
+            operation="confirm",
+            payload=PodMcpMutation(review=body.podReview, directiveId=body.directiveId),
+        )
     return await _mcp_review_response(
         mcp_review_service.confirm_review,
         token=token,
@@ -830,27 +863,13 @@ def _manifest_row_is_pinned(connector: Any) -> bool:
 
 
 def _is_dead_catalog_card(item: ConnectorSummary) -> bool:
-    """A card the owner can do nothing with, so it is not sent at all.
-
-    The catalog says it is not ready (setup pending, discovery pending, or
-    unavailable) and there is no stored grant to disconnect or recover. A
-    half-set-up provider stays out of the product until it is actually usable;
-    a stored grant always keeps its card, so an owner can still Disconnect.
-    """
-    return item.catalogState is not None and item.status in {"not_connected", "revoked"}
-
-
-def _owner_status_fields(status: dict[str, Any] | None) -> dict[str, Any]:
-    status = status or {}
-    return {
-        "status": status.get("status", "not_connected"),
-        "accountLabel": status.get("accountLabel"),
-        "connectedAt": status.get("connectedAt"),
-        "validationState": status.get("validationState", "unverified"),
-        "profile": status.get("profile"),
-        "revocationOutcome": status.get("revocationOutcome", "not_attempted"),
-        "lastErrorCode": status.get("lastErrorCode"),
-    }
+    return bool(
+        catalog_card_is_hidden(
+            status=item.status,
+            catalog_state=item.catalogState,
+            stripe_readiness=item.stripeReadiness,
+        )
+    )
 
 
 def _catalog_summary(
@@ -863,16 +882,13 @@ def _catalog_summary(
 ) -> ConnectorSummary:
     """Build a reviewed catalog card without exposing a provider contract."""
     return ConnectorSummary(
-        connectorId=entry.connector_id,
-        displayName=entry.display_name,
-        description=entry.description,
-        authStyle="oauth",
-        registrationKind="curated",
-        curatedOAuth=curated_oauth,
-        catalogCard=True,
-        catalogState=catalog_state,
-        available=available,
-        **_owner_status_fields(status),
+        **catalog_summary_fields(
+            entry,
+            status=status,
+            available=available,
+            curated_oauth=curated_oauth,
+            catalog_state=catalog_state,
+        )
     )
 
 
@@ -883,14 +899,12 @@ def _registry_summary(
     available: bool,
 ) -> ConnectorSummary:
     return ConnectorSummary(
-        connectorId=connector.connector_id,
-        displayName=connector.display_name,
-        description=connector.description,
-        authStyle=connector.auth_style,
-        registrationKind="private" if connector.owner_user_id else "curated",
-        curatedOAuth=_curated_oauth_flag(connector),
-        available=available,
-        **_owner_status_fields(status),
+        **registry_summary_fields(
+            connector,
+            status=status,
+            available=available,
+            curated_oauth=_curated_oauth_flag(connector),
+        )
     )
 
 

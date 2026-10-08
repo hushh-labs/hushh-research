@@ -54,6 +54,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from fastapi import HTTPException
+
 from db.connection import get_pool
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.gmail_delivery_service import (
@@ -61,9 +63,32 @@ from hushh_mcp.services.gmail_delivery_service import (
     get_gmail_delivery_service,
     normalize_draft,
 )
+from hushh_mcp.services.owner_placement_guard import (
+    HOSTING_UNAVAILABLE,
+    PRIVATE_RUNTIME_REQUIRED,
+    admit_hub_content,
+    hosting_unavailable,
+)
 from hushh_mcp.services.push_notifications import send_user_data_push
 
 logger = logging.getLogger(__name__)
+
+
+async def _admit_scheduled_owner(user_id: str, surface: str) -> None:
+    # Machine work has no anonymous intro tier. An invalid claimed owner is
+    # unavailable, never authority to open a queued payload.
+    if not str(user_id or "").strip():
+        raise hosting_unavailable()
+    await admit_hub_content(user_id, surface)
+
+
+def _private_refusal(error: HTTPException) -> bool:
+    return (
+        error.status_code == 409
+        and isinstance(error.detail, dict)
+        and error.detail.get("code") == PRIVATE_RUNTIME_REQUIRED
+    )
+
 
 MAX_DRAIN_LIMIT = 100
 DEFAULT_DEADLINE_SECONDS = 240
@@ -162,6 +187,13 @@ WHERE action_id = $1 AND user_id = $2
   AND state IN ('sent', 'failed', 'outcome_unknown', 'expired', 'cancelled')
 """
 
+_DEFER_ARMED_SQL = """
+UPDATE gmail_owner_send_actions
+SET attempt_count = GREATEST(attempt_count - 1, 0), updated_at = NOW()
+WHERE action_id = $1 AND user_id = $2 AND state = 'prepared'
+  AND sending_at IS NULL AND send_at IS NOT NULL
+"""
+
 _READ_STATE_SQL = """
 SELECT state, safe_error_code
 FROM gmail_owner_send_actions
@@ -176,7 +208,11 @@ RETURNING recipient_display
 """
 
 # execute() refusals that happen before it moves the row to ``sending``.
-_PRE_SEND_CODES = {"DRAFT_CHANGED": "draft_changed", "INVALID_RECIPIENTS": "invalid_draft"}
+_PRE_SEND_CODES = {
+    "DRAFT_CHANGED": "draft_changed",
+    "INVALID_RECIPIENTS": "invalid_draft",
+    PRIVATE_RUNTIME_REQUIRED: "private_runtime_required",
+}
 
 _FAILURE_REASONS = {
     "sender_changed": "your connected Gmail account changed",
@@ -417,6 +453,21 @@ class _ScheduledMailDrain:
             MAX_ATTEMPTS
         ):
             return await settle("failed", "retry_exhausted")
+
+        async def admit() -> _Settled | None:
+            try:
+                await _admit_scheduled_owner(user_id, "gmail_scheduled_payload")
+            except HTTPException as exc:
+                if _private_refusal(exc):
+                    # A verified private placement retires this legacy hub
+                    # send through metadata only. Never open it to refuse it.
+                    return await settle("failed", "private_runtime_required")
+                raise  # roll back unchanged; seen excludes it from this run
+            return None
+
+        refusal = await admit()
+        if refusal is not None:
+            return refusal
         try:
             payload = self._delivery.open_schedule_payload(
                 user_id=user_id, action_id=action_id, sealed=str(row.get("payload_sealed") or "")
@@ -438,12 +489,18 @@ class _ScheduledMailDrain:
         if not sealed_sender:
             return await settle("failed", "sender_changed")
         current_sender = str(await self._delivery.current_sender_sub(user_id=user_id) or "").strip()
+        refusal = await admit()
+        if refusal is not None:
+            return refusal
         if not current_sender:
             return await settle("failed", "gmail_unavailable")
         if not hmac.compare_digest(sealed_sender.encode(), current_sender.encode()):
             return await settle("failed", "sender_changed")
 
         connections = await asyncio.to_thread(self._directory.list_connections, user_id)
+        refusal = await admit()
+        if refusal is not None:
+            return refusal
         connection = next(
             (
                 item
@@ -464,6 +521,18 @@ class _ScheduledMailDrain:
         return _Armed(action_id=action_id, user_id=user_id, draft_payload=draft_payload)
 
     async def _fire(self, pool: Any, armed: _Armed) -> _Settled | str:
+        try:
+            await _admit_scheduled_owner(armed.user_id, "gmail_scheduled_dispatch")
+        except HTTPException as exc:
+            if not _private_refusal(exc):
+                async with pool.acquire() as conn:
+                    await conn.execute(_DEFER_ARMED_SQL, armed.action_id, armed.user_id)
+                return armed.action_id  # still prepared; no delivery attempted
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    _FAIL_ARMED_SQL, armed.action_id, armed.user_id, "private_runtime_required"
+                )
+            return _Settled(armed.action_id, armed.user_id, "failed", "private_runtime_required")
         self._fired += 1
         try:
             await self._delivery.execute(
@@ -472,6 +541,8 @@ class _ScheduledMailDrain:
                 draft_payload=armed.draft_payload,
             )
         except GmailDeliveryError as exc:
+            if exc.code == HOSTING_UNAVAILABLE:
+                return armed.action_id  # no provider attempt; preserve queued mail
             # Refused before ``sending`` leaves the row armed: settle it, so the
             # orphan reaper does not re-arm a send execute() already refused.
             # After ``sending`` execute() has recorded the terminal state and
@@ -528,6 +599,7 @@ class _ScheduledMailDrain:
             return
         self._outcomes[settled.state].append(settled.action_id)
         try:
+            await _admit_scheduled_owner(settled.user_id, "gmail_scheduled_notification")
             async with pool.acquire() as conn:
                 claimed = await conn.fetchrow(
                     _CLAIM_NOTIFICATION_SQL, settled.action_id, settled.user_id, settled.state
@@ -536,6 +608,10 @@ class _ScheduledMailDrain:
             logger.warning("gmail.scheduled_drain.notify_claim_failed error=%s", type(exc).__name__)
             return
         if claimed is None:
+            return
+        try:
+            await _admit_scheduled_owner(settled.user_id, "gmail_scheduled_notification")
+        except HTTPException:
             return
         push = scheduled_mail_push(
             state=settled.state,

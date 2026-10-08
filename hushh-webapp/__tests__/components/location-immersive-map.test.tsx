@@ -404,6 +404,7 @@ vi.mock("@/lib/one-location/encryption", () => ({
 import { toast } from "sonner";
 
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import {
   MAP_CONSENT_PANEL_BOTTOM_PADDING,
   MAP_CONSENT_PANEL_CLASSNAME,
@@ -937,6 +938,107 @@ describe("LocationImmersiveMap demo experience", () => {
       scroll: false,
     });
   }, 15000);
+
+  it.each([false, true])(
+    "preserves the document during a slow native Close (unmounted: %s)",
+    async (unmountBeforeSettlement) => {
+      platformHarness.native = true;
+      stubCheckInMapGeometry();
+      const view = render(<LocationImmersiveMap />);
+      await waitFor(() => {
+        expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+          "data-map-ready",
+          "true",
+        );
+      });
+
+      // Hold the browser on the outgoing pathname, as a slow client route does.
+      // Observe document navigation without asking JSDOM to navigate or exposing
+      // any vault information. The legacy 1.2-second escape must fail this test.
+      const browserWindow = window;
+      const assign = vi.fn();
+      vi.stubGlobal(
+        "window",
+        new Proxy(browserWindow, {
+          get(target, property, receiver) {
+            if (property === "location") {
+              return { pathname: target.location.pathname, assign };
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        }),
+      );
+      vi.useFakeTimers();
+      try {
+        fireEvent.click(screen.getByTestId("one-location-map-close"));
+        expect(navigationHarness.replace).toHaveBeenCalledTimes(1);
+        expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", {
+          scroll: false,
+        });
+        if (unmountBeforeSettlement) view.unmount();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_500);
+        });
+        expect(assign).not.toHaveBeenCalled();
+        expect(mapHarness.map.disableTouch).toHaveBeenCalled();
+        expect(mapHarness.map.destroy).toHaveBeenCalled();
+      } finally {
+        view.unmount();
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each([false, true])("allows an explicit Close retry after its owner terminates (start failed: %s)", async (startFails) => {
+    platformHarness.native = true;
+    stubCheckInMapGeometry();
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    let closeIntentId = "";
+    navigationHarness.beginRouteTransition.mockImplementationOnce(
+      (target, navigate) => {
+        appInteractionCoordinator.requestNavigation({
+          target,
+          source: "tap",
+          start: (intent) => {
+            closeIntentId = intent.id;
+            if (startFails) throw new Error("Synthetic navigation rejection");
+            appInteractionCoordinator.markNavigationCommitting(intent.id);
+            navigate();
+            return () => undefined;
+          },
+        });
+      },
+    );
+    const close = screen.getByTestId("one-location-map-close");
+    fireEvent.click(close);
+    if (startFails) {
+      expect(appInteractionCoordinator.getSnapshot().find(
+        (intent) => intent.id === closeIntentId,
+      )?.status).toBe("rejected");
+      expect(toast.error).toHaveBeenCalledWith("Couldn’t leave the map. Try again.");
+    } else {
+      expect(close).toBeDisabled();
+      fireEvent.click(close);
+      expect(navigationHarness.replace).toHaveBeenCalledTimes(1);
+      act(() => {
+        appInteractionCoordinator.cancelNavigation(
+          closeIntentId,
+          "route_settlement_timeout",
+        );
+      });
+    }
+    expect(close).not.toBeDisabled();
+    expect(navigationHarness.replace).toHaveBeenCalledTimes(startFails ? 0 : 1);
+    fireEvent.click(close);
+    expect(navigationHarness.replace).toHaveBeenCalledTimes(startFails ? 1 : 2);
+  });
 
   it("keeps an empty people tray compact", async () => {
     experienceHarness.demoMode = false;

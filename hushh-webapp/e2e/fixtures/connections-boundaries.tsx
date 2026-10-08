@@ -3,7 +3,10 @@
 import { createContext, useState } from "react";
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];
-export const loadCustomConnectorSnapshot = async () => ({ configurations: [], invalid: [] });
+export const loadCustomConnectorSnapshot = async () => ({
+  configurations: [],
+  invalid: [],
+});
 export const saveCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
 export const removeInvalidCustomConnectorConfiguration = async () => { throw new Error("Not admitted in layout fixture"); };
@@ -14,6 +17,10 @@ export { bearerAuthorizationValue, isVaultOwnerCredential } from "@/lib/connecti
 const user = {
   uid: "fixture-owner",
   getIdToken: async () => "synthetic-firebase",
+};
+// The same synthetic signed-in owner is used by service-level placement checks.
+export const AuthService = {
+  getCurrentUser: () => user,
 };
 export function useAuth() {
   return { user, loading: false };
@@ -62,7 +69,13 @@ export function useRouter() {
 export const HushhAuth = {
   connectGmail: async () => ({ serverAuthCode: "synthetic-code" }),
 };
+// Private turns are outside this Shared connector layout fixture.
+export async function streamAgentChat() {
+  throw new Error("Private chat is not admitted in the layout fixture");
+}
 export const ApiService = {
+  // This fixture explicitly rehearses a recorded Shared owner.
+  getPersonalAgentStatus: async () => ({ hostingMode: "shared" as const }),
   getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
   // eslint-disable-next-line no-restricted-syntax -- Synthetic ApiService transport intercepted by the browser harness; never a product component.
   apiFetch: (path: string, options: RequestInit) => fetch(path, options),

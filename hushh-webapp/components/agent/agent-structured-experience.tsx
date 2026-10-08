@@ -1,4 +1,5 @@
 "use client";
+import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -906,8 +907,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       summary={`${items.length} ${items.length === 1 ? "item" : "items"} · ${experience.durationLabel}`}
       icon={<ConsentAgentIcon className="h-7 w-7" aria-hidden="true" />}
     >
-      <p className="text-sm leading-6 text-foreground">{experience.purpose}</p>
-      <p role="status" className="mt-2 text-xs font-medium text-muted-foreground">{statusText}</p>
+      <InformationRequestReceipt purpose={experience.purpose} statusText={statusText} submitted={experience.phase === "submitted"} fields={experience.fields} />
       <div className="mt-3">
         <ConsentScopeList
           items={items}

@@ -5,13 +5,14 @@
 // with an unlocked vault:
 //   1. "Trusted devices" is a TOP-LEVEL profile row, not buried under Security.
 //   2. The row opens the recursive Profile pane on the current route.
-//   3. The status label is honest: "Trusted", never "Active - last synced",
-//      which claims a live reachability the server cannot observe.
+//   3. Status distinguishes trust, observed heartbeat, and revocation; it never
+//      presents an old sync timestamp as current reachability.
 //   4. Revisiting is cache-first: no blocking spinner over data already held.
 // Plus vault continuity across every protected transition.
 //
-// READ-ONLY: it never unlinks a device, so it needs no shared-mutation
-// authority. Nothing decrypted, no credentials, and no vault material is
+// Read-only by default. An explicitly authorized pod-wake rehearsal admits
+// only the wake request; it never unlinks a device. Nothing decrypted, no
+// credentials, and no vault material is
 // written to logs, screenshots, or tracked files.
 
 import path from "node:path";
@@ -27,12 +28,18 @@ const appOrigin = String(
 ).replace(/\/$/, "");
 const timeoutMs = Number(process.env.REVIEWER_APP_TIMEOUT_MS || 360_000);
 
-const PROFILE_ROUTE = "/one/profile";
+const PROFILE_ROUTE = "/one?profile_pane=1";
 const DEVICES_PANE_ROUTE =
   "/one?profile_pane=1&profile_panel=security&profile_detail=trusted-devices";
 
 await prepareReviewerRehearsal({ repoRoot, appOrigin });
-const reviewer = await createReviewerSessionHarness({ repoRoot, appOrigin, timeoutMs });
+const reviewer = await createReviewerSessionHarness({
+  repoRoot, appOrigin, timeoutMs,
+  admitMutation: process.env.REVIEWER_ALLOW_POD_WAKE === "true"
+    ? (request) => request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/one/pod/wake"
+    : null,
+});
 const browser = await reviewer.chromium.launch({
   headless: process.env.PLAYWRIGHT_HEADLESS !== "0",
 });
@@ -58,7 +65,7 @@ try {
   await reviewer.assertVisibleVaultChallenge(browser, PROFILE_ROUTE);
   process.stdout.write("  ok    cold entry hard-gates on the vault\n");
 
-  session = await reviewer.openSession(browser, PROFILE_ROUTE);
+  session = await reviewer.openSession(browser, PROFILE_ROUTE, { allowQueryMutation: true });
   const { page } = session;
   await reviewer.assertVaultContinuity(page, PROFILE_ROUTE);
 
@@ -83,6 +90,21 @@ try {
     page.url(),
   );
 
+  // This account route authenticates Firebase identity, not the PKM HCT.
+  const identityToken = await session.capture.identityToken();
+  const payload = await reviewer.fetchOwnerJson(
+    "/api/account/trusted-devices",
+    identityToken,
+  );
+  const devices = Array.isArray(payload?.devices) ? payload.devices : null;
+  if (!devices) throw new Error("Trusted-devices API did not return a device list.");
+  // Wait for the pane to render its result before interpreting an empty/loading
+  // frame as an enrolled device without a status.
+  await page.getByText(
+    devices.length > 0
+      ? /Trusted ·|Active now|Revoked ·|Sync status unavailable/
+      : "No trusted devices are connected.",
+  ).first().waitFor({ state: "visible" });
   const devicesText = clean(await page.locator("body").innerText());
 
   // 3. Honest status. "Active - last synced" claims live reachability that the
@@ -92,12 +114,12 @@ try {
     !/Active\s*[·.]\s*last synced/i.test(devicesText),
     "found a stale Active - last synced label",
   );
-  const hasDevices = !/No trusted devices are connected/i.test(devicesText);
+  const hasDevices = devices.length > 0;
   if (hasDevices) {
     check(
-      "status label reads Trusted",
-      /Trusted\s*[·.]/i.test(devicesText),
-      "no Trusted label rendered",
+      "status label renders trust, heartbeat, or revocation state",
+      /Trusted\s*[·.]|Active now|Revoked\s*[·.]|Sync status unavailable/i.test(devicesText),
+      "no device status rendered",
     );
   } else {
     process.stdout.write(
@@ -125,13 +147,7 @@ try {
   );
   await reviewer.assertVaultContinuity(page, `${DEVICES_PANE_ROUTE} (warm)`);
 
-  // 6. The API contract behind the surface, read through the owner token.
-  const ownerToken = await session.capture.ownerToken();
-  const payload = await reviewer.fetchOwnerJson(
-    "/api/account/trusted-devices",
-    ownerToken,
-  );
-  const devices = Array.isArray(payload?.devices) ? payload.devices : null;
+  // 6. The API contract behind the surface, read through Firebase identity.
   check("trusted-devices API returns a device list", devices !== null);
   if (devices && devices.length > 0) {
     const device = devices[0];
@@ -141,6 +157,8 @@ try {
       `keys: ${Object.keys(device).join(",")}`,
     );
   }
+  session.readOnlyGuard.assertNoBlockedMutation();
+  session.capture.assertNoCriticalApiFailures("trusted devices");
 } finally {
   await browser.close().catch(() => {});
 }
@@ -153,5 +171,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 process.stdout.write(
-  "\nreviewer trusted-devices rehearsal PASS (read_only)\n",
+  `\nreviewer trusted-devices rehearsal PASS (${session.readOnlyGuard.policy})\n`,
 );

@@ -73,7 +73,7 @@ def main() -> int:
         _check_patterns(
             ROOT / "api/routes/kai/analyze.py",
             [
-                r"require_vault_owner_token",
+                r"Depends\(hub_content_owner\)",
                 r"RealtimeDataUnavailable",
             ],
         ),
@@ -81,7 +81,7 @@ def main() -> int:
             ROOT / "api/routes/kai/stream.py",
             [
                 r"CanonicalSSEStream",
-                r"Depends\(require_vault_owner_token\)",
+                r"Depends\(hub_content_owner\)",
                 r"_require_stream_owner_token",
                 r"short_recommendation",
                 r"analysis_degraded",

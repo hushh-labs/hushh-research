@@ -14,6 +14,10 @@ type AccountCatchAllRoute = {
     request: NextRequest,
     props: { params: Promise<{ path: string[] }> }
   ) => Promise<Response>;
+  PUT: (
+    request: NextRequest,
+    props: { params: Promise<{ path: string[] }> }
+  ) => Promise<Response>;
 };
 
 let route: AccountCatchAllRoute;
@@ -81,6 +85,35 @@ describe("/api/account/[...path] proxy", () => {
     );
     const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(headers.get("Authorization")).toBe("Bearer firebase-token");
+  });
+
+  it("forwards the owner-authorized Puppy grant method and body", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ enabled: true })
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/trusted-devices/device_1/puppy-access",
+      {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer owner-capability",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ enabled: true }),
+      },
+    );
+
+    const response = await route.PUT(request, {
+      params: Promise.resolve({ path: ["trusted-devices", "device_1", "puppy-access"] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend.test/api/account/trusted-devices/device_1/puppy-access",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ enabled: true }) }),
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer owner-capability");
   });
 
   it("forwards alias list query parameters", async () => {

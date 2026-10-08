@@ -96,9 +96,9 @@ export async function awaitProductFont(page: {
   evaluate: <T>(fn: () => T | Promise<T>) => Promise<T>;
 }): Promise<void> {
   const state = await page.evaluate(async () => {
-    // A client-rendered fixture may still have an empty root. `ready` alone
-    // does not load a registered face until some rendered text needs it.
-    await document.fonts.load('16px "InterVariable"');
+    // Empty fixture roots do not cause the browser to request the face. Load
+    // the real text probe before checking so cold CI browsers measure Inter.
+    await document.fonts.load('400 16px "InterVariable"', '0123456789');
     await document.fonts.ready;
     const probe = document.createElement("span");
     probe.style.cssText =

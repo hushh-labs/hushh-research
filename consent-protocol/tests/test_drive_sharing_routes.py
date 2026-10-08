@@ -629,7 +629,13 @@ async def test_prepare_stream_deadline_closes_without_a_terminal_frame(monkeypat
 
 def _reviewed_drive_app(monkeypatch):
     from api.routes.one import drive_actions
+    from hushh_mcp.services import owner_placement_guard
 
+    # Reviewed writes still require an unlocked owner and exact confirmation.
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
     app = FastAPI()
     app.include_router(drive_actions.router)
     execute = AsyncMock(return_value={"status": "ok", "action": "share"})

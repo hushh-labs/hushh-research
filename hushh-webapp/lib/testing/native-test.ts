@@ -14,7 +14,7 @@ declare global {
        * automation and every production host stay blocked.
        */
       allowUatAnalyticsSmokeTelemetry?: boolean;
-      reviewerAuthMode?: "local_credentials" | "custom_token";
+      reviewerAuthMode?: "local_credentials" | "custom_token" | "human_authenticated";
       reviewerMutationPolicy?: "read_only" | "preparation_only" | "bounded_mutation" | "mutation_authorized";
       pkmProofEnabled?: boolean;
       pkmProofExpectation?: import("@/lib/testing/reviewer-pkm-proof").ReviewerPkmExpectation;
@@ -114,6 +114,7 @@ declare global {
 }
 
 export type NativeTestConfig = {
+  reviewerAuthMode?: "local_credentials" | "custom_token" | "human_authenticated";
   enabled: boolean;
   autoReviewerLogin: boolean;
   vaultPassphrase: string | null;
@@ -146,7 +147,7 @@ export function getNativeUiTestVaultPassphrase(): string | null {
   if (typeof window === "undefined") {
     return null;
   }
-  if (window.__HUSHH_NATIVE_TEST__?.enabled !== true) {
+  if (window.__HUSHH_NATIVE_TEST__?.enabled !== true || window.__HUSHH_NATIVE_TEST__?.reviewerAuthMode === "human_authenticated") {
     return null;
   }
   const value = String(
@@ -324,16 +325,17 @@ export function getNativeTestConfig(): NativeTestConfig {
     "data-hushh-native-test-expected-route",
   );
   return {
+    reviewerAuthMode: raw.reviewerAuthMode,
     enabled: raw.enabled === true || enabledFromDataset,
     autoReviewerLogin:
       raw.autoReviewerLogin === true || autoReviewerLoginFromDataset,
     vaultPassphrase:
-      typeof raw.vaultPassphrase === "string" &&
+      raw.reviewerAuthMode !== "human_authenticated" && typeof raw.vaultPassphrase === "string" &&
       raw.vaultPassphrase.trim().length > 0
         ? raw.vaultPassphrase
         : null,
     reviewerSessionPassphrase:
-      typeof raw.reviewerSessionPassphrase === "string" &&
+      raw.reviewerAuthMode !== "human_authenticated" && typeof raw.reviewerSessionPassphrase === "string" &&
       raw.reviewerSessionPassphrase.trim().length > 0
         ? raw.reviewerSessionPassphrase
         : null,

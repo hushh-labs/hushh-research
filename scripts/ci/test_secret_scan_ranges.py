@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import secrets
 import subprocess
 import tempfile
 
@@ -68,9 +69,35 @@ def verify_merged_feature_commits_stay_in_range() -> None:
             raise AssertionError("synthetic graph has an unexpected merge base")
 
 
+def verify_public_schema_bound_keeps_secret_detection() -> None:
+    public_bound = (
+        '"string", "Owner approval state, distinct from payment and usable access.", '
+        "maxLength=32\n"
+    )
+    # Synthetic credentials stay in process memory; scanner diagnostics are
+    # redacted and never emitted. The same file must still detect a real value.
+    synthetic_secret = secrets.token_urlsafe(32)
+    cases = (
+        (public_bound, 0),
+        (public_bound + f'api_key = "{synthetic_secret}"\n', 1),
+        (f'api_key = "maxLength=32{synthetic_secret}"\n', 1),
+    )
+    for fixture, expected in cases:
+        result = subprocess.run(
+            [
+                "gitleaks", "stdin", "--no-banner", "--redact",
+                "--config", str(ROOT / ".gitleaks.toml"),
+            ],
+            input=fixture, text=True, capture_output=True, check=False,
+        )
+        if result.returncode != expected:
+            raise AssertionError("public schema bound changed credential detection")
+
+
 def main() -> None:
     verify_ranges_exclude_ancestry_path()
     verify_merged_feature_commits_stay_in_range()
+    verify_public_schema_bound_keeps_secret_detection()
     print("Secret scan range regression passed (merged feature commits remain included).")
 
 

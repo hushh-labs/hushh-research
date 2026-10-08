@@ -177,3 +177,46 @@ async def test_concurrent_rename_wins_without_retrying_stale_write(monkeypatch):
     )
     assert saved.state == {titles.MANUAL_TITLE: "My title"}
     assert execute.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_pod_generated_title_keeps_history_order_after_recovery(tmp_path):
+    from hushh_mcp.one_adk.pod_adk_session_repository import (
+        PodAdkSessionProjection,
+        PodAdkSessionRepository,
+    )
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "log")), b"k" * 32, owner_id="HA1fixture")
+
+    async def require_access():
+        return None
+
+    def service():
+        return EncryptedAdkSessionService(
+            static_chat_cipher(),
+            repository=PodAdkSessionRepository(
+                projection=PodAdkSessionProjection(
+                    owner_id="owner", hushh_id="HA1fixture", log=log
+                ),
+                require_access=require_access,
+            ),
+        )
+
+    writer = service()
+    for session_id in ("older", "newer"):
+        await writer.create_session(app_name="hussh_one", user_id="owner", session_id=session_id)
+    before = await writer.get_session(app_name="hussh_one", user_id="owner", session_id="older")
+    await writer.set_title(
+        app_name="hussh_one",
+        user_id="owner",
+        session_id="older",
+        title="First conversation",
+        generated=True,
+    )
+
+    recovered = service()
+    listed = await recovered.list_sessions(app_name="hussh_one", user_id="owner")
+    assert [item.id for item in listed.sessions] == ["newer", "older"]
+    assert listed.sessions[1].state[titles.GENERATED_TITLE] == "First conversation"
+    assert listed.sessions[1].last_update_time == before.last_update_time

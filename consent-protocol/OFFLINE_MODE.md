@@ -173,7 +173,7 @@ PYTHONPATH=consent-protocol python consent-protocol/db/_gen_offline_schema.py \
 ```bash
 cd consent-protocol
 python3 -m venv .venv
-pip install -r requirements.txt
+uv sync --frozen --group dev
 ```
 
 ### Port 8000 in use

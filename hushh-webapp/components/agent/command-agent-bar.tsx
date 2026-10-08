@@ -24,8 +24,10 @@ import {
 /** Presentation only. The provider above route and chrome changes owns the task. */
 export function CommandAgentBar({
   layout = "fixed",
+  unavailableLabel,
 }: {
   layout?: "fixed" | "slot";
+  unavailableLabel?: string;
 }) {
   const {
     view,
@@ -79,7 +81,7 @@ export function CommandAgentBar({
   const elapsed = `${Math.floor(elapsedMs / 60_000)}:${String(Math.floor(elapsedMs / 1000) % 60).padStart(2, "0")}`;
   const working = view.phase === "working";
   const status =
-    recording === "starting"
+    unavailableLabel ? unavailableLabel : recording === "starting"
       ? "Preparing microphone…"
       : cancelArmed
         ? "Release to cancel"
@@ -146,8 +148,9 @@ export function CommandAgentBar({
             "agent-bar-voice-launcher relative flex h-11 min-w-0 flex-1 touch-none select-none items-center gap-2 rounded-l-full px-3 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
             recording && "bg-primary/5",
           )}
+          disabled={Boolean(unavailableLabel) && !active}
           aria-label={
-            active ? "Cancel voice command" : "Talk to One. Hold to speak, or tap to start."
+            active ? "Cancel voice command" : unavailableLabel || "Talk to One. Hold to speak, or tap to start."
           }
           onContextMenu={(event) => event.preventDefault()}
           onPointerDown={(event) => {

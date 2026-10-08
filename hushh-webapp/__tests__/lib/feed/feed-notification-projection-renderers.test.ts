@@ -325,6 +325,24 @@ describe("notification-backed Feed projection renderers", () => {
     expect(`${presented.label} ${presented.description}`).not.toContain("555");
   });
 
+  it("renders consent_granted feed event with granter profile link and navigation to shared section", () => {
+    const presented = presentFeedItem(
+      feedItem(
+        "consent_granted",
+        {
+          granter_name: "Alice",
+          scope_description: "Employment status",
+          person_ref: "alice-public-ref",
+        },
+        "consent",
+      ),
+    );
+
+    expect(presented.label).toBe("Information shared with you");
+    expect(presented.description).toBe("Granted access to Employment status. Tap to view.");
+    expect(presented.href).toBe("/people/alice-public-ref?section=shared");
+  });
+
   it.each([
     ["calendar_connected", "Calendar", "/one/calendar"],
     ["calendar_reconnect_required", "Calendar", "/one/calendar"],

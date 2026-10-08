@@ -30,8 +30,32 @@ describe("Agent One chat workspace wiring contract", () => {
     const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
     expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');
     expect(source).toContain("open={isHistoryDrawerOpen}");
+    expect(source).toContain("chats={renderHistorySidebar(");
     expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
-    expect(source).toContain('Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you');
+    // The parent owns the owner-scoped review signal; the actual opener's
+    // accessible copy and native admission are covered in native-chrome.test.
+    expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
+  });
+
+  it("uses one accessible quick-prompt rail for both empty and post-setup states", () => {
+    // The starter grid renders through the shared suggestion list; the rail's
+    // accessibility and touch-target guarantees live there.
+    expect(source).toContain("function AgentPromptSuggestions(");
+    const suggestions = source.slice(
+      source.indexOf("function AgentPromptSuggestions("),
+      source.indexOf("function AgentPromptSuggestions(") + 1800,
+    );
+    expect(suggestions).toContain('label="Suggestions" testId="agent-chat-suggestions"');
+    expect(suggestions).toContain("disabled={disabled}");
+    const list = readFileSync(join(process.cwd(), "components/agent/agent-follow-up-suggestions.tsx"), "utf8");
+    expect(list).toContain("data-testid={testId}");
+    expect(list).toContain("aria-label={label}");
+    expect(list).toContain('type="button"');
+    expect(list).toContain("disabled={disabled}");
+    expect(list).toContain("!min-h-11");
+    expect(suggestions).toContain("onSelect={onPromptSelect}");
+    expect(list).toContain("onClick={() => onSelect(suggestion)}");
+    expect(source).toContain("setInput(prompt)");
   });
 
   it("runs post-setup onboarding as ordinary chat turns, with the tile grid retired", () => {

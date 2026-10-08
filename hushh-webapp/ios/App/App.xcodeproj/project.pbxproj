@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5E5510AC0000000000000002 /* GoogleConnectorAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */; };
 		AC0011223344556677889901 /* CountryPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0011223344556677889902 /* CountryPickerTests.swift */; };
 		139101184C4F226D678D2C5B /* AppUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */; };
 		19493A2C811E742D1FAA4874 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D70EFDA31DB35F5785665EA6 /* Foundation.framework */; };
@@ -16,6 +17,7 @@
 		5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */; };
 		5E5510A10000000000000004 /* HushhNativeNavigationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */; };
 		5E5510A10000000000000006 /* HushhNativeChromePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */; };
+		5E5510A10000000000000008 /* HushhNativeChromePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */; };
 		5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A20000000000000001 /* HushhStreamPlugin.swift */; };
 		5E5510A30000000000000002 /* HushhOAuthReturnPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */; };
 		5E5510A50000000000000002 /* HushhPlaidLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */; };
@@ -85,6 +87,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GoogleConnectorAuthPlugin.swift; path = Plugins/GoogleConnectorAuthPlugin.swift; sourceTree = "<group>"; };
 		AC0011223344556677889902 /* CountryPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryPickerTests.swift; sourceTree = "<group>"; };
 		0E424BC311E720A549078D16 /* NativeTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeTestSupport.swift; sourceTree = "<group>"; };
 		5CE2E0D1A0C0000000000001 /* SceneDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
@@ -105,6 +108,7 @@
 		5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSessionPrivacyPlugin.swift; path = Plugins/HushhSessionPrivacyPlugin.swift; sourceTree = "<group>"; };
 		5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeNavigationPlugin.swift; path = Plugins/HushhNativeNavigationPlugin.swift; sourceTree = "<group>"; };
 		5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeChromePlugin.swift; path = Plugins/HushhNativeChromePlugin.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeChromePresenter.swift; path = Plugins/HushhNativeChromePresenter.swift; sourceTree = "<group>"; };
 		5E5510A20000000000000001 /* HushhStreamPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhStreamPlugin.swift; path = Plugins/HushhStreamPlugin.swift; sourceTree = "<group>"; };
 		5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhOAuthReturnPlugin.swift; path = Plugins/HushhOAuthReturnPlugin.swift; sourceTree = "<group>"; };
 		5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhPlaidLinkPlugin.swift; path = Plugins/HushhPlaidLinkPlugin.swift; sourceTree = "<group>"; };
@@ -270,9 +274,11 @@
 				EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */,
 				99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */,
 				2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */,
+				5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */,
 				5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */,
 				5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */,
 				5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */,
+				5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */,
 				5E5510A20000000000000001 /* HushhStreamPlugin.swift */,
 				5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */,
 				5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */,
@@ -500,9 +506,11 @@
 				F368A19E68607FCBA9D2DD32 /* HushhSyncPlugin.swift in Sources */,
 				A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */,
 				3DEFC858950C7B5B885C6D21 /* HushhAuthPlugin.swift in Sources */,
+				5E5510AC0000000000000002 /* GoogleConnectorAuthPlugin.swift in Sources */,
 				5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */,
 				5E5510A10000000000000004 /* HushhNativeNavigationPlugin.swift in Sources */,
 				5E5510A10000000000000006 /* HushhNativeChromePlugin.swift in Sources */,
+				5E5510A10000000000000008 /* HushhNativeChromePresenter.swift in Sources */,
 				5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */,
 				5E5510A30000000000000002 /* HushhOAuthReturnPlugin.swift in Sources */,
 				5E5510A50000000000000002 /* HushhPlaidLinkPlugin.swift in Sources */,
@@ -693,6 +701,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 69;
 				DEVELOPMENT_TEAM = WVDK9JW99C;
+				ENABLE_DEBUG_DYLIB = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

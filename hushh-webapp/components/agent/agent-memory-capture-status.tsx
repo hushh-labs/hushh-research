@@ -25,11 +25,13 @@ function MemorySaveCardWithOffers({
   onConfirmNeedsOwner,
   onRetry,
   pendingCards,
+  canConfirmNeedsOwner,
 }: {
   receipt: NonNullable<AgentPkmCaptureStatus["receipt"]>;
-  onConfirmNeedsOwner?: () => Promise<void>;
+  onConfirmNeedsOwner?: (reviewedCards: readonly AgentPkmPreviewCard[]) => Promise<void>;
   onRetry?: () => Promise<void>;
   pendingCards?: readonly AgentPkmPreviewCard[];
+  canConfirmNeedsOwner?: boolean;
 }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -51,6 +53,7 @@ function MemorySaveCardWithOffers({
       onOpenOffer={openOffer}
       onRetry={onRetry}
       pendingCards={pendingCards}
+      canConfirmNeedsOwner={canConfirmNeedsOwner}
     />
   );
 }
@@ -66,13 +69,15 @@ export function AgentMemoryCaptureStatus({
   onRetry,
   onUnlock,
   pendingCards,
+  canConfirmNeedsOwner,
 }: {
   status: AgentPkmCaptureStatus;
-  onConfirmNeedsOwner?: () => Promise<void>;
+  onConfirmNeedsOwner?: (reviewedCards: readonly AgentPkmPreviewCard[]) => Promise<void>;
   /** Continue the save job behind this receipt (lines not yet saved). */
   onRetry?: () => Promise<void>;
   onUnlock?: () => void;
   pendingCards?: readonly AgentPkmPreviewCard[];
+  canConfirmNeedsOwner?: boolean;
 }) {
   if (status.phase === "skipped" && !status.receipt) return null;
   const running = isAgentPkmCaptureRunning(status);
@@ -83,6 +88,7 @@ export function AgentMemoryCaptureStatus({
         onConfirmNeedsOwner={onConfirmNeedsOwner}
         onRetry={onRetry}
         pendingCards={pendingCards}
+        canConfirmNeedsOwner={canConfirmNeedsOwner}
       />
     );
   }
@@ -97,6 +103,7 @@ export function AgentMemoryCaptureStatus({
         onConfirmNeedsOwner={onConfirmNeedsOwner}
         onRetry={onRetry}
         pendingCards={pendingCards}
+        canConfirmNeedsOwner={canConfirmNeedsOwner}
       />
     );
   }

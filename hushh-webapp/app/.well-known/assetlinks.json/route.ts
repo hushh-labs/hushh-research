@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { scopeCommerceSandboxAssociations } from "@/lib/capacitor/scope-commerce-sandbox-associations";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,12 @@ function resolveSha256Fingerprints(): string[] {
 }
 
 export async function GET() {
+  try {
+    const sandbox = scopeCommerceSandboxAssociations();
+    if (sandbox) return NextResponse.json(sandbox.assetlinks, { headers: { "Cache-Control": "public, max-age=300" } });
+  } catch {
+    return NextResponse.json({ error: "Sandbox link associations are not configured." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   const packageName = process.env.NEXT_PUBLIC_ANDROID_APP_ID;
   const fingerprints = resolveSha256Fingerprints();
 

@@ -60,10 +60,11 @@ Non-owned surfaces:
 3. Treat vault keys and owner tokens as memory-only runtime state.
 4. Use route/service tests or metadata proof before browser proof when sufficient.
 5. Treat PKM manifests as authority and `pkm_index` as discovery cache.
-6. Keep diagnostics out of consumer UI and plaintext out of chat, docs, commits, tests, logs, and model prompts.
+6. Keep diagnostics out of consumer UI and private plaintext out of docs, commits, test artifacts and logs. Model processing requires explicit scoped consent; neither a pod replica nor conversation grants unrestricted PKM access.
 7. Treat PKM visibility as `private`, `consent_required`, or `default_available`; the last is an owner-published safe projection, never raw PKM.
 8. Route reviewer runtime proof and upgrade acceptance to their dedicated spokes.
 9. Keep Source Library provider files authoritative, its PKM memory private, and its SQLite mapping non-authoritative and rebuildable.
+10. For Computer Use, follow `consent-protocol/docs/reference/private-browser-runtime.md`: selected non-secret exports, manual login, encrypted opt-in sessions and generation-fenced Forget. No Secrets export, automatic credential injection or record-only cross-custody transfer is qualified by this pilot.
 
 ## Handoff Rules
 

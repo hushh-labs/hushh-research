@@ -5,8 +5,10 @@ dispatch. A review is issued by one request and decided by later ones, and the
 backend runs as several instances, so the bounded arguments cannot live in one
 process's memory: a different instance would find nothing and refuse a valid
 approval. They are sealed with the owner's chat key, the key that already seals
-the conversation, and kept in Postgres only until the review expires. Without
-that key, or after expiry, nothing opens and the person is asked to review
+the conversation, and kept in Postgres only until the review expires in shared
+runtime. Trusted pod composition retains the existing bounded memory-only
+arguments instead; no pod path can fall through to shared SQL. Without
+the shared runtime's owner key, or after expiry, nothing opens and the person is asked to review
 again. An empty-argument replay is never possible.
 """
 
@@ -17,7 +19,7 @@ import json
 import logging
 import re
 import secrets
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -26,7 +28,12 @@ from typing import Any
 from google.adk.sessions import Session
 
 from db.db_client import DatabaseExecutionError, get_db
-from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.one_adk.request_secrets import (
+    consume_request_secret,
+    resolve_request_secret,
+    store_request_secret,
+)
+from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.chat_key import (
     ChatCipher,
@@ -39,6 +46,27 @@ from hushh_mcp.services.chat_key import (
 logger = logging.getLogger(__name__)
 
 _CURRENT_HANDLE: ContextVar[str | None] = ContextVar("mcp_pending_handle", default=None)
+_PRIVATE_PENDING: ContextVar[bool] = ContextVar("mcp_private_pending", default=False)
+
+
+@contextmanager
+def private_pending_call_scope():
+    """Bind trusted pod composition to existing memory-only recovery.
+
+    Process restart loses the record and refuses resume. This does not claim
+    durable pod recovery or change the existing action authority.
+    """
+    token = _PRIVATE_PENDING.set(True)
+    try:
+        yield
+    finally:
+        _PRIVATE_PENDING.reset(token)
+
+
+def _private_pending() -> bool:
+    # A missing injected context must never give a pod the shared SQL adapter.
+    return _PRIVATE_PENDING.get() or pod_mode()
+
 
 _HANDLE_PREFIX = "one_secret_ref:"
 _HANDLE_PATTERN = re.compile(r"one_secret_ref:[A-Za-z0-9_-]{32}")
@@ -89,6 +117,8 @@ def _expires_at(review: dict | None) -> datetime:
 
 
 async def _execute(sql: str, params: dict[str, Any]):
+    if _private_pending():
+        raise PendingCallStorageError("Private connector recovery cannot use shared storage.")
     try:
         return await asyncio.to_thread(get_db().execute_raw, sql, params)
     except DatabaseExecutionError as exc:
@@ -105,6 +135,16 @@ async def discard_pending_call(*, owner: str, thread: str, handle: str) -> None:
     """Remove a record whose call has run. Best effort: it expires and is swept anyway."""
     if not isinstance(handle, str) or _HANDLE_PATTERN.fullmatch(handle) is None:
         return
+    if _private_pending():
+        try:
+            pending = await pending_call_details(
+                Session(id=thread, user_id=owner, app_name="hussh_one"), handle
+            )
+        except ActionDirectiveAuthorityError:
+            return
+        if pending["owner"] == owner and pending["thread"] == thread:
+            consume_request_secret(handle)
+        return
     try:
         await _execute(
             """DELETE FROM one_mcp_pending_calls
@@ -113,6 +153,10 @@ async def discard_pending_call(*, owner: str, thread: str, handle: str) -> None:
         )
     except PendingCallStorageError:
         pass  # already logged with a code only
+
+
+def current_pending_handle() -> str:
+    return _CURRENT_HANDLE.get() or ""
 
 
 @asynccontextmanager
@@ -177,6 +221,23 @@ async def capture_pending_call(
             raise ValueError
     except (TypeError, ValueError):
         raise ActionDirectiveAuthorityError("Connector review arguments are invalid.") from None
+    if _private_pending():
+        expires = _expires_at(review)
+        payload = json.dumps(
+            {
+                "kind": "mcp_pending_call",
+                "owner": owner,
+                "thread": thread,
+                "call_id": call_id,
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "review": review,
+                "expires_at": expires.isoformat(),
+            },
+            allow_nan=False,
+        )
+        ttl = max(1, int((expires - datetime.now(timezone.utc)).total_seconds()))
+        return store_request_secret(payload, ttl_seconds=ttl)
     handle = _HANDLE_PREFIX + secrets.token_urlsafe(24)
     try:
         sealed = ChatCipher().seal(
@@ -225,6 +286,15 @@ async def pending_call_details(session: Session, handle: str) -> dict:
     """Open a stored record under the authenticated session's identity."""
     if not isinstance(handle, str) or _HANDLE_PATTERN.fullmatch(handle) is None:
         raise review_refusal("pending_handle_invalid", _EXPIRED)
+    if _private_pending():
+        try:
+            pending = json.loads(resolve_request_secret(handle))
+            expires = datetime.fromisoformat(pending["expires_at"])
+            if expires.tzinfo is None or expires <= datetime.now(timezone.utc):
+                raise ValueError
+        except (TypeError, ValueError, KeyError):
+            raise review_refusal("pending_handle_missing", _EXPIRED) from None
+        return _require_pending_binding(session, pending)
     result = await _execute(
         """SELECT payload_ciphertext, payload_iv, payload_tag
            FROM one_mcp_pending_calls
@@ -252,6 +322,10 @@ async def pending_call_details(session: Session, handle: str) -> dict:
     except (ChatKeyMismatchError, LegacyChatCiphertextError, ValueError):
         # A different key than the one that sealed it, or a record that does not open.
         raise review_refusal("pending_record_unreadable", _EXPIRED) from None
+    return _require_pending_binding(session, pending)
+
+
+def _require_pending_binding(session: Session, pending: Any) -> dict[str, Any]:
     if (
         not isinstance(pending, dict)
         or pending.get("kind") != "mcp_pending_call"

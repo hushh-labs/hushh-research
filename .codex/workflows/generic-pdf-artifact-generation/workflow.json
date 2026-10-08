@@ -16,16 +16,19 @@
     "docs/reference/operations/documentation-architecture-map.md"
   ],
   "required_commands": [
+    "python3 scripts/ops/verify_pdf_artifact_contract.py",
     "./bin/hushh docs verify",
     "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
   ],
   "verification_bundle": {
     "id": "generic-pdf-artifact-generation",
     "commands": [
+      "python3 scripts/ops/verify_pdf_artifact_contract.py",
       "./bin/hushh docs verify",
       "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
     ],
     "tests": [
+      "python3 scripts/ops/verify_pdf_artifact_contract.py",
       "./bin/hushh docs verify"
     ]
   },

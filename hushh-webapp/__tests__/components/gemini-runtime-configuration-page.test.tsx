@@ -1,10 +1,4 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
 
@@ -18,7 +12,13 @@ const state = vi.hoisted(() => ({
   welcome: vi.fn(),
   hasFinanceIntent: false,
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => state.router }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => state.router,
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
+vi.mock("@/lib/utils/browser-navigation", () => ({
+  requestInternalAppNavigation: () => false,
+}));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: state.user, loading: false }),
 }));
@@ -91,50 +91,24 @@ beforeEach(() => {
 });
 
 describe("AI-choice setup invitation continuation", () => {
-  it.each([false, true])("keeps the invite captured across completion (pending Finance: %s)", async (hasFinanceIntent) => {
-    state.hasFinanceIntent = hasFinanceIntent;
-    let complete!: () => void;
-    state.acknowledge.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          complete = resolve;
-        }),
-    );
+  it("returns to the setup hub with the invitation preserved", () => {
     render(<GeminiRuntimeConfigurationPage setupMode />);
     fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
-    fireEvent.click(screen.getByTestId("one-setup-connections-terminal"));
-    await waitFor(() => expect(state.acknowledge).toHaveBeenCalledOnce());
-    expect(state.router.replace).not.toHaveBeenCalled();
-    // Completion publishes a cache change. The guard can settle this route
-    // while the component's finalization promise is still resuming.
-    window.history.replaceState(null, "", destination);
-    await act(async () => complete());
-    expect(state.router.replace).toHaveBeenCalledWith(
-      hasFinanceIntent
-        ? "/one/setup/finance/import?return_to=" + encodeURIComponent(destination)
-        : destination,
-    );
-    expect(state.router.replace).not.toHaveBeenCalledWith("/");
-    expect(state.finalize).toHaveBeenCalledOnce();
-    expect(state.sync).toHaveBeenCalledOnce();
-    expect(state.finance).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(state.router.replace).toHaveBeenCalledOnce();
+    const href = state.router.replace.mock.calls[0][0] as string;
+    const route = new URL(href, "https://one.example");
+    expect(route.pathname).toBe("/one/setup");
+    expect(route.searchParams.get("return_to")).toBe(destination);
   });
 
-  it("does not navigate an old invitation after the setup component unmounts", async () => {
-    let complete!: () => void;
-    state.acknowledge.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          complete = resolve;
-        }),
-    );
-    const view = render(<GeminiRuntimeConfigurationPage setupMode />);
+  it("does not carry an external return target into setup", () => {
+    window.history.replaceState(null, "", "/one/setup/connections?return_to=https%3A%2F%2Fother.example");
+    render(<GeminiRuntimeConfigurationPage setupMode />);
     fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
-    fireEvent.click(screen.getByTestId("one-setup-connections-terminal"));
-    await waitFor(() => expect(state.acknowledge).toHaveBeenCalledOnce());
-    view.unmount();
-    await act(async () => complete());
-    expect(state.router.replace).not.toHaveBeenCalled();
-    expect(state.welcome).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const route = new URL(state.router.replace.mock.calls[0][0] as string, "https://one.example");
+    expect(route.pathname).toBe("/one/setup");
+    expect(route.searchParams.has("return_to")).toBe(false);
   });
 });

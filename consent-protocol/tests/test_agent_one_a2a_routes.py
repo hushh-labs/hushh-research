@@ -3,13 +3,46 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import a2a
 from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
+
+
+@pytest.fixture(autouse=True)
+def explicit_shared_placement(monkeypatch):
+    """Existing hub invocation fixtures select Shared explicitly."""
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
+
+
+def test_byoc_invocation_refuses_before_orchestrator(monkeypatch):
+    from hushh_mcp.services import owner_placement_guard
+
+    _patch_developer_auth(monkeypatch)
+    _patch_db_token_validation(monkeypatch)
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="byoc")
+    )
+    orchestrator = Mock(side_effect=AssertionError("private content must not reach the hub"))
+    monkeypatch.setattr(a2a, "get_orchestrator", orchestrator)
+    response = _client().post(
+        "/api/one/a2a/message",
+        json={"message": "synthetic private request"},
+        headers={"Authorization": "Bearer hdk_demo", "X-Consent-Token": _token()},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    orchestrator.assert_not_called()
 
 
 def _client() -> TestClient:

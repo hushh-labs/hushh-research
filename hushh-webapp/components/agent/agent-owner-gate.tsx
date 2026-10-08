@@ -10,7 +10,7 @@ import { LocationUpdatesStepBridge } from "@/components/location/location-update
 import { RequestReviewStepBridge } from "@/components/connections/request-review-step-bridge";
 import { VoiceSessionProvider } from "@/components/one-voice/voice-session-provider";
 import { OneVoiceMailDraftBridge } from "@/components/one-voice/one-voice-mail-draft-bridge";
-import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
+import { useOneVoiceLiveEnabled, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
 import { dispatchAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
 
 /**
@@ -23,6 +23,7 @@ import { dispatchAgentConversationAfterRoute } from "@/lib/agent/agent-voice-set
  */
 export function AgentOwnerGate({ children }: { children: ReactNode }) {
   const live = useOneVoiceLiveEnabled();
+  const commands = useOneVoiceCommandsEnabled();
   const pathname = usePathname();
 
   // A source surface can hand Talk to One off to canonical Chat, but never
@@ -32,8 +33,8 @@ export function AgentOwnerGate({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   return (
-    <LocationCommandProvider enabled={!live}>
-      {!live ? <LocationCommandDeviceBridge /> : null}
+    <LocationCommandProvider enabled={commands}>
+      {commands ? <LocationCommandDeviceBridge /> : null}
       <VoiceSessionProvider enabled={live}>
         <OneVoiceMailDraftBridge />
         {live ? (

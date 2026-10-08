@@ -1,32 +1,35 @@
 name: Dev Pod Lifecycle Drill
 
-# The verification harness's Layer 2. It runs the pod lifecycle drill's
-# ORCHESTRATION on a cadence -- provision, teach, prove-learned, kill, rebuild
-# the same owner, recall across the death, negative control -- against an
-# in-memory fleet, and archives the result. This is the offline `--dry-run`
-# half: it needs no cloud, costs nothing, and goes red the day the drill's own
-# logic (including the negative self-test, which proves a state-LOSING lifecycle
-# fails the drill) stops holding. It runs here, on a schedule, independent of any
-# PR, so the guarantee does not depend on someone remembering to run it.
+# The harness's Layer 2. It runs the pod lifecycle drill's ORCHESTRATION on a
+# cadence -- provision, teach, prove-learned, kill, rebuild the same owner,
+# recall across the death, negative control -- against the in-memory fleet, and
+# archives the result. This is the offline `--dry-run` half: it needs no cloud,
+# costs nothing, and goes red the day the drill's own logic (including the
+# negative self-test, which proves a state-LOSING lifecycle fails the drill)
+# stops holding. It runs here, on a schedule, independent of any PR, so the
+# guarantee does not depend on someone remembering to run the tests.
 #
 # WHAT GUARDS THE LOGIC: the `--dry-run` this workflow executes IS the guard. It
 # runs the same `_self_test()` -- a state-preserving lifecycle must pass AND a
 # state-losing one must fail -- so a regression in the orchestration turns this
 # scheduled run red on its own. The matching unit test
-# (`tests/test_pod_lifecycle_drill.py`) lives on the pod-architecture development
-# branch; `main` deliberately does not carry the pod harness, which is why only
-# the drill script and this workflow are promoted here.
+# (`tests/test_pod_lifecycle_drill.py`) lives on this pod-architecture development
+# branch, which is its source of record; `main` deliberately does not carry the
+# pod harness, so only the drill script and this workflow are promoted there.
 #
-# THE LIVE DOUBLE-CYCLE IS DELIBERATELY NOT A CI JOB.
-# Running the identical sequence against real Cloud Run + real GCS is the
-# operator path: `pod_lifecycle_drill.py --live --project hushh-pda-dev
-# --owner <throwaway HusshID> --consent-token <minted pkm.read grant>`. It is
-# excluded here for the same reason `pod_evolution_gcs_probe.py` is an operator
-# check and not a CI test: it creates real per-user pods (minutes of billed
-# compute in a shared, costed project) and needs a consent token minted at
-# runtime for the drill owner, which a CI runner has no safe way to mint. The
-# drill tears down every service it provisions, pass or fail, but the decision
-# to spend money on a live run stays a human's.
+# THE LIVE DOUBLE-CYCLE IS INCOMPLETE.
+# The CLI refuses --live before cloud, registry or grant access because its
+# retained adapter can adopt existing resources and does not prove complete
+# disposal before reporting. Re-enabling requires atomic disposable ownership,
+# incarnation-bound compute cleanup and durable erasure receipts. This offline
+# workflow proves only orchestration; it must never count as live lifecycle proof.
+#
+# NOTE ON ACTIVATION: GitHub fires `schedule:` and shows `workflow_dispatch` only
+# for workflows on the repository's DEFAULT branch. A promoted copy of this
+# workflow now lives on `main` and fires the weekly cron there; this
+# development-branch copy is the source of record, where the drill's logic is
+# additionally guarded on every PR by `tests/test_pod_lifecycle_drill.py`. Keep
+# the two in step when the drill changes.
 
 on:
   schedule:

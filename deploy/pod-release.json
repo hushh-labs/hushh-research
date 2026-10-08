@@ -1,0 +1,23 @@
+{
+  "version": "2026.10-dev.11",
+  "channel": "dev",
+  "summary": "Startup and storage improvements for your private agent.",
+  "notes": {
+    "improvements": [
+      "Startup reuses the same verified recovery resources.",
+      "Encrypted storage reuses connections without caching private information.",
+      "Chat preparation keeps cloud key retrieval off the request loop."
+    ],
+    "fixes": [
+      "Mail notification progress survives retries without skipping unprocessed changes.",
+      "Software updates retain recovery authority when a cloud operation has an uncertain result.",
+      "Existing hosting choices remain unchanged when new setup defaults evolve."
+    ],
+    "security": [
+      "Files analysis remains opt-in and uses the approved provider boundary.",
+      "Existing pods require a qualified image transition and exact owner approval before installation.",
+      "Computer Use remains disabled until its cloud isolation gates pass."
+    ]
+  },
+  "supportedUpgradeDigests": []
+}

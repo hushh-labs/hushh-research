@@ -17,7 +17,7 @@ server keeps the listingId -> owner map internal (see `resolve_listing`).
 Consent safety mirrors the owner-side read model: we surface only the published
 safe-summary projection plus scope-registry *metadata* (label, sensitivity tier,
 attribute count) — never raw PKM values, and never another user's identity.
-Pricing is the same pure engine the owner sees (`hushh_mcp.pricing`).
+Prices are the exact owner tariff or free when unset; a directory entry is never a quote.
 """
 
 from __future__ import annotations
@@ -29,15 +29,12 @@ import logging
 from typing import Any
 
 from db.db_client import get_db
-from hushh_mcp.pricing import (
-    SlicePricingInput,
-    category_from_sensitivity,
-    compute_suggested_price,
-)
+from hushh_mcp.consent.export_envelope import scope_handle_for_machine_scope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelService,
 )
+from hushh_mcp.services.scope_commerce.service import ScopeCommerceService
 
 logger = logging.getLogger(__name__)
 
@@ -247,33 +244,28 @@ class MarketplaceCatalogService:
         cache[key] = index
         return index
 
-    def _price_for(self, entry: dict[str, Any] | None, *, attribute_count: int) -> tuple[int, str]:
-        """Suggested 30-day price for a slice. Uses the owner's real registry entry
-        for the sensitivity category when matched; otherwise a conservative
-        demographics default. The attribute count is computed by the caller (see
-        `_attribute_count_for`, which handles subtree scopes) and passed in so
-        display and price never disagree. Band is the neutral affluent/affinity
-        default the owner-side read model uses.
-        """
-        if entry is not None:
-            category = category_from_sensitivity(
-                entry.get("sensitivity_tier"), entry.get("scope_kind")
-            )
-        else:
-            category = "demographics_lifestyle"
-        attribute_count = max(1, int(attribute_count or 1))
+    async def _price_for(
+        self, *, owner_user_id: str, domain: str, path: str, scope_handle: str | None
+    ) -> dict:
+        from asyncpg import UndefinedTableError
+
+        if not path:
+            return {"priceCents": 0, "currency": "USD", "priceConfigured": False}
+        scope = "attr." + domain + "." + path + ".*"
+        handle = scope_handle or scope_handle_for_machine_scope(owner_user_id, scope)
         try:
-            breakdown = compute_suggested_price(
-                SlicePricingInput(
-                    category=category,
-                    attribute_count=attribute_count,
-                    power="affluent",
-                    mood="affinity",
-                )
+            tariff = await ScopeCommerceService().get_tariff(
+                owner_user_id=owner_user_id, scope_handle=handle, machine_scope=scope
             )
-        except KeyError:
-            return 0, "USD"
-        return breakdown.suggested_price_cents, breakdown.currency
+        except UndefinedTableError:
+            tariff = None
+        return {
+            "priceCents": int(tariff["priceCents"]) if tariff else 0,
+            "currency": "USD",
+            "priceConfigured": tariff is not None,
+            "baseDurationSeconds": tariff["baseDurationSeconds"] if tariff else None,
+            "tariffRevision": tariff["tariffRevision"] if tariff else None,
+        }
 
     # --- directory --------------------------------------------------------
 
@@ -329,7 +321,12 @@ class MarketplaceCatalogService:
                 f"p:{top_level_scope_path}"
             )
             attribute_count = _attribute_count_for(entry, presentation)
-            price_cents, currency = self._price_for(entry, attribute_count=attribute_count)
+            pricing = await self._price_for(
+                owner_user_id=owner_user_id,
+                domain=domain,
+                path=top_level_scope_path,
+                scope_handle=row.get("scope_handle"),
+            )
             owner_ref = _owner_ref(owner_user_id)
             listings.append(
                 {
@@ -344,8 +341,8 @@ class MarketplaceCatalogService:
                     # NEVER send the raw presentation to a buyer — it embeds saved
                     # values. Only the value-stripped, names-only shape crosses the wire.
                     "preview": _safe_preview(presentation),
-                    "suggestedPriceCents": price_cents,
-                    "currency": currency,
+                    **pricing,
+                    "suggestedPriceCents": pricing["priceCents"],
                 }
             )
         return listings
@@ -388,14 +385,19 @@ class MarketplaceCatalogService:
             f"p:{top_level_scope_path}"
         )
         attribute_count = _attribute_count_for(entry, presentation)
-        price_cents, currency = self._price_for(entry, attribute_count=attribute_count)
+        pricing = await self._price_for(
+            owner_user_id=owner_user_id,
+            domain=domain,
+            path=top_level_scope_path,
+            scope_handle=row.get("scope_handle"),
+        )
         return {
             "listingId": str(row.get("id")),
             "ownerUserId": owner_user_id,
             "domain": domain,
             "scopeHandle": row.get("scope_handle"),
             "sliceLabel": label,
+            "attributeCount": attribute_count,
             "topLevelScopePath": top_level_scope_path,
-            "priceCents": price_cents,
-            "currency": currency,
+            **pricing,
         }

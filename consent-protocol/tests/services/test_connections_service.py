@@ -1912,8 +1912,12 @@ def test_search_directory_fallback_matches_only_exact_contact_identifiers():
     with patch("hushh_mcp.services.connections_service.get_db", lambda: _RecordingDB([[], [], []])):
         phone = svc.search_directory("user-a", query="+1 555 010 0002")
         prefix = svc.search_directory("user-a", query="kushaltrivedi54@")
+        partial_phone = svc.search_directory("user-a", query="555010")
+        name = svc.search_directory("user-a", query="Kushal")
     assert [item["userId"] for item in phone["items"]] == ["user-c"]
+    assert [item["userId"] for item in name["items"]] == ["user-c"]
     assert prefix["items"] == []
+    assert partial_phone["items"] == []
 
 
 def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():

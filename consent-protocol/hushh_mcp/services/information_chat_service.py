@@ -249,7 +249,10 @@ class InformationChatService:
         self._service_ports = dict(service_ports or {})
         self._scope_tokens = dict(scope_tokens or {})
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
-        self._use_adk = model_call is None
+        # An injected ADK model selects the migrated runner. Keep an optional
+        # model_call seam available for pod authority checks and compatibility
+        # diagnostics; it is not used to run the ADK turn.
+        self._use_adk = model is not None
         self._adk_model = model
 
         if model_call is not None:

@@ -811,7 +811,7 @@ textarea {
   --page-top-start: 28px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
-  --app-shell-reading: 54rem;
+  --app-shell-reading: 720px;
   --app-shell-agent: 55rem;
   --app-shell-standard: 90rem;
   --app-shell-expanded: 96rem;
@@ -1010,6 +1010,7 @@ textarea {
    * the iOS / vaul sheet curve: fast start, long gentle settle. */
   --motion-sheet-enter-duration: 300ms;
   --motion-sheet-exit-duration: 200ms;
+  --motion-drawer-settle-duration: 150ms;
   --motion-sheet-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --motion-sheet-exit-ease: var(--motion-ease-accelerate);
 
@@ -4218,8 +4219,8 @@ body:has([data-testid="one-location-onboarding"])
 
 .dark {
   /* Foundation dark — PDF pitch-black bg #0a0a0c, elevated card #15151c.
-     Accent tuned BRIGHT for legibility on black; the light -deep tone is
-     too faint on dark surfaces. */
+     The accent -deep stays #007aff by design (see the ONE Action Blue note
+     below); only the translucent tint/surface washes take alpha form on dark. */
 
   /* ── App accent family (dark) ── iOS Blue default; gold overrides live
      under html[data-accent="gold"].dark below. ONE Action Blue across both
@@ -6800,7 +6801,7 @@ html[data-accent="gold"].dark {
   from {
     opacity: var(--tw-enter-opacity, 1);
     transform: translate3d(
-      var(--tw-enter-translate-x, 0),
+      var(--profile-entry-offset, var(--tw-enter-translate-x, 0)),
       var(--tw-enter-translate-y, 0),
       0
     );
@@ -7764,13 +7765,9 @@ body[data-persona-surface="ria"] {
    lib/boot/boot-sequence.ts (show after 200 ms, at least 400 ms once shown,
    150 ms exit). Transform and opacity only; flat Morphy surface, no blur.
 
-   Mark geometry continues the iOS launch screen. Splash.imageset draws the
-   shushing face centred, its ink 403/2732 of the square image, and the
-   storyboard aspect-fills the screen, so on a phone the ink is 14.751% of
-   the screen height. Apple Color Emoji's ink is 0.96 of the font size and
-   sits 0.0267 of it above the line box centre (measured in WebKit and
-   Chromium), so the glyph is sized from the ink box and nudged down by that
-   amount to put the ink, not the line box, on the centre.
+   Mark geometry continues the current iOS Splash.imageset. Its centred
+   brand artwork is 202/2732 of the square image; LaunchScreen.storyboard
+   aspect-fills the screen. The transparent runtime mark keeps that height.
    ========================================================================== */
 /* --boot-spring is a critically damped spring (damping ratio 1, so it
    cannot overshoot or bounce): x(t) = 1 - (1 + 10t)e^(-10t), sampled. */
@@ -7815,7 +7812,10 @@ body[data-persona-surface="ria"] {
 
 /* Native shells: the launch surface is the splash's own colours and mark
    size, following the system appearance the splash was drawn in. */
-html.native-ios .boot-surface,
+html.native-ios .boot-surface {
+  --boot-mark-size: calc(100lvh * 202 / 2732);
+}
+
 html.native-android .boot-surface {
   --boot-mark-size: calc(100lvh * 403 / 2732);
 }

@@ -765,6 +765,28 @@ describe("PostAuthRouteService", () => {
     ).resolves.toBe(ROUTES.HOME);
   });
 
+  it("does not exempt the dev deployment from the phone mandate", async () => {
+    // A fresh dev account must verify its phone before provisioning. A
+    // completed account is exempt regardless of host, as tested above.
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      phoneVerified: false,
+      setupCompleted: false,
+      setupCompletedAt: null,
+      setupSkipped: null,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        phoneNumber: null,
+        hostname: "dev.one.hushh.ai",
+      })
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CONNECTIONS));
+  });
+
   describe("first-run One Setup gate", () => {
     beforeEach(() => {
       OneSetupGateService.reset("user_gate");

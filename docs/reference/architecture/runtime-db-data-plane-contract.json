@@ -24,6 +24,9 @@
     "one_action_directive_ledger",
     "one_capability_runs",
     "one_kyc_workflows",
+    "one_public_profile_entities",
+    "one_public_profile_findings",
+    "one_profile_discovery_feed_outbox",
     "drive_bulk_share_files",
     "drive_bulk_share_effects",
     "drive_request_payment_webhook_events",
@@ -150,17 +153,15 @@
       "data_class": "workflow_state",
       "lifecycle_status": "parked_flag_off_with_live_environment_drift",
       "exact_tables": [
-        "personal_agent_registry",
         "byoc_setup_jobs",
-        "pod_lifecycle_events",
-        "personal_agent_deletion_tombstones"
+        "pod_lifecycle_events"
       ],
-      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
-      "retention_policy": "Registry and current setup rows exist only while the account exists. Lifecycle events have a 30-day operational TTL and account deletion removes them immediately only when the registry proves status=unprovisioned with no external coordinates, BYOC job, or pending deprovision intent. A lifecycle row without its registry cannot establish that absence and therefore fails closed. The parked personal_agent_deletion_tombstones design has no in-repo consumer, so an existing intent remains a no-ship operational state rather than evidence that provider cleanup will happen.",
+      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup (Google Cloud and Connect Azure; an Azure job's project_id holds its resource group ARM id), provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
+      "retention_policy": "Retain current setup rows while they may own provider work. Lifecycle events use the existing 30-day operational TTL. Registry and deletion-intent retention is owned by the personal_agent_registry family. Orphaned lifecycle state cannot prove resource absence. Dev-only migration928 retains authorization intents and verified bootstrap grant acknowledgements in the existing setup row across retries and attachment; unresolved entries cannot be discarded or rolled back.",
       "deletion_behavior": "AccountService locks all present personal-agent rows and directly deletes only demonstrably unprovisioned state with no provider coordinates. Any BYOC job, orphaned lifecycle row, non-unprovisioned status, external coordinate, or existing personal_agent_deletion_tombstone returns ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING and rolls back the entire account-deletion transaction. Account deletion cannot report success until an owned provider deprovisioner exists and the external or billable resource is independently proven absent.",
-      "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists.",
+      "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists. Authorization receipts contain exact owner/job/project, bootstrap account identity, grantee and bounded policy etags, never OAuth tokens. Public setup status does not expose the internal authorization_attempts column. Late acknowledgements remain bound to their original admitted intent; historical project dependencies participate in grant-release fencing.",
       "plaintext_posture": "provider_teardown_metadata_only",
-      "expected_row_growth": "one mutable registry and setup row per opted-in user, bounded 30-day lifecycle events, and parked deprovision intents that must not be activated without an owned consumer and compaction policy"
+      "expected_row_growth": "one current setup row per opted-in owner and bounded lifecycle events; no new per-attempt table"
     },
     {
       "id": "consent_authority_audit",
@@ -451,6 +452,56 @@
       "trust_boundary": "Official/public investor reference records only; rows do not create signed-in marketplace users and are not connectable without opt-in.",
       "plaintext_posture": "reference_metadata",
       "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "public_profile_evidence_pool",
+      "owner": "backend-runtime-governance",
+      "data_class": "reference",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_public_profile_entities",
+        "one_public_profile_identity_anchors",
+        "one_public_profile_sources",
+        "one_public_profile_findings"
+      ],
+      "primary_access_path": "PublicProfileDiscoveryService exact canonical profile-URL reuse and the leased HusshOne acquisition worker; PostgreSQL GIN and semantic candidate retrieval are not connected to the current service.",
+      "retention_policy": "Consent-gated, source-linked public findings may be retained for future exact-profile reuse. This release has no scheduled pool refresh or removal, and no existing-record import is allowed until source provenance and reuse permission are inventoried. The 100,000-profile target is not a measured capacity claim.",
+      "deletion_behavior": "Shared pool rows do not cascade with a single owner's account or claim. No source-removal/suppression workflow is implemented in this release; broad reuse remains gated until pool correction and removal operations are defined and verified.",
+      "trust_boundary": "Service-only shared public evidence. The public display-name anchor, public URLs, and source-linked findings are pooled after the v2 disclosure; login email, verified phone, employer/city hints, private corrections, and claim decisions are not shared pool fields.",
+      "plaintext_posture": "public_source_text_and_profile_anchor",
+      "expected_row_growth": "target_100k_entities_not_benchmarked; up_to_80_findings_and_200_source_refs_per_acquisition"
+    },
+    {
+      "id": "one_profile_discovery_handoff",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_profile_discovery_jobs",
+        "one_profile_discovery_events",
+        "one_profile_discovery_feed_outbox"
+      ],
+      "primary_access_path": "Firebase owner-scoped discovery status/start and vault-owner encrypted-draft/terminal-claim routes; PostgreSQL leased background worker and transactional Feed outbox.",
+      "retention_policy": "One job per owner remains after claim to enforce the terminal one-time handoff until account deletion. Search hints are cleared after a ready profile, cancellation, or an unreviewable result; encrypted private drafts remain ciphertext only while the owner job exists. Transition and outbox rows are bounded by meaningful lifecycle changes.",
+      "deletion_behavior": "AccountService hard-deletes the owner job, cascading its events and Feed outbox. The independent public evidence pool is retained and is not mutated by claim or account cleanup.",
+      "trust_boundary": "Owner-scoped job state; prepared public findings are a pinned snapshot. Corrections and selected-card state are client-encrypted with the owner's vault key. Feed events contain generic status only; direct pool access is service-only.",
+      "plaintext_posture": "public_profile_snapshot_with_ciphertext_private_draft",
+      "expected_row_growth": "one_job_per_opted_in_owner_plus_bounded_transition_rows"
+    },
+    {
+      "id": "profile_discovery_daily_usage",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_profile_discovery_daily_usage"
+      ],
+      "primary_access_path": "Atomic UTC-day acquisition and polling counters used by the background discovery worker's global budget guard.",
+      "retention_policy": "Aggregate one row per UTC day with no owner identifier or query content; retained as a compact operational usage ledger. No scheduled compaction is configured in this release.",
+      "deletion_behavior": "Not account-delete scoped; retain aggregate counts for capacity and cost review. An operator may remove old aggregate days under an approved retention policy.",
+      "trust_boundary": "Aggregate counts only; no person identifier, anchor, provider response, profile finding, or credential.",
+      "plaintext_posture": "aggregate_operational_counts",
+      "expected_row_growth": "one_small_row_per_day"
     },
     {
       "id": "kai_gmail_receipts_provider_cache",
@@ -1411,6 +1462,21 @@
       "expected_row_growth": "medium_append_only"
     },
     {
+      "id": "consent_audit_receipts",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "consent_audit_receipts"
+      ],
+      "primary_access_path": "tamper-evident hash-chained mirror of the primary consent_audit ledger (NIST 800-53 AU-9/AU-10); written fail-safe behind CONSENT_AUDIT_CHAIN_ENABLED, verified via ConsentAuditChainService.verify_chain",
+      "retention_policy": "Long-retention append-only audit chain; redact payload detail rather than deleting chain rows.",
+      "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity.",
+      "trust_boundary": "Signed, hash-chained consent-event metadata only (hashes, signatures, scope/agent/request labels); never token secrets or PKM values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
       "id": "subscription_fabric_requests",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -1469,6 +1535,97 @@
       "trust_boundary": "Model identifier only, validated against the server-side catalog on write; carries no user information and grants no access.",
       "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
       "expected_row_growth": "one row per person who chooses a model"
+    },
+    {
+      "id": "personal_agent_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "personal_agent_registry",
+        "personal_agent_deletion_tombstones"
+      ],
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement. Dev-only migration949 retains, once per reserved erasure attempt and before any access is revoked, the pod's crypto-erase confirmation for a user_azure agent with its setup nonce (the agentCryptoErase checkpoint a cut-short revocation resumes from), then the owner-access erasure receipt (that confirmation, the role assignments revoked, the person's remaining resource ids, the vault purge date and the resource group to delete), both validated against the reserved snapshot; account deletion still refuses while those resources remain. Dev-only migration950 adds placement_epoch (0 for every existing row, bumped by one on every standby promotion); the hub verifier refuses a signed pod request whose X-Hushh-Pod-Epoch is missing or stale once the person has a standby or an epoch above 0",
+      "retention_policy": "Retain the registry, operation attempts and resource evidence while provisioning, recovery, upgrade or erasure remains unresolved; elapsed time does not release admission. Completed provision metadata stays with the registry. Retain existing deletion tombstones for identity-generation suppression and unresolved resource recovery; no in-repo consumer establishes their cleanup.",
+      "deletion_behavior": "Account deletion refuses retained registry metadata and external resources. Erasure admission suspends ordinary access and preserves retry authority; it is not successful cleanup. Only the existing transactional absence guard permits empty-state removal. New provisioning attempts cannot remove or overwrite unresolved operation evidence.",
+      "trust_boundary": "Stores opaque owner/HusshID bindings, keyed phone hashes, public keys, provider coordinates and bounded lifecycle evidence. Azure coordinates are directory, subscription and resource-group identifiers only; one owner per resource group is enforced by a partial unique index. No raw phone, private key, OAuth token or provider payload belongs in registry metadata. Owner locks and exact-attempt publication govern provisioning; PKM and agent memory remain separate authorities. Dev-only migration947 adds the pod's public request-signing key and key id (recorded only from a hub-initiated pull, bound to pod_pubkey) and the one-way identity_mode latch; they are removed with the row by the same deletion path.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one registry row per owner; bounded nested attempt/evidence objects, plus deliberately retained deletion intents"
+    },
+    {
+      "id": "pod_request_replay_guard",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "pod_request_nonces"
+      ],
+      "primary_access_path": "Dev-only migration947. The hub's signed pod-request verifier (hushh_mcp/services/pod_request_verifier.py via pod_request_identity_store.py) consumes one (kid, nonce) per verified request with INSERT .. ON CONFLICT DO NOTHING; a conflicting insert is a replay and is refused. Reached only where pod_hub_identity_auth_enabled is on.",
+      "retention_policy": "Rows live only for the signature acceptance window plus a skew margin (about 120 seconds after the signing time); expired rows are pruned opportunistically by the verifier at most once a minute per process.",
+      "deletion_behavior": "No owner column and no per-account rows: account deletion needs no action. A row names only a public-key-derived kid and a random nonce, cannot be joined to a person once the registry row is deleted, and self-expires within about two minutes.",
+      "trust_boundary": "Stores a public-key-derived key id, a random 16-byte nonce and an expiry timestamp. No user identifiers, personal information, tokens, request bodies or signatures; a row grants no access and only prevents replay.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
+    },
+    {
+      "id": "personal_agent_standby_placement",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "personal_agent_standby_placements"
+      ],
+      "primary_access_path": "Dev-only migration950. hushh_mcp/services/personal_agent_standby_store.py (statements in personal_agent_standby_sql.py): add_standby for a provisioned, signing primary (latching identity_mode), read_standby for the hub signed-request verifier's key and epoch fence, claim_sync_lease / list_standbys_due / record_sync_result for the standby sync, swap_primary_and_standby for a switch (one statement, fenced on placement_epoch and the observed standby pod_key_id, promoting only a standby with a completed sync), remove_standby keeping coordinates only under the registry's backend_metadata.detachedPlacements. Design: docs/future/personal-agent/STANDBY-SYNC.md.",
+      "retention_policy": "One row per person while that person keeps a standby agent; removed by remove_standby (coordinates, never keys, retained under the registry row's detachedPlacements) or with the account.",
+      "deletion_behavior": "Account deletion refuses while a standby row exists, exactly as it refuses the primary's external resources, at the same point under the same owner locks (including after a finished primary erasure; hushh_mcp/services/personal_agent_standby_guard.py). The account path issues no standby delete: the row references its registry row ON DELETE RESTRICT, so a row that ever survived the guard would make the registry delete fail and roll the whole erasure back.",
+      "trust_boundary": "Stores the standby's placement coordinates (target, host id, cloud project or directory, subscription and resource group), its https address, its public pod and request-signing keys with their ids, and sync progress (last synced sequence, 64-hex chain head, timestamps, an advisory lease id). No private key, token, bundle, record or content: the hub ferries ciphertext it cannot open. The standby's keys and host must differ from the primary's (deferred constraint trigger), so the verifier can always tell the two placements apart.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "at most one row per person who adds a standby agent"
+    },
+    {
+      "id": "agent_prompt_registry",
+      "owner": "backend-agents-operons",
+      "data_class": "reference",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "agent_prompt_versions"
+      ],
+      "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off",
+      "retention_policy": "Retain active and superseded system-prompt versions for rollback and audit; no per-user rows.",
+      "deletion_behavior": "No per-user deletion; system-prompt configuration is pruned only by admin policy.",
+      "trust_boundary": "System-prompt configuration and version hashes only; contains no personal data.",
+      "plaintext_posture": "reference_metadata",
+      "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "webauthn_authenticators",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "webauthn_credentials"
+      ],
+      "primary_access_path": "server-side WebAuthn/FIDO2 registration and authentication ceremony (flag-off, WEBAUTHN_ENABLED; migration parked)",
+      "retention_policy": "Retain a user's registered authenticators while the account exists.",
+      "deletion_behavior": "Hard-delete with account deletion; a user may remove an individual authenticator.",
+      "trust_boundary": "Stores the credential id, COSE public key, and sign count only; a public key is not a secret and no private key material is ever held.",
+      "plaintext_posture": "metadata_and_token_hashes",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "webauthn_ceremony_state",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "webauthn_challenges"
+      ],
+      "primary_access_path": "transient WebAuthn challenge issue/consume during a registration or authentication ceremony (flag-off; migration parked)",
+      "retention_policy": "Short-lived security nonces: challenges expire in minutes (5-minute TTL) and are single-use.",
+      "deletion_behavior": "Deleted on consume (before validation, so a challenge can never be replayed) or on expiry; user_id may be null for usernameless auth.",
+      "trust_boundary": "Ephemeral ceremony state (a random challenge, RP id, ceremony kind) only; no personal data or credential material.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
     },
     {
       "id": "one_agent_message_feedback",
@@ -1568,6 +1725,21 @@
       "trust_boundary": "Active ordinary Circle members only, with an envelope matching the current membership joined_at generation. The server relays client ciphertext and recipient public keys; it never receives message or image plaintext.",
       "plaintext_posture": "ciphertext_and_membership_delivery_metadata",
       "expected_row_growth": "high_per_message_and_active_member"
+    },
+    {
+      "id": "consumer_scope_commerce",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "glob_tables": [
+        "scope_commerce_*"
+      ],
+      "primary_access_path": "hushh_mcp/services/scope_commerce owns PostgreSQL tariffs, immutable quotes, a shared funded-balance journal, reservations, pending earnings, original-source refunds and Connect settlement. api/routes/scope_commerce.py resolves existing authenticated request/owner authority; consent/paid_admission.py gates canonical exports independently of admission flags. Replaceable Stripe adapters persist provider operations before I/O and reconcile outside financial transactions.",
+      "retention_policy": "Financial journal and opaque obligations remain append-only under the approved financial retention policy, including after account erasure. Temporary encrypted staging is cleared on term completion, failure, revocation and erasure; provider retention deadlines govern small residual balances. Live enablement remains gated on verified business configuration, retention, country and tax approvals; source inspection alone does not establish deployed reconciliation or retention behavior.",
+      "deletion_behavior": "Revoke affected purchases and block retrieval immediately, release or refund liabilities through original funding provenance, then detach human identity mappings while preserving opaque money obligations and provider settlement routing. Financial reconciliation must continue after erasure and feature rollback; ciphertext deletion cannot withdraw copies already delivered.",
+      "trust_boundary": "Integer money and balanced append-only entries use PostgreSQL transactions and reservations; caller receipts and Checkout redirects are not payment evidence. Owner-approved immutable quotes bind exact scope, duration, app and recipient key, with separate human payer confirmation. Only a future fixed-time owner-encrypted export activates paid access; payment never broadens consent or refresh. Stripe receives opaque financial references, never decrypted information, private keys or request purpose.",
+      "plaintext_posture": "financial_and_consent_metadata_with_transient_ciphertext_only",
+      "expected_row_growth": "medium_per_purchase_funding_and_settlement"
     }
   ]
 }

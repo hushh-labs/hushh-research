@@ -1,0 +1,724 @@
+"""Slim pod ASGI app — runs ONLY the agent + its storage/enforcement surface.
+
+This is the per-user **pod** entrypoint — the "Docker image that only runs the
+agent and its storage." It is deliberately **not** the full backend:
+
+- **Central at Hushh (never mounted here):** the governing consent *control plane*
+  (token issuance, the audit-DB authority, developer/admin APIs) and every
+  unrelated surface — RIA, email, marketplace, account, IAM, PKM admin, and
+  login / WebAuthn. Those stay with the fleet hub.
+- **In the pod (mounted here):** the agent runtime (Agent One orchestrating its
+  specialists) reachable over the **A2A** endpoint; the consent **enforcement**
+  path at the pod's own door (validate the HCT/consent token, revocation check,
+  owner-verified pod-access receipt — *enforcement, not issuance*); the pod's own
+  **health**; and the versioned **prompt** it hydrates at runtime.
+
+Fleet-wide workers (the consent NOTIFY→FCM listener, Gmail renewal, the revocation
+sweep) are **never registered** by this app — it simply does not add them — so a
+fleet of pods cannot duplicate the hub's side effects. ``HUSSH_POD_MODE`` is also
+asserted for any shared code that reads it.
+
+Run: ``gunicorn pod_server:app`` (see ``Dockerfile.pod``). The physical image can
+be slimmed further (trimmed dependency set) as a follow-up; this entrypoint fixes
+the *runtime surface* — the security-relevant property — now.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from typing import Any, Optional
+
+# A pod is a pod: assert pod-mode BEFORE importing app code that may read it.
+os.environ.setdefault("HUSSH_POD_MODE", "1")
+
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+
+from api.middlewares.chat_key import ChatKeyMiddleware, chat_key_error_handler  # noqa: E402
+from api.middlewares.observability import (  # noqa: E402
+    configure_opentelemetry,
+    observability_middleware,
+)
+from api.middlewares.pod_ingress import PodIngressPolicy  # noqa: E402
+from api.middlewares.pod_role_guard import PodRoleGuard  # noqa: E402
+from api.middlewares.rate_limit import limiter  # noqa: E402
+from api.routes import health  # noqa: E402
+from api.routes.one.a2a import router as a2a_router  # noqa: E402
+from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
+from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
+from api.routes.one.pod_actions import router as pod_actions_router
+from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
+from api.routes.one.pod_ai_selection import router as pod_ai_selection_router
+from api.routes.one.pod_browser import router as pod_browser_router
+from api.routes.one.pod_capabilities import (
+    ai_selection_capability,
+    connectors_capability,
+    pod_capabilities,
+)
+from api.routes.one.pod_commands import router as pod_commands_router
+from api.routes.one.pod_connectors import router as pod_connectors_router
+from api.routes.one.pod_files import router as pod_files_router
+from api.routes.one.pod_gmail_push import router as pod_gmail_push_router
+from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
+from api.routes.one.pod_maintenance import (
+    scheduled_router as pod_scheduled_maintenance_router,  # noqa: E402
+)
+from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
+from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
+from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
+from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
+from api.routes.one.pod_sync import router as pod_sync_router  # noqa: E402
+from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
+from db.connection import DatabaseUnavailableError  # noqa: E402
+from db.db_client import DatabaseExecutionError  # noqa: E402
+from hushh_mcp.runtime_providers.azure_openai import model_probe  # noqa: E402
+from hushh_mcp.runtime_settings import pod_heartbeat_interval_seconds, pod_mode  # noqa: E402
+from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS  # noqa: E402
+from hushh_mcp.services.pod_hub_client import (  # noqa: E402
+    PodHubClient,
+    PodHubUnavailable,
+    hub_base_url,
+)
+from hushh_mcp.services.pod_platform import pod_revision_name  # noqa: E402
+from hushh_mcp.services.pod_self_registration import (  # noqa: E402
+    pod_key_is_durable,
+    pod_keypair,
+    pod_public_key_payload,
+    pod_signing_public_payload,
+)
+
+# MAKE THE POD SPEAK. Without these two lines a pod is silent, and a silent pod is
+# an undebuggable one.
+#
+# `pod_server` never configured logging at all. Gunicorn only configures the root
+# logger when `logconfig*` is set, which `Dockerfile.pod` does not set, and
+# `UvicornWorker` passes `log_config: None`. So the root logger stayed at Python's
+# default WARNING with only `lastResort` attached, and EVERY `logger.info(...)` in
+# the pod was dropped before it was formatted -- the whole `request.summary` stream,
+# `pod.startup`, `pod.heartbeat_started`, `pod_turn.consent_refused`, and both
+# `pod_hub_auth.accepted` lines. An operator watching a pod saw warnings and errors
+# and nothing else, so a pod that was working and a pod that was never called looked
+# identical.
+#
+# The redaction filter lands in the SAME change, never after. The pod logs its own
+# HusshID (`pod_hub_auth.accepted asserted_agent_id=...`), and the hub is only
+# incidentally safe because `install_sensitive_log_filter` catches the HusshID shape.
+# Turning the pod's log stream on without the filter would convert silence into a
+# per-pod stream of raw owner identifiers -- trading one defect for a worse one.
+from mcp_modules.log_redaction import (  # noqa: E402,PLC0415
+    install_sensitive_log_filter as _install_pod_log_redaction,
+)
+
+logging.basicConfig(level=logging.INFO)
+_install_pod_log_redaction()
+
+logger = logging.getLogger(__name__)
+
+# The pod's ALLOWLISTED surface — the ONLY routers a pod mounts. Anything not in
+# this tuple (consent issuance, developer/admin, RIA, email, marketplace, account,
+# IAM, PKM admin, login/WebAuthn) is central-plane and intentionally absent.
+_POD_ROUTERS = (
+    health.router,
+    a2a_well_known_router,
+    a2a_router,
+    agent_prompt_router,
+    # The turn route: this is what makes a pod run Agent One rather than merely
+    # host its prompt. Flag-gated off and pod-mode-only; see api/routes/one/pod_turn.py.
+    pod_turn_router,
+    pod_agent_chat_router,
+    # The learning loop's doors: conversation close (review on the conversation's
+    # model), owner revoke, provider consent and memory status. Same admission as
+    # the turn route; see api/routes/one/pod_memory.py.
+    pod_memory_router,
+    pod_ai_selection_router,  # the owner's sealed "Bring your own AI"; same two doors
+    pod_connectors_router,
+    pod_actions_router,
+    pod_gmail_push_router,
+    pod_browser_router,
+    # The tick: background attention arrives as an inbound authenticated request,
+    # so request-based Cloud Run can wake from zero. Both exact paths use the
+    # same audience/allowlist; the scheduled path preserves recorded receipts.
+    pod_maintenance_router,
+    pod_scheduled_maintenance_router,
+    # Export and import: the two steps of a migration that only a pod can do, because reading the
+    # source log needs the source pod's key and writing the destination needs the destination's,
+    # and hushh holds neither. Ships dark behind HUSSH_POD_MIGRATION_ENABLED and fail-closed on the
+    # same scheduler identity the tick uses.
+    pod_migration_router,
+    pod_sync_router,  # standby sync (pod_sync.py): migration's switch, body-bound hub proofs
+    # The app surface: owner-local sessions, status and configuration. The pod
+    # admits its owner's app and devices itself from a hub-signed binding, so a
+    # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
+    pod_session_router,
+    pod_files_router,
+    pod_commands_router,
+    # The device door: Puppy One dials THIS pod with a device-role session and
+    # answers inference over sealed frames. The hub broker stays for UAT and
+    # production; an owner pod brokers its own device. See pod_puppy_relay.py.
+    pod_puppy_relay_router,
+)
+
+app = FastAPI(
+    title="hussh One — sovereign pod",
+    description="Per-user agent + storage. The consent authority stays central at Hushh.",
+    version="pod-1",
+)
+app.state.runtime_topology = "private_pod"
+
+# Telemetry, mounted from the hub's middleware rather than reimplemented. Until
+# this line a pod emitted NO `request.summary` line and no trace, so a pod that was
+# failing every request looked, from outside, exactly like a pod nobody had called
+# -- and there is no way to tell those apart from silence.
+#
+# `_service_name()` reads `K_SERVICE` first, which Cloud Run sets to the pod's own
+# service name, so every line a pod emits is already attributed to `one-pod-<id>`
+# rather than to the hub. That is what makes a pod-scoped alert policy possible;
+# the existing policies all filter `service_name="consent-protocol"` and therefore
+# match no pod at all.
+# THE FRONT DOOR, inside the process. A pod whose ingress is widened to admit its
+# owner directly (`PodSpec.ingress = direct`) loses the service-wide IAM lock that
+# kept its machine routes hub-only. `PodIngressPolicy` restores that per path: the
+# app surface carries its own authentication, and everything else requires the
+# Google ID token the hub already sends. Always on; it needs no configuration
+# because it reuses what every pod is already rendered with.
+#
+# Added BEFORE the observability middleware on purpose. Starlette wraps in reverse
+# order of registration, so observability stays outermost and a walled request still
+# emits its `request.summary` line; CORS sits between so a browser preflight is
+# answered before the wall sees it.
+app.add_middleware(PodRoleGuard)  # inside the wall: a standby refuses turns and writes (E3)
+app.add_middleware(PodIngressPolicy)
+
+app.add_middleware(ChatKeyMiddleware)
+for _chat_error in CHAT_KEY_ERRORS:
+    app.add_exception_handler(_chat_error, chat_key_error_handler)
+
+
+def _pod_cors_origins() -> list[str]:
+    """The hub's explicit CORS allowlist, rendered into the pod; never a wildcard.
+
+    `allow_credentials` is False on the pod: the app authenticates with a bearer
+    session it holds itself, never a cookie, so there is nothing for a reflected
+    origin to steal and no reason to send the credentials header at all.
+    """
+    raw = str(os.getenv("CORS_ALLOWED_ORIGINS") or "").strip()
+    return [item.strip() for item in raw.split(",") if item.strip() and item.strip() != "*"]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_pod_cors_origins(),
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=[
+        "X-Browser-Pod-Incarnation",
+        "X-Browser-Task-Id",
+        "X-Browser-Pod-Id",
+        "X-Browser-Control-Epoch",
+        "X-Browser-Sequence",
+        "X-Browser-Next-Sequence",
+        "X-Browser-Revision",
+        "X-Browser-Width",
+        "X-Browser-Height",
+    ],
+)
+app.middleware("http")(observability_middleware)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+
+
+@app.exception_handler(DatabaseUnavailableError)
+async def _db_unavailable(_request: Request, _exc: DatabaseUnavailableError) -> JSONResponse:
+    # The pod hits the DB only to VALIDATE consent (enforcement); a DB blip is a
+    # clean 503, never a raw 500 that could leak internals.
+    return JSONResponse(status_code=503, content={"detail": "database unavailable"})
+
+
+@app.exception_handler(DatabaseExecutionError)
+async def _db_exec_error(_request: Request, _exc: DatabaseExecutionError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": "database error"})
+
+
+@app.exception_handler(PodHubUnavailable)
+async def _hub_unavailable(_request: Request, _exc: PodHubUnavailable) -> JSONResponse:
+    """A pod reads the data plane THROUGH the hub, so a hub outage is this pod's
+    dependency outage -- the same shape as the DB handlers above, and for the same
+    reason: 503 says "ask again", where an unhandled 500 both leaks a traceback and
+    invites a caller to treat the failure as a permanent answer. Observed for real in
+    hushh-pda-dev on 2026-08-04, where a hub that refused the pod surfaced as a raw 500.
+    """
+    return JSONResponse(status_code=503, content={"detail": "hub unavailable"})
+
+
+for _router in _POD_ROUTERS:
+    app.include_router(_router)
+
+# Tracing, off unless OTEL_ENABLED is set. Every failure path inside is caught and
+# logged, so a pod whose trace exporter cannot reach Cloud Trace still serves --
+# telemetry must never be the reason a person's agent stops answering.
+configure_opentelemetry(app)
+
+
+def _mounted_paths() -> list[str]:
+    """The routes this process actually serves, read off the app itself.
+
+    NOT a hand-maintained literal, and the reason is two files away: ``/health``
+    advertised a hardcoded ``["one","kai","nav","kyc"]`` roster, a live-validation
+    document quoted that string as proof the fleet was running inside pods, and no
+    Python anywhere loaded kyc's YAML. A capability list that cannot be wrong is
+    worth less than no list at all, because people believe it.
+
+    This one is derived, so a router that fails to mount disappears from the answer
+    and a router added without touching this file appears in it.
+    """
+    seen: set[str] = set()
+    for route in app.routes:
+        path = str(getattr(route, "path", "") or "")
+        if path and not path.startswith("/openapi"):
+            seen.add(path)
+    return sorted(seen)
+
+
+@app.get("/pod/info", tags=["pod"])
+def pod_info() -> dict:
+    """Identify this process as a slim pod and report its mounted surface."""
+    # Memory state is reported from the RESOLVER, not the flags: "memoryEnabled"
+    # answers "would a turn on this pod actually get a memory service", which is
+    # the one question an operator probing a silent pod needs answered with one
+    # authenticated GET (a BYOC pod once served for days with memory silently
+    # broken and nothing observable saying so).
+    from hushh_mcp.services.pod_memory_bank import memory_bank_status, pod_memory_backend
+    from hushh_mcp.services.pod_memory_service import resolve_pod_memory_service
+
+    return {
+        "role": "sovereign-pod",
+        "podMode": pod_mode(),
+        "hushhId": os.getenv("HUSSH_ID") or None,
+        "billingSpaceId": os.getenv("HUSSH_BILLING_SPACE_ID") or None,
+        "controlPlane": "central@hushh (consent issuance + audit not hosted here)",
+        "mounts": _mounted_paths(),
+        "storageBackend": (os.getenv("POD_STORAGE_BACKEND") or "null").strip() or "null",
+        "memoryEnabled": resolve_pod_memory_service() is not None,
+        "memoryBackend": pod_memory_backend(),
+        # Which halves of the learning loop THIS image carries, read from the running
+        # process's own constants (never a hand-written roster): the drill refuses to
+        # run against an image that predates the join rather than measuring a gap.
+        "memoryJoin": _memory_join(),
+        "capabilities": pod_capabilities(),
+        **memory_bank_status(),
+        **_self_report(),
+    }
+
+
+def _memory_join() -> dict:
+    """The memory learning loop as this process actually carries it.
+
+    ``write``: the turn runtime commits turns and seeds the digest; ``review``:
+    the review pass exists and is reachable from the runtime; ``tombstones``:
+    the memory vocabulary carries revoke and supersede kinds; ``schema``: the
+    memory schema version. Each is derived from the imported module, so an image
+    built from a tree without the join reports ``False`` rather than nothing.
+    """
+    join: dict = {"write": False, "review": False, "tombstones": False, "schema": 0}
+    try:
+        from hushh_mcp.one_adk import text_runtime  # noqa: PLC0415
+        from hushh_mcp.services import pod_memory_service as memory  # noqa: PLC0415
+
+        join["write"] = callable(getattr(text_runtime, "_memory_digest", None)) and callable(
+            getattr(text_runtime, "_catch_up_memory_review", None)
+        )
+        join["schema"] = int(getattr(memory, "MEMORY_SCHEMA_VERSION", 0) or 0)
+        kinds = getattr(memory, "MEMORY_RECORD_KINDS", frozenset())
+        join["tombstones"] = {"agent_memory_revoke", "agent_memory_supersede"} <= set(kinds)
+    except Exception:  # noqa: BLE001 - an absent join reports as absent
+        return join
+    try:
+        from hushh_mcp.one_adk import memory_review  # noqa: PLC0415
+
+        join["review"] = callable(getattr(memory_review, "run_memory_review", None))
+    except Exception:  # noqa: BLE001
+        join["review"] = False
+    return join
+
+
+_MODEL_NAME_MAX = 96
+
+
+def _model_name_ok(name: str) -> bool:
+    return 0 < len(name) <= _MODEL_NAME_MAX and all(c.isalnum() or c in ".-_" for c in name)
+
+
+def probe_model_reachability(
+    model: str, *, location: str = "", session: Any = None, token: Optional[str] = None
+) -> dict:
+    """Can THIS pod, as itself, reach ``model`` on its own project's Vertex?
+
+    Verified 2026-09-03 that no other identity can answer this: the bootstrap account
+    holds no Vertex role, and the hub cannot mint as the pod. So the receipt Pillar 6
+    needs before voice moves here -- "the person's own project can reach the live
+    model" -- has to be produced by the pod. ``countTokens`` is free and answers
+    existence; a bidi-only live model answers with a typed error that still proves
+    it exists (a 404 is the one answer that says it does not).
+    """
+    import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+    project = (os.getenv("GOOGLE_CLOUD_PROJECT") or "").strip()
+    location = (location or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1").strip()
+    if not project:
+        return {"model": model, "location": location, "reachable": None, "detail": "no project"}
+    host = (
+        "aiplatform.googleapis.com"
+        if location == "global"
+        else f"{location}-aiplatform.googleapis.com"
+    )
+    url = (
+        f"https://{host}/v1/projects/{project}/locations/{location}"
+        f"/publishers/google/models/{model}:countTokens"
+    )
+    if token is None:
+        import google.auth  # noqa: PLC0415
+        from google.auth.transport.requests import Request  # noqa: PLC0415
+
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        credentials.refresh(Request())
+        token = str(credentials.token)
+    http = session or requests.Session()
+    try:
+        response = http.post(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            json={"contents": [{"role": "user", "parts": [{"text": "hi"}]}]},
+            timeout=20,
+        )
+    except Exception as exc:  # noqa: BLE001 - a probe reports, never raises
+        return {
+            "model": model,
+            "location": location,
+            "reachable": None,
+            "detail": type(exc).__name__,
+        }
+    status = int(getattr(response, "status_code", 0) or 0)
+    try:
+        body = response.json() or {}
+    except Exception:  # noqa: BLE001
+        body = {}
+    message = str((body.get("error") or {}).get("message") or "")[:160]
+    # 200: exists and this identity may use it. 400 "not supported": exists (bidi-only).
+    # 404: the model is not offered to this project here. 403: the role is missing.
+    reachable = status == 200 or (status == 400 and "not supported" in message.lower())
+    return {
+        "model": model,
+        "location": location,
+        "project": project,
+        "status": status,
+        "reachable": reachable,
+        "detail": message or (f"totalTokens={body.get('totalTokens')}" if status == 200 else ""),
+    }
+
+
+@app.get("/pod/diagnostics/model", tags=["pod"])
+async def pod_model_diagnostic(model: str, location: str = "") -> dict:
+    """Owner-relayed, read-only: whether this pod reaches a model as its own identity."""
+    if not pod_mode():
+        raise HTTPException(status_code=404, detail="not a pod")
+    model = (model or "").strip()
+    location = (location or "").strip()
+    if not _model_name_ok(model) or (location and not _model_name_ok(location)):
+        raise HTTPException(status_code=400, detail="invalid model or location")
+    return await asyncio.to_thread(model_probe(probe_model_reachability), model, location=location)
+
+
+def _self_report() -> dict:
+    """What this process is: the image tag baked at build and the Cloud Run revision.
+
+    The hub's registry row says what was DEPLOYED; only the running process can say
+    what is RUNNING, and the two have disagreed in production (a pod five commits
+    behind a row that looked current). Absent when unknown, never a placeholder, so
+    a missing bake shows as a missing field rather than a fake version.
+    """
+    report: dict = {}
+    image_tag = (os.getenv("HUSSH_POD_IMAGE_TAG") or "").strip()
+    if image_tag:
+        report["imageTag"] = image_tag[:128]
+    revision = pod_revision_name()
+    if revision:
+        report["revision"] = revision[:128]
+    # The Memory Bank engine this pod created for itself, once known: the hub cannot
+    # reach it and needs the id on the row for the day the account is deleted.
+    from hushh_mcp.services.pod_memory_bank import memory_bank_status  # noqa: PLC0415
+
+    engine = memory_bank_status().get("memoryBankEngine")
+    if engine:
+        report["memoryBankEngine"] = engine
+    return report
+
+
+@app.get("/pod/public-key", tags=["pod"])
+def pod_public_key() -> dict:
+    """This pod's PUBLIC key, for the hub to record against this agent's row.
+
+    Behind the machine wall (`PodIngressPolicy`), like `/pod/info`. The key is
+    public, but the route is the hub's provisioning door and a pod with direct
+    ingress must not answer it to the world: the hub reaches it with the identity
+    it already mints for this pod's URL, and nothing else does.
+
+    Serving the key is the pod's whole part in provisioning -- the hub decides
+    whether to adopt it (see ``pod_key_collector``).
+    """
+    return {
+        "hushhId": os.getenv("HUSSH_ID") or None,
+        # Honesty marker for the hub and for storage layers: only a durable key
+        # (mounted from a restart-surviving source the hub cannot read) may have
+        # durable material wrapped to it. Ephemeral keys rotate on restart.
+        "podKeyDurable": pod_key_is_durable(),
+        **pod_public_key_payload(),
+        **pod_signing_public_payload(),  # additive; recorded only from this hub GET
+    }
+
+
+@app.on_event("startup")
+async def _pod_startup() -> None:
+    # The HusshID is logged as a VALUE, not a presence bit. It is the opaque public
+    # handle (personal_agent_identity_service) -- it is already this pod's Cloud Run
+    # service name (`one-pod-<hushh_id>`) and its A2A route, so redacting it here
+    # protected nothing and cost the only key that joins this pod's logs to the hub's
+    # provisioning story. `space_id` stays a presence bit: it is not an address.
+    logger.info(
+        "pod.startup pod_mode=%s hushh_id=%s space_id_present=%s",
+        pod_mode(),
+        os.getenv("HUSSH_ID") or "<none>",
+        bool(os.getenv("HUSSH_BILLING_SPACE_ID")),
+    )
+
+    from hushh_mcp.services.pod_storage import resolve_boot_custody
+
+    boot_storage, boot_dek = await resolve_boot_custody()
+    boot_log = getattr(boot_storage, "_log", None)
+    # Recover durable identity strictly before pod_keypair() caches it.
+    try:
+        from hushh_mcp.services.pod_identity_store import (  # noqa: PLC0415
+            resolve_durable_private_key_b64,
+        )
+
+        durable = await resolve_durable_private_key_b64(storage=boot_storage, dek=boot_dek)
+        if durable and not os.getenv("HUSSH_POD_PRIVATE_KEY"):
+            # In-process only. This is the same seam a BYOC secretKeyRef would
+            # populate, so it never reaches a service description or a log.
+            os.environ["HUSSH_POD_PRIVATE_KEY"] = durable
+    except Exception:  # noqa: BLE001 - a pod must boot even with no durable identity
+        logger.warning("pod.durable_identity_unavailable", exc_info=True)
+
+    # Generate identity before authority; recover configuration, credentials and
+    # trust together below before admitting any owner turn.
+    keypair_is_durable = False
+    pod_keypair()
+    try:
+        from hushh_mcp.services.pod_self_registration import pod_key_is_durable  # noqa: PLC0415
+
+        keypair_is_durable = pod_key_is_durable()
+    except Exception:  # noqa: BLE001
+        pass
+    # Stated at boot, because "is this pod's identity stable across restarts" is
+    # a question the fleet has been answering wrongly and silently.
+    logger.info("pod.identity durable=%s", keypair_is_durable)
+
+    # Owner-local authority: claim the incarnation fence, replay the trust and
+    # tombstone records, derive the session key. Strictly AFTER the keypair, because
+    # a binding names this pod by its key id. Any failure leaves the authority
+    # unset and the app surface answering 503 rather than admitting anyone on a
+    # half-built authority; the hub-relayed turn path is unaffected.
+    try:
+        from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+            build_pod_session_authority,
+        )
+
+        await build_pod_session_authority(log=boot_log, dek=boot_dek, recover_owner_state=True)
+    except Exception as exc:  # noqa: BLE001 - the hub path keeps serving
+        logger.warning("pod.local_authority_unavailable reason=%s", type(exc).__name__)
+        # Preserve the existing loaders' explicit unreadable states if a fence
+        # or recovery failure prevents local authority from being constructed.
+        from hushh_mcp.services.pod_startup_recovery import load_owner_state
+
+        await load_owner_state(boot_log)
+
+    # The existing active authority owns its key; discard boot-only references.
+    boot_storage = boot_log = boot_dek = None
+
+    _start_heartbeat_loop()
+    # Bounded restart continuation; no polling worker or model inference. The
+    # direct push and authenticated maintenance tick own subsequent wakes.
+    from api.routes.one.pod_maintenance import gmail_notification_job
+
+    await gmail_notification_job()
+    # Azure Queue wakes this same single-revision app through KEDA. The consumer
+    # holds ordinary Files/update admission and never creates a second writer.
+    from hushh_mcp.services.pod_platform import workload_platform
+
+    if workload_platform() == "azure" and os.getenv("POD_FILES_ENABLED", "").lower() in {
+        "1",
+        "true",
+    }:
+        from hushh_mcp.services.pod_files.azure_queue import consume_forever, queue_url
+
+        try:
+            queue_url()
+        except Exception:
+            logger.warning("pod.files_queue_unavailable")
+        else:
+            app.state.files_queue_consumer = asyncio.create_task(consume_forever())
+    # Memory Bank, off the boot path. Creating the engine is a slow LRO in the
+    # person's project; until it resolves, turns recall from the sealed log.
+    asyncio.get_running_loop().create_task(_ensure_memory_bank_task())
+
+
+@app.on_event("shutdown")
+async def _stop_files_queue() -> None:
+    task = getattr(app.state, "files_queue_consumer", None)
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        app.state.files_queue_consumer = None
+
+
+# -- heartbeat ---------------------------------------------------------------
+#
+# The pod tells the hub it is alive; the hub never polls the fleet. Polling would
+# cost an authenticated round trip per pod per interval, and on the scale-to-zero
+# tier the poll itself is what wakes the pod -- so the health check would keep the
+# whole economy fleet running and bill for the privilege. A push costs one small
+# request from a process that is already awake, and it makes silence meaningful:
+# an idle economy pod simply stops beating, which is the truth about it.
+
+
+async def _ensure_memory_bank_task() -> None:
+    """Initialize memory or observe an acknowledged erasure after restart. Never raises."""
+    try:
+        from hushh_mcp.services.pod_memory_bank import ensure_memory_bank  # noqa: PLC0415
+        from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
+
+        log = None
+        try:
+            log = _resolve_log()
+        except Exception:  # noqa: BLE001 - no durable record means sealed-log fallback
+            logger.info("pod_memory_bank.no_durable_store")
+        await ensure_memory_bank(store=getattr(log, "_store", None), log=log)
+    except Exception:  # noqa: BLE001
+        logger.warning("pod_memory_bank.ensure_failed")
+
+
+#: Intent ids this incarnation applied and has not yet told the hub about. Carried
+#: on the next beat so the hub stops offering them; cleared once a beat is recorded.
+_APPLIED_TOMBSTONES: list[str] = []
+
+
+async def _heartbeat_once(client: Any) -> bool:
+    """Send one beat. Returns whether the hub recorded it. Never raises."""
+    body = {**_self_report(), "aiSelection": ai_selection_capability()}
+    connectors = connectors_capability()
+    if connectors is not None:
+        body["connectors"] = connectors
+    try:
+        from hushh_mcp.services.pod_consent_revocation import current_revocation_binding
+        from hushh_mcp.services.pod_session_authority import active_session_authority
+
+        authority = active_session_authority()
+        if authority is not None:
+            await authority.require_held()
+            body["consentIncarnation"] = current_revocation_binding().to_dict()
+    except Exception as exc:  # noqa: BLE001 - unavailable lease is never a claimed incarnation
+        logger.info("pod.consent_binding_unavailable reason=%s", type(exc).__name__)
+    if _APPLIED_TOMBSTONES:
+        body["appliedTombstones"] = list(_APPLIED_TOMBSTONES)
+    try:
+        # The beat carries the pod's self-report of WHICH build it runs. That is the
+        # one self-report the hub accepts: unlike a health claim it is checkable
+        # against the row, and it is what lets an update be detected honestly.
+        response = await asyncio.to_thread(client.post, "/api/one/pod/heartbeat", json=body)
+    except PodHubUnavailable as exc:
+        # The MESSAGE, not the wrapper's class name. `PodHubUnavailable` is always
+        # `PodHubUnavailable`; the useful half is what it wraps -- "metadata server
+        # unreachable: ConnectTimeout" versus "metadata identity failed: HTTP 403"
+        # are different defects with different fixes, and the old line rendered
+        # both as the same four words.
+        #
+        # This is not cosmetic. The beat is the pod's ONLY self-report of which
+        # build it runs, so while it fails the hub's `observed.imageTag` stays
+        # null and every upgrade decision is made on stale information. On
+        # 2026-09-11 the owner pod emitted this three times per turn and nothing
+        # said why. `PodHubUnavailable` carries no endpoint, token or owner data.
+        logger.info("pod.heartbeat_unavailable %s", exc)
+        return False
+    except Exception as exc:  # noqa: BLE001 - a heartbeat must never take the pod down
+        logger.info("pod.heartbeat_failed %s", type(exc).__name__)
+        return False
+    status = getattr(response, "status_code", 0)
+    if status != 200:
+        # Logged, not raised. A 404 here means the hub has no registry row for this
+        # HusshID -- this pod is an orphan -- and that is worth seeing in the pod's
+        # own logs as well as the hub's, because the two halves get read by
+        # different people.
+        logger.warning("pod.heartbeat_rejected status=%s", status)
+        return False
+    _APPLIED_TOMBSTONES.clear()
+    # The courier leg: owner-signed revocations the hub held while this pod was
+    # unreachable. Verified here against this pod's own trust record, never taken
+    # on the hub's word; see pod_session_authority.apply_pending_tombstones.
+    try:
+        payload = response.json() if callable(getattr(response, "json", None)) else None
+        if isinstance(payload, dict) and payload.get("pendingTombstones"):
+            from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+                apply_pending_tombstones,
+            )
+
+            _APPLIED_TOMBSTONES.extend(await apply_pending_tombstones(payload))
+        if isinstance(payload, dict) and payload.get("consentRevocations"):
+            from hushh_mcp.services.pod_consent_revocation import install_revocation_list
+            from hushh_mcp.services.pod_session_authority import active_session_authority
+
+            authority = active_session_authority()
+            if authority is not None:
+                await authority.require_held()
+                install_revocation_list(payload["consentRevocations"])
+    except Exception as exc:  # noqa: BLE001 - the beat was recorded; courier work is best effort
+        logger.warning("pod.tombstone_courier_failed %s", type(exc).__name__)
+    return True
+
+
+async def _heartbeat_loop(interval_seconds: int) -> None:
+    """Beat forever. Every failure is swallowed deliberately.
+
+    A pod whose heartbeat path is broken must keep SERVING -- the person's agent
+    answering their questions matters more than the hub's view of it being current.
+    Letting this task die would also be self-defeating: the pod would go silent, the
+    hub would judge it unreachable, and auto-heal would restart a pod that was
+    working fine.
+    """
+    client = PodHubClient()
+    while True:
+        await _heartbeat_once(client)
+        await asyncio.sleep(interval_seconds)
+
+
+def _start_heartbeat_loop() -> None:
+    """Attach the heartbeat task, unless this pod has no hub to talk to."""
+    if not hub_base_url():
+        # Local/test runs have no hub. Beating into the void would log a failure
+        # every interval and teach whoever reads those logs to ignore them.
+        logger.info("pod.heartbeat_disabled reason=no_hub_base_url")
+        return
+    interval = pod_heartbeat_interval_seconds()
+    try:
+        asyncio.get_running_loop().create_task(_heartbeat_loop(interval))
+    except RuntimeError:  # pragma: no cover - startup always has a loop
+        logger.info("pod.heartbeat_no_event_loop")
+        return
+    logger.info("pod.heartbeat_started interval_seconds=%s", interval)

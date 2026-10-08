@@ -39,7 +39,14 @@ test.beforeAll(async () => {
       },
     }],
     resolve: { alias: [{ find: "@", replacement: root }] },
-    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+    define: {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+      // The save card reaches the Firebase config through the PKM save path; a
+      // placeholder key lets it initialise offline. No request is ever made.
+      "process.env.NEXT_PUBLIC_FIREBASE_API_KEY": JSON.stringify("fixture-api-key"),
+      "process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID": JSON.stringify("fixture-project"),
+      "process.env": "{}",
+    },
     build: {
       outDir, emptyOutDir: false,
       lib: { entry: path.join(root, "e2e/fixtures/reserved-offer-card.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" },

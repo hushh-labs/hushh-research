@@ -13,7 +13,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middleware import require_firebase_auth
 from hushh_mcp.one_voice.config import voice_mail_reads_enabled, voice_mail_reply_enabled
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.email_delegated_read import mail_latency
@@ -33,6 +33,7 @@ from hushh_mcp.services.gmail_reply_source_service import (
     SOURCE_REF_PATTERN,
     resolve_source_bound_reply,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,7 @@ async def _resolve_delivery_payload(
 async def gmail_email_draft(
     payload: EmailDraftRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(
         firebase_uid=firebase_uid,
@@ -277,7 +278,7 @@ async def gmail_email_draft(
 async def gmail_email_prepare(
     payload: EmailPrepareRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(
         firebase_uid=firebase_uid,
@@ -325,7 +326,7 @@ async def gmail_email_prepare(
 async def gmail_save_draft(
     payload: EmailSaveDraftRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, str]:
     owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
@@ -350,7 +351,7 @@ async def gmail_save_draft(
 async def gmail_mailbox_execute(
     payload: MailboxProposalExecuteRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     """Apply the exact reviewed mailbox change the owner confirmed in chat."""
     owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
@@ -368,7 +369,7 @@ async def gmail_mailbox_execute(
 async def gmail_email_send(
     payload: EmailSendRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     user_id = _owner_user_id(
         firebase_uid=firebase_uid,

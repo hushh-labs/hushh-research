@@ -170,10 +170,16 @@ def test_the_deploy_workflow_passes_the_flag_it_configures():
 
 def test_the_deploy_mounts_the_mirrored_key_on_the_backend():
     """A mirrored secret nothing binds never reaches the runtime."""
+    # The deploy body lives in scripts/deploy/backend-deploy.sh (extracted for
+    # Cloud Build's 10,000-char step-arg cap); this repo names the secret-binding
+    # helper append_optional_secret. Read the whole deploy surface -- both files.
+    repo_root = Path(__file__).resolve().parents[2]
     cloudbuild = (
-        Path(__file__).resolve().parents[2] / "deploy" / "backend.cloudbuild.yaml"
-    ).read_text()
-    assert "add_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY" in cloudbuild
+        (repo_root / "deploy" / "backend.cloudbuild.yaml").read_text()
+        + "\n"
+        + (repo_root / "scripts" / "deploy" / "backend-deploy.sh").read_text()
+    )
+    assert "append_optional_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY" in cloudbuild
 
 
 def test_runtime_env_map_owns_the_key():

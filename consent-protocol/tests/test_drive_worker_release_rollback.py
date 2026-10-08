@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -183,7 +184,11 @@ elif args[:2] == ["logging", "read"]:
     if not timestamp_valid or not job or "--format=json" not in args:
         print("invalid Cloud Logging filter or output format", file=sys.stderr)
         sys.exit(76)
-    if job == os.environ.get("MOCK_MISSING_LOG_JOB"):
+    reads = state.setdefault("log_reads", {})
+    reads[job] = reads.get(job, 0) + 1
+    save()
+    if (job == os.environ.get("MOCK_MISSING_LOG_JOB")
+        or (job == os.environ.get("MOCK_DEFER_LOG_JOB") and reads[job] == 1)):
         print("[]")
     elif job in state.get("triggered", []):
         url = jobs[job]["httpTarget"]["uri"]
@@ -311,7 +316,9 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
     environment = os.environ.copy()
     environment.update(
         {
-            "PATH": f"{fake_bin}:{environment['PATH']}",
+            # Keep the active Python ahead of host shims. A pyenv python3 shim
+            # invokes `env bash`, which would recursively enter our fake bash.
+            "PATH": f"{Path(sys.executable).parent}:{fake_bin}:{environment['PATH']}",
             "MOCK_SCHEDULER_STATE": str(state_path),
             "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_RESTORE_FAIL": str(not restore_succeeds).lower(),
@@ -350,11 +357,7 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
         assert "CRITICAL: Drive worker rollback is incomplete" in output
 
 
-@pytest.mark.parametrize("log_failure", ["none", "wrong_url", "missing"])
-@pytest.mark.parametrize("wrong_scanner_child", [False, True])
-def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
-    tmp_path: Path, log_failure: str, wrong_scanner_child: bool
-):
+def _release_probe_binaries(tmp_path: Path) -> Path:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     for name, source in (("gcloud", FAKE_GCLOUD), ("bash", FAKE_BASH)):
@@ -364,6 +367,24 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     fake_sleep = fake_bin / "sleep"
     fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     fake_sleep.chmod(0o755)
+    # Exercise retry and exhaustion with two observations, rather than launching
+    # the same verifier 55 times. Production's 55-attempt request stays checked.
+    fake_seq = fake_bin / "seq"
+    fake_seq.write_text(
+        '#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = 1 ] && [ "$2" = 55 ] || exit 77\n'
+        "printf '1\\n2\\n'\n",
+        encoding="utf-8",
+    )
+    fake_seq.chmod(0o755)
+    return fake_bin
+
+
+@pytest.mark.parametrize("log_failure", ["none", "wrong_url", "missing"])
+@pytest.mark.parametrize("wrong_scanner_child", [False, True])
+def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
+    tmp_path: Path, log_failure: str, wrong_scanner_child: bool
+):
+    fake_bin = _release_probe_binaries(tmp_path)
     original_document = _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(
@@ -374,12 +395,13 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     environment = os.environ.copy()
     environment.update(
         {
-            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "PATH": f"{Path(sys.executable).parent}:{fake_bin}:{environment['PATH']}",
             "MOCK_SCHEDULER_STATE": str(state_path),
             "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_TERMINATE_AFTER_SETUP": "false",
             "MOCK_FAIL_LOG_JOB": "drive-work-sharing-uat" if log_failure == "wrong_url" else "",
             "MOCK_MISSING_LOG_JOB": "drive-work-sharing-uat" if log_failure == "missing" else "",
+            "MOCK_DEFER_LOG_JOB": "drive-work-sharing-uat" if log_failure == "none" else "",
             "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
             "MOCK_CLAMAV_IMAGE": (
                 WRONG_SCANNER_IMAGE if wrong_scanner_child else SCANNER_AMD64_IMAGE
@@ -416,6 +438,11 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         "drive-work-suggestions-uat",
         "drive-work-sharing-uat",
     ]
+    assert state["log_reads"] == {
+        "drive-work-drain-uat": 1,
+        "drive-work-suggestions-uat": 1,
+        "drive-work-sharing-uat": 2,
+    }
     if log_failure != "none":
         assert result.returncode != 0
         assert "drive-work-sharing-uat produced no fresh 200" in output

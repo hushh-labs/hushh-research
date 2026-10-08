@@ -93,10 +93,12 @@ def _definitions(body: str) -> list[str]:
     return values
 
 
-def table_columns(sql: str | None = None) -> dict[str, list[str]]:
+def table_columns(
+    sql: str | None = None, *, table_names: tuple[str, ...] = TABLE_NAMES
+) -> dict[str, list[str]]:
     source = sql if sql is not None else MIGRATION_PATH.read_text(encoding="utf-8")
     result: dict[str, list[str]] = {}
-    for table in TABLE_NAMES:
+    for table in table_names:
         columns: list[str] = []
         for definition in _definitions(_table_body(source, table)):
             match = _COLUMN_RE.match(definition.strip())

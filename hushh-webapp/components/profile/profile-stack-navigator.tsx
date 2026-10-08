@@ -6,7 +6,7 @@ import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { cn } from "@/lib/utils";
 
-const STACK_TRANSITION_MS = 260;
+const STACK_TRANSITION_MS = 150;
 
 export type ProfileStackEntry = {
   key: string;
@@ -33,9 +33,9 @@ function stackPrefixMatches(
   current: ProfileStackEntry[],
   next: ProfileStackEntry[],
 ) {
-  if (current.length === 0 || next.length === 0) return false;
-  const sharedLength = Math.min(current.length, next.length) - 1;
-  if (sharedLength <= 0) return true;
+  // The root is a valid prefix too. Dropping the last entry must retain its
+  // exiting screen until settlement rather than unmounting it immediately.
+  const sharedLength = Math.min(current.length, next.length);
   for (let index = 0; index < sharedLength; index += 1) {
     if (current[index]?.key !== next[index]?.key) {
       return false;
@@ -56,11 +56,16 @@ export function ProfileStackNavigator({
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
   const pruneTimerRef = useRef<number | null>(null);
+  const entryFrameRef = useRef<number | null>(null);
+  const generationRef = useRef(0);
+  const requestedEntriesRef = useRef(entries);
   const previousActiveKeyRef = useRef("root");
   const scrollPositionsRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     return () => {
+      generationRef.current += 1;
+      if (entryFrameRef.current !== null) cancelAnimationFrame(entryFrameRef.current);
       if (pruneTimerRef.current !== null) {
         window.clearTimeout(pruneTimerRef.current);
       }
@@ -68,6 +73,20 @@ export function ProfileStackNavigator({
   }, []);
 
   useEffect(() => {
+    // Our own retained-screen update is not a new navigation request.
+    if (screensMatch(requestedEntriesRef.current, entries)) return;
+    requestedEntriesRef.current = entries;
+    const generation = ++generationRef.current;
+    if (entryFrameRef.current !== null) {
+      cancelAnimationFrame(entryFrameRef.current);
+      entryFrameRef.current = null;
+    }
+    const enter = (index: number) => {
+      entryFrameRef.current = requestAnimationFrame(() => {
+        entryFrameRef.current = null;
+        if (generationRef.current === generation) setActiveIndex(index);
+      });
+    };
     if (pruneTimerRef.current !== null) {
       window.clearTimeout(pruneTimerRef.current);
       pruneTimerRef.current = null;
@@ -84,7 +103,7 @@ export function ProfileStackNavigator({
     if (currentLength === 0 && nextLength > 0) {
       setRenderedEntries(entries);
       setActiveIndex(0);
-      requestAnimationFrame(() => setActiveIndex(nextLength));
+      enter(nextLength);
       return;
     }
 
@@ -94,7 +113,7 @@ export function ProfileStackNavigator({
     ) {
       setRenderedEntries(entries);
       setActiveIndex(currentLength);
-      requestAnimationFrame(() => setActiveIndex(nextLength));
+      enter(nextLength);
       return;
     }
 
@@ -104,7 +123,8 @@ export function ProfileStackNavigator({
     ) {
       setActiveIndex(nextLength);
       pruneTimerRef.current = window.setTimeout(() => {
-        setRenderedEntries(entries);
+        pruneTimerRef.current = null;
+        if (generationRef.current === generation) setRenderedEntries(entries);
       }, STACK_TRANSITION_MS);
       return;
     }
@@ -126,9 +146,9 @@ export function ProfileStackNavigator({
     if (!scrollRoot) return;
 
     const activeKey =
-      activeIndex >= renderedEntries.length
+      activeIndex === 0
         ? "root"
-        : renderedEntries[activeIndex]?.key || "root";
+        : renderedEntries[activeIndex - 1]?.key || "root";
     const previousKey = previousActiveKeyRef.current;
     if (!resetScroll && previousKey !== activeKey) {
       scrollPositionsRef.current[previousKey] = scrollRoot.scrollTop;
@@ -192,6 +212,7 @@ export function ProfileStackNavigator({
               )}
               style={{ transform: `translateX(${offset * 100}%)` }}
               aria-hidden={isActive ? undefined : true}
+              inert={!isActive}
               data-profile-stack-screen={entry.key}
               data-profile-stack-active={isActive ? "true" : undefined}
             >

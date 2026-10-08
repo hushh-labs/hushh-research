@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   SpinnerGapIcon as Loader2,
   TrashIcon as Trash2,
@@ -31,34 +32,28 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ApiService } from "@/lib/services/api-service";
+import { TrustedDevicesResourceService, type TrustedDevice } from "@/lib/services/trusted-devices-resource-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
+import { puppyAccessError } from "@/lib/trusted-device/puppy-access-error";
+import { useVault } from "@/lib/vault/vault-context";
 
-interface TrustedDevice {
-  device_id: string;
-  device_name: string;
-  platform: string;
-  status: "active" | "revoked";
-  created_at: number;
-  last_used_at: number | null;
-  // Added by migration 176; optional so an older payload still type-checks and
-  // falls through to the honest "unavailable" / "not yet synced" states.
-  revoked_at?: number | null;
-  last_synced_at?: number | null;
-  sealed_at?: number | null;
-  // Added by migration 189; a fresh value is the only evidence the agent is
-  // actually running, which last_synced_at can never establish.
-  last_heartbeat_at?: number | null;
-  heartbeat?: { current_model?: string; busy?: boolean } | null;
-}
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
 export default function TrustedDevicesPage() {
   const { user } = useAuth();
+  const { vaultOwnerToken } = useVault();
   const [error, setError] = useState("");
+  const [puppyAccess, setPuppyAccess] = useState<Record<string, boolean>>({});
+  const [changingPuppy, setChangingPuppy] = useState<string | null>(null);
+  const puppyChangePending = useRef(false);
+  const [puppyNotice, setPuppyNotice] = useState("");
+  const [pendingPuppyWithdrawal, setPendingPuppyWithdrawal] = useState<string | null>(null);
+  const [byocReady, setByocReady] = useState(false);
   const [pendingRevocation, setPendingRevocation] =
     useState<TrustedDevice | null>(null);
   const [revoking, setRevoking] = useState(false);
+  const [pendingPodRevocations, setPendingPodRevocations] = useState<string[]>([]);
 
   // Cache-first: a warm cache paints the list immediately and the refresh runs
   // in the background, so revisiting this screen never shows a blocking spinner
@@ -68,17 +63,76 @@ export default function TrustedDevicesPage() {
     cacheKey: CACHE_KEYS.TRUSTED_DEVICES(user?.uid || "anonymous"),
     enabled: Boolean(user),
     resourceLabel: "trusted-devices",
-    load: async () => {
-      const response = await ApiService.listTrustedDevices();
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.detail?.message || "Devices unavailable.");
-      }
-      return Array.isArray(payload.devices) ? payload.devices : [];
-    },
+    load: () => TrustedDevicesResourceService.load(user!.uid),
   });
 
   const devices = devicesResource.data ?? [];
+  const puppyDeviceIds = devices
+    .filter((device) => device.platform === "macos" && device.status === "active")
+    .map((device) => device.device_id)
+    .join(",");
+  useEffect(() => {
+    if (!vaultOwnerToken) return;
+    let cancelled = false;
+    void ApiService.getPersonalAgentStatus().then((status) => {
+      if (!cancelled) setByocReady(status.hostingMode === "byoc" && status.state === "active");
+    }).catch(() => {
+      if (!cancelled) setByocReady(false);
+    });
+    return () => { cancelled = true; };
+  }, [vaultOwnerToken]);
+  useEffect(() => {
+    if (!vaultOwnerToken || !puppyDeviceIds) return;
+    let cancelled = false;
+    void Promise.all(
+      puppyDeviceIds.split(",").map(async (deviceId) => [
+        deviceId,
+        await ApiService.getPuppyAccess(deviceId, vaultOwnerToken),
+      ] as const),
+    ).then((choices) => {
+      if (!cancelled) setPuppyAccess(Object.fromEntries(choices));
+    }).catch(() => {
+      if (!cancelled) setError("Puppy access status is unavailable.");
+    });
+    return () => { cancelled = true; };
+  }, [vaultOwnerToken, puppyDeviceIds]);
+
+  async function changePuppyAccess(deviceId: string, enabled: boolean) {
+    if (puppyChangePending.current) return;
+    if (!vaultOwnerToken) {
+      morphyToast.error("Unlock your vault to change Puppy access.");
+      return;
+    }
+    puppyChangePending.current = true;
+    setChangingPuppy(deviceId);
+    setError("");
+    setPuppyNotice("");
+    try {
+      const request = ApiService.setPuppyAccess(deviceId, enabled, vaultOwnerToken);
+      await morphyToast.promise(request, {
+        loading: enabled ? "Connecting to your pod…" : "Withdrawing Puppy access…",
+        success: (result) => result.revocationPending
+          ? "New access is disabled. Reconnect your pod to finish withdrawal."
+          : enabled
+            ? "Puppy access enabled. Connect Hermes on your trusted computer."
+            : "Puppy access disabled.",
+        error: (cause: unknown) => puppyAccessError(cause, enabled),
+      }).unwrap();
+      const result = await request;
+      setPuppyAccess((current) => ({ ...current, [deviceId]: result.enabled }));
+      if (result.revocationPending) {
+        setPendingPuppyWithdrawal(deviceId);
+        setPuppyNotice("New Puppy access is disabled. Pod revocation is pending or unverified; retry withdrawal after the pod reconnects.");
+      } else if (pendingPuppyWithdrawal === deviceId) {
+        setPendingPuppyWithdrawal(null);
+      }
+    } catch {
+      // The action toast owns transient failures; do not expose transport errors.
+    } finally {
+      puppyChangePending.current = false;
+      setChangingPuppy(null);
+    }
+  }
   // Only a cold load with nothing cached may block; a background refresh must
   // never hide list content that is already on screen.
   const loading = devicesResource.loading && devicesResource.data === null;
@@ -88,7 +142,7 @@ export default function TrustedDevicesPage() {
     if (!user) return;
     setRevoking(true);
     try {
-      const response = await ApiService.revokeTrustedDevice(deviceId);
+      const response = await TrustedDevicesResourceService.revoke(user.uid, deviceId);
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         setError(
@@ -96,8 +150,18 @@ export default function TrustedDevicesPage() {
         );
         return;
       }
+      const receipt = await response.json();
+      setPendingPodRevocations((current) =>
+        receipt.podRevocationPending
+          ? [...new Set([...current, deviceId])]
+          : current.filter((id) => id !== deviceId)
+      );
       setPendingRevocation(null);
-      setError("");
+      setError(
+        receipt.podRevocationPending
+          ? "Device access is removed from your account. Pod access revocation is still pending; reconnect to your pod and try again."
+          : ""
+      );
       await devicesResource.refresh({ force: true });
     } finally {
       setRevoking(false);
@@ -127,6 +191,9 @@ export default function TrustedDevicesPage() {
           {visibleError ? (
             <p className="text-sm text-destructive">{visibleError}</p>
           ) : null}
+          {puppyNotice ? (
+            <p className="text-sm text-muted-foreground">{puppyNotice}</p>
+          ) : null}
           {devices.length > 0 ? (
             <SettingsGroup separatorInset>
               {devices.map((device) => {
@@ -139,19 +206,39 @@ export default function TrustedDevicesPage() {
                     iconTone="capability"
                     title={device.device_name}
                     description={sync.label}
+                    stackTrailingOnMobile
                     trailing={
-                      isActive ? (
-                        <Button
-                          aria-label={`Unlink ${device.device_name}`}
-                          onClick={() => setPendingRevocation(device)}
-                          size="icon"
-                          variant="ghost"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                      isActive ||
+                      pendingPodRevocations.includes(device.device_id) ? (
+                        <div className="flex items-center gap-2">
+                          {isActive &&
+                          byocReady &&
+                          device.platform === "macos" &&
+                          puppyAccess[device.device_id] !== undefined ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={changingPuppy !== null}
+                              onClick={() => void changePuppyAccess(device.device_id, pendingPuppyWithdrawal === device.device_id ? false : !puppyAccess[device.device_id])}
+                            >
+                              {changingPuppy === device.device_id ? "Updating…" : pendingPuppyWithdrawal === device.device_id ? "Retry withdrawal" : puppyAccess[device.device_id] ? "Disable Puppy" : "Enable Puppy"}
+                            </Button>
+                          ) : null}
+                          <Button
+                            aria-label={`${pendingPodRevocations.includes(device.device_id) ? "Retry unlinking" : "Unlink"} ${device.device_name}`}
+                            onClick={() => setPendingRevocation(device)}
+                            size="icon"
+                            variant="ghost"
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       ) : undefined
                     }
-                    trailingInteractive={isActive}
+                    trailingInteractive={
+                      isActive ||
+                      pendingPodRevocations.includes(device.device_id)
+                    }
                   />
                 );
               })}

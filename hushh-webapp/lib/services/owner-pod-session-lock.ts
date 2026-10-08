@@ -1,0 +1,23 @@
+/** Serialize session authority per owner; Web Locks also covers sibling tabs. */
+const pending = new Map<string, Promise<unknown>>();
+
+export function withOwnerPodSessionLock<T>(owner: string, operation: () => Promise<T>): Promise<T> {
+  const previous = pending.get(owner) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(async (): Promise<T> => {
+    if (typeof navigator !== "undefined" && navigator.locks) {
+      return await navigator.locks.request(`hushh-owner-pod-session:${owner}`, operation);
+    }
+    return operation();
+  });
+  pending.set(owner, next);
+  void next.finally(() => {
+    if (pending.get(owner) === next) pending.delete(owner);
+  }).catch(() => undefined);
+  return next;
+}
+
+export function serializeOwnerPodOperation<Args extends unknown[], Result>(
+  operation: (owner: string, ...args: Args) => Promise<Result>,
+): (owner: string, ...args: Args) => Promise<Result> {
+  return (owner, ...args) => withOwnerPodSessionLock(owner, () => operation(owner, ...args));
+}

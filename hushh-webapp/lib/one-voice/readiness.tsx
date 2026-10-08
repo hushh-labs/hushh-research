@@ -1,29 +1,32 @@
 "use client";
 
 /**
- * The single server-owned flag that decides which voice owner mounts.
+ * Select the microphone owner from provider readiness and verified hosting.
  *
  * Read from `GET /api/one/voice/readiness` (never a NEXT_PUBLIC build flag), so
  * turning Live on or off is a backend env change. Fails closed. Cached per
  * signed-in user in sessionStorage for a few minutes so reloads resolve
- * synchronously and the page never flips owners mid-session.
+ * quickly. Cached provider health never substitutes for fresh owner placement.
  */
 
 import {
   createContext,
   useContext,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { FEED_STATE_CHANGED_EVENT, feedStateChangeReason } from "@/lib/feed/feed-events";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
 export type OneVoiceReadinessStatus =
   "ready" | "disabled" | "not_configured" | "provider_unavailable";
 
-export type OneVoiceReadiness =
+export type OneVoiceReadiness = {
+  microphoneOwner?: "shared_live" | "pod_commands" | "none";
+} & (
   | {
       status: "unknown";
       liveEnabled: false;
@@ -38,7 +41,7 @@ export type OneVoiceReadiness =
       model: string | null;
       location: string | null;
       wsPath: string;
-    };
+    });
 
 const UNKNOWN: OneVoiceReadiness = {
   status: "unknown",
@@ -105,42 +108,64 @@ export function OneVoiceReadinessProvider({
 }) {
   const { user } = useAuth();
   const uid = user?.uid || null;
-  const [state, setState] = useState<OneVoiceReadiness>(UNKNOWN);
+  const owner = snapshotValidatedAuthSessionOwner();
+  const generation = owner?.generation;
+  const [observation, setObservation] = useState<{
+    uid: string; generation: number; value: OneVoiceReadiness;
+  } | null>(null);
 
   useEffect(() => {
-    if (!uid) {
-      setState(UNKNOWN);
-      return;
-    }
-    const cached = readCache(uid);
-    if (cached) {
-      setState(cached);
-      return;
-    }
+    const captured = snapshotValidatedAuthSessionOwner();
+    if (!uid || !captured || captured.userId !== uid) return;
     let cancelled = false;
-    // Lazy import keeps the launcher's module graph light (the service pulls
-    // in the native plugin registry, which unit tests of the shell mock away).
-    void import("@/lib/services/api-service")
-      .then(({ ApiService }) => ApiService.getOneVoiceReadiness())
-      .then((value) => {
-        if (cancelled) return;
-        const resolved: Extract<OneVoiceReadiness, { status: "resolved" }> = {
-          status: "resolved",
-          liveEnabled: value.enabled,
-          serverStatus: value.status,
-          model: value.model,
-          location: value.location,
-          wsPath: value.wsPath,
-        };
-        writeCache(uid, resolved);
-        setState(resolved);
-      });
+    let request = 0;
+    const refresh = async () => {
+      const revision = ++request;
+      const current = () => !cancelled && revision === request &&
+        isValidatedAuthSessionOwnerCurrent(captured);
+      try {
+        const { ApiService } = await import("@/lib/services/api-service");
+        if (!current()) return;
+        const cached = readCache(uid);
+        const hosting = await ApiService.getPersonalAgentStatus();
+        if (!current()) return;
+        const provider = cached?.status === "resolved" ? cached
+          : hosting.hostingMode === "shared" ? await ApiService.getOneVoiceReadiness().then((value) => ({
+            status: "resolved" as const, liveEnabled: value.enabled,
+            serverStatus: value.status, model: value.model, location: value.location,
+            wsPath: value.wsPath,
+          })) : {
+            status: "resolved" as const, liveEnabled: false, serverStatus: "disabled" as const,
+            model: null, location: null, wsPath: "/api/one/voice/live",
+          };
+        if (!current()) return;
+        if (!cached && hosting.hostingMode === "shared") writeCache(uid, provider);
+        const microphoneOwner = hosting.hostingMode === "byoc" ? "pod_commands"
+          : hosting.hostingMode === "shared" && provider.liveEnabled && provider.serverStatus === "ready"
+            ? "shared_live" : "none";
+        setObservation({ uid, generation: captured.generation, value: {
+          ...provider, microphoneOwner, liveEnabled: microphoneOwner === "shared_live",
+        } });
+      } catch {
+        if (current()) setObservation({ uid, generation: captured.generation, value: { ...UNKNOWN, microphoneOwner: "none" } });
+      }
+    };
+    void refresh();
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const onHostingChange = (event: Event) => { if (feedStateChangeReason(event) !== "read") void refresh(); };
+    window.addEventListener(FEED_STATE_CHANGED_EVENT, onHostingChange);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      window.removeEventListener(FEED_STATE_CHANGED_EVENT, onHostingChange);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [uid]);
+  }, [uid, generation]);
 
-  const value = useMemo(() => state, [state]);
+  const value = owner && observation?.uid === uid && observation.generation === generation &&
+    isValidatedAuthSessionOwnerCurrent(owner) ? observation.value : UNKNOWN;
   return (
     <OneVoiceReadinessContext.Provider value={value}>
       {children}
@@ -156,4 +181,9 @@ export function useOneVoiceReadiness(): OneVoiceReadiness {
 export function useOneVoiceLiveEnabled(): boolean {
   const readiness = useOneVoiceReadiness();
   return readiness.status === "resolved" && readiness.liveEnabled;
+}
+
+/** Private commands require an explicitly resolved BYOC placement. */
+export function useOneVoiceCommandsEnabled(): boolean {
+  return useOneVoiceReadiness().microphoneOwner === "pod_commands";
 }

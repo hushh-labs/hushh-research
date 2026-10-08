@@ -37,7 +37,7 @@ from fastapi.responses import JSONResponse
 from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from api.middleware import (
     require_firebase_auth,
@@ -335,6 +335,14 @@ class TrustedDeviceExchangeRequest(BaseModel):
     code_verifier: str = Field(min_length=43, max_length=128)
 
 
+class TrustedDeviceSelfEnrollRequest(BaseModel):
+    device_public_key: str = Field(alias="devicePublicKey", min_length=80, max_length=2048)
+    device_name: str = Field(alias="deviceName", min_length=1, max_length=100)
+    platform: Literal["web", "ios", "android"]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class TrustedDeviceVaultHandoffRequest(BaseModel):
     vault_handoff_wrapped_key: str = Field(min_length=40, max_length=64)
     vault_handoff_iv: str = Field(min_length=16, max_length=24)
@@ -535,6 +543,29 @@ async def create_trusted_device_authorization(
     }
 
 
+@router.post("/trusted-devices/self-enroll")
+async def trusted_device_self_enroll(
+    payload: TrustedDeviceSelfEnrollRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    authorization: str | None = Header(None, alias="Authorization"),
+):
+    """Enroll this signed-in app installation without granting Puppy authority."""
+    await _trusted_device_guard(firebase_uid)
+    browser_uid = await _verify_browser_enrollment_identity(authorization)
+    if browser_uid != firebase_uid:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    try:
+        return await run_in_threadpool(
+            TrustedDeviceService().self_enroll,
+            user_id=firebase_uid,
+            device_public_key=payload.device_public_key,
+            device_name=payload.device_name,
+            platform=payload.platform,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+
+
 @router.post("/trusted-device-authorizations/{authorization_id}/vault-handoff")
 async def attach_trusted_device_vault_handoff(
     authorization_id: str,
@@ -625,6 +656,319 @@ async def list_trusted_devices(firebase_uid: str = Depends(require_firebase_auth
     return {"devices": devices}
 
 
+class PodBindingIssueRequest(BaseModel):
+    puppy_inference: bool = Field(default=False, alias="puppyInference")
+
+
+class PuppyAccessRequest(BaseModel):
+    enabled: bool
+
+
+class PuppyModelSelectionRequest(BaseModel):
+    request_id: str = Field(alias="requestId", min_length=8, max_length=80)
+    model: str = Field(min_length=1, max_length=120)
+    catalog_version: str = Field(alias="catalogVersion", min_length=64, max_length=64)
+    expected_version: int = Field(alias="expectedVersion", ge=0, strict=True)
+
+
+class PuppyModelSelectionAck(BaseModel):
+    id: str = Field(min_length=8, max_length=80)
+    version: int = Field(ge=1, strict=True)
+    result: Literal["applied", "refused"]
+    reason: str = Field(default="", max_length=40)
+    proof: str = Field(min_length=1, max_length=2048)
+
+
+@router.get("/trusted-devices/{device_id}/pod-binding")
+async def read_pod_binding(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Read this owner's current signed binding for one active trusted device."""
+    await _trusted_device_guard(firebase_uid)
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        binding = await PodBindingService().latest(user_id=firebase_uid, device_id=device_id)
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    if binding is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "POD_BINDING_NOT_ISSUED", "message": "No active pod binding exists."},
+        )
+    return binding
+
+
+@router.post("/trusted-devices/{device_id}/pod-binding")
+async def issue_pod_binding(
+    device_id: str,
+    payload: PodBindingIssueRequest = Body(default_factory=PodBindingIssueRequest),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue a higher-version binding for this owner and their selected pod."""
+    await _trusted_device_guard(firebase_uid)
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().issue(
+            user_id=firebase_uid,
+            device_id=device_id,
+            puppy_inference=payload.puppy_inference,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+class PodTombstoneRequest(BaseModel):
+    intent: dict[str, Any]
+    signature: str = Field(min_length=1, max_length=2048)
+
+
+@router.post("/trusted-devices/{device_id}/pod-tombstone")
+async def courier_pod_tombstone(
+    device_id: str,
+    payload: PodTombstoneRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Queue the app-signed owner intent; this endpoint cannot mint revocations."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().courier_tombstone(
+            user_id=firebase_uid,
+            device_id=device_id,
+            intent=payload.intent,
+            signature=payload.signature,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+@router.get("/trusted-devices/{device_id}/puppy-access")
+async def get_puppy_access(
+    device_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().get_puppy_access(
+            user_id=token_data["user_id"], device_id=device_id
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
+@router.put("/trusted-devices/{device_id}/puppy-access")
+async def set_puppy_access(
+    device_id: str,
+    payload: PuppyAccessRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Only a vault-unlocked owner may grant or withdraw Puppy inference."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().set_puppy_access(
+            user_id=token_data["user_id"], device_id=device_id, enabled=payload.enabled
+        )
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
+@router.post("/trusted-devices/{device_id}/puppy-activation")
+async def activate_puppy(device_id: str, token_data: dict = Depends(require_vault_owner_token)):
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_activation import request_activation
+
+    try:
+        return await request_activation(token_data["user_id"], device_id)
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.get("/trusted-devices/{device_id}/puppy-model-selection")
+async def read_puppy_model_selection(
+    device_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the owner's last device-default command and its observed outcome."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().read(
+            user_id=token_data["user_id"],
+            device_id=device_id,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.post("/trusted-devices/{device_id}/puppy-model-selection")
+async def request_puppy_model_selection(
+    device_id: str,
+    payload: PuppyModelSelectionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Queue one exact owner-approved local model; only the device may apply it."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().request(
+            user_id=token_data["user_id"],
+            device_id=device_id,
+            request_id=payload.request_id,
+            model=payload.model,
+            catalog_version=payload.catalog_version,
+            expected_version=payload.expected_version,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.post("/trusted-devices/{device_id}/puppy-model-selection/ack")
+async def acknowledge_puppy_model_selection(
+    device_id: str,
+    payload: PuppyModelSelectionAck,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """A signed receipt from the enrolled device key; Firebase alone is insufficient."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().acknowledge(
+            user_id=firebase_uid,
+            device_id=device_id,
+            request_id=payload.id,
+            version=payload.version,
+            result=payload.result,
+            reason=payload.reason,
+            proof=payload.proof,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.post("/trusted-devices/{device_id}/puppy-inference-grant")
+async def issue_puppy_inference_grant(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue the short-lived compatibility relay capability for an active BYOC pod."""
+    await _trusted_device_guard(firebase_uid)
+    from hushh_mcp.consent.token import issue_token
+    from hushh_mcp.constants import ConsentScope
+    from hushh_mcp.services.compute_backend import is_owner_cloud_target
+    from hushh_mcp.services.consent_db import ConsentDBService
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    try:
+        row = await PersonalAgentRegistryRepo().get(firebase_uid)
+    except Exception:  # noqa: BLE001 - a failed lookup is never BYOC proof
+        logger.warning("puppy.inference_placement_lookup_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "PUPPY_PLACEMENT_UNAVAILABLE", "message": "Pod status is unavailable."},
+        ) from None
+    metadata = row.get("backend_metadata") if isinstance(row, dict) else None
+    pod_url = str((metadata or {}).get("url") or "").strip() if isinstance(metadata, dict) else ""
+    if (
+        not isinstance(row, dict)
+        or not is_owner_cloud_target(row.get("deployment_target"))
+        or str(row.get("status") or "").strip() != "provisioned"
+        or not pod_url.startswith("https://")
+        or not str(row.get("pod_key_id") or "").strip()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PUPPY_REQUIRES_BYOC_POD",
+                "message": "Puppy inference requires an active pod in your own Google Cloud project.",
+            },
+        )
+    if not await run_in_threadpool(
+        TrustedDeviceService().is_active_device,
+        user_id=firebase_uid,
+        device_id=device_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_NOT_ACTIVE",
+                "message": "The trusted device is not active.",
+            },
+        )
+
+    from hushh_mcp.services.pod_binding_service import PodBindingService
+
+    if not PodBindingService.puppy_access_approved(row, device_id):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "PUPPY_OWNER_APPROVAL_REQUIRED",
+                "message": "The owner has not enabled Puppy access for this device and pod.",
+            },
+        )
+
+    scope = ConsentScope.CAP_PUPPY_INFERENCE.value
+    agent_id = f"device:{device_id}"
+    token = issue_token(
+        user_id=firebase_uid,
+        agent_id=agent_id,
+        scope=scope,
+        expires_in_ms=15 * 60 * 1000,
+    )
+    try:
+        await ConsentDBService().insert_event(
+            user_id=firebase_uid,
+            agent_id=agent_id,
+            scope=scope,
+            action="CONSENT_GRANTED",
+            token_id=token.token,
+            expires_at=token.expires_at,
+            scope_description="Puppy inference through the owner's BYOC pod",
+            metadata={
+                "grant_kind": "puppy_inference",
+                "deployment_target": str(row.get("deployment_target") or "").strip(),
+            },
+        )
+    except Exception:  # noqa: BLE001 - never return an unrecorded inference capability
+        from hushh_mcp.consent.token import revoke_token
+
+        revoke_token(token.token)
+        logger.warning("puppy.inference_grant_record_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "PUPPY_GRANT_UNAVAILABLE",
+                "message": "Puppy inference access is unavailable.",
+            },
+        ) from None
+    return {
+        "device_id": device_id,
+        "scope": scope,
+        "token": token.token,
+        "expires_at": token.expires_at,
+    }
+
+
 @router.get("/trusted-devices/{device_id}/status")
 async def trusted_device_status(
     device_id: str,
@@ -661,7 +1005,36 @@ async def trusted_device_status(
                 "message": "No such trusted device for this account.",
             },
         )
-    return {**status, "server_time_ms": int(time.time() * 1000)}
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.puppy_activation import current_activation
+
+    hint = None
+    if status.get("status") == "active":
+        try:
+            row = await PersonalAgentRegistryRepo().get(firebase_uid)
+            hint = current_activation(row, device_id) if row else None
+        except Exception:
+            # A wake hint is advisory. Failure cannot imply revocation or widen a grant.
+            pass
+    selection = None
+    if status.get("status") == "active":
+        try:
+            from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+            selection = await PuppyModelSelectionService().pending(
+                user_id=firebase_uid,
+                device_id=device_id,
+            )
+        except Exception:
+            # A control-command lookup cannot turn a valid device status into
+            # a false revocation. The next poll retries; owner read shows expiry.
+            logger.warning("trusted_device.puppy_model_selection_unavailable")
+    return {
+        **status,
+        "server_time_ms": int(time.time() * 1000),
+        "puppyActivation": hint,
+        "puppyModelSelection": selection,
+    }
 
 
 @router.post("/trusted-devices/{device_id}/seal-ack")
@@ -798,12 +1171,23 @@ async def revoke_trusted_device(
 ):
     # Revocation is a recovery operation, not an enrollment operation. Keep it
     # available even when the feature flag or rollout allowlist is withdrawn.
+    devices = TrustedDeviceService()
     revoked = await run_in_threadpool(
-        TrustedDeviceService().revoke_device,
+        devices.revoke_device,
         user_id=firebase_uid,
         device_id=device_id,
     )
-    if not revoked:
+    # An interrupted cross-plane revoke may safely retry for this same owner.
+    existing = (
+        None
+        if revoked
+        else await run_in_threadpool(
+            devices.device_status,
+            user_id=firebase_uid,
+            device_id=device_id,
+        )
+    )
+    if not revoked and (not existing or existing.get("status") != "revoked"):
         raise HTTPException(
             status_code=404,
             detail={
@@ -834,7 +1218,45 @@ async def revoke_trusted_device(
                 token_id=token_id,
                 metadata={"reason": "trusted_device_revoked"},
             )
-    return {"success": True, "device_id": device_id}
+
+    # Puppy inference is a separate device-scoped capability, not vault-owner
+    # authority. Revoke its current visible grant too; relay admission also checks
+    # the active-device row so a ledger outage cannot keep a revoked device live.
+    try:
+        from hushh_mcp.constants import ConsentScope
+
+        puppy_scope = ConsentScope.CAP_PUPPY_INFERENCE.value
+        puppy_tokens = await consent_service.get_active_tokens(firebase_uid, agent_id=agent_id)
+        for token_row in puppy_tokens:
+            if str(token_row.get("scope") or "") != puppy_scope:
+                continue
+            token_id = str(token_row.get("token_id") or "")
+            if not token_id:
+                continue
+            revoke_token(token_id)
+            await consent_service.insert_event(
+                user_id=firebase_uid,
+                agent_id=agent_id,
+                scope=puppy_scope,
+                action="REVOKED",
+                token_id=token_id,
+                scope_description="Puppy inference through the owner's BYOC pod",
+                metadata={"reason": "trusted_device_revoked"},
+            )
+    except Exception:  # noqa: BLE001 - device revocation and active-row checks remain authoritative
+        logger.warning("trusted_device.puppy_grant_revoke_failed")
+    # Fresh statement after device revocation commits: a preceding issuer may
+    # have completed while the revoke waited for its device lock.
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    pod = await PersonalAgentRegistryRepo().get(firebase_uid)
+    metadata = (pod or {}).get("backend_metadata") or {}
+    binding = (metadata.get("bindings") or {}).get(device_id) or {}
+    return {
+        "success": True,
+        "device_id": device_id,
+        "podBindingVersion": int(binding.get("version") or 0),
+    }
 
 
 @router.post("/identity/refresh")
@@ -1066,9 +1488,20 @@ def _configured_prod_phone_test_numbers() -> set[str]:
     return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
 
 
+def _isolated_phone_fixture_enabled() -> bool:
+    """Local recorded SMS transport; ordinary auth/challenge/claim checks still run."""
+    return (
+        _runtime_environment() in {"development", "local", "test"}
+        and _clean_env("ONE_PUBLIC_PROFILE_FIXTURE_MODE") == "true"
+        and _clean_env("DB_HOST") in {"localhost", "127.0.0.1"}
+        and _clean_env("DB_NAME").startswith("hushh_profile_fixture_")
+        and not _clean_env("DB_UNIX_SOCKET")
+    )
+
+
 def _configured_phone_test_numbers() -> set[str]:
     environment = _runtime_environment()
-    if environment == "uat":
+    if environment == "uat" or _isolated_phone_fixture_enabled():
         return _configured_uat_phone_test_numbers()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
         return _configured_prod_phone_test_numbers()
@@ -1089,7 +1522,7 @@ def _configured_prod_phone_test_challenge_secret() -> str:
 
 def _configured_phone_test_code() -> str:
     environment = _runtime_environment()
-    if environment == "uat":
+    if environment == "uat" or _isolated_phone_fixture_enabled():
         return _configured_uat_phone_test_code()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
         return _configured_prod_phone_test_code()

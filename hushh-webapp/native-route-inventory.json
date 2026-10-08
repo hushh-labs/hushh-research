@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-10-07",
-  "total_routes": 126,
-  "native_required_routes": 105,
-  "excluded_routes": 21,
+  "total_routes": 132,
+  "native_required_routes": 106,
+  "excluded_routes": 26,
   "routes": [
     {
       "route": "/",
@@ -38,23 +38,15 @@
       "expectedRoute": "/circle/join",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
-      "allowedDataStates": ["loaded", "unavailable-valid"]
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ],
-      "legacyAlias": true
+      "classification": "excluded-web-only",
+      "reason": "Local CRM is restricted to localhost; CAPACITOR_BUILD rejects this surface with notFound()."
     },
     {
       "route": "/consents",
@@ -137,8 +129,8 @@
       "classification": "native-required-functional",
       "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
-      "expectedMarker": "native-route-kai-portfolio",
-      "expectedRoute": "/one/kai/portfolio",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/one/kai?tab=portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -208,8 +200,8 @@
       "route": "/kai/portfolio",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fkai%2Fportfolio",
-      "expectedMarker": "native-route-kai-portfolio",
-      "expectedRoute": "/one/kai/portfolio",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/one/kai?tab=portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -240,6 +232,11 @@
       "allowedDataStates": [
         "loaded"
       ]
+    },
+    {
+      "route": "/manishhussh",
+      "classification": "excluded-web-only",
+      "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
     },
     {
       "route": "/marketplace",
@@ -297,11 +294,6 @@
       ]
     },
     {
-      "route": "/manishhussh",
-      "classification": "excluded-web-only",
-      "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
-    },
-    {
       "route": "/oauth/authorize",
       "classification": "excluded-web-only",
       "reason": "OAuth authorization must complete in a system browser. Providers reject embedded webviews, so a native surface would break the flow rather than improve it."
@@ -354,8 +346,8 @@
       "route": "/one/connect/settings",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
-      "expectedMarker": "native-route-connect-settings",
-      "expectedRoute": "/one/connect/settings",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/preferences/gemini",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -364,17 +356,8 @@
     },
     {
       "route": "/one/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
+      "classification": "excluded-web-only",
+      "reason": "Local CRM is restricted to localhost; CAPACITOR_BUILD rejects this surface with notFound()."
     },
     {
       "route": "/one/consent",
@@ -386,6 +369,21 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
+      ]
+    },
+    {
+      "route": "/one/email",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Femail",
+      "expectedMarker": "native-route-email-agent",
+      "expectedRoute": "/one/email",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
@@ -402,6 +400,11 @@
       ]
     },
     {
+      "route": "/one/files",
+      "classification": "excluded-web-only",
+      "reason": "GAP: encrypted BYOC Files uses browser streaming and file-picker controls. Native transfer, key continuity, and direct-pod admission require device acceptance before enabling this route."
+    },
+    {
       "route": "/one/gmail",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fgmail",
@@ -410,21 +413,6 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
-    },
-    {
-      "route": "/one/email",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Femail",
-      "expectedMarker": "native-route-email-agent",
-      "expectedRoute": "/one/email",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loading",
         "loaded",
         "empty-valid",
         "unavailable-valid"
@@ -529,8 +517,8 @@
       "route": "/one/kai/portfolio",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio",
-      "expectedMarker": "native-route-kai-portfolio",
-      "expectedRoute": "/one/kai/portfolio",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/one/kai?tab=portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -795,39 +783,57 @@
       "reason": "Compatibility redirect into Connectors in the Profile pane on /one. Connectors is a Profile section, so the pane carries the parity obligation, not this address."
     },
     {
-      "route": "/one/profile/gmail",
+      "route": "/one/profile/discovery",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/gmail",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fdiscovery",
+      "expectedMarker": "native-route-profile-discovery",
+      "expectedRoute": "/one/profile/discovery",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/gmail",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
+      "expectedMarker": "native-route-gmail",
+      "expectedRoute": "/one/gmail",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
       "route": "/one/profile/gmail/actions",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Factions",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/gmail/actions",
+      "expectedMarker": "native-route-gmail",
+      "expectedRoute": "/one/gmail",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded"
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
       "route": "/one/profile/gmail/connection",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Fconnection",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/gmail/connection",
+      "expectedMarker": "native-route-gmail",
+      "expectedRoute": "/one/gmail",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded"
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
@@ -847,6 +853,18 @@
       "route": "/one/profile/google/oauth/return",
       "classification": "excluded-web-only",
       "reason": "OAuth return leg. It exists to receive a system-browser redirect and hand control back; there is nothing for a native surface to render."
+    },
+    {
+      "route": "/one/profile/hosting",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fhosting",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/hosting",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
     },
     {
       "route": "/one/profile/integrations",
@@ -1010,8 +1028,8 @@
       "route": "/one/profile/regulatory",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/regulatory",
+      "expectedMarker": "ria-profile-page",
+      "expectedRoute": "/ria/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1067,6 +1085,18 @@
       ]
     },
     {
+      "route": "/one/profile/software-updates",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsoftware-updates",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/software-updates",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
       "route": "/one/profile/support",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsupport",
@@ -1103,6 +1133,11 @@
       ]
     },
     {
+      "route": "/one/puppy",
+      "classification": "excluded-web-only",
+      "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+    },
+    {
       "route": "/one/setup",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fsetup",
@@ -1120,18 +1155,26 @@
       "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
     },
     {
-      "route": "/one/setup/connected-systems",
+      "route": "/one/setup/cloud",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+      "expectedMarker": "native-route-one-setup-cloud",
+      "expectedRoute": "/one/setup/cloud",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
+        "loaded"
       ]
+    },
+    {
+      "route": "/one/setup/cloud/azure/return",
+      "classification": "excluded-web-only",
+      "reason": "Microsoft sign-in return leg. It receives a browser redirect carrying a one-time code and hands control back to cloud setup; Microsoft sign-in is web-only in this version, so there is nothing for a native surface to render."
+    },
+    {
+      "route": "/one/setup/connected-systems",
+      "classification": "excluded-web-only",
+      "reason": "Local CRM setup is restricted to loopback development; its layout rejects CAPACITOR_BUILD with notFound() before rendering the client."
     },
     {
       "route": "/one/setup/connections",
@@ -1238,9 +1281,18 @@
       ]
     },
     {
-      "route": "/one/puppy",
-      "classification": "excluded-web-only",
-      "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+      "route": "/one/wallet",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fwallet",
+      "expectedMarker": "native-route-one-wallet",
+      "expectedRoute": "/one/wallet",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/wallet-card",
@@ -1257,16 +1309,16 @@
       ]
     },
     {
-      "route": "/one/wallet",
+      "route": "/people/[personRef]",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fwallet",
-      "expectedMarker": "native-route-one-wallet",
-      "expectedRoute": "/one/wallet",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
+      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "expectedMarker": "native-route-person-profile",
+      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "autoReviewerLogin": false,
+      "expectedAuth": "public",
       "allowedDataStates": [
+        "loading",
         "loaded",
-        "empty-valid",
         "unavailable-valid"
       ]
     },
@@ -1300,20 +1352,6 @@
       ]
     },
     {
-      "route": "/people/[personRef]",
-      "classification": "native-required-functional",
-      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
-      "expectedMarker": "native-route-person-profile",
-      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
-      "autoReviewerLogin": false,
-      "expectedAuth": "public",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "unavailable-valid"
-      ]
-    },
-    {
       "route": "/privacy",
       "classification": "excluded-web-only",
       "reason": "Public Privacy Policy page for people without the app (Google OAuth consent screen and store listing URL). It is static text with no native bridge; the native build still bundles it, and sign-in and Profile link to it."
@@ -1344,8 +1382,8 @@
       "route": "/ria",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria",
-      "expectedMarker": "native-route-ria-home",
-      "expectedRoute": "/ria",
+      "expectedMarker": "ria-profile-page",
+      "expectedRoute": "/ria/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1409,8 +1447,8 @@
       "route": "/ria/profile",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Fprofile",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/regulatory",
+      "expectedMarker": "ria-profile-page",
+      "expectedRoute": "/ria/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

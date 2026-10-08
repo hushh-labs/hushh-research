@@ -3,9 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type KeyboardHandler = (info: { keyboardHeight?: number }) => void;
 const handlers = new Map<string, KeyboardHandler>();
+const native = vi.hoisted(() => ({ platform: "android" }));
 
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => true },
+  Capacitor: {
+    isNativePlatform: () => true,
+    getPlatform: () => native.platform,
+  },
 }));
 
 vi.mock("@capacitor/keyboard", () => ({
@@ -37,6 +41,7 @@ const inset = () => document.documentElement.style.getPropertyValue("--kb-height
 
 describe("KeyboardInsetManager on native", () => {
   beforeEach(() => {
+    native.platform = "android";
     handlers.clear();
     document.documentElement.style.removeProperty("--kb-height");
     document.documentElement.classList.remove("kb-open", "kb-resizes");
@@ -47,12 +52,39 @@ describe("KeyboardInsetManager on native", () => {
   });
 
   it("publishes the whole keyboard when the web view keeps its size (iOS)", async () => {
+    native.platform = "ios";
     setInnerHeight(844);
     await mount();
     act(() => handlers.get("keyboardWillShow")?.({ keyboardHeight: 336 }));
     expect(inset()).toBe("336px");
     expect(document.documentElement.classList.contains("kb-open")).toBe(true);
     expect(document.documentElement.classList.contains("kb-resizes")).toBe(false);
+  });
+
+  it.each(["rotation", "scene resize"])("does not count iOS %s as keyboard absorption", async (change) => {
+    native.platform = "ios";
+    setInnerHeight(1194);
+    await mount();
+    // Orientation can be published before its new window bounds. A shorter
+    // scene window has no orientation event at all. Neither is keyboard resize.
+    act(() => {
+      if (change === "rotation") window.dispatchEvent(new Event("orientationchange"));
+      setInnerHeight(834);
+      window.dispatchEvent(new Event("resize"));
+    });
+    for (const event of ["keyboardWillShow", "keyboardDidShow"]) {
+      act(() => handlers.get(event)?.({ keyboardHeight: 320 }));
+      expect(inset()).toBe("320px");
+      expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+      expect(document.documentElement.classList.contains("kb-resizes")).toBe(false);
+    }
+    // Resizing while the keyboard is already present must preserve the
+    // plugin-reported overlap too; the fixed iOS WebView does not absorb it.
+    act(() => {
+      setInnerHeight(768);
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(inset()).toBe("320px");
   });
 
   it("does not subtract the keyboard twice when the WebView already shrank for it (Android)", async () => {

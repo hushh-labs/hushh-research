@@ -1,5 +1,7 @@
 import type { LucideIcon } from "@/components/icons";
 import {
+  AlertTriangle,
+  Bot,
   CalendarDays,
   Database,
   FileText,
@@ -10,6 +12,7 @@ import {
   ShieldCheck,
   TrendingUp,
   UserRound,
+  ScanSearch,
   Users,
 } from "@/components/icons";
 
@@ -52,6 +55,7 @@ const DOMAIN_ICON: Record<FeedSourceDomain, LucideIcon> = {
   kyc: ShieldCheck,
   connected_systems: Database,
   connections: Users,
+  profile_discovery: ScanSearch,
 };
 
 const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
@@ -61,6 +65,7 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   kyc: "KYC",
   connected_systems: "Connected systems",
   connections: "Connections",
+  profile_discovery: "Profile discovery",
 };
 
 // Incoming history targets the received-share list without forcing a grant.
@@ -141,6 +146,7 @@ function metadataDurationLabel(
 function resolveCounterpartName(metadata: Record<string, unknown>): string {
   return (
     metadataString(metadata, "counterpart_label") ||
+    metadataString(metadata, "granter_name") ||
     metadataString(metadata, "display_name") ||
     metadataString(metadata, "first_name") ||
     "Someone"
@@ -367,6 +373,20 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   }
 
   switch (item.event_type) {
+    case "profile_discovery_queued":
+      return { icon, domainLabel: "Public profile", label: "Building your profile", description: "A one-time public information search has started in the background.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_scanning":
+      return { icon, domainLabel: "Public profile", label: "Still building your profile", description: "Your public profile search is continuing in the background.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_needs_details":
+      return { icon, domainLabel: "Public profile", label: "One detail can improve your profile match", description: "Add an optional public profile link or work detail to continue.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_ready":
+      return { icon, domainLabel: "Public profile", label: "Your profile is ready to review", description: "Review sources and choose what, if anything, belongs in your private knowledge model.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_failed":
+      return { icon, domainLabel: "Public profile", label: "Your profile search needs attention", description: "The one-time search could not finish. You can review the status and retry.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_claimed":
+      return { icon, domainLabel: "Public profile", label: "Your profile review is complete", description: "The one-time profile handoff is finished.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+    case "profile_discovery_cancelled":
+      return { icon, domainLabel: "Public profile", label: "Your profile search was cancelled", description: "No further public profile discovery will run for this handoff.", href: null };
     case "connector_connected":
     case "connector_reconnect_required":
     case "connector_disconnected":
@@ -441,6 +461,19 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         };
       }
       if (item.event_type === "consent_granted") {
+        const personRef = metadataString(item.metadata, "person_ref");
+        if (iAskedForThis || personRef) {
+          return {
+            icon: ShieldCheck,
+            domainLabel: "Consent",
+            label: requester ? `${requester} shared information with you` : "Information shared with you",
+            person: counterpartPerson(item.metadata, requester || who),
+            description: `Granted access to ${what}. Tap to view.`,
+            href: personRef
+              ? `/people/${encodeURIComponent(personRef)}?section=shared`
+              : buildConsentCenterHref("active"),
+          };
+        }
         return {
           icon,
           domainLabel,
@@ -459,6 +492,114 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         href: buildConsentCenterHref("previous"),
       };
     }
+    /**
+     * Personal agent lifecycle. Provisioning is fire-and-forget in the backend
+     * and invisible everywhere else, so these rows are the only place a person
+     * watches their own private agent being created. They ride the `consent`
+     * source domain (the agent's authority is a standing consent grant, and
+     * feed_events.source_domain is CHECK-constrained), so the domain label is
+     * overridden here rather than reading "Consent".
+     */
+    case "personal_agent_reserved":
+      return {
+        icon: Bot,
+        domainLabel: "Private agent",
+        label: "Your private agent is on the way",
+        description: "We reserved your own private agent. Nothing for you to do.",
+        href: null,
+      };
+    case "personal_agent_provisioning":
+      return {
+        icon: Bot,
+        domainLabel: "Private agent",
+        label: "Setting up your private agent",
+        description: "Your private agent is being set up in the background.",
+        href: null,
+      };
+    // The longest wait in the whole journey, and until now the only one with no
+    // renderer at all — so the backend wrote `personal_agent_connecting` and the
+    // feed answered "Something happened in your account." The minutes a person
+    // spends most anxious about whether this worked had the worst copy in the app.
+    //
+    // What is actually true at this point: the person's own compute exists and is
+    // starting up, and it is handing over its key so nothing but their agent can
+    // read their records. Said plainly, because that IS the product.
+    case "personal_agent_connecting":
+      return {
+        icon: Bot,
+        domainLabel: "Private agent",
+        label: "Your private agent is starting up",
+        description:
+          "Your own private compute is running. It is handing over its key so only your agent can read your records.",
+        href: null,
+      };
+    case "personal_agent_ready":
+      return {
+        icon: Bot,
+        domainLabel: "Private agent",
+        label: "Your private agent is ready",
+        description: "It is set up and ready whenever you are.",
+        href: ROUTES.AGENT,
+      };
+    case "personal_agent_updated":
+      return {
+        icon: Bot,
+        domainLabel: "Private agent",
+        label: "Your private agent was updated",
+        description: "It is running the newest build, in your own private space.",
+        href: ROUTES.AGENT,
+      };
+    case "personal_agent_failed": {
+      // The backend only ever writes a closed vocabulary of user-safe reason
+      // codes here — never an exception message — so an unknown code falls back
+      // to the plain line rather than rendering anything raw.
+      const reason = metadataString(item.metadata, "reason");
+      return {
+        icon: AlertTriangle,
+        domainLabel: "Private agent",
+        label: "Your private agent is not ready yet",
+        description:
+          reason === "invalid_details"
+            ? "Some details did not check out, so setup could not finish."
+            : "We could not finish setting it up yet. Nothing was lost.",
+        href: null,
+      };
+    }
+    case "personal_agent_provisioning_capped":
+      // The fleet cap is our constraint, not a mistake the person made, so this
+      // reads as a queue rather than a failure.
+      //
+      // It used to end "starts automatically", and that was not true. A capped row
+      // is left at `pending` on purpose (the cap is checked before the first
+      // registry write), and the reconcile sweep retries only `provisioning` and
+      // `failed`. Adding `pending` to that sweep would be worse than the wrong
+      // sentence: `pending` is ALSO the state of someone who verified a phone and
+      // never connected an AI key, so the sweep would start building agents for
+      // people with no model to run them — the exact behaviour the AI-connection
+      // gate exists to remove.
+      //
+      // So the copy says what is actually true and gives the person the one action
+      // that genuinely restarts it. A capped-row retry is worth building; promising
+      // it before it exists is not.
+      return {
+        icon: Bot,
+        domainLabel: "Private agent",
+        label: "Your private agent is in the queue",
+        description:
+          "We are at capacity right now. Your place is saved — check your AI connection again shortly to start it.",
+        href: ROUTES.PROFILE_PREFERENCES_GEMINI,
+      };
+    case "personal_agent_reaped":
+      // Only the compute is torn down; the registry row and identity survive, and
+      // the next thing the person does re-provisions it. Saying "deleted" would be
+      // false, and saying nothing would make the next cold start look like a fault.
+      return {
+        icon: Bot,
+        domainLabel: "Private agent",
+        label: "Your private agent is resting",
+        description: "It was idle for a while, so we powered it down. It wakes when you need it.",
+        href: ROUTES.AGENT,
+      };
     // Location events use a person-first layout: the title is the counterparty's
     // name (falling back to "Location" only when no name is resolvable), and the
     // subtitle is the action. The name arrives via `counterpart_label` in the

@@ -39,7 +39,8 @@ def test_email_genes_are_manifest_owned_and_adk_compatible(
 
 
 @pytest.mark.asyncio
-async def test_run_email_gene_uses_shared_single_turn_runtime(monkeypatch) -> None:
+@pytest.mark.parametrize("owner_model", [None, object()])
+async def test_run_email_gene_uses_shared_single_turn_runtime(monkeypatch, owner_model) -> None:
     calls: dict[str, object] = {}
 
     def build_agent(gene, **kwargs):
@@ -69,12 +70,16 @@ async def test_run_email_gene_uses_shared_single_turn_runtime(monkeypatch) -> No
         prompt="Write a short greeting",
         user_id="owner-1",
         consent_token=_TEST_CONSENT_TOKEN,
+        model=owner_model,
     )
 
     assert result["subject"] == "Hello"
     assert calls["gene"] == "agent_email_draft"
     assert calls["agent"] == "email-agent"
-    assert "model" not in calls["agent_kwargs"]
+    if owner_model is None:
+        assert "model" not in calls["agent_kwargs"]
+    else:
+        assert calls["agent_kwargs"]["model"] is owner_model
     assert calls["user_id"] == "owner-1"
     assert calls["consent_token"] == "owner-token"
 

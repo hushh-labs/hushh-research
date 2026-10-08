@@ -37,6 +37,54 @@ struct HushhNativeNavigationState {
     }
 }
 
+enum HushhNativeNavigationArtwork {
+    static func items(image: (String) -> UIImage? = { UIImage(named: $0) }) -> [UITabBarItem]? {
+        let labels = ["Chat", "One", "Connect", "Feed", "Search"]
+        var items = [UITabBarItem]()
+        for (index, tab) in HushhNativeNavigationState.tabs.enumerated() {
+            // Assets are generated from the shared Phosphor registry descriptor.
+            // A partial catalog must keep the DOM fallback, not show blank tabs.
+            guard let normal = image("HushhNav-\(tab)-default"),
+                  let selected = image("HushhNav-\(tab)-selected") else { return nil }
+            let item = UITabBarItem(title: labels[index],
+                image: normal.withRenderingMode(.alwaysTemplate),
+                selectedImage: selected.withRenderingMode(.alwaysTemplate))
+            item.tag = index
+            item.accessibilityIdentifier = "one-native-tab-\(tab)"
+            items.append(item)
+        }
+        return items
+    }
+}
+
+/// The existing DOM shell owns width and content padding. UIKit owns its safe area.
+struct HushhNativeNavigationColumn {
+    let x: CGFloat
+    let width: CGFloat
+    let contentHeight: CGFloat
+    let viewportWidth: CGFloat
+
+    init?(projection: JSObject?) {
+        guard let projection, let x = projection["x"] as? Double,
+              let width = projection["width"] as? Double, let height = projection["contentHeight"] as? Double,
+              let viewport = projection["viewportWidth"] as? Double,
+              [x, width, height, viewport].allSatisfy({ $0.isFinite }),
+              x >= 0, width >= 220, (49...120).contains(height), viewport > 0,
+              x + width <= viewport + 0.5 else { return nil }
+        self.x = x; self.width = width; contentHeight = height; viewportWidth = viewport
+    }
+
+    func frame(in host: UIView, webView: UIView, bottomInset: CGFloat) -> CGRect? {
+        let scale = webView.bounds.width / viewportWidth
+        let origin = webView.convert(CGPoint(x: x * scale, y: 0), to: host).x
+        let projectedWidth = width * scale
+        guard scale.isFinite, scale > 0, origin >= 0,
+              origin + projectedWidth <= host.bounds.width + 0.5 else { return nil }
+        let fullHeight = contentHeight + bottomInset
+        return CGRect(x: origin, y: host.bounds.height - fullHeight, width: projectedWidth, height: fullHeight)
+    }
+}
+
 @objc(HushhNativeNavigationPlugin)
 final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
     let identifier = "HushhNativeNavigationPlugin"
@@ -52,9 +100,11 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var keyboardVisible = false
     private var contentHeight: CGFloat = 0
     private var bottomInset: CGFloat = 0
+    private var column: HushhNativeNavigationColumn?
     private var tapSequence = 0
     private var confirmedSequence = 0
     private var retiredRestartGeneration = -1
+    private lazy var navigationItems = HushhNativeNavigationArtwork.items()
 
     override func load() {
         DispatchQueue.main.async { [weak self] in
@@ -81,7 +131,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": true, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "columnLayout": true, "supported": self.navigationItems != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
             }
@@ -97,6 +147,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             guard let document = call.getString("documentId"), let revision = call.getInt("revision"),
                   let visible = call.getBool("visible"), let selected = call.getString("selected"),
                   let epoch = call.getInt("interactionEpoch"),
+                  let column = HushhNativeNavigationColumn(projection: call.getObject("column")),
                   let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"),
                     accentHex: call.getString("accentHex"), foregroundHex: call.getString("foregroundHex")) else {
                 call.reject("NATIVE_NAVIGATION_INVALID_STATE"); return
@@ -108,6 +159,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                       visible: visible, selected: selected, interactionEpoch: epoch) else {
                 call.reject("NATIVE_NAVIGATION_STALE_STATE"); return
             }
+            self.column = column
             self.installIfNeeded()
             if let feed = self.tabBar?.items?.first(where: { $0.tag == 3 }) {
                 feed.badgeValue = call.getBool("feedAttention") == true ? " " : nil
@@ -134,6 +186,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 call.getInt("interactionEpoch") == self.state.interactionEpoch &&
                 call.getInt("privacyGeneration") == privacy.generation &&
                 sequence == self.tapSequence && sequence > self.confirmedSequence &&
+                self.currentColumnFrame != nil &&
                 self.state.acceptsTap(tab, appIsActive: privacy.appIsActive,
                                       shielded: privacy.shielded, keyboardVisible: self.keyboardVisible)
             if valid { self.confirmedSequence = sequence }
@@ -143,21 +196,14 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
 
     @available(iOS 26.0, *)
     private func installIfNeeded() {
-        guard tabBar == nil, let host = bridge?.viewController?.view else { return }
+        guard tabBar == nil, let host = bridge?.viewController?.view, let items = navigationItems else { return }
         let bar = UITabBar()
         bar.accessibilityIdentifier = "one-native-navigation"
         bar.isHidden = true
         bar.delegate = self
         // Keep Apple's standard appearance: no custom blur, material or background image.
-        let labels = ["Chat", "One", "Connect", "Feed", "Search"]
-        // Solid glyphs: full silhouette with the semantic detail cut out as negative space.
-        let symbols = ["bubble.left.and.bubble.right.fill", "square.grid.2x2.fill", "safari.fill", "newspaper.fill", "magnifyingglass.circle.fill"]
         bar.unselectedItemTintColor = .label
-        bar.items = zip(labels, symbols).enumerated().map { index, pair in
-            let item = UITabBarItem(title: pair.0, image: UIImage(systemName: pair.1), tag: index)
-            item.accessibilityIdentifier = "one-native-tab-\(HushhNativeNavigationState.tabs[index])"
-            return item
-        }
+        bar.items = items
         // A shield installed before the bridge call must remain above native controls.
         if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
             host.insertSubview(bar, belowSubview: shield)
@@ -167,14 +213,18 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         tabBar = bar
     }
 
+    private var currentColumnFrame: CGRect? {
+        guard let host = bridge?.viewController?.view, let webView = bridge?.webView, let column else { return nil }
+        return column.frame(in: host, webView: webView, bottomInset: host.safeAreaInsets.bottom)
+    }
+
     func layoutTabBar() {
-        guard let bar = tabBar, let host = bridge?.viewController?.view else { return }
-        let inset = host.safeAreaInsets.bottom
-        let height = bar.sizeThatFits(CGSize(width: host.bounds.width, height: 0)).height
-        // UITabBar's fitting height includes its own safe-area inset once attached.
-        let fullHeight = max(height, 49 + inset)
-        bar.frame = CGRect(x: 0, y: host.bounds.height - fullHeight, width: host.bounds.width, height: fullHeight)
-        let next = fullHeight - inset
+        guard let bar = tabBar, let column, let frame = currentColumnFrame else {
+            tabBar?.isHidden = true; tabBar?.isUserInteractionEnabled = false; return
+        }
+        bar.frame = frame
+        let next = column.contentHeight
+        let inset = frame.height - next
         if abs(next - contentHeight) > 0.5 || abs(inset - bottomInset) > 0.5 {
             contentHeight = next
             bottomInset = inset
@@ -188,7 +238,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             state.retireDocument()
             retiredRestartGeneration = privacy.generation
         }
-        let show = state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
+        let show = currentColumnFrame != nil && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
                                    shielded: privacy.shielded, keyboardVisible: keyboardVisible)
         tabBar?.isHidden = !show
         tabBar?.isUserInteractionEnabled = show
@@ -203,7 +253,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         let tab = HushhNativeNavigationState.tabs[item.tag]
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         updatePresentation() // Do not commit a selection before React's existing guard accepts it.
-        guard state.acceptsTap(tab, appIsActive: privacy.appIsActive,
+        guard currentColumnFrame != nil, state.acceptsTap(tab, appIsActive: privacy.appIsActive,
                               shielded: privacy.shielded, keyboardVisible: keyboardVisible) else { return }
         tapSequence += 1
         notifyListeners("selectionRequested", data: ["tab": tab, "sequence": tapSequence,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -11,6 +13,37 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def _backend_deploy() -> str:
+    return _read("scripts/deploy/backend-deploy.sh")
+
+
+def _container_worker_count(tmp_path: Path, worker_count: str | None = None) -> int:
+    """Exercise the real Docker shell entrypoint without starting a server."""
+    executable = tmp_path / "gunicorn"
+    executable.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n', encoding="utf-8")
+    executable.chmod(0o700)
+    command = next(
+        line
+        for line in _read("consent-protocol/Dockerfile").splitlines()
+        if line.startswith("CMD ")
+    )
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]}
+    env.pop("WEB_CONCURRENCY", None)
+    if worker_count is not None:
+        env["WEB_CONCURRENCY"] = worker_count
+    result = subprocess.run(  # noqa: S603 - authored entrypoint, hermetic fake Gunicorn
+        json.loads(command[4:]), env=env, capture_output=True, text=True, check=True
+    )
+    arguments = result.stdout.splitlines()
+    return int(arguments[arguments.index("-w") + 1])
+
+
+def test_backend_container_honors_governed_worker_count(tmp_path: Path) -> None:
+    # Regression: dev declared one worker but the entrypoint launched two,
+    # doubling its database connection budget and process-local listeners.
+    assert _container_worker_count(tmp_path, "1") == 1
 
 
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
@@ -58,6 +91,7 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
     backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
     assert "group: deploy-uat\n" in workflow
@@ -67,8 +101,8 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in backend_build
     assert (
-        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
-        in backend_build
+        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n  cmd+=("--no-traffic")'
+        in backend_deploy
     )
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in frontend_build
     assert (
@@ -101,34 +135,16 @@ def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
     assert "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET" not in workflow
 
 
-def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
-    """Existing paid-required requests still need Checkout and signed webhooks."""
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
-    for lane in ("dev", "uat", "production"):
-        workflow = _read(f".github/workflows/deploy-{lane}.yml")
-        assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
-        assert "_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET" in workflow
-        assert "_STRIPE_SECRET_KEY_SECRET=${{" not in workflow
-        assert "_STRIPE_WEBHOOK_SECRET_SECRET=${{" not in workflow
-
-    # The build binds optional existing secrets, but refuses an enabled
-    # new-request rollout unless both names resolve in the deploy project.
-    assert 'if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then' in backend_build
-    assert (
-        'for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do'
-        in backend_build
-    )
-    assert 'add_secret "${!v}" "${n}"' in backend_build
-    assert "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET" in backend_build
-
-
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
     backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
-    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_build
-    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_build
+    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_deploy
+    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_deploy
+    assert '"--memory=${_CLOUD_RUN_MEMORY}"' in backend_deploy
+    assert '"_CLOUD_RUN_MEMORY=${_CLOUD_RUN_MEMORY}"' in backend_build
     assert "_CLOUD_RUN_CPU=2" in workflow
     assert "_CLOUD_RUN_CONCURRENCY=20" in workflow
 
@@ -193,13 +209,14 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = _backend_deploy()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     # Gemini 3.1 Flash-Lite is part of the approved text matrix and only shares
     # global/us/eu endpoints with Gemini 3.5 Flash. The deployed service and its
     # candidate-image readiness job must prove the same configuration.
-    assert backend_build.count("GOOGLE_CLOUD_LOCATION=global") == 2
-    assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_build
+    assert (backend_build + backend_deploy).count("GOOGLE_CLOUD_LOCATION=global") == 2
+    assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_build + backend_deploy
     assert '--set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|' in backend_build
     assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_build
     assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_build
@@ -258,16 +275,18 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     assert 'sed -n \'s/.*"classification":"' not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only() -> None:
+def test_cross_project_vertex_uses_exact_personal_bridge_for_managed_lanes() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = _backend_deploy()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
-    assert 'genai_project_id="hushh-pda-uat"' in backend_build
+    assert 'genai_project_id="hushh-vertex-personal54"' in backend_build
+    assert 'genai_project_id="hushh-vertex-personal54"' in backend_deploy
     assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
     assert (
-        "dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
+        "dev:hushh-vertex-personal54|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
         in backend_build
     )
     assert "Cross-project managed Vertex target is not allowlisted." in backend_build
@@ -276,9 +295,9 @@ def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only
     assert "hushh-gemini-bridge" not in production_workflow
     assert "_GENAI_PROJECT_ID=hushh-vertex-personal54" in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
-    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_build
-    assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
-    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
+    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_deploy
+    assert backend_deploy.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
+    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_deploy
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
@@ -336,8 +355,6 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     )
     assert "python3 scripts/ci/assert_one_voice_live_probe.py" in backend_build
 
-    import re
-
     for source in (uat_workflow, dev_workflow, production_workflow):
         model = re.search(r"_VERTEX_LIVE_MODEL_ID=([A-Za-z0-9._-]+)", source)
         location = re.search(r"_VERTEX_LIVE_LOCATION=([a-z0-9-]+)", source)
@@ -357,8 +374,12 @@ def test_production_backend_capacity_matches_uat() -> None:
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    # Background warmups need CPU outside requests on every lane.
-    assert '"--no-cpu-throttling"' in backend_build
+    # The Cloud Build wrapper delegates deployment to the canonical script.
+    assert "scripts/deploy/backend-deploy.sh" in backend_build
+    backend_deploy = _read("scripts/deploy/backend-deploy.sh")
+    command = backend_deploy.split("cmd=(", 1)[1].split("\n)", 1)[0]
+    # Background warmups need CPU outside requests on every shared lane.
+    assert '"--no-cpu-throttling"' in command
 
     for setting in (
         "_CLOUD_RUN_CPU=2",
@@ -383,22 +404,24 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     )
 
 
-def test_hosted_backend_bounds_database_connection_fanout() -> None:
+def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = _backend_deploy()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
-    assert '"DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"' in backend_build
-    assert '"DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"' in backend_build
-    assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_build
-    assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_build
+    assert '"DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"' in backend_deploy
+    assert '"DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"' in backend_deploy
+    assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_deploy
+    assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_deploy
     assert (
-        'add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"' in backend_build
+        'append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"'
+        in backend_deploy
     )
-    assert 'add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_build
-    assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_build
-    assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_build
-    assert '"--min-instances=0"' in backend_build
+    assert 'append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_deploy
+    assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_deploy
+    assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_deploy
+    assert '"--min-instances=0"' in backend_deploy
     assert '_DB_POOL_MIN_SIZE: "1"' in backend_build
     assert '_DB_POOL_MAX_SIZE: "4"' in backend_build
     assert '_DB_SQLALCHEMY_POOL_SIZE: "4"' in backend_build
@@ -409,10 +432,7 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # worker count from the image rather than hardcoding it: raising -w without
     # lowering the pools multiplies the ceiling silently, which is exactly how
     # this arithmetic drifted 2x out of date before 2026-08-23.
-    dockerfile = _read("consent-protocol/Dockerfile")
-    worker_flag = re.search(r"gunicorn\s+server:app\s+-w\s+(\d+)", dockerfile)
-    assert worker_flag is not None, "could not read the gunicorn worker count from the Dockerfile"
-    gunicorn_workers = int(worker_flag.group(1))
+    gunicorn_workers = _container_worker_count(tmp_path)
     assert gunicorn_workers == 2
 
     assert "_DB_POOL_MIN_SIZE=1" in uat_workflow

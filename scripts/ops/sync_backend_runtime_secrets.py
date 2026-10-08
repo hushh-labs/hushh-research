@@ -9,12 +9,14 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from runpy import run_path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+AZURE_OAUTH_RETURN_PATH = "/one/setup/cloud/azure/return"
 LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
 CONNECTOR_ROLLOUT_FLAGS = (
     "connections_panel_v2",
@@ -27,6 +29,11 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "google_drive_chat_reads",
     "curated_mcp_connectors",
 )
+
+def _scope_commerce_runtime_policy() -> dict[str, Any]:
+    # File-relative loading supports both direct CLI execution and importlib test harnesses.
+    return run_path(str(Path(__file__).with_name("scope_commerce_runtime_policy.py")))
+
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -46,6 +53,13 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
         "KAI_TEST_PASSPHRASE",
         "HUSHH_REVIEWER_PASSPHRASE",
     ),
+    # Pod durability roots. Both existed on dev ONLY because someone created them
+    # by hand, and `append_optional_secret` skips a missing secret silently -- so
+    # an environment rebuild would lose pod memory durability with no signal.
+    # Syncing them here makes the durable-memory substrate part of the
+    # reproducible environment, not tribal memory.
+    "HUSSH_POD_KEY_MASTER": ("HUSSH_POD_KEY_MASTER",),
+    "HUSSH_POD_DEV_SIGNING_KEY": ("HUSSH_POD_DEV_SIGNING_KEY",),
 }
 
 
@@ -127,7 +141,7 @@ def _drop_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item not in ("", None, [], {})}
 
 
-def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+def _canonical_frontend_origin(app_frontend_origin: str) -> str:
     parsed = urlsplit(app_frontend_origin.strip())
     if (
         parsed.scheme not in {"http", "https"}
@@ -139,8 +153,11 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
         or parsed.path not in {"", "/"}
     ):
         raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
-    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
+def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+    return f"{_canonical_frontend_origin(app_frontend_origin)}{GMAIL_OAUTH_RETURN_PATH}"
 
 
 def _frontend_origin_host(app_frontend_origin: str) -> str:
@@ -321,8 +338,9 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         # mismatch — which reads like an outage, not a config error.
         "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
+        **_azure_owner_cloud_config(args.project, getattr(args, "app_frontend_origin", "")),
     }
-    return _drop_empty(config)
+    return _scope_commerce_runtime_policy()["apply_policy"](_drop_empty(config), getattr(args, "scope_commerce_policy", {}))
 
 
 def _split_production_drive_candidate_config(
@@ -345,6 +363,26 @@ _NWS_V4_KEY_SOURCE_BY_PROJECT: dict[str, str] = {
     "hushh-pda-uat": "nws-hushh-research-v4-api-key-uat",
     "hushh-pda": "nws-hushh-research-v4-api-key-prod",
 }
+
+
+# Connect Azure, per lane: dev only until byoc-azure.md's admission bar has live
+# evidence. Public identifiers, not secrets; the sign-in return follows the origin.
+_AZURE_OWNER_CLOUD_BY_PROJECT: dict[str, dict[str, str]] = {
+    "hushh-pda-dev": {
+        "hussh_azure_app_client_id": "4c6a5fc7-d4da-4061-ad27-b95fb125237b",
+        "hussh_azure_broker_sa": "hussh-azure-broker@hushh-pda-dev.iam.gserviceaccount.com",
+        "hussh_pod_image_reader_sa": "hussh-pod-image-reader@hushh-pda-dev.iam.gserviceaccount.com",
+        "hussh_azure_pod_image_repository": "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod",
+    },
+}
+
+
+def _azure_owner_cloud_config(project: str, app_frontend_origin: str) -> dict[str, str]:
+    lane = _AZURE_OWNER_CLOUD_BY_PROJECT.get(project)
+    if not lane:
+        return {}
+    origin = _canonical_frontend_origin(app_frontend_origin)
+    return {**lane, "hussh_azure_oauth_redirect_uri": f"{origin}{AZURE_OAUTH_RETURN_PATH}"}
 
 
 def _mirror_directory_key(
@@ -453,6 +491,7 @@ def main() -> int:
         "--connector-production-all-users", default="false", choices=["true", "false"]
     )
     parser.add_argument("--production-drive-candidate-secret", default="")
+    _scope_commerce_runtime_policy()["register_arguments"](parser)
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to
@@ -536,18 +575,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         _validate_connector_rollout(args)
+        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](args, _run, _secret_exists)
     except ValueError as exc:
         parser.error(str(exc))
 
-    canonical_passkey_rp_ids = _canonical_passkey_allowed_rp_ids(args.app_frontend_origin)
-    if args.passkey_allowed_rp_ids and _normalize_passkey_rp_ids(
-        args.passkey_allowed_rp_ids
-    ) != _normalize_passkey_rp_ids(canonical_passkey_rp_ids):
-        parser.error(
-            "--passkey-allowed-rp-ids must contain only localhost, 127.0.0.1, "
-            "and the APP_FRONTEND_ORIGIN host"
-        )
-    args.passkey_allowed_rp_ids = canonical_passkey_rp_ids
+    _scope_commerce_runtime_policy()["validate_passkey_origin"](args, parser, _canonical_passkey_allowed_rp_ids, _normalize_passkey_rp_ids)
 
     if not str(args.nws_nearby_v4_api_key_source_secret or "").strip():
         args.nws_nearby_v4_api_key_source_secret = _NWS_V4_KEY_SOURCE_BY_PROJECT.get(

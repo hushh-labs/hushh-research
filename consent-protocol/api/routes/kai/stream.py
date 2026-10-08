@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_vault_owner_token as require_vault_owner_token
 from api.middlewares.observability import get_request_id
 from api.routes.kai._streaming import (
     STOCK_ANALYZE_TIMEOUT_SECONDS,
@@ -38,6 +38,7 @@ from hushh_mcp.operons.kai.llm import (
     synthesize_debate_recommendation_card,
 )
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import get_renaissance_service
 from hushh_mcp.services.ria_iam_service import RIAIAMService
@@ -143,10 +144,9 @@ def _require_stream_owner_token(
 ) -> str:
     """Bind a canonically validated owner capability to the requested owner.
 
-    ``require_vault_owner_token`` is the authority for signature, scope,
-    revocation, and account-lifecycle checks. Keeping only the explicit owner
-    match here prevents this streaming module from growing a second auth path
-    that can drift from the typed 401/423/503 lifecycle contract.
+    ``require_vault_owner_token`` (under ``hub_content_owner``) is the authority for
+    signature, scope, revocation and account lifecycle. Keeping only the owner match here
+    stops this module growing a second auth path that drifts from the 401/423/503 contract.
     """
     if str(token_data.get("user_id") or "") != user_id:
         raise HTTPException(status_code=403, detail="Token user mismatch")
@@ -2713,7 +2713,7 @@ async def analyze_stream(
     ticker: str = Query(min_length=1, max_length=_TICKER_RAW_MAX_LEN),
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     risk_profile: str = Query(default="balanced", max_length=_RISK_PROFILE_MAX_LEN),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """
     SSE endpoint for streaming Kai analysis.
@@ -2764,7 +2764,7 @@ async def analyze_stream(
 async def analyze_stream_post(
     request: Request,
     body: StreamAnalyzeRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """
     POST version of streaming analysis (allows context in body).
@@ -2936,7 +2936,7 @@ async def _start_analyze_run(
 @router.post("/analyze/run/start")
 async def analyze_run_start(
     body: StartAnalyzeRunRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Start or attach to a session-locked background analyze run."""
     ticker = _normalize_ticker_or_422(body.ticker)
@@ -2964,7 +2964,7 @@ async def analyze_run_start(
 async def analyze_run_active(
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     debate_session_id: str = Query(min_length=1, max_length=_DEBATE_SESSION_ID_MAX_LEN),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Get active run for a given user/session.
 
@@ -2981,7 +2981,7 @@ async def analyze_run_stream(
     run_id: RunId,
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     cursor: Optional[int] = 0,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Replay buffered events (from cursor) and continue streaming live."""
     _require_stream_owner_token(user_id=user_id, token_data=token_data)
@@ -3024,7 +3024,7 @@ async def analyze_run_stream(
 async def analyze_run_cancel(
     run_id: RunId,
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Cancel an active run."""
     _require_stream_owner_token(user_id=user_id, token_data=token_data)

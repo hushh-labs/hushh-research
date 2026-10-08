@@ -23,6 +23,8 @@
 
 import {
   addToPKM,
+  describeAgentPkmCardDestination,
+  formatAgentPkmCardDestination,
   type AgentPkmPreviewCard,
   type AgentPkmSaveResult,
 } from "@/lib/agent/agent-pkm-memory";
@@ -51,6 +53,42 @@ export const EXPLICIT_SAVE_CONFIRMATION: PkmUserConfirmation = {
   surface: "chat",
   source: "agent_chat_owner_request",
 };
+
+/** Exact, session-only effect the owner must see before approving a held card. */
+export function describeOwnerMemoryReview(card: AgentPkmPreviewCard): {
+  destination: string;
+  proposedPayload: string;
+  recipientLabels: readonly string[];
+  entersNextExportRevision: boolean;
+} | null {
+  const destination = describeAgentPkmCardDestination(card);
+  const payload = card.candidate_payload;
+  if (destination.kind !== "location" || !payload ||
+      typeof payload !== "object" || Array.isArray(payload) ||
+      Object.keys(payload).length === 0) return null;
+
+  let proposedPayload: string;
+  try {
+    proposedPayload = JSON.stringify(payload, null, 2);
+  } catch {
+    return null;
+  }
+  if (!proposedPayload) return null;
+
+  const impact = card.sharing_impact;
+  const count = impact?.active_recipient_count ?? 0;
+  const recipientLabels = impact?.recipient_labels ?? [];
+  if (count > 0 && (recipientLabels.length !== count ||
+      recipientLabels.some((label) => !label.trim()) ||
+      impact?.enters_next_export_revision !== true)) return null;
+
+  return {
+    destination: formatAgentPkmCardDestination(destination),
+    proposedPayload,
+    recipientLabels,
+    entersNextExportRevision: impact?.enters_next_export_revision === true,
+  };
+}
 
 function isSecretRejected(card: AgentPkmPreviewCard): boolean {
   return (card.validation_hints || []).some((hint) => String(hint).startsWith("sensitive_"));

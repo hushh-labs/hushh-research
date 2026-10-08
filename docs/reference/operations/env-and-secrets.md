@@ -73,6 +73,33 @@ flowchart TB
 
 ## Canonical 3-environment contract
 
+### Dev owner-cloud connectors and metadata feeds
+
+Native Google connectors use separate public-client pins:
+`GOOGLE_IOS_CONNECTOR_CLIENT_ID`, `GOOGLE_ANDROID_CONNECTOR_CLIENT_ID`,
+`GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI` and `GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED`.
+The frontend compiles the corresponding `NEXT_PUBLIC_*` values. Register the
+exact native redirect; Android requires the approved custom-scheme development
+opt-in and remains disabled outside dev. Absent configuration means unavailable,
+not fallback to the Shared web OAuth client. `GOOGLE_CONNECTOR_OAUTH_PROJECT`
+identifies the verified developer project that owns the Gmail watch topic;
+the subscription and its push identity belong to the same owner Google project.
+An Azure pod additionally needs a verified Google notification project.
+
+Hub metadata feeds and incarnation-bound consent revocations use an independent
+`OWNER_FEED` Ed25519 namespace. Mint through the existing operator command:
+`consent-protocol/scripts/ops/mint_consent_ed25519_key.py --namespace owner-feed --project <dev-project>`.
+The hub mounts `OWNER_FEED_ED25519_PRIVATE_KEY` and the public map through Secret
+Manager; only `OWNER_FEED_ED25519_PUBLIC_KEYS` reaches owner pods. The dev deploy
+pins `OWNER_FEED_ED25519_KID=hushh-owner-feed-dev-1` and enables signing only when
+both secrets exist. Rotation requires moving the signing kid and retaining
+verification keys for unexpired statements. Missing keys leave feeds unavailable;
+neither consent-token nor audit keys substitute for this authority.
+
+These variables establish configuration, not live native OAuth, push delivery or
+private custody. Feeds carry only canonical consent metadata, public directory
+records and owner-published listings; private observations remain inside the pod.
+
 1. Backend environment identity is `ENVIRONMENT` and must be one of: `development`, `uat`, `production`.
 2. Frontend environment identity is `NEXT_PUBLIC_APP_ENV` and must be one of: `development`, `uat`, `production`.
 3. Legacy frontend fallback keys are read-only compatibility paths for one release cycle:
@@ -348,6 +375,14 @@ Used by:
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Expected Pub/Sub push OIDC audience. Falls back to `GMAIL_WEBHOOK_AUDIENCE`. |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Expected Pub/Sub push service account. Falls back to `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Must be `true` in UAT/production so Pub/Sub push OIDC verification cannot silently default off. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_ENABLED` | `hushh_mcp/services/public_profile_discovery_service.py` | Optional, default `false` | Global release gate. Keep off until schema, scheduler, provider credentials and cohort are verified. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_ALLOWED_USER_IDS` | `hushh_mcp/services/public_profile_discovery_service.py` | Required for hosted cohort | Comma-separated Firebase UIDs allowed to use discovery; empty means local/development/test only. Never use `*`. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_ENABLED` | `api/routes/profile_discovery_work_drain.py` | Required for worker | Separately enables the OIDC-authenticated background queue drain; defaults to `false`. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_AUDIENCE` | `hushh_mcp/services/scheduler_identity.py` | Required for hosted worker | Exact HTTPS backend origin expected in Cloud Scheduler OIDC tokens for `POST /api/internal/profile-discovery/drain`. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DRAIN_SCHEDULER_SERVICE_ACCOUNTS` | `hushh_mcp/services/scheduler_identity.py` | Required for hosted worker | Exact comma-separated dedicated Cloud Scheduler service-account allowlist. Empty refuses everyone. |
+| `ONE_PUBLIC_PROFILE_DISCOVERY_DAILY_LIMIT` | `hushh_mcp/services/public_profile_discovery_service.py` | Optional, defaults to `1000` | Maximum new HusshOne scan-start requests per UTC database day; bounded to 100,000. A non-integer fails closed. |
+| `INTELLIGENCE_API_BASE_URL` | `hushh_mcp/services/public_profile_discovery_service.py` | Required for enabled discovery | HusshOne API base URL used only by the background worker. |
+| `INTELLIGENCE_API_KEY` | `hushh_mcp/services/public_profile_discovery_service.py` | Secret when enabled | Server-side HusshOne API credential; keep in Secret Manager and never expose it to the browser. |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token for `POST /api/one/email/watch/renew`. |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production so maintenance endpoints require `X-Hushh-Maintenance-Token`. |
 | `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Yes (hosted retention) | Dedicated maintenance token for One Location retention purge. It is not shared with One Email maintenance tokens. |
@@ -406,6 +441,8 @@ Used by:
 | `HUSSH_TECH_PROXY_AUDIENCE` | `api/routes/hushh_tech.py`, Research Next launch proxy | No | Exact Research consent API audience used by Google service-account proxy attestation |
 | `HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS` | `api/routes/hushh_tech.py` | No | Exact UAT runtime service accounts allowed to attest a forwarded visitor address |
 | `HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS` | Research Next launch proxy | No | Rightmost edge hops skipped before the Research proxy signs in with its runtime service account |
+| `HUSSH_AZURE_APP_CLIENT_ID`, `HUSSH_AZURE_BROKER_SA`, `HUSSH_POD_IMAGE_READER_SA`, `HUSSH_AZURE_POD_IMAGE_REPOSITORY` | `hushh_mcp/services/azure_federation.py`, `azure_image_source.py` | Dev only | Connect Azure hub identities, public identifiers written for `hushh-pda-dev` only into `BACKEND_RUNTIME_CONFIG_JSON` by `scripts/ops/sync_backend_runtime_secrets.py`; absent on UAT and production, where the Azure routes refuse with `NOT_CONFIGURED` |
+| `HUSSH_AZURE_OAUTH_REDIRECT_URI` | `hushh_mcp/services/azure_entra_authorizer.py` | Dev only | `APP_FRONTEND_ORIGIN` plus `/one/setup/cloud/azure/return`, derived by the same script and registered on the dev Entra app |
 | `HUSSH_TECH_LAUNCH_PEPPER` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT only | Dedicated Secret Manager binding for one-time launch-code hashing; absent in production |
 | `RATE_LIMIT_STORAGE_URI` | backend limiter and Research Next launch proxy | UAT only | Secret Manager binding for shared Redis abuse budgets; HushhTech remains fail-closed without a `redis://` or `rediss://` URI |
 | `DEVELOPER_REGISTRY_JSON` | n/a (legacy) | Optional legacy | Legacy developer registry payload; no active backend reader |
@@ -682,7 +719,33 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` (`api/routes/account.py`) |
 **Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GENAI_GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
 
-**Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, `PASSKEY_ALLOWED_RP_IDS`, and the non-secret `HUSSH_TECH_*` policy keys. Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
+**Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, `PASSKEY_ALLOWED_RP_IDS`, the non-secret `HUSSH_TECH_*` policy keys, and nonsecret `SCOPE_COMMERCE_*` policy keys (the two Stripe secrets stay direct mounts). Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
+
+### Consumer scope commerce configuration
+
+The [consumer scope commerce reference](../../../consent-protocol/docs/reference/consumer-scope-commerce.md)
+owns the payment, consent, encrypted export, reconciliation and rollout contract.
+This lane has its own Stripe account/key/webhook bindings; Drive payment credentials
+are never aliases. No Stripe connection or sandbox/live rollout is established by
+these source changes.
+
+| Configuration | Hosted source | Contract |
+| --- | --- | --- |
+| `SCOPE_COMMERCE_ENABLED`, `SCOPE_COMMERCE_PROVIDER_ENABLED`, `SCOPE_COMMERCE_STRIPE_LIVEMODE` | Lowercase keys in `BACKEND_RUNTIME_CONFIG_JSON` | Admission defaults off; production requires approved live provider configuration. |
+| `SCOPE_COMMERCE_STRIPE_ACCOUNT_ID`, `SCOPE_COMMERCE_FRONTEND_ORIGIN`, `SCOPE_COMMERCE_RETURN_PATH` | Structured runtime policy | Exact account, HTTPS origin and `/one/profile/account` return; query contains only the opaque attempt identifier and arrival marker. |
+| `SCOPE_COMMERCE_COUNTRY_POLICIES_JSON` | Structured JSON object in runtime policy | Country currency, payout minimum, retention, attributable cost and residual-resolution policy; hydration renders JSON, never Python dictionary text. |
+| `SCOPE_COMMERCE_FEE_CONFIGURATION_REF`, `SCOPE_COMMERCE_*_APPROVAL_REF`, `SCOPE_COMMERCE_STRIPE_ACCEPTANCE_REF`, `SCOPE_COMMERCE_ACCOUNT_CONFIGURATION_REF` | Structured runtime policy | Nonsecret references to reviewed provider/account/country/retention/tax/fee evidence. |
+| `SCOPE_COMMERCE_DRAIN_AUDIENCE`, `SCOPE_COMMERCE_DRAIN_SCHEDULER_SERVICE_ACCOUNTS` | Structured runtime policy | Exact OIDC audience and dedicated scheduler email allowlist. The drain remains available during admission rollback. |
+| `SCOPE_COMMERCE_STRIPE_SECRET_KEY`, `SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET` | Separate literal Secret Manager mounts | Isolated SDK credential and webhook signature key, bound independently of new-purchase flags. Never place in runtime JSON, frontend environment, policy files or logs. |
+
+`scripts/ops/sync_backend_runtime_secrets.py` retains existing `scope_commerce_*`
+policy when deployment supplies no overlay. An explicitly reviewed nonsecret
+`--scope-commerce-policy-file <path>` can override allowlisted lowercase keys;
+omitted fields retain financial reconciliation settings. Unknown keys, secret
+keys, malformed policy, and unverifiable existing configuration fail before
+secret writes. Use JSON booleans, an object for country policy and a string array
+for scheduler identities. The deploy script mounts the two literal commerce
+secrets whenever configured, including flag-off rollback.
 
 **Strict parity:** `DATABASE_URL` is not used anywhere. Migrations (`db/migrate.py`) use **DB_*** only, via `db.connection.get_database_url()`. Do **not** create or keep `DATABASE_URL` in Secret Manager; delete it if present.
 

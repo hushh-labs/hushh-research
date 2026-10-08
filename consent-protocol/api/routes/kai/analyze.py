@@ -15,8 +15,8 @@ from typing import Any, Dict, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.middleware import require_vault_owner_token
 from hushh_mcp.operons.kai.fetchers import RealtimeDataUnavailable
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class AnalyzeResponse(BaseModel):
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_ticker(
     request: AnalyzeRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """
     Step 1: Perform 3-agent investment analysis.

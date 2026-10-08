@@ -19,6 +19,10 @@
       {
         "prompt": "run a scoped consent export check with the Hushh Consent MCP lifecycle tool",
         "owner": "hushh-consent-mcp"
+      },
+      {
+        "prompt": "change the backend API route request and response contract for consent",
+        "owner": "backend-api-contracts"
       }
     ]
   }

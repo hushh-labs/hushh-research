@@ -54,6 +54,7 @@ Hushh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, a
 | `calendar` | **Calendar** | `CalendarBlank` | `duotone` | `#0284C7` |
 | `email` | **KYC** | `IdentificationCard` | `duotone` | `#2563EB` |
 | `pkm` | **Memory** | `Graph` | `duotone` | `#6366F1` |
+| `files` | **Files** | `FolderSimple` | `duotone` | `#6366F1` |
 | `consent` | **Consent** | `LockKey` | `duotone` | `#F97316` |
 | `marketplace` | **Marketplace** | `Storefront` | `duotone` | `#059669` |
 | `connected-systems` | **Connected Systems** | `PlugsConnected` | `duotone` | `#00E5FF` |

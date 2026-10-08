@@ -160,6 +160,16 @@ describe("derivePuppyLink", () => {
     expect(link.activeCount).toBe(3);
   });
 
+  it("never selects a browser as the Puppy inference device", () => {
+    const link = derivePuppyLink([
+      row({ device_id: "browser", platform: "web", last_heartbeat_at: NOW }),
+      row({ device_id: "mac", last_heartbeat_at: NOW - HEARTBEAT_FRESH_MS * 2 }),
+    ], NOW);
+    expect(link.state).toBe("quiet");
+    expect(link.device?.id).toBe("mac");
+    expect(link.activeCount).toBe(1);
+  });
+
   it("falls back to the newest enrolment when no active device has reported", () => {
     const link = derivePuppyLink(
       [

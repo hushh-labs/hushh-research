@@ -39,6 +39,10 @@ test.beforeAll(async () => {
           "@/hooks/use-auth",
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
+          "./api-service",
+          "@/lib/services/auth-service",
+          "./auth-service",
+          "./agent-chat-client",
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",
@@ -207,9 +211,16 @@ for (const width of [390, 1440])
     await page.evaluate(() => (window as unknown as { __renderConnectorsSettingsPage: () => void }).__renderConnectorsSettingsPage());
     const shell = page.locator('main[data-app-shell-width]');
     await expect(shell.getByRole("heading", { name: "Connected" })).toBeVisible();
-    const readingMeasure = await page.evaluate(() =>
-      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-shell-reading")) *
-      parseFloat(getComputedStyle(document.documentElement).fontSize));
+    const readingMeasure = await page.evaluate(() => {
+      // Ask CSS to resolve the authored measure; custom properties preserve
+      // their units, so multiplying a px value by the root font size is wrong.
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;visibility:hidden;width:var(--app-shell-reading);padding:0;border:0";
+      document.body.append(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
+    });
     expect(readingMeasure).toBeGreaterThan(0);
     const box = (await shell.boundingBox())!;
     if (width > readingMeasure) {

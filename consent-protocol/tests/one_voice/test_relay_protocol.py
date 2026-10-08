@@ -382,6 +382,7 @@ async def test_eos_and_final_transcript_in_one_provider_message_are_correlated(c
     assert events[0].same_message_input_transcript is True
     transport, fake = FakeTransport(), FakeLive([])
     session = _session(transport, fake)
+    session.clock = lambda: 100.0
     await session._open_conversation(
         AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
     )
@@ -3083,15 +3084,15 @@ async def test_cancel_frame_cancels_pending_and_tells_the_model():
     pending = MemoryPendingStore()
     session = _session(transport, fake, pending=pending)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
-    card = transport.frames("pending_action")[0]
+    card = await transport.wait_for_frame("pending_action")
     transport.push({"type": "cancel_action"})
-    await asyncio.sleep(0.1)
+    # The client pump processes these in order. Session closure therefore
+    # proves the preceding cancellation, including its model event, settled.
+    transport.push({"type": "cancel_action", "scope": "session"})
+    await asyncio.wait_for(task, 3)
     assert pending.rows[card["pending_action_id"]].status == "cancelled"
     assert transport.frames("pending_action.resolved")[-1]["status"] == "cancelled"
     assert json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))["kind"] == "cancelled"
-    transport.push({"type": "cancel_action", "scope": "session"})
-    await asyncio.wait_for(task, 3)
     assert transport.closed == (protocol.CLOSE_ENDED, "ended")
 
 

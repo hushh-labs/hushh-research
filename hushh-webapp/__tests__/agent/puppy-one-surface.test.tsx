@@ -7,6 +7,15 @@ const mocks = vi.hoisted(() => ({
   fetchPuppyJobs: vi.fn(),
   setPuppyJobPaused: vi.fn(),
   link: { current: null as unknown },
+  localHost: true,
+}));
+
+vi.mock("@/lib/hermes/local-host", () => ({
+  isLocalHost: () => mocks.localHost,
+}));
+
+vi.mock("@/components/agent/private-puppy-inference-panel", () => ({
+  PrivatePuppyInferencePanel: () => <div data-testid="private-puppy-panel" />,
 }));
 
 vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
@@ -70,6 +79,7 @@ function reporting(): PuppyLink {
 }
 
 beforeEach(() => {
+  mocks.localHost = true;
   mocks.fetchPuppyStatus.mockResolvedValue({ connected: false });
   mocks.fetchPuppyResources.mockResolvedValue({
     configured: true,
@@ -89,12 +99,19 @@ afterEach(() => {
 });
 
 describe("PuppyOneSurface identity", () => {
+  it("uses the owner pod relay on a deployed origin", async () => {
+    mocks.localHost = false;
+    mocks.link.current = reporting();
+    render(<PuppyOneSurface />);
+    expect(await screen.findByTestId("private-puppy-panel")).toBeInTheDocument();
+    expect(mocks.fetchPuppyStatus).not.toHaveBeenCalled();
+  });
   it("says what Puppy One is to someone who has never connected one", async () => {
     mocks.link.current = link({ state: "unlinked" });
     render(<PuppyOneSurface />);
     expect(
       await screen.findByText(
-        /A personal supercomputer you own\. Pin a model to this machine and answers never leave it\./,
+        /A local model on your trusted machine\. Requests and replies travel through your private pod\./,
       ),
     ).toBeInTheDocument();
   });
@@ -104,7 +121,7 @@ describe("PuppyOneSurface identity", () => {
     render(<PuppyOneSurface />);
     await waitFor(() => expect(mocks.fetchPuppyStatus).toHaveBeenCalled());
     expect(
-      screen.queryByText(/A personal supercomputer you own/),
+      screen.queryByText(/A local model on your trusted machine/),
     ).not.toBeInTheDocument();
   });
 });

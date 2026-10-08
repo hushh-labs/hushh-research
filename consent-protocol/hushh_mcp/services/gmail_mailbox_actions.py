@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import secrets
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, get_args
 
@@ -162,7 +163,7 @@ class GmailMailboxActions:
         if not claim.data:
             raise _error(
                 "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE",
-                "That mailbox change expired or was already used. Ask again to review it.",
+                "That mailbox change is no longer available. Check Gmail before preparing another change.",
             )
         proposal = claim.data[0]
         raw_ids = proposal["message_ids"]
@@ -175,16 +176,21 @@ class GmailMailboxActions:
                     "GMAIL_MAILBOX_CONNECTION_CHANGED",
                     "Your Gmail connection changed. Ask again to review this change.",
                 )
-            token = await self._gmail.get_modify_access_token(user_id=user_id)
+            token = await self._gmail.get_modify_access_token(
+                user_id=user_id, expected_google_sub=proposal["google_sub"]
+            )
             await self._apply(
                 token, proposal["action"], [str(i) for i in message_ids], proposal["label_id"]
             )
+        except httpx.TransportError:
+            with suppress(Exception):
+                await self._mark_failed(user_id, proposal_id)
+            raise _unknown_outcome() from None
         except Exception:
-            await self._sql(
-                """UPDATE gmail_mailbox_action_proposals SET status = 'failed'
-                   WHERE proposal_id = :proposal_id AND user_id = :user_id""",
-                {"proposal_id": proposal_id, "user_id": user_id},
-            )
+            # Preserve the original provider/authority error if the status write
+            # also fails. The already-claimed row cannot execute a second time.
+            with suppress(Exception):
+                await self._mark_failed(user_id, proposal_id)
             raise
         # A receipt/cleanup outage must not turn provider success into a
         # retryable write. The consumed proposal remains unavailable until TTL.
@@ -201,8 +207,15 @@ class GmailMailboxActions:
                 {"proposal_id": proposal_id, "user_id": user_id},
             )
         except Exception:
-            logger.warning("gmail_mailbox_receipt_cleanup_failed")
+            logger.warning("gmail_mailbox.completed_receipt_cleanup_pending")
         return {"status": "executed", "action": proposal["action"], "count": len(message_ids)}
+
+    async def _mark_failed(self, user_id: str, proposal_id: str) -> None:
+        await self._sql(
+            """UPDATE gmail_mailbox_action_proposals SET status = 'failed'
+               WHERE proposal_id = :proposal_id AND user_id = :user_id""",
+            {"proposal_id": proposal_id, "user_id": user_id},
+        )
 
     async def _apply(
         self, token: str, action: str, message_ids: list[str], label_id: str | None
@@ -222,7 +235,12 @@ class GmailMailboxActions:
                         _check(response)
                         return {}
 
-                    await in_listing_order(message_ids, trash)
+                    try:
+                        await in_listing_order(message_ids, trash)
+                    except Exception:
+                        # Siblings may already have completed, including when
+                        # another request lost permission. Never claim no effect.
+                        raise _unknown_outcome() from None
                     return
                 if action in LABEL_ACTIONS:
                     add, remove = ([label_id], []) if action == "add_label" else ([], [label_id])
@@ -251,8 +269,14 @@ def _check(response: httpx.Response) -> None:
             "GMAIL_MAILBOX_SOURCE_CHANGED",
             "Some of those messages changed in Gmail. Ask again to review the change.",
         )
-    raise _error(
-        "GMAIL_MAILBOX_UNAVAILABLE", "Gmail did not apply that change. Please try again.", 502
+    raise _unknown_outcome()
+
+
+def _unknown_outcome() -> GmailApiError:
+    return _error(
+        "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
+        "Gmail may have applied some or all of this change. Check Gmail before preparing another change.",
+        502,
     )
 
 
@@ -260,6 +284,12 @@ _service: GmailMailboxActions | None = None
 
 
 def get_gmail_mailbox_actions() -> GmailMailboxActions:
+    """The hub's actions; inside an owner-cloud agent, the agent's own (``pod_gmail_mailbox``)."""
+    from hushh_mcp.services.pod_gmail_mailbox import pod_mailbox_actions
+
+    pod = pod_mailbox_actions()
+    if pod is not None:
+        return pod
     global _service
     if _service is None:
         _service = GmailMailboxActions()

@@ -51,6 +51,11 @@ function fakeServer() {
       for (const id of ids) outcomes.set(id, "delivered");
       return ids;
     },
+    /** The model callback took the message but has not sealed it yet. */
+    startAppend: () => pending.splice(0),
+    completeAppend: (ids: string[]) => {
+      for (const id of ids) outcomes.set(id, "delivered");
+    },
     /** The turn ends; whatever it did not take comes back. */
     close: () => {
       open = false;
@@ -107,7 +112,7 @@ describe("live turn queue", () => {
     expect(server.ports.enqueue).toHaveBeenCalledTimes(1);
   });
 
-  it("reconnects by reading each outcome, and falls back to the next turn only when unreadable", async () => {
+  it("reconnects by reading terminal outcomes and holds an unreadable receipt", async () => {
     const server = fakeServer();
     const wait = vi.fn(async () => undefined);
     const queue = new LiveTurnQueue(server.ports, wait);
@@ -127,8 +132,30 @@ describe("live turn queue", () => {
     const offline = new LiveTurnQueue(flaky.ports, wait);
     offline.begin("conversation");
     await offline.offer("client-d", "unknown fate");
-    expect(await offline.settle()).toEqual({ joined: [], waiting: ["client-d"] });
+    expect(await offline.settle()).toEqual({ joined: [], waiting: [], unresolved: ["client-d"] });
     expect(flaky.ports.status).toHaveBeenCalledTimes(3);
+    expect(offline.holds("client-d")).toBe(true);
+  });
+
+  it("waits for a sealed append and never resends an unresolved message", async () => {
+    const server = fakeServer();
+    const wait = vi.fn(async () => undefined);
+    const queue = new LiveTurnQueue(server.ports, wait);
+    queue.begin("conversation");
+    await queue.offer("client-a", "one exact message");
+    const inflight = server.startAppend();
+
+    // Negative control: a queued receipt after the stream closes does not
+    // establish whether the append will succeed, nor permit a second turn.
+    expect(await queue.settle()).toEqual({ joined: [], waiting: [], unresolved: ["client-a"] });
+    expect(queue.holds("client-a")).toBe(true);
+    expect(await queue.withdraw("client-a")).toBe("not_held");
+    expect(server.ports.enqueue).toHaveBeenCalledTimes(1);
+
+    server.completeAppend(inflight);
+    expect(await queue.settle()).toEqual({ joined: ["client-a"], waiting: [] });
+    expect(queue.holds("client-a")).toBe(false);
+    expect(server.ports.enqueue).toHaveBeenCalledTimes(1);
   });
 
   it("stops the turn and brings every held message back unsent", async () => {

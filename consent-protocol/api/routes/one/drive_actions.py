@@ -7,11 +7,12 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from api.middleware import require_vault_owner_token, verify_user_id_match
+from api.middleware import verify_user_id_match
 from hushh_mcp.one_adk.drive_write_tools import execute_reviewed_drive_action
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_write_adapter import DriveWriteError
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 router = APIRouter(prefix="/api/one/drive", tags=["One Drive"])
 
@@ -28,7 +29,7 @@ class DriveReviewedAction(BaseModel):
 
 @router.post("/reviewed-actions/execute")
 async def execute_reviewed_action(
-    body: DriveReviewedAction, token: dict = Depends(require_vault_owner_token)
+    body: DriveReviewedAction, token: dict = Depends(hub_content_owner)
 ):
     verify_user_id_match(token["user_id"], body.user_id)
     if body.confirmed is not True:

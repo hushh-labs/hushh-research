@@ -709,3 +709,32 @@ def test_wrapper_delegates_to_run_eval_with_consent_family(monkeypatch):
     assert captured["families"] == ["consent"]
     assert captured["instruction_files"] == ["a.txt", "b.txt"]
     assert captured["reps"] == 3
+
+
+def test_offline_roster_does_not_resolve_owner_bound_connector_toolsets(monkeypatch):
+    from google.adk.tools.base_toolset import BaseToolset
+
+    seen = []
+
+    def local_probe() -> str:
+        return "probe"
+
+    class NativeTools(BaseToolset):
+        async def get_tools(self, readonly_context=None):
+            seen.append(readonly_context)
+            return [FunctionTool(func=local_probe)]
+
+        async def close(self):
+            seen.append("closed")
+
+    monkeypatch.setattr(
+        harness,
+        "_agent_tree",
+        lambda: SimpleNamespace(
+            build_one_text_agent=lambda **kwargs: SimpleNamespace(
+                tools=[NativeTools(), FunctionTool(func=local_probe)]
+            )
+        ),
+    )
+    assert harness.roster_tool_names() == ["local_probe"]
+    assert seen == []

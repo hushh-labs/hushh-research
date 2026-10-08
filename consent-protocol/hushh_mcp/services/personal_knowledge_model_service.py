@@ -2527,42 +2527,13 @@ class PersonalKnowledgeModelService:
         manifest: DomainManifest,
     ) -> list[str]:
         """Resolve only v2 continuous exports eligible for atomic refresh scheduling."""
-        if is_source_library_pkm_scope(f"attr.{domain}.*"):
-            return []
-        from hushh_mcp.services.consent_db import ConsentDBService
+        from hushh_mcp.services.consent_export_refresh_eligibility import (
+            continuous_refresh_tokens_for_domain_write,
+        )
 
-        consent_service = ConsentDBService()
-        active_tokens = await consent_service.get_active_tokens(user_id)
-        candidate_scopes = {f"attr.{domain}.*"}
-        candidate_scopes.update(
-            f"attr.{domain}.{path}.*"
-            for path in manifest.top_level_scope_paths
-            if isinstance(path, str) and path.strip()
+        return await continuous_refresh_tokens_for_domain_write(
+            user_id=user_id, domain=domain, manifest=manifest
         )
-        candidate_scopes.update(
-            f"attr.{domain}.{path}"
-            for path in manifest.externalizable_paths
-            if isinstance(path, str) and path.strip()
-        )
-        candidate_scopes.add("pkm.read")
-        refresh_tokens: list[str] = []
-        for token in active_tokens:
-            granted_scope = str(token.get("scope") or "").strip()
-            consent_token = str(token.get("token_id") or "").strip()
-            if not granted_scope or not consent_token:
-                continue
-            if not any(scope_matches(granted_scope, candidate) for candidate in candidate_scopes):
-                continue
-            metadata = await consent_service.get_consent_export_metadata(consent_token)
-            if (
-                metadata
-                and metadata.get("is_strict_zero_knowledge")
-                and metadata.get("refresh_policy") == "continuous_until_expiry"
-                and int(metadata.get("envelope_version") or 1) == 2
-                and str(metadata.get("scope_handle") or "").strip()
-            ):
-                refresh_tokens.append(consent_token)
-        return sorted(set(refresh_tokens))
 
     @staticmethod
     def _json_object(value: object) -> dict[str, Any]:
@@ -2800,7 +2771,14 @@ class PersonalKnowledgeModelService:
                     "expected_content_revision": current_version,
                     "next_content_revision": next_version,
                     "segments": normalized_segments,
-                    "manifest": manifest_row,
+                    # Receipt identity binds the request, not the wall clock of
+                    # each server attempt. These two fields are always generated
+                    # during normalization; all authored fields remain bound.
+                    "manifest": {
+                        key: value
+                        for key, value in manifest_row.items()
+                        if key not in {"last_structured_at", "last_content_at"}
+                    },
                     "paths": path_rows,
                     "scopes": scope_rows,
                     "summary": discovery_summary,
@@ -5040,7 +5018,11 @@ class PersonalKnowledgeModelService:
                     ),
                     "content_revision": self._to_non_negative_int(metadata.get("data_version")),
                     "manifest_revision": self._to_non_negative_int(row.get("new_manifest_version")),
-                    "created_at": row.get("created_at"),
+                    "created_at": (
+                        row["created_at"].isoformat()
+                        if isinstance(row.get("created_at"), datetime)
+                        else row.get("created_at")
+                    ),
                 }
             )
             next_cursor = max(next_cursor, event_id)

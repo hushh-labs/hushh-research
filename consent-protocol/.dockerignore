@@ -4,6 +4,10 @@ __pycache__
 *.pyo
 *.pyd
 .Python
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+coverage.xml
 
 # Virtual env
 venv/
@@ -26,9 +30,9 @@ test.py
 # Docs
 docs/
 
-# Local env
-.env
-.env.local
+# Local environment files must never enter application image layers.
+.env*
+**/.env*
 
 # Misc
 *.md
@@ -36,3 +40,8 @@ docs/
 !hushh_mcp/agents/*.md
 !hushh_mcp/agents/**/*.md
 submissions/
+tmp/
+
+# GitHub Actions authentication files are never source or image inputs.
+gha-creds-*.json
+**/gha-creds-*.json

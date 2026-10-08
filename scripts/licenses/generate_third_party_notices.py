@@ -18,7 +18,6 @@ WEB_LOCK = REPO_ROOT / "hushh-webapp" / "package-lock.json"
 ROOT_NOTICES = REPO_ROOT / "THIRD_PARTY_NOTICES.md"
 PROTOCOL_NOTICES = REPO_ROOT / "consent-protocol" / "THIRD_PARTY_NOTICES.md"
 
-
 # Reviewed installed release license files, 2026-09-06. These are evidence pins,
 # not license overrides: absent/changed files or versions remain UNKNOWN.
 # Hash raw bytes (limiter's license uses CRLF).
@@ -213,6 +212,24 @@ def load_web_packages() -> list[dict[str, str]]:
     return packages
 
 
+def load_vendored_packages() -> list[dict[str, str]]:
+    inventory = (
+        REPO_ROOT
+        / ".codex/skills/agent-orchestration-governance/references/platform-source-inventory.json"
+    )
+    imports = json.loads(inventory.read_text(encoding="utf-8")).get("imports", {})
+    return [
+        {
+            "name": name,
+            "version": item.get("declared_version", "UNKNOWN"),
+            "license": item.get("license", "UNVERIFIED"),
+            "license_file": item.get("license_file", ""),
+            "notice_file": item.get("notice_file", ""),
+        }
+        for name, item in sorted(imports.items())
+    ]
+
+
 def load_python_packages() -> list[dict[str, str]]:
     result = subprocess.run(
         [
@@ -277,10 +294,17 @@ def render_summary(packages: list[dict[str, str]]) -> str:
 
 
 def render_package_list(packages: list[dict[str, str]]) -> str:
-    return "\n".join(
-        f"- `{item['name']}` `{item['version']}` — {item['license']}"
-        for item in packages
-    )
+    lines = []
+    for item in packages:
+        line = f"- `{item['name']}` `{item['version']}` — {item['license']}"
+        for field, label in (
+            ("license_file", "License"),
+            ("notice_file", "Upstream notice"),
+        ):
+            if item.get(field):
+                line += f"; [{label}]({item[field]})"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def write_markdown(
@@ -291,7 +315,7 @@ def write_markdown(
         "",
         intro,
         "",
-        "This file is generated from repo lockfiles, exact-version installed license evidence, and the installed Python environment.",
+        "This file is generated from repo lockfiles, exact-version installed license evidence, the installed Python environment, and the governed imported-resource inventory.",
         "Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.",
         "",
     ]
@@ -328,6 +352,7 @@ def main() -> int:
         [
             ("Frontend npm packages", web_packages),
             ("Backend Python packages", python_packages),
+            ("Vendored engineering resources", load_vendored_packages()),
         ],
     )
 

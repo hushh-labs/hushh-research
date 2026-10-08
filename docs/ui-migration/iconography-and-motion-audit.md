@@ -1,24 +1,30 @@
 # 0-to-1 Iconography Architecture & Snappy Motion System Audit
 
 **Status**: Application-wide registry migration implemented · Rendered/native acceptance in progress
+
 **Governing Skills**: [skills/hushh-icon-theme/SKILL.md](../../skills/hushh-icon-theme/SKILL.md) · [skills/improve-animations/AUDIT.md](../../skills/improve-animations/AUDIT.md)  
 **Target Package**: `hushh-webapp`
 
 ## Visual Context
 
-Canonical visual owner: [Quality and Design System Index](../reference/quality/README.md).
-Visual standard: Flat Phosphor duotone vector geometry and obsidian high-contrast surfaces governed by [skills/hushh-icon-theme/SKILL.md](../../skills/hushh-icon-theme/SKILL.md).
-Motion standard: Hard-capped $\le 150\text{ms}$ transitions and 60-120fps GPU compositing governed by [skills/improve-animations/AUDIT.md](../../skills/improve-animations/AUDIT.md).
+This audit covers the shared `hushh-webapp` launcher, shell, navigation, chat,
+settings, profile, and responsive mobile surfaces. The canonical visual owner is
+the [Quality and Design System Index](../reference/quality/README.md).
+The portable skills linked above own Phosphor icon authoring and the 150ms
+interactive motion budget; host-specific skill bridges point to those files.
+Rendered and native performance still require acceptance evidence.
 
 ---
 
 ## 1. Iconography Architecture: Phosphor Duotone Standard
 
-To establish visual coherence across the entire application and maintain strict parity with the canonical `/one` launcher route, all icons must strictly adhere to the flat Phosphor duotone geometry baseline.
+Capability icons use flat Phosphor duotone geometry. Neutral controls use the
+same Phosphor geometry with regular weight so close, add, and navigation glyphs
+do not acquire filled backplates.
 
 ### Key Rules
 1. **Official Phosphor Geometry Base**: Native `viewBox="0 0 256 256"`. Zero viewBox clipping.
-2. **Duotone Depth**: Primary silhouette at 100% opacity; secondary contour/accent path at 20% opacity (`opacity="0.2"`).
+2. **Capability Duotone Depth**: Primary silhouette at 100% opacity; secondary contour/accent path at 20% opacity (`opacity="0.2"`).
 3. **Palette Specialization**:
    - **Capability Icons**: Rendered with single-hue signature tones (Finance `#10B981`, Wallet `#F59E0B`, Location `#EF4444`, RIA `#8B5CF6`, Gmail `#E11D48`, Calendar `#0284C7`, KYC `#2563EB`, Memory `#6366F1`, Consent `#F97316`, Marketplace `#059669`, Connected `#00E5FF`).
    - **Neutral UI Icons**: Inherit `currentColor` with regular geometry. Utility controls never receive a secondary fill that can be mistaken for an icon background; capability icons retain duotone depth.
@@ -107,7 +113,7 @@ durations.
    - Added dedicated `puppyConversations` and `puppyConversationId` state in `components/agent/agent-chat-workspace.tsx`.
    - Toggling between One and Puppy mode now switches the sidebar conversation list:
      - Cloud "One" displays vault-backed cloud chats.
-   - On-device "Puppy" displays workspace-session chats held in browser memory.
+     - On-device "Puppy" displays workspace-session chats held in browser memory.
    - Each Puppy chat owns a mounted Hermes panel, transcript, draft, and server
      session reference. Selection changes visibility without interrupting streams.
      Hidden panels stop polling. Deletion and account changes unmount panels and

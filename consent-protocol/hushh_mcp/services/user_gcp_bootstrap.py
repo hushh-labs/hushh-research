@@ -1,0 +1,2227 @@
+"""Apply ``UserGcpBackend.render_bootstrap_plan`` into the USER'S own GCP project.
+
+The plan has existed as a declarative artifact for a while and nothing consumed it.
+This is the consumer: it turns those seven resources and their IAM into real API calls
+against a project hushh does not own.
+
+THE CREDENTIAL MODEL, AND A CORRECTION TO THE PLAN'S OWN LANGUAGE
+-----------------------------------------------------------------
+The GCP control plane uses short-lived service-account impersonation. The owner
+creates one bootstrap service account and grants the control plane token-creator
+authority on that account. Each token expires after 900 seconds. No exported
+service-account key is created; the standing impersonation grant remains until
+revoked. Owner resources and IAM use only that borrowed identity. The Gmail
+notification topic belongs to the configured OAuth developer project and uses
+the exact attached consent-plane identity, with no credential fallback.
+
+INERT BY DEFAULT
+----------------
+``plan_calls()`` renders the exact requests this would issue and touches nothing, so the
+whole applier is reviewable -- and testable -- without a user project in existence.
+``apply()`` is the only method that writes, and it needs a token it cannot mint itself.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import os
+import re
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
+_BOOTSTRAP_LIFETIME = "900s"  # 15 minutes: long enough to build, short enough to not matter.
+
+#: How long to wait for a long-running operation before giving up on it. Enabling eight
+#: APIs in a fresh project took well under a minute in the observed run; five minutes is
+#: slack, not an expectation. The deadline exists so a stuck operation surfaces as a
+#: failed step rather than a hung bootstrap.
+_OPERATION_DEADLINE_SECONDS = 300.0
+_OPERATION_POLL_SECONDS = 2.0
+
+#: Roles the user's one-time authorization grants the bootstrap SA, and why each is
+#: needed. Listed here so the ask made of a user is legible in one place rather than
+#: inferred from the calls below.
+BOOTSTRAP_ROLES: tuple[tuple[str, str], ...] = (
+    (
+        "roles/serviceusage.serviceUsageAdmin",
+        "turn on the Google APIs the pod needs, so nobody has to do it by hand",
+    ),
+    ("roles/cloudkms.admin", "create the per-user CMEK key that seals their history"),
+    ("roles/storage.admin", "create the CMEK-encrypted bucket the pod writes to"),
+    ("roles/iam.serviceAccountAdmin", "create the pod's own least-privilege identity"),
+    ("roles/run.admin", "create the pod service"),
+    (
+        "roles/pubsub.admin",
+        "create the owner direct subscription and retained dead-letter resources",
+    ),
+    ("roles/cloudscheduler.admin", "configure the authenticated daily pod maintenance tick"),
+    ("roles/resourcemanager.projectIamAdmin", "bind the pod SA to exactly those resources"),
+    (
+        "roles/secretmanager.admin",
+        "create the pod's own signing key INSIDE your project, so it is yours and not hushh's",
+    ),
+    (
+        "roles/artifactregistry.admin",
+        "create the private repo that holds YOUR OWN copy of the pod image, so the pod "
+        "pulls from your project and not hushh's, and delete it when you tear down",
+    ),
+)
+
+#: The APIs a pod's resources need. Enabled BY the bootstrap rather than asked of the
+#: person: enabling an API is idempotent and happens inside the project they already
+#: authorized, so it belongs here by the same logic as everything else this creates.
+#: Measured against a real empty project (hushh-byoc-test, 2026-08-08), seven of these
+#: eight were off -- which made API enablement the actual blocker, not project creation.
+REQUIRED_SERVICES: tuple[str, ...] = (
+    # FIRST, and the reason is the same subtle incompleteness as cloudresourcemanager
+    # below: the bootstrap account's own batchEnable call is quota-attributed to the
+    # person's project, and Service Usage refuses with SERVICE_DISABLED when the
+    # Service Usage API itself is not enabled there. The person's OAuth token can
+    # enable it (their quota project differs); the bootstrap cannot. Seen live
+    # 2026-09-02 in hussh-one-ytxzrc: every substrate step gated off behind a 403.
+    "serviceusage.googleapis.com",
+    "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "run.googleapis.com",
+    "cloudkms.googleapis.com",
+    "storage.googleapis.com",
+    "pubsub.googleapis.com",
+    "cloudscheduler.googleapis.com",
+    "aiplatform.googleapis.com",
+    # The bootstrap's OWN last step needs this one, and it was missing: the project-level
+    # Vertex binding goes through cloudresourcemanager, which failed with "API has not
+    # been used in project 642919918840" on the first run that got that far. An applier
+    # that enables every API except the one it itself depends on is a subtle kind of
+    # incomplete, and only a live run finds it.
+    "cloudresourcemanager.googleapis.com",
+    # The pod refuses to import without APP_SIGNING_KEY, and Cloud Run resolves a
+    # secretKeyRef against the project the service runs in -- so a BYOC pod's key must
+    # live in the USER's Secret Manager. Found the only way it could be: the pod booted,
+    # crash-looped on "APP_SIGNING_KEY must be set", and said so in its own logs.
+    "secretmanager.googleapis.com",
+    # The pod image is COPIED into the user's own Artifact Registry at provision, so the
+    # pod pulls from their project and hushh keeps no runtime dependency in their cloud.
+    # Hosting that repo needs this API on; a fresh project has it off.
+    "artifactregistry.googleapis.com",
+)
+
+
+class BootstrapError(RuntimeError):
+    """A bootstrap step failed. Never partially reported as success."""
+
+
+@dataclass(frozen=True)
+class LivenessVerdict:
+    """Whether the user's authorized project is still reachable, as a TRI-state.
+
+    ``live`` (200): the project exists and hushh can still impersonate the bootstrap SA.
+    ``gone`` (404): the project or the bootstrap SA no longer resolves -- the user deleted
+        it. Identity-preserving reinit is the answer.
+    ``forbidden`` (403): the project exists but the tokenCreator grant was revoked or IAM
+        changed. Re-authorize, do NOT clear the sticky proof (the pod, if any, still lives).
+    ``unknown`` (0/401/anything else): a transient blip or a hushh-side fault -- never
+        treated as gone, or a network hiccup would strand a working agent's identity.
+    """
+
+    state: str
+    status: int
+    detail: str = ""
+
+    @property
+    def is_live(self) -> bool:
+        return self.state == "live"
+
+    @property
+    def is_gone(self) -> bool:
+        return self.state == "gone"
+
+    @property
+    def is_forbidden(self) -> bool:
+        return self.state == "forbidden"
+
+    @property
+    def is_conclusive(self) -> bool:
+        return self.state in ("live", "forbidden", "gone")
+
+
+def bootstrap_permissions(
+    *, files_enabled: bool = False
+) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
+    """Optional authority must be selected in the owner's frozen setup request."""
+    if not files_enabled:
+        return BOOTSTRAP_ROLES, REQUIRED_SERVICES
+    return (
+        BOOTSTRAP_ROLES + (("roles/cloudtasks.queueAdmin", "manage the private Files queue"),),
+        REQUIRED_SERVICES + ("cloudtasks.googleapis.com",),
+    )
+
+
+def _generate_access_token(
+    *,
+    bootstrap_sa: str,
+    session: Any = None,
+    source_token: Optional[str] = None,
+    lifetime: str = _BOOTSTRAP_LIFETIME,
+) -> tuple[int, Optional[dict], str]:
+    """The raw impersonation round-trip, shared by mint and the liveness probe.
+
+    Returns ``(status_code, parsed_json_or_None, text[:200])`` and RAISES only for a
+    hushh-side missing-credential fault (which must never be reported as the customer's
+    problem). Callers decide what a non-200 STATUS means: mint raises with blame, the
+    liveness probe classifies. Factored out so those two readings cannot drift.
+    """
+    if session is None:
+        import requests as session  # noqa: PLC0415
+
+    if source_token is None:
+        from google.auth.transport.requests import Request  # noqa: PLC0415
+
+        from hushh_mcp.services.gcp_run_client import load_operator_credentials  # noqa: PLC0415
+
+        creds = load_operator_credentials()
+        creds.refresh(Request())
+        source_token = creds.token
+
+    # A caller with no token of its own is a HUSHH-side fault, and it must not be
+    # reported as the customer's. Without this check the request goes out with an empty
+    # bearer, IAM answers 401, and the handler below blames "the user's grant" -- which
+    # sends an operator into someone else's project looking for a binding that is
+    # present and fine. Observed live on 2026-08-16: an impersonation that failed on
+    # hushh's side produced a message naming the customer.
+    if not str(source_token or "").strip():
+        raise BootstrapError(
+            "cannot impersonate: hushh has no caller credential to present. This is a "
+            "hushh-side failure, NOT a missing grant in the user's project -- check the "
+            "consent plane's own identity before touching anything in their cloud."
+        )
+
+    response = session.post(
+        f"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{bootstrap_sa}"
+        ":generateAccessToken",
+        headers={"Authorization": f"Bearer {source_token}", "Content-Type": "application/json"},
+        json={
+            "scope": ["https://www.googleapis.com/auth/cloud-platform"],
+            "lifetime": lifetime,
+        },
+        timeout=60,
+    )
+    status = getattr(response, "status_code", 0)
+    body = response.json() if status == 200 else None
+    return status, body, str(getattr(response, "text", "") or "")[:200]
+
+
+def mint_bootstrap_token(
+    *,
+    bootstrap_sa: str,
+    session: Any = None,
+    source_token: Optional[str] = None,
+    lifetime: str = _BOOTSTRAP_LIFETIME,
+) -> str:
+    """Impersonate the user's bootstrap SA and return a short-lived access token.
+
+    This is the whole keyless story in one call. It fails loudly rather than falling
+    back to hushh's own identity: a silent fallback would let the applier keep working
+    after the user revoked their grant, which is precisely the control being tested.
+    """
+    status, body, text = _generate_access_token(
+        bootstrap_sa=bootstrap_sa, session=session, source_token=source_token, lifetime=lifetime
+    )
+    if status != 200:
+        # 403 is the customer's binding; 401 is ours. Naming the wrong one costs an
+        # operator a trip into a project they cannot see, looking for a grant that is
+        # already there.
+        blame = (
+            "The user's grant of roles/iam.serviceAccountTokenCreator is missing or revoked"
+            if status == 403
+            else "hushh's own caller credential was rejected, so this is a hushh-side "
+            "failure rather than a missing grant in the user's project"
+            if status == 401
+            else "IAM refused the impersonation"
+        )
+        raise BootstrapError(
+            f"could not impersonate {bootstrap_sa} ({status or '?'}). {blame}: {text}"
+        )
+    return str((body or {})["accessToken"])
+
+
+def probe_project_liveness(
+    *,
+    bootstrap_sa: str,
+    session: Any = None,
+    source_token: Optional[str] = None,
+    lifetime: str = _BOOTSTRAP_LIFETIME,
+) -> LivenessVerdict:
+    """Is the user's authorized project still reachable? A non-raising TRI-state probe.
+
+    It makes the SAME impersonation call mint makes, but CLASSIFIES the result instead of
+    raising, so a schedule-time check can branch: GONE -> reinit, FORBIDDEN -> re-authorize,
+    LIVE/UNKNOWN -> proceed. Uncertainty is deliberately NOT gone: a hushh-side missing
+    credential or an unreachable endpoint returns ``unknown``, never ``gone``, because a
+    spurious gone verdict would strand a working agent (see pod_wake's identical rule).
+    """
+    try:
+        status, _body, text = _generate_access_token(
+            bootstrap_sa=bootstrap_sa,
+            session=session,
+            source_token=source_token,
+            lifetime=lifetime,
+        )
+    except BootstrapError:
+        # hushh has no caller credential -> our fault, not the user's project being gone.
+        return LivenessVerdict("unknown", 0, "hushh-side: no caller credential")
+    except Exception:  # noqa: BLE001 - the impersonation endpoint was unreachable
+        return LivenessVerdict("unknown", 0, "impersonation endpoint unreachable")
+    if status == 200:
+        return LivenessVerdict("live", 200)
+    if status == 404:
+        return LivenessVerdict("gone", 404, text)
+    if status == 403:
+        return LivenessVerdict("forbidden", 403, text)
+    # 401 (hushh-side) and anything else are NOT conclusive about the user's project.
+    return LivenessVerdict("unknown", status, text)
+
+
+class UserGcpBootstrap:
+    """Turns a rendered bootstrap plan into resources in the user's project."""
+
+    def __init__(
+        self,
+        *,
+        project: str,
+        region: str = "us-central1",
+        token: Optional[str] = None,
+        session: Any = None,
+        sleep: Any = None,
+        clock: Any = None,
+        bootstrap_sa: str = "",
+        oauth_credentials: Any = None,
+    ) -> None:
+        if not project:
+            raise BootstrapError("a target project is required; BYOC never guesses one")
+        self._project = project
+        self._project_number: str | None = None
+        self._region = region
+        self._token = token
+        # Which account this applier is borrowing. Only used to grant that one account
+        # `actAs` on the pod identity it creates, and never inferred: an applier that
+        # guessed its own identity could bind a grant to the wrong principal, so an
+        # unknown bootstrap SA simply omits the step and lets Cloud Run refuse loudly.
+        self._bootstrap_sa = bootstrap_sa
+        self._oauth_credentials = oauth_credentials
+        if session is None:
+            import requests as session  # noqa: PLC0415
+        self._session = session
+        # Injected so a test can prove the wait happens without spending the wait.
+        self._sleep = sleep or time.sleep
+        self._clock = clock or time.monotonic
+
+    # -- rendering (writes nothing) ------------------------------------------------
+
+    def _notification_bootstrap_calls(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
+        """Exact operator topic and owner delivery resources, with separate authority."""
+        notifications = plan.get("gmailNotifications") or {}
+        topic = str(notifications.get("topic") or "")
+        subscription = str(notifications.get("ownerSubscription") or "")
+        dead_topic = str(notifications.get("deadLetterTopic") or "")
+        dead_sub = str(notifications.get("deadLetterSubscription") or "")
+        runtime = str(notifications.get("pushServiceAccount") or "")
+        pubsub = "https://pubsub.googleapis.com/v1/"
+        project_lookup = {
+            "url": f"https://cloudresourcemanager.googleapis.com/v1/projects/{self._project}",
+            "field": "projectNumber",
+        }
+        calls: list[dict[str, Any]] = [
+            {
+                "step": "gmail_notification_prerequisite",
+                "kind": "notification_prerequisite",
+            },
+            {
+                "step": "oauth_mail_topic",
+                "authority": "oauth_developer_project",
+                "method": "PUT",
+                "url": pubsub + topic,
+                "body": {},
+                "tolerate": [409],
+            },
+            {
+                "step": "iam_gmail_publisher_on_topic",
+                "authority": "oauth_developer_project",
+                "kind": "merge_binding",
+                "depends_on": "oauth_mail_topic",
+                "read_method": "GET",
+                "read_url": pubsub + topic + ":getIamPolicy",
+                "write_url": pubsub + topic + ":setIamPolicy",
+                "policy_envelope": "policy",
+                "bindings": [
+                    {
+                        "role": "roles/pubsub.publisher",
+                        "members": ["serviceAccount:gmail-api-push@system.gserviceaccount.com"],
+                    },
+                    {
+                        "role": "roles/pubsub.subscriber",
+                        "members": [f"serviceAccount:{self._bootstrap_sa}"],
+                    },
+                ],
+                "tolerate": [],
+            },
+            {
+                "step": "mail_dead_letter_topic",
+                "method": "PUT",
+                "url": pubsub + dead_topic,
+                "body": {},
+                "tolerate": [409],
+            },
+            {
+                "step": "mail_dead_letter_subscription",
+                "method": "PUT",
+                "url": pubsub + dead_sub,
+                "depends_on": "mail_dead_letter_topic",
+                "body": {
+                    "topic": dead_topic,
+                    "messageRetentionDuration": "604800s",
+                    "expirationPolicy": {},
+                },
+                "tolerate": [409],
+            },
+            {
+                "step": "mail_subscription",
+                "method": "PUT",
+                "url": pubsub + subscription,
+                "depends_on": "iam_gmail_publisher_on_topic",
+                "body": {
+                    "topic": topic,
+                    "ackDeadlineSeconds": 60,
+                    "retryPolicy": {"minimumBackoff": "10s", "maximumBackoff": "600s"},
+                    "messageRetentionDuration": "604800s",
+                    "expirationPolicy": {},
+                    "deadLetterPolicy": {"deadLetterTopic": dead_topic, "maxDeliveryAttempts": 10},
+                },
+                "tolerate": [409],
+            },
+        ]
+        for service, label in (
+            ("pubsub.googleapis.com", "pubsub"),
+            ("cloudscheduler.googleapis.com", "scheduler"),
+        ):
+            calls.append(
+                {
+                    "step": f"generate_{label}_service_identity",
+                    "method": "POST",
+                    "url": f"https://serviceusage.googleapis.com/v1beta1/projects/{self._project}/services/{service}:generateServiceIdentity",
+                    "body": {},
+                    "tolerate": [],
+                    "await_operation": True,
+                    "operation_url": "https://serviceusage.googleapis.com/v1beta1/",
+                }
+            )
+            calls.append(
+                {
+                    "step": f"iam_{label}_oidc_on_pod",
+                    "kind": "merge_binding",
+                    "depends_on": f"generate_{label}_service_identity",
+                    "read_method": "POST",
+                    "read_url": f"https://iam.googleapis.com/v1/projects/{self._project}/serviceAccounts/{runtime}:getIamPolicy",
+                    "write_url": f"https://iam.googleapis.com/v1/projects/{self._project}/serviceAccounts/{runtime}:setIamPolicy",
+                    "policy_envelope": "policy",
+                    "read_body": {},
+                    "member_lookup": {
+                        **project_lookup,
+                        "member_template": f"serviceAccount:service-{{value}}@gcp-sa-{'pubsub' if label == 'pubsub' else 'cloudscheduler'}.iam.gserviceaccount.com",
+                    },
+                    "bindings": [
+                        {"role": "roles/iam.serviceAccountOpenIdTokenCreator", "members": []}
+                    ],
+                    "tolerate": [],
+                }
+            )
+        for step, resource, role in (
+            ("iam_pubsub_dead_letter_publisher", dead_topic, "roles/pubsub.publisher"),
+            ("iam_pubsub_source_subscriber", subscription, "roles/pubsub.subscriber"),
+        ):
+            calls.append(
+                {
+                    "step": step,
+                    "kind": "merge_binding",
+                    "depends_on": "mail_dead_letter_topic"
+                    if resource == dead_topic
+                    else "mail_subscription",
+                    "read_method": "GET",
+                    "read_url": pubsub + resource + ":getIamPolicy",
+                    "write_url": pubsub + resource + ":setIamPolicy",
+                    "policy_envelope": "policy",
+                    "member_lookup": {
+                        **project_lookup,
+                        "member_template": "serviceAccount:service-{value}@gcp-sa-pubsub.iam.gserviceaccount.com",
+                    },
+                    "bindings": [{"role": role, "members": []}],
+                    "tolerate": [],
+                }
+            )
+        return calls
+
+    def _notification_prerequisite(self, plan: dict[str, Any]) -> None:
+        notifications = plan.get("gmailNotifications") or {}
+        oauth_project = str(notifications.get("oauthProject") or "")
+        configured = (os.getenv("GOOGLE_CONNECTOR_OAUTH_PROJECT") or "").strip()
+        if (
+            not re.fullmatch(r"[a-z][a-z0-9-]{4,61}[a-z0-9]", oauth_project)
+            or oauth_project != configured
+        ):
+            raise BootstrapError(
+                "Gmail notifications require the configured GOOGLE_CONNECTOR_OAUTH_PROJECT"
+            )
+        if not self._bootstrap_sa or not self._bootstrap_sa.endswith(
+            f"@{self._project}.iam.gserviceaccount.com"
+        ):
+            raise BootstrapError(
+                "Gmail notifications require the explicit owner-project bootstrap account"
+            )
+        from hushh_mcp.services.user_gcp_backend import _slug, pod_service_account_id
+
+        owner = str((plan.get("gmailNotifications") or {}).get("hushhId") or "")
+        if not owner:
+            raise BootstrapError("Gmail notification owner is missing from the approved plan")
+        slug = _slug(owner)
+        expected = {
+            "topic": f"projects/{oauth_project}/topics/one-mail-{slug}",
+            "ownerSubscription": f"projects/{self._project}/subscriptions/one-mail-{slug}-direct-sub",
+            "deadLetterTopic": f"projects/{self._project}/topics/one-mail-{slug}-dead-letter",
+            "deadLetterSubscription": f"projects/{self._project}/subscriptions/one-mail-{slug}-dead-letter-sub",
+            "pushServiceAccount": f"{pod_service_account_id(owner)}@{self._project}.iam.gserviceaccount.com",
+        }
+        if any(notifications.get(key) != value for key, value in expected.items()):
+            raise BootstrapError(
+                "Gmail notification inventory differs from the approved owner/project"
+            )
+
+    def _oauth_headers(self, plan: dict[str, Any]) -> dict[str, str]:
+        """Attached consent-plane ADC for only the operator-owned topic; no key fallback."""
+        self._notification_prerequisite(plan)
+        expected = str(
+            ((plan.get("federation") or {}).get("impersonation") or {}).get("granted_to") or ""
+        )
+        if not expected or expected.startswith("<"):
+            raise BootstrapError(
+                "Gmail OAuth-project topic requires the exact consent-plane identity"
+            )
+        from google.auth.transport.requests import Request
+
+        credentials = self._oauth_credentials
+        if credentials is None:
+            import google.auth
+            from google.auth.compute_engine import Credentials
+
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            if not isinstance(credentials, Credentials):
+                raise BootstrapError("Gmail OAuth-project setup requires attached managed ADC")
+            self._oauth_credentials = credentials
+        if not getattr(credentials, "valid", False):
+            credentials.refresh(Request())
+        if getattr(credentials, "service_account_email", None) != expected or not getattr(
+            credentials, "token", None
+        ):
+            raise BootstrapError(
+                "Gmail OAuth-project ADC identity differs from the configured consent plane"
+            )
+        return {"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"}
+
+    def configure_notification_delivery(
+        self,
+        plan: dict[str, Any],
+        *,
+        service_url: str,
+        checkpoint: Callable[[str, str, list[dict[str, Any]]], None] | None = None,
+        verify_only: bool = False,
+    ) -> dict[str, Any]:
+        """Reconcile direct delivery only after the owner pod's URL is verified.
+
+        Every resource must already exist under the approved bootstrap inventory.
+        Legacy topics/subscriptions remain untouched. Missing resources require the
+        existing substrate workflow, never a silent alternate provider or project.
+        """
+        from hushh_mcp.services.pod_gmail_push_config import gmail_notification_resources
+
+        self._notification_prerequisite(plan)
+        if not self._token:
+            raise BootstrapError("Gmail direct delivery requires the owner bootstrap token")
+        terms = plan["gmailNotifications"]
+        inventory = gmail_notification_resources(
+            owner_project=self._project,
+            hushh_id=terms["hushhId"],
+            oauth_project=terms["oauthProject"],
+            service_url=service_url,
+            push_service_account=terms["pushServiceAccount"],
+        )
+        headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
+        oauth_headers = self._oauth_headers(plan)
+        completed: list[dict[str, Any]] = []
+
+        def retain(phase: str, step: str) -> None:
+            from copy import deepcopy
+
+            if checkpoint is None:
+                raise BootstrapError(
+                    "Gmail delivery requires the existing owner operation checkpoint"
+                )
+            checkpoint(phase, step, deepcopy(completed))
+
+        def request(
+            method: str, url: str, body: dict | None = None, *, authority: dict | None = None
+        ) -> dict:
+            response = self._session.request(
+                method,
+                url,
+                headers=authority or headers,
+                params=None,
+                data=json.dumps(body) if body is not None else None,
+                timeout=30,
+                allow_redirects=False,
+            )
+            if getattr(response, "status_code", 0) not in (200, 201):
+                raise BootstrapError(
+                    "Gmail direct notification prerequisite or configuration unavailable"
+                )
+            return _json_or_empty(response)
+
+        pubsub = "https://pubsub.googleapis.com/v1/"
+        if (
+            request("GET", pubsub + inventory["topic"], authority=oauth_headers).get("name")
+            != inventory["topic"]
+        ):
+            raise BootstrapError("Gmail OAuth-project topic identity unavailable")
+        for resource, expected_topic in (
+            (inventory["deadLetterTopic"], None),
+            (terms["deadLetterSubscription"], inventory["deadLetterTopic"]),
+            (inventory["subscription"], inventory["topic"]),
+        ):
+            observed = request("GET", pubsub + resource)
+            if observed.get("name") != resource or (
+                expected_topic and observed.get("topic") != expected_topic
+            ):
+                raise BootstrapError(
+                    "Gmail owner resource identity differs from the approved inventory"
+                )
+            if resource == terms["deadLetterSubscription"] and (
+                observed.get("messageRetentionDuration") != "604800s"
+                or observed.get("expirationPolicy") != {}
+            ):
+                raise BootstrapError("Gmail dead-letter recovery retention is unverified")
+        project = request(
+            "GET", f"https://cloudresourcemanager.googleapis.com/v1/projects/{self._project}"
+        )
+        number = str(project.get("projectNumber") or "")
+        if not number.isascii() or not number.isdigit():
+            raise BootstrapError("Gmail delivery service-agent project number is unavailable")
+        pubsub_agent = f"serviceAccount:service-{number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+        scheduler_agent = (
+            f"serviceAccount:service-{number}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+        )
+        required_policies = [
+            (
+                pubsub + inventory["topic"] + ":getIamPolicy",
+                oauth_headers,
+                "GET",
+                [
+                    (
+                        "roles/pubsub.publisher",
+                        "serviceAccount:gmail-api-push@system.gserviceaccount.com",
+                    ),
+                    ("roles/pubsub.subscriber", f"serviceAccount:{self._bootstrap_sa}"),
+                ],
+            ),
+            (
+                f"https://iam.googleapis.com/v1/projects/{self._project}/serviceAccounts/{terms['pushServiceAccount']}:getIamPolicy",
+                headers,
+                "POST",
+                [
+                    ("roles/iam.serviceAccountOpenIdTokenCreator", pubsub_agent),
+                    ("roles/iam.serviceAccountOpenIdTokenCreator", scheduler_agent),
+                    ("roles/iam.serviceAccountUser", f"serviceAccount:{self._bootstrap_sa}"),
+                ],
+            ),
+            (
+                pubsub + inventory["deadLetterTopic"] + ":getIamPolicy",
+                headers,
+                "GET",
+                [("roles/pubsub.publisher", pubsub_agent)],
+            ),
+            (
+                pubsub + inventory["subscription"] + ":getIamPolicy",
+                headers,
+                "GET",
+                [("roles/pubsub.subscriber", pubsub_agent)],
+            ),
+        ]
+        for url, authority, method, wanted in required_policies:
+            policy = request(method, url, {} if method == "POST" else None, authority=authority)
+            for role, member in wanted:
+                if not any(
+                    binding.get("role") == role
+                    and binding.get("condition") is None
+                    and member in binding.get("members", [])
+                    for binding in policy.get("bindings", [])
+                    if isinstance(binding, dict)
+                ):
+                    raise BootstrapError("Gmail direct delivery IAM prerequisite is unavailable")
+        if verify_only:
+            return inventory
+        subscription_body = {"name": inventory["subscription"], **inventory["subscriptionConfig"]}
+        mutable = "pushConfig,ackDeadlineSeconds,retryPolicy,messageRetentionDuration,expirationPolicy,deadLetterPolicy"
+        retain("intent", "mail_subscription_configuration")
+        request(
+            "PATCH",
+            pubsub + inventory["subscription"] + "?updateMask=" + mutable,
+            subscription_body,
+        )
+        observed = request("GET", pubsub + inventory["subscription"])
+        if observed.get("name") != inventory["subscription"] or any(
+            observed.get(key) != value for key, value in inventory["subscriptionConfig"].items()
+        ):
+            raise BootstrapError("Gmail direct delivery configuration readback differs")
+        completed.append(
+            {
+                "step": "mail_subscription_configuration",
+                "status": 200,
+                "ok": True,
+                "configurationObservation": {
+                    "name": inventory["subscription"],
+                    **inventory["subscriptionConfig"],
+                },
+            }
+        )
+        retain("observed", "mail_subscription_configuration")
+        job_name = terms["watchJob"]
+        origin = inventory["runtimeEnv"]["POD_GMAIL_PUSH_AUDIENCE"]
+        job_body = {
+            "name": job_name,
+            "schedule": "0 4 * * *",
+            "timeZone": "Etc/UTC",
+            "httpTarget": {
+                "uri": origin + "/api/one/pod/maintenance/tick",
+                "httpMethod": "POST",
+                "oidcToken": {
+                    "serviceAccountEmail": terms["pushServiceAccount"],
+                    "audience": origin,
+                },
+            },
+            "attemptDeadline": "180s",
+            "retryConfig": {
+                "retryCount": 3,
+                "maxRetryDuration": "3600s",
+                "minBackoffDuration": "30s",
+                "maxBackoffDuration": "600s",
+                "maxDoublings": 3,
+            },
+        }
+        scheduler = "https://cloudscheduler.googleapis.com/v1/"
+        response = self._session.request(
+            "GET",
+            scheduler + job_name,
+            headers=headers,
+            params=None,
+            data=None,
+            timeout=30,
+            allow_redirects=False,
+        )
+        existed = getattr(response, "status_code", 0) == 200
+        if getattr(response, "status_code", 0) not in (200, 404):
+            raise BootstrapError("Gmail renewal job could not be inspected")
+        if existed:
+            old = _json_or_empty(response)
+            if old.get("name") != job_name:
+                raise BootstrapError("Gmail renewal job identity mismatch")
+            # Scheduler target types are mutually exclusive. Explicitly clear the
+            # old Pub/Sub target in the same field-mask update, preserving the job.
+            retain("intent", "watch_renew_job")
+            request(
+                "PATCH",
+                scheduler
+                + job_name
+                + "?updateMask=schedule,timeZone,httpTarget,pubsubTarget,attemptDeadline,retryConfig",
+                job_body,
+            )
+        else:
+            retain("intent", "watch_renew_job")
+            request("POST", scheduler + job_name.rsplit("/", 1)[0], job_body)
+        observed = request("GET", scheduler + job_name)
+        observed_target = observed.get("httpTarget") or {}
+        if (
+            any(
+                observed.get(key) != job_body[key]
+                for key in ("name", "schedule", "timeZone", "attemptDeadline", "retryConfig")
+            )
+            or any(
+                observed_target.get(key) != value for key, value in job_body["httpTarget"].items()
+            )
+            or observed.get("pubsubTarget")
+        ):
+            raise BootstrapError("Gmail authenticated maintenance job readback differs")
+        from hushh_mcp.services.byoc_bootstrap_observation import qualify_created_resource
+
+        step_observation = {"step": "watch_renew_job", "status": 200, "ok": True}
+        if not existed:
+            step_observation.update(
+                qualify_created_resource(
+                    {"step": "watch_renew_job", "body": job_body},
+                    observed,
+                    project=self._project,
+                    project_number=number,
+                )
+            )
+            if "resourceObservation" not in step_observation:
+                raise BootstrapError("Gmail HTTP maintenance creation receipt is unavailable")
+        else:
+            step_observation["configurationObservation"] = {
+                "name": job_name,
+                "httpTarget": job_body["httpTarget"],
+                "schedule": job_body["schedule"],
+                "timeZone": job_body["timeZone"],
+            }
+        completed.append(step_observation)
+        retain("observed", "watch_renew_job")
+        inventory["runtimeEnv"].update(
+            HUSSH_POD_TICK_AUDIENCE=origin,
+            HUSSH_POD_TICK_ALLOWED_EMAILS=terms["pushServiceAccount"],
+        )
+        inventory["watchJob"] = job_name
+        inventory["watchJobDisposition"] = "updated" if existed else "created"
+        inventory["watchJobIdentity"] = {
+            key: observed[key] for key in ("name", "schedule", "timeZone", "httpTarget")
+        }
+        inventory["deliverySteps"] = completed
+        return inventory
+
+    def plan_calls(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
+        """Every request ``apply`` would make, in order, as inspectable data.
+
+        Kept separate from execution so the blast radius of a bootstrap can be read
+        and diffed before anyone points it at a real person's cloud.
+        """
+        project, region = self._project, self._region
+        by_type = {r["type"]: r for r in plan.get("resources", [])}
+        keyring = "hushh-one"
+        kms_key = by_type.get("kms_key", {}).get("id", "")
+        bucket = by_type.get("gcs_bucket", {}).get("id", "")
+        pod_sa = by_type.get("cloud_run_service", {}).get("service_account") or by_type.get(
+            "service_account", {}
+        ).get("id", "")
+        pod_sa_id = pod_sa.split("@")[0] if pod_sa else ""
+        key_path = f"projects/{project}/locations/{region}/keyRings/{keyring}/cryptoKeys/{kms_key}"
+        # The user's OWN Artifact Registry repo that will hold their copy of the pod
+        # image, so the pod pulls from their project and hushh keeps no runtime
+        # dependency in their cloud. Fixed id; the image name inside it is stable too.
+        pod_repo = "one-pod"
+        repo_base = (
+            f"https://artifactregistry.googleapis.com/v1/projects/{project}"
+            f"/locations/{region}/repositories/{pod_repo}"
+        )
+        # The Hushh consent-plane identity (the run.invoker grantee) is ALSO the identity
+        # that copies the image in: it holds a standing read on hushh's source repo and
+        # is granted write on THIS user's repo below. Reading it from the plan keeps the
+        # writer-grant recipient and the actual pusher provably the same account -- the
+        # security-load-bearing property (a copy that ran as anything broader would be
+        # org authority reaching into a project hushh does not own).
+        copy_identity = ((plan.get("federation") or {}).get("impersonation") or {}).get(
+            "granted_to", ""
+        )
+
+        calls: list[dict[str, Any]] = [
+            {
+                # First, because every step below fails without it. Seven of the eight
+                # were off in a real empty project, which made THIS the blocker people
+                # kept mistaking for "you need to create a project".
+                "step": "enable_services",
+                "method": "POST",
+                "url": (
+                    f"https://serviceusage.googleapis.com/v1/projects/{project}"
+                    "/services:batchEnable"
+                ),
+                "body": {
+                    "serviceIds": list(
+                        bootstrap_permissions(files_enabled=bool(plan.get("filesLibrary")))[1]
+                    )
+                },
+                "tolerate": [],
+                # batchEnable returns a LONG-RUNNING OPERATION, and every step below
+                # fails with "API has not been used in this project" until it finishes.
+                # The first live run against a real project did exactly that: the enable
+                # succeeded, the bootstrap raced past it, and six steps failed on APIs
+                # that were on less than a minute later. Waiting is not politeness here,
+                # it is the difference between a bootstrap that works and one that
+                # reports six spurious failures.
+                "await_operation": True,
+                "operation_url": "https://serviceusage.googleapis.com/v1/",
+                # And if the wait does not end well, stop. Running the rest against APIs
+                # that are demonstrably off produces seven failures that all describe the
+                # same one cause, which is how the real defect stayed hidden for a minute
+                # longer than it needed to.
+                "gates_rest": True,
+            },
+            {
+                # Mint this project's Cloud Run SERVICE AGENT
+                # (service-<projectNumber>@serverless-robot-prod.iam.gserviceaccount.com)
+                # before anything tries to deploy a pod into it. Enabling run.googleapis.com
+                # is supposed to create that agent, but it is created lazily and a fresh,
+                # out-of-org project routinely reaches the first `create_service` with the
+                # agent still absent -- which Cloud Run refuses at admission, because the
+                # agent is the identity that pulls the image and runs the revision. Observed
+                # live: the substrate built cleanly and the DEPLOY (a later phase, in
+                # user_gcp_backend) 403'd, and the agent simply did not exist yet.
+                #
+                # `generateServiceIdentity` is idempotent and lives ONLY on Service Usage
+                # v1beta1 (the same call `gcloud beta services identity create` makes); it is
+                # covered by the serviceUsageAdmin the one-time authorization already grants
+                # the bootstrap SA. It does NOT itself grant the agent read on hushh's pod
+                # image -- an out-of-org project's agent still cannot pull a hushh-owned
+                # image until that image is reachable to it. This step guarantees the agent
+                # EXISTS so the image-reachability grant has something to bind to; the two
+                # together are what let a genuinely fresh project deploy without a hand-nudge.
+                #
+                # NOT gates_rest: the run agent is a prerequisite for the pod DEPLOY, not for
+                # the KMS / GCS / Pub/Sub substrate that follows here, so a hiccup minting it
+                # must not skip the rest of the substrate.
+                "step": "generate_run_service_identity",
+                "method": "POST",
+                "url": (
+                    "https://serviceusage.googleapis.com/v1beta1/projects/"
+                    f"{project}/services/run.googleapis.com:generateServiceIdentity"
+                ),
+                "body": {},
+                "tolerate": [],
+                "await_operation": True,
+                "operation_url": "https://serviceusage.googleapis.com/v1beta1/",
+            },
+            {
+                # The user's own Artifact Registry repo. Their pod's image is copied in
+                # here (a later phase, under the hushh copy identity) so the pod pulls
+                # from their project, not hushh's -- the whole point of "your cloud".
+                # A DOCKER repo create is a long-running operation; a re-provision finds
+                # it already there (409, tolerated). The await/tolerate guard above is
+                # what makes the tolerated 409 stay green instead of being read as a
+                # failed operation -- this is the first step that is both awaited AND
+                # tolerant, and it would have broken every re-provision without it.
+                # NOT gates_rest: the repo is a DEPLOY prerequisite, not a substrate one.
+                "step": "artifact_repo",
+                "method": "POST",
+                "url": (
+                    f"https://artifactregistry.googleapis.com/v1/projects/{project}"
+                    f"/locations/{region}/repositories"
+                ),
+                "params": {"repositoryId": pod_repo},
+                "body": {"format": "DOCKER"},
+                "tolerate": [409],
+                "await_operation": True,
+                "operation_url": "https://artifactregistry.googleapis.com/v1/",
+            },
+            *(
+                [
+                    {
+                        # Let the hushh copy identity WRITE this one repo, so it can push
+                        # the image in. Scoped to the single `one-pod` repo, never
+                        # project-wide. This grant is standing and USER-REVOCABLE (it is a
+                        # binding in the person's own project, removable by them at any
+                        # time, and removed entirely at teardown) -- the consent artifact
+                        # says exactly that rather than pretending it is one-time.
+                        "step": "artifact_repo_grant_copy_writer",
+                        "kind": "merge_binding",
+                        "depends_on": "artifact_repo",
+                        "read_method": "GET",
+                        "read_url": f"{repo_base}:getIamPolicy",
+                        "write_url": f"{repo_base}:setIamPolicy",
+                        "policy_envelope": "policy",
+                        "bindings": [
+                            {
+                                "role": "roles/artifactregistry.writer",
+                                "members": [f"serviceAccount:{copy_identity}"],
+                            }
+                        ],
+                        "tolerate": [],
+                    }
+                ]
+                if copy_identity and not copy_identity.startswith("<")
+                else []
+            ),
+            {
+                # Let the pod's runtime (the project's Cloud Run service agent) READ this
+                # repo, so the pod can pull its image on every cold start. The agent's
+                # address embeds the project NUMBER -- unknowable when the plan renders --
+                # so it is resolved at apply time from Resource Manager and formatted into
+                # the serverless-robot address, the same class of lookup the GCS agent
+                # uses. Included fail-closed: image pull is the load-bearing deploy moment
+                # and a fresh out-of-org project is exactly where an assumed same-project
+                # auto-grant is least trustworthy (the same reason the run agent is minted
+                # explicitly rather than trusted to appear).
+                "step": "artifact_repo_grant_run_agent_reader",
+                "kind": "merge_binding",
+                "depends_on": "artifact_repo",
+                "read_method": "GET",
+                "read_url": f"{repo_base}:getIamPolicy",
+                "write_url": f"{repo_base}:setIamPolicy",
+                "policy_envelope": "policy",
+                "member_lookup": {
+                    "url": f"https://cloudresourcemanager.googleapis.com/v1/projects/{project}",
+                    "field": "projectNumber",
+                    "member_template": (
+                        "serviceAccount:service-{value}"
+                        "@serverless-robot-prod.iam.gserviceaccount.com"
+                    ),
+                },
+                "bindings": [{"role": "roles/artifactregistry.reader", "members": []}],
+                "tolerate": [],
+            },
+            {
+                "step": "kms_keyring",
+                "method": "POST",
+                "url": f"https://cloudkms.googleapis.com/v1/projects/{project}/locations/{region}/keyRings",
+                "params": {"keyRingId": keyring},
+                "body": {},
+                "tolerate": [409],
+            },
+            {
+                "step": "kms_key",
+                "method": "POST",
+                "url": (
+                    f"https://cloudkms.googleapis.com/v1/projects/{project}/locations/"
+                    f"{region}/keyRings/{keyring}/cryptoKeys"
+                ),
+                "params": {"cryptoKeyId": kms_key},
+                "body": {"purpose": "ENCRYPT_DECRYPT"},
+                "tolerate": [409],
+            },
+            {
+                "step": "pod_service_account",
+                "method": "POST",
+                "url": f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts",
+                "body": {
+                    "accountId": pod_sa_id,
+                    "serviceAccount": {
+                        "displayName": "hussh Agent One pod",
+                        "description": "Least-privilege runtime identity for this person's pod.",
+                    },
+                },
+                "tolerate": [409],
+            },
+            *(
+                [
+                    {
+                        # Creating a Cloud Run service that RUNS AS the pod account needs
+                        # `iam.serviceAccounts.actAs` on that account, which
+                        # `roles/iam.serviceAccountAdmin` does not carry. The first live
+                        # run reached Cloud Run and was refused in exactly those words:
+                        # "Permission 'iam.serviceaccounts.actAs' denied on service
+                        # account one-pod-...". A control create without a runAs identity
+                        # was refused too, naming the default compute account -- so this
+                        # is about acting as anything, not about this one account.
+                        #
+                        # The fix deliberately does NOT add roles/iam.serviceAccountUser
+                        # to the project ask. At project level that would let the
+                        # bootstrap act as EVERY service account the person owns. Bound to
+                        # the single account this bootstrap just created, it grants
+                        # precisely the ability being used, and the user's one-time
+                        # authorization is unchanged.
+                        "step": "iam_bootstrap_can_run_as_pod",
+                        "kind": "merge_binding",
+                        "read_method": "POST",
+                        "read_url": (
+                            f"https://iam.googleapis.com/v1/projects/{project}"
+                            f"/serviceAccounts/{pod_sa}:getIamPolicy"
+                        ),
+                        "write_url": (
+                            f"https://iam.googleapis.com/v1/projects/{project}"
+                            f"/serviceAccounts/{pod_sa}:setIamPolicy"
+                        ),
+                        "policy_envelope": "policy",
+                        "read_body": {},
+                        "bindings": [
+                            {
+                                "role": "roles/iam.serviceAccountUser",
+                                "members": [f"serviceAccount:{self._bootstrap_sa}"],
+                            }
+                        ],
+                        "tolerate": [],
+                    }
+                ]
+                if self._bootstrap_sa
+                else []
+            ),
+            {
+                # Cloud Storage does not encrypt with the user's key as itself -- it uses
+                # a per-project SERVICE AGENT, and that agent must hold
+                # cryptoKeyEncrypterDecrypter on the key before a CMEK bucket can be
+                # created. Granting the pod encrypt/decrypt is not a substitute, and the
+                # first live run said so in as many words: "Permission denied on Cloud KMS
+                # key. Please ensure that your Cloud Storage service account has been
+                # authorized to use this key."
+                #
+                # The agent's address is not knowable when the plan is rendered -- it
+                # embeds the project NUMBER -- so it is looked up at apply time. The GET
+                # that reads it also creates the agent if the project has never had one,
+                # which is why it is a lookup rather than a computed string.
+                "step": "iam_gcs_agent_on_key",
+                "kind": "merge_binding",
+                "read_url": f"https://cloudkms.googleapis.com/v1/{key_path}:getIamPolicy",
+                "read_method": "GET",
+                "write_url": f"https://cloudkms.googleapis.com/v1/{key_path}:setIamPolicy",
+                "policy_envelope": "policy",
+                "member_lookup": {
+                    "url": (
+                        "https://storage.googleapis.com/storage/v1/projects/"
+                        f"{project}/serviceAccount"
+                    ),
+                    "field": "email_address",
+                    "prefix": "serviceAccount:",
+                },
+                "bindings": [{"role": "roles/cloudkms.cryptoKeyEncrypterDecrypter", "members": []}],
+                "tolerate": [],
+            },
+            {
+                # The bucket is created AFTER the key, and names it: a bucket made first
+                # would be unencrypted at rest under the user's own key, and switching
+                # default encryption later does not re-encrypt what is already written.
+                "step": "cmek_bucket",
+                # Narrower than gating the whole run: mail and scheduling do not care
+                # about the bucket, so they still get their turn.
+                "depends_on": "iam_gcs_agent_on_key",
+                "method": "POST",
+                "url": "https://storage.googleapis.com/storage/v1/b",
+                "params": {"project": project},
+                "body": {
+                    "name": bucket,
+                    "location": region.upper(),
+                    "encryption": {"defaultKmsKeyName": key_path},
+                    "iamConfiguration": {
+                        "uniformBucketLevelAccess": {"enabled": True},
+                        "publicAccessPrevention": "enforced",
+                    },
+                },
+                "tolerate": [409],
+            },
+            {
+                "step": "pod_signing_secret",
+                "method": "POST",
+                "url": f"https://secretmanager.googleapis.com/v1/projects/{project}/secrets",
+                "params": {"secretId": f"{pod_sa_id}-signing-key"},
+                "body": {"replication": {"automatic": {}}},
+                "tolerate": [409],
+            },
+            {
+                # The material is generated HERE, at apply time, and never appears in the
+                # rendered plan: `apply(dry_run=True)` returns every step verbatim for
+                # review, so a key in the plan would be a key in whatever printed it.
+                #
+                # Idempotent by inspection, not by tolerating an error: a re-run must not
+                # rotate this key. APP_SIGNING_KEY is the HMAC key behind consent tokens,
+                # grants, receipts and the audit chain, so rotating it silently would
+                # invalidate every receipt the pod had already written.
+                "step": "pod_signing_secret_version",
+                "kind": "generate_secret_version",
+                "secret": f"projects/{project}/secrets/{pod_sa_id}-signing-key",
+                "depends_on": "pod_signing_secret",
+                "tolerate": [],
+            },
+        ]
+
+        # IAM last, and per-resource rather than project-wide. Each binding names one
+        # role on one resource; none of them is a project-level grant, which is the
+        # difference between "the pod may read its own bucket" and "the pod may read
+        # the user's cloud".
+        #
+        # MERGE, never overwrite. An earlier version wrote these policies whole, on the
+        # reasoning that a freshly created key has no bindings to lose. That holds
+        # exactly once: this bootstrap is deliberately re-runnable (every resource step
+        # tolerates 409), and it is meant to run against a project the person already
+        # owns. On a second apply, or against a pre-existing bucket, a whole-policy
+        # write drops whatever was there. `safe-changes` R3 says the same thing in one
+        # line: add a binding, never set a policy.
+        calls.append(
+            {
+                "step": "iam_pod_sa_on_key",
+                "kind": "merge_binding",
+                "read_url": f"https://cloudkms.googleapis.com/v1/{key_path}:getIamPolicy",
+                "read_method": "GET",
+                "write_url": f"https://cloudkms.googleapis.com/v1/{key_path}:setIamPolicy",
+                "policy_envelope": "policy",
+                "bindings": [
+                    {
+                        "role": "roles/cloudkms.cryptoKeyDecrypter",
+                        "members": [f"serviceAccount:{pod_sa}"],
+                    },
+                    {
+                        "role": "roles/cloudkms.cryptoKeyEncrypter",
+                        "members": [f"serviceAccount:{pod_sa}"],
+                    },
+                ],
+                "tolerate": [],
+            }
+        )
+        calls.append(
+            {
+                "step": "iam_pod_sa_on_signing_secret",
+                "kind": "merge_binding",
+                "depends_on": "pod_signing_secret",
+                "read_method": "GET",
+                "read_url": (
+                    f"https://secretmanager.googleapis.com/v1/projects/{project}"
+                    f"/secrets/{pod_sa_id}-signing-key:getIamPolicy"
+                ),
+                "write_url": (
+                    f"https://secretmanager.googleapis.com/v1/projects/{project}"
+                    f"/secrets/{pod_sa_id}-signing-key:setIamPolicy"
+                ),
+                "policy_envelope": "policy",
+                "bindings": [
+                    {
+                        "role": "roles/secretmanager.secretAccessor",
+                        "members": [f"serviceAccount:{pod_sa}"],
+                    }
+                ],
+                "tolerate": [],
+            }
+        )
+        calls.append(
+            {
+                "step": "iam_pod_sa_on_bucket",
+                "kind": "merge_binding",
+                "depends_on": "cmek_bucket",
+                "read_url": f"https://storage.googleapis.com/storage/v1/b/{bucket}/iam",
+                "read_method": "GET",
+                "write_url": f"https://storage.googleapis.com/storage/v1/b/{bucket}/iam",
+                "write_method": "PUT",
+                "policy_envelope": "",
+                "bindings": [
+                    {
+                        "role": "roles/storage.objectAdmin",
+                        "members": [f"serviceAccount:{pod_sa}"],
+                    }
+                ],
+                "tolerate": [],
+            }
+        )
+        # Vertex has no per-resource binding, so model access for the pod is granted at
+        # PROJECT level, the one place BYOC grants project-wide, called out not buried:
+        # `roles/aiplatform.user` lets the pod call Vertex as itself, on the person's bill.
+        calls.append(
+            {
+                "step": "iam_pod_sa_vertex",
+                "kind": "merge_binding",
+                "read_url": (
+                    "https://cloudresourcemanager.googleapis.com/v1/projects/"
+                    f"{project}:getIamPolicy"
+                ),
+                "read_method": "POST",
+                "write_url": (
+                    "https://cloudresourcemanager.googleapis.com/v1/projects/"
+                    f"{project}:setIamPolicy"
+                ),
+                "policy_envelope": "policy",
+                "bindings": [
+                    {
+                        "role": "roles/aiplatform.user",
+                        "members": [f"serviceAccount:{pod_sa}"],
+                    }
+                ],
+                "tolerate": [],
+                "project_level": True,
+            }
+        )
+        from hushh_mcp.services.pod_files.provisioning import bootstrap_calls
+
+        if plan.get("gmailNotifications"):
+            notification_calls = self._notification_bootstrap_calls(plan)
+            for call in notification_calls:
+                call["capability"] = "gmail_notifications"
+            calls = [notification_calls[0], *calls, *notification_calls[1:]]
+        calls.extend(bootstrap_calls(plan, project=project, region=region, runtime=pod_sa))
+        return calls
+
+    # -- execution -----------------------------------------------------------------
+
+    def apply(
+        self,
+        plan: dict[str, Any],
+        *,
+        dry_run: bool = True,
+        on_step: Any = None,
+        checkpoint: Callable[[str, str, list[dict[str, Any]]], None] | None = None,
+        notification_checkpoint: Callable[[str, str, list[dict[str, Any]]], None] | None = None,
+        completed_prefix: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Create the plan's resources. ``dry_run`` is the default on purpose.
+
+        Returns a per-step result rather than raising on the first problem, because a
+        half-built project is a real state a caller has to reason about and an
+        exception loses which half.
+
+        ``on_step`` is an optional ``(step_id, ok) -> None`` observer, fired as each
+        step RESOLVES. This loop is synchronous and runs on a worker thread (invoked
+        via ``asyncio.to_thread`` from byoc_substrate), so the observer must be
+        synchronous too and is guarded here: a listener's bug must never turn a
+        16-step bootstrap into a partial apply. It fires only on live runs -- a dry
+        run resolves nothing, so it has no steps to narrate.
+
+        ``checkpoint(phase, step, completed_steps)`` is a separate authority port.
+        It must durably accept intent before a step and qualified observations
+        afterward. Its failures propagate: no later provider step may execute
+        after persistence or owner authority is lost. It receives no credentials,
+        request bodies or raw provider errors. The caller binds it to the exact
+        approved plan and existing operation; a callback is not itself approval.
+        """
+
+        def _observe(step: str, ok: bool) -> None:
+            if on_step is None:
+                return
+            try:
+                on_step(step, ok)
+            except Exception:  # noqa: BLE001 - narrative must not break the applier
+                logger.warning("byoc_bootstrap.on_step_failed step=%s", step)
+
+        calls = self.plan_calls(plan)
+        if dry_run:
+            return {"dryRun": True, "project": self._project, "steps": calls}
+        if not self._token:
+            raise BootstrapError(
+                "apply(dry_run=False) needs an impersonated bootstrap token; see "
+                "mint_bootstrap_token. It will not fall back to hushh's own identity."
+            )
+
+        from copy import deepcopy
+
+        results: list[dict[str, Any]] = deepcopy(completed_prefix or [])
+        notification_steps = {
+            call["step"] for call in calls if call.get("capability") == "gmail_notifications"
+        }
+        if results and (
+            checkpoint is None
+            or len(results) >= len(calls)
+            or any(result.get("ok") is not True for result in results)
+            or [result.get("step") for result in results]
+            != [call["step"] for call in calls[: len(results)]]
+        ):
+            raise BootstrapError("Bootstrap continuation requires a verified successful prefix")
+
+        def _checkpoint(phase: str, step: str) -> None:
+            selected_checkpoint = (
+                notification_checkpoint
+                if step in notification_steps and notification_checkpoint is not None
+                else checkpoint
+            )
+            if selected_checkpoint is None:
+                return
+            if (
+                selected_checkpoint is notification_checkpoint
+                and step == "gmail_notification_prerequisite"
+            ):
+                # This preflight reads authority only. An unavailable capability
+                # has no notification mutation to admit or resource to retain.
+                return
+            from copy import deepcopy
+
+            # Only qualified resource/IAM observations leave the applier. Error
+            # text and provider response bodies can contain private configuration.
+            safe = [
+                {
+                    key: deepcopy(value)
+                    for key, value in result.items()
+                    if key
+                    in {
+                        "step",
+                        "status",
+                        "ok",
+                        "skipped",
+                        "resourceObservation",
+                        "bindingObservations",
+                        "operatorBindingObservations",
+                    }
+                }
+                for result in results
+                if selected_checkpoint is not notification_checkpoint
+                or result["step"] in notification_steps
+            ]
+            if selected_checkpoint is notification_checkpoint:
+                for result in safe:
+                    result["capability"] = "gmail_notifications"
+            selected_checkpoint(phase, step, safe)
+
+        headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
+        unmet: set[str] = set()
+        for index, call in enumerate(calls[len(results) :], start=len(results)):
+            # A step whose prerequisite failed has nothing to say about itself. Running it
+            # anyway produces a second error message for a cause already reported once --
+            # which is how the first live run turned one missing IAM binding into three
+            # failures that read like three problems.
+            required = call.get("depends_on")
+            if (
+                call.get("capability") == "gmail_notifications"
+                and "gmail_notification_prerequisite" in unmet
+            ):
+                required = "gmail_notification_prerequisite"
+            if required and required in unmet:
+                results.append(
+                    {
+                        "step": call["step"],
+                        "status": 0,
+                        "ok": False,
+                        "skipped": True,
+                        "detail": f"not attempted: {required} did not succeed",
+                    }
+                )
+                _observe(call["step"], False)
+                unmet.add(call["step"])
+                continue
+
+            _checkpoint("intent", call["step"])
+            if call.get("kind") == "notification_prerequisite":
+                try:
+                    if not callable(notification_checkpoint):
+                        raise BootstrapError(
+                            "Gmail notification mutations require the owner operation checkpoint"
+                        )
+                    self._notification_prerequisite(plan)
+                    self._oauth_headers(plan)
+                except Exception as exc:
+                    results.append(
+                        {
+                            "step": call["step"],
+                            "status": 0,
+                            "ok": False,
+                            "detail": str(exc)
+                            if isinstance(exc, BootstrapError)
+                            else "Gmail OAuth-project managed ADC unavailable",
+                        }
+                    )
+                    _checkpoint("observed", call["step"])
+                    _observe(call["step"], False)
+                    unmet.add(call["step"])
+                    continue
+                results.append(
+                    {
+                        "step": call["step"],
+                        "status": 200,
+                        "ok": True,
+                        "detail": "notification authority configured",
+                    }
+                )
+                _checkpoint("observed", call["step"])
+                _observe(call["step"], True)
+                continue
+            request_headers = headers
+            if call.get("authority") == "oauth_developer_project":
+                topic_url = "https://pubsub.googleapis.com/v1/" + str(
+                    plan["gmailNotifications"]["topic"]
+                )
+                if any(
+                    call.get(key)
+                    and str(call[key])
+                    not in (topic_url, topic_url + ":getIamPolicy", topic_url + ":setIamPolicy")
+                    for key in ("url", "read_url", "write_url")
+                ):
+                    raise BootstrapError(
+                        "OAuth notification authority may address only the approved topic"
+                    )
+                request_headers = self._oauth_headers(plan)
+            if call.get("kind") == "merge_binding":
+                merged = self._merge_binding(call, request_headers)
+                if call.get("authority") == "oauth_developer_project":
+                    merged["operatorBindingObservations"] = merged.pop("bindingObservations", [])
+                results.append(merged)
+                _checkpoint("observed", call["step"])
+                _observe(call["step"], bool(merged["ok"]))
+                if not merged["ok"]:
+                    unmet.add(call["step"])
+                continue
+
+            if call.get("kind") == "generate_secret_version":
+                seeded = self._seed_secret_version(call, request_headers)
+                results.append(seeded)
+                _checkpoint("observed", call["step"])
+                _observe(call["step"], bool(seeded["ok"]))
+                if not seeded["ok"]:
+                    unmet.add(call["step"])
+                continue
+
+            response = self._session.request(
+                call["method"],
+                call["url"],
+                headers=request_headers,
+                params=call.get("params"),
+                data=json.dumps(call.get("body") or {}),
+                timeout=120,
+            )
+            code = getattr(response, "status_code", 0)
+            ok = code in (200, 201) or code in call.get("tolerate", [])
+            from hushh_mcp.services.pod_files.bootstrap_observation import verify_files_step
+
+            ok, files_observation = verify_files_step(
+                self._session,
+                call,
+                request_headers,
+                code=code,
+                ok=ok,
+                enabled=bool(plan.get("filesLibrary")),
+            )
+
+            # A 409 on the bucket is NOT success. GCS bucket names are globally unique,
+            # so "already exists" can mean the name belongs to a completely different
+            # owner's project. Tolerating it blindly would point this person's pod at
+            # storage it cannot write, and the failure would surface far from the cause.
+            if ok and code == 409 and call["step"] == "cmek_bucket":
+                owned = self._bucket_is_ours(call, request_headers)
+                if not owned:
+                    ok = False
+                    results.append(
+                        {
+                            "step": call["step"],
+                            "status": code,
+                            "ok": False,
+                            "detail": (
+                                "that bucket name is taken by a project this bootstrap does "
+                                "not own -- GCS names are globally unique. Choose another."
+                            ),
+                        }
+                    )
+                    logger.warning("byoc_bootstrap.bucket_name_collision step=%s", call["step"])
+                    _checkpoint("observed", call["step"])
+                    _observe(call["step"], False)
+                    unmet.add(call["step"])
+                    continue
+
+            detail = "" if ok else getattr(response, "text", "")[:300]
+
+            # A 200 here means "the operation started", not "the work is done". Every
+            # step after this one depends on the work, so the wait belongs inside the
+            # step rather than in the caller's discipline.
+            #
+            # But ONLY a real create (200/201) starts an operation. A TOLERATED code --
+            # a 409 "already exists" on a step that both awaits AND tolerates -- carries
+            # no operation: its body has no `name`, and `_await_operation` reads the 409
+            # error body, finds the `error` key, and flips this step from tolerated-ok to
+            # failed. That turns every re-provision of an already-built project into a
+            # spurious failure and marks the whole substrate receipt not-applied. The
+            # `artifact_repo` step below is the first that is both awaited and tolerant,
+            # which is why nothing exposed this until now. Gate the wait on a genuine
+            # create; enable_services and generate_run_service_identity return 200 on
+            # success and never rely on tolerating, so this is a no-op for them.
+            waited = {}
+            if ok and code in (200, 201) and call.get("await_operation"):
+                waited = self._await_operation(call, request_headers, response)
+                ok = waited["ok"]
+                detail = waited["detail"]
+
+            result: dict[str, Any] = {
+                "step": call["step"],
+                "status": code,
+                "ok": ok,
+                "detail": detail,
+            }
+            if ok and waited.get("resourceObservation"):
+                result["resourceObservation"] = waited["resourceObservation"]
+            if ok and files_observation:
+                result["resourceObservation"] = files_observation
+            if ok and code in (200, 201):
+                from hushh_mcp.services.byoc_bootstrap_observation import qualify_created_resource
+
+                result.update(
+                    qualify_created_resource(
+                        call,
+                        _json_or_empty(response),
+                        project=self._project,
+                        project_number=self._project_number,
+                    )
+                )
+                ok = result["ok"]
+            results.append(result)
+            _checkpoint("observed", call["step"])
+            logger.info("byoc_bootstrap.step step=%s status=%s ok=%s", call["step"], code, ok)
+            _observe(call["step"], ok)
+            if not ok:
+                unmet.add(call["step"])
+
+            if not ok and call.get("gates_rest"):
+                # Reported as skipped, not failed. They were never attempted, and calling
+                # them failures would attribute one cause to eight places.
+                results.extend(
+                    {
+                        "step": later["step"],
+                        "status": 0,
+                        "ok": False,
+                        "skipped": True,
+                        "detail": f"not attempted: {call['step']} did not complete",
+                    }
+                    for later in calls[index + 1 :]
+                )
+                logger.warning(
+                    "byoc_bootstrap.gated_stop step=%s skipped=%s",
+                    call["step"],
+                    len(calls) - index - 1,
+                )
+                break
+
+        failed = [r for r in results if not r["ok"] and not r.get("skipped")]
+        skipped = [r for r in results if r.get("skipped")]
+        for result in results:
+            if result["step"] in notification_steps:
+                result["capability"] = "gmail_notifications"
+        core_failures = [r for r in results if r["step"] not in notification_steps and not r["ok"]]
+        notification_failures = [
+            r for r in results if r["step"] in notification_steps and not r["ok"]
+        ]
+        return {
+            "dryRun": False,
+            "project": self._project,
+            "steps": results,
+            "ok": not failed and not skipped,
+            "coreOk": not core_failures,
+            "capabilities": {
+                "gmail_notifications": {
+                    "status": "unavailable" if notification_failures else "substrate_ready",
+                    "failed": [r["step"] for r in notification_failures if not r.get("skipped")],
+                    "skipped": [r["step"] for r in notification_failures if r.get("skipped")],
+                }
+            }
+            if notification_steps
+            else {},
+            "failed": [r["step"] for r in failed],
+            "skipped": [r["step"] for r in skipped],
+        }
+
+    def _await_operation(
+        self, call: dict[str, Any], headers: dict[str, str], response: Any
+    ) -> dict[str, Any]:
+        """Require terminal provider evidence, polling only the acknowledged operation."""
+        import re
+
+        def verdict(state: dict[str, Any], polls: int) -> dict[str, Any]:
+            result = _operation_verdict(state, polls=polls)
+            if result["ok"] and call["step"] == "artifact_repo":
+                from hushh_mcp.services.byoc_substrate import _artifact_repository_creation_identity
+
+                repository_id = (call.get("params") or {}).get("repositoryId")
+                name = f"projects/{self._project}/locations/{self._region}/repositories/{repository_id}"
+                response_body = state.get("response") or {}
+                if "name" in response_body and response_body["name"] != name:
+                    return {"ok": False, "detail": "repository creation identity mismatch"}
+                identity = _artifact_repository_creation_identity(response_body, name)
+                if identity:
+                    result["resourceObservation"] = {
+                        "type": "artifact_repository",
+                        "id": repository_id,
+                        "disposition": "created",
+                        "identity": identity,
+                    }
+            return result
+
+        body = _json_or_empty(response)
+        name = body.get("name", "")
+        if call["step"] == "artifact_repo":
+            prefix = f"projects/{self._project}/locations/{self._region}/operations/"
+            base = "https://artifactregistry.googleapis.com/v1/"
+        elif call["step"] in {
+            "enable_services",
+            "generate_run_service_identity",
+            "generate_files_task_identity",
+            "generate_pubsub_service_identity",
+            "generate_scheduler_service_identity",
+        }:
+            prefix = "operations/"
+            version = "v1" if call["step"] == "enable_services" else "v1beta1"
+            base = f"https://serviceusage.googleapis.com/{version}/"
+        else:
+            return {"ok": False, "detail": "operation owner unsupported"}
+        if "name" in body and (
+            not isinstance(name, str)
+            or not name
+            or len(name) > 512
+            or not name.startswith(prefix)
+            or re.fullmatch(r"[A-Za-z0-9_.-]+", name.removeprefix(prefix)) is None
+            or name.removeprefix(prefix) in {".", ".."}
+        ):
+            return {"ok": False, "detail": "operation identity invalid"}
+        if body.get("done") is True:
+            return verdict(body, polls=0)
+        if (
+            not name
+            or ("done" in body and body["done"] is not False)
+            or "response" in body
+            or "error" in body
+        ):
+            return {"ok": False, "detail": "operation completion unavailable"}
+
+        deadline = self._clock() + _OPERATION_DEADLINE_SECONDS
+        polls = 0
+        while self._clock() < deadline:
+            self._sleep(_OPERATION_POLL_SECONDS)
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                break
+            polls += 1
+            request_timeout = min(60, remaining)
+            try:
+                poll = self._session.request(
+                    "GET",
+                    f"{base}{name}",
+                    headers=headers,
+                    params=None,
+                    data=None,
+                    timeout=request_timeout,
+                    allow_redirects=False,
+                )
+            except Exception:  # noqa: BLE001 -- provider diagnostics may contain credentials
+                return {"ok": False, "detail": "operation status unavailable"}
+            if getattr(poll, "status_code", 0) != 200:
+                return {"ok": False, "detail": "operation status unavailable"}
+            state = _json_or_empty(poll)
+            if state.get("name") != name:
+                return {"ok": False, "detail": "operation identity mismatch"}
+            if state.get("done") is True:
+                return verdict(state, polls=polls)
+            if (
+                ("done" in state and state["done"] is not False)
+                or "response" in state
+                or "error" in state
+            ):
+                return {"ok": False, "detail": "operation status invalid"}
+        return {"ok": False, "detail": "operation did not finish within the polling deadline"}
+
+    def _seed_secret_version(self, call: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+        """Put one random secret into the USER's Secret Manager, once and only once.
+
+        This is the pod's ``APP_SIGNING_KEY``. It cannot follow the log key's pattern of
+        being minted by the pod itself, because the application refuses to *import*
+        without it -- there is no moment when pod code is running and the key is absent.
+        So the bootstrap generates it, and the honest statement of the trade is: hushh's
+        process holds these bytes for the length of one HTTPS request and writes them
+        only into the user's own project. Nothing here persists them anywhere else, and
+        the rendered plan never contains them.
+
+        A re-run must NOT rotate it. This key signs consent tokens, grants, receipts and
+        the audit chain, so a silent second version would invalidate every receipt the
+        pod had already written. Existing versions are therefore checked first, and a
+        secret that already has one is a no-op rather than a fresh write.
+        """
+        import secrets  # noqa: PLC0415
+
+        listing = self._session.request(
+            "GET",
+            f"https://secretmanager.googleapis.com/v1/{call['secret']}/versions",
+            headers=headers,
+            params={"filter": "state:ENABLED"},
+            data=None,
+            timeout=60,
+        )
+        if getattr(listing, "status_code", 0) != 200:
+            return {
+                "step": call["step"],
+                "status": getattr(listing, "status_code", 0),
+                "ok": False,
+                "detail": (
+                    "could not check for an existing signing key. Refusing to add one: "
+                    "a second version would invalidate every receipt already written."
+                ),
+            }
+        if _json_or_empty(listing).get("versions"):
+            return {
+                "step": call["step"],
+                "status": 200,
+                "ok": True,
+                "detail": "signing key already present -- not rotated",
+            }
+
+        added = self._session.request(
+            "POST",
+            f"https://secretmanager.googleapis.com/v1/{call['secret']}:addVersion",
+            headers=headers,
+            params=None,
+            # A secret mounted as an env var must be UTF-8 TEXT. Secret Manager's
+            # `payload.data` is base64 only for transport, so sending
+            # b64(random_bytes) stores raw bytes as the value -- and Cloud Run refused
+            # the pod with "Secret ... contains non-UTF8 data. Instance startup will
+            # now abort." Generating printable material and transport-encoding THAT is
+            # the difference. 48 url-safe bytes render as 64 characters, comfortably
+            # past the 32 the app requires.
+            data=json.dumps(
+                {
+                    "payload": {
+                        "data": base64.b64encode(secrets.token_urlsafe(48).encode("ascii")).decode(
+                            "ascii"
+                        )
+                    }
+                }
+            ),
+            timeout=60,
+        )
+        code = getattr(added, "status_code", 0)
+        ok = code in (200, 201)
+        # Never echo the response body: on this one call it describes the secret.
+        return {
+            "step": call["step"],
+            "status": code,
+            "ok": ok,
+            "detail": "" if ok else "could not add the signing key version",
+        }
+
+    def _lookup_member(self, lookup: dict[str, Any], headers: dict[str, str]) -> str:
+        """Read a principal's address from the API that owns it, rather than build one.
+
+        Google's per-project service agents embed the project NUMBER, not its id, so the
+        address cannot be rendered at plan time from the id alone. Asking the service for
+        it is also what provisions the agent on a project that has never had one.
+        """
+        response = self._session.request(
+            "GET",
+            lookup["url"],
+            headers=headers,
+            params=None,
+            data=None,
+            timeout=60,
+            allow_redirects=False,
+        )
+        if getattr(response, "status_code", 0) != 200:
+            logger.warning(
+                "byoc_bootstrap.member_lookup_failed status=%s",
+                getattr(response, "status_code", 0),
+            )
+            return ""
+        body = _json_or_empty(response)
+        value = str(body.get(lookup["field"]) or "")
+        if (
+            lookup["url"]
+            == f"https://cloudresourcemanager.googleapis.com/v1/projects/{self._project}"
+            and lookup["field"] == "projectNumber"
+            and body.get("projectId") == self._project
+            and isinstance(body.get("projectNumber"), str)
+            and value.isascii()
+            and value.isdigit()
+            and 1 <= len(value) <= 20
+            and int(value) > 0
+        ):
+            self._project_number = value
+        if not value:
+            return ""
+        # Two shapes: a simple PREFIX (the GCS agent, whose email the storage API returns
+        # whole) or a MEMBER_TEMPLATE that weaves the looked-up value into an address the
+        # API does not hand back. The Cloud Run service agent is the latter: the API gives
+        # the project NUMBER, and the agent's address is
+        # service-<number>@serverless-robot-prod, which no endpoint returns directly.
+        template = lookup.get("member_template")
+        if template:
+            return template.format(value=value)
+        return f"{lookup.get('prefix', '')}{value}"
+
+    def _bucket_is_ours(self, call: dict[str, Any], headers: dict[str, str]) -> bool:
+        """After a 409, does that bucket actually live in THIS project?
+
+        Read rather than assumed, because the alternative is silently adopting a
+        stranger's bucket name and discovering it at the pod's first write.
+        """
+        name = str((call.get("body") or {}).get("name") or "")
+        if not name:
+            return False
+        # Ask which buckets THIS project has and look for the name, rather than reading
+        # the bucket and trying to infer ownership from its fields. A bucket GET returns
+        # a project NUMBER, not an id, so inferring would mean a second lookup and a
+        # comparison that is easy to get subtly wrong; listing answers the actual
+        # question directly. Conservative by construction: anything we cannot see in
+        # this project's own listing is treated as somebody else's.
+        listing = self._session.request(
+            "GET",
+            "https://storage.googleapis.com/storage/v1/b",
+            headers=headers,
+            params={"project": self._project, "prefix": name},
+            data=None,
+            timeout=60,
+        )
+        if getattr(listing, "status_code", 0) != 200:
+            return False
+        return any(str(item.get("name")) == name for item in (listing.json().get("items") or []))
+
+    def _merge_binding(self, call: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+        """Read the policy, add our binding, write it back. Never overwrite.
+
+        `safe-changes` R3: add a binding, never set a policy. The etag is carried through
+        so a concurrent edit fails the write instead of silently winning.
+        """
+        bindings = call["bindings"]
+        if call.get("member_lookup"):
+            resolved = self._lookup_member(call["member_lookup"], headers)
+            if not resolved:
+                return {
+                    "step": call["step"],
+                    "status": 0,
+                    "ok": False,
+                    "detail": (
+                        "could not resolve the principal to bind. Refusing rather than "
+                        "guessing an address: a binding written to the wrong member is "
+                        "an access grant nobody asked for."
+                    ),
+                }
+            bindings = [{**b, "members": [*b["members"], resolved]} for b in bindings]
+
+        read = self._session.request(
+            call.get("read_method", "GET"),
+            call["read_url"],
+            headers=headers,
+            params=None,
+            data=json.dumps(
+                call["read_body"]
+                if "read_body" in call
+                else {"options": {"requestedPolicyVersion": 3}}
+            )
+            if call.get("read_method") == "POST"
+            else None,
+            timeout=60,
+        )
+        if getattr(read, "status_code", 0) != 200:
+            return {
+                "step": call["step"],
+                "status": getattr(read, "status_code", 0),
+                "ok": False,
+                "detail": "could not read the policy to merge into",
+            }
+
+        policy = dict(read.json() or {})
+        existing = list(policy.get("bindings") or [])
+
+        def observations(after: Any) -> list[dict[str, str]]:
+            from hushh_mcp.services.byoc_substrate import _binding_observation
+
+            if not isinstance(after, dict) or not isinstance(after.get("bindings"), list):
+                return []
+            if after.get("error") is not None or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("role"), str)
+                or not isinstance(item.get("members"), list)
+                or any(not isinstance(member, str) for member in item["members"])
+                for item in after["bindings"]
+            ):
+                return []
+            result = []
+            for wanted in bindings:
+                if wanted.get("condition") is not None:
+                    continue
+                for member in wanted["members"]:
+                    single = {"role": wanted["role"], "members": [member]}
+                    if not _bindings_equal(after["bindings"], [single]):
+                        continue
+                    item = _binding_observation(
+                        {
+                            "step": call["step"],
+                            "policyResource": call["read_url"],
+                            "role": wanted["role"],
+                            "member": member,
+                            "disposition": "already_present"
+                            if _bindings_equal(existing, [single])
+                            else "added",
+                            "beforeEtag": policy.get("etag"),
+                            "afterEtag": after.get("etag"),
+                        }
+                    )
+                    if item is not None:
+                        result.append(item)
+            return result
+
+        if _bindings_equal(existing, bindings):
+            # Already granted. Reporting this as a no-op keeps a re-run honest rather
+            # than writing an identical policy and calling it a change.
+            return {
+                "step": call["step"],
+                "status": 200,
+                "ok": True,
+                "detail": "already bound",
+                "bindingObservations": observations(policy),
+            }
+
+        merged = [dict(b) for b in existing]
+        for wanted in bindings:
+            match = next(
+                (
+                    b
+                    for b in merged
+                    if b.get("role") == wanted["role"]
+                    and b.get("condition") == wanted.get("condition")
+                ),
+                None,
+            )
+            if match is None:
+                merged.append({**wanted, "members": list(wanted["members"])})
+                continue
+            members = list(match.get("members") or [])
+            for member in wanted["members"]:
+                if member not in members:
+                    members.append(member)
+            match["members"] = members
+
+        policy["bindings"] = merged
+        envelope = call.get("policy_envelope") or ""
+        body = {envelope: policy} if envelope else policy
+        write = self._session.request(
+            call.get("write_method", "POST"),
+            call["write_url"],
+            headers=headers,
+            params=None,
+            data=json.dumps(body),
+            timeout=120,
+        )
+        code = getattr(write, "status_code", 0)
+        ok = code in (200, 201)
+        logger.info(
+            "byoc_bootstrap.merge_binding step=%s status=%s ok=%s existing=%d",
+            call["step"],
+            code,
+            ok,
+            len(existing),
+        )
+        return {
+            "step": call["step"],
+            "status": code,
+            "ok": ok,
+            "detail": "" if ok else "IAM policy write failed",
+            "preserved_bindings": len(existing),
+            "bindingObservations": observations(_json_or_empty(write)) if ok else [],
+        }
+
+
+def _json_or_empty(response: Any) -> dict[str, Any]:
+    """A body we could not parse is not a completed operation. Treat it as empty."""
+    try:
+        parsed = response.json()
+    except Exception:  # noqa: BLE001 -- any parse failure means "no usable body"
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _operation_verdict(state: dict[str, Any], *, polls: int) -> dict[str, Any]:
+    """``done: true`` alone is not success -- a failed operation is also done."""
+    if "error" in state:
+        return {"ok": False, "detail": "operation finished with an error"}
+    if state.get("done") is not True or not isinstance(state.get("response"), dict):
+        return {"ok": False, "detail": "operation completion unavailable"}
+    return {"ok": True, "detail": f"operation completed after {polls} poll(s)"}
+
+
+def _bindings_equal(existing: list, wanted: list) -> bool:
+    """Check role, condition and members; a conditional grant is a distinct binding."""
+    return all(
+        set(binding["members"]).issubset(
+            {
+                member
+                for present in existing
+                if present.get("role") == binding["role"]
+                and present.get("condition") == binding.get("condition")
+                for member in (present.get("members") or [])
+            }
+        )
+        for binding in wanted
+    )
+
+
+def authorization_request(
+    *, project: str, bootstrap_sa: str, consent_plane_sa: str, files_enabled: bool = False
+) -> dict[str, Any]:
+    """Exactly what to ask a user to run once, stated so they can audit it.
+
+    Deliberately a data structure rather than a prose paragraph: a person handing a
+    cloud project to a vendor deserves to see the complete list of what that vendor
+    will be able to do, not a summary of it.
+    """
+    return {
+        "project": project,
+        "creates": {
+            "service_account": bootstrap_sa,
+            "purpose": "a bootstrap identity hushh may briefly borrow — never hushh's own",
+        },
+        "grants_to_bootstrap_sa": [
+            {"role": role, "why": why, "scope": f"project {project}"}
+            for role, why in bootstrap_permissions(files_enabled=files_enabled)[0]
+        ],
+        "grants_to_hushh": [
+            {
+                "member": f"serviceAccount:{consent_plane_sa}",
+                "role": "roles/iam.serviceAccountTokenCreator",
+                "on": bootstrap_sa,
+                "why": (
+                    "lets hushh mint a 15-minute token for THAT ONE account. Not a project "
+                    "role, not a key, and revocable by deleting this single binding."
+                ),
+            }
+        ],
+        "hushh_never_receives": [
+            "a service-account key file",
+            "a project-level role",
+            "the KMS key material, or the data key it wraps",
+            "read access to the pod's bucket contents",
+        ],
+        "revocation": (
+            f"Remove the serviceAccountTokenCreator binding on {bootstrap_sa}, or delete that "
+            "service account. hushh loses the ability to change anything in this project "
+            "immediately; the pod keeps running on its own identity until you delete it."
+        ),
+    }
+
+
+def render_authorization_script(
+    *,
+    project: str,
+    bootstrap_sa: str,
+    hushh_caller: str,
+    bootstrap_sa_id: str = "one-bootstrap",
+    files_enabled: bool = False,
+) -> str:
+    """The script a person runs in their own cloud, GENERATED from what the applier binds.
+
+    There is a checked-in copy at `deploy/iam/authorize_byoc_project.sh`, and the UI used
+    to tell people to run it by that path -- a path that exists only in this repository.
+    Whenever the one-click OAuth route was unavailable or refused, the journey dead-ended
+    on an instruction nobody outside the team could follow.
+
+    SERVING THAT FILE WOULD NOT HAVE WORKED EITHER
+
+    `deploy/` is at the REPO ROOT and the backend image's build context is
+    `consent-protocol` (deploy/backend.cloudbuild.yaml stages `contracts` in precisely
+    because of this). So the file is not in the image, and reading it at runtime would
+    have 500'd in production while passing every local test -- the same "resolve a path
+    that does not exist in the image" failure that comment warns about.
+
+    So it is rendered from BOOTSTRAP_ROLES and REQUIRED_SERVICES instead. That removes
+    the hand-kept mirror as a category: the script cannot list a role the applier does
+    not bind, because it is the same tuple.
+
+    NOT a curl-pipe-bash one-liner, deliberately. This product's whole claim is that a
+    person can see what happens in their own cloud; asking them to execute something
+    unread would contradict the thing being asked for. It is written to be read first.
+    """
+    selected_roles, selected_services = bootstrap_permissions(files_enabled=files_enabled)
+    roles = "\n".join(f'  "{role}"  # {why}' for role, why in selected_roles)
+    services = "\n".join(f'  "{svc}"' for svc in selected_services)
+    return f"""#!/usr/bin/env bash
+# Authorize hussh to build your private agent pod INSIDE YOUR OWN GCP PROJECT.
+#
+# You run this. hussh does not, and cannot -- every command below acts on a project
+# only you administer. Read it before you run it; that is the point of handing it to
+# you as a script rather than a button.
+#
+# WHAT YOU ARE GRANTING
+#
+# One permission -- roles/iam.serviceAccountTokenCreator -- held by ONE named hussh
+# identity, on ONE service account in your project. That lets hussh ask Google for a
+# token that acts as that account and expires in 900 seconds. It is minted fresh every
+# time; hussh stores nothing between windows.
+#
+# WHAT THIS DELIBERATELY DOES NOT DO
+#
+# It never creates a service-account key, and you should never send hussh one. A key is
+# a bearer credential with no expiry: whoever holds it is you, until somebody remembers
+# to revoke it. This design exists to avoid that.
+#
+# HOW TO TAKE IT BACK
+#
+#   gcloud iam service-accounts remove-iam-policy-binding \\
+#     "{bootstrap_sa}" \\
+#     --project="{project}" \\
+#     --role=roles/iam.serviceAccountTokenCreator \\
+#     --member="serviceAccount:{hushh_caller}"
+#
+# That ends FUTURE access. Be precise about the window: a token already minted lives out
+# its remaining 900 seconds, because Google does not revoke issued access tokens. So the
+# honest guarantee is "no new authority, and at most 15 more minutes of the old".
+
+set -euo pipefail
+
+PROJECT_ID="{project}"
+HUSHH_CALLER="{hushh_caller}"
+BOOTSTRAP_SA="{bootstrap_sa}"
+
+command -v gcloud >/dev/null 2>&1 || {{ echo "gcloud is required." >&2; exit 1; }}
+gcloud projects describe "$PROJECT_ID" >/dev/null
+
+# Read this list honestly: these are ADMIN-class roles. During each 900-second window the
+# borrowed identity could read your bucket's objects (storage.admin) and your secret
+# payloads (secretmanager.admin).
+#
+# What protects you is not the role list. It is two things: hussh holds no standing
+# credential, so between windows there is nothing to use; and your pod mints and wraps its
+# OWN data-encryption key, which this account deliberately cannot decrypt -- so the
+# bucket's contents are ciphertext hussh cannot read even while holding storage.admin.
+readonly -a BOOTSTRAP_ROLES=(
+{roles}
+)
+
+readonly -a REQUIRED_SERVICES=(
+{services}
+)
+
+echo "Authorizing hussh to build a pod in $PROJECT_ID"
+echo "  bootstrap account : $BOOTSTRAP_SA"
+echo "  hussh caller      : $HUSHH_CALLER"
+
+# 1. The account hussh acts AS. It lives in your project and you can delete it.
+if ! gcloud iam service-accounts describe "$BOOTSTRAP_SA" --project="$PROJECT_ID" >/dev/null 2>&1; then
+  gcloud iam service-accounts create "{bootstrap_sa_id}" \\
+    --project="$PROJECT_ID" \\
+    --display-name="hussh Agent One bootstrap" \\
+    --description="Creates this project's private agent pod. Held by you; hussh only borrows it, 900 seconds at a time."
+fi
+
+# 2. The APIs. Enabling one is idempotent and changes nothing else.
+gcloud services enable "${{REQUIRED_SERVICES[@]}}" --project="$PROJECT_ID"
+
+# 3. What the bootstrap account may do, inside your project only.
+for role in "${{BOOTSTRAP_ROLES[@]}}"; do
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \\
+    --role="$role" --member="serviceAccount:$BOOTSTRAP_SA" \\
+    --condition=None --quiet --format=none
+done
+
+# 4. THE grant. One permission, one hussh identity, one account. The revoke command at
+#    the top of this file undoes exactly this line.
+gcloud iam service-accounts add-iam-policy-binding "$BOOTSTRAP_SA" \\
+  --project="$PROJECT_ID" \\
+  --role="roles/iam.serviceAccountTokenCreator" \\
+  --member="serviceAccount:$HUSHH_CALLER" \\
+  --quiet --format=none
+
+# 5. Read it back. Asking gcloud to bind a role is not evidence the role is bound, and a
+#    half-authorized project fails several steps into provisioning with an error that
+#    names none of this.
+if ! gcloud iam service-accounts get-iam-policy "$BOOTSTRAP_SA" \\
+  --project="$PROJECT_ID" --format=json | grep -q "serviceAccount:$HUSHH_CALLER"; then
+  echo "The token-creator grant did not land. hussh still cannot act." >&2
+  exit 1
+fi
+
+# 6. No key exists. Asserted rather than assumed, because somebody creating one "just to
+#    make it work" is the failure this whole file argues against.
+key_count="$(gcloud iam service-accounts keys list --iam-account="$BOOTSTRAP_SA" \\
+  --project="$PROJECT_ID" --managed-by=user --format='value(name)' | wc -l | tr -d ' ')"
+if [[ "$key_count" != "0" ]]; then
+  echo "WARNING: $key_count user-managed key(s) exist on $BOOTSTRAP_SA." >&2
+  echo "hussh does not need one and will never ask for one. Delete them." >&2
+  exit 1
+fi
+
+echo
+echo "Done. $PROJECT_ID is authorized."
+echo "  ${{#REQUIRED_SERVICES[@]}} APIs enabled, ${{#BOOTSTRAP_ROLES[@]}} roles bound, 1 token-creator grant"
+echo "  0 service-account keys exist, which is the point"
+echo
+echo "Go back to hussh and confirm your project. Revoke any time with the command at the top."
+"""
+
+
+__all__ = [
+    "BOOTSTRAP_ROLES",
+    "render_authorization_script",
+    "BootstrapError",
+    "LivenessVerdict",
+    "UserGcpBootstrap",
+    "authorization_request",
+    "mint_bootstrap_token",
+    "probe_project_liveness",
+]

@@ -20,8 +20,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_vault_owner_token as require_vault_owner_token
 from hushh_mcp.services.kai_chat_service import KaiChatResponse, get_kai_chat_service
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class ConversationHistoryResponse(BaseModel):
 @router.post("/chat", response_model=KaiChatResponseModel)
 async def kai_chat(
     request: KaiChatRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> KaiChatResponseModel:
     """
     Main conversational endpoint for Kai.
@@ -142,7 +143,7 @@ async def kai_chat(
 @router.get("/chat/history/{conversation_id}", response_model=ConversationHistoryResponse)
 async def get_conversation_history(
     conversation_id: str = Path(..., max_length=128),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
     limit: int = Query(default=50, ge=1, le=500),
 ) -> ConversationHistoryResponse:
     """
@@ -173,7 +174,7 @@ async def get_conversation_history(
 @router.get("/chat/conversations/{user_id}")
 async def list_user_conversations(
     user_id: str = Path(..., min_length=1, max_length=128),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0, le=10_000),
 ) -> dict:
@@ -227,7 +228,7 @@ class InitialChatStateResponse(BaseModel):
 @router.get("/chat/initial-state/{user_id}", response_model=InitialChatStateResponse)
 async def get_initial_chat_state(
     user_id: str,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> InitialChatStateResponse:
     """
     Get initial chat state for a user - determines proactive welcome message.
@@ -309,7 +310,7 @@ class AnalyzeLoserResponse(BaseModel):
 @router.post("/chat/analyze-loser", response_model=AnalyzeLoserResponse)
 async def analyze_portfolio_loser(
     request: AnalyzeLoserRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> AnalyzeLoserResponse:
     """
     Analyze a specific portfolio loser and return a compact analysis.

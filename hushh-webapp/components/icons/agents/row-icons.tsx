@@ -6,15 +6,18 @@ import {
   ArrowsClockwise,
   ArrowsCounterClockwise,
   Broadcast,
+  Buildings,
   ChatCircle,
   ChatCircleText,
   CheckCircle,
   CircleHalf,
   ClipboardText,
+  Cloud,
   Ear,
   Eye,
   FolderSimple,
   HourglassMedium,
+  House,
   Key,
   Keyhole,
   LinkBreak,
@@ -133,6 +136,11 @@ export const FolderRowIcon = createRowIcon(FolderSimple, ROW_TONE.indigo, "Folde
 export const PreviewRowIcon = createRowIcon(Eye, ROW_TONE.sky, "PreviewRowIcon");
 export const EditRowIcon = createRowIcon(PencilSimple, ROW_TONE.cobalt, "EditRowIcon");
 
+// Where the agent lives: one building shared with others, the person's own
+// cloud, or a home of its own that Hussh runs.
+export const SharedHostingRowIcon = createRowIcon(Buildings, ROW_TONE.indigo, "SharedHostingRowIcon");
+export const OwnCloudRowIcon = createRowIcon(Cloud, ROW_TONE.sky, "OwnCloudRowIcon");
+export const DedicatedHostingRowIcon = createRowIcon(House, ROW_TONE.emerald, "DedicatedHostingRowIcon");
 // How One writes to the owner (Preferences)
 export const PreferredNameRowIcon = createRowIcon(UserCircle, ROW_TONE.cobalt, "PreferredNameRowIcon");
 export const ToneRowIcon = createRowIcon(ChatCircleText, ROW_TONE.purple, "ToneRowIcon");

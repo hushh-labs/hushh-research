@@ -17,6 +17,7 @@ describe("SpecialistDirectiveCard while busy", () => {
     render(
       <SpecialistDirectiveCard
         summary="Connect Google Calendar"
+        brand="calendar"
         confirmLabel="Connect Calendar"
         busy
         busyLabel="Waiting for Google…"
@@ -26,6 +27,7 @@ describe("SpecialistDirectiveCard while busy", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Waiting for Google…" })).toBeDisabled();
+    expect(screen.getByTestId("specialist-directive-card").querySelector('img[data-connector-brand="calendar"]')).toHaveAttribute("src", "/icons/connectors/calendar.svg");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });

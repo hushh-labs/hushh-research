@@ -2,7 +2,7 @@
 
 import { CommandAgentBar } from "@/components/agent/command-agent-bar";
 import { OneVoiceControl } from "@/components/one-voice/one-voice-control";
-import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
+import { useOneVoiceLiveEnabled, useOneVoiceReadiness, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
 
 /**
  * The persistent agent launcher. One stable entry point, two owners: the
@@ -11,6 +11,8 @@ import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
  */
 export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const live = useOneVoiceLiveEnabled();
+  const readiness = useOneVoiceReadiness();
+  const commands = useOneVoiceCommandsEnabled();
   if (live) return <OneVoiceControl layout={layout} />;
-  return <CommandAgentBar layout={layout} />;
+  return <CommandAgentBar layout={layout} unavailableLabel={commands ? undefined : readiness.status === "unknown" && readiness.microphoneOwner !== "none" ? "Checking voice connection…" : "Voice unavailable — check Hosting settings"} />;
 }

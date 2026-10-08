@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from hushh_mcp.services.chat_key import CHAT_KEY_HEADER
+from hushh_mcp.services.pod_platform import pod_service_name
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ def _environment() -> str:
 
 
 def _service_name() -> str:
-    return str(os.getenv("K_SERVICE") or os.getenv("SERVICE_NAME") or "consent-protocol")
+    return str(pod_service_name() or os.getenv("SERVICE_NAME") or "consent-protocol")
 
 
 def _is_expected_status(method: str, route_template: str, status_code: int) -> bool:

@@ -6,9 +6,8 @@ import { describe, expect, it } from "vitest";
 /**
  * The words the agent is forbidden to say, applied to the words the app shows.
  *
- * `agent.yaml` binds the MODEL's speech: never say scope, consent lifecycle,
- * connector, domain, field or attribute to the owner. Nothing bound the React
- * chrome, so the chrome said all of it one line after the model obeyed --
+ * `agent.yaml` binds the MODEL's speech to everyday words for the owner.
+ * Nothing bound the React chrome, so it said all of it after the model obeyed --
  * "Consent review" as a heading, "14 fields" as a summary, the raw domain key
  * printed beside every row, and a bare `attr.*` string dropped into a sentence.
  * The rule existed and only half the product followed it.
@@ -153,8 +152,9 @@ function surfaceText(surface: Surface, source: string): string {
 
 function bannedWords(): string[] {
   const yaml = readFileSync(AGENT_YAML, "utf8");
-  // "Never say scope, consent lifecycle, connector, domain, field, or attribute"
-  const match = yaml.match(/Never say ([^:]+?) to the owner/s);
+  // Match the authored owner-vocabulary rule, not older wording of that rule.
+  // Stop at its sentence boundary so later agent instructions are not scanned.
+  const match = yaml.match(/Use everyday words to the owner, never ([^.]+)\./);
   if (!match?.[1]) return [];
   return match[1]
     .replace(/\s+/g, " ")
@@ -258,6 +258,9 @@ describe("owner-facing consent vocabulary", () => {
     expect(banned.length).toBeGreaterThan(3);
     expect(banned).toContain("scope");
     expect(banned).toContain("connector");
+    expect(banned).toContain("grant");
+    expect(banned).toContain("path");
+    expect(banned).toContain("handle");
   });
 
   it("catches a banned word in every shape of owner-facing text", () => {

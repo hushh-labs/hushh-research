@@ -4,11 +4,16 @@ import argparse
 import importlib.util
 import json
 import os
+import re
+import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from hushh_mcp import runtime_settings
+from tests._deploy_contract import backend_deploy_surface
 
 SYNC_SCRIPT = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
 
@@ -142,18 +147,23 @@ def test_production_workflow_pins_client_flag_off():
 
 
 def test_uat_cloud_run_binds_launch_pepper_only_as_optional_secret():
-    cloudbuild = (
-        Path(__file__).resolve().parents[2] / "deploy/backend.cloudbuild.yaml"
-    ).read_text()
+    # The deploy body lives in scripts/deploy/backend-deploy.sh (extracted from the
+    # cloudbuild for Cloud Build's 10,000-char step-arg cap), and this repo names the
+    # secret-binding helper append_optional_secret. Read the whole deploy surface.
+    cloudbuild = backend_deploy_surface()
     workflow = (
         Path(__file__).resolve().parents[2] / ".github/workflows/deploy-uat.yml"
     ).read_text()
     assert (
-        'add_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"' in cloudbuild
+        'append_optional_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"'
+        in cloudbuild
     )
     assert "_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER" in workflow
     assert "HUSSH_TECH_LAUNCH_PEPPER=" not in workflow
-    assert 'add_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"' in cloudbuild
+    assert (
+        'append_optional_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"'
+        in cloudbuild
+    )
     assert "_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI" in workflow
     assert "RATE_LIMIT_STORAGE_URI=" not in workflow
     assert 'cmd+=("--vpc-connector=${_VPC_CONNECTOR}"' in cloudbuild
@@ -162,10 +172,6 @@ def test_uat_cloud_run_binds_launch_pepper_only_as_optional_secret():
     assert "_HUSHH_TECH_PROXY_AUDIENCE=${{ env.CONSENT_API_RUNTIME_ORIGIN }}" in workflow
     assert (
         "_FRONTEND_RUNTIME_SERVICE_ACCOUNT=${{ env.FRONTEND_RUNTIME_SERVICE_ACCOUNT }}" in workflow
-    )
-    assert (
-        "RATE_LIMIT_STORAGE_URI=${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
-        in (Path(__file__).resolve().parents[2] / "deploy/frontend.cloudbuild.yaml").read_text()
     )
 
 
@@ -270,3 +276,91 @@ def test_production_pins_mail_part_two_switches_off_and_uat_turns_them_on(key, _
     flag = "--" + key.replace("_", "-")
     assert f'{flag} "false"' in production
     assert f"{flag} \"${{{{ vars.{key.upper()}_UAT || 'true' }}}}\"" in uat
+
+
+@pytest.mark.parametrize(
+    "prefix,missing",
+    [("", False), ("SCOPE_COMMERCE_SANDBOX_", False), ("SCOPE_COMMERCE_SANDBOX_", True)],
+)
+def test_frontend_rate_limit_binding_uses_only_selected_namespace(tmp_path, prefix, missing):
+    root = Path(__file__).resolve().parents[2]
+    config = yaml.safe_load((root / "deploy/frontend.cloudbuild.yaml").read_text())
+    step = next(step for step in config["steps"] if step["id"] == "deploy-frontend")
+    block = (
+        step["args"][-1]
+        .split('if [[ -n "${_RATE_LIMIT_STORAGE_URI_SECRET}" ]]; then', 1)[1]
+        .split("\nfi", 1)[0]
+    )
+    block = 'if [[ -n "${_RATE_LIMIT_STORAGE_URI_SECRET}" ]]; then' + block + "\nfi"
+    block = block.replace("${_SECRET_PREFIX}", prefix).replace(
+        "${_RATE_LIMIT_STORAGE_URI_SECRET}", "RATE_LIMIT_STORAGE_URI"
+    )
+    trace = tmp_path / "calls"
+    script = 'gcloud() { printf "%s\\n" "$*" >> "$CALLS"; return "$RESULT"; }; secrets=base;\n'
+    result = subprocess.run(  # noqa: S603 - actual deployment binding with hermetic cloud function
+        ["bash", "-eu", "-c", script + block + '\nprintf "%s" "$secrets"'],
+        env={
+            **os.environ,
+            "PROJECT_ID": "synthetic",
+            "CALLS": str(trace),
+            "RESULT": "1" if missing else "0",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == (1 if missing else 0)
+    assert trace.read_text().splitlines() == [
+        f"secrets describe {prefix}RATE_LIMIT_STORAGE_URI --project=synthetic"
+    ]
+    if not missing:
+        assert result.stdout == f"base,RATE_LIMIT_STORAGE_URI={prefix}RATE_LIMIT_STORAGE_URI:latest"
+
+
+def test_runtime_binding_gate_accepts_selected_namespace_and_rejects_missing_or_wrong_sources(
+    tmp_path,
+):
+    root = Path(__file__).resolve().parents[2]
+    gate = (root / "scripts/ci/runtime-contract-check.sh").read_text()
+    match = re.search(r"(?ms)^has_frontend_secret_binding\(\) \{.*?^\}", gate)
+    assert match is not None
+    fixture = tmp_path / "frontend.cloudbuild.yaml"
+    original = (root / "deploy/frontend.cloudbuild.yaml").read_text()
+    required = {
+        "BACKEND_URL": "BACKEND_URL",
+        "DEVELOPER_API_URL": "BACKEND_URL",
+        "APPLE_TEAM_ID": "APPLE_TEAM_ID",
+        "NEXT_PUBLIC_IOS_BUNDLE_ID": "NEXT_PUBLIC_IOS_BUNDLE_ID",
+        "NEXT_PUBLIC_ANDROID_APP_ID": "NEXT_PUBLIC_ANDROID_APP_ID",
+        "ANDROID_SHA256_CERT_FINGERPRINTS": "ANDROID_SHA256_CERT_FINGERPRINTS",
+    }
+
+    def admitted(source, target, secret):
+        fixture.write_text(source)
+        script = (
+            f"frontend_cloudbuild={shlex.quote(str(fixture))}\n"
+            + match.group()
+            + f"\nhas_frontend_secret_binding {shlex.quote(target)} {shlex.quote(secret)}"
+        )
+        return (
+            subprocess.run(  # noqa: S603 - real gate predicate, synthetic source fixture
+                ["bash", "-eu", "-c", script],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            ).returncode
+            == 0
+        )
+
+    for target, secret in required.items():
+        assert admitted(original, target, secret)
+        assert admitted(original.replace("${_SECRET_PREFIX}", ""), target, secret)
+        binding = f"{target}=${{_SECRET_PREFIX}}{secret}:latest"
+        assert not admitted(original.replace(binding, ""), target, secret)
+        assert not admitted(
+            original.replace(binding, f"{target}=OTHER_SECRET:latest"), target, secret
+        )
+        assert not admitted(
+            original.replace(binding, f"{target}=${{_OTHER_PREFIX}}{secret}:latest"), target, secret
+        )

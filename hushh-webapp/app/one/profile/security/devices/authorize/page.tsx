@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "@/components/icons";
 import { DevicesProfileIcon, SecurityProfileIcon } from "@/components/icons/agents";
@@ -8,6 +8,12 @@ import { DevicesProfileIcon, SecurityProfileIcon } from "@/components/icons/agen
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
+import {
+  DEVICE_SETUP_MESSAGE,
+  devicePrerequisiteCallback,
+  useDeviceAuthorizationReadiness,
+} from "@/lib/trusted-device/authorization-readiness";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
@@ -20,9 +26,36 @@ function requiredParam(
   return (params.get(name) || "").trim();
 }
 
+function trustedDeviceEnvironment(
+  hostname: string,
+): "dev" | "uat" | "production" {
+  const normalized = hostname.trim().toLowerCase();
+  if (normalized === "one.hushh.ai") return "production";
+  if (normalized === "dev.one.hushh.ai") return "dev";
+  return "uat";
+}
+
+function authorizationErrorMessage(payload: unknown): string {
+  const code =
+    typeof payload === "object" && payload !== null && "detail" in payload
+      ? (payload as { detail?: { code?: unknown } }).detail?.code
+      : undefined;
+  if (code === "TRUSTED_DEVICE_DISABLED") {
+    return "Device approval is not available right now.";
+  }
+  return "We couldn’t approve this device. Try again.";
+}
+
 export default function TrustedDeviceAuthorizePage() {
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, loading, sessionVerificationRequired } = useAuth();
+  const readiness = useDeviceAuthorizationReadiness(
+    user?.uid ?? null,
+    loading,
+    sessionVerificationRequired,
+  );
+  const returnedAttempt = useRef<string | null>(null);
+  useSessionChromeSuppression(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const request = useMemo(
@@ -52,17 +85,64 @@ export default function TrustedDeviceAuthorizePage() {
     request.state,
   ].every(Boolean);
 
+  useEffect(() => {
+    if (
+      !complete ||
+      (readiness !== "login_required" && readiness !== "account_setup_required")
+    )
+      return;
+    const callback = devicePrerequisiteCallback(
+      request.redirect_uri,
+      request.state,
+      readiness,
+    );
+    if (!callback || returnedAttempt.current === callback) return;
+    returnedAttempt.current = callback;
+    assignWindowLocation(callback);
+  }, [complete, readiness, request.redirect_uri, request.state]);
+
+  if (readiness !== "ready") {
+    const prerequisite =
+      readiness === "login_required" || readiness === "account_setup_required";
+    return (
+      <main className="mx-auto flex min-h-[70vh] max-w-xl items-center px-6 py-12">
+        <section
+          className="w-full rounded-3xl border bg-card p-8 shadow-sm"
+          role="status"
+        >
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {prerequisite
+              ? "Set up One before connecting"
+              : readiness === "checking"
+                ? "Checking your account…"
+                : "Couldn’t verify your account"}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {prerequisite
+              ? DEVICE_SETUP_MESSAGE
+              : readiness === "checking"
+                ? "Checking sign-in and account setup."
+                : "No device was approved. Return to Puppy One and try again."}
+          </p>
+          {prerequisite ? (
+            <a className="mt-6 inline-block underline" href={ROUTES.LOGIN}>
+              Sign in to One
+            </a>
+          ) : null}
+        </section>
+      </main>
+    );
+  }
+
   async function approve() {
-    if (!user || !complete || submitting) return;
+    if (!user || readiness !== "ready" || !complete || submitting) return;
     setSubmitting(true);
     setError("");
     try {
       const response = await ApiService.authorizeTrustedDevice(request);
       const payload = await response.json();
       if (!response.ok || typeof payload.redirect_url !== "string") {
-        throw new Error(
-          payload?.detail?.message || "This device could not be authorized.",
-        );
+        throw new Error(authorizationErrorMessage(payload));
       }
       const handoffPublicKey =
         typeof payload.vault_handoff_public_key === "string"
@@ -78,10 +158,7 @@ export default function TrustedDeviceAuthorizePage() {
             expiresAt: Number(payload.expires_at || 0),
             recipientPublicKey: handoffPublicKey,
             hostname: window.location.hostname,
-            environment:
-              window.location.hostname === "one.hushh.ai"
-                ? "production"
-                : "uat",
+            environment: trustedDeviceEnvironment(window.location.hostname),
           });
           if (handoff) {
             const attachResponse =
@@ -130,12 +207,7 @@ export default function TrustedDeviceAuthorizePage() {
           Connect this Hermes device
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Approve this private computer as an extension of One. The vault
-          passphrase remains local to Hermes and is never sent to Hussh. When
-          this browser can use an existing One passkey, Touch ID can secure the
-          device without asking for the passphrase again. Each signed device
-          proof can issue a short-lived vault-owner capability for protected
-          actions, including confirmed PKM writes.
+          Approve this computer to use One. Your passphrase stays on Hermes.
         </p>
 
         <dl className="mt-6 rounded-2xl bg-muted/50 p-4 text-sm">
@@ -154,7 +226,7 @@ export default function TrustedDeviceAuthorizePage() {
           <div className="mt-2 flex justify-between gap-4">
             <dt className="text-muted-foreground">Access</dt>
             <dd className="text-right font-medium">
-              Trusted until revoked; short-lived action capabilities
+              Trusted until you revoke it
             </dd>
           </div>
         </dl>
@@ -164,10 +236,7 @@ export default function TrustedDeviceAuthorizePage() {
             className="mt-0.5 size-4 shrink-0"
             aria-hidden
           />
-          <p>
-            You can revoke this device at any time from Profile → Security →
-            Devices.
-          </p>
+          <p>You can revoke it anytime in Profile → Security → Devices.</p>
         </div>
 
         {error ? (
@@ -175,8 +244,7 @@ export default function TrustedDeviceAuthorizePage() {
         ) : null}
         {!complete ? (
           <p className="mt-5 text-sm text-destructive">
-            The Hermes authorization request is incomplete. Return to Hermes and
-            try again.
+            This approval link is incomplete. Return to Hermes and try again.
           </p>
         ) : null}
 

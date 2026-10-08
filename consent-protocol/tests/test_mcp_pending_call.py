@@ -330,3 +330,32 @@ async def test_a_storage_failure_while_discarding_never_breaks_the_turn(monkeypa
     monkeypatch.setattr(mcp_pending_call, "get_db", lambda: SimpleNamespace(execute_raw=fail))
     async with mcp_pending_call.pending_resume_scope(approval_reference(handle)):
         pass  # completes; the record simply lapses on its own
+
+
+async def test_private_pending_scope_keeps_arguments_local_and_never_uses_sql(monkeypatch):
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("Private arguments reached shared SQL")
+
+    monkeypatch.setattr(mcp_pending_call, "_execute", forbidden)
+    with mcp_pending_call.private_pending_call_scope():
+        handle = await capture_pending_call(context(), tool_name=TOOL, arguments={"q": "private"})
+        pending = await pending_call_details(session(), handle)
+        assert pending["arguments"] == {"q": "private"}
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await pending_call_details(session(user="other"), handle)
+        await mcp_pending_call.discard_pending_call(owner="other", thread="thread", handle=handle)
+        assert (await pending_call_details(session(), handle))["arguments"] == {"q": "private"}
+        await mcp_pending_call.discard_pending_call(owner="owner", thread="thread", handle=handle)
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await pending_call_details(session(), handle)
+
+
+async def test_pod_process_without_scope_cannot_fall_through_to_sql(monkeypatch):
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("Pod opened shared SQL")
+
+    monkeypatch.setattr(mcp_pending_call, "pod_mode", lambda: True)
+    monkeypatch.setattr(mcp_pending_call, "get_db", lambda: pytest.fail("Pod opened shared SQL"))
+    monkeypatch.setattr(mcp_pending_call, "_execute", forbidden)
+    handle = await capture_pending_call(context(), tool_name=TOOL, arguments={})
+    assert (await pending_call_details(session(), handle))["arguments"] == {}

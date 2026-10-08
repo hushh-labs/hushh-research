@@ -1,5 +1,6 @@
 "use client";
 
+import { consentSummary } from "@/lib/feed/feed-consent-summary";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ComponentType } from "react";
@@ -70,10 +71,6 @@ import {
   useOwnerConsentDecision,
   type OwnerConsentUnlockPrompt,
 } from "@/lib/consent/use-owner-consent-decision";
-import {
-  isLocationConsent,
-  locationConsentSummary,
-} from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { isAndroid } from "@/lib/capacitor/platform";
@@ -88,6 +85,9 @@ import {
   type ConnectionRequest,
 } from "@/lib/services/connections-service";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
+import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
+import { useAgentUpdateFeedCard } from "@/lib/feed/agent-update-feed-card";
+import type { AgentUpdateStatus } from "@/lib/feed/agent-update-status";
 
 /**
  * Subset of SettingsRow's icon-well tones (that type is not exported). Feed
@@ -137,6 +137,7 @@ export interface FeedActionable {
   spinning?: boolean;
   title: string;
   description: string;
+  updateProgress?: AgentUpdateStatus;
   /** Whole-row link (e.g. consent Review deep-link). */
   href?: string | null;
   /** Whole-row imperative action (e.g. resume a running debate). */
@@ -281,20 +282,6 @@ function toDisplayTimestamp(value?: string | number | null): number | null {
   return ts > 0 ? ts : null;
 }
 
-function consentSummary(entry: ConsentCenterEntry): string {
-  if (entry.kind === "invite") return "Invitation waiting for your approval.";
-  if (isLocationConsent(entry.metadata, entry.scope)) {
-    return locationConsentSummary(entry.metadata);
-  }
-  return (
-    entry.additional_access_summary ||
-    entry.scope_description ||
-    entry.reason ||
-    entry.scope ||
-    "A new consent request needs your review."
-  );
-}
-
 /**
  * A pending location access request is actionable in the viewer's "Needs you"
  * feed only when the viewer OWNS the request (location is being asked for)
@@ -404,6 +391,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const agentFollow = useAgentDeploymentFollow({ enabled: Boolean(userId), userId });
+  const agentUpdateCard = useAgentUpdateFeedCard({
+    userId,
+    update: agentFollow.update,
+    deploymentTarget: agentFollow.deploymentTarget,
+    availableVersion: agentFollow.status?.availableRelease?.version ?? null,
+    onResolved: notifyFeedActionResolved,
+  });
   const [dismissedSmsEmergencyIds, setDismissedSmsEmergencyIds] = useState<
     Set<string>
   >(() => new Set());
@@ -832,6 +827,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];
     const items: FeedActionable[] = [];
+
+    if (agentUpdateCard) items.push({ ...agentUpdateCard, sortAt: firstSeenAt(agentUpdateCard.id) });
 
     for (const payment of sentPayments) {
       const displayPayment = describeFeedDrivePayment(payment, paymentClockNow);
@@ -1431,6 +1428,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // streaming debate's frequent ticks would rebuild every row each render.
   }, [
     appTaskState.tasks,
+    agentUpdateCard,
     consentDecision.allow,
     declineConsentRequest,
     markConsentSettled,

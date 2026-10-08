@@ -1,0 +1,38 @@
+{
+  "name": "consent_question",
+  "mode": "exact",
+  "hub_grounded": true,
+  "hub_frames": [
+    {
+      "event": "token",
+      "data": {
+        "text": "You have three active grants."
+      }
+    },
+    {
+      "event": "specialist_status",
+      "data": {
+        "agent_id": "agent_nav",
+        "status": "ok"
+      }
+    }
+  ],
+  "pod_turn": {
+    "text": "I could not open your consent center just now.",
+    "grounded": true,
+    "directiveCount": 0,
+    "runtimeMode": "user_adc"
+  },
+  "pod_specialist_statuses": [
+    {
+      "agent_id": "agent_nav",
+      "status": "runtime_unavailable"
+    }
+  ],
+  "expect_hub_directive_kinds": [],
+  "expect_hub_specialists": [
+    "agent_nav"
+  ],
+  "expect_hub_text": true,
+  "expect_hub_grounded": true
+}

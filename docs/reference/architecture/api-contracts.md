@@ -6,7 +6,9 @@
 
 ## Token Hierarchy
 
-All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
+Protected information access is gated by consent tokens. Firebase verifies
+identity for vault-owner bootstrap and explicitly declared account, developer
+portal and financial operations; it does not authorize information release.
 
 Founder-language note:
 
@@ -30,7 +32,7 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 | Token Type         | Purpose                            | Duration | Auth Format                                    |
 | ------------------ | ---------------------------------- | -------- | ---------------------------------------------- |
-| Firebase ID Token  | Identity verification only         | 1 hour   | `Bearer <firebase-id-token>`                   |
+| Firebase ID Token  | Declared identity/account/financial operations; no information authority | 1 hour | `Bearer <firebase-id-token>` |
 | VAULT_OWNER Token  | Consent + identity for all data    | 24 hours | `Bearer <vault-owner-token>`                   |
 | Agent Scoped Token | Delegated MCP agent access         | 7 days   | `Bearer <consent-token>`                       |
 | Developer Token    | External API and remote MCP access | N/A      | `Authorization: Bearer <developer-token>` only |
@@ -45,7 +47,7 @@ clients reach them through the Next.js proxy layer.
 ```mermaid
 flowchart TB
   subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap and developer-portal sign-in only"]
+    fb["Firebase ID Token<br/>bootstrap, declared account and financial operations"]
     vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
     devtok["Developer Token<br/>Authorization Bearer"]
     hct["Consent Token HCT<br/>app-bound scoped grant"]
@@ -68,10 +70,12 @@ flowchart TB
     fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
     ria["ria.py and account.py<br/>/api/ria and /api/account"]
     dev["developer.py<br/>/api/v1 and /api/developer"]
+    commerce["scope_commerce.py<br/>/api/scope-commerce"]
   end
 
   fb --> vo
   fb --> dev
+  fb --> commerce
   anon --> pub
   vo --> svc
   svc --> proxy
@@ -82,6 +86,7 @@ flowchart TB
   proxy --> one
   proxy --> fabric
   proxy --> ria
+  proxy --> commerce
   devtok --> dev
   devtok --> fabric
   con --> hct
@@ -90,6 +95,46 @@ flowchart TB
 ```
 
 ---
+
+## Consumer scope commerce
+
+`/api/scope-commerce` uses Firebase identity for account, tariff, quote, human
+purchase confirmation, funding, payouts and buyer cancellation. Inactive owner
+approval, export context/preparation/staging and owner revocation require
+vault-owner authority. Financial confirmation alone never releases information:
+access additionally requires canonical consent and a staged v2 export at the
+server-fixed activation time. The reconciliation worker uses dedicated Google
+OIDC, independently of purchase admission.
+
+Authenticated `GET /api/scope-commerce/readiness` and the additive `account.readiness`
+projection distinguish free-sharing controls, locally configured/persisted
+platform readiness, seller eligibility and action capabilities. These reads
+perform no wallet bootstrap or provider I/O. An unset or explicitly free tariff
+keeps the existing consent flow without Stripe; owners can reset an exact tariff
+to free while paid admission is unavailable. Positive tariffs fail closed and
+never become free because setup is missing. Accepted quotes retain their terms.
+Existing financial obligations and access enforcement survive an admission pause.
+
+The package-local [consumer scope commerce reference](../../../consent-protocol/docs/reference/consumer-scope-commerce.md)
+owns the wire families, exact scope binding, hosted return, configuration,
+financial lifecycle and verification limits. The Next proxy preserves the same
+snake-case contract; native transport uses the existing direct backend service.
+
+## Direct Puppy turn cancellation
+
+An admitted app-role pod session can call
+`POST /api/one/pod/turn/cancel` with `{requestId, puppyDeviceId}`. The request ID
+must match the originating `/api/one/pod/turn/stream` `X-Request-ID` header.
+Cancellation is bound to the verified owner, pod key/incarnation, app subject,
+device and request; a different app subject cannot cancel another turn.
+The route retains the held-incarnation check and does not grant device settings
+or hub authority. It is an exact pod ingress allowlist entry.
+
+`state: stopped` means the matching producer settled after cancellation, including
+its broker cleanup and admission release; it is not a device acknowledgement.
+Absent, completed or mismatched turns return `state: unconfirmed`. The browser
+bounds the stop wait and displays uncertainty rather than claiming success.
+See the [stream implementation](../streaming/streaming-implementation-guide.md#direct-puppy-streams).
 
 ## Route Categories
 
@@ -179,6 +224,15 @@ from attempting its legacy issuance before returning the incompatible response.
 | POST   | `/api/notifications/register`                         | Register FCM push token                                                                                                                                         |
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
+
+### Private Agent Space Name
+
+`GET` and `PUT /api/one/personal-agent/space-name` require Firebase owner
+authentication and the existing personal-agent feature flag. PUT accepts
+`spaceName`, validates the handle, and updates only the existing owner row's
+`space_id`. It preserves pod status, custody, billing identity and lifecycle
+timestamps. An absent or concurrently deleted row returns the existing
+`409 NO_AGENT`; naming cannot create a registry row.
 
 ### One Person Request History
 
@@ -510,6 +564,25 @@ other person-to-person catalog, and are refused again at request creation.
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |
 | ------ | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
+| POST | `/api/one/runtime/managed/select` | Firebase Bearer | Verify the selected runtime through the existing connection gate. BYOC probes use the owner's resolved bootstrap authority and compare the registry/cloud observation again before reporting or scheduling. |
+| POST | `/api/one/pod/wake` | Firebase Bearer | Wake the recorded owner pod. A confirmed absent host earns fresh-setup guidance only after a conditional registry transition matching the pre-probe snapshot. |
+
+Managed selection returns `409 CLOUD_CONFIGURATION_CHANGED` when the probed
+registry or resolved cloud changed, and `503 CLOUD_STATUS_UNAVAILABLE` when
+required registry observation or recovery persistence fails. Wake uses
+`409 POD_STATE_CHANGED` and `503 POD_STATUS_UNAVAILABLE` for those respective
+boundaries. These errors ask the caller to retry; they never claim that a stale
+probe proves the current host is gone. Existing successful response shapes remain
+unchanged. Parked BYOC setup can still resolve before a registry cloud exists;
+its probe cannot clear authorization on an unrelated registry row.
+
+Private pod storage uses the existing error responses for unavailable history.
+Migration export and import return a sanitized `409` when ordinary log replay
+is refused, including an authenticated erasure fence. A pod turn that encounters
+that fence while resolving local grounding returns `409`; it does not continue
+to the model with an empty local context. Request and successful response shapes
+are unchanged. These storage checks are not a public erasure endpoint or a
+replacement for consent, lifecycle admission, or draining already admitted work.
 
 `POST /db/vault/bootstrap-state` and `POST /db/vault/pre-vault-state` also
 carry the strict non-secret `oneRuntimeSetupChoice` setup enum. It is limited to
@@ -761,6 +834,27 @@ server-side, then bind both actions to that source.
 
 The maintained architecture reference is [Personal Gmail Information Requests](./personal-gmail-information-requests.md).
 
+### One-time Public Profile Discovery
+
+Discovery is explicitly opt-in, one-time, and independent of PKM storage. Public
+findings stay in the service-only shared pool; private edits are client-encrypted
+under the unlocked vault; `claimed` is an owner-scoped terminal handoff state.
+The background worker uses HusshOne's existing scan API and never runs in the
+browser request path.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/one/profile-discovery` | Firebase Bearer | Read only the signed-in owner's job and, once ready, its revision-pinned public profile. |
+| POST | `/api/one/profile-discovery/start` | Firebase Bearer | Start or resume the owner's one-time job. Requires versioned public-web consent; external phone matching has a separate opt-in. |
+| POST | `/api/one/profile-discovery/anchors` | Firebase Bearer | Add optional name, email, public profile URL, employer or city details to a pending owner job. These do not write to the shared public pool. |
+| POST | `/api/one/profile-discovery/draft` | `VAULT_OWNER` | Store only the encrypted owner review draft for the pinned profile revision. |
+| POST | `/api/one/profile-discovery/claim` | `VAULT_OWNER` | Complete the one-time handoff after the client reports all selected PKM writes succeeded, or after explicit reject-all. |
+| POST | `/api/one/profile-discovery/cancel` | Firebase Bearer | Cancel pending owner discovery. |
+| POST | `/api/internal/profile-discovery/drain` | Cloud Scheduler OIDC | Process a bounded batch under a dedicated scheduler identity and publish the transactional Feed outbox. |
+
+The global feature and worker gates default off. Hosted access also requires a
+small Firebase UID allowlist. See [public profile discovery storage and rollout](./public-profile-discovery.md)
+for the current implementation boundary and release checks.
 ### B2B profile suggestion — directory discovery, review and confirmation
 
 Real mode is independently default-off: `ONE_BUSINESS_DIRECTORY_ENABLED=true`
@@ -928,6 +1022,18 @@ same business UID. A different or unidentified origin fails closed rather than
 merging two businesses merely because their names or contact details overlap.
 
 ### One Google Calendar
+
+Private-pod Calendar reads use the existing owner-bound
+`POST /api/one/pod/specialist/calendar/read` broker. Its optional `calendarRead`
+contains `operation` (`events`, `availability`, or `openings`), offset-qualified
+`start_at`/`end_at` spanning at most 31 days, and for openings a 5–720 minute
+`duration_minutes` with `limit` 1–20. No owner selector or write operation is
+accepted. The pod verifies the returned operation and range; older hub responses
+without coverage fail safely. Event results expose `coverage_complete` because
+provider pagination may truncate the bounded result. Failed free/busy responses
+cannot become free slots. These are transitional consented hub reads, not proof
+of pod-native specialist execution.
+
 
 Calendar is a live Google provider integration. Connection lifecycle uses
 Firebase identity; event reads and all action proposals require `VAULT_OWNER`.

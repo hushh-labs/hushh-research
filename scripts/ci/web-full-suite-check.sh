@@ -40,24 +40,30 @@ web_ci_preflight
 web_ci_install
 
 cd "$WEB_DIR"
+# Preserve the pod branch's bounded worker envelope in the new owning lane.
+WEB_TEST_MAX_WORKERS="${HUSHH_WEB_TEST_MAX_WORKERS:-2}"
+[[ "$WEB_TEST_MAX_WORKERS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "HUSHH_WEB_TEST_MAX_WORKERS must be a positive integer" >&2
+  exit 2
+}
+if [ "$RUN_VERIFIERS" -eq 1 ]; then
+  npm run verify:voice-gateway
+  npm run verify:capability-graph
+  npm run verify:surface-map
+  npm run verify:capacitor:static
+  # The tri-flow signature check: TypeScript registerPlugin interfaces against
+  # iOS CAPPluginMethod and Android @PluginMethod declarations, plus both
+  # registration sites. It is the only gate that actually catches a method
+  # implemented on one platform and not the other.
+  npm run verify:capacitor:plugins
+fi
+
+# Fail on static/generated drift before spending time on the full suite.
+# Its 41 One Voice files already run here (522 tests in run 36379443842);
+# keep verify:one-voice available for focused local use.
 if [ -n "$SHARD" ]; then
   echo "== Vitest shard $SHARD =="
-  npm run test:ci -- --shard="$SHARD"
+  npm run test:ci -- --shard="$SHARD" --maxWorkers="$WEB_TEST_MAX_WORKERS"
 else
-  npm run test:ci
+  npm run test:ci -- --maxWorkers="$WEB_TEST_MAX_WORKERS"
 fi
-
-if [ "$RUN_VERIFIERS" -ne 1 ]; then
-  echo "Contract verifiers run in shard 1 of $SHARD's matrix."
-  exit 0
-fi
-
-npm run verify:voice-gateway
-npm run verify:one-voice
-npm run verify:surface-map
-npm run verify:capacitor:static
-# The tri-flow signature check: TypeScript registerPlugin interfaces against
-# iOS CAPPluginMethod and Android @PluginMethod declarations, plus both
-# registration sites. It is the only gate that actually catches a method
-# implemented on one platform and not the other.
-npm run verify:capacitor:plugins

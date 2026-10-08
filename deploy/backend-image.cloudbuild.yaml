@@ -11,6 +11,17 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        if [[ '${_BUILD_TARGET}' == 'commerce-preview-bootstrap' ]]; then
+          [[ '$PROJECT_ID' == 'hushh-pda-dev' ]]
+          docker buildx create --use --name hushh-bootstrap-builder --driver docker-container \
+            >/dev/null 2>&1 || docker buildx use hushh-bootstrap-builder
+          docker buildx build --platform linux/amd64 \
+            --tag gcr.io/$PROJECT_ID/scope-commerce-bootstrap:${_IMAGE_TAG} \
+            --file deploy/commerce-preview-bootstrap/Dockerfile --push \
+            deploy/commerce-preview-bootstrap
+          exit 0
+        fi
+        [[ '${_BUILD_TARGET}' == 'backend' ]]
         # Include root-generated contracts in the backend build context.
         rm -rf consent-protocol/contracts
         cp -R contracts consent-protocol/contracts
@@ -28,6 +39,7 @@ steps:
 
 substitutions:
   _IMAGE_TAG: manual-build
+  _BUILD_TARGET: backend
 
 options:
   logging: CLOUD_LOGGING_ONLY

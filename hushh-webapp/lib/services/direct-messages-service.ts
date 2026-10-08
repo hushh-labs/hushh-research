@@ -388,9 +388,10 @@ export class DirectMessagesService {
     );
     const payload = await jsonOrThrow<{ scope?: unknown; message?: unknown }>(response);
     const scope = payload.scope === "everyone" ? "everyone" : payload.scope === "me" ? "me" : null;
-    if (!scope) throw new Error("The deleted message could not be verified.");
+    if (!scope || scope !== input.scope) throw new Error("The deleted message could not be verified.");
     const message = payload.message == null ? null : parseMessage(payload.message);
-    if (scope === "everyone" && (!message || message.id !== messageId)) {
+    if ((payload.message != null && !message) || (scope === "everyone" && !message) ||
+        (message && (message.id !== messageId || message.conversationId !== conversationId))) {
       throw new Error("The deleted message could not be verified.");
     }
     return { scope, message };

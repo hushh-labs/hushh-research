@@ -1,0 +1,271 @@
+{
+  "generated_from": "implementation scan",
+  "agents": [
+    {
+      "id": "connected_systems",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "connections",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "email",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "financial_guard",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "gmail",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "kai",
+      "manifest": true,
+      "modules": 10,
+      "importers": 6,
+      "status": "wired",
+      "note": ""
+    },
+    {
+      "id": "kyc",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "location",
+      "manifest": true,
+      "modules": 2,
+      "importers": 1,
+      "status": "wired",
+      "note": ""
+    },
+    {
+      "id": "memory_intent",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "memory_merge",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "memory_segmentation",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "nav",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "wired",
+      "note": "reached via ask_consent_agent, which routes to Nav's Consent Center"
+    },
+    {
+      "id": "onboarding",
+      "manifest": true,
+      "modules": 1,
+      "importers": 1,
+      "status": "wired",
+      "note": ""
+    },
+    {
+      "id": "one",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "orchestrator",
+      "manifest": false,
+      "modules": 2,
+      "importers": 1,
+      "status": "wired",
+      "note": ""
+    },
+    {
+      "id": "personal_information",
+      "manifest": true,
+      "modules": 2,
+      "importers": 1,
+      "status": "wired",
+      "note": ""
+    },
+    {
+      "id": "pkm_structure",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    },
+    {
+      "id": "portfolio_import",
+      "manifest": true,
+      "modules": 2,
+      "importers": 0,
+      "status": "no_caller",
+      "note": ""
+    },
+    {
+      "id": "realtime_bench",
+      "manifest": false,
+      "modules": 5,
+      "importers": 0,
+      "status": "no_caller",
+      "note": ""
+    },
+    {
+      "id": "summary_reducer",
+      "manifest": true,
+      "modules": 0,
+      "importers": 0,
+      "status": "manifest_only",
+      "note": ""
+    }
+  ],
+  "agent_counts": {
+    "total": 20,
+    "with_manifest": 18,
+    "wired": 6,
+    "no_caller": 2,
+    "manifest_only": 12
+  },
+  "tool_surface": [
+    "ask_connected_systems_agent",
+    "ask_consent_agent",
+    "ask_email_agent",
+    "ask_location_agent",
+    "continue_app_goal",
+    "finance",
+    "google_search",
+    "list_app_actions",
+    "open_screen",
+    "resolve_onboarding_goal",
+    "run_app_action",
+    "start_app_goal"
+  ],
+  "deploy_lanes": [
+    {
+      "file": "deploy-dev.yml",
+      "name": "Deploy to Dev",
+      "project": "hushh-pda-dev",
+      "region": "us-central1"
+    },
+    {
+      "file": "deploy-production.yml",
+      "name": "Deploy to Production",
+      "project": "hushh-pda",
+      "region": "us-central1"
+    },
+    {
+      "file": "deploy-uat.yml",
+      "name": "Deploy to UAT",
+      "project": "hushh-pda-uat",
+      "region": "us-central1"
+    }
+  ],
+  "ci_lanes": [
+    "advisory",
+    "all",
+    "governance",
+    "integration",
+    "mcp-package",
+    "protocol",
+    "secret",
+    "smoke",
+    "web-core",
+    "web-targeted"
+  ],
+  "ops_scripts": [
+    "configure_crm_registry.py",
+    "crm_registry_e2e_check.py",
+    "pod_curl.py",
+    "pod_fleet.py",
+    "pod_resource_probe.py",
+    "provision_partner_developer_app.py",
+    "seed_crm_registry_row.py",
+    "validate_agent_platform.py",
+    "verify_pod_journey.py"
+  ],
+  "doc_families": [
+    {
+      "family": "ai",
+      "pages": 1
+    },
+    {
+      "family": "architecture",
+      "pages": 24
+    },
+    {
+      "family": "governance",
+      "pages": 1
+    },
+    {
+      "family": "iam",
+      "pages": 11
+    },
+    {
+      "family": "kai",
+      "pages": 11
+    },
+    {
+      "family": "mobile",
+      "pages": 3
+    },
+    {
+      "family": "one",
+      "pages": 10
+    },
+    {
+      "family": "operations",
+      "pages": 25
+    },
+    {
+      "family": "quality",
+      "pages": 14
+    },
+    {
+      "family": "streaming",
+      "pages": 4
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,13 +35,15 @@ def test_unknown_manifest_field_is_rejected() -> None:
         )
 
 
-def test_generated_product_agent_registry_is_current() -> None:
+@pytest.mark.parametrize("fleet_model", ["gemini-3.6-flash", "gemini-3.7-flash"])
+def test_generated_product_agent_registry_is_current(fleet_model: str) -> None:
     result = subprocess.run(  # noqa: S603 - executes a repository-owned verifier.
         [sys.executable, str(ROOT / "scripts" / "generate_product_agent_registry.py"), "--check"],
         cwd=ROOT,
         check=False,
         capture_output=True,
         text=True,
+        env={**os.environ, "HUSSH_GEMINI_TEXT_MODEL": fleet_model},
     )
     assert result.returncode == 0, result.stdout + result.stderr
     registry = json.loads(

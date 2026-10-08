@@ -1,5 +1,6 @@
 "use client";
 
+import { canStartReviewerLogin, shouldAutoAuthenticateReviewer, shouldBootstrapReviewerVault } from "@/lib/testing/reviewer-authentication-policy.mjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -163,11 +164,7 @@ export function AuthStep({
   const [reviewModeConfig, setReviewModeConfig] = useState<{
     enabled: boolean;
   }>({ enabled: false });
-  const shouldUseNativeTestBootstrap =
-    nativeTestConfig.enabled &&
-    nativeTestConfig.autoReviewerLogin &&
-    Boolean(nativeTestConfig.expectedUserId) &&
-    Boolean(nativeTestConfig.vaultPassphrase);
+  const shouldUseNativeTestBootstrap = shouldBootstrapReviewerVault(nativeTestConfig);
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
     nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_FINANCE &&
@@ -415,7 +412,7 @@ export function AuthStep({
     };
   }, []);
 
-  const handleReviewerLogin = useCallback(async () => {
+  const handleReviewerLogin = useCallback(async (interactive: boolean) => {
     trackEvent("auth_started", {
       action: "reviewer",
     });
@@ -424,11 +421,7 @@ export function AuthStep({
         typeof window !== "undefined" ? window.location.hostname : null,
       );
 
-      if (
-        !reviewModeConfig.enabled &&
-        !nativeTestConfig.autoReviewerLogin &&
-        !localReviewerCredentials
-      ) {
+      if (!canStartReviewerLogin(getNativeTestConfig(), reviewModeConfig.enabled, Boolean(localReviewerCredentials))) {
         throw new Error("Reviewer mode is not enabled");
       }
 
@@ -460,7 +453,10 @@ export function AuthStep({
         setNativeAuthState("authenticated");
         setNativeDataState("loaded");
         setNativeErrorCode(null);
-        void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser);
+        void LegalAcceptanceService.recordSignInAcceptance(
+          authenticatedUser,
+          interactive,
+        );
         trackEvent("auth_succeeded", {
           action: "reviewer",
           result: "success",
@@ -531,7 +527,7 @@ export function AuthStep({
     let attempts = 0;
     const tryAutoReviewerLogin = () => {
       const liveConfig = getNativeTestConfig();
-      const requested = liveConfig.enabled && liveConfig.autoReviewerLogin;
+      const requested = shouldAutoAuthenticateReviewer(liveConfig);
       setNativeReviewerVisible(requested);
       if (!requested) {
         attempts += 1;
@@ -542,7 +538,7 @@ export function AuthStep({
       setNativeAuthState("pending");
       setNativeDataState("loading");
       setNativeErrorCode(null);
-      void handleReviewerLogin();
+      void handleReviewerLogin(false);
       return true;
     };
 
@@ -650,7 +646,7 @@ export function AuthStep({
             });
             void ApiService.notifyFirstWelcome({ idToken });
             // The sign-in screen states "By continuing you agree"; record it.
-            void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser);
+            void LegalAcceptanceService.recordSignInAcceptance(authenticatedUser, true);
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
                 journey: growthJourney,
@@ -909,7 +905,7 @@ export function AuthStep({
         },
       ];
 
-  const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
+  const showReviewer = shouldAutoAuthenticateReviewer(nativeTestConfig) && nativeReviewerVisible;
 
   return (
     <main
@@ -928,7 +924,7 @@ export function AuthStep({
         dataState={nativeDataState}
         attachToBridge={(bridge) => {
           bridge.triggerReviewerLogin = () => {
-            if (autoReviewerLoginStartedRef.current) {
+            if (autoReviewerLoginStartedRef.current || !shouldAutoAuthenticateReviewer(getNativeTestConfig())) {
               return;
             }
             autoReviewerLoginStartedRef.current = true;
@@ -936,7 +932,7 @@ export function AuthStep({
             setNativeAuthState("pending");
             setNativeDataState("loading");
             setNativeErrorCode(null);
-            void handleReviewerLogin();
+            void handleReviewerLogin(false);
           };
         }}
         errorCode={
@@ -1025,7 +1021,7 @@ export function AuthStep({
                 <AuthProviderButton
                   label="Continue as Reviewer"
                   icon={<Icon icon={Shield} size="md" />}
-                  onClick={handleReviewerLogin}
+                  onClick={() => void handleReviewerLogin(true)}
                   disabled={providerBusy}
                   className={REVIEWER_BTN_CLASS}
                 />

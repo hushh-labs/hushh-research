@@ -25,12 +25,11 @@ runtime launches, phone-auth incidents, and compact UX review.
 
 ## Runtime Launch
 
-1. Default frontend runtime launch is a visible OS terminal window through the
-   canonical repo command.
-2. Use inline long-lived Codex sessions only when the user explicitly asks for
-   inline or in-Codex logs.
-3. Use the combined stack terminal only when one terminal is explicitly
-   preferred.
+1. Keep each required component in an agent-owned background terminal with
+   observable logs, using `repo-operations/references/branch-runtime-ops.md`.
+2. Do not launch servers merely to review source. Use a visible OS terminal
+   only when requested; keep simulator work headless unless requested otherwise.
+3. Preserve independently running components and stop only task-owned processes.
 
 ## Phone Auth Incidents
 

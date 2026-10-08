@@ -49,6 +49,12 @@ from hushh_mcp.one_voice.tools.base import (
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
 from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 from hushh_mcp.runtime_providers.factory import build_managed_live_client
+from hushh_mcp.services.owner_placement_guard import (
+    admit_hub_content,
+    hub_content_inline,
+    hub_content_owner,
+)
+from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +193,13 @@ def _require_enabled() -> OneVoiceLiveConfig:
     return config
 
 
+async def _require_shared_live_hosting(user_id: str, surface: str) -> None:
+    """A voice credential does not authorize changing compute custody."""
+    await admit_hub_content(user_id, surface, resolve_mode=get_owner_hosting_mode)
+
+
 @router.post("/sessions", response_model=VoiceSessionResponse)
+@hub_content_inline("voice_session")
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def mint_voice_session(
     request: Request,
@@ -201,6 +213,7 @@ async def mint_voice_session(
         uuid.UUID(payload.conversation_id)
     except ValueError:
         raise HTTPException(status_code=422, detail={"code": "CONVERSATION_ID_INVALID"}) from None
+    await _require_shared_live_hosting(user_id, "voice_session")
     session_id = uuid.uuid4().hex
     try:
         ticket, expires_at = issue_ticket(
@@ -326,6 +339,7 @@ def _origin_allowed(websocket: WebSocket) -> bool:
 
 
 @router.websocket("/live")
+@hub_content_inline("voice_live")
 async def voice_live(websocket: WebSocket, ticket: str = Query(default="")) -> None:
     await websocket.accept()
     try:
@@ -351,6 +365,19 @@ async def voice_live(websocket: WebSocket, ticket: str = Query(default="")) -> N
     except TicketError as exc:
         await websocket.send_json(protocol.error(str(exc), "Voice ticket was not accepted."))
         await websocket.close(code=protocol.CLOSE_TICKET)
+        return
+
+    try:
+        await _require_shared_live_hosting(claims.user_id, "voice_live")
+    except HTTPException as exc:
+        detail: dict[str, str] = exc.detail if isinstance(exc.detail, dict) else {}
+        await websocket.send_json(
+            protocol.error(
+                detail.get("code", "AGENT_HOSTING_UNAVAILABLE"),
+                detail.get("message", "Your agent connection could not be verified."),
+            )
+        )
+        await websocket.close(code=protocol.CLOSE_DISABLED)
         return
 
     session = VoiceSession(
@@ -394,7 +421,7 @@ class PendingConfirmRequest(BaseModel):
 @router.get("/pending-actions")
 async def list_pending_actions(
     conversation_id: str = Query(min_length=36, max_length=36),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     user_id = str(token_data.get("user_id") or "").strip()
     rows = await PendingActionStore().list_open(user_id=user_id, conversation_id=conversation_id)
@@ -450,7 +477,7 @@ _MAIL_OPEN_ERRORS = {
 @router.post("/mail/open")
 async def open_offered_mail(
     payload: MailOpenRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Show the person the message at a position One offered them.
 
@@ -560,7 +587,7 @@ _DRAFT_OPEN_ERRORS = {
 @router.post("/draft/open")
 async def open_offered_draft(
     payload: MailOpenRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Show the owner the draft at a position One offered them.
 
@@ -633,7 +660,7 @@ async def open_offered_draft(
 async def confirm_pending_action_http(
     pending_action_id: str,
     payload: PendingConfirmRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     user_id = str(token_data.get("user_id") or "").strip()
     store = PendingActionStore()
@@ -685,7 +712,7 @@ async def confirm_pending_action_http(
 @router.post("/pending-actions/{pending_action_id}/cancel")
 async def cancel_pending_action_http(
     pending_action_id: str,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     user_id = str(token_data.get("user_id") or "").strip()
     row = await PendingActionStore().cancel(user_id=user_id, pending_action_id=pending_action_id)

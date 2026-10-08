@@ -11,7 +11,7 @@ import { rememberRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalo
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 vi.mock("@/lib/services/external-connector-service", () => ({
-  ExternalConnectorService: { refreshMcpCatalog: vi.fn(), privateMcpOAuth: vi.fn() },
+  ExternalConnectorService: { refreshMcpCatalog: vi.fn(), verifyStripeAccount: vi.fn(), privateMcpOAuth: vi.fn() },
   McpCatalogAuthenticationError: class extends Error {},
 }));
 vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
@@ -19,12 +19,21 @@ vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
   HushhOAuthReturn: { openAuthorization: vi.fn() },
 }));
 
-vi.mock("@/lib/connections/custom-connector-configuration", async (importOriginal) => ({
-  loadCustomConnectorConfigurations: vi.fn(), loadCustomConnectorSnapshot: vi.fn(),
-  saveCustomConnectorConfiguration: vi.fn(), removeCustomConnectorConfiguration: vi.fn(),
-  isVaultOwnerCredential: (value: string) => /^(?:\S+\s+)?HCT:/i.test(value.trim()),
-  bearerAuthorizationValue: (await importOriginal<typeof import("@/lib/connections/custom-connector-configuration")>()).bearerAuthorizationValue,
-}));
+vi.mock("@/lib/connections/custom-connector-configuration", async (importOriginal) => {
+  const loadCustomConnectorConfigurations = vi.fn();
+  return {
+    loadCustomConnectorConfigurations,
+    bearerAuthorizationValue: (await importOriginal<typeof import("@/lib/connections/custom-connector-configuration")>()).bearerAuthorizationValue,
+    isVaultOwnerCredential: (value: string) => /^(?:\S+\s+)?HCT:/i.test(value.trim()),
+    loadCustomConnectorSnapshot: vi.fn(async (...args) => ({
+      configurations: await loadCustomConnectorConfigurations(...args),
+      invalid: [],
+    })),
+    saveCustomConnectorConfiguration: vi.fn(),
+    removeCustomConnectorConfiguration: vi.fn(),
+    removeInvalidCustomConnectorConfiguration: vi.fn(),
+  };
+});
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, size, variant: _v, effect: _e, ...props }: any) => <button data-size={size} {...props}>{children}</button> }));
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" };
@@ -37,6 +46,10 @@ beforeEach(() => {
     configurations: await loadCustomConnectorConfigurations(ownerAccess), invalid: [],
   }));
   vi.mocked(saveCustomConnectorConfiguration).mockImplementation(async (_access, record) => record);
+  vi.mocked(ExternalConnectorService.verifyStripeAccount).mockResolvedValue({ toolingConnected: true,
+    accountVerified: false, environmentVerified: false, accountToolsAvailable: false,
+    capability: "documentation_only", nextStep: "authenticated_account_contract_required",
+    managementPath: "/one/profile/connectors", verificationState: "unsupported" });
   vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "mcp_" + "b".repeat(40), name: "search", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" }]);
 });
 

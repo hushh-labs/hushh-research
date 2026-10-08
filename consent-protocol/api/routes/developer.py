@@ -11,6 +11,7 @@ import os
 import time
 import uuid
 from typing import Any, AsyncGenerator, Literal, Optional, TypedDict, cast
+from urllib.parse import urlencode
 
 from fastapi import (
     APIRouter,
@@ -35,12 +36,50 @@ from api.developer_auth import (
 )
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes import developer_commerce, developer_consent_projection, developer_export_projection
+from api.routes.developer_commerce import (
+    commerce_service as _commerce_service,
+)
+from api.routes.developer_commerce import (
+    offline_free_context as _offline_free_context,
+)
+from api.routes.developer_commerce import (
+    tariff_request_fields as _tariff_request_fields,
+)
+from api.routes.developer_consent_contracts import (
+    CoverageFields as CoverageFields,
+)
+from api.routes.developer_consent_contracts import (
+    DeveloperConsentOffer as DeveloperConsentOffer,
+)
+from api.routes.developer_consent_contracts import (
+    DeveloperConsentRequest as DeveloperConsentRequest,
+)
+from api.routes.developer_consent_contracts import (
+    DeveloperConsentStatusResponse as DeveloperConsentStatusResponse,
+)
+from api.routes.developer_consent_contracts import (
+    DeveloperScopedExportRequest as DeveloperScopedExportRequest,
+)
+from api.routes.developer_consent_contracts import (
+    ExportFields as ExportFields,
+)
+from api.routes.developer_consent_contracts import (
+    MCPConsentRequest as MCPConsentRequest,
+)
+from api.routes.developer_consent_contracts import (
+    MCPScopedExportRequest as MCPScopedExportRequest,
+)
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
     get_connector_crypto_profile,
 )
-from hushh_mcp.consent.export_envelope import digest_bytes, scope_handle_for_machine_scope
+from hushh_mcp.consent.export_envelope import (
+    digest_bytes,
+    scope_handle_for_machine_scope,
+)
+from hushh_mcp.consent.paid_admission import is_paid_grant
 from hushh_mcp.consent.pkm_scope_policy import (
     consent_token_scope_value,
     is_private_pkm_export_scope,
@@ -101,6 +140,7 @@ _CONSENT_EXPORT_MAX_RAW_BYTES = max(
 _CONSENT_REQUEST_STATUS_MAP = {
     "REQUESTED": "pending",
     "CONSENT_GRANTED": "granted",
+    "CONSENT_PAID_APPROVED": "pending",
     "CONSENT_DENIED": "denied",
     "TIMEOUT": "expired",
     "CANCELLED": "cancelled",
@@ -333,123 +373,10 @@ class DeveloperToolCatalogResponse(BaseModel):
     app_display_name: str | None = Field(default=None, max_length=200)
 
 
-class DeveloperConsentStatusResponse(BaseModel):
-    status: str = Field(..., min_length=1, max_length=64)
-    user_id: str = Field(..., min_length=1, max_length=128)
-    scope: str | None = Field(default=None, max_length=200)
-    requested_scope: str | None = Field(default=None, max_length=200)
-    granted_scope: str | None = Field(default=None, max_length=200)
-    coverage_kind: str | None = Field(default=None, max_length=64)
-    covered_by_existing_grant: bool = False
-    request_id: str | None = Field(default=None, max_length=128)
-    consent_token: str | None = Field(default=None, max_length=2048)
-    expires_at: int | None = None
-    export_revision: int | None = None
-    export_generated_at: str | None = Field(default=None, max_length=64)
-    export_refresh_status: str | None = Field(default=None, max_length=64)
-    poll_timeout_at: int | None = None
-    approval_timeout_at: int | None = None
-    approval_timeout_minutes: int | None = None
-    expiry_hours: int | None = None
-    is_scope_upgrade: bool | None = None
-    existing_granted_scopes: list[str] | None = None
-    additional_access_summary: str | None = Field(default=None, max_length=500)
-    request_url: str | None = Field(default=None, max_length=2048)
-    requester_label: str | None = Field(default=None, max_length=200)
-    requester_image_url: str | None = Field(default=None, max_length=2048)
-    reason: str | None = Field(default=None, max_length=1000)
-    app_id: str | None = Field(default=None, max_length=128)
-    app_display_name: str | None = Field(default=None, max_length=200)
-    message: str = Field(..., min_length=1, max_length=2000)
-
-
-class CoverageFields(TypedDict):
-    requested_scope: str
-    granted_scope: str | None
-    coverage_kind: str | None
-    covered_by_existing_grant: bool
-
-
-class ExportFields(TypedDict):
-    export_revision: int | None
-    export_generated_at: str | None
-    export_refresh_status: str | None
-
-
-class DeveloperConsentOffer(BaseModel):
-    """Optional priced-consent offer (the consent reverse-auction bid).
-
-    When a Demand Agent requests consent it MAY attach an ``offer`` — a bid to
-    pay the user for scoped, time-boxed access to their consented context. The
-    bid rides inside ``request_consent`` (it is a data-access offer), is recorded
-    on the consent event metadata, and surfaces in the response so the user side
-    (One holds the reserve price, Nav clears it) can decide. SETTLEMENT of the
-    bid is AP2's job at the money boundary — this layer authorizes the read and
-    carries the bid; it never moves money. See the consent reverse-auction plan.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    bid_amount: float = Field(..., gt=0, le=1_000_000)
-    currency: str = Field(default="USD", min_length=3, max_length=3)
-    offer_summary: str | None = Field(default=None, max_length=500)
-    # Correlation id linking a cleared consent receipt (CRT) to its AP2 Payment
-    # Mandate. The two ledgers stay separate; this is the only cross-reference.
-    settlement_ref: str | None = Field(default=None, max_length=128)
-
-
-class DeveloperConsentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    user_id: str = Field(..., min_length=1, max_length=128)
-    scope: str = Field(..., min_length=1, max_length=200)
-    reason: str | None = Field(default=None, max_length=1000)
-    expiry_hours: int = 24
-    approval_timeout_minutes: int = 24 * 60
-    connector_public_key: str | None = Field(default=None, min_length=16)
-    connector_key_id: str | None = Field(default=None, min_length=1, max_length=128)
-    connector_wrapping_alg: str | None = Field(default=None, min_length=1, max_length=128)
-    refresh_policy: Literal["snapshot", "continuous_until_expiry"] = "snapshot"
-    offer: DeveloperConsentOffer | None = None
-
-
-class DeveloperScopedExportRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    user_id: str = Field(..., min_length=1, max_length=128)
-    consent_token: str = Field(min_length=16, max_length=2048)
-    expected_scope: str | None = Field(default=None, max_length=200)
-
-
-class MCPScopedExportRequest(BaseModel):
-    """App-bound export lookup used by the MCP projection layer only."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    grant_ref: str = Field(..., pattern=r"^req_[a-f0-9]{28}$", max_length=32)
-    expected_scope: str = Field(..., min_length=3, max_length=200)
-
-
 class MCPUserScopesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_identifier: str = Field(..., min_length=1, max_length=320)
-    country_iso2: str | None = Field(default=None, min_length=2, max_length=2)
-    country: str | None = Field(default=None, min_length=2, max_length=64)
-
-
-class MCPConsentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    user_identifier: str = Field(..., min_length=1, max_length=320)
-    scope: str = Field(..., min_length=3, max_length=200)
-    purpose: str = Field(..., min_length=8, max_length=280)
-    expiry_hours: int = Field(default=24, ge=24, le=2160)
-    approval_timeout_minutes: int = Field(default=1440, ge=5, le=1440)
-    refresh_policy: Literal["snapshot", "continuous_until_expiry"] = "snapshot"
-    connector_public_key: str | None = Field(default=None, min_length=40, max_length=128)
-    connector_key_id: str | None = Field(default=None, min_length=1, max_length=128)
-    connector_wrapping_alg: str | None = Field(default=None, min_length=1, max_length=128)
     country_iso2: str | None = Field(default=None, min_length=2, max_length=2)
     country: str | None = Field(default=None, min_length=2, max_length=64)
 
@@ -470,6 +397,7 @@ class DeveloperScopedExportResponse(BaseModel):
     coverage_kind: str | None = Field(default=None, max_length=64)
     expires_at: int | None = None
     export_revision: int | None = None
+    commercial_required: bool = False
     export_generated_at: str | None = Field(default=None, max_length=64)
     export_refresh_status: str | None = Field(default=None, max_length=64)
     encrypted_data: str | None = Field(default=None, max_length=10_000_000)
@@ -1066,6 +994,15 @@ def _developer_consent_status_payload(
     }
 
 
+async def _current_consent_status_payload(
+    *, latest: dict[str, Any], user_id: str, request_id: str, principal: DeveloperPrincipal
+) -> dict[str, Any]:
+    payload = _developer_consent_status_payload(
+        latest=latest, user_id=user_id, request_id=request_id, principal=principal
+    )
+    return await _enrich_commerce_status(payload, latest=latest, principal=principal)
+
+
 async def _developer_consent_event_generator(
     *,
     request: Request,
@@ -1097,7 +1034,7 @@ async def _developer_consent_event_generator(
             )
         except HTTPException:
             return
-        initial_payload = _developer_consent_status_payload(
+        initial_payload = await _current_consent_status_payload(
             latest=initial_latest,
             user_id=user_id,
             request_id=request_id,
@@ -1168,7 +1105,7 @@ async def _developer_consent_event_generator(
                 return
             current_scope = str(data.get("scope") or "")
             current_issued_at_ms = data.get("issued_at")
-            payload = _developer_consent_status_payload(
+            payload = await _current_consent_status_payload(
                 latest=data,
                 user_id=user_id,
                 request_id=request_id,
@@ -1302,6 +1239,44 @@ async def _require_discovered_information_scope(
     return available_domains, entry or {}
 
 
+async def _scope_tariff(
+    owner_user_id: str, scope_handle: str, machine_scope: str
+) -> dict[str, Any] | None:
+    if _offline_free_context():
+        return None
+    return await developer_commerce.scope_tariff(
+        owner_user_id, scope_handle, machine_scope, reader=_commerce_service()
+    )
+
+
+async def _scope_tariffs(owner_user_id: str) -> list[dict[str, Any]]:
+    if _offline_free_context():
+        return []
+    return await developer_commerce.scope_tariffs(owner_user_id, reader=_commerce_service())
+
+
+async def _request_commerce_projection(
+    request_id: str, *, principal: DeveloperPrincipal, metadata: dict[str, Any]
+) -> dict[str, Any]:
+    return await developer_commerce.request_projection(
+        request_id, principal=principal, metadata=metadata, reader=_commerce_service()
+    )
+
+
+async def _enrich_commerce_status(
+    payload: dict[str, Any], *, latest: dict[str, Any], principal: DeveloperPrincipal
+) -> dict[str, Any]:
+    metadata = _metadata_object_map(latest.get("metadata"))
+    fields = await _request_commerce_projection(
+        str(latest.get("request_id") or payload.get("request_id") or ""),
+        principal=principal,
+        metadata=metadata,
+    )
+    return developer_commerce.merge_status(
+        payload, fields=fields, metadata=metadata, terminal_states=_TERMINAL_CONSENT_STATUSES
+    )
+
+
 async def _get_user_scope_snapshot(
     user_id: str,
     *,
@@ -1347,6 +1322,10 @@ async def _get_user_scope_snapshot(
             for entry in scope_entries
             if str(entry.get("scope") or "").strip()
         }
+    )
+
+    scope_entries = developer_commerce.priced_scope_entries(
+        user_id, scope_entries, await _scope_tariffs(user_id)
     )
 
     if detail == "verbose":
@@ -1461,7 +1440,6 @@ def _serialize_oauth_client(
 
 
 def _oauth_frontend_authorize_url(transaction_ref: str) -> str:
-    from urllib.parse import urlencode
 
     origin = (
         str(get_app_runtime_settings().app_frontend_origin or "http://localhost:3000")
@@ -1800,33 +1778,26 @@ async def get_consent_status(
                 granted_scope=_optional_str(active.get("scope")),
             )
             export_fields = _export_fields(export_metadata)
-            return DeveloperConsentStatusResponse(
-                status="granted",
-                user_id=user_id,
-                scope=normalized_scope,
-                requested_scope=coverage["requested_scope"],
-                granted_scope=coverage["granted_scope"],
-                coverage_kind=coverage["coverage_kind"],
-                covered_by_existing_grant=coverage["covered_by_existing_grant"],
-                request_id=active.get("request_id"),
-                consent_token=active.get("token_id"),
-                expires_at=active.get("expires_at"),
-                export_revision=export_fields["export_revision"],
-                export_generated_at=export_fields["export_generated_at"],
-                export_refresh_status=export_fields["export_refresh_status"],
-                expiry_hours=_optional_int(active_metadata.get("expiry_hours")),
-                request_url=_request_url_from_metadata(active.get("request_id"), active_metadata),
-                requester_label=_optional_str(active_metadata.get("requester_label")),
-                requester_image_url=_optional_str(active_metadata.get("requester_image_url")),
-                reason=_optional_str(active_metadata.get("reason")),
-                app_id=principal.app_id,
-                app_display_name=principal.display_name,
-                message=(
-                    "Consent is active for this app and scope."
-                    if str(active.get("scope") or "") == normalized_scope
-                    else "Consent is active for this app; an existing broader grant covers the requested scope."
-                ),
+            response = DeveloperConsentStatusResponse(
+                **developer_consent_projection.active_status_fields(
+                    active,
+                    active_metadata,
+                    user_id=user_id,
+                    normalized_scope=normalized_scope,
+                    coverage=coverage,
+                    export_fields=export_fields,
+                    principal=principal,
+                    request_url=_request_url_from_metadata(
+                        active.get("request_id"), active_metadata
+                    ),
+                    number=_optional_int,
+                    text=_optional_str,
+                )
             )
+            enriched = await _enrich_commerce_status(
+                response.model_dump(), latest=active, principal=principal
+            )
+            return DeveloperConsentStatusResponse.model_validate(enriched)
         if invalidated_link_epoch:
             return DeveloperConsentStatusResponse(
                 status="requires_reconsent",
@@ -1870,6 +1841,7 @@ async def get_consent_status(
             status_map = {
                 "REQUESTED": "pending",
                 "CONSENT_GRANTED": "granted",
+                "CONSENT_PAID_APPROVED": "pending",
                 "CONSENT_DENIED": "denied",
                 "TIMEOUT": "expired",
                 "CANCELLED": "cancelled",
@@ -1887,7 +1859,7 @@ async def get_consent_status(
                 )
             export_fields = _export_fields(export_metadata)
             consent_token = latest.get("token_id") if latest_action == "CONSENT_GRANTED" else None
-            return DeveloperConsentStatusResponse(
+            response = DeveloperConsentStatusResponse(
                 status=resolved_status,
                 user_id=user_id,
                 scope=latest.get("scope"),
@@ -1922,6 +1894,10 @@ async def get_consent_status(
                 app_display_name=principal.display_name,
                 message=f"Latest request action is {latest_action or 'UNKNOWN'}.",
             )
+            enriched = await _enrich_commerce_status(
+                response.model_dump(), latest=latest, principal=principal
+            )
+            return DeveloperConsentStatusResponse.model_validate(enriched)
 
     return DeveloperConsentStatusResponse(
         status="not_found",
@@ -2013,18 +1989,26 @@ async def get_mcp_consent_status(
     if is_private_pkm_export_scope(str(latest.get("scope") or "")):
         action = "REVOKED"
     lifecycle = _CONSENT_REQUEST_STATUS_MAP.get(action, "expired")
+    commercial = await _request_commerce_projection(
+        request_ref,
+        principal=principal,
+        metadata=_metadata_object_map(latest.get("metadata")),
+    )
+    if commercial and lifecycle not in {"denied", "expired", "revoked", "cancelled"}:
+        lifecycle = str(commercial["status"])
     approval_timeout_at = _optional_int(
         latest.get("approval_timeout_at") or latest.get("poll_timeout_at")
     )
-    if (
-        lifecycle == "pending"
-        and approval_timeout_at is not None
-        and approval_timeout_at <= int(time.time() * 1000)
-    ):
-        lifecycle = "expired"
-    expires_at = _optional_int(latest.get("expires_at"))
-    if lifecycle == "granted" and expires_at is not None and expires_at <= int(time.time() * 1000):
-        lifecycle = "expired"
+    expires_at = _optional_int(
+        commercial.get("expires_at") if commercial else latest.get("expires_at")
+    )
+    lifecycle = developer_consent_projection.timed_status(
+        lifecycle,
+        action=action,
+        approval_timeout_at=approval_timeout_at,
+        expires_at=expires_at,
+        now_ms=int(time.time() * 1000),
+    )
 
     # A granted event is not sufficient authority to release information. The
     # consent token can be revoked after that event was recorded, so validate it
@@ -2035,28 +2019,59 @@ async def get_mcp_consent_status(
     if lifecycle == "granted" and consent_token:
         token_valid, token_reason, _token_obj = await validate_token_with_db(consent_token)
         if not token_valid:
-            normalized_reason = str(token_reason or "").lower()
-            # A database outage must not be projected as a permanent revocation.
-            # Validation correctly fails closed for exports, but MCP polling needs
-            # a retryable status so a connector does not create a duplicate consent
-            # request while that revocation check is temporarily unavailable.
-            if "db unavailable" in normalized_reason:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail={
-                        "error_code": "CONSENT_STATUS_UNAVAILABLE",
-                        "message": "Consent status is temporarily unavailable. Retry the request.",
-                    },
-                )
-            lifecycle = "expired" if "expired" in normalized_reason else "revoked"
+            lifecycle = developer_consent_projection.invalid_token_status(token_reason)
 
-    return {
-        "status": lifecycle,
-        "expires_at": expires_at,
-        "poll_after_seconds": 5 if lifecycle == "pending" else None,
-        "approval_timeout_at": approval_timeout_at,
-        "grant_ref": request_ref if lifecycle == "granted" else None,
-    }
+    return developer_consent_projection.mcp_status_fields(
+        tariff=_tariff_request_fields(_metadata_object_map(latest.get("metadata"))),
+        commercial=commercial,
+        lifecycle=lifecycle,
+        expires_at=expires_at,
+        approval_timeout_at=approval_timeout_at,
+        request_ref=request_ref,
+    )
+
+
+async def _requested_scope_upgrade(
+    service: ConsentDBService, *, user_id: str, principal: DeveloperPrincipal, requested_scope: str
+) -> dict[str, object | None]:
+    existing_granted_scopes = []
+    superseded_tokens = cast(
+        list[dict[str, Any]],
+        await service.get_superseded_active_tokens(
+            user_id,
+            agent_id=principal.agent_id,
+            requested_scope=requested_scope,
+        ),
+    )
+    for superseded_token in superseded_tokens:
+        existing_scope = str(superseded_token.get("scope") or "").strip()
+        if not existing_scope:
+            continue
+        if _is_hushh_tech_principal(principal) and not _hushh_tech_consent_scope_allowed(
+            existing_scope
+        ):
+            continue
+        existing_granted_scopes.append(existing_scope)
+    return _scope_upgrade_fields(
+        requested_scope=requested_scope,
+        existing_granted_scopes=existing_granted_scopes,
+    )
+
+
+async def _commercial_pending_response(
+    pending: dict[str, Any], *, normalized_scope: str, principal: DeveloperPrincipal
+) -> dict[str, object]:
+    response = _pending_consent_response(
+        pending, normalized_scope=normalized_scope, principal=principal
+    )
+    metadata = _metadata_object_map(pending.get("metadata"))
+    response.update(
+        await _request_commerce_projection(
+            str(response["request_id"]), principal=principal, metadata=metadata
+        )
+    )
+    response.update(_tariff_request_fields(metadata))
+    return response
 
 
 async def _request_consent_impl(
@@ -2098,7 +2113,7 @@ async def _request_consent_impl(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error_code": "INTERNAL_SCOPE_NOT_REQUESTABLE",
-                "message": "Internal PKM and vault authorities cannot be requested externally.",
+                "message": "Internal authorities cannot be requested externally.",
             },
         )
     if normalized_scope in EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES and normalized_scope not in (
@@ -2173,6 +2188,11 @@ async def _request_consent_impl(
     scope_handle = str(
         (discovered_entry or {}).get("registry_handle") or ""
     ).strip() or scope_handle_for_machine_scope(payload.user_id, normalized_scope)
+    tariff = (
+        await _scope_tariff(payload.user_id, scope_handle, normalized_scope)
+        if is_information_scope
+        else None
+    )
 
     service = ConsentDBService()
     if is_information_scope:
@@ -2219,6 +2239,12 @@ async def _request_consent_impl(
         except HTTPException:
             active = None
             export_metadata = None
+    if active and tariff and int(tariff.get("priceCents") or 0) > 0:
+        # Pricing creates new purchase terms; an older free grant remains
+        # usable through its original reference without satisfying this request.
+        if not _metadata_object_map(active.get("metadata")).get("commercial_required"):
+            active = None
+            export_metadata = None
     if active:
         if is_information_scope:
             await _require_discovered_information_scope(
@@ -2237,7 +2263,7 @@ async def _request_consent_impl(
             normalized_scope,
             principal.app_id,
         )
-        return {
+        response = {
             "status": "already_granted",
             "message": (
                 "Consent already active for this developer app and scope."
@@ -2261,6 +2287,7 @@ async def _request_consent_impl(
             "app_display_name": principal.display_name,
             **_offer_response_fields(active_metadata),
         }
+        return await _enrich_commerce_status(response, latest=active, principal=principal)
 
     pending = await service.get_pending_request_for_scope(
         payload.user_id,
@@ -2291,10 +2318,8 @@ async def _request_consent_impl(
                 user_id=payload.user_id,
                 scope=normalized_scope,
             )
-        return _pending_consent_response(
-            pending,
-            normalized_scope=normalized_scope,
-            principal=principal,
+        return await _commercial_pending_response(
+            pending, normalized_scope=normalized_scope, principal=principal
         )
 
     if await service.was_recently_denied(
@@ -2315,27 +2340,8 @@ async def _request_consent_impl(
     now_ms = int(time.time() * 1000)
     poll_timeout_at = now_ms + (approval_timeout_minutes * 60 * 1000)
     scope_description = get_scope_description(normalized_scope)
-    existing_granted_scopes = []
-    superseded_tokens = cast(
-        list[dict[str, Any]],
-        await service.get_superseded_active_tokens(
-            payload.user_id,
-            agent_id=principal.agent_id,
-            requested_scope=normalized_scope,
-        ),
-    )
-    for superseded_token in superseded_tokens:
-        existing_scope = str(superseded_token.get("scope") or "").strip()
-        if not existing_scope:
-            continue
-        if _is_hushh_tech_principal(principal) and not _hushh_tech_consent_scope_allowed(
-            existing_scope
-        ):
-            continue
-        existing_granted_scopes.append(existing_scope)
-    scope_upgrade_fields = _scope_upgrade_fields(
-        requested_scope=normalized_scope,
-        existing_granted_scopes=existing_granted_scopes,
+    scope_upgrade_fields = await _requested_scope_upgrade(
+        service, user_id=payload.user_id, principal=principal, requested_scope=normalized_scope
     )
     metadata = DeveloperRegistryService.build_consent_metadata(
         principal,
@@ -2359,6 +2365,14 @@ async def _request_consent_impl(
             **scope_upgrade_fields,
             **offer_meta,
         }
+    )
+    metadata.update(
+        await developer_commerce.intake_metadata(
+            tariff,
+            principal=principal,
+            connector_key_id=str(payload.connector_key_id),
+            recipient_key_fingerprint=str(recipient_key_fingerprint),
+        )
     )
 
     async with serialize_consent_request(
@@ -2386,10 +2400,8 @@ async def _request_consent_impl(
             connector_wrapping_alg=connector_wrapping_alg,
             recipient_key_fingerprint=recipient_key_fingerprint,
         ):
-            return _pending_consent_response(
-                concurrent_pending,
-                normalized_scope=normalized_scope,
-                principal=principal,
+            return await _commercial_pending_response(
+                concurrent_pending, normalized_scope=normalized_scope, principal=principal
             )
 
         await service.insert_event(
@@ -2434,6 +2446,8 @@ async def _request_consent_impl(
         "is_scope_upgrade": scope_upgrade_fields["is_scope_upgrade"],
         "existing_granted_scopes": scope_upgrade_fields["existing_granted_scopes"],
         "additional_access_summary": scope_upgrade_fields["additional_access_summary"],
+        **await _request_commerce_projection(request_id, principal=principal, metadata=metadata),
+        **_tariff_request_fields(metadata),
         **_offer_response_fields(metadata),
     }
 
@@ -2488,6 +2502,7 @@ async def request_mcp_consent(
             connector_key_id=payload.connector_key_id,
             connector_wrapping_alg=payload.connector_wrapping_alg,
             refresh_policy=payload.refresh_policy,
+            offer=payload.offer,
         ),
         request=request,
         token=None,
@@ -2514,18 +2529,9 @@ async def request_mcp_consent(
             },
         )
     granted = state == "already_granted"
-    response = {
-        "status": "granted" if granted else "pending",
-        "scope": str(raw.get("requested_scope") or raw.get("scope") or payload.scope),
-        "coverage_kind": raw.get("coverage_kind") if granted else None,
-        "expires_at": _optional_int(raw.get("expires_at")),
-        "poll_after_seconds": None if granted else 5,
-        "approval_timeout_at": _optional_int(
-            raw.get("approval_timeout_at") or raw.get("poll_timeout_at")
-        ),
-    }
-    response["grant_ref" if granted else "request_ref"] = request_ref
-    return response
+    return developer_consent_projection.request_fields(
+        raw, scope=payload.scope, granted=granted, request_ref=request_ref, number=_optional_int
+    )
 
 
 @developer_api_router.post(
@@ -2871,20 +2877,16 @@ async def get_scoped_export(
         else "superset",
         expires_at=token_obj.expires_at,
         export_revision=export_data.get("export_revision"),
+        commercial_required=is_paid_grant(_metadata_object_map(export_data.get("_grant_metadata"))),
         export_generated_at=_optional_str(export_data.get("export_generated_at")),
         export_refresh_status=export_data.get("refresh_status"),
         encrypted_data=ciphertext,
         iv=export_data.get("iv"),
         tag=export_data.get("tag"),
         wrapped_key_bundle=export_data.get("wrapped_key_bundle"),
-        export_envelope={
-            "version": export_data.get("envelope_version"),
-            "export_id": export_id,
-            "aad": export_data.get("envelope_aad"),
-            "aad_sha256": export_data.get("envelope_aad_sha256"),
-            "ciphertext_sha256": export_data.get("ciphertext_sha256"),
-            "ciphertext_bytes": export_data.get("ciphertext_bytes"),
-        },
+        export_envelope=developer_export_projection.envelope_fields(
+            export_data, export_id=export_id
+        ),
         maximum_raw_bytes=_CONSENT_EXPORT_MAX_RAW_BYTES,
         message=(
             "Encrypted scoped export ready."
@@ -2956,27 +2958,15 @@ async def get_mcp_scoped_export(
         delivery_surface="mcp_inline",
         delivered_bytes=int(export_data.get("ciphertext_bytes") or 0),
     )
-    return {
-        "status": "success",
-        "granted_scope": granted_scope,
-        "expected_scope": expected_scope,
-        "expires_at": _optional_int(token_obj.expires_at),
-        "export_revision": export_revision,
-        "iv": export_data.get("iv"),
-        "tag": export_data.get("tag"),
-        "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
-        "export_envelope": {
-            "version": export_data.get("envelope_version"),
-            "export_id": export_id,
-            "aad": export_data.get("envelope_aad"),
-            "aad_sha256": export_data.get("envelope_aad_sha256"),
-            "ciphertext_sha256": export_data.get("ciphertext_sha256"),
-            "ciphertext_bytes": export_data.get("ciphertext_bytes"),
-        },
-        # MCP transports encrypted bytes in the tool result. Connector private
-        # keys remain connector-local; no ResourceLink follow-up is required.
-        "encrypted_data": export_data.get("encrypted_data"),
-    }
+    return developer_export_projection.mcp_response(
+        export_data,
+        granted_scope=granted_scope,
+        expected_scope=expected_scope,
+        expires_at=_optional_int(token_obj.expires_at),
+        export_revision=export_revision,
+        export_id=export_id,
+        commercial_required=is_paid_grant(_metadata_object_map(export_data.get("_grant_metadata"))),
+    )
 
 
 def _parse_single_byte_range(range_header: str | None, total_bytes: int) -> tuple[int, int] | None:

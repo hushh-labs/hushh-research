@@ -11,16 +11,6 @@ Until then UAT stays on `hushh-drive-uat`. Switching a lane's client requires ex
 connections in that lane to reconnect once.
 Mail/Calendar/Firebase clients and existing grants are unchanged.
 
-## Latest verified state
-
-PR [#6967](https://github.com/hushh-labs/hushh-research/pull/6967) passed its
-Main Post-Merge Smoke Gate and immutable-SHA UAT deployment. The backend and web
-services serve that merged SHA at 100% traffic, and their health/root checks
-succeeded. This proves deployment, not document-processing or authenticated
-sharing acceptance. Connector feature flags and the internal-owner cohort remain
-off; indexing remains fail-closed. The detailed evidence is in
-[Post-merge UAT delivery record](#post-merge-uat-delivery-record-2026-09-23).
-
 ## Visual Map
 
 The ordinary connection requests explicit live Drive access. Existing limited
@@ -146,7 +136,8 @@ ingestion and native requirements do not gate the live request journey above.
   Publication switches complete versions atomically; text, source ranges and embeddings
   are encrypted together. Source denial purges the prior index; transient failures preserve it.
   The dedicated finite worker selects the scanner/parser/embedding implementation; no
-  API startup hook or live scheduler is activated by this source checkpoint.
+  API startup hook or live scheduler was activated at that source checkpoint;
+  see the later UAT delivery record for the enabled scheduler.
 - Mail chat checkpoint: the registered typed-chat Email specialist now performs only
   `list_recent` / `list_needs_reply` / `search_inbox` metadata reads and size-capped
   `read_message` / `read_thread` body reads, behind the default-off Mail flag,
@@ -211,7 +202,7 @@ ingestion and native requirements do not gate the live request journey above.
   tokens. Concurrent workers cannot redispatch an uncertain Google write; existing receipts are
   reconciled using reads. A default-off, OIDC-protected Drive work drain now sequences a small
   bounded UAT sweep (indexing -> suggestions -> permission work -> notifications); it has no API
-  startup/background hook and remains inactive until explicit UAT runtime/scheduler configuration.
+  startup/background hook. The later UAT delivery record documents its enabled scheduler.
 - Notification-outbox checkpoint: migration 235 gives the existing opaque Drive-share events a
   short lease, three bounded dispatch attempts, fair inspection and crash recovery. The finite
   worker sends only one of the six reviewed `document_share_*` event types plus opaque request,

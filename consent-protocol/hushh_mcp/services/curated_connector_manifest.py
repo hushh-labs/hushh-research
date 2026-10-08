@@ -31,16 +31,23 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
+from urllib.parse import urlsplit
 
+from hushh_mcp.services.curated_connector_catalog import (
+    CuratedConnectorCatalogEntry as CuratedConnectorCatalogEntry,
+)
+from hushh_mcp.services.curated_connector_catalog import (
+    catalog_entries,
+)
 from hushh_mcp.services.mcp_public_http import UnsafeMcpEndpoint, validate_mcp_endpoint
+from hushh_mcp.services.stripe_mcp_policy import STRIPE_MCP_ENDPOINT, STRIPE_OAUTH_ISSUER
 
 MANIFEST_VERSION = "curated-connector.v1"
 MANIFEST_DIR = Path(__file__).resolve().parents[2] / "config" / "curated_connectors"
-# A registration-only spec exists only to let an operator obtain an authenticated
-# tools/list result for a public provider before a runtime manifest can safely
-# name its tools. It is deliberately outside MANIFEST_DIR: it is not a catalog,
-# registry, deploy, or runtime input.
+# Registration-only specs allow authenticated tools/list discovery before a
+# runtime manifest pins tools. They supply cosmetic setup cards, never registry,
+# deploy, credential or runtime authority, and remain outside MANIFEST_DIR.
 REGISTRATION_SPEC_VERSION = "curated-connector-registration.v1"
 REGISTRATION_SPEC_DIR = (
     Path(__file__).resolve().parents[2] / "config" / "curated_connector_registrations"
@@ -82,6 +89,7 @@ _OAUTH_KEYS = frozenset(
         "tokenUrl",
         "registrationUrl",
         "revocationUrl",
+        "issuer",
         "scopes",
         "tokenEndpointAuth",
         "clientIdEnv",
@@ -115,6 +123,7 @@ class CuratedConnectorManifest:
     # `pin()`: it is read from the reviewed manifest at disconnect, never from the
     # operator-writable registry row.
     revocation_url: str | None = None
+    oauth_issuer: str | None = None
 
     @property
     def is_public_client(self) -> bool:
@@ -184,6 +193,7 @@ class CuratedConnectorRegistrationSpec:
     token_endpoint_auth: str
     client_id_env: str
     redirect_uris: dict[str, tuple[str, ...]]
+    oauth_issuer: str | None = None
 
     @property
     def is_public_client(self) -> bool:
@@ -193,21 +203,6 @@ class CuratedConnectorRegistrationSpec:
     def secret_env_names(self) -> tuple[str, ...]:
         """The sole public identifier an operator may store during bootstrap."""
         return (self.client_id_env,)
-
-
-@dataclass(frozen=True)
-class CuratedConnectorCatalogEntry:
-    """A reviewed, non-actionable catalog projection.
-
-    This deliberately exposes only cosmetic information and the setup state.
-    It has no endpoint, OAuth, secret, tool, or descriptor fields, so rendering
-    a card can never widen a provider's runtime authority.
-    """
-
-    connector_id: str
-    display_name: str
-    description: str
-    catalog_state: Literal["setup_pending", "discovery_pending"]
 
 
 def _text(value: Any) -> str:
@@ -243,31 +238,22 @@ def _exact_keys(raw: dict[str, Any], allowed: frozenset[str], label: str) -> Non
         raise CuratedConnectorManifestError(f"{label} has unknown keys: {unknown}.")
 
 
-def parse_manifest(raw: Any) -> CuratedConnectorManifest:
-    """Validate a decoded manifest. Strict by design: unknown keys are errors."""
-    if not isinstance(raw, dict) or raw.get("version") != MANIFEST_VERSION:
-        raise CuratedConnectorManifestError(f"Manifest version must be {MANIFEST_VERSION}.")
-    _exact_keys(raw, _TOP_LEVEL_KEYS, "Manifest")
+def _reviewed_issuer(connector_id: str, endpoint: object, value: Any) -> str | None:
+    if value is None:
+        return None
+    issuer = _https(value, "oauth.issuer")
+    parts = urlsplit(_https(endpoint, "mcpEndpoint"))
+    expected = f"{parts.scheme}://{parts.netloc}"
+    if connector_id == "stripe" and endpoint == STRIPE_MCP_ENDPOINT:
+        expected = STRIPE_OAUTH_ISSUER
+    if issuer != expected:
+        raise CuratedConnectorManifestError("oauth.issuer differs from the reviewed provider pin.")
+    return issuer
 
-    connector_id = _text(raw.get("connectorId"))
-    if not _CONNECTOR_ID.match(connector_id) or connector_id.startswith(_RESERVED_PREFIXES):
-        raise CuratedConnectorManifestError(
-            "connectorId must be lowercase snake_case and not start with custom_ or google_."
-        )
-    display_name = _text(raw.get("displayName"))
-    if not display_name:
-        raise CuratedConnectorManifestError("displayName is required.")
 
-    oauth = raw.get("oauth")
-    if not isinstance(oauth, dict):
-        raise CuratedConnectorManifestError("oauth block is required.")
-    _exact_keys(oauth, _OAUTH_KEYS, "oauth")
-    scopes = oauth.get("scopes")
-    # An empty scope list is deliberate for providers that reject a scope parameter.
-    if not isinstance(scopes, list) or not all(isinstance(s, str) and _text(s) for s in scopes):
-        raise CuratedConnectorManifestError(
-            "oauth.scopes must be a list of strings (may be empty)."
-        )
+def _client_configuration(
+    connector_id: str, oauth: dict[str, Any]
+) -> tuple[str, str, str | None, str | None, str | None]:
     auth_method = _text(oauth.get("tokenEndpointAuth"))
     if auth_method not in _TOKEN_AUTH_METHODS:
         raise CuratedConnectorManifestError(
@@ -305,6 +291,38 @@ def parse_manifest(raw: Any) -> CuratedConnectorManifest:
     revocation_url: str | None = _text(oauth.get("revocationUrl")) or None
     if revocation_url is not None:
         revocation_url = _https(revocation_url, "oauth.revocationUrl")
+
+    return auth_method, client_id_env, client_secret_env, registration_url, revocation_url
+
+
+def parse_manifest(raw: Any) -> CuratedConnectorManifest:
+    """Validate a decoded manifest. Strict by design: unknown keys are errors."""
+    if not isinstance(raw, dict) or raw.get("version") != MANIFEST_VERSION:
+        raise CuratedConnectorManifestError(f"Manifest version must be {MANIFEST_VERSION}.")
+    _exact_keys(raw, _TOP_LEVEL_KEYS, "Manifest")
+
+    connector_id = _text(raw.get("connectorId"))
+    if not _CONNECTOR_ID.match(connector_id) or connector_id.startswith(_RESERVED_PREFIXES):
+        raise CuratedConnectorManifestError(
+            "connectorId must be lowercase snake_case and not start with custom_ or google_."
+        )
+    display_name = _text(raw.get("displayName"))
+    if not display_name:
+        raise CuratedConnectorManifestError("displayName is required.")
+
+    oauth = raw.get("oauth")
+    if not isinstance(oauth, dict):
+        raise CuratedConnectorManifestError("oauth block is required.")
+    _exact_keys(oauth, _OAUTH_KEYS, "oauth")
+    scopes = oauth.get("scopes")
+    # An empty scope list is deliberate for providers that reject a scope parameter.
+    if not isinstance(scopes, list) or not all(isinstance(s, str) and _text(s) for s in scopes):
+        raise CuratedConnectorManifestError(
+            "oauth.scopes must be a list of strings (may be empty)."
+        )
+    auth_method, client_id_env, client_secret_env, registration_url, revocation_url = (
+        _client_configuration(connector_id, oauth)
+    )
 
     tools = raw.get("tools")
     if not isinstance(tools, dict):
@@ -351,6 +369,7 @@ def parse_manifest(raw: Any) -> CuratedConnectorManifest:
         free_read_tools=frozenset(free_read),
         redirect_uris=redirect_uris,
         revocation_url=revocation_url,
+        oauth_issuer=_reviewed_issuer(connector_id, raw.get("mcpEndpoint"), oauth.get("issuer")),
     )
 
 
@@ -407,6 +426,7 @@ def parse_registration_spec(raw: Any) -> CuratedConnectorRegistrationSpec:
         token_endpoint_auth=contract.token_endpoint_auth,
         client_id_env=contract.client_id_env,
         redirect_uris=contract.redirect_uris,
+        oauth_issuer=contract.oauth_issuer,
     )
 
 
@@ -567,30 +587,10 @@ def all_catalog_entries() -> dict[str, CuratedConnectorCatalogEntry]:
 
     Runtime manifests stay fail-closed until an exact, active registry row and
     runtime configuration pass their existing checks. Registration-only specs
-    stay non-actionable until authenticated tool discovery produces a runtime
-    manifest. This is a display projection, never an OAuth or deploy input.
+    present setup through explicit custom OAuth; they never enable curated
+    runtime rows or supply credentials. This display is never an OAuth or deploy input.
     """
-    entries = {
-        connector_id: CuratedConnectorCatalogEntry(
-            connector_id=manifest.connector_id,
-            display_name=manifest.display_name,
-            description=manifest.description,
-            catalog_state="setup_pending",
-        )
-        for connector_id, manifest in all_manifests().items()
-    }
-    entries.update(
-        {
-            connector_id: CuratedConnectorCatalogEntry(
-                connector_id=spec.connector_id,
-                display_name=spec.display_name,
-                description=spec.description,
-                catalog_state="discovery_pending",
-            )
-            for connector_id, spec in all_registration_specs().items()
-        }
-    )
-    return entries
+    return catalog_entries(all_manifests(), all_registration_specs())
 
 
 def get_registration_spec(connector_id: str) -> CuratedConnectorRegistrationSpec | None:

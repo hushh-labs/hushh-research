@@ -20,6 +20,7 @@ flowchart TB
   end
 
   subgraph release["Environment deployment lanes"]
+    devdeploy["Deploy to Dev<br/>main-owned workflow + CI-green branch SHA"]
     green["Green main SHA"]
     smoke["Main Post-Merge Smoke<br/>deploy-authority on main"]
     uat["Deploy to UAT<br/>manual exact-SHA dispatch"]
@@ -29,6 +30,7 @@ flowchart TB
   feat --> pr --> prci
   prci --> freshness
   prci --> status
+  prci -->|"exact SHA passes CI Status Gate"| devdeploy
   freshness --> queue
   status --> queue
   queue --> queueci --> main --> smoke --> green
@@ -36,7 +38,11 @@ flowchart TB
   green --> prod
 ```
 
-This document describes the queue-first CI model and how to stay aligned with it so code changes do not fail CI or deploy from the wrong authority gate. Run the local mirror before opening or updating a pull request, and before commits that touch core authority surfaces.
+This document describes CI and deployment authority. During implementation, run
+focused contract checks. Before an ordinary push, run the local core mirror once
+on the completed candidate; GitHub owns full web and browser validation. The
+dedicated pre-PR workflow retains its exhaustive local gate. Dev can deploy an
+exact CI-green branch SHA without merging application content to main.
 
 The canonical state-changing operator procedure is the
 [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
@@ -102,6 +108,21 @@ Codex-first RCA surface:
 
 Use this command when the failure is already on a core authority surface and the next step is classification, not generic monitoring. It preserves structured artifacts and keeps helper-only drift advisory unless it masks a runtime, deploy, DB, or semantic verification failure.
 
+**Read `unevaluable_checks` before any blocking classification.** The runner reports three
+states, not two: `healthy`, `blocked`, and `unevaluable` (exit `0`, `1`, `2`). An entry under
+`unevaluable_checks` means a check could not run at all, so nothing was verified either way, and
+it names the domain class it would otherwise have been blamed for. Never remediate a domain class
+that came from an unevaluable check.
+
+Why this matters, measured 2026-08-29: the uat surface reported `db_contract_drift` and
+"Resolve DB release-contract drift before treating the surface as deployable" because
+`verify_runtime_db_contract.sh` died at `import asyncpg`. The database contract was fine. In the
+same run the semantic verifier died at `import dotenv` and produced *no* classification, so a
+crashed release check read as a clean one, and the `ci` surface reported `core_ci_failed` for an
+exit code of 143, which is SIGTERM: CI had not failed, CI had been killed. (The check it killed, `verify-runtime-config-contract.py`, was measured at 486s under heavy load; it scans every tracked file against 23 patterns.) Sub-reports now land
+in `tmp/rca/<surface>/` (gitignored) instead of a temp directory that evaporated before anyone
+could open the path the runner printed.
+
 Canonical watcher:
 
 ```bash
@@ -137,7 +158,7 @@ Web validation is intentionally split:
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
 2. PRs run `web-targeted` for deterministic changed-path contract packs such as voice gateway, cache, analytics, routes/surface map, phone verification, and Capacitor static parity. The job (`Web Targeted Contracts (node)` / `(browser)`) is a two-leg matrix: `WEB_TARGETED_PART=node` runs the Vitest and verifier packs without downloading a browser, and `WEB_TARGETED_PART=browser` runs the Playwright packs with `PLAYWRIGHT_WORKERS=3` (the Playwright config's CI worker count; one when unset). Each pack is classified by whether its npm script reaches `playwright`, so the legs partition the matched packs; a local run (`all`) still runs every pack. `scripts/ci/test_web_ci_lane_partition.py`, run by the governance check, proves the partition against the real script.
-3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`, ~9,700 tests) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core` as three Vitest shards (`WEB_FULL_SUITE_SHARD=<i>/3`, `vitest --shard`, jobs `Web Full Suite (Vitest) 1/3` to `3/3`); shard 1 also runs the contract verifiers, once. `CI Status Gate` reads the matrix's aggregate result, which is `success` only when every shard succeeded, and requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
+3. PRs run `web-full-suite` (job `Web Full Suite (Vitest)`) for the whole Vitest suite (`npm run test:ci`) plus the voice gateway, One Voice, surface-map, Capacitor static-parity and Capacitor plugin-contract checks. It runs in parallel with `web-core` as three Vitest shards (`WEB_FULL_SUITE_SHARD=<i>/3`, `vitest --shard`, jobs `Web Full Suite (Vitest) 1/3` to `3/3`); shard 1 also runs the contract verifiers, once. `CI Status Gate` reads the matrix's aggregate result, which is `success` only when every shard succeeded, and requires it to have **succeeded** (not merely not failed) whenever the frontend filter matches. Until 2026-09-26 this suite ran only in `Queue Validation`, which nothing merged through, so it gated no merge.
 4. `web-full` is `web-core` followed by `web-full-suite`, for local and exhaustive runs. The legacy `web` stage remains an alias for `web-full` so older local wrappers keep their exhaustive behavior.
 
 Fail-fast contract:
@@ -164,7 +185,7 @@ Core CI and deploy surfaces are sealed separately from blanket owner-review poli
   - `deploy/**`
   - `config/ci-governance.json`
 - Enforcement happens inside the blocking governance lane through [scripts/ci/verify-protected-pipeline-edits.py](../../../scripts/ci/verify-protected-pipeline-edits.py).
-- This does not change the repo-wide `0`-approval policy on `main`; it only seals core pipeline and CI authority to the sanctioned maintainer cohort.
+- This does not waive the required independent approval of the latest push on `main`; the separately governed review-bypass cohort remains explicit. It seals core pipeline and CI authority to the sanctioned maintainer cohort.
 
 ### PKM rollout blocker
 
@@ -420,6 +441,10 @@ Practical maintainer rule:
 
 `bash scripts/ci/orchestrate.sh core` is the fast local pre-push run: secret and governance, then protocol and web-core in parallel (separate Python and Node runtimes), then mcp-package and integration, which need the protocol stage's Python environment. Measured on 2026-09-26 it took 374 s, against about 1,126 s for every stage run serially. The browser layout packs (`web-targeted`, 429 s) and the full Vitest suite (`web-full-suite`) are not in the core mirror; GitHub Actions runs them and stays the authority. Set `CORE_SERIAL=1` to run protocol and web-core one after the other. `web-targeted` runs every matched pack and lists every failure instead of stopping at the first, so one broken pack no longer hides the next.
 
+When the broad Chromium/WebKit layout pack is selected, it owns the agent
+surface spec; `web-targeted-check.sh` retains its standalone invocation for
+agent-only changes. The lane partition check proves both paths and both engines.
+
 Tests follow the same economy: add a test only for a real regression, a trust boundary (with a negative control), or a public API or schema contract, and extend existing test files before creating new ones (`AGENTS.md`, Verification rules 5 to 8).
 
 ### Script Lifecycle Policy
@@ -431,14 +456,14 @@ Tests follow the same economy: add a test only for a real regression, a trust bo
 ## Branch Lanes
 
 1. `integration/pr-train` is the intake branch for non-maintainer contributor and agent work; governed maintainers may open branches cut from `origin/main` directly to `main`. `main` remains the sole promotion authority for UAT and production.
-2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
+2. UAT and production use a green `main` SHA with successful `Main Post-Merge Smoke`. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
 3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
-7. Feature or hotfix branches never deploy directly; they merge through `main`.
+7. Feature and hotfix branches may deploy to dev through its governed main-owned dispatch. UAT and production require promotion through `main`.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 
@@ -459,7 +484,7 @@ See [Branch Governance](./branch-governance.md).
 
 | Tool | CI Version | Local requirement |
 |------|------------|-------------------|
-| Node.js | 20 | 20+ (run `./bin/hushh ci`) |
+| Node.js | 24 for web/Node lanes | Local preflight accepts 20+; use 24 to reproduce CI |
 | Python | 3.13 | 3.13 (CI asserts exactly 3.13) |
 | npm | latest | Use latest (script upgrades before run) |
 | uv | pinned by workflow | install `uv` locally and use `uv sync --frozen --group dev` |
@@ -512,8 +537,10 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 **Parallel pytest (2026-09-26).** `consent-protocol/scripts/run-test-ci.sh` runs the manifest with
 `-n auto --dist loadfile`: one worker per CPU, and every test in a file stays on
 one worker in file order, so module-scoped fixtures behave as they do serially.
-The script is the switch; there is no environment flag. `protocol-check` in CI
-and the local `orchestrate.sh core` stage both reach it through
+Parallel execution is enabled by the script. On a loaded local host, the pinned
+xdist supports `PYTEST_XDIST_AUTO_NUM_WORKERS=<count>` to bound the auto worker
+count; this changes scheduling only, never test coverage or deadlines.
+`protocol-check` in CI and the local `orchestrate.sh core` stage both reach it through
 `consent-protocol/scripts/ci/backend-check.sh`. `tests/conftest.py` gives each
 xdist worker its own `OFFLINE_DB_PATH` file so workers never share SQLite rows;
 the Postgres-backed tests already create a uniquely named schema or database
@@ -595,9 +622,19 @@ Minimum checks for streaming changes:
 
 ---
 
-## Running CI Locally (Before Every Commit)
+## Running CI Locally
 
-**Recommended:** Run the script that mirrors CI. It uses the same versions and steps as GitHub Actions.
+During implementation, use the focused checks for the changed contract. Before
+an ordinary push, run the local core mirror once on the completed candidate:
+
+```bash
+scripts/ci/orchestrate.sh core
+```
+
+GitHub Actions remains authoritative for full web and browser validation. A
+local pass does not prove hosted success. The dedicated pre-PR workflow and an
+explicit full-mirror investigation still use the full command below; `codex
+pre-pr` already calls it, so running both duplicates the same local suite.
 
 ```bash
 ./bin/hushh ci
@@ -606,7 +643,7 @@ Minimum checks for streaming changes:
 This script, which also powers `./bin/hushh codex pre-pr`:
 
 1. Validates required files (e.g. `package-lock.json`, `next.config.ts`, `pyproject.toml`, `uv.lock`, generated runtime artifacts, test files).
-2. Checks Node (24+) and Python (3.13) and uses `uv` as the canonical backend toolchain.
+2. Checks Node (20+ minimum; use 24 for CI parity) and Python (3.13) and uses `uv` as the canonical backend toolchain.
 3. Runs **frontend** checks: install, `tsc`, lint, Next build, audit-budget gate, curated test suite.
 4. Runs **backend** checks: shared parity verification, install, Ruff, mypy, Bandit, curated test suite.
 5. Runs **integration**: route/runtime contract verification.
@@ -629,7 +666,8 @@ To verify the live GitHub branch gate matches the documented minimum contract:
 ./scripts/ci/verify-main-branch-protection.sh
 ```
 
-If it exits 0, CI should pass. If it fails, fix the reported step before committing.
+Fix failures in the selected local checks before pushing. Successful hosted
+validation of the exact SHA remains required before deployment.
 
 Secret-scan note:
 

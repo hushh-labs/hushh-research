@@ -32,7 +32,6 @@ from ag_ui.core import (
     EventType,
     Interrupt,
     RunAgentInput,
-    RunErrorEvent,
     RunFinishedInterruptOutcome,
     ToolMessage,
 )
@@ -50,34 +49,26 @@ from hushh_mcp.one_adk.mcp_call_approval import supersede_unanswered_reviews
 from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
 from hushh_mcp.one_adk.mcp_turn_scope import consume_turn_configurations, mcp_turn_scope
 from hushh_mcp.one_adk.output_privacy import (
+    CHAT_KEY_RUN_ERROR,
     ThoughtSummaryReplayFilter,
     drop_empty_history_parts,
+    normalize_history_error,
     public_event,
+    safe_exception_event,
 )
 from hushh_mcp.one_adk.run_errors import (
     MODEL_CAPACITY_CODE,
     MODEL_UNAVAILABLE_CODE,
     SERVER_RESTARTING_CODE,
     server_is_draining,
-    transient_model_error_for_exception,
-    transient_model_run_error,
 )
 from hushh_mcp.one_adk.text_attachments import render_text_attachments_for_model
 from hushh_mcp.services.chat_key import (
-    CHAT_KEY_ERROR_MESSAGES,
-    CHAT_KEY_ERRORS,
-    CHAT_KEY_RECOVERY_MESSAGE,
-    CHAT_KEY_REQUIRED_CODE,
     current_chat_key_markers,
     retain_request_chat_key,
 )
 
 logger = logging.getLogger(__name__)
-
-CHAT_KEY_RUN_ERROR = RunErrorEvent(
-    message=CHAT_KEY_RECOVERY_MESSAGE,
-    code=CHAT_KEY_REQUIRED_CODE,
-)
 
 
 def event_carries_chat_key(event: BaseEvent, markers: tuple[str, ...]) -> bool:
@@ -551,6 +542,9 @@ class TimedADKAgent(ADKAgent):
         instance.head = head
         return instance
 
+    def _mcp_turn_resources(self, conversation_id: str, *, owner_id, configurations):
+        return mcp_turn_scope(conversation_id, owner_id=owner_id, configurations=configurations)
+
     async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
         timing = TurnTiming(
             head=self.head,
@@ -595,7 +589,7 @@ class TimedADKAgent(ADKAgent):
                     accepting=queued_input.clubbing_admitted(state, resuming=_is_resume(input)),
                 ) as queued_key,
                 pending_resume_scope(state.get("temp:hussh:mcp_approval")),
-                mcp_turn_scope(
+                self._mcp_turn_resources(
                     input.thread_id,
                     owner_id=str(state.get("hussh:user_id") or "") or None,
                     configurations=configurations,
@@ -603,15 +597,7 @@ class TimedADKAgent(ADKAgent):
                 aclosing(super().run(input)) as run,
             ):
                 async for event in run:
-                    if getattr(event, "type", None) == EventType.RUN_ERROR:
-                        if getattr(event, "message", None) in CHAT_KEY_ERROR_MESSAGES:
-                            # ag_ui_adk stringifies a background failure into a
-                            # generic run error; keep a chat-key refusal recognisable.
-                            event = CHAT_KEY_RUN_ERROR
-                        else:
-                            # A 429/5xx after the first chunk is not failed over;
-                            # end with a retryable code, never the provider text.
-                            event = transient_model_run_error(event) or event
+                    event = normalize_history_error(event)
                     events = confirmations.project(event) if self.head == HEAD_ONE else [event]
                     for event in events:
                         if self.head == HEAD_ONE:
@@ -666,15 +652,7 @@ class TimedADKAgent(ADKAgent):
             # Otherwise the installed endpoint catches this exception and
             # serializes str(exception) into a second, unprojected RUN_ERROR.
             # Keep the failure terminal and content-free at this boundary.
-            safe_error = (
-                CHAT_KEY_RUN_ERROR
-                if isinstance(exc, CHAT_KEY_ERRORS)
-                else transient_model_error_for_exception(exc)
-                or RunErrorEvent(
-                    message="One couldn't finish that request. Please try again.",
-                    code="AGENT_ERROR",
-                )
-            )
+            safe_error = safe_exception_event(exc)
             timing.observe(safe_error)
             timing.error_class = "escaped_exception"
             if notice := _queued_notice(queued_key, settled=True):

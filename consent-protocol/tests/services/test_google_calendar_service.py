@@ -507,6 +507,28 @@ def test_calendar_execute_rejects_conflicts_that_changed_after_review(
         asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "calendars",
+    [None, {}, {"primary": {"errors": [{"reason": "notFound"}]}}, {"primary": {"busy": [{}]}}],
+)
+async def test_find_openings_never_treats_failed_availability_as_free(monkeypatch, calendars):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.google_calendar_service import GoogleCalendarService
+    from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+    service = GoogleCalendarService()
+    monkeypatch.setattr(service, "_request", AsyncMock(return_value={"calendars": calendars}))
+    with pytest.raises(GoogleConnectionError):
+        await service.find_openings(
+            user_id="synthetic-owner",
+            start_at="2026-10-01T09:00:00Z",
+            end_at="2026-10-01T12:00:00Z",
+            duration_minutes=30,
+        )
+
+
 def test_calendar_create_requests_google_meet_and_emails_the_invite(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -856,4 +878,5 @@ def test_event_listing_is_bounded_searchable_and_honest_about_truncation() -> No
     assert params["maxResults"] == 250
     assert params["q"] == "quarterly review"
     assert result["truncated"] is True
+    assert result["has_more"] is True
     assert "more exist" in str(result["more_events_exist"])

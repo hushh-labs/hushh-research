@@ -54,7 +54,8 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain("useLocationCommand()");
     expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('data-agent-action="voice"');
-    expect(agentBar).toContain('active ? "Cancel voice command" : "Talk to One. Hold to speak, or tap to start."');
+    expect(agentBar).toContain('active ? "Cancel voice command" : unavailableLabel || "Talk to One. Hold to speak, or tap to start."');
+    expect(agentBar).toContain("disabled={Boolean(unavailableLabel) && !active}");
     expect(agentBar).toContain("onPointerDown=");
     expect(agentBar).toContain("onPointerUp=");
     expect(agentBar).toContain("onPointerCancel=");
@@ -121,6 +122,8 @@ describe("Navbar bottom chrome contract", () => {
     expect(bottomShell).toContain("--app-bottom-shell-height");
     expect(bottomShell).not.toContain("xl:hidden");
     expect(navbar).toContain("shellNavigationHidden = false");
+    // The shell's own hide wins first; native tabs (7c1047002) extended the same guard.
+    expect(navbar).toMatch(/if \(shellNavigationHidden \|\| hideNavbar\b/);
     expect(navbar).toContain("data-ambient-chrome-ignore");
     expect(agentBar).toContain("data-ambient-chrome-ignore");
     const globalStyles = read("app/globals.css");

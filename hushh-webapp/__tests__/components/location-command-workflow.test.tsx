@@ -11,6 +11,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   api: vi.fn(),
+  pod: vi.fn(),
+  hosting: vi.fn(),
   permission: vi.fn(),
   requestPermission: vi.fn(),
   capture: vi.fn(),
@@ -27,6 +29,10 @@ const h = vi.hoisted(() => ({
   },
   router: { push: vi.fn(), replace: vi.fn() },
   pageAction: vi.fn(),
+  submitted: vi.fn(),
+}));
+vi.mock("@/lib/connections/gemini-runtime-configuration", () => ({
+  resolveGeminiRuntimeConnection: async () => ({ mode: "managed" }),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => window.location.pathname,
@@ -64,10 +70,17 @@ vi.mock("@capacitor/core", async (load) => ({
 }));
 vi.mock("@capacitor/app", () => ({ App: {} }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: h.api },
+  ApiService: {
+    apiFetch: h.api,
+    ownerPodRequest: h.pod,
+    getPersonalAgentStatus: h.hosting,
+  },
 }));
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { getIdTokenWithRetry: async () => "synthetic-id-token" },
+  AuthService: {
+    getCurrentUser: () => h.user,
+    getIdTokenWithRetry: async () => "synthetic-id-token",
+  },
 }));
 vi.mock("@/lib/agent/one-system-action-executor", () => ({
   registerOneSystemActionExecutor: () => () => undefined,
@@ -221,7 +234,11 @@ function Controls() {
   return (
     <>
       <button
-        onClick={() => context.run(context.command.submit("Do my Location onboarding"))}
+        onClick={() => {
+          const pending = context.command.submit("Do my Location onboarding");
+          h.submitted(pending);
+          context.run(pending);
+        }}
       >
         Begin command
       </button>
@@ -281,11 +298,21 @@ function App() {
     </OneLocationInteractionSurfaceProvider>
   );
 }
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   vi.stubGlobal("crypto", webcrypto);
   window.history.replaceState({}, "", "/one/agents");
   h.vault.isVaultUnlocked = true;
+  // These workflow receipts exercise the explicit Shared compatibility path.
+  // Keep canonical placement selection active; private and unknown cases below
+  // must never send a command plan or checkpoint to the hub.
+  h.hosting.mockResolvedValue({ hostingMode: "shared" });
+  // Placement is lazy-loaded by the canonical selector, including from the
+  // real local-handler module imported by this mounted workflow fixture.
+  const { ApiService } = await vi.importActual<typeof import("@/lib/services/api-service")>(
+    "@/lib/services/api-service",
+  );
+  vi.spyOn(ApiService, "getPersonalAgentStatus").mockImplementation(h.hosting);
   completed = false;
   finalizer = null;
   calls.length = 0;
@@ -376,11 +403,20 @@ beforeEach(() => {
     if (!next) throw new Error("Unexpected synthetic transition");
     return projection(next[0], next[1]);
   });
+  h.pod.mockImplementation(async (path) => {
+    expect(path).toBe("commands/assess");
+    return new Response(JSON.stringify({
+      assessment: { steps: [], unsupported: false },
+      capability_revision: "cap", observations: [],
+    }));
+  });
   h.api.mockImplementation(async (path, init) => {
     const body = init.body ? JSON.parse(init.body) : undefined;
     calls.push({ path, body });
     let response: unknown;
-    if (path.endsWith(`/workflows/location/onboarding/runs/${runId}`)) {
+    if (path.endsWith("/proposals/prepare")) {
+      response = { scopeToken: "synthetic-command-read-grant" };
+    } else if (path.endsWith(`/workflows/location/onboarding/runs/${runId}`)) {
       // Workflow receipts require Firebase identity; a vault-owner capability
       // is only accepted by the private PKM operation, not this endpoint.
       if (new Headers(init.headers).get("Authorization") !== "Bearer synthetic-id-token") {
@@ -575,7 +611,8 @@ it.each(["renewed", "no_proof", "checkpoint_failed"] as const)(
       if (mode === "no_proof") {
         await waitFor(() => expect(h.get).toHaveBeenCalled());
       } else {
-        await waitFor(() => expect(screen.getByText("The command could not continue. Refresh its checkpoint.")).toBeVisible());
+        await waitFor(() => expect(screen.getAllByText("The command service is temporarily unavailable. Try again shortly.")[0]).toBeVisible());
+        expect(screen.getByRole("button", { name: "Refresh / Resume", exact: true })).toBeVisible();
       }
       expect(h.save).toHaveBeenCalledTimes(1);
       expect(checkpoint.capsule).not.toBeNull();
@@ -717,3 +754,83 @@ it("an uncertain writer response offers explicit task recovery without automatic
   expect(h.execute).not.toHaveBeenCalled();
   expect(screen.queryByText(/Location setup complete/)).not.toBeInTheDocument();
 });
+
+
+it.each(["unplaced", "pending_byoc", "hussh_pods", "unavailable"] as const)(
+  "refuses command content before hub or device work when placement is %s",
+  async (placement) => {
+    if (placement === "unavailable") {
+      h.hosting.mockRejectedValue(new Error("Synthetic placement unavailable"));
+    } else {
+      h.hosting.mockResolvedValue({
+        hostingMode: placement === "unplaced" ? undefined : placement,
+      });
+    }
+    render(<App />);
+    fireEvent.click(screen.getByText("Begin command"));
+    await waitFor(() => expect(h.hosting).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByText("Understanding your Location request…")).not.toBeInTheDocument(),
+    );
+    expect(h.api).not.toHaveBeenCalled();
+    expect(h.pod).not.toHaveBeenCalled();
+    expect(h.requestPermission).not.toHaveBeenCalled();
+    expect(h.capture).not.toHaveBeenCalled();
+    expect(h.save).not.toHaveBeenCalled();
+    expect(h.execute).not.toHaveBeenCalled();
+    expect(checkpoint.capsule).toBeNull();
+  },
+);
+
+it("keeps a refused private command on its transport without hub fallback or device effects", async () => {
+  h.hosting.mockResolvedValue({ hostingMode: "byoc" });
+  h.pod.mockResolvedValue(new Response(JSON.stringify({
+    detail: { code: "POD_DIRECT_NOT_READY" },
+  }), { status: 503 }));
+  render(<App />);
+  fireEvent.click(screen.getByText("Begin command"));
+  await screen.findByText("Your private pod connection is not ready yet.");
+  expect(h.pod).toHaveBeenCalledOnce();
+  expect(h.pod).toHaveBeenCalledWith("commands/assess", expect.any(Object));
+  // Grant preparation is metadata-only; no hub plan/checkpoint/effect follows.
+  expect(calls).toEqual([{ path: "/api/one/agent-chat/proposals/prepare", body: undefined }]);
+  expect(h.requestPermission).not.toHaveBeenCalled();
+  expect(h.capture).not.toHaveBeenCalled();
+  expect(h.save).not.toHaveBeenCalled();
+  expect(h.execute).not.toHaveBeenCalled();
+  expect(checkpoint.capsule).toBeNull();
+});
+
+
+it.each(["cancel", "lock_and_unlock"] as const)(
+  "rejects a late private placement response after %s without restarting the task",
+  async (change) => {
+    let release!: (value: { hostingMode: string }) => void;
+    const placement = new Promise<{ hostingMode: string }>((resolve) => { release = resolve; });
+    h.hosting.mockReturnValue(placement);
+    const mounted = render(<App />);
+    fireEvent.click(screen.getByText("Begin command"));
+    await waitFor(() => expect(h.hosting).toHaveBeenCalled());
+    expect(h.submitted).toHaveBeenCalledOnce();
+    const pending = h.submitted.mock.calls[0][0] as Promise<void>;
+    if (change === "cancel") {
+      fireEvent.click(screen.getByText("Stop task"));
+    } else {
+      h.vault.isVaultUnlocked = false;
+      mounted.rerender(<App />);
+      h.vault.isVaultUnlocked = true;
+      mounted.rerender(<App />);
+    }
+    await act(async () => {
+      release({ hostingMode: "byoc" });
+      await pending.catch(() => undefined);
+    });
+    expect(h.api).not.toHaveBeenCalled();
+    expect(h.pod).not.toHaveBeenCalled();
+    expect(h.requestPermission).not.toHaveBeenCalled();
+    expect(h.capture).not.toHaveBeenCalled();
+    expect(h.save).not.toHaveBeenCalled();
+    expect(h.execute).not.toHaveBeenCalled();
+    expect(checkpoint.capsule).toBeNull();
+  },
+);

@@ -13,8 +13,60 @@ from ag_ui.core import (
     StateSnapshotEvent,
 )
 
-from hushh_mcp.one_adk.run_errors import is_authored_run_error
-from hushh_mcp.services.chat_key import CHAT_KEY_RECOVERY_MESSAGE, CHAT_KEY_REQUIRED_CODE
+from hushh_mcp.one_adk.owner_ai_run_errors import (
+    is_owner_ai_run_error,
+    owner_ai_bridge_error,
+    owner_ai_error_for_exception,
+)
+from hushh_mcp.one_adk.run_errors import (
+    is_authored_run_error,
+    transient_model_error_for_exception,
+    transient_model_run_error,
+)
+from hushh_mcp.services.chat_history_rollout import (
+    CHAT_HISTORY_UPGRADING,
+    CHAT_HISTORY_UPGRADING_MESSAGE,
+    ChatHistoryUpdatingError,
+)
+from hushh_mcp.services.chat_key import (
+    CHAT_KEY_ERROR_MESSAGES,
+    CHAT_KEY_ERRORS,
+    CHAT_KEY_RECOVERY_MESSAGE,
+    CHAT_KEY_REQUIRED_CODE,
+)
+
+CHAT_KEY_RUN_ERROR = RunErrorEvent(message=CHAT_KEY_RECOVERY_MESSAGE, code=CHAT_KEY_REQUIRED_CODE)
+CHAT_HISTORY_UPGRADING_RUN_ERROR = RunErrorEvent(
+    message=CHAT_HISTORY_UPGRADING_MESSAGE,
+    code=CHAT_HISTORY_UPGRADING,
+)
+
+
+def normalize_history_error(event: BaseEvent) -> BaseEvent:
+    """Restore fixed codes after the SDK stringifies a background refusal."""
+    if isinstance(event, RunErrorEvent):
+        if event.message == CHAT_HISTORY_UPGRADING_MESSAGE:
+            return CHAT_HISTORY_UPGRADING_RUN_ERROR
+        if event.message in CHAT_KEY_ERROR_MESSAGES:
+            return CHAT_KEY_RUN_ERROR
+    # The owner's own key refused first: a 429 there is their quota, not our capacity.
+    return owner_ai_bridge_error(event) or transient_model_run_error(event) or event
+
+
+def safe_exception_event(exc: Exception) -> RunErrorEvent:
+    """Only fixed, content-free failure messages may cross the browser boundary."""
+    if isinstance(exc, ChatHistoryUpdatingError):
+        return CHAT_HISTORY_UPGRADING_RUN_ERROR
+    if isinstance(exc, CHAT_KEY_ERRORS):
+        return CHAT_KEY_RUN_ERROR
+    return (
+        owner_ai_error_for_exception(exc)
+        or transient_model_error_for_exception(exc)
+        or RunErrorEvent(
+            message="One couldn't finish that request. Please try again.", code="AGENT_ERROR"
+        )
+    )
+
 
 _PRIVATE_STATE_KEYS = frozenset({"temp:hussh:mcp_approval"})
 
@@ -95,9 +147,15 @@ def public_event(event: BaseEvent, *, allow_thought_summary: bool = False) -> Ba
         return None
     if isinstance(event, RunErrorEvent):
         if (
-            event.code == CHAT_KEY_REQUIRED_CODE and event.message == CHAT_KEY_RECOVERY_MESSAGE
-        ) or is_authored_run_error(event):
-            # A fixed, content-free refusal or retryable failure the person can act on.
+            (event.code, event.message)
+            in {
+                (CHAT_KEY_REQUIRED_CODE, CHAT_KEY_RECOVERY_MESSAGE),
+                (CHAT_HISTORY_UPGRADING, CHAT_HISTORY_UPGRADING_MESSAGE),
+            }
+            or is_authored_run_error(event)
+            or is_owner_ai_run_error(event)
+        ):
+            # A fixed, content-free refusal the person can act on.
             return event.model_copy(update={"raw_event": None})
         # The installed bridge builds this event from str(exception). Neither
         # its message nor its code is safe to forward to browser diagnostics.

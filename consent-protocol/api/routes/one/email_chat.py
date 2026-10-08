@@ -13,9 +13,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.middleware import require_vault_owner_token
 from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.email_chat_service import EmailChatService
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class EmailChatRequest(BaseModel):
 @router.post("/email/chat")
 async def email_chat(
     request: EmailChatRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     if not request.message:
         raise HTTPException(status_code=422, detail="message is required")

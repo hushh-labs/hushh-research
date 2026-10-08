@@ -144,9 +144,8 @@ export function RiaClientRequestDetail({
         routeId: "/ria/clients/[userId]/requests/[requestId]",
         marker: "native-route-ria-client-request-detail",
         authState: user ? "authenticated" : "pending",
-        dataState: loading ? "loading" : request ? "loaded" : detailError ? "error" : "empty-valid",
+        dataState: loading ? "loading" : detailError ? "error" : request ? "loaded" : "empty-valid",
         errorCode: detailError ? "ria_client_request_detail" : null,
-        errorMessage: detailError,
       }}
     >
       {loading ? (

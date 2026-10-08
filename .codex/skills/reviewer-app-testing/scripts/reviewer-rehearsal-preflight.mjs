@@ -1,3 +1,4 @@
+import { resolveReviewerAuthMode } from "../../../../hushh-webapp/lib/testing/reviewer-authentication-policy.mjs";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -44,6 +45,17 @@ export async function prepareReviewerRehearsal({
   secretProject = configuredValue(process.env.REVIEWER_SECRET_PROJECT),
 } = {}) {
   const identityModule = await loadIdentityModule(repoRoot);
+  const authMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE);
+  if (authMode === "human_authenticated") {
+    if (!configuredValue(process.env.REVIEWER_UID) ||
+        new URL(appOrigin).protocol !== "https:" || new URL(appOrigin).origin !== appOrigin) {
+      throw new Error("Human reviewer admission requires an explicit canonical UID and exact HTTPS origin.");
+    }
+    identityModule.resolveReviewerTestIdentity({ envFiles: [], requireVaultPassphrase: false });
+    createRequire(path.join(repoRoot, "hushh-webapp", "package.json")).resolve("playwright");
+    return { appOrigin, identitySource: "configured_uid_human_authentication", authMode,
+      mutationPolicy: process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" ? "explicit_mutation_authorized" : "read_only" };
+  }
   const identityOptions = {
     envFiles: identityModule.defaultReviewerIdentityEnvFiles({
       repoRoot,

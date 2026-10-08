@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -134,6 +136,7 @@ def test_session_mint_is_refused_while_disabled(monkeypatch):
 
 
 def test_session_mint_returns_a_single_use_ticket(monkeypatch):
+    monkeypatch.setattr(voice, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
     monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", LIVE_MODEL)
     monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
@@ -198,3 +201,76 @@ def test_retired_paths_stay_retired_while_live_is_enabled(monkeypatch):
     assert client.post("/api/one/adk/relay-session").status_code == 410
     with client.websocket_connect("/api/one/adk/live") as ws:
         assert ws.receive_json() == {"type": "error", "code": "ONE_LIVE_RETIRED"}
+
+
+@pytest.mark.parametrize(
+    "mode,status,code",
+    [
+        ("byoc", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
+        ("pending", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
+        ("hussh_pods", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
+        ("unknown", 503, "AGENT_HOSTING_UNAVAILABLE"),
+        ("invalid", 503, "AGENT_HOSTING_UNAVAILABLE"),
+        (None, 503, "AGENT_HOSTING_UNAVAILABLE"),
+    ],
+)
+def test_hosting_is_rechecked_before_ticket_and_socket(monkeypatch, mode, status, code):
+    monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
+    monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", LIVE_MODEL)
+    monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
+    resolver = AsyncMock(return_value=mode)
+    if mode is None:
+        resolver.side_effect = RuntimeError("private provider diagnostic")
+    monkeypatch.setattr(voice, "get_owner_hosting_mode", resolver)
+    issuer = Mock(side_effect=AssertionError("must refuse before ticket"))
+    monkeypatch.setattr(voice, "issue_ticket", issuer)
+    client = TestClient(_owner_app())
+    response = client.post("/api/one/voice/sessions", json={"conversation_id": CONV})
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == code
+    assert "private provider" not in response.text
+    issuer.assert_not_called()
+
+    # Placement may change after a valid ticket was issued.
+    from hushh_mcp.one_voice.tickets import issue_ticket, parse_ticket
+
+    ticket, _ = issue_ticket(user_id="owner-1", session_id="synthetic", conversation_id=CONV)
+    consume = AsyncMock(return_value=parse_ticket(ticket))
+    monkeypatch.setattr(voice, "consume_ticket", consume)
+    constructor = Mock(side_effect=AssertionError("must refuse before provider/session"))
+    monkeypatch.setattr(voice, "VoiceSession", constructor)
+    existing = object()
+    monkeypatch.setattr(voice, "_active_sessions", {"owner-1": existing})
+    with client.websocket_connect("/api/one/voice/live?ticket=" + ticket) as ws:
+        assert ws.receive_json()["code"] == code
+        assert ws.receive()["code"] == voice.protocol.CLOSE_DISABLED
+    consume.assert_awaited_once_with(ticket)
+    resolver.assert_awaited_with("owner-1")
+    constructor.assert_not_called()
+    assert voice._active_sessions["owner-1"] is existing
+
+
+async def test_shared_socket_keeps_existing_session_authentication(monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.one_voice.tickets import issue_ticket, parse_ticket
+
+    monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
+    monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", LIVE_MODEL)
+    monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
+    hosting = AsyncMock(return_value="shared")
+    monkeypatch.setattr(voice, "get_owner_hosting_mode", hosting)
+    ticket, _ = issue_ticket(user_id="owner-1", session_id="synthetic", conversation_id=CONV)
+    monkeypatch.setattr(voice, "consume_ticket", AsyncMock(return_value=parse_ticket(ticket)))
+    session = SimpleNamespace(run=AsyncMock())
+    constructor = Mock(return_value=session)
+    monkeypatch.setattr(voice, "VoiceSession", constructor)
+    monkeypatch.setattr(voice, "_active_sessions", {})
+    socket = SimpleNamespace(
+        headers={}, accept=AsyncMock(), close=AsyncMock(), send_json=AsyncMock()
+    )
+    await voice.voice_live(socket, ticket=ticket)
+    hosting.assert_awaited_once_with("owner-1")
+    session.run.assert_awaited_once()
+    assert constructor.call_args.kwargs["verify_auth"] is voice.verify_voice_auth
+    assert voice._active_sessions == {}

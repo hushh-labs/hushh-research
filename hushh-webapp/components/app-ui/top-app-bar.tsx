@@ -36,6 +36,7 @@ import {
   TrashIcon as Trash2,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   APP_SHELL_FRAME_CLASSNAME,
@@ -63,6 +64,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
@@ -77,6 +79,7 @@ import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalid
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
+  isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -422,11 +425,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
-  const effectiveAvatarUrl = useEffectiveAvatarUrl();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  // The top bar is suppressed on every setup surface, so its avatar must not
+  // spend a pool connection fetching an image nobody is looking at while a
+  // first-run person waits on the gate. It still renders from cache, and
+  // `PhoneMandateGuard` fetches the same identity below the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const effectiveAvatarUrl = useEffectiveAvatarUrl({
+    fetchWhenCold: !isOneSetupSurfaceRoute(pathname ?? "") && !chromeSuppressed,
+  });
   const normalizedPathname = useMemo(
     () =>
       model.mode === "hidden"
@@ -1053,10 +1063,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   data-testid="top-app-bar-nav-slot"
                   className="pointer-events-none flex h-full shrink-0 items-center justify-start"
                   style={{
-                    // Collapse the fixed side gutter to the back button's width
-                    // when a breadcrumb trail is showing, so the trail sits
-                    // right beside the back arrow instead of centered.
-                    width: hasBreadcrumbTrail
+                    // Breadcrumbs and One status sit beside the back control or logo.
+                    width: hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "auto"
                       : "var(--top-bar-side-w)",
                     // The collapsed gutter otherwise leaves the back button's
@@ -1114,18 +1122,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   )}
                 </div>
 
-                {/* Title sits in the normal flex flow. The right cluster remains
-                  intentionally compact; `flex-1 min-w-0` lets the title truncate
-                  before it can collide with the account action. */}
+                {/* Shrink the title/status before it can collide with account actions. */}
                 <div
                   className={cn(
                     "pointer-events-none flex min-w-0 flex-1 items-center",
-                    showOnboardingActions || hasBreadcrumbTrail
+                    showOnboardingActions || hasBreadcrumbTrail || pathname === ROUTES.ONE_HOME
                       ? "justify-start"
                       : "justify-center",
                   )}
                 >
-                  {hasBreadcrumbTrail ? (
+                  {pathname === ROUTES.ONE_HOME && showOneHomeBrand ? (
+                    <OneAgentPresence compact />
+                  ) : hasBreadcrumbTrail ? (
                     <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />
                   ) : centerTitle ? (
                     centerTitle.interactive && canShowPersonaSwitcher ? (
@@ -1263,7 +1271,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         <ShellActionSurface
                           variant="avatar"
                           aria-label="Open Profile"
-                          onClick={() => requestProfilePaneOpen("tap")}
+                          onClick={(event) => requestProfilePaneOpen("tap", event.currentTarget)}
                         >
                           <Avatar className="h-8 w-8">
                             {effectiveAvatarUrl ? (

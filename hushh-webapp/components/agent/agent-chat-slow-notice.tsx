@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { ProgressRowIcon, SyncRowIcon } from "@/components/icons";
+import { ProgressRowIcon, ResumeRowIcon, SyncRowIcon } from "@/components/icons";
 import {
   SLOW_NOTICE_TOAST_ID,
   SlowTurnNotice,
@@ -13,12 +13,18 @@ import {
 
 export const SLOW_NOTICE_TEST_ID = "agent-chat-slow-notice";
 
+const GLYPHS: Partial<Record<SlowNoticeState, typeof ProgressRowIcon>> = {
+  connecting: SyncRowIcon,
+  waking: ResumeRowIcon,
+};
+
 /**
- * Bare duotone registry glyphs, one per concept: waiting (the hourglass) and
- * the connection (the sync arrows). Static, so there is no motion to reduce.
+ * Bare duotone registry glyphs, one per concept: waiting (the hourglass), the
+ * connection (the sync arrows), and a sleeping agent resuming (play). Static,
+ * so there is no motion to reduce.
  */
 function SlowNoticeGlyph({ state }: { state: SlowNoticeState }) {
-  const Glyph = state === "connecting" ? SyncRowIcon : ProgressRowIcon;
+  const Glyph = GLYPHS[state] ?? ProgressRowIcon;
   return <Glyph size={16} aria-hidden="true" data-slow-notice-glyph={state} />;
 }
 

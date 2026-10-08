@@ -13,9 +13,11 @@ MAX_LOG_STRING_LENGTH = 160
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 .()\-]{6,}$")
 _UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{24,128}$")
-_TOKEN_PREFIXES = ("HCT:", "Bearer ")
-_TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
-# The per-request key that seals a person's chat history (X-Hussh-Chat-Key).
+# `pst1.` is the owner-pod session bearer (pod_session_authority); it opens a turn
+# without a hub token and must never reach a retained log any more than an HCT.
+_TOKEN_PREFIXES = ("HCT:", "Bearer ", "pst1.")
+_TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:|pst1\.)[A-Za-z0-9._~+/=-]+")
+# Per-request owner chat key.
 _CHAT_KEY_VALUE_RE = re.compile(r"hck1\.[0-9A-Fa-f]{64}")
 _QUERY_SECRET_RE = re.compile(
     # An optional dotted prefix covers nested names such as the Weather API's
@@ -60,10 +62,16 @@ _SENSITIVE_EXACT_KEYS = {
     "encrypted_data",
     "export_key",
     "id_token",
+    "nonce",
     "phone",
     "private_key",
+    "proof",
     "public_key",
     "refresh_token",
+    "relay_ticket",
+    "session",
+    "signing_payload",
+    "ticket",
     "user_id",
     "user_identifier",
     "wrapped_export_key",
@@ -87,10 +95,16 @@ _SENSITIVE_KEY_TERMS = (
     "encrypted_data",
     "export_key",
     "firebase_uid",
+    "nonce",
     "phone",
+    "pod_session",
     "private_key",
+    "proof",
+    "relay_ticket",
     "secret",
+    "session_token",
     "signature",
+    "ticket",
     "token",
     "user_id",
     "user_identifier",

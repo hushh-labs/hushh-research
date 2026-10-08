@@ -1,5 +1,15 @@
 {
   "schema_version": "one.capability_graph_evolution.v1",
+  "workflow_predecessor_refs": [
+    "812deaae16c26eccf4b80509021931d5cc467952",
+    "fb9614f34871e11a3702c80c8879dc2b0f8051cd",
+    "3e248fc4bf04df28bf677bcc6402b64d9015098f",
+    "a3a88680182db2f4c71acf0363a8aaab54fd2b58",
+    "a05d019a3f90704e9799e754eb6e288e4d3763a7",
+    "1b08a07ebe9314a4e67e3fac1a082a102c8a3d40",
+    "b70ee404bfa79ea8bd187d7e5fc809c851fed83d",
+    "684a44768f32c226a7d65f9167553116643b2229"
+  ],
   "deprecations": [
     {
       "schema_version": "one.capability_deprecation.v1",
@@ -419,6 +429,38 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.close_legal",
+      "from_revision": "d4b2dd7b65a583c6",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.open_privacy",
+      "from_revision": "d4b2dd7b65a583c6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.open_terms",
+      "from_revision": "d4b2dd7b65a583c6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:consent.revoke",
+      "from_revision": "d4b2dd7b65a583c6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:route.one_kyc",
       "from_revision": "94e751d14ffa29a9",
       "from_version": 1,
@@ -621,6 +663,78 @@
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "workflows:workflow.setup.email",
       "from_revision": "04d7065bab2886cd",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "05f5a43ac04150f7",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "8065981a6233598e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "a4adf08da1a10229",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "be22fe6e0fa3f322",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "cb10ee16c62231b2",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "a165740521c96115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "83966cd4fefe54f6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "9c1f8b9bcf9e2d4b",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.email",
+      "from_revision": "360c4f4535c7a317",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"

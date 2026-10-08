@@ -50,6 +50,7 @@ from hushh_mcp.services.domain_contracts import (
     domain_registry_payload,
     validate_dynamic_top_level_domain,
 )
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_mutation_contracts import (
     LocationPkmFinalizeAuthorizationV1,
@@ -3151,16 +3152,15 @@ async def get_user_scopes(
 @router.post("/get-context", response_model=StockContextResponse)
 async def get_stock_context(
     request: StockContextRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
-    """
-    Get user's context for stock analysis.
+    """Get user's context for stock analysis.
 
     This endpoint provides PKM context (portfolio holdings, risk profile,
     recent decisions) for a specific stock ticker being analyzed by Kai.
 
-    **Authentication**: Requires valid VAULT_OWNER token. The token contains the
-    user_id which is validated by require_vault_owner_token middleware.
+    **Authentication**: VAULT_OWNER token of a Shared owner (``hub_content_owner``);
+    every private placement gets 409 before any read.
 
     **Request**:
         POST /api/pkm/get-context

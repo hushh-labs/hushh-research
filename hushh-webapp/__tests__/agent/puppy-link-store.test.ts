@@ -44,6 +44,19 @@ afterEach(() => {
 });
 
 describe("the shared Puppy One link store", () => {
+  it("releases a stalled read so a later refresh can recover", async () => {
+    mocks.listTrustedDevices.mockReturnValueOnce(new Promise(() => {}));
+    const stalled = refreshPuppyLink();
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect((await stalled).state).toBe("unavailable");
+
+    mocks.listTrustedDevices.mockResolvedValueOnce(devices([]));
+    const recovered = refreshPuppyLink();
+    expect(recovered).not.toBe(stalled);
+    expect((await recovered).state).toBe("unlinked");
+  });
+
   it("reads once for any number of subscribers, and tells all of them", async () => {
     const first = vi.fn();
     const second = vi.fn();
@@ -106,6 +119,7 @@ describe("the shared Puppy One link store", () => {
         {
           device_id: "dev-1",
           device_name: "Kushal's Mac",
+          platform: "macos",
           status: "active",
           created_at: Date.now(),
           last_heartbeat_at: Date.now(),

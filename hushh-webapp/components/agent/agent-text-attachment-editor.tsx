@@ -192,6 +192,7 @@ function TextAttachmentEditorBody({
   const [replacement, setReplacement] = useState("");
 
   const syncMirrorScroll = useCallback(() => {
+    if (!queryRef.current) return;
     const textarea = textareaRef.current;
     const content = mirrorContentRef.current;
     if (!textarea || !content) return;

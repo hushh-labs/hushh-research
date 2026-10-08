@@ -272,7 +272,7 @@ async def test_history_exposes_receipt_once_on_final_answer_without_private_tool
         ],
     )
     get_session = AsyncMock(return_value=session)
-    monkeypatch.setattr(agent_chat._session_service, "get_session", get_session)
+    monkeypatch.setattr(agent_chat, "_session_service", SimpleNamespace(get_session=get_session))
     result = await agent_chat.conversation_history("thread", limit=50, token={"user_id": "owner"})
     assert "PRIVATE_" not in str(result)
     assert len(result["messages"]) == 3

@@ -23,6 +23,10 @@ OBS_SCHEDULER_SA_NAME="${OBS_SCHEDULER_SA_NAME:-obs-scheduler-invoker}"
 OBS_SCHEDULER_SA_EMAIL="${OBS_SCHEDULER_SA_EMAIL:-${OBS_SCHEDULER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com}"
 DASHBOARD_ID="${DASHBOARD_ID:-hushh-observability-managed}"
 SQL_INSTANCE="${SQL_INSTANCE:-}"
+OBS_COMMERCE_ONLY="${OBS_COMMERCE_ONLY:-false}"
+OBS_COMMERCE_ENABLED="${OBS_COMMERCE_ENABLED:-false}"
+OBS_COMMERCE_RUNTIME_SA_EMAIL="${OBS_COMMERCE_RUNTIME_SA_EMAIL:-}"
+PROTOCOL_PYTHON="${PROTOCOL_PYTHON:-${SCRIPT_DIR}/../../consent-protocol/.venv/bin/python}"
 
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "ERROR: PROJECT_ID is not set and no gcloud default project is configured."
@@ -41,7 +45,9 @@ log() {
 }
 
 require_cmd gcloud
-require_cmd bq
+if [[ "${OBS_COMMERCE_ONLY}" != "true" ]]; then
+  require_cmd bq
+fi
 require_cmd jq
 
 TMP_DIR="$(mktemp -d)"
@@ -110,6 +116,15 @@ upsert_dashboard() {
   local dashboard_resource="projects/${PROJECT_ID}/dashboards/${DASHBOARD_ID}"
 
   render_template "${DASHBOARD_TEMPLATE}" "${rendered}"
+  # The caller chooses an isolated dashboard; never create the template's
+  # shared dashboard when a different id was explicitly requested.
+  jq --arg name "${dashboard_resource}" '.name = $name' "${rendered}" > "${rendered}.scoped"
+  mv "${rendered}.scoped" "${rendered}"
+  if [[ "${OBS_COMMERCE_ENABLED}" != "true" && "${OBS_COMMERCE_ONLY}" != "true" ]]; then
+    jq '.gridLayout.widgets |= map(select(.title | startswith("Scope Commerce:") | not))' \
+      "${rendered}" > "${rendered}.scoped"
+    mv "${rendered}.scoped" "${rendered}"
+  fi
 
   if gcloud monitoring dashboards describe "${dashboard_resource}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
     local etag
@@ -291,8 +306,29 @@ set_scheduler_job() {
   fi
 }
 
+setup_commerce_monitoring() {
+  if [[ ! "${OBS_COMMERCE_RUNTIME_SA_EMAIL}" =~ ^[a-z][a-z0-9-]+@${PROJECT_ID}\.iam\.gserviceaccount\.com$ ]]; then
+    echo "ERROR: an exact project-owned backend runtime identity is required" >&2
+    return 1
+  fi
+  gcloud iam service-accounts describe "${OBS_COMMERCE_RUNTIME_SA_EMAIL}" --project "${PROJECT_ID}" >/dev/null
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${OBS_COMMERCE_RUNTIME_SA_EMAIL}" \
+    --role="roles/monitoring.metricWriter" --quiet >/dev/null
+  "${PROTOCOL_PYTHON}" "${SCRIPT_DIR}/scope_commerce_monitoring.py" --project "${PROJECT_ID}"
+}
+
 main() {
   log "Starting setup in project=${PROJECT_ID}, region=${REGION}"
+
+  if [[ "${OBS_COMMERCE_ONLY}" == "true" ]]; then
+    gcloud services enable monitoring.googleapis.com --project "${PROJECT_ID}" >/dev/null
+    setup_commerce_monitoring
+    python3 "${SCRIPT_DIR}/reconcile_capacity.py" --apply --commerce-only --console-only \
+      --project "${PROJECT_ID}" --backend-service "${BACKEND_SERVICE}" --dashboard-id "${DASHBOARD_ID}"
+    log "Commerce monitoring configured with Cloud Console alerts; no analytics or scheduler changes."
+    return
+  fi
 
   ensure_apis
 
@@ -312,13 +348,18 @@ main() {
     fi
   fi
   local email_args=()
+  local commerce_args=()
+  if [[ "${OBS_COMMERCE_ENABLED}" == "true" ]]; then
+    setup_commerce_monitoring
+    commerce_args=(--include-commerce)
+  fi
   if [[ -n "${OBS_ALERT_EMAIL}" ]]; then
     email_args=(--email "${OBS_ALERT_EMAIL}")
   fi
   python3 "${SCRIPT_DIR}/reconcile_capacity.py" --apply \
     --project "${PROJECT_ID}" --sql-instance "${SQL_INSTANCE}" \
     --backend-service "${BACKEND_SERVICE}" --frontend-service "${FRONTEND_SERVICE}" \
-    "${email_args[@]}"
+    --dashboard-id "${DASHBOARD_ID}" "${email_args[@]}" "${commerce_args[@]}"
 
   ensure_scheduler_sa
   set_data_health_job

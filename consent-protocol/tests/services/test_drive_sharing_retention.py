@@ -109,11 +109,21 @@ async def test_erasure_preserves_confirmed_delivery_for_paid_obligation(revocati
             {"request": request_id},
         )
     await erase(store, "recipient")
-    obligation = rows(store, "drive_request_payment_obligations")[0]
+    with store.db.engine.connect() as connection:
+        obligation = (
+            connection.execute(text("SELECT * FROM drive_request_payment_obligations"))
+            .mappings()
+            .one()
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders")
+            ).scalar_one()
+            == 0
+        )
     assert obligation["erased_at"] is not None
     assert obligation["delivery_confirmed_at_erasure"] is True
     assert obligation["reconciliation_required"] is False
-    assert rows(store, "drive_request_payment_orders") == []
 
 
 @pytest.mark.asyncio
@@ -137,7 +147,12 @@ async def test_erasure_holds_uncertain_paid_grant_from_new_refund(permission_set
             {"request": request_id},
         )
     await erase(store, "owner")
-    obligation = rows(store, "drive_request_payment_obligations")[0]
+    with store.db.engine.connect() as connection:
+        obligation = (
+            connection.execute(text("SELECT * FROM drive_request_payment_obligations"))
+            .mappings()
+            .one()
+        )
     assert obligation["delivery_unsettled_at_erasure"] is True
     assert obligation["reconciliation_required"] is True
     with store.db.engine.begin() as connection:

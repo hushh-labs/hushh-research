@@ -458,6 +458,7 @@ jobs:
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
+          WEB_TARGETED_FULL_SUITE_OWNED: "1"
           WEB_TARGETED_PART: ${{ matrix.part }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.
@@ -553,6 +554,13 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
           sync-dev-group: "false"
+
+      # Native reviewer-resolution contracts execute the authored Zsh runner;
+      # Ubuntu does not guarantee that interpreter is preinstalled.
+      - name: Install Zsh for native runner contracts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y zsh
 
       - name: Run the full Vitest suite and contract verifiers
         run: bash scripts/ci/orchestrate.sh web-full-suite

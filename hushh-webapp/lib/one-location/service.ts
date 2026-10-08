@@ -10,6 +10,7 @@ import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
+import { ownerContentIsPrivate, privateAgentSpecialistTurn } from "@/lib/services/private-agent-specialist-chat";
 import { trackNearbyCheckOutCompleted } from "@/lib/observability/location-events";
 import type { CircleManagementBinding, CircleManagementReceipt } from "./command-circle-management";
 import type {
@@ -1275,12 +1276,11 @@ export class OneLocationService {
     actionResult?: ActionResult;
     selectionResult?: SelectionResult;
   }): Promise<LocationChatResponse> {
+    // A private agent answers its own owner; the question never reaches the hub.
+    if (await ownerContentIsPrivate()) return privateAgentSpecialistTurn({ focus: "location", ...params });
     return apiJson<LocationChatResponse>("/api/one/location/chat", {
       method: "POST",
-      headers: {
-        ...jsonAuthHeaders(params.vaultOwnerToken),
-        ...(await oneChatKeyHeaders(params.vaultKey)),
-      },
+      headers: { ...jsonAuthHeaders(params.vaultOwnerToken), ...(await oneChatKeyHeaders(params.vaultKey)) },
       body: JSON.stringify({
         message: params.message ?? null,
         conversationId: params.conversationId ?? null,

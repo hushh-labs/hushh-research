@@ -23,7 +23,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.routes.consent_commerce_support import (
+    commit_refreshed_export,
+    is_developer_information_requester,
+    paid_owner_approval,
+)
 from api.utils.firebase_auth import verify_firebase_bearer
+from db.db_client import get_db
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
     get_connector_crypto_profile,
@@ -678,22 +684,19 @@ async def approve_consent(
     connector_public_key = (
         metadata.get("connector_public_key") if isinstance(metadata, dict) else None
     )
-    is_developer_request = bool(
-        connector_public_key
-        or (
-            isinstance(metadata, dict)
-            and (
-                metadata.get("request_source") == "developer_api_v1"
-                or metadata.get("requester_actor_type") == "developer"
-            )
-        )
-    )
+    is_developer_request = is_developer_information_requester(metadata, connector_public_key)
     is_developer_information_request = is_developer_request and requested_scope.startswith("attr.")
     expiry_hours = _resolve_approval_expiry_hours(
         metadata=metadata if isinstance(metadata, dict) else None,
         requested_duration_hours=requested_duration_hours,
         is_developer_request=is_developer_request,
     )
+
+    paid_approval = await paid_owner_approval(
+        subject_user_id, requestId, requested_scope, metadata, expiry_hours
+    )
+    if paid_approval is not None:
+        return paid_approval
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
@@ -1092,6 +1095,99 @@ async def approve_consent(
             requested_scope,
             superseded_scopes,
         )
+
+    # Notify requester via feed and push notification if this was a person-to-person request
+    bundle_id = str(metadata.get("bundle_id") or "").strip() if isinstance(metadata, dict) else ""
+    requester_user_id = None
+    if bundle_id:
+        try:
+            bundle_rows = (
+                get_db()
+                .execute_raw(
+                    "SELECT requester_user_id FROM one_information_request_bundles WHERE bundle_id = CAST(:bundle AS UUID) LIMIT 1",
+                    {"bundle": bundle_id},
+                )
+                .data
+            )
+            if bundle_rows:
+                requester_user_id = str(bundle_rows[0].get("requester_user_id") or "").strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("consent.approve.bundle_lookup_failed error=%s", exc)
+
+    if (
+        not requester_user_id
+        and isinstance(metadata, dict)
+        and metadata.get("requester_actor_type") == "person"
+    ):
+        requester_entity_id = str(metadata.get("requester_entity_id") or "").strip()
+        if requester_entity_id:
+            try:
+                requester_rows = (
+                    get_db()
+                    .execute_raw(
+                        "SELECT user_id FROM actor_profiles WHERE public_person_ref = CAST(:ref AS UUID) LIMIT 1",
+                        {"ref": requester_entity_id},
+                    )
+                    .data
+                )
+                if requester_rows:
+                    requester_user_id = str(requester_rows[0].get("user_id") or "").strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("consent.approve.requester_lookup_failed error=%s", exc)
+
+    if requester_user_id:
+        try:
+            subject_profile_rows = (
+                get_db()
+                .execute_raw(
+                    "SELECT public_person_ref, display_name, photo_url FROM actor_profiles WHERE user_id = :subject_user_id LIMIT 1",
+                    {"subject_user_id": userId},
+                )
+                .data
+            )
+            subject_row = subject_profile_rows[0] if subject_profile_rows else {}
+            subject_display_name = (
+                str(subject_row.get("display_name") or "Someone").strip() or "Someone"
+            )
+            subject_person_ref = str(subject_row.get("public_person_ref") or "").strip()
+            subject_photo_url = str(subject_row.get("photo_url") or "").strip() or None
+            scope_desc = get_dynamic_scope_description(requested_scope) or requested_scope
+
+            from hushh_mcp.services.feed_service import FeedService
+            from hushh_mcp.services.push_notifications import send_user_data_push
+
+            FeedService().create_event(
+                user_id=requester_user_id,
+                source_domain="consent",
+                event_type="consent_granted",
+                actor_label=subject_display_name,
+                metadata={
+                    "person_ref": subject_person_ref,
+                    "display_name": subject_display_name,
+                    "counterpart_photo_url": subject_photo_url,
+                    "scope": requested_scope,
+                    "scope_description": scope_desc,
+                    "request_id": requestId,
+                    "bundle_id": bundle_id,
+                },
+                source_row_id=requestId,
+            )
+
+            if subject_person_ref:
+                send_user_data_push(
+                    user_id=requester_user_id,
+                    notification_type="consent_granted",
+                    title=f"{subject_display_name} shared information with you",
+                    body=f"Granted access to {scope_desc}. Tap to view.",
+                    deep_link=f"/people/{subject_person_ref}?section=shared",
+                    notification_tag=f"consent:granted:{requestId}",
+                    notification_category="consent_granted",
+                    data={"person_ref": subject_person_ref, "request_id": requestId},
+                    show_alert=True,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("consent.approve.notification_dispatch_failed error=%s", exc)
+
     return {
         "status": "approved",
         "message": f"Consent granted to {developer_label}",
@@ -1890,22 +1986,8 @@ async def upload_refreshed_export(
             },
         ) from exc
 
-    stored = await service.complete_claimed_consent_export_refresh(
-        user_id=request.userId,
-        claim_id=request.jobClaimId,
-        expected_export_revision=prior_revision,
-        encrypted_data=request.encryptedData,
-        iv=request.encryptedIv,
-        tag=request.encryptedTag,
-        wrapped_key_bundle=wrapped_key_bundle,
-        connector_key_id=wrapped_key_bundle.get("connector_key_id"),
-        connector_wrapping_alg=str(wrapped_key_bundle.get("wrapping_alg") or ""),
-        envelope_aad=request.exportEnvelope.aad.model_dump(mode="json"),
-        envelope_aad_sha256=request.exportEnvelope.aad_sha256,
-        ciphertext_sha256=request.exportEnvelope.ciphertext_sha256,
-        ciphertext_bytes=request.exportEnvelope.ciphertext_bytes,
-        source_content_revision=request.sourceContentRevision,
-        source_manifest_revision=request.sourceManifestRevision,
+    stored = await commit_refreshed_export(
+        service, request, prior_revision, wrapped_key_bundle, existing_export
     )
     if not stored:
         raise HTTPException(
@@ -1946,6 +2028,45 @@ async def fail_export_refresh(
             },
         )
     return {"success": True}
+
+
+@router.get("/receipts/verify")
+async def verify_consent_receipt_chain(
+    firebase_uid: str = Depends(require_firebase_auth),
+    ledger: str = Query("consent", pattern="^(consent|internal)$"),
+    expected_head_seq: int | None = Query(None, ge=0),
+    expected_head_hash: str | None = Query(None, max_length=64),
+) -> Dict[str, Any]:
+    """Verify the owner's tamper-evident audit chain, and say which key vouched.
+
+    WHY THIS ROUTE EXISTS. The chain shipped with `verify_chain` reachable from
+    nothing: no route, no worker, no script. A tamper-evident ledger nobody can
+    verify proves exactly as much as no ledger at all, and it looks healthier
+    while doing it. The Fabric sibling has had `GET /fabric/receipts/verify`
+    since it shipped; this is the same shape for the consent chain.
+
+    THE OWNER IS THE VERIFIER. The chain covers what was done to THIS person's
+    permissions, so the subject is taken from the authenticated identity and is
+    not a parameter. Nobody can ask about anybody else's ledger here.
+
+    HEAD ANCHORING. A prev_hash walk proves every surviving link and nothing about
+    links that no longer exist, so a wiped chain verifies perfectly. The client
+    pins the last head it saw and passes it back; a head that regressed or diverged
+    fails closed.
+
+    `ledger=internal` is the agent's own operations, kept as a separate sequence
+    so the head an owner pins does not advance on every turn.
+    """
+    from hushh_mcp.services.consent_audit_chain_service import (
+        get_consent_audit_chain_service,
+    )
+
+    return await get_consent_audit_chain_service().verify_chain(
+        firebase_uid,
+        expected_head_seq=expected_head_seq,
+        expected_head_hash=expected_head_hash,
+        ledger=ledger,
+    )
 
 
 # Expose _consent_exports for other modules that need it

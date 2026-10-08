@@ -1,0 +1,384 @@
+"""The hub reads a DB-backed specialist FOR a pod, so the pod never holds a key.
+
+A per-person pod holds no database credential -- that is the zero-role pod
+identity, and it is why a DB-backed specialist (location, first) cannot read the
+owner's state in-pod and returns ``runtime_unavailable``. This route is the read
+half of the fix: the pod asks the hub to run one specific, allow-listed read on
+the owner's own project and return a fail-closed projection.
+
+It is the sibling of ``pod_consent``. Same authentication spine (pod identity
+only -- there is no legitimate non-pod caller), same failure posture (one shape
+for every rejection, a 503 rather than a lie when the authority is unreachable).
+What it adds is a THREE-way binding that has to hold before a single field is
+read:
+
+  1. the caller is a pod (``verify_pod_request``: the pod's own signature, or
+     transitionally its Google identity);
+  2. it carries a live, unrevoked scope for THIS read
+     (``validate_token_with_db`` against the DB revoked set); and
+  3. the scope's owner is the very person this pod IS -- the owner's HusshID
+     resolved from the token must equal the pod's asserted HusshID. Without this
+     a valid location scope belonging to person A, presented to person B's pod,
+     would read A's holdings on B's pod.
+
+Which of the three actually STOPS a cross-person read depends on the pod tier,
+and it is leg 2, not leg 3:
+
+* In the **attested/BYOC** tier, and for any pod whose request is SIGNED with
+  the key the hub pulled from it, a pod proves WHICH pod it is with a per-pod
+  identity, so leg 3 is an independent cryptographic guard.
+* In the **managed (logical)** tier's unsigned path every pod runs as the SAME
+  service account, so the Google token proves "a hussh pod is calling", never which one,
+  and the ``HUSSH_ID`` a managed pod asserts is self-declared -- leg 3 is
+  caller-forgeable there. What still blocks A-on-B is **leg 2**: the consent
+  token is signed with the HUB's ``APP_SIGNING_KEY`` (a DIFFERENT key from any
+  pod's) and validated here against the DB revoked set, so a pod cannot mint or
+  alter one, and the relay couriers a person's location scope ONLY to that
+  person's own pod. A cross-person read therefore requires STEALING a victim's
+  already-minted token, not forging the binding.
+
+That residual is why the door is triple-gated OFF by default and must stay
+team-only until the attested tier lands; leg 3 is defence-in-depth in managed
+tier, not the guarantee.
+
+The read itself is read-only by construction (``pod_data_door``): the registry
+maps a NAME to a read method and has no write path, and the underlying read is
+forced read-only so it never mutates the owner's DB. Writes never come through
+here; they take the directive transport, where the browser executes on the
+owner's own session.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import inspect
+import logging
+from typing import Any, Optional
+
+from fastapi import APIRouter, Body, Header, HTTPException, Path, Request
+from pydantic import BaseModel, ConfigDict, Field
+
+from api.routes.one.pod_identity_auth import verify_pod_request
+from hushh_mcp.runtime_settings import personal_agent_enabled, pod_data_door_enabled
+from hushh_mcp.services.owner_placement_guard import hub_content_inline
+from hushh_mcp.services.pod_access_audit import (
+    PodAccessUnavailable,
+    resolve_serving_owner_hushh_id,
+)
+from hushh_mcp.services.pod_command_reads import CommandReadOptions, read_command_projection
+from hushh_mcp.services.pod_data_door import CalendarReadOptions
+from hushh_mcp.services.pod_email_read import EmailReadOptions
+from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/one/pod/specialist", tags=["personal-agent"])
+
+#: Each door's required per-turn scope. Keyed on the specialist name, and the
+#: scope is the SAME one the owner's own reads use -- the door does not invent a
+#: weaker scope, it reuses the real one and the relay mints it per turn with a
+#: short TTL. A name absent here has no door and is refused before any read.
+_REQUIRED_SCOPE: dict[str, str] = {
+    "marketplace": "cap.pkm.marketplace.view",
+    "nav": "agent.nav.review",
+    "location": "cap.location.live.view",
+    "email": "cap.email.inbox.view",
+    "calendar": "cap.calendar.events.view",
+}
+
+
+class PodSpecialistReadRequest(BaseModel):
+    """The per-turn scope the relay minted, couriered by the pod. Nothing here
+    identifies the owner -- that is resolved from the token server-side, never
+    taken from the pod -- so the body cannot be used to read someone else."""
+
+    scope_token: str = Field(..., alias="scopeToken", min_length=1, max_length=4096)
+
+    command_read: CommandReadOptions | None = Field(default=None, alias="commandRead")
+
+    calendar_read: CalendarReadOptions | None = Field(default=None, alias="calendarRead")
+    marketplace_read: MarketplaceReadOptions | None = Field(default=None, alias="marketplaceRead")
+    email_read: EmailReadOptions | None = Field(default=None, alias="emailRead")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+async def _require_shared_specialist_owner(owner_id: str) -> None:
+    """Placement remains authority after reader, token and registry awaits."""
+    from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+
+    mode = await get_owner_hosting_mode(owner_id)
+    if mode != "shared":
+        if mode in {"byoc", "pending", "unplaced", "hussh_pods"}:
+            raise HTTPException(404, detail="not found")
+        raise HTTPException(503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
+
+
+async def _read_bound_mail(
+    *, owner_id: str, asserted: str, payload: PodSpecialistReadRequest, check: Any, registry: Any
+) -> dict:
+    """Revalidate one credential-free metadata read against its serving owner."""
+    required_scope = _REQUIRED_SCOPE["email"]
+    from hushh_mcp.services.gmail_metadata_reader import (
+        MAIL_READ_ERROR_CODES,
+        GmailMetadataError,
+    )
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.pod_binding_service import hub_environment
+    from hushh_mcp.services.pod_email_read import read_email_metadata
+    from hushh_mcp.services.pod_mail_observation import MailObservationContext
+
+    owner_registry = registry if registry is not None else PersonalAgentRegistryRepo()
+    try:
+        initial = await owner_registry.get(owner_id)
+        service_uid = str((initial.get("backend_metadata") or {}).get("serviceUid") or "")
+    except Exception:
+        raise HTTPException(503, detail="Mail authority unavailable") from None
+    if not service_uid:
+        raise HTTPException(403, detail="scope is not valid for this read")
+
+    async def require_mail_access() -> None:
+        try:
+            valid_now, _, parsed_now = await _run(check, payload.scope_token, required_scope)
+            serving = await resolve_serving_owner_hushh_id(owner_id, registry=owner_registry)
+            current = await owner_registry.get(owner_id)
+            current_uid = str(
+                ((current or {}).get("backend_metadata") or {}).get("serviceUid") or ""
+            )
+        except Exception:
+            raise HTTPException(503, detail="Mail authority unavailable") from None
+        if (
+            not valid_now
+            or parsed_now is None
+            or parsed_now.user_id != owner_id
+            or serving != asserted
+            or current_uid != service_uid
+        ):
+            raise HTTPException(403, detail="scope is not valid for this read")
+        await _require_shared_specialist_owner(owner_id)
+
+    await require_mail_access()
+    try:
+        projection = await read_email_metadata(
+            owner_id,
+            payload.email_read,
+            context=MailObservationContext(
+                owner_id=owner_id,
+                pod_id=asserted,
+                service_uid=service_uid,
+                scope_digest=hashlib.sha256(payload.scope_token.encode()).hexdigest(),
+                environment=hub_environment(),
+            ),
+            require_access=require_mail_access,
+        )
+    except GmailMetadataError as exc:
+        code = exc.code if exc.code in MAIL_READ_ERROR_CODES else "unavailable"
+        raise HTTPException(409, detail={"code": code}) from None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("pod_specialist.mail_read_failed type=%s", type(exc).__name__)
+        raise HTTPException(502, detail="Mail read unavailable") from None
+    await require_mail_access()
+    return {"name": "email", "state": projection}
+
+
+async def broker_specialist_read(
+    request: Request,
+    name: str,
+    authorization: Optional[str],
+    payload: PodSpecialistReadRequest,
+    *,
+    validator: Any = None,
+    registry: Any = None,
+    reader: Any = None,
+) -> dict:
+    """Testable core: authenticate the pod, bind the scope to it, then read.
+
+    ``validator`` / ``registry`` / ``reader`` are injection seams so the binding
+    and the projection can be tested without a database, exactly as
+    ``pod_consent`` does.
+    """
+    if not personal_agent_enabled() or not pod_data_door_enabled():
+        # Flag off -> the door does not exist. 404, not 403: an off feature is
+        # absent, not forbidden, and absent leaks nothing about what it guards.
+        raise HTTPException(status_code=404, detail="specialist read is not available")
+
+    required_scope = _REQUIRED_SCOPE.get(name)
+    if required_scope is None:
+        # A name with no door. Refuse before reading anything adjacent.
+        raise HTTPException(status_code=404, detail="no such specialist read")
+
+    if payload.calendar_read is not None and name != "calendar":
+        raise HTTPException(status_code=422, detail="calendar options require calendar read")
+
+    if payload.marketplace_read is not None and name != "marketplace":
+        raise HTTPException(status_code=422, detail="marketplace options require marketplace read")
+
+    if payload.email_read is not None and name != "email":
+        raise HTTPException(status_code=422, detail="email options require email read")
+
+    if payload.command_read is not None:
+        if name != "location" or any(
+            (payload.calendar_read, payload.marketplace_read, payload.email_read)
+        ):
+            raise HTTPException(422, detail="command options require the Location command read")
+        required_scope = "cap.location.command.read"
+
+    verified = await verify_pod_request(request, authorization)
+    if verified is None:
+        raise HTTPException(status_code=401, detail="pod identity required")
+    asserted = verified.hushh_id
+
+    check = validator
+    if check is None:
+        from hushh_mcp.consent.token import validate_token_with_db  # noqa: PLC0415
+
+        check = validate_token_with_db
+
+    scope_token = payload.scope_token
+    try:
+        valid, reason, parsed = await _run(check, scope_token, required_scope)
+    except Exception as exc:  # noqa: BLE001
+        # The DB is the authority on revocation. Unreachable -> "I do not know",
+        # surfaced as 503, never a read on an unverifiable scope.
+        logger.warning("pod_specialist.authority_unavailable %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="consent authority is unavailable") from exc
+
+    if not valid or parsed is None:
+        logger.info(
+            "pod_specialist.denied pod=%s name=%s reason=%s",
+            asserted,
+            name,
+            str(reason or "")[:120],
+        )
+        raise HTTPException(status_code=403, detail="scope is not valid for this read")
+
+    owner_id = str(getattr(parsed, "user_id", "") or "").strip()
+    if not owner_id:
+        raise HTTPException(status_code=403, detail="scope carries no owner")
+
+    # The binding that makes this safe: the scope's owner must be the person this
+    # pod IS. The pod asserted its HusshID with a Google-signed token; the owner's
+    # HusshID comes from the hub-issued scope. A mismatch is A's scope on B's pod.
+    try:
+        owner_hushh_id = await resolve_serving_owner_hushh_id(owner_id, registry=registry)
+    except PodAccessUnavailable:
+        raise HTTPException(status_code=503, detail="consent authority is unavailable") from None
+    if not owner_hushh_id or owner_hushh_id != asserted:
+        logger.warning("pod_specialist.owner_binding_refused pod=%s name=%s", asserted, name)
+        # Same 403 shape as an invalid scope: do not reveal whether the mismatch
+        # was the binding or the token.
+        raise HTTPException(status_code=403, detail="scope is not valid for this read")
+
+    await _require_shared_specialist_owner(owner_id)
+
+    if payload.email_read is not None and payload.email_read.operation not in {"nudges", "search"}:
+        return await _read_bound_mail(
+            owner_id=owner_id, asserted=asserted, payload=payload, check=check, registry=registry
+        )
+
+    if payload.command_read is not None:
+        if str(getattr(parsed, "agent_id", "")) != "personal_agent":
+            raise HTTPException(403, detail="scope is not valid for this read")
+        projection = await read_command_projection(owner_id, payload.command_read)
+        # The read can block on storage. Revocation and serving ownership must
+        # still hold before any projection leaves the hub.
+        try:
+            valid_after, _, parsed_after = await _run(check, payload.scope_token, required_scope)
+            serving = await resolve_serving_owner_hushh_id(owner_id, registry=registry)
+        except Exception:
+            raise HTTPException(503, detail="command read authority unavailable") from None
+        if (
+            not valid_after
+            or parsed_after is None
+            or parsed_after.user_id != owner_id
+            or serving != asserted
+        ):
+            raise HTTPException(403, detail="scope is not valid for this read")
+        await _require_shared_specialist_owner(owner_id)
+        return {"name": name, "state": projection}
+
+    run_read = reader
+    if run_read is None:
+        from hushh_mcp.services.pod_data_door import run_pod_data_door_read  # noqa: PLC0415
+
+        run_read = run_pod_data_door_read
+
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.pod_access_audit import _owner_binding_denials
+
+    read_registry = registry if registry is not None else PersonalAgentRegistryRepo()
+    try:
+        initial = await read_registry.get(owner_id)
+    except Exception:
+        raise HTTPException(503, detail="specialist read authority unavailable") from None
+    if _owner_binding_denials(initial, asserted):
+        raise HTTPException(403, detail="scope is not valid for this read")
+    initial_metadata = initial.get("backend_metadata")
+    service_uid = initial_metadata.get("serviceUid") if isinstance(initial_metadata, dict) else None
+    if not isinstance(service_uid, str) or not service_uid.strip():
+        raise HTTPException(403, detail="scope is not valid for this read")
+
+    try:
+        # run_pod_data_door_read is async (an OAuth-backed reader awaits network
+        # I/O); await it. An injected sync test double is still supported -- only
+        # await when the call actually returned an awaitable.
+        options = {"calendar_read": payload.calendar_read} if payload.calendar_read else {}
+        if payload.email_read is not None:
+            options["email_read"] = payload.email_read
+        if payload.marketplace_read is not None:
+            options["marketplace_read"] = payload.marketplace_read
+        projection = run_read(name, owner_id=owner_id, **options)
+        if inspect.isawaitable(projection):
+            projection = await projection
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="no such specialist read") from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pod_specialist.read_failed name=%s %s", name, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="specialist read failed") from exc
+
+    # Reader awaits do not carry authority forward. Revalidate the same grant,
+    # owner and serving incarnation before any projection leaves the hub.
+    try:
+        valid_after, _, parsed_after = await _run(check, scope_token, required_scope)
+        current = await read_registry.get(owner_id)
+        current_metadata = current.get("backend_metadata") if isinstance(current, dict) else None
+    except Exception:
+        raise HTTPException(503, detail="specialist read authority unavailable") from None
+    if (
+        not valid_after
+        or parsed_after is None
+        or getattr(parsed_after, "user_id", None) != owner_id
+        or _owner_binding_denials(current, asserted)
+        or not isinstance(current_metadata, dict)
+        or current_metadata.get("serviceUid") != service_uid
+    ):
+        raise HTTPException(403, detail="scope is not valid for this read")
+    await _require_shared_specialist_owner(owner_id)
+    logger.info("pod_specialist.read pod=%s name=%s", asserted, name)
+    return {"name": name, "state": projection}
+
+
+async def _run(check: Any, token: str, scope: str):
+    """Call the validator whether it is sync or async, without guessing a wrapper."""
+    import inspect  # noqa: PLC0415
+
+    result = check(token, expected_scope=scope)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+@router.post("/{name}/read")
+@hub_content_inline("pod_specialist")
+async def specialist_read_route(
+    request: Request,
+    name: str = Path(..., min_length=1, max_length=64),
+    authorization: Optional[str] = Header(default=None),
+    payload: PodSpecialistReadRequest = Body(...),
+) -> dict:
+    return await broker_specialist_read(request, name, authorization, payload)
+
+
+__all__ = ["broker_specialist_read", "router", "PodSpecialistReadRequest"]

@@ -470,3 +470,44 @@ def test_publish_leaderboard_snapshot_ranks_by_points_then_earliest_event(monkey
     assert entries_inserted[0]["rank"] == 1
     assert entries_inserted[1]["uid"] == "user_a"
     assert entries_inserted[1]["rank"] == 2
+
+
+def test_backfill_import_defers_environment_loading_and_requires_apply(monkeypatch, capsys):
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    import dotenv
+
+    from db import db_client
+
+    def refuse_import_side_effect(*args, **kwargs):
+        raise AssertionError("Import must not load runtime environment")
+
+    monkeypatch.setattr(dotenv, "load_dotenv", refuse_import_side_effect)
+    path = Path(__file__).resolve().parents[2] / "scripts/backfill_referral_scoring_jobs.py"
+    spec = importlib.util.spec_from_file_location("referral_backfill_import_fixture", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    env_loads = []
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda path: env_loads.append(path))
+    monkeypatch.setattr(
+        module,
+        "_qualified_relationships_without_a_scoring_job",
+        lambda: [(RELATIONSHIP_ID, REFERRER)],
+    )
+    writes = []
+    monkeypatch.setattr(db_client, "get_db_connection", lambda: _db("fixture_connection"))
+    monkeypatch.setattr(
+        scoring_service, "enqueue_scoring_work", lambda connection, **kw: writes.append(kw)
+    )
+    monkeypatch.setattr(sys, "argv", [str(path)])
+    module.main()
+    assert writes == []
+    assert "Dry run" in capsys.readouterr().out
+
+    monkeypatch.setattr(sys, "argv", [str(path), "--apply"])
+    module.main()
+    assert writes == [{"relationship_id": RELATIONSHIP_ID, "user_id": REFERRER}]
+    assert env_loads == [module.CONSENT_ROOT / ".env"] * 2

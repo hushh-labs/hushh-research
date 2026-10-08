@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const placement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: placement }));
+
 
 const mocks = vi.hoisted(() => ({
   native: false,
+  privateConnect: vi.fn(),
   gmailStartConnect: vi.fn(),
   gmailGetStatus: vi.fn(),
   gmailStartNative: vi.fn(),
@@ -15,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   connectCalendar: vi.fn(),
 }));
 
+vi.mock('@/lib/one/google-native-connect', () => ({ connectGoogleConnector: mocks.privateConnect }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => mocks.native },
 }));
@@ -99,6 +104,7 @@ const flush = async () => {
 describe("connectGmailInPlace (web)", () => {
   let popup: FakeWindow;
   beforeEach(() => {
+    placement.mockResolvedValue(false);
     mocks.native = false;
     popup = fakeWindow();
     vi.spyOn(window, "open").mockReturnValue(popup);
@@ -112,6 +118,21 @@ describe("connectGmailInPlace (web)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     window.localStorage.clear();
+  });
+
+  it('shows a private phone intent even when the browser blocks consent windows', async () => {
+    placement.mockResolvedValue(true);
+    vi.mocked(window.open).mockReturnValue(null);
+    mocks.privateConnect.mockResolvedValue({ ok: false, code: 'PHONE_HANDOFF_REQUIRED' });
+    const receive = vi.fn();
+    window.addEventListener('hushh:google-connector-intent', receive);
+    try {
+      const start = connectGmailInPlace({ owner, purpose: 'send' });
+      await expect(start.result).resolves.toBe('phone_handoff');
+      expect(receive.mock.calls[0][0].detail).toBe('hushh://one/connect/google/gmail');
+      expect(mocks.gmailStartConnect).not.toHaveBeenCalled();
+      expect(mocks.gmailStartNative).not.toHaveBeenCalled();
+    } finally { window.removeEventListener('hushh:google-connector-intent', receive); }
   });
 
   it("opens the window synchronously, before any await, and never navigates this window", () => {
@@ -209,8 +230,8 @@ describe("connectGmailInPlace (web)", () => {
     vi.mocked(window.open).mockReturnValue(null);
     const before = window.location.href;
     const start = connectGmailInPlace({ owner, purpose: "send" });
-    expect(start.surface).toBe("blocked");
-    await expect(start.result).resolves.toBe("not_connected");
+    expect(start.surface).toBe("checking");
+    await expect(start.result).resolves.toBe("window_blocked");
     expect(window.open).toHaveBeenCalledTimes(2);
     expect(mocks.gmailStartConnect).not.toHaveBeenCalled();
     expect(window.location.href).toBe(before);
@@ -219,6 +240,7 @@ describe("connectGmailInPlace (web)", () => {
 
 describe("connectGmailInPlace (native)", () => {
   beforeEach(() => {
+    placement.mockResolvedValue(false);
     mocks.native = true;
     vi.spyOn(window, "open");
     mocks.gmailGetStatus.mockReset().mockResolvedValue({ connected: true, modify_permission_granted: true });
@@ -227,6 +249,20 @@ describe("connectGmailInPlace (native)", () => {
     mocks.gmailCompleteNative.mockReset();
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it('routes a private native modify grant through PKCE without the shared server-code exchange', async () => {
+    placement.mockResolvedValue(true);
+    mocks.privateConnect.mockResolvedValue({ ok: true, status: 'connected' });
+    mocks.gmailGetStatus.mockResolvedValue({ connected: true, modify_permission_granted: true });
+    const confirmLegacyTransition = vi.fn();
+    const start = connectGmailInPlace({ owner, purpose: 'modify', vaultOwnerCapability: 'synthetic-capability', confirmLegacyTransition });
+    await expect(start.result).resolves.toBe('connected');
+    expect(mocks.privateConnect).toHaveBeenCalledWith('gmail', { isCurrent: expect.any(Function),
+      vaultOwnerCapability: 'synthetic-capability', confirmLegacyTransition });
+    expect(mocks.connectGmail).not.toHaveBeenCalled();
+    expect(mocks.gmailStartNative).not.toHaveBeenCalled();
+    expect(mocks.gmailCompleteNative).not.toHaveBeenCalled();
+  });
 
   it("grants sending through the platform sheet, preserving modify, without a window", async () => {
     mocks.connectGmail.mockResolvedValue({ serverAuthCode: "synthetic-auth-code" });
@@ -247,7 +283,7 @@ describe("connectGmailInPlace (native)", () => {
 
   it("does not start a modify grant the native plugins would reject", async () => {
     const start = connectGmailInPlace({ owner, purpose: "modify" });
-    expect(start.surface).toBe("unsupported");
+    expect(start.surface).toBe("native");
     await expect(start.result).resolves.toBe("not_connected");
     expect(mocks.gmailStartNative).not.toHaveBeenCalled();
   });
@@ -256,6 +292,7 @@ describe("connectGmailInPlace (native)", () => {
 describe("connectCalendarInPlace", () => {
   let popup: FakeWindow;
   beforeEach(() => {
+    placement.mockResolvedValue(false);
     mocks.native = false;
     popup = fakeWindow();
     vi.spyOn(window, "open").mockReturnValue(popup);

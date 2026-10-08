@@ -144,11 +144,15 @@ class EmailChatService:
         model: Any | None = None,
         genai_types: Any = None,
         ready: Callable[[], bool] | None = None,
+        reader_factory: Callable[..., Any] | None = None,
     ) -> None:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
         self._gmail = gmail_service if gmail_service is not None else get_gmail_receipts_service()
-        self._use_adk = model_call is None
+        # Select ADK when a model adapter is supplied, while retaining the
+        # optional model_call callback for pod authority checks.
+        self._use_adk = model is not None
         self._adk_model = model
+        self._reader_factory = reader_factory
 
         if model_call is not None:
             self._model_call = model_call
@@ -215,8 +219,8 @@ class EmailChatService:
 
         try:
             reply, errored = await self._run_tool_loop(user_id=user_id, contents=contents)
-        except Exception:
-            logger.exception("Email chat turn failed")
+        except Exception as exc:
+            logger.warning("Email chat turn failed type=%s", type(exc).__name__)
             return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
 
         return await self._finish(turn, reply or "Done.", user_id, errored=errored)
@@ -234,6 +238,20 @@ class EmailChatService:
         """Read Mail for One without creating or writing a second conversation."""
         from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
 
+        dependencies: dict[str, Any] = {}
+        if self._adk_model is not None:
+            from hushh_mcp.agents.email.runtime import run_email_gene
+
+            async def owner_gene(**kwargs: Any) -> dict[str, Any]:
+                await require_access()
+                result = await run_email_gene(model=self._adk_model, **kwargs)
+                await require_access()
+                return result
+
+            dependencies["gene_runner"] = owner_gene
+        if self._reader_factory is not None:
+            dependencies["reader_factory"] = self._reader_factory
+
         return await run_delegated_mail_read(
             gmail=self._gmail,
             user_id=user_id,
@@ -242,6 +260,7 @@ class EmailChatService:
             message=message,
             require_access=require_access,
             timezone=timezone,
+            **dependencies,
         )
 
     async def _run_adk_tool_loop(
@@ -306,7 +325,7 @@ class EmailChatService:
         try:
             result = await tool(**args)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("email_chat.tool_failed name=%s err=%s", name, exc, exc_info=True)
+            logger.warning("email_chat.tool_failed name=%s type=%s", name, type(exc).__name__)
             return {"error": "tool_failed"}
         return _as_response_dict(result)
 

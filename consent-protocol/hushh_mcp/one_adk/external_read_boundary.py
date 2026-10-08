@@ -50,6 +50,7 @@ READ_TOOLS = {
     "ask_documents_agent": "google_drive_chat_reads",
     "read_selected_drive_search_result": "google_drive_chat_reads",
     "inspect_selected_drive_files": "google_drive_chat_reads",
+    "read_google_drive": "google_drive_chat_reads",
     # Per-provider admission and owner authority are checked inside the tool.
     # Establish the content barrier before dispatch, regardless of provider.
     "read_workspace_tool": None,

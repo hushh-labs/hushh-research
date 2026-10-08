@@ -13,7 +13,7 @@ Move app-review-mode control from frontend build-time variables to backend runti
 - `POST /api/app-config/review-mode/session`
 
 ## Environment Variables (backend)
-- `APP_REVIEW_MODE`  
+- `APP_REVIEW_MODE`
   Truthy values: `1`, `true`, `yes`, `on`. Advertises the reviewer button; it no longer lets the
   session route mint without a credential. Ignored in production (see below).
 - `REVIEWER_UID`

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 import { validateFirebaseToken } from "@/lib/auth/validate";
-import { isDevelopment } from "@/lib/config";
+import { devAuthBypassAllowed } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as PreVaultStatePayload;
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader && !isDevelopment()) {
+    if (!authHeader && !devAuthBypassAllowed()) {
       return NextResponse.json(
         { error: "Authorization required", code: "AUTH_REQUIRED" },
         { status: 401 }
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
     if (authHeader) {
       const validation = await validateFirebaseToken(authHeader);
-      if (!validation.valid && !isDevelopment()) {
+      if (!validation.valid && !devAuthBypassAllowed()) {
         return NextResponse.json(
           { error: `Authentication failed: ${validation.error}`, code: "AUTH_INVALID" },
           { status: 401 }

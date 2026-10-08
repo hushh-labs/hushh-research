@@ -4,13 +4,17 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { decryptData, encryptData } from "@/lib/vault/encrypt";
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  ownerPodRequest: vi.fn(),
   prepare: vi.fn(),
   action: vi.fn(),
   permission: vi.fn(),
   requestPermission: vi.fn(),
 }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: mocks.apiFetch },
+  ApiService: {
+    apiFetch: mocks.apiFetch,
+    ownerPodRequest: mocks.ownerPodRequest,
+  },
 }));
 vi.mock("@/lib/voice/kai-action-gateway", () => ({
   getKaiActionById: mocks.action,
@@ -35,6 +39,33 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("crypto", webcrypto);
   mocks.permission.mockResolvedValue({ state: "granted" });
+  mocks.ownerPodRequest.mockImplementation(
+    async () =>
+      new Response(
+        JSON.stringify({
+          assessment: { steps: [], unsupported: false },
+          capability_revision: "test",
+          observations: [],
+        }),
+      ),
+  );
+});
+
+it("starts a fresh private transcription after pause and cancels capture independently", async () => {
+  const f = fixture({ confirmation: true });
+  f.runtime.pause();
+  mocks.ownerPodRequest.mockImplementation(async (path, init) => {
+    expect(path).toBe("commands/transcriptions");
+    expect(init.signal.aborted).toBe(false);
+    expect(init.headers.Authorization).toBeUndefined();
+    return new Response(JSON.stringify({ transcript: "Share with Alice" }));
+  });
+  expect(await f.runtime.transcribe("synthetic-audio")).toBe(
+    "Share with Alice",
+  );
+  f.runtime.cancelTranscription();
+  expect(mocks.ownerPodRequest.mock.calls[0]![1].signal.aborted).toBe(true);
+  expect(f.calls).toEqual([]);
 });
 
 it("keeps a failed cancellation retry bound to the same command", async () => {
@@ -179,7 +210,11 @@ it("remembers a verified created circle for the next command", async () => {
   await f.runtime.submit("Create Goa");
   expect(f.views.at(-1)?.phase).toBe("result");
   await f.runtime.submit("Add Abdul to that circle");
-  expect(followup.observations).toEqual([observation]);
+  const direct = mocks.ownerPodRequest.mock.calls.at(-1)!;
+  expect(direct[0]).toBe("commands/assess");
+  expect(JSON.parse(direct[1].body).observations).toEqual([observation]);
+  expect(followup.query).toBeUndefined();
+  expect(followup.semantic).toBeDefined();
 });
 
 it("settles a platform share handoff once, with no Continue loop or mutation success", async () => {
@@ -250,7 +285,10 @@ function fixture(
     const body = init.body ? JSON.parse(init.body) : undefined;
     calls.push({ path, body });
     let response;
-    if (path.endsWith("agent-chat/proposals")) response = { plan, checkpoint };
+    if (path.endsWith("agent-chat/proposals/prepare"))
+      response = { scopeToken: "scoped-read" };
+    else if (path.endsWith("agent-chat/proposals"))
+      response = { plan, checkpoint };
     else if (path.endsWith("/checkpoint")) {
       checkpoint = {
         ...checkpoint,

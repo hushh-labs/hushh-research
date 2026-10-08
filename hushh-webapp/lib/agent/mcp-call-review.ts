@@ -9,10 +9,17 @@ export type McpCallReviewReference = {
   expiresAt: string;
 };
 
+export type PodMcpReview = {
+  kind: "pod_mcp_review_v1"; ownerId: string; hushhId: string; podKeyId: string;
+  environment: string; epoch: number; conversationId: string; connectorId: string;
+  toolName: string; callId: string; catalogRevision: string; commitment: string; serviceUid: string;
+};
+
 export type McpCallPreview = McpCallReviewReference & {
   connectorLabel: string;
   toolLabel: string;
   arguments: Record<string, unknown>;
+  podReview?: PodMcpReview;
 };
 
 export type McpCallApproval = Pick<McpCallReviewReference,
@@ -72,7 +79,19 @@ export function parseMcpCallPreview(
   try {
     if (new TextEncoder().encode(JSON.stringify(args)).length > 32_768) return null;
   } catch { return null; }
-  return { ...reference, connectorLabel: preview.connectorLabel, toolLabel: preview.toolLabel, arguments: args };
+  let podReview: PodMcpReview | undefined;
+  if (preview.podReview !== undefined) {
+    const value = record(preview.podReview);
+    const textFields = ["ownerId", "hushhId", "podKeyId", "environment", "conversationId",
+      "connectorId", "toolName", "callId", "catalogRevision", "commitment", "serviceUid"];
+    if (!value || Object.keys(value).length !== textFields.length + 2 ||
+        value.kind !== "pod_mcp_review_v1" || !Number.isSafeInteger(value.epoch) || Number(value.epoch) < 1 ||
+        textFields.some(key => typeof value[key] !== "string" || !value[key] || String(value[key]).length > 256) ||
+        value.connectorId !== reference.connectorId || value.toolName !== reference.toolName ||
+        !/^[a-f0-9]{64}$/.test(String(value.commitment))) return null;
+    podReview = value as PodMcpReview;
+  }
+  return { ...reference, ...(podReview ? { podReview } : {}), connectorLabel: preview.connectorLabel, toolLabel: preview.toolLabel, arguments: args };
 }
 
 /** Approval travels only in scrubbed forwardedProps, not native tool output. */

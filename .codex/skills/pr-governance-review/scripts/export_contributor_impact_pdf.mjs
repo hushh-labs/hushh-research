@@ -1,11 +1,60 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../../..");
+
+// This dashboard renders in the Molten Gold variant, but its palette is NOT hardcoded:
+// every accent and foundation value is resolved from the SINGLE source,
+// hushh-webapp/app/globals.css, at build time — the same file the canonical formatter reads.
+// A frozen hex copy drifts the moment globals.css changes; reading it keeps this in lockstep
+// and lets the design gate (verify-accent-tokens.mjs) scan this file for stray accent hexes.
+function resolveGlobalsPalette() {
+  const css = readFileSync(path.join(repoRoot, "hushh-webapp/app/globals.css"), "utf8");
+  const blockAt = (index) => {
+    const open = css.indexOf("{", index);
+    let depth = 0;
+    for (let i = open; i < css.length; i += 1) {
+      if (css[i] === "{") depth += 1;
+      if (css[i] === "}") {
+        depth -= 1;
+        if (depth === 0) return css.slice(open + 1, i);
+      }
+    }
+    return "";
+  };
+  const block = (selector) => {
+    const re = new RegExp(`(^|\\n)\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{`, "m");
+    const m = re.exec(css);
+    return m ? blockAt(m.index) : "";
+  };
+  const tok = (blk, name) => {
+    const m = new RegExp(`--${name}\\s*:\\s*([^;]+);`).exec(blk);
+    return m ? m[1].trim() : null;
+  };
+  const root = block(":root");
+  const darkFoundation = blockAt(css.lastIndexOf("\n.dark {")); // the PDF pitch-black ground
+  // Raw selectors — block() escapes them itself; pre-escaping would double-escape and miss.
+  const goldLight = block('html[data-accent="gold"]');
+  const goldDark = block('html[data-accent="gold"].dark');
+  const pick = (foundBlk, accentBlk) => ({
+    ink: tok(foundBlk, "foundation-ink"),
+    off: tok(foundBlk, "foundation-off"),
+    surface: tok(foundBlk, "foundation-surface"),
+    hairline: tok(foundBlk, "foundation-hairline"),
+    accent: tok(accentBlk, "app-accent"),
+    deep: tok(accentBlk, "app-accent-deep"),
+    soft: tok(accentBlk, "app-accent-surface"),
+    strong: tok(accentBlk, "app-accent-surface-strong"),
+    border: tok(accentBlk, "app-accent-border"),
+  });
+  return { light: pick(root, goldLight), dark: pick(darkFoundation, goldDark) };
+}
+const PALETTE = resolveGlobalsPalette();
 const webappRequire = createRequire(path.join(repoRoot, "hushh-webapp/package.json"));
 const { chromium } = webappRequire("playwright");
 
@@ -231,48 +280,48 @@ function buildHtml(markdown, theme = "light") {
     <style>
       :root {
         color-scheme: light;
-        /* Foundation light palette adopted from hushh-search-console. */
-        --ink: #1d1d1f;
-        --muted: #6e6e73;
-        --quiet: #86868b;
-        --line: #e5e5ea;
-        --line-strong: #d2d2d7;
-        --paper: #f5f5f7;
-        --soft: #f5f5f7;
-        --panel: #ffffff;
-        --panel-strong: #ffffff;
-        --accent: #d4a574;
-        --accent-strong: #b8894d;
-        --accent-soft: #f7f1e8;
-        --accent-surface-strong: #efe4d2;
-        --accent-border: #e8d8bf;
-        --link: #8a6530;
-        --success: #047857;
-        --critical: #9a1b1b;
-        --brand: #1d1d1f;
+        /* Accent + ground resolved from hushh-webapp/app/globals.css (Molten Gold + Foundation). */
+        --ink: ${PALETTE.light.ink};
+        --muted: color-mix(in srgb, ${PALETTE.light.ink} 62%, ${PALETTE.light.off});
+        --quiet: color-mix(in srgb, ${PALETTE.light.ink} 44%, ${PALETTE.light.off});
+        --line: ${PALETTE.light.hairline};
+        --line-strong: ${PALETTE.light.border};
+        --paper: ${PALETTE.light.off};
+        --soft: ${PALETTE.light.off};
+        --panel: ${PALETTE.light.surface};
+        --panel-strong: ${PALETTE.light.surface};
+        --accent: ${PALETTE.light.accent};
+        --accent-strong: ${PALETTE.light.deep};
+        --accent-soft: ${PALETTE.light.soft};
+        --accent-surface-strong: ${PALETTE.light.strong};
+        --accent-border: ${PALETTE.light.border};
+        --link: ${PALETTE.light.deep};
+        --success: #137a35;
+        --critical: #c31d13;
+        --brand: ${PALETTE.light.ink};
         --page-shadow: rgba(0, 0, 0, 0.08);
       }
 
       [data-theme="dark"] {
         color-scheme: dark;
-        --ink: #f5f5f7;
-        --muted: #d6d6df;
-        --quiet: #a0a0ad;
-        --line: #2a2a36;
-        --line-strong: #3a3a48;
-        --paper: #0a0a0c;
-        --soft: #15151c;
-        --panel: #17171f;
-        --panel-strong: #15151c;
-        --accent: #d4a574;
-        --accent-strong: #e6b366;
-        --accent-soft: rgba(212, 165, 116, 0.12);
-        --accent-surface-strong: rgba(212, 165, 116, 0.18);
-        --accent-border: rgba(212, 165, 116, 0.4);
-        --link: #e8c9a0;
-        --success: #34d399;
-        --critical: #fb7185;
-        --brand: #f5f5f7;
+        --ink: ${PALETTE.dark.ink};
+        --muted: color-mix(in srgb, ${PALETTE.dark.ink} 66%, ${PALETTE.dark.off});
+        --quiet: color-mix(in srgb, ${PALETTE.dark.ink} 46%, ${PALETTE.dark.off});
+        --line: ${PALETTE.dark.hairline};
+        --line-strong: ${PALETTE.dark.border};
+        --paper: ${PALETTE.dark.off};
+        --soft: ${PALETTE.dark.surface};
+        --panel: ${PALETTE.dark.surface};
+        --panel-strong: ${PALETTE.dark.surface};
+        --accent: ${PALETTE.dark.accent};
+        --accent-strong: ${PALETTE.dark.deep};
+        --accent-soft: ${PALETTE.dark.soft};
+        --accent-surface-strong: ${PALETTE.dark.strong};
+        --accent-border: ${PALETTE.dark.border};
+        --link: ${PALETTE.dark.deep};
+        --success: #30d158;
+        --critical: #ff6961;
+        --brand: ${PALETTE.dark.ink};
         --page-shadow: rgba(0, 0, 0, 0.42);
       }
 

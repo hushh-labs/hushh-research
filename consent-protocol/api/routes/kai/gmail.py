@@ -17,12 +17,13 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
-from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.gmail_live_receipts_service import get_gmail_live_receipts_service
 from hushh_mcp.services.gmail_receipt_cutover import GmailReceiptStorageCutoverError
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
+from hushh_mcp.services.owner_placement_guard import hub_content_firebase, hub_content_owner
 from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
 
 logger = logging.getLogger(__name__)
@@ -318,6 +319,7 @@ async def _await_live_receipt_scan(
 
 
 async def _revalidate_live_receipt_access(*, token_data: dict[str, Any], owner: str) -> None:
+    await hub_content_owner(token_data)
     raw_token = str(token_data.get("token") or "").strip()
     if not raw_token:
         raise GmailApiError(
@@ -588,7 +590,7 @@ async def gmail_disconnect(
 @router.post("/gmail/sync")
 async def gmail_sync(
     payload: GmailSyncRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(hub_content_firebase),
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
     try:
@@ -605,7 +607,7 @@ async def gmail_sync(
 @router.post("/gmail/reconcile")
 async def gmail_reconcile(
     payload: GmailReconcileRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(hub_content_firebase),
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
     try:
@@ -622,7 +624,7 @@ async def gmail_reconcile(
 async def gmail_sync_run(
     run_id: str,
     user_id: str = Query(..., min_length=1, max_length=128),
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(hub_content_firebase),
 ):
     verify_user_id_match(firebase_uid, user_id)
     try:
@@ -650,7 +652,7 @@ async def gmail_receipts(
     page: int = Query(1, ge=1, le=1_000),
     per_page: int = Query(25, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
     verify_user_id_match(firebase_uid, user_id)
@@ -676,7 +678,7 @@ async def gmail_live_receipt_scan(
     request: Request,
     response: Response,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Read one bounded Gmail receipt page without touching the legacy cache."""
 
@@ -751,7 +753,7 @@ async def gmail_live_receipt_detail(
     payload: GmailLiveReceiptDetailRequest,
     response: Response,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Read only the selected receipt from the currently connected Gmail account."""
 
@@ -794,7 +796,7 @@ async def gmail_nudges(
     user_id: str = Path(..., min_length=1, max_length=128),
     limit: int = Query(10, ge=1, le=50),
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Derive inbox flashcard nudges ("Needs a reply") from the connected Gmail
     account. Reuses the receipts gmail.readonly connection — no new scope. Verifies
@@ -816,7 +818,7 @@ async def gmail_nudges(
 async def gmail_receipts_memory_preview(
     payload: GmailReceiptMemoryPreviewRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
     verify_user_id_match(firebase_uid, payload.user_id)
@@ -841,7 +843,7 @@ async def gmail_receipts_memory_artifact(
     artifact_id: str,
     user_id: str = Query(..., min_length=1, max_length=128),
     firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """Ensures VAULT_OWNER consent scope is verified before accessing PII artifacts."""
     verify_user_id_match(firebase_uid, user_id)

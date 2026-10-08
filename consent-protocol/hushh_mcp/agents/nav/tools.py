@@ -23,7 +23,14 @@ async def _list_grants(tool_context: ToolContext, *, surface: str) -> dict[str, 
         raise PermissionError("Missing invocation context")
     timezone = _safe_timezone(tool_context.state.get(TIMEZONE_STATE_KEY))
     try:
-        payload = await ConsentCenterService().list_center(
+        service = context.service_ports.get("consent_center")
+        if service is None:
+            from hushh_mcp.runtime_settings import pod_mode
+
+            if pod_mode():
+                raise PermissionError("Private consent information adapter unavailable")
+            service = ConsentCenterService()
+        payload = await service.list_center(
             context.user_id, actor="investor", surface=surface, top=10
         )
     except Exception:

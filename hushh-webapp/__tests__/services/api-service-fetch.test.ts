@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const googlePlacement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: googlePlacement }));
+
 
 const capacitorMocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
@@ -18,10 +21,6 @@ const kaiMocks = vi.hoisted(() => ({
 const requestTimeoutMocks = vi.hoisted(() => ({
   resolveSlowRequestTimeoutMs: vi.fn(() => 75_000),
 }));
-
-// ---------------------------------------------------------------------------
-// Mocks – declared before any import that touches them
-// ---------------------------------------------------------------------------
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
@@ -70,10 +69,6 @@ vi.mock("@/lib/utils/request-timeouts", () => ({
   resolveSlowRequestTimeoutMs: requestTimeoutMocks.resolveSlowRequestTimeoutMs,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports (after mocks are registered)
-// ---------------------------------------------------------------------------
-
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -81,10 +76,6 @@ import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 
@@ -117,12 +108,23 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("ApiService.apiFetch", () => {
+  it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
+    const url = "https://owner-pod.example/api/one/pod/status";
+    mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
+    const request = streaming ? ApiService.apiFetchStream : ApiService.apiFetch;
+    const headers = new Headers({ Authorization: "Bearer pod-session-fixture", "X-Hussh-Chat-Key": "synthetic-chat-key", "content-type": "application/json" });
+    await request(url, { credentials: "omit", headers });
+    expect(mockFetch.mock.calls[0][1]?.credentials).toBe("omit");
+    const sent = new Headers(mockFetch.mock.calls[0][1]?.headers);
+    headers.forEach((value, key) => expect(sent.get(key)).toBe(value));
+    if (streaming) expect(sent.get("Accept")).toBe("text/event-stream");
+    await ApiService.apiFetch("/api/one/personal-agent/status");
+    expect(mockFetch.mock.calls[1][1]?.credentials).toBe("include");
+  });
+
   beforeEach(() => {
+    googlePlacement.mockResolvedValue(false);
     vi.clearAllMocks();
     mockFetch.mockReset();
     capacitorMocks.isNativePlatform.mockReturnValue(false);
@@ -168,6 +170,14 @@ describe("ApiService.apiFetch", () => {
       idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
       code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => mounted,
     })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+
+  it('does not deliver a legacy Google callback code to the hub after private placement', async () => {
+    publishValidatedAuthSessionOwner('synthetic-owner');
+    googlePlacement.mockResolvedValue(true);
+    await expect(GoogleConnectionService.completeConnect({ idToken: makeUnsignedToken({ sub: 'synthetic-owner' }), userId: 'synthetic-owner', code: 'native-code-must-not-reach-hub', state: 'state', isEffectCurrent: () => true })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
     expect(mockFetch).not.toHaveBeenCalled();
     expect(capacitorMocks.request).not.toHaveBeenCalled();
   });
@@ -268,7 +278,6 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const [calledUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
-    // On web the URL should be the path itself (relative), no hostname prefix
     expect(calledUrl).toBe("/api/test");
   });
 
@@ -1558,5 +1567,17 @@ describe("ApiService.apiFetch", () => {
     });
     expect(payload.phone_verified).toBe(true);
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
+  });
+});
+
+
+describe("retired One Live relay", () => {
+  it("fails closed and directs callers to typed Talk to One commands", async () => {
+    const relayFetch = vi.spyOn(ApiService, "apiFetch");
+
+    await expect(ApiService.createOneAdkRelaySession()).rejects.toThrow(
+      "ONE_LIVE_RETIRED: use Talk to One commands.",
+    );
+    expect(relayFetch).not.toHaveBeenCalled();
   });
 });

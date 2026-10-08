@@ -18,8 +18,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 
-from api.middleware import require_vault_owner_token
 from hushh_mcp.runtime_settings import one_career_enabled
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ async def _extract(*, text: str, user_id: str, consent_token: str) -> dict[str, 
 async def parse_resume(
     response: Response,
     file: UploadFile = File(...),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> dict[str, Any]:
     if not one_career_enabled():
         raise HTTPException(status_code=404, detail="Not found")

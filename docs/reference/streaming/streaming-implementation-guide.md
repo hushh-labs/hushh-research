@@ -37,6 +37,10 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+- Agent Chat's 90-second byte-idle watchdog begins after response headers and a
+  stream body arrive. Cold pod admission retains its separate HTTP deadline;
+  admission is not a silent model stream. Cancellation invalidates the run so
+  late admission cannot dispatch a cancelled turn or restart its watchdog.
 
 ### Private connector events
 
@@ -173,6 +177,29 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
 - Validate backend: `ruff`, `mypy`, `pytest`.
 - Run manual smoke on Import / Optimize / Analyze in iOS, Android, and web.
 
+
+## Direct Puppy streams
+
+`/api/one/pod/turn/stream` emits bounded `token` deltas followed by one `done` or
+`error` terminal. It shares the ordinary turn's owner/device consent, admission
+and update permits. The browser keeps its abort listener through the response
+body and never falls back to a cloud model for unavailable Puppy inference.
+
+Preparation is bounded at 205 seconds. Immediately before the authenticated
+direct POST, the existing dispatch callback starts a separate 170-second
+inference deadline in both the stream consumer and its caller. Cold admission
+does not consume that inference budget. Neither tokens nor retries extend it;
+an aborted preparation cannot dispatch later. The panel reports connection
+until that dispatch point, then waits for the machine's response.
+
+HTTP edges may keep the upstream alive after browser abort. The explicit
+[turn stop](../architecture/api-contracts.md#direct-puppy-turn-cancellation) joins
+that existing producer using the same request identity. Duplicate stops do not
+interrupt cleanup or dispatch another turn. A stopped producer ends the upstream
+with `PUPPY_CANCELLED`; the bounded browser stop wait reports
+`PUPPY_CANCEL_UNCONFIRMED` if settlement cannot be established. Neither code
+proves a device-side stop acknowledgement. The UI retains a stopping state until
+the authoritative request settles; late deltas cannot repopulate a cancelled turn.
 
 ## Typed-chat emoji reactions
 

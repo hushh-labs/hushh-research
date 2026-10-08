@@ -170,6 +170,8 @@ export function resolveSmsContactsBackAction(
 }
 
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
+  if (panel === "hosting") return "Hosting";
+  if (panel === "software-updates") return "Software updates";
   if (panel === "account") return "Account";
   if (panel === "my-data") return "Memory";
   if (panel === "connected-systems") return "Connected Systems";
@@ -383,14 +385,14 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Wallet is reached from the One home roster tile; the way out is One.
-  if (pathname === ROUTES.ONE_WALLET) {
+  if (pathname === ROUTES.ONE_WALLET || pathname === ROUTES.ONE_FILES) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
       suppressFallbackTitle: true,
-      // Wallet owns its visible PageHeader, so keep the top shell focused on
-      // the back action instead of repeating the route name beside it.
+      // Wallet and Files each own their visible PageHeader, so keep the top
+      // shell focused on the back action instead of repeating the route name.
       items: [{ label: "One", href: ROUTES.ONE_HOME }],
     };
   }

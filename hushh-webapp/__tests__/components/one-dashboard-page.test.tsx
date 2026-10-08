@@ -2,6 +2,17 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
+
+// The dashboard renders the live agent-presence chip, which reaches for VaultProvider,
+// the Next.js router, and best-effort pod-status polling. This suite asserts nothing
+// about the chip, so stub it out rather than standing up all three dependencies.
+vi.mock("@/components/dashboard/one-agent-presence", () => ({
+  OneAgentPresence: () => <div data-testid="dashboard-pod-presence" />,
+}));
+// Discovery has its own auth and service tests; these assertions cover the roster.
+vi.mock("@/components/profile/public-profile-discovery-card", () => ({
+  PublicProfileDiscoveryCard: () => null,
+}));
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
@@ -51,13 +62,18 @@ describe("OneDashboardPage", () => {
     window.localStorage.clear();
   });
 
+  it("leaves pod presence to the shared top bar", () => {
+    render(<OneDashboardPage userId="owner" />);
+    expect(screen.queryByTestId("dashboard-pod-presence")).toBeNull();
+    expect(screen.getByTestId("one-agents-section")).toBeTruthy();
+  });
+
   it("keeps unfinished Finance actionable after root onboarding is dismissed", () => {
     const userId = "dashboard-dismissed-user";
     OneSetupCompletionHintService.markResolved(userId); // dismissed
 
     render(
       <OneDashboardPage
-        displayName="Dismissed User"
         userId={userId}
         capabilityStatusById={buildStatusMap({
           finance: { state: "not-started", requiresUnlock: true },
@@ -96,7 +112,6 @@ describe("OneDashboardPage", () => {
   it("renders the primary One agent modes with route targets", () => {
     const { container } = render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
           finance: { state: "not-started", requiresUnlock: true },
           gmail: { state: "blocked", prerequisite: "oauth" },
@@ -108,12 +123,14 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
+    // The greeting is gone entirely (founder, 2026-09-02: "I still have the greeting
+    // message on the /one route for some reason added, we don't need that").
+    expect(screen.queryByText(/Good (morning|afternoon|evening), /)).toBeNull();
     expect(screen.queryByText("Your private agent")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
     // A resolved journey is redirected by that workspace to the normal product
@@ -140,6 +157,11 @@ describe("OneDashboardPage", () => {
       expect(icon.querySelector("img, image")).toBeNull();
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
+    // Greyscale-until-onboarded is reverted for now: icons stay full color
+    // regardless of setup state, so "finance" ("not-started" in this
+    // fixture) still carries its palette color -- see the dedicated
+    // palette-color coverage below with an all-completed fixture.
+    //
     // An unfinished workspace keeps its recognizable full-color artwork.
     expect(financeIcon.querySelector("stop")).toHaveAttribute(
       "stop-color", "#43CF73",
@@ -148,6 +170,9 @@ describe("OneDashboardPage", () => {
       "grayscale",
     );
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
+    expect(screen.getByRole("link", { name: "Open Files" })).toHaveAttribute(
+      "href", ROUTES.ONE_FILES,
+    );
     const riaLink = screen.getByRole("link", { name: "Open Advisor" });
     expect(riaLink.getAttribute("href")).toBe(
       buildOneSetupCapabilityRoute("ria"),
@@ -179,7 +204,7 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText("Explore")).toBeNull();
     // Gmail and Calendar are first-class setup capabilities; Wallet, Memory,
     // and Consent remain direct workspaces and do not inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(8);
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
@@ -197,7 +222,6 @@ describe("OneDashboardPage", () => {
   it("reflects completed setup across all capabilities", () => {
     const { container } = render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
           finance: { state: "completed" },
           gmail: { state: "completed" },
@@ -212,7 +236,7 @@ describe("OneDashboardPage", () => {
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
     expect(countRosterMetrics(container, "0", "actions")).toBe(5);
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
 
     // Completed setup keeps the same capability artwork as unfinished setup.
@@ -271,6 +295,9 @@ describe("OneDashboardPage", () => {
     fireEvent.click(screen.getByLabelText("Show agent grid view"));
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(screen.getByTestId("one-agent-tile-finance")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Files" })).toHaveAttribute(
+      "href", ROUTES.ONE_FILES,
+    );
     const grid = container.querySelector(
       '[data-agent-roster-layout="grouped-icon-grid"]',
     );
@@ -297,13 +324,13 @@ describe("OneDashboardPage", () => {
     window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    const heading = screen.getByRole("heading", { name: "Agents (8)" });
+    const heading = screen.getByRole("heading", { name: "Agents (9)" });
     const gridControl = screen.getByLabelText("Show agent grid view");
     const listControl = screen.getByLabelText("Show agent list view");
     const gridContent = screen.getByTestId("one-agents-view-content");
 
     fireEvent.click(listControl);
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBe(heading);
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
     expect(screen.getByLabelText("Show agent grid view")).toBe(gridControl);
     expect(screen.getByLabelText("Show agent list view")).toBe(listControl);
     expect(gridContent.isConnected).toBe(false);
@@ -311,7 +338,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
 
     fireEvent.click(gridControl);
-    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBe(heading);
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
     expect(screen.queryByTestId("one-agents-list")).toBeNull();
     expect(screen.getAllByTestId("one-agents-grid")).toHaveLength(1);
   });
@@ -345,7 +372,6 @@ describe("OneDashboardPage", () => {
   it("shows the finance mover as a concise green percentage without redundant winner copy", () => {
     render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         userId="roster-finance-metric"
       />,
     );

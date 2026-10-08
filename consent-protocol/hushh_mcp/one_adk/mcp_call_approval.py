@@ -12,9 +12,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from google.adk.sessions import Session
 
@@ -27,9 +29,11 @@ from hushh_mcp.one_adk.mcp_pending_call import (
     PendingCallStorageError,
     capture_pending_call,
     pending_call_details,
+    private_pending_call_scope,
     review_refusal,
 )
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
+from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.action_directive_ledger import (
     MCP_ACTION_ID,
     ActionConfirmationReceipt,
@@ -42,6 +46,35 @@ from hushh_mcp.services.action_directive_ledger import (
 logger = logging.getLogger(__name__)
 
 STATE_MCP_APPROVAL = "temp:hussh:mcp_approval"
+
+
+class McpApprovalPort(Protocol):
+    """Invocation-local authority transport; it cannot confirm for the browser."""
+
+    async def issue(self, approval: McpCallApproval) -> IssuedActionDirective: ...
+    async def consume(
+        self, approval: McpCallApproval, *, directive_id: str, receipt: str
+    ) -> None: ...
+
+
+_APPROVAL_PORT: ContextVar[McpApprovalPort | None] = ContextVar("mcp_approval_port", default=None)
+
+
+@contextmanager
+def bind_mcp_approval_port(port: McpApprovalPort):
+    token = _APPROVAL_PORT.set(port)
+    try:
+        # This trusted injected port owns private placement; no SQL fallback.
+        with private_pending_call_scope():
+            yield
+    finally:
+        _APPROVAL_PORT.reset(token)
+
+
+async def review_private_call(*args, **kwargs):
+    if _APPROVAL_PORT.get() is None:
+        return {"status": "blocked", "error": "POD_MCP_REVIEW_UNAVAILABLE", "retryable": False}
+    return await review_or_resume_call(*args, **kwargs)
 
 
 async def review_or_resume_call(context, binding, tool_name, revision, arguments):
@@ -76,6 +109,11 @@ async def review_or_resume_call(context, binding, tool_name, revision, arguments
                 "connectorId": binding.connector_id,
                 "catalogRevision": revision,
                 "expiresAt": issued.expires_at.isoformat(),
+                **(
+                    {"podReview": issued.private_review}
+                    if getattr(issued, "private_review", None)
+                    else {}
+                ),
             },
         )
     except PendingCallStorageError:
@@ -142,6 +180,10 @@ async def supersede_unanswered_reviews(
     leaves the directives to their own expiry.
     """
     if not owner_id or not conversation_id:
+        return
+    if _APPROVAL_PORT.get() is not None or pod_mode():
+        # This operation owns only shared adk_chat rows. Private reviews use
+        # pod_chat and retain their bounded expiry; never open hub SQL here.
         return
     try:
         await (store or ActionDirectiveStore()).cancel_unconfirmed_adk_chat(
@@ -213,6 +255,7 @@ class McpCallApproval:
     tool_name: str
     catalog_revision: str
     arguments: dict[str, Any] = field(repr=False)
+    call_id: str = ""
 
     @classmethod
     def from_call(
@@ -242,6 +285,7 @@ class McpCallApproval:
             tool_name,
             catalog_revision,
             deepcopy(arguments),
+            str(getattr(context, "function_call_id", "") or ""),
         )
 
     @property
@@ -280,6 +324,11 @@ class McpCallApproval:
         }
 
     async def issue(self, store: ActionDirectiveStore) -> IssuedActionDirective:
+        port = _APPROVAL_PORT.get()
+        if port is not None:
+            return await port.issue(self)
+        if pod_mode():
+            raise ActionDirectiveAuthorityError("Private connector approval port unavailable.")
         terms = self.terms
         return await store.issue(
             **self.identity,
@@ -295,6 +344,10 @@ class McpCallApproval:
     ) -> ActionConfirmationReceipt:
         # Only the authenticated app review route calls this. A model/tool
         # argument, MCP annotation or browser-local tool ID is not a gesture.
+        if _APPROVAL_PORT.get() is not None or pod_mode():
+            raise ActionDirectiveAuthorityError(
+                "Private confirmation belongs to the app review route."
+            )
         if confirmed is not True:
             raise ActionDirectiveAuthorityError("Explicit MCP call approval is required.")
         return await store.confirm(
@@ -307,6 +360,12 @@ class McpCallApproval:
     async def consume(
         self, store: ActionDirectiveStore, *, directive_id: str, receipt: str
     ) -> None:
+        port = _APPROVAL_PORT.get()
+        if port is not None:
+            await port.consume(self, directive_id=directive_id, receipt=receipt)
+            return
+        if pod_mode():
+            raise ActionDirectiveAuthorityError("Private connector approval port unavailable.")
         await store.consume(
             **self.identity,
             directive_id=directive_id,

@@ -21,7 +21,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from api.middleware import require_vault_owner_token
 from api.routes.kai._streaming import (
     HEARTBEAT_INTERVAL_SECONDS,
     CanonicalSSEStream,
@@ -30,6 +29,7 @@ from api.routes.kai._streaming import (
 from hushh_mcp.agents.kai.runtime import run_kai_portfolio_optimizer
 from hushh_mcp.constants import KAI_OPTIMIZE_STREAM_TIMEOUT_SECONDS
 from hushh_mcp.operons.kai.fetchers import RealtimeDataUnavailable, fetch_market_data
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.renaissance_service import get_renaissance_service
 
 logger = logging.getLogger(__name__)
@@ -352,7 +352,7 @@ def _build_deterministic_optimization_fallback(
 @router.post("/portfolio/analyze-losers", response_model=AnalyzeLosersResponse)
 async def analyze_portfolio_losers(
     request: AnalyzeLosersRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ) -> AnalyzeLosersResponse:
     """
     Analyze portfolio losers against Renaissance investable/avoid lists + criteria rubric.
@@ -756,7 +756,7 @@ Return ONLY valid JSON with this shape (no prose, no markdown):
 async def analyze_portfolio_losers_stream(
     request: AnalyzeLosersRequest,
     raw_request: Request,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """
     Streaming version of portfolio losers analysis with AI reasoning.

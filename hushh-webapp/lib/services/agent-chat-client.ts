@@ -1,3 +1,4 @@
+import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { ApiService } from "@/lib/services/api-service";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { serverNow } from "@/lib/agent/server-clock";
@@ -53,6 +54,9 @@ import {
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
+import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
+import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
 
 export type AgentChatMessage = {
   id: string;
@@ -386,63 +390,7 @@ export class AgentChatStreamLostError extends Error {
   }
 }
 
-/**
- * How long a turn's stream may be silent before the turn is treated as lost.
- * The server writes a `: ping` comment every 15 s while a model or tool call is
- * pending (sse-starlette's keep-alive), so this is six missed pings. It is keyed
- * on bytes, never on content: a slow model is not a dead connection.
- */
-export const AGENT_CHAT_STREAM_IDLE_MS = 90_000;
-const AGENT_CHAT_STREAM_WATCHDOG_TICK_MS = 5_000;
-
-/**
- * Byte-level liveness for One's AG-UI stream. The serving instance can be
- * killed, redeployed or scaled down mid-turn; the stream then either stops
- * sending or closes without RUN_FINISHED / RUN_ERROR, and `@ag-ui/client`
- * completes such a run quietly. `fetch` is the HttpAgent transport with every
- * body chunk noted; `start` arms the silence watchdog for one run.
- */
-function createAgentStreamLiveness(onSilent: () => void, onBytes: () => void = () => undefined) {
-  let lastBytesAtMs = Date.now();
-  let timer: ReturnType<typeof setInterval> | null = null;
-  const touch = () => {
-    lastBytesAtMs = Date.now();
-  };
-  const stop = () => {
-    if (timer !== null) clearInterval(timer);
-    timer = null;
-  };
-  return {
-    fetch: async (init: RequestInit | undefined): Promise<Response> => {
-      const response = await nativeStreamFetch("/api/one/agent-chat", init);
-      touch();
-      onBytes();
-      if (!response.ok || !response.body) return response;
-      const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          touch();
-          onBytes();
-          controller.enqueue(chunk);
-        },
-      }));
-      return new Response(body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    },
-    start: () => {
-      stop();
-      touch();
-      timer = setInterval(() => {
-        if (Date.now() - lastBytesAtMs < AGENT_CHAT_STREAM_IDLE_MS) return;
-        stop();
-        onSilent();
-      }, AGENT_CHAT_STREAM_WATCHDOG_TICK_MS);
-    },
-    stop,
-  };
-}
+export { AGENT_CHAT_STREAM_IDLE_MS } from "./agent-chat-liveness";
 
 type ParkedAppActionDirective = {
   actionId: string;
@@ -1026,6 +974,10 @@ const AUTHORED_RETRYABLE_RUN_ERRORS: Record<string, string> = {
 };
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
+  // The direct path can refuse before a chat request exists. Its typed boundary
+  // (or exact SDK message) maps to fixed copy, never to transport details.
+  const ownerPodMessage = ownerPodTurnErrorMessage(message, code);
+  if (ownerPodMessage) return ownerPodMessage;
   // Chat history is sealed with a key derived from the vault. These refusals are
   // recoverable, so say how; the raw server text is never shown.
   const chatKeyCode = code && code in CHAT_KEY_REFUSAL_MESSAGES
@@ -1033,12 +985,8 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
     : Object.keys(CHAT_KEY_REFUSAL_MESSAGES).find((candidate) => message.includes(candidate));
   const chatKeyRefusal = chatKeyCode ? CHAT_KEY_REFUSAL_MESSAGES[chatKeyCode] : undefined;
   if (chatKeyRefusal) return chatKeyRefusal;
-  if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
-    return "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini.";
-  }
-  if (code === "AGENT_RUNTIME_CREDENTIAL_INVALID") {
-    return "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini.";
-  }
+  const ownerAiMessage = ownerAiRunErrorMessage(code, message); // own-key refusals link to Bring your own AI
+  if (ownerAiMessage) return ownerAiMessage;
   if (code === "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE") {
     return "Hussh managed Gemini is not available in this environment.";
   }
@@ -1088,13 +1036,13 @@ async function readError(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => null)) as unknown;
   const record = asRecord(payload);
   const detailRecord = record ? asRecord(record.detail) : null;
-  const code = detailRecord ? readString(detailRecord, "code") : record ? readString(record, "code") : "";
+  const code = refusalCode(detailRecord, record ? readString(record, "code") : "");
   const detail = detailRecord
     ? readString(detailRecord, "message")
     : record
       ? readString(record, "detail") || readString(record, "message")
       : "";
-  return detail
+  return detail || code
     ? formatAgentChatErrorMessage(detail, code || undefined)
     : `Agent chat request failed (${response.status})`;
 }
@@ -1183,6 +1131,8 @@ export async function streamAgentChat(input: {
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
   screenContext?: Record<string, unknown> | null;
+  /** The specialist tab this turn came from; steers One's first choice, grants nothing. */
+  specialistFocus?: "email" | "location" | "information" | "finance";
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{
@@ -1269,15 +1219,17 @@ export async function streamAgentChat(input: {
     // A vault-owner token without a vault key is not an unlocked chat. Nothing
     // is sent; the person is routed to unlock.
     if (error instanceof ChatKeyUnavailableError) {
-      throw routeChatKeyRefusal("CHAT_KEY_REQUIRED", mcpVaultEpoch);
+      throw routeChatKeyRefusal("CHAT_KEY_REQUIRED", mcpVaultEpoch, true);
     }
     throw error;
   }
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
-  const liveness = createAgentStreamLiveness(() => {
-    loseStream();
-    agent.abortRun();
-  }, () => handlers.onStreamHealth?.({ kind: "bytes" }));
+  const liveness = createAgentStreamLiveness(
+    // Admission needs no client bookkeeping: the agent catches up on its own review.
+    (init) => wakingChatTransport(init, () => handlers.onStreamHealth?.({ kind: "waking" }), () => {}),
+    () => { loseStream(); agent.abortRun(); },
+    () => handlers.onStreamHealth?.({ kind: "bytes" }),
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -1290,6 +1242,7 @@ export async function streamAgentChat(input: {
     fetch: (_url, init) => liveness.fetch(init),
   });
   let text = "";
+  let runStarted = false;
   let failure: Error | null = null;
   let interrupted = false;
   let intentionallyStoppedAtConfirmation = false;
@@ -1324,7 +1277,10 @@ export async function streamAgentChat(input: {
     handlers.onError?.(failure.message);
     finishTerminalRun();
   };
-  const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0]) => {
+  const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0], resumeSignal?: AbortSignal) => {
+    if (input.signal?.aborted || resumeSignal?.aborted) {
+      throw new DOMException("Agent turn cancelled", "AbortError");
+    }
     runTerminal = false;
     streamLost = false;
     liveness.start();
@@ -1344,6 +1300,7 @@ export async function streamAgentChat(input: {
     // the action or append a second answer while the owner is deciding.
     handlers.onInterrupt?.({ conversationId: threadId });
     finishTerminalRun();
+    liveness.stop();
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
@@ -1448,6 +1405,7 @@ export async function streamAgentChat(input: {
         : undefined;
     },
     onRunStartedEvent: () => {
+      runStarted = true;
       noteChatKeyAccepted();
       handlers.onStart?.({ conversationId: threadId });
     },
@@ -1859,7 +1817,7 @@ export async function streamAgentChat(input: {
               )) throw new Error("This confirmation does not match the connector review.");
               // A lost acknowledgement must not cause an automatic second mutation.
               attempted = true;
-              const abortResume = () => agent.abortRun();
+              const abortResume = () => { liveness.stop(); agent.abortRun(); };
               input.signal?.addEventListener("abort", abortResume, { once: true });
               signal?.addEventListener("abort", abortResume, { once: true });
               try {
@@ -1880,7 +1838,7 @@ export async function streamAgentChat(input: {
                     } } : {}),
                   },
                   resume: [{ interruptId, status: "resolved", payload: { confirmed: approval !== null } }],
-                });
+                }, signal);
                 if (signal?.aborted || !mcpSessionCurrent()) throw new Error("The connector session changed.");
                 if (failure) throw failure;
               } finally {
@@ -1921,7 +1879,7 @@ export async function streamAgentChat(input: {
       // Our own abort of a detached stream is not a failure of the turn, which
       // is still running server-side. A stream this client already gave up on
       // was reported once; its abort must not replace that with a second error.
-      if (intentionallyStoppedAtConfirmation || detached || streamLost) {
+      if (intentionallyStoppedAtConfirmation || detached || streamLost || input.signal?.aborted) {
         finishTerminalRun();
         return;
       }
@@ -1932,8 +1890,9 @@ export async function streamAgentChat(input: {
       const strain = classifyBackendStrain({ httpStatus: typeof httpStatus === "number" ? httpStatus : null });
       if (strain && !refusal) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
       failure = refusal
-        ? routeChatKeyRefusal(refusal, mcpVaultEpoch)
-        : new Error(formatAgentChatErrorMessage(error.message || ""));
+        ? routeChatKeyRefusal(refusal, mcpVaultEpoch,
+            !runStarted && (error as Error & { status?: number }).status === 403)
+        : new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
@@ -1942,6 +1901,7 @@ export async function streamAgentChat(input: {
     // A detach reason means the caller stopped reading (it left the chat); the
     // server keeps the turn. Any other abort is the caller cancelling.
     if (input.signal?.reason === AGENT_TURN_DETACH_REASON) detached = true;
+    liveness.stop();
     agent.abortRun();
     finishTerminalRun();
   };
@@ -1951,6 +1911,7 @@ export async function streamAgentChat(input: {
     conversationId: threadId,
     detach: () => {
       detached = true;
+      liveness.stop();
       agent.abortRun();
       finishTerminalRun();
     },
@@ -1972,6 +1933,7 @@ export async function streamAgentChat(input: {
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.feedAttention ? { feedAttention: { itemId: input.feedAttention.itemId } } : {}),
+        ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
         // Only the native app asks the server for a "One replied" push when it
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),
@@ -1998,12 +1960,17 @@ export async function streamAgentChat(input: {
   return { conversationId: threadId, model: null, text, interrupted, detached: leftTurn };
 }
 
+/** The pre-unlock answer for a private agent, given on this device. */
+export const PRIVATE_AGENT_INTRO_REPLY =
+  "Unlock your private agent to continue. Until then, what you type stays on this device.";
+
 /**
  * Pre-vault informational/navigation-only agent turn.
  *
  * Calls the lower-privilege backend tier that never touches PKM/vault data and
  * is not persisted. Used by the single agent bar before the vault is unlocked,
- * including anonymous onboarding visitors.
+ * including anonymous onboarding visitors. A person whose private agent runs in
+ * their own cloud is answered on this device instead: their words never go to the hub.
  */
 export async function streamAgentIntro(input: {
   message: string;
@@ -2013,6 +1980,12 @@ export async function streamAgentIntro(input: {
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   const threadId = crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  const access = await import("./pod-app-access");
+  if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
+    handlers.onToken?.(PRIVATE_AGENT_INTRO_REPLY);
+    handlers.onComplete?.({ conversationId: threadId });
+    return { conversationId: null, model: null, text: PRIVATE_AGENT_INTRO_REPLY };
+  }
   let text = "";
   let failure: Error | null = null;
   let runTerminal = false;
@@ -2025,10 +1998,10 @@ export async function streamAgentIntro(input: {
     failure = new Error(AGENT_CHAT_STREAM_LOST_ERROR);
     handlers.onError?.(failure.message);
   };
-  const liveness = createAgentStreamLiveness(() => {
-    loseStream();
-    agent.abortRun();
-  });
+  const liveness = createAgentStreamLiveness(
+    (init) => nativeStreamFetch("/api/one/agent-chat", init),
+    () => { loseStream(); agent.abortRun(); },
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -2059,11 +2032,12 @@ export async function streamAgentIntro(input: {
     },
     onRunFailed: ({ error }) => {
       if (streamLost) return;
-      failure = new Error(formatAgentChatErrorMessage(error.message || ""));
+      failure = new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
     },
   };
-  const abort = () => agent.abortRun();
+  const abort = () => { liveness.stop(); agent.abortRun(); };
+  if (input.signal?.aborted) throw new DOMException("Agent turn cancelled", "AbortError");
   input.signal?.addEventListener("abort", abort, { once: true });
   liveness.start();
   try {
@@ -2090,14 +2064,9 @@ export function createQueuedInputPorts(getVaultOwnerToken: () => string | null):
   const call = async (path: string, init: RequestInit = {}): Promise<Record<string, unknown>> => {
     const token = getVaultOwnerToken();
     if (!token) throw new Error("Vault access expired.");
-    const response = await ApiService.apiFetch(path, {
-      ...init,
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
-      },
-    });
+    // Own-cloud owners reach their agent; only a Shared owner's queue is on the hub.
+    const response = await ApiService.agentChatRequest(path, { ...init, cache: "no-store",
+      headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}) } });
     if (!response.ok) throw new Error(await readError(response));
     return ((await response.json()) ?? {}) as Record<string, unknown>;
   };
@@ -2318,7 +2287,7 @@ export async function findInformationRequestConversation(input: {
   vaultOwnerToken: string;
   vaultKey: string;
 }): Promise<string | null> {
-  const response = await sendWithChatKey(async () => ApiService.apiFetch(
+  const response = await sendWithChatKey(async () => ApiService.agentChatRequest(
     `/api/one/agent-chat/information-requests/${encodeURIComponent(input.bundleId)}/conversation`,
     {
       method: "GET",
@@ -2393,7 +2362,7 @@ export async function recordAgentChatInformationRequest(input: {
   vaultOwnerToken: string;
   vaultKey: string;
 }): Promise<AgentStructuredExperience> {
-  const response = await sendWithChatKey(async () => ApiService.apiFetch(
+  const response = await sendWithChatKey(async () => ApiService.agentChatRequest(
     `/api/one/agent-chat/history/${encodeURIComponent(input.conversationId)}/information-requests`,
     {
       method: "POST",
@@ -2432,7 +2401,7 @@ export async function getAgentChatFeedback(input: {
     // Through the platform-aware transport like every sibling call: a bare
     // relative fetch resolves against the app's own static files in the
     // native shell, so ratings never reached the backend on the phones.
-    const response = await ApiService.apiFetch(
+    const response = await ApiService.agentChatRequest(
       `/api/one/agent-chat/feedback?conversation_id=${encodeURIComponent(input.conversationId)}`,
       {
         headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
@@ -2464,7 +2433,7 @@ export async function setAgentChatFeedback(input: {
   /** Flags the answer for team review; the backend records it as "down". */
   reportReason?: AgentResponseReportReason;
 }): Promise<void> {
-  const response = await ApiService.apiFetch("/api/one/agent-chat/feedback", {
+  const response = await ApiService.agentChatRequest("/api/one/agent-chat/feedback", {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${input.vaultOwnerToken}`,

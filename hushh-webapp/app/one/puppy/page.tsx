@@ -6,8 +6,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
-import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
+import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 
 /**
  * Puppy One: the agent running on the owner's own machine.
@@ -18,9 +17,8 @@ import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
  * lie about where each answer came from.
  */
 export default function PuppyOnePage() {
-  // No nativeTest marker: this surface is classified excluded-web-only because
-  // it reaches an agent over loopback on the owner's Mac, which the iOS and
-  // Android shells cannot do. Claiming native coverage here would be a lie.
+  // The surface selects the loopback panel only on the Mac's local origin.
+  // A deployed browser uses the owner's admitted pod and trusted-device relay.
   return (
     // One's chat measure (`agent`, 880px) and a column exactly as tall as the
     // visible scroll area, so the conversation fills the screen the way One's
@@ -40,11 +38,9 @@ export default function PuppyOnePage() {
       <AppPageHeaderRegion className="shrink-0">
         <PageHeader
           title="Puppy One"
-          // "Answers are generated on your machine" was an unconditional
-          // per-turn claim, and the pill inside the panel can be set to "any
-          // model", which lets the gateway resolve one that runs off it. The
-          // pin is what makes the promise, so the sentence names the pin.
-          description="A personal supercomputer you own. Pin a model to this machine and answers never leave it."
+          // The local model runs on the trusted machine, while sealed requests
+          // and replies travel through the owner's pod and browser.
+          description="A local model on your trusted machine. Requests and replies travel through your private pod."
           accent="neutral"
         />
       </AppPageHeaderRegion>
@@ -57,8 +53,7 @@ export default function PuppyOnePage() {
           stay one tap away on the strip; a broken link to Hussh One is the
           exception and stays on it unasked. */}
       <AppPageContentRegion className="flex min-h-0 flex-1 flex-col">
-        <PuppyMachineSheet className="mb-3 shrink-0" />
-        <HermesChatPanel />
+        <PuppyOneSurface className="px-0 pt-0 sm:px-0" />
       </AppPageContentRegion>
     </AppPageShell>
   );

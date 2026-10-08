@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const placement = vi.hoisted(() => vi.fn(async () => false));
+vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: placement }));
+
 
 const apiFetch = vi.hoisted(() => vi.fn());
 
@@ -15,8 +18,18 @@ import {
 } from "@/lib/services/external-connector-service";
 
 describe("ExternalConnectorService native Drive OAuth", () => {
-  beforeEach(() => apiFetch.mockReset());
+  beforeEach(() => { placement.mockResolvedValue(false); apiFetch.mockReset(); });
   afterEach(() => vi.useRealTimers());
+
+  it('blocks legacy Drive credentials and picker grants after private placement before any hub request', async () => {
+    placement.mockResolvedValue(true);
+    await expect(ExternalConnectorService.completeOAuthConnect({ vaultOwnerToken: 'owner-token', state: 'state', code: 'never-hub' })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(ExternalConnectorService.completeWebOAuth({ idToken: 'token', state: 'state', code: 'never-hub', attemptId: 'attempt' })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(ExternalConnectorService.pickerSession('owner-token', 'https://app.test')).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(ExternalConnectorService.documents('owner-token')).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    await expect(ExternalConnectorService.verifyLiveDrive({ vaultOwnerToken: 'owner-token', isEffectCurrent: () => true })).rejects.toMatchObject({ code: 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE' });
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
 
   it("rechecks live Drive through the owner-authorized endpoint without replaying OAuth", async () => {
     apiFetch.mockResolvedValue(Response.json({ connectorId: "google_drive", status: "connected" }));
@@ -27,6 +40,30 @@ describe("ExternalConnectorService native Drive OAuth", () => {
     expect(apiFetch).toHaveBeenCalledExactlyOnceWith("/api/connectors/google_drive/live/verify",
       expect.objectContaining({ method: "POST", headers: { Authorization: "Bearer owner-token" },
         signal, isEffectCurrent }));
+  });
+
+  it.each([false, true])("accepts only current revision-bound Stripe verification (stale=%s)", async (stale) => {
+    const configuration = { version: 1 as const, connectorId: "custom_" + "d".repeat(32),
+      revision: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", displayName: "Stripe",
+      endpoint: "https://mcp.stripe.com", enabled: true,
+      authentication: { kind: "oauth" as const, accessToken: "synthetic-stripe-oauth", expiresAt: 4070908800 } };
+    apiFetch.mockResolvedValue(Response.json({ connectorId: configuration.connectorId,
+      configurationRevision: configuration.revision, stripeReadiness: { toolingConnected: true,
+        accountVerified: true, environmentVerified: true, accountToolsAvailable: true,
+        capability: "account_balance_readonly", verificationState: "verified",
+        verifiedAt: "2026-10-07T12:00:00Z", catalogFingerprint: "e".repeat(64),
+        configurationRevision: stale ? "old-revision" : configuration.revision },
+      account: { email: "private@example.invalid" } }));
+    const pending = ExternalConnectorService.verifyStripeAccount({ vaultOwnerToken: "owner-token",
+      configuration, signal: new AbortController().signal, isEffectCurrent: () => true });
+    if (stale) await expect(pending).rejects.toThrow("Stripe connection changed");
+    else {
+      const readiness = await pending;
+      expect(readiness.accountVerified).toBe(true);
+      expect(JSON.stringify(readiness)).not.toContain("private@example");
+    }
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith(`/api/connectors/${configuration.connectorId}/mcp/verify`,
+      expect.objectContaining({ method: "POST", cache: "no-store" }));
   });
 
   it("discards private OAuth delivery after vault authority changes", async () => {
@@ -258,7 +295,7 @@ describe("ExternalConnectorService native Drive OAuth", () => {
 });
 
 describe("ExternalConnectorService live Drive background preparation", () => {
-  beforeEach(() => apiFetch.mockReset());
+  beforeEach(() => { placement.mockResolvedValue(false); apiFetch.mockReset(); });
 
   it("reads and sets live background preparation with explicit confirmation", async () => {
     apiFetch.mockResolvedValueOnce(Response.json({ enabled: true }));

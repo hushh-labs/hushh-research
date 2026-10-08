@@ -185,13 +185,13 @@ reason. Silent omission is not permitted.
 
 | Layer | Status | Reason |
 | --- | --- | --- |
-| **Web** | Implemented | `/one/puppy`, the AG-UI stream route, the model picker |
-| **iOS** | **N/A** | Puppy One requires a loopback connection to the Mac running LM Studio. An iOS shell cannot reach `127.0.0.1` on a different device, and the bearer key is host remote-code-execution, so forwarding it off-machine is refused by design, not unimplemented. |
-| **Android** | **N/A** | Same reason. |
+| **Web** | Source path only | The app gates inference on a provisioned BYOC pod and sends turns to its pinned endpoint. A direct Hermes client exists in the local sibling checkout, but the serving dev backend has not admitted it; end-to-end device inference is not established. |
+| **iOS** | **N/A** | Native binding discovery and direct connection to the owner's BYOC relay are not implemented. A phone must not route inference through the shared hub relay. |
+| **Android** | **N/A** | Same direct-relay integration gap as iOS. |
 
-Reaching Puppy One from a phone needs the outbound rendezvous described in the
-One x Hermes live-bridge design, which is not built. When it is, these rows
-become work items rather than N/A.
+The phone path needs an authenticated device client that reads its signed pod
+binding and connects to the same BYOC pod relay as the app. That client wiring
+and its owner/device rehearsal remain follow-up work.
 
 ## Where things are
 
@@ -317,9 +317,10 @@ backend heartbeat (`trusted_devices.last_heartbeat_at` and `heartbeat`, read
 through `fetchPuppyLink` in `lib/services/puppy-one-service.ts`) is the source
 of truth for **whether the person's machine is connected to their account**,
 for every viewer on every origin. The loopback bridge is the source of truth
-for **chat and controls only**: the composer, the model picker and the
-on-device pill stay gated on it, because those need a gateway the server can
-actually reach. The two never contradict each other on one surface, because
+for **legacy local controls only**: the model picker and on-device controls stay
+gated on it because those need a gateway the server can actually reach. The
+private-agent composer uses the owner-pod Puppy relay described below and never
+falls back to this loopback bridge. The two never contradict each other on one surface, because
 a connected bridge keeps the header pill and the machine sheet's live reading,
 and the heartbeat speaks only when the bridge has nothing to say.
 
@@ -365,6 +366,60 @@ Neither is reachable from a control the owner can see.
 
 What a phone could read today without new plumbing is exactly the heartbeat
 record: model, sessions, busy, version, machine specs and power, and the seal
-state. Everything else on the device (gate, doctor, ledger, job audit, every
-`hussh_one.*` toggle) needs either a new heartbeat field or the outbound
-rendezvous the live-bridge design describes.
+state. Puppy inference now has a pod-local relay contract and a focused-tested
+direct client in the local Hermes checkout. The serving dev backend still lacks
+its binding route, so direct inference is not a live end-to-end integration.
+Other device state (gate, doctor, ledger, job audit, and
+`hussh_one.*` toggles) still needs heartbeat fields or a separate device control
+channel.
+
+## Private-agent inference relay (source status, 2026-09-24)
+
+The authorized inference path is the owner's verified BYOC pod. The app sends the
+turn to its pinned pod endpoint. The pod accepts Puppy only when the request has a
+local owner session and an active device binding that carries `puppy.inference`,
+names the same owner and HusshID, and records `deployment_target: user_gcp`. The
+pod then requires that device to be connected to its own broker. A missing or
+mismatched binding, a Shared or Hussh Pods deployment, or an unavailable local
+relay fails closed; the app does not fall back to a hub turn. The binding is
+issued from the owner's registry placement, and the inference scope is not issued
+for other deployment targets.
+
+The server-side path is source-verified. The local Hermes checkout now has a
+direct client that reuses an active trusted-device identity, requests a BYOC-only
+binding, and connects to the pod with sealed frames; its focused relay tests pass.
+The serving dev backend returned HTTP 404 for binding issuance on 2026-09-24.
+The client is not published through the Hermes remote, and a real owner/device
+relay rehearsal remains unverified. Do not describe Puppy as currently usable
+through the direct BYOC relay until deployment and device acceptance are complete.
+
+### Legacy hub relay compatibility
+
+The hub WebSocket at `/api/one/puppy/relay` remains for compatibility. Its server
+checks an active device, a provisioned `user_gcp` registry entry, the HTTPS pod
+URL, and pod identity before admitting inference. That is a BYOC gate, but it is
+not proof that the device and app are connected directly to the same pod. Shared
+and Hussh Pods are refused. Keep this route out of the current direct-path diagram
+except as a separately labeled compatibility path.
+
+The relay is instance-local unless the dedicated
+`PUPPY_RELAY_RENDEZVOUS_URL` is configured; it is never derived from
+`RATE_LIMIT_STORAGE_URI`. Cloud Run session affinity remains best effort, and
+connected WebSockets retain active-instance billing. Capacity and idle cost still
+require live measurement. The device adapter calls its configured local
+OpenAI-compatible model endpoint and exposes no Hermes tools through this relay.
+
+### What changed on 2026-09-10 (historical source snapshot)
+
+A Puppy turn now completes inside ADK: the pod's provider adapter rides ADK's own
+stream aggregator, so every function call the local model emits executes and the
+whole answer reaches the session and memory. Before this, tool-bearing turns failed
+as empty answers and memory recorded only the person's side. The device now
+advertises its resident model and capability profile (`tool_calling`, `json_schema`,
+`streaming`, probe mode) on `relay.hello` and names the model that answered on
+`inference.result`; the pod carries response format, tool choice, sampling and stop
+settings on the wire and refuses an unsupported capability before dispatch instead
+of dropping it, and the turn response reports `modelReported` honestly instead of
+always saying `local`. The broker and server-side direct-pod contract were added
+after this snapshot. A local direct Hermes client was added on 2026-09-24;
+live deployment and two-device acceptance remain unverified.

@@ -16,7 +16,7 @@ from typing import Dict, List
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_vault_owner_token
+from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ async def get_decision_history(
     user_id: str = Path(..., min_length=1, max_length=128),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=10_000),
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict = Depends(hub_content_owner),
 ):
     """
     Get decision history from mutation events, with legacy summary fallback.

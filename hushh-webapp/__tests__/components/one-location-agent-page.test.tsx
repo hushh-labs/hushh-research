@@ -1094,10 +1094,9 @@ async function openTemporaryLinkFlow() {
 
 describe("OneLocationAgentPage", () => {
   afterEach(() => {
-    // A test that installs fake timers and then fails leaves them installed,
-    // and every test after it hangs on a clock that never moves -- three
-    // unrelated failures from one. Cheap to make impossible.
+    // Restore clocks and injected browser globals even when a test fails.
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   beforeEach(async () => {
@@ -1735,13 +1734,14 @@ describe("OneLocationAgentPage", () => {
     }
   });
 
-  it("reconciles the SMS roster when a remote Circle membership changes", async () => {
+  it.each([false, true])("reconciles the SMS roster without ambient writes in bounded review=%s", async (bounded) => {
+    vi.stubGlobal("__HUSHH_NATIVE_TEST__", bounded ? { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "bounded_mutation" } : undefined);
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(mockEnsureSmsSystemCircle).toHaveBeenCalledTimes(Number(!bounded));
     mockGetSmsContacts.mockClear();
     mockGetSmsContacts.mockResolvedValue(["user_d"]);
-
     act(() => {
       dispatchOneLocationStateChanged(
         "user_a",
@@ -1753,7 +1753,6 @@ describe("OneLocationAgentPage", () => {
         },
       );
     });
-
     await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalledOnce());
   });
 

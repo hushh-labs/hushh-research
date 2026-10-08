@@ -4,6 +4,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import type { NativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 
 export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
@@ -16,24 +17,29 @@ type NavigationState = NativeControlAppearance & {
   visible: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
+  column: NativeNavigationColumn;
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; columnLayout?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "geometryChanged", listener: (event: { contentHeight: number; bottomInset: number }) => void): Promise<PluginListenerHandle>;
 }
 
-const nativeNavigation = registerPlugin<HushhNativeNavigationPlugin>("HushhNativeNavigation");
+// Registered on first use, not at import, like the session privacy plugin.
+let nativeNavigationPlugin: HushhNativeNavigationPlugin | undefined;
+function nativeNavigation(): HushhNativeNavigationPlugin {
+  return (nativeNavigationPlugin ??= registerPlugin<HushhNativeNavigationPlugin>("HushhNativeNavigation"));
+}
 let documentId: string | undefined;
 let revision = 0;
 let operationQueue: Promise<unknown> = Promise.resolve();
 let installed = false;
 let nativeBottomInset = 0;
 let interactionEpoch = 0;
-const overlays = new Set<symbol>();
+const overlays = new Map<symbol, string | undefined>();
 const subscribers = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   subscribers.add(listener);
@@ -43,9 +49,11 @@ function publish() { subscribers.forEach((listener) => listener()); }
 function isNativeIOS() { return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios"; }
 // Shared isolation authority for native shell controls. Do not create another
 // overlay registry in individual plugins or feature components.
-export function nativeShellOverlayBlocked() { return overlays.size > 0; }
-export function useNativeShellOverlayBlocked() {
-  return useSyncExternalStore(subscribe, nativeShellOverlayBlocked, () => false);
+export function nativeShellOverlayBlocked(owningLayer?: string) {
+  return [...overlays.values()].some((layer) => !owningLayer || layer !== owningLayer);
+}
+export function useNativeShellOverlayBlocked(owningLayer?: string) {
+  return useSyncExternalStore(subscribe, () => nativeShellOverlayBlocked(owningLayer), () => false);
 }
 function setInstalled(next: boolean) {
   if (installed === next) return;
@@ -53,7 +61,7 @@ function setInstalled(next: boolean) {
   publish();
 }
 function sendState(state: NavigationState) {
-  const operation = operationQueue.catch(() => undefined).then(() => nativeNavigation.setState(state));
+  const operation = operationQueue.catch(() => undefined).then(() => nativeNavigation().setState(state));
   operationQueue = operation;
   return operation;
 }
@@ -71,19 +79,19 @@ export function useNativeNavigationBottomInset() {
   return useSyncExternalStore(subscribe, () => installed ? nativeBottomInset : null, () => null);
 }
 
-export function useNativeNavigationBlocked(active: boolean) {
+export function useNativeNavigationBlocked(active: boolean, owningLayer?: string) {
   const token = useRef(Symbol("native-navigation-blocker"));
   useLayoutEffect(() => {
     if (!active || !isNativeIOS()) return;
     const blocker = token.current;
-    overlays.add(blocker);
+    overlays.set(blocker, owningLayer);
     publish();
     return () => { if (overlays.delete(blocker)) publish(); };
-  }, [active]);
+  }, [active, owningLayer]);
 }
 
 /** Native controls are outside the DOM: authored overlay mounts must isolate them too. */
-export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRef?: Ref<T>, enabled = true) {
+export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRef?: Ref<T>, enabled = true, owningLayer?: string) {
   const token = useRef(Symbol("native-navigation-overlay"));
   const release = useCallback(() => {
     if (overlays.delete(token.current)) publish();
@@ -91,18 +99,19 @@ export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRe
   useLayoutEffect(() => release, [release]);
   return useCallback((node: T | null) => {
     if (isNativeIOS()) {
-      if (node && enabled) { overlays.add(token.current); publish(); } else release();
+      if (node && enabled) { overlays.set(token.current, owningLayer); publish(); } else release();
     }
     if (typeof forwardedRef === "function") forwardedRef(node);
     else if (forwardedRef) forwardedRef.current = node;
-  }, [enabled, forwardedRef, release]);
+  }, [enabled, forwardedRef, release, owningLayer]);
 }
 
-export function useNativeNavigation({ enabled, visible, selected, feedAttention, appearance, accentHex, foregroundHex, onSelect }: NativeControlAppearance & {
+export function useNativeNavigation({ enabled, visible, selected, feedAttention, appearance, accentHex, foregroundHex, column, onSelect }: NativeControlAppearance & {
   enabled: boolean;
   visible: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
+  column: NativeNavigationColumn | null;
   onSelect: (tab: NativeNavigationTab) => void;
 }) {
   const [supported, setSupported] = useState(false);
@@ -127,17 +136,17 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
     };
     void (async () => {
       try {
-        const capability = await nativeNavigation.getCapabilities();
-        if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || cancelled) return;
+        const capability = await nativeNavigation().getCapabilities();
+        if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || capability.columnLayout !== true || cancelled) return;
         documentId ??= nativeDocumentId();
         await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
-        await retain(nativeNavigation.addListener("selectionRequested", (event) => {
+        await retain(nativeNavigation().addListener("selectionRequested", (event) => {
           const state = current.current;
           if (!state?.visible || overlays.size > 0 || event.documentId !== state.documentId ||
               event.interactionEpoch !== state.interactionEpoch || !Number.isSafeInteger(event.sequence) ||
               event.sequence <= lastSelection.current || !NATIVE_NAVIGATION_TABS.includes(event.tab)) return;
           const requestEpoch = confirmationEpoch;
-          void nativeNavigation.confirmSelection(event).then(({ valid }) => {
+          void nativeNavigation().confirmSelection(event).then(({ valid }) => {
             const latest = current.current;
             if (!valid || cancelled || requestEpoch !== confirmationEpoch || !latest?.visible || overlays.size > 0 ||
                 document.visibilityState === "hidden" || event.documentId !== latest.documentId ||
@@ -146,7 +155,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
             select.current(event.tab);
           }).catch(() => undefined);
         }));
-        await retain(nativeNavigation.addListener("geometryChanged", (event) => {
+        await retain(nativeNavigation().addListener("geometryChanged", (event) => {
           if (!cancelled) {
             try {
               const contentHeight = checkedHeight(event.contentHeight);
@@ -171,12 +180,13 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
   }, [enabled]);
 
   useLayoutEffect(() => {
-    if (!supported || !documentId) return;
-    const nextVisible = visible && !overlayBlocked;
+    const retainedColumn = column ?? current.current?.column;
+    if (!supported || !documentId || !retainedColumn) return;
+    const nextVisible = visible && !overlayBlocked && column !== null;
     if (!current.current || current.current.visible !== nextVisible) interactionEpoch += 1;
     const state: NavigationState = {
       documentId, revision: ++revision, interactionEpoch, visible: nextVisible,
-      selected, feedAttention, appearance, accentHex, foregroundHex,
+      selected, feedAttention, appearance, accentHex, foregroundHex, column: retainedColumn,
     };
     current.current = state;
     let cancelled = false;
@@ -193,7 +203,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, visible, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex]);
+  }, [supported, visible, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, column]);
 
   return { ready, height };
 }

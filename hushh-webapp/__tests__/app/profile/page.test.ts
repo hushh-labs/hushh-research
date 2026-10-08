@@ -228,7 +228,7 @@ describe("sanitizeGmailUserMessage", () => {
 describe("resolveGmailStatusSummary", () => {
   it("explains the purchase-signal benefit before Gmail is connected", () => {
     expect(resolveGmailStatusSummary({ status: null }).detail).toBe(
-      "Syncs receipts to build your private shopping memory.",
+      "Syncs receipts into a private shopping summary.",
     );
   });
 

@@ -292,7 +292,7 @@ async def test_private_connector_setup_is_owner_bound_and_exposes_only_safe_meta
         },
     }
     authority = AsyncMock(return_value=True)
-    monkeypatch.setattr(module, "validate_first_party_owner_token", authority)
+    monkeypatch.setattr(turn_module, "validate_first_party_owner_token", authority)
     candidate = context()
     candidate.state["hussh:consent_token"] = "synthetic-owner-token"
     async with mcp_turn_scope("thread", owner_id="owner", configurations=[record]):
@@ -352,7 +352,9 @@ async def test_probe_is_owner_bound_and_never_sends_the_owner_token(monkeypatch)
 
 
 async def test_private_connector_setup_does_not_claim_an_unavailable_vault_catalog(monkeypatch):
-    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        turn_module, "validate_first_party_owner_token", AsyncMock(return_value=False)
+    )
     candidate = context()
     candidate.state["hussh:consent_token"] = "synthetic-owner-token"
     async with mcp_turn_scope("thread", owner_id="owner", configurations=[]):
@@ -361,8 +363,9 @@ async def test_private_connector_setup_does_not_claim_an_unavailable_vault_catal
         assert (await module.inspect_private_connectors(candidate))["status"] == "unavailable"
 
 
+@pytest.mark.parametrize("private_pod", [False, True])
 async def test_vault_connector_joins_native_discovery_review_refresh_and_disable(
-    registry, monkeypatch
+    registry, monkeypatch, private_pod
 ):
     """No provider dispatcher or private DB registration participates in this path."""
     record = {
@@ -416,8 +419,22 @@ async def test_vault_connector_joins_native_discovery_review_refresh_and_disable
     monkeypatch.setattr(turn_module.McpTurnResources, "acquire", acquire)
     candidate = context()
     candidate.state["hussh:consent_token"] = "synthetic-owner-token"
-    async with mcp_turn_scope("thread", owner_id="owner", configurations=[record]):
-        tools = await module.RegisteredMcpToolset().get_tools(candidate)
+    admission = AsyncMock(return_value=True)
+    options = {"vault_only": True, "owner_admission": admission} if private_pod else {}
+    if private_pod:
+        registry.list_active_connectors.side_effect = AssertionError("pod consulted hub registry")
+        monkeypatch.setattr(
+            turn_module,
+            "validate_first_party_owner_token",
+            AsyncMock(side_effect=AssertionError("pod consulted hub authority")),
+        )
+    async with mcp_turn_scope(
+        "thread", owner_id="owner", configurations=[record], **options
+    ) as scope:
+        view = module.RegisteredMcpToolset(
+            authorize_call=module.refuse_unavailable_pod_review if private_pod else None
+        )
+        tools = await view.get_tools(candidate)
         assert len(tools) == 2
         assert {tool.descriptor["name"] for tool in tools} == {"search", "summarize"}
         assert all(tool.name.startswith("mcp_") for tool in tools)
@@ -431,6 +448,18 @@ async def test_vault_connector_joins_native_discovery_review_refresh_and_disable
         assert second["status"] == "ok"
         authorize.assert_not_awaited()
         assert native_call.await_count == 2
+        if private_pod:
+            with pytest.raises(ExternalMcpError, match="Connector unavailable"):
+                await scope.resolve_connection(candidate, "curated-not-supplied")
+            assert (await module.inspect_private_connectors(candidate))[
+                "status"
+            ] == "setup_available"
+            admission.return_value = False
+            assert (await tools[0].run_async(args={}, tool_context=candidate))[
+                "error"
+            ] == "MCP_OWNER_MISMATCH"
+            assert native_call.await_count == 2
+            admission.return_value = True
         # Negative control: another owner's turn cannot use this connector.
         intruder = context()
         intruder.user_id = "intruder"
@@ -443,10 +472,27 @@ async def test_vault_connector_joins_native_discovery_review_refresh_and_disable
         assert (await tools[0].run_async(args={}, tool_context=candidate))["error"] == (
             "MCP_CATALOG_CHANGED"
         )
-    assert registry.list_active_connectors.await_args.kwargs == {"user_id": None}
+    if private_pod:
+        registry.list_active_connectors.assert_not_awaited()
+        changed_policy = {
+            **record,
+            "blockedTools": [{"id": tools[0].name, "fingerprint": "0" * 64}],
+        }
+        async with mcp_turn_scope(
+            "thread", owner_id="owner", configurations=[changed_policy], **options
+        ):
+            view = module.RegisteredMcpToolset(authorize_call=module.refuse_unavailable_pod_review)
+            refreshed = await view.get_tools(candidate)
+            reviewed = next(tool for tool in refreshed if tool.name == tools[0].name)
+            assert (await reviewed.run_async(args={}, tool_context=candidate))[
+                "error"
+            ] == "POD_MCP_REVIEW_UNAVAILABLE"
+            assert native_call.await_count == 2
+    else:
+        assert registry.list_active_connectors.await_args.kwargs == {"user_id": None}
 
     async with mcp_turn_scope(
-        "thread", owner_id="owner", configurations=[{**record, "enabled": False}]
+        "thread", owner_id="owner", configurations=[{**record, "enabled": False}], **options
     ):
         assert await module.RegisteredMcpToolset().get_tools(candidate) == []
 
@@ -836,4 +882,38 @@ async def test_the_probe_never_contacts_an_address_the_person_did_not_type(
     result, probe = await probe_with(monkeypatch, endpoint, user_content)
     assert result["status"] == "blocked"
     assert "typed" in result["message"]
+    probe.assert_not_awaited()
+
+
+async def test_pod_probe_requires_admitted_owner_without_shared_token_fallback(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import registered_mcp_toolset as registered
+
+    monkeypatch.setattr(registered, "pod_mode", lambda: True)
+    monkeypatch.setattr(
+        registered,
+        "validate_first_party_owner_token",
+        lambda *_args: pytest.fail("Private probe used shared token authority"),
+    )
+    admitted = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        registered, "current_mcp_turn", lambda: SimpleNamespace(owner_is_admitted=admitted)
+    )
+    probe = AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"status": "ok"}))
+    monkeypatch.setattr(registered, "probe_mcp_server", probe)
+    context = SimpleNamespace(
+        user_id="owner",
+        state={"hussh:user_id": "owner", "temp:one_execution_surface": "typed_chat"},
+        user_content=SimpleNamespace(parts=[SimpleNamespace(text="Check https://example.com/mcp")]),
+    )
+    assert (await registered.probe_private_connector("https://example.com/mcp", context))[
+        "status"
+    ] == "ok"
+    probe.reset_mock()
+    admitted.return_value = False
+    assert (await registered.probe_private_connector("https://example.com/mcp", context))[
+        "status"
+    ] == "blocked"
     probe.assert_not_awaited()

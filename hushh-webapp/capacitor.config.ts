@@ -2,9 +2,21 @@ import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 import type { CapacitorConfig } from "@capacitor/cli";
 import type { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
+import { SANDBOX_IOS_APP_ID, SANDBOX_ANDROID_APP_ID, sandboxNativeFrontendOrigin } from "./lib/capacitor/scope-commerce-sandbox-links.mjs";
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
 const WEB_DIR = process.env.NEXT_DIST_DIR?.trim() || "out";
+const SANDBOX_FRONTEND_ORIGIN = sandboxNativeFrontendOrigin({
+  sandboxOrigin: process.env.NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN,
+  frontendOrigin: process.env.NEXT_PUBLIC_APP_URL,
+  iosAppId: process.env.NEXT_PUBLIC_IOS_BUNDLE_ID,
+  androidAppId: process.env.NEXT_PUBLIC_ANDROID_APP_ID,
+});
+if ((process.env.NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN ||
+    process.env.NEXT_PUBLIC_IOS_BUNDLE_ID === SANDBOX_IOS_APP_ID ||
+    process.env.NEXT_PUBLIC_ANDROID_APP_ID === SANDBOX_ANDROID_APP_ID) && !SANDBOX_FRONTEND_ORIGIN) {
+  throw new Error("Sandbox native identities and frontend origin must match the explicit pin.");
+}
 
 function hostFromUrl(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -82,6 +94,7 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
+    ...(SANDBOX_FRONTEND_ORIGIN ? { HushhOAuthReturn: { sandboxFrontendOrigin: SANDBOX_FRONTEND_ORIGIN } } : {}),
     HushhRuntime: {
       androidLocalBackendMode:
         process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse"

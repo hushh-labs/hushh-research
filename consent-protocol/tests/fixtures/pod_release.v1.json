@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "descriptor": {
+    "version": "1.0-test",
+    "summary": "Synthetic verified update fixture.",
+    "notes": {"improvements": ["Synthetic improvement."], "fixes": [], "security": []},
+    "channel": "dev",
+    "supportedUpgradeDigests": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+  },
+  "image": "gcr.io/hushh/pod@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "sourceRevision": "cccccccccccccccccccccccccccccccccccccccc",
+  "releasedAt": "2020-01-01T00:00:00+00:00",
+  "publisher": {"environment": "dev", "workflow": "deploy-dev", "runId": "12345"}
+}

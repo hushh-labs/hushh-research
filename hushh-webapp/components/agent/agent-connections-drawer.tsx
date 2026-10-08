@@ -50,7 +50,9 @@ export function AgentConnectionsDrawer({
   fallbackFocusRef,
   gestureSurfaceRef,
   gestureEnabled = false,
+  presentationKey,
   onGestureOpen,
+  onRestoreHistoryFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -62,7 +64,10 @@ export function AgentConnectionsDrawer({
   fallbackFocusRef?: RefObject<HTMLButtonElement | null>;
   gestureSurfaceRef?: RefObject<HTMLElement | null>;
   gestureEnabled?: boolean;
+  presentationKey?: string;
   onGestureOpen?: () => void;
+  /** Owning Chat chrome handles native/DOM return exactly once. */
+  onRestoreHistoryFocus?: () => void;
 }) {
   const drawer = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
@@ -83,7 +88,7 @@ export function AgentConnectionsDrawer({
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
   const historyOpen = open && mode === "chats";
-  useNativeNavigationBlocked(historyOpen);
+  useNativeNavigationBlocked(historyOpen, "chat-history");
   const connectorsOpen = open && mode === "connections";
   const connectorActive = useRef(connectorsOpen);
   useLayoutEffect(() => { connectorActive.current = connectorsOpen; }, [connectorsOpen]);
@@ -106,11 +111,13 @@ export function AgentConnectionsDrawer({
     );
   // Read at open time only: switching views while open must not move focus.
   const modeAtOpen = useRef(mode);
+  const wasHistoryOpen = useRef(false);
   useLayoutEffect(() => {
     modeAtOpen.current = mode;
   }, [mode]);
   useLayoutEffect(() => {
     if (!open) return;
+    wasHistoryOpen.current = modeAtOpen.current === "chats";
     // WebKit pointer activation doesn't focus buttons; an explicit trigger
     // reference restores focus reliably for both pointer and keyboard users.
     returnFocus.current = triggerRef.current;
@@ -120,10 +127,15 @@ export function AgentConnectionsDrawer({
   }, [open, triggerRef]);
   useEffect(() => {
     if (open) return;
+    if (modeAtOpen.current === "chats" && onRestoreHistoryFocus) {
+      // Do not race native focus return with an independent DOM focus path.
+      if (returnFocus.current !== null || wasHistoryOpen.current) onRestoreHistoryFocus();
+      wasHistoryOpen.current = false; returnFocus.current = null; return;
+    }
     // Passive closed-state effect runs after sibling inert attributes clear.
     restoreFocus();
     returnFocus.current = null;
-  }, [open, restoreFocus]);
+  }, [open, restoreFocus, onRestoreHistoryFocus]);
   useEffect(() => {
     if (!historyOpen || modalActive.current) return;
     const frame = requestAnimationFrame(() => {
@@ -201,6 +213,7 @@ export function AgentConnectionsDrawer({
       {gestureSurfaceRef ? <AppChatHistoryEdgeGesture
         enabled={presentationReady && gestureEnabled && mode === "chats" && !externalModalOpen}
         open={historyOpen}
+        presentationKey={presentationKey}
         surfaceRef={gestureSurfaceRef} drawerRef={drawer} scrimRef={scrim}
         onOpen={onGestureOpen ?? (() => onOpenChange(true))}
         onClose={() => onOpenChange(false)} /> : null}

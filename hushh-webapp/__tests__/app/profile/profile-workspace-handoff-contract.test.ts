@@ -22,8 +22,8 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain(
       "const openGmailPanel = () => router.push(ROUTES.GMAIL);",
     );
-    expect(profilePageSource).toContain(
-      '<SettingsGroup title="Your settings" separatorInset>',
+    expect(profilePageSource).toMatch(
+      /<SettingsGroup\s+title="Your settings"(?=[^>]*\sseparatorInset(?=\s|>))[^>]*>/,
     );
     expect(profilePageSource).not.toContain("myDataRootBadge");
     expect(profilePageSource).not.toContain("accessRootBadge");

@@ -14,6 +14,16 @@ from api.routes.kai import gmail
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
 
+@pytest.fixture(autouse=True)
+def shared_owner_placement(monkeypatch):
+    """These route fixtures exercise Shared mail; private refusals live in the route-wall suite."""
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
+
+
 def _item(source_id: str = "gmail_live_source.sig") -> dict:
     return {
         "id": -1,

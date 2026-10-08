@@ -1,12 +1,10 @@
 # Reviewer Rehearsal Preflight
 
-Run this gate before opening Chromium. A browser assertion is not evidence when the local runtime cannot mint the canonical reviewer session or the application
-can mutate a shared fixture while it is being observed.
+Run before Chromium: resolve the canonical reviewer and prevent unauthorized shared-fixture mutations.
 
 ## Required conditions
 
-1. Classify the run as `read_only` or `mutation_authorized` first. Routine
-   review is always read-only.
+1. Classify the run as `read_only` or `mutation_authorized`; routine review is read-only.
 2. Resolve the canonical reviewer through `reviewer-test-identity.mjs`. For a
    local UAT-backed rehearsal, set `REVIEWER_SECRET_PROJECT=hushh-pda-uat`.
    The preflight reads the approved Secret Manager values into its process only;
@@ -56,8 +54,7 @@ consent-protocol/.venv/bin/python \
 
 ## Failure modes, by symptom
 
-These have each cost hours. Match the symptom before debugging the app: in every
-case below the application was fine and the harness was being driven wrong.
+Check these known harness failures before attributing the symptom to the application.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
@@ -67,20 +64,24 @@ case below the application was fine and the harness was being driven wrong.
 | Review mode looks enabled but the session never mints | The backend was not restarted after `reviewer_mode.sh enable`, so it is still serving the pre-toggle configuration. | Restart the backend, then re-run the preflight. |
 | A live run loses the vault mid-flow, or a chat chip such as `Consent approved` is never found | A source edit in the served worktree made Next dev fully reload (dropping the memory-only key); chips render as `data-testid="selection-chip"`, not `data-message-role` bubbles. | Never edit `hushh-webapp/` during a live run; select chips by test id in document order with `[data-message-role]`. |
 | A selector that works locally finds nothing on a deployed origin | The rehearsal was hand-rolled with raw Playwright and coupled to one element id (for example `#unlock-passphrase`). | Use the shared harness. It owns unlock, continuity, and navigation; hand-rolled scripts silently drift from it. |
+| A synthetic recorded-voice rehearsal produces only a few milliseconds of silence | Check audio-context time against wall time before blaming transcription. A macOS headless Chromium output stream can stall while its context reports `running`. | For the synthetic-microphone rehearsal only, launch Chromium with `--disable-audio-output` alongside the existing fake-input flags, then verify capture duration and nonzero samples. This substitutes Chromium's test output stream; it does not bypass app capture or prove a real microphone. Never store real recordings in evidence. |
 
-The rule underneath all of these: **do not hand-roll a reviewer Playwright
-script.** Compose `createReviewerSessionHarness` from
-`scripts/reviewer-session-harness.mjs`, which owns identity resolution, the
-visible vault challenge, `vaultKeyHash` continuity, in-app navigation, and
-owner-token reads. A bespoke script reproduces those badly and proves less.
+Compose `createReviewerSessionHarness` from `scripts/reviewer-session-harness.mjs`; do not hand-roll reviewer Playwright.
+It owns identity resolution, the visible vault challenge, `vaultKeyHash` continuity, in-app navigation and owner-token reads.
 
 ## Evidence standard
 
-A passing rehearsal reports canonical identity resolution, the visible
-locked-vault challenge, same-session continuity, and cold-session re-unlock. A
-healthy server, review-mode response, or static script check is not a browser
-pass. Report the first failed boundary and mutation policy—never secrets,
-tokens, plaintext information, or screenshots containing them.
+Report canonical identity, visible unlock, same-session continuity and separate cold re-unlock.
+Health or static checks do not prove browser acceptance. Report the first failed boundary and mutation policy; never expose secrets, tokens, plaintext or screenshots containing them.
+
+## Trusted Devices with an existing pod
+
+The default Trusted Devices rehearsal is read-only. If the app's proactive wake
+is part of an explicitly authorized pod rehearsal, set both
+`REVIEWER_ALLOW_SHARED_MUTATIONS=true` and `REVIEWER_ALLOW_POD_WAKE=true` for
+`verify-reviewer-trusted-devices.mjs`. Its bounded callback admits only
+same-origin `POST /api/one/pod/wake`; other fixture mutations remain blocked.
+This does not enroll, revoke, upgrade or replace a device or pod.
 
 ## Wallet rehearsal
 
@@ -168,7 +169,7 @@ For named multi-account journeys, verify that the resolved primary/counterpart
 identities match the task's authorized accounts before opening Chromium. A
 successful review-mode preflight proves configuration availability, not that the
 default primary is the intended person. Use the existing child-process slot
-overrides and `REVIEWER_AUTH_MODE=custom_token` when local email/password fixtures
+overrides ([explicit human admission](human-reviewer-authentication.md)) and `REVIEWER_AUTH_MODE=custom_token` when local email/password fixtures
 belong to a different identity; never suppress the UID mismatch guard.
 
 `verify-reviewer-consent-readback.mjs` composes the same reviewer harness. It
@@ -206,8 +207,7 @@ ambient unlock writes (key publication, delivery/export sweeps, and pending
 profile synchronization) while preserving read warming. Explicit UI actions are
 still checked by the network admission callback. Normal sessions and unrestricted
 mutation-authorized rehearsals keep their existing background behavior.
-Only the exact reviewed request and its bound
-approval are admitted during their respective actions. Unrelated writes fail
+Only the reviewed request and its bound approval are admitted. Unrelated writes fail
 the run. The runner proves a visible vault challenge, fresh pending/granted
 request identity, 24-hour approval and grant duration, exact browser-local domain
 readback, and separate cold re-unlock. It retains the request/grant and reports

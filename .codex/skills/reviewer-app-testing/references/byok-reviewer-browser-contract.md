@@ -7,6 +7,15 @@ Use this contract for browser rehearsals whose result depends on protected infor
 1. Use the canonical environment-wired reviewer identity. Resolve it through `hushh-webapp/scripts/testing/reviewer-test-identity.mjs`; do not create a convenient replacement account.
 2. Mutating a shared reviewer fixture requires explicit operator authority for that task. Read-only authentication, unlock, routing, and rendering checks do not grant write authority.
 3. Never reset, delete, reseed, or broaden grants merely to make a rehearsal pass.
+4. Automated authentication does not record legal agreement. Use the reviewer
+   automation bridge; defer the specific Terms and Privacy dialog with “Not now”.
+   Keep legal-acceptance writes blocked unless that separate agreement is explicitly
+   authorized. Do not use an interactive sign-in click as an automation fallback.
+   An isolated preview may instead explicitly select `human_authenticated` before
+   preflight, as defined in [reviewer preflight](human-reviewer-authentication.md).
+   This observes ordinary human Google sign-in and manual vault unlock without
+   injecting mint credentials; it never converts a failed automatic run to human mode.
+   Apple exchanges are not admitted by this rehearsal contract.
 
 ## Memory-only BYOK boundary
 
@@ -34,6 +43,12 @@ Run the read-only baseline:
 ```bash
 node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
 ```
+
+Read-only rehearsals locally suppress POST requests to the known Google Analytics
+collection endpoint and send no measurement events through that path. This is not
+analytics delivery proof; use the owning analytics smoke workflow for that evidence.
+All other unapproved product mutations remain refused. The route guard must be
+installed before the first navigation.
 
 Domain rehearsals import the harness and add only their domain assertions. They must not duplicate secret-resolution or navigation logic.
 

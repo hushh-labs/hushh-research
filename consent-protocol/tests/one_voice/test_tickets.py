@@ -39,8 +39,12 @@ def test_malformed_tickets_are_rejected(bad):
 
 def test_tampered_signature_is_rejected():
     ticket, _ = tickets.issue_ticket(user_id="u1", session_id="s1", conversation_id=CONV)
+    assert tickets.parse_ticket(ticket).user_id == "u1"
     version, segment, signature = ticket.split(".")
-    tampered = f"{version}.{segment}.{signature[:-2]}AA"
+    # Replacing a suffix with "AA" can leave a valid signature unchanged.
+    changed_first = "B" if signature[0] == "A" else "A"
+    tampered = f"{version}.{segment}.{changed_first}{signature[1:]}"
+    assert tampered != ticket
     with pytest.raises(tickets.TicketError, match="ticket_signature"):
         tickets.parse_ticket(tampered)
 

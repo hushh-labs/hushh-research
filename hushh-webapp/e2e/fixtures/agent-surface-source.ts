@@ -289,6 +289,12 @@ const stripMatch = one(
   WORKSPACE_PATH,
 );
 
+const profileButton = one(
+  header,
+  /data-testid="(profile-open-button)"\s+aria-label="([^"]+)"[\s\S]*?className="([^"]+)"/,
+  "the profile button",
+  WORKSPACE_PATH,
+);
 const actionAnchors = {
   picker: header.indexOf("<Select\n"),
   toggle: header.indexOf("<SegmentedControl"),
@@ -434,6 +440,11 @@ export const AGENT_SURFACE_SOURCE = {
     nameExpression: flatten(nameMatch[2]),
     subtitleClass,
     subtitleExpression,
+    profileButton: {
+      testId: profileButton[1],
+      ariaLabel: profileButton[2],
+      className: profileButton[3],
+    },
   },
   toggle: {
     ariaLabel: toggleAriaLabel,

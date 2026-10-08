@@ -21,5 +21,5 @@ class TransactionEngine:
         rows = result.data
         if "SELECT attempt_id FROM google_oauth_attempts" in sql:
             rows = [{"attempt_id": params["attempt_id"]}]
-        mapped = SimpleNamespace(first=lambda: rows[0] if rows else None)
+        mapped = SimpleNamespace(first=lambda: rows[0] if rows else None, all=lambda: rows)
         return SimpleNamespace(first=mapped.first, mappings=lambda: mapped)

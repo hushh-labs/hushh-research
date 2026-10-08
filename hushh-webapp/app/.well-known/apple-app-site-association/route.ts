@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { scopeCommerceSandboxAssociations } from "@/lib/capacitor/scope-commerce-sandbox-associations";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,12 @@ function resolveAssociatedAppId(): string | null {
 }
 
 export async function GET() {
+  try {
+    const sandbox = scopeCommerceSandboxAssociations();
+    if (sandbox) return NextResponse.json(sandbox.aasa, { headers: { "Cache-Control": "public, max-age=300" } });
+  } catch {
+    return NextResponse.json({ error: "Sandbox link associations are not configured." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   // Old installed iOS bundles cannot render arbitrary invite tokens. Activate
   // the expanded claim only after the matching native bundle is distributed.
   // Until then, shared links keep opening the web introduction, not a broken app.

@@ -327,6 +327,142 @@
     {
       "action_ids": [],
       "authorities": {
+        "actions": [
+          "browser.control"
+        ],
+        "data": [
+          "browser.observe",
+          "browser.pkm.selected.read"
+        ],
+        "invocation": [
+          "browser.invoke"
+        ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Perform bounded browser tasks for One through the owner's isolated, authorized browser.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "consent_required",
+        "unavailable",
+        "outcome_uncertain",
+        "source_changed"
+      ],
+      "icon": null,
+      "id": "agent_computer_use",
+      "inputs": [
+        {
+          "description": null,
+          "name": "owner_task",
+          "type": "owner-scoped task request"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/computer_use/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini",
+        "thinking_level": "low"
+      },
+      "name": "Computer Use Agent",
+      "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "withheld",
+        "exposure_status": "disabled",
+        "knowledge_package_ref": null,
+        "service_id": "computer_use",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "result",
+          "type": "BrowserTaskResultV1"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 2048
+      },
+      "pkm": {
+        "behavior": "read",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "browser.owner_task",
+          "browser.untrusted_screen",
+          "browser.tool_receipt",
+          "browser.approved_non_secret_projection"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "POD_COMPUTER_USE_ENABLED",
+        "rollback": "Disable browser admission, stop workers, and preserve encrypted opt-in state; never replay uncertain actions.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [
+        {
+          "confirmation": "explicit_user_confirmation",
+          "idempotent": false,
+          "max_retries": 0,
+          "name": "external_browser_action",
+          "timeout_seconds": 30
+        }
+      ],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Gated private-pod dev pilot; no shared runtime, device browser, native plugin, or A2A surface.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "93b492e49f84fccd6de9f930922c768f9cff5bb918134d00e12b0c576405b52b",
+      "telemetry_namespace": "agent.computer_use",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
         "actions": [],
         "data": [],
         "invocation": []
@@ -1428,6 +1564,144 @@
     {
       "action_ids": [],
       "authorities": {
+        "actions": [
+          "files.manage"
+        ],
+        "data": [
+          "files.read"
+        ],
+        "invocation": [
+          "files.manage"
+        ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Organize and read the owner's private pod library through bounded, consented tools.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "consent_required",
+        "source_changed",
+        "unavailable"
+      ],
+      "icon": null,
+      "id": "agent_files",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/files/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini",
+        "thinking_level": "low"
+      },
+      "name": "Files Agent",
+      "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "limited",
+        "knowledge_package_ref": null,
+        "service_id": "files",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "files.owner_request",
+          "files.untrusted_content",
+          "files.metadata"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "POD_FILES_ENABLED",
+        "rollback": "Disable Files entrypoints while preserving encrypted objects and owner recovery keys.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Direct BYOC library only; no shared runtime, remote A2A, native plugin or MCP execution.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "7292f68a8c87a9ce216fbc6a902aec5203ed0829a3286f72b6b4e210042f907b",
+      "telemetry_namespace": "agent.files",
+      "tools": [
+        {
+          "description": "List one bounded page of owner library metadata after analysis consent.",
+          "name": "list_files",
+          "py_func": "hushh_mcp.one_adk.files_tools.list_files",
+          "required_scope": "files.read"
+        },
+        {
+          "description": "Read supported bounded text content after library analysis consent.",
+          "name": "read_file",
+          "py_func": "hushh_mcp.one_adk.files_tools.read_file",
+          "required_scope": "files.read"
+        },
+        {
+          "description": "Create an empty folder with idempotent request identity and current consent.",
+          "name": "create_folder",
+          "py_func": "hushh_mcp.one_adk.files_tools.create_folder",
+          "required_scope": "files.manage"
+        },
+        {
+          "description": "Apply a revision-checked reversible rename or move.",
+          "name": "organize_file",
+          "py_func": "hushh_mcp.one_adk.files_tools.organize_file",
+          "required_scope": "files.manage"
+        }
+      ],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
         "actions": [],
         "data": [
           "consented_financial_projection"
@@ -2248,7 +2522,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "041e4d6069dea704102e2dc14239205a7b4f72db2a4f6ebb913677538444bd46",
+      "system_instruction_sha256": "b252e87ecdfd37224e1127a76c5caf002511bed2ee8e12fb82cc2958f55fc554",
       "telemetry_namespace": "agent.kai",
       "tools": [
         {
@@ -2725,6 +2999,7 @@
       },
       "optional_scopes": [
         "cap.location.live.view",
+        "cap.location.command.read",
         "cap.location.live.refer_request"
       ],
       "outputs": [],
@@ -3819,7 +4094,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-default",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3865,7 +4140,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-default",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3966,9 +4241,15 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "190bef205d560be1b56888fb574da2e2ed65d580dbaa448bb699c30d85182ac5",
+      "system_instruction_sha256": "25b51ac3d9ea7a17db82f7208a9dc4ad7cc8f728945d55aefb72946bd9eaedff",
       "telemetry_namespace": "agent.one",
       "tools": [
+        {
+          "description": "Delegate one explicit owner-authorized browser task to the qualified native private-pod specialist; return task metadata only, with private model/screen and website reviews handled in the owner UI.",
+          "name": "start_browser_task",
+          "py_func": "hushh_mcp.one_adk.computer_use_agent.start_browser_task",
+          "required_scope": "browser.invoke"
+        },
         {
           "description": "Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.",
           "name": "inspect_private_connectors",
@@ -4206,7 +4487,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "bdc80505a82f849dbc673b7754ed1873a623931bd094e85bcc94f822b9bc9920",
+      "system_instruction_sha256": "4dc4515eb2bf7cd0ac61300a0b3f92b52826308051cefc8eea0af8be857a4cef",
       "telemetry_namespace": "agent.unclassified",
       "tools": [
         {
@@ -4222,9 +4503,21 @@
           "required_scope": "cap.pkm.marketplace.view"
         },
         {
-          "description": "Summarize real buyer demand (pending/approved/interested counts) + POTENTIAL monthly earnings across published slices, with per-slice show-math factors and the pricing formula. Payments coming soon; payouts disabled and nothing accrued.",
+          "description": "Read buyer interest and hypothetical research prices only. This estimate is separate from exact tariffs and recorded commercial earnings.",
           "name": "get_earnings_summary",
           "py_func": "hushh_mcp.agents.personal_information.tools.get_earnings_summary",
+          "required_scope": "cap.pkm.marketplace.view"
+        },
+        {
+          "description": "Read the current owner\u2019s canonical pending and withdrawable earnings, debt and configured/persisted payment readiness. No financial actions or provider calls.",
+          "name": "get_scope_commerce_summary",
+          "py_func": "hushh_mcp.agents.personal_information.tools.get_scope_commerce_summary",
+          "required_scope": "cap.pkm.marketplace.view"
+        },
+        {
+          "description": "Read a bounded owner-scoped sales, purchases or transaction history page with human review links. No payment or information activation.",
+          "name": "get_scope_commerce_activity",
+          "py_func": "hushh_mcp.agents.personal_information.tools.get_scope_commerce_activity",
           "required_scope": "cap.pkm.marketplace.view"
         },
         {

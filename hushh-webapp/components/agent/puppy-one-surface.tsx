@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
+import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
 import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
+import { isLocalHost } from "@/lib/hermes/local-host";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
@@ -45,6 +48,19 @@ export function PuppyOneSurface({
   active?: boolean;
 }) {
   const link = usePuppyLink();
+  // A deployed frontend's loopback is its Cloud Run container, never the
+  // owner's Mac. Resolve after hydration so server and client render agree.
+  const [localBridge, setLocalBridge] = useState<boolean | null>(null);
+  useEffect(() => setLocalBridge(isLocalHost()), []);
+  // On a deployed origin the readings control shares the chat's header row,
+  // so the chat opens on one quiet line instead of two stacked strips.
+  const sheet = <PuppyMachineSheet className="shrink-0" active={active} />;
+  const panel = (activePanel: boolean, panelClassName?: string) =>
+    localBridge === null ? null : localBridge ? (
+      <HermesChatPanel active={activePanel} className={panelClassName} />
+    ) : (
+      <PrivatePuppyInferencePanel className={panelClassName} accessory={sheet} />
+    );
   return (
     <div
       className={cn(
@@ -54,7 +70,7 @@ export function PuppyOneSurface({
         // the keyboard inset on native), so a bare `pb-3` put Puppy's composer
         // underneath the navigation. The fallback covers a mount outside the
         // workspace, where the variable is not defined.
-        "flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-5 sm:px-6",
+        "flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-5 sm:px-5",
         "pb-[var(--agent-chat-composer-bottom,0.75rem)] focus-within:pb-[var(--agent-chat-composer-focused-bottom,0.75rem)]",
         className,
       )}
@@ -65,7 +81,7 @@ export function PuppyOneSurface({
           outer div would leave Puppy 48px narrower than One at the same
           viewport. The wrapper repeats the flex chain on purpose: an inert
           wrapper here would let the chat panel's flex-1 basis collapse. */}
-      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-3">
+      <div className="mx-auto flex min-h-0 w-full max-w-[var(--app-bottom-shell-max-width)] flex-1 flex-col gap-3">
         {/* Said once, and only to someone with no machine yet. The workspace
             header cannot carry it (its subtitle is hidden below sm, and the
             unlinked empty state below names an install without ever saying
@@ -73,26 +89,33 @@ export function PuppyOneSurface({
             header, so the claim still appears exactly once per screen. */}
         {link?.state === "unlinked" ? (
           <p className="shrink-0 text-xs text-muted-foreground">
-            A personal supercomputer you own. Pin a model to this machine and
-            answers never leave it.
+            A local model on your trusted machine. Requests and replies travel
+            through your private pod.
           </p>
         ) : null}
-        <PuppyMachineSheet className="shrink-0" active={active} />
+        {localBridge ? sheet : null}
         {/* No card frame: One's transcript sits directly on the workspace
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {conversations === undefined ? <HermesChatPanel active={active} /> : (
+          {conversations === undefined ? panel(active) : (
             <>
               {conversations.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center p-4">
                   <Button onClick={onCreateConversation}>Start a Puppy chat</Button>
                 </div>
               ) : null}
-              {conversations.map((conversation) => (
+              {conversations.map((conversation) => localBridge === null ? null : localBridge ? (
                 <HermesChatPanel
                   key={conversation.id}
                   active={active && activeConversationId === conversation.id}
+                  className={cn(activeConversationId !== conversation.id && "hidden")}
+                />
+              ) : (
+                <PrivatePuppyInferencePanel
+                  key={conversation.id}
+                  conversationId={conversation.id}
+                  accessory={activeConversationId === conversation.id ? sheet : undefined}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ))}

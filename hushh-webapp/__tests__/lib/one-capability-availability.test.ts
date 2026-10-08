@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getAgentSections } from "@/lib/navigation/agent-sections";
 import {
@@ -8,6 +8,30 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 
 describe("One capability availability", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each(["development", "uat", "production"])(
+    "matches Files discovery to its authored development-only rollout in %s",
+    (environment) => {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
+      expect(getOneCapability("files")).toMatchObject({
+        agentId: "agent_files",
+        href: "/one/files",
+        requiresVault: true,
+      });
+      expect(isOneCapabilityEnabled("files")).toBe(environment === "development");
+      const sections = getAgentSections().filter((section) => section.id === "files");
+      expect(sections).toHaveLength(environment === "development" ? 1 : 0);
+      if (environment === "development") {
+        expect(sections[0]).toMatchObject({
+          screenId: "one_files",
+          controlId: "top_agent_section_files",
+          href: "/one/files",
+        });
+      }
+    },
+  );
+
   it("enables Gmail and Calendar as first-class One agents", () => {
     const gmail = getOneCapability("gmail");
     const calendar = getOneCapability("calendar");

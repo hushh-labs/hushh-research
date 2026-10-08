@@ -18,6 +18,7 @@ import pathlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -780,7 +781,18 @@ def test_the_service_refuses_too_when_called_without_the_route(monkeypatch) -> N
     )
 
 
-def test_the_issuer_mints_only_for_an_open_request(monkeypatch) -> None:
+@pytest.fixture
+def shared_owner_placement(monkeypatch):
+    """Exercise the real hub guard with an explicitly Shared route-test owner."""
+    from hushh_mcp.services import owner_placement_guard
+
+    placement = AsyncMock(return_value="shared")
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", placement)
+    return placement
+
+
+def test_the_issuer_mints_only_for_an_open_request(monkeypatch, shared_owner_placement) -> None:
     from api.middleware import require_firebase_auth, require_vault_owner_token
     from api.routes.one import gmail_information_requests as routes
 

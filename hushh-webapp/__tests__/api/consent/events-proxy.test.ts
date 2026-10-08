@@ -71,6 +71,45 @@ describe("GET /api/consent/events/[userId]", () => {
     mockFetch.mockRestore();
   });
 
+  it("closes the backend stream when the browser cancels", async () => {
+    const upstreamCancelled = vi.fn();
+    const streamBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("event: heartbeat\ndata: {}\n\n"));
+      },
+      cancel: upstreamCancelled,
+    });
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(streamBody, { status: 200 })
+    );
+    const req = createMockGET("/api/consent/events/user_123", {});
+    const res = await eventsRoute.GET(req, {
+      params: Promise.resolve({ userId: "user_123" }),
+    });
+    const reader = res.body!.getReader();
+    expect((await reader.read()).done).toBe(false);
+    await reader.cancel();
+
+    expect(mockFetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    expect(upstreamCancelled).toHaveBeenCalledOnce();
+  });
+
+  it("aborts the backend fetch when the incoming request ends", async () => {
+    const incomingAbort = new AbortController();
+    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new ReadableStream<Uint8Array>({}), { status: 200 })
+    );
+    const req = new NextRequest("http://localhost/api/consent/events/user_123", {
+      signal: incomingAbort.signal,
+    });
+    await eventsRoute.GET(req, {
+      params: Promise.resolve({ userId: "user_123" }),
+    });
+    incomingAbort.abort();
+
+    expect(mockFetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+
   it("returns backend status when backend returns non-OK", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("backend error", { status: 503 })

@@ -72,6 +72,14 @@ def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
         "APP_FRONTEND_ORIGIN",
         "GENAI_GOOGLE_CLOUD_PROJECT",
         "BACKEND_RUNTIME_CONFIG_JSON",
+        # Connect Azure hub configuration. An operator's .env (loaded into
+        # os.environ by runtime_settings) would otherwise make unit tests mint
+        # real Google credentials from whatever ADC is on the machine; tests
+        # that need these set them with monkeypatch.
+        "HUSSH_AZURE_APP_CLIENT_ID",
+        "HUSSH_AZURE_BROKER_SA",
+        "HUSSH_AZURE_OAUTH_REDIRECT_URI",
+        "HUSSH_POD_IMAGE_READER_SA",
     ):
         monkeypatch.delenv(key, raising=False)
     yield
@@ -346,6 +354,12 @@ def cleanup_revoked_tokens():
         _revoked_tokens.clear()
     except ImportError:
         pass  # Module not available in all test contexts
+
+
+@pytest.fixture(autouse=True)
+def enabled_chat_history_for_domain_tests(monkeypatch):
+    """Exercise write-enabled domain behavior; rollout tests explicitly assert the hold."""
+    monkeypatch.setattr("hushh_mcp.services.chat_history_rollout.CHAT_HISTORY_WRITES_ENABLED", True)
 
 
 # --- Registration-only connector fixture ------------------------------------

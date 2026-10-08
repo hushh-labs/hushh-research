@@ -11,6 +11,7 @@ from google.genai import types
 
 from api.routes.one import agent_chat
 from api.routes.one.agent_chat import _event_text, _safe_agent_history_metadata
+from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
 from hushh_mcp.services.information_request_service import InformationRequestError
 
 
@@ -28,6 +29,18 @@ def _event(response: dict, *, tool_name: str = "discover_person_information") ->
             ]
         ),
     )
+
+
+def test_queued_input_history_marks_only_joined_owner_messages() -> None:
+    def queued(author: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            author=author,
+            custom_metadata={"kind": QUEUED_INPUT_KIND, "clientMessageId": "private-id"},
+            content=None,
+        )
+
+    assert _safe_agent_history_metadata(queued("user")) == {"queuedInput": "joined"}
+    assert _safe_agent_history_metadata(queued("one")) is None
 
 
 def test_history_descriptor_keeps_discovery_card_metadata_but_not_values() -> None:

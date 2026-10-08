@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
   forgetLocationMemory: vi.fn(),
   forgetLocationRecipientKey: vi.fn(),
   clearDeviceVaultSecrets: vi.fn(),
+  clearReleaseNotices: vi.fn(),
+}));
+
+vi.mock("@/lib/services/onboarding-local-service", () => ({
+  OnboardingLocalService: { clearReleaseNotices: mocks.clearReleaseNotices },
 }));
 
 vi.mock("@/lib/one-location/encryption", () => ({
@@ -135,6 +140,7 @@ describe("UserLocalStateService", () => {
 
     expect(mocks.forgetLocationRecipientKey).not.toHaveBeenCalled();
     expect(mocks.clearDeviceVaultSecrets).not.toHaveBeenCalled();
+    expect(mocks.clearReleaseNotices).not.toHaveBeenCalled();
   });
 
   it("removes device key material for a deleted account, even if one store fails", async () => {
@@ -147,5 +153,6 @@ describe("UserLocalStateService", () => {
 
     expect(mocks.forgetLocationRecipientKey).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearDeviceVaultSecrets).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearReleaseNotices).toHaveBeenCalledWith("uid-1");
   });
 });

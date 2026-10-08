@@ -28,9 +28,14 @@ export interface HushhSessionPrivacyPlugin {
   }): Promise<NativeSessionPrivacyCompletion>;
 }
 
-const HushhSessionPrivacy = registerPlugin<HushhSessionPrivacyPlugin>(
-  "HushhSessionPrivacy",
-);
+// Registered on first use, not at import: the navigation shell imports this
+// module, and importing it must not touch the native bridge.
+let sessionPrivacyPlugin: HushhSessionPrivacyPlugin | undefined;
+function sessionPrivacy(): HushhSessionPrivacyPlugin {
+  return (sessionPrivacyPlugin ??= registerPlugin<HushhSessionPrivacyPlugin>(
+    "HushhSessionPrivacy",
+  ));
+}
 
 // Process-local metadata only. A reload creates a new JS runtime and ID; a
 // remounted AuthProvider in the old document must not satisfy Restart session.
@@ -65,7 +70,7 @@ export async function subscribeNativeSessionPrivacy(
   listener: (event: NativeSessionPrivacyEvent) => void,
 ): Promise<PluginListenerHandle> {
   if (!Capacitor.isNativePlatform()) return { remove: async () => undefined };
-  return HushhSessionPrivacy.addListener("privacyStateChanged", (event) => {
+  return sessionPrivacy().addListener("privacyStateChanged", (event) => {
     try { listener(checkedState(event)); } catch { /* getState catch-up owns recovery */ }
   });
 }
@@ -77,7 +82,7 @@ export async function subscribeNativeSessionPrivacy(
  */
 export async function getNativeSessionPrivacyState(): Promise<NativeSessionPrivacyState> {
   if (!Capacitor.isNativePlatform()) return WEB_STATE;
-  return checkedState(await HushhSessionPrivacy.getState({ documentId: privacyDocumentId() }));
+  return checkedState(await sessionPrivacy().getState({ documentId: privacyDocumentId() }));
 }
 
 /**
@@ -94,7 +99,7 @@ export async function completeNativeSessionPrivacyValidation(
   if (!Number.isSafeInteger(generation) || generation <= 0) {
     return { ...WEB_STATE, released: false };
   }
-  const result = checkedState(await HushhSessionPrivacy.completeSessionValidation({
+  const result = checkedState(await sessionPrivacy().completeSessionValidation({
     generation, documentId: privacyDocumentId(),
   }));
   if (typeof result.released !== "boolean") {

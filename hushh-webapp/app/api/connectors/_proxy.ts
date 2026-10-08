@@ -141,7 +141,7 @@ export async function proxyExternalConnectorRequest(
     const isMcpReview =
       path[1] === "mcp" &&
       ((path.length === 3 &&
-        (path[2] === "review" || path[2] === "confirm" || path[2] === "catalog")) ||
+        (path[2] === "review" || path[2] === "confirm" || path[2] === "catalog" || path[2] === "verify")) ||
         (path.length === 4 && path[2] === "oauth" &&
           ["begin", "complete", "cancel"].includes(path[3] ?? "")));
     try {

@@ -14,7 +14,7 @@ from typing import Literal
 
 from hushh_mcp.constants import GEMINI_MODEL
 
-ProviderId = Literal["gemini", "anthropic", "openai", "grok"]
+ProviderId = Literal["gemini", "anthropic", "openai", "grok", "puppy"]
 
 _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "gemini": "gemini",
@@ -28,6 +28,10 @@ _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "grok": "grok",
     "xai": "grok",
     "x.ai": "grok",
+    # Puppy is an owner-linked local inference endpoint. It is intentionally
+    # a provider id, not a second agent or routing authority.
+    "puppy": "puppy",
+    "puppy-one": "puppy",
 }
 
 
@@ -124,6 +128,11 @@ _MODELS: tuple[ModelEntry, ...] = (
     ),
     ModelEntry(provider="openai", model="gpt-5", supports_native_realtime=True),
     ModelEntry(provider="openai", model="gpt-5-mini", supports_native_realtime=True),
+    # Owner-key text models for a pod (``owner_openai``), through the Responses API.
+    # GPT-5.6 Luna scored 54/60 at reasoning low in the 2026-10-03 evaluation
+    # on the owner's Azure deployment; OpenAI's API serves the same ids.
+    ModelEntry(provider="openai", model="gpt-5.6-luna"),
+    ModelEntry(provider="openai", model="gpt-6-luna"),
     # Grok -- OpenAI-compatible wire format on the x.ai host.
     ModelEntry(
         provider="grok",
@@ -131,6 +140,13 @@ _MODELS: tuple[ModelEntry, ...] = (
         aliases=("grok-default", "grok"),
     ),
     ModelEntry(provider="grok", model="grok-4-fast"),
+    ModelEntry(
+        provider="puppy",
+        model="local",
+        supports_streaming=True,
+        supports_function_calling=True,
+        aliases=("puppy-default",),
+    ),
 )
 
 _DEFAULT_MODEL_BY_PROVIDER: dict[ProviderId, ModelEntry] = {}

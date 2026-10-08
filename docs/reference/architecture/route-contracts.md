@@ -77,6 +77,7 @@ restores the committed selection.
 - `/agent`
 - `/people/[personRef]`
 - `/one/profile`
+- `/one/profile/discovery`
 - `/one/profile/regulatory`
 - `/one/profile/account`
 - `/one/profile/account/phone`
@@ -127,6 +128,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
+- `/one/files` — encrypted BYOC Files; direct admitted pod transport, initially web-only
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/pkm/recent`
 - `/one/pkm/location` — readable saved places, visits and Location memory details

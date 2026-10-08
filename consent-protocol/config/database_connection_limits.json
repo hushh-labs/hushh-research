@@ -1,0 +1,147 @@
+{
+  "$comment": "Each lane's Postgres connection limit, with its source, plus the connection sources the hub opens. Read by tests/test_database_connection_ceiling.py, which computes every deploy path's worst case from the real deploy config and fails above ceiling_fraction of the limit. Raising max_connections or the tier restarts the instance: that is the owner's decision, never a side effect of editing this file.",
+  "ceiling_fraction": 0.9,
+  "rollout_overlap": {
+    "factor": 2,
+    "source": "Cloud Run: 'Because the maximum instances limit is a limit for each revision, during a deployment, the total number of instances for the service can exceed the maximum instances per revision' (https://cloud.google.com/run/docs/about-instance-autoscaling). Measured: 10 active consent-protocol instances summed across revisions with max 5, dev on 2026-10-05 and UAT on 2026-10-01 (run.googleapis.com/container/instance_count)."
+  },
+  "superuser_reserved_connections": {
+    "connections": 3,
+    "source": "PostgreSQL 15 default superuser_reserved_connections = 3 (https://www.postgresql.org/docs/15/runtime-config-connection.html). No instance overrides it (gcloud sql instances describe, 2026-10-06)."
+  },
+  "dedicated_connections_per_worker": {
+    "hushh_mcp/services/market_cache_store.py": {
+      "connections": 1,
+      "why": "Market refresh advisory lock. The startup warm and the refresh loop run one after the other, so one connection per worker at a time."
+    },
+    "hushh_mcp/services/fleet_sweep_lock.py": {
+      "connections": 2,
+      "why": "Pod liveness and personal-agent reconcile sweeps. Every hub worker tries both locks, and each try opens a connection, even though only the holder keeps it."
+    }
+  },
+  "listener_modules": {
+    "$comment": "Each module holds one connection per worker for the process lifetime, drawn from that worker's asyncpg pool (pool.acquire then LISTEN). The request floor is pool size minus these.",
+    "modules": [
+      "api/consent_listener.py",
+      "api/referral_listener.py",
+      "api/pod_lifecycle_listener.py"
+    ]
+  },
+  "runtime_pool_modules": [
+    "db/connection.py",
+    "db/db_client.py"
+  ],
+  "operator_tool_modules": [
+    "db/_gen_offline_schema.py",
+    "db/migrate.py",
+    "db/repair/add_onboarding_column.py",
+    "db/verify/verify_iam_schema.py",
+    "db/verify/verify_vault_schema.py"
+  ],
+  "lanes": {
+    "dev": {
+      "deploy_env": "dev",
+      "cloud_sql_instance": "hushh-pda-dev:us-central1:hushh-dev-pg",
+      "tier": "db-custom-1-3840",
+      "max_connections": 100,
+      "max_connections_source": "Tier default: 3.75 GB to under 6 GB gives 100 (https://cloud.google.com/sql/docs/postgres/flags, max_connections). No max_connections flag is set (gcloud sql instances describe hushh-dev-pg, 2026-10-06).",
+      "observed_peak": "99 backends on 2026-10-01 and 2026-10-02 (cloudsql.googleapis.com/database/postgresql/num_backends, daily max).",
+      "external_reserve": {
+        "connections": 20,
+        "source": "About 20 of dev's 99 backends at the 2026-10-01/02 peak came from outside the deployed config: local backends run at code defaults, 35 connections per process (asyncpg DB_POOL_MAX_SIZE 20 in db/connection.py, SQLAlchemy pool 5 plus overflow 10 in db/db_client.py)."
+      },
+      "deploy_paths": [
+        {
+          "path": ".github/workflows/deploy-dev.yml",
+          "accepted_worst_case": {
+            "connections": 91,
+            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
+            "recorded": "2026-10-06"
+          }
+        },
+        {
+          "path": "deploy/dev.autodeploy.backend.cloudbuild.yaml",
+          "accepted_worst_case": {
+            "connections": 135,
+            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
+            "recorded": "2026-10-06",
+            "note": "Dormant: no Cloud Build trigger exists. Verified read-only on 2026-10-06: gcloud builds triggers list (global and us-central1) returned none in hushh-pda-dev, hushh-pda-uat, hushh-pda and hussh-developer-platform. scripts/ops/setup_dev_cloudbuild_triggers.sh would create it in hushh-pda-dev."
+          }
+        },
+        {
+          "path": "scripts/ops/cloudbuild_release.sh",
+          "branch": "non_production"
+        }
+      ],
+      "companion_services": []
+    },
+    "uat": {
+      "deploy_env": "uat",
+      "cloud_sql_instance": "hushh-pda-uat:us-central1:hushh-uat-pg",
+      "tier": "db-custom-1-3840",
+      "max_connections": 150,
+      "max_connections_source": "Explicit database flag max_connections=150 (gcloud sql instances describe hushh-uat-pg, 2026-10-06).",
+      "observed_peak": "148 backends on 2026-10-02 (cloudsql.googleapis.com/database/postgresql/num_backends, daily max).",
+      "external_reserve": {
+        "connections": 20,
+        "source": "Same source as dev: About 20 of dev's 99 backends at the 2026-10-01/02 peak came from outside the deployed config: local backends run at code defaults, 35 connections per process (asyncpg DB_POOL_MAX_SIZE 20 in db/connection.py, SQLAlchemy pool 5 plus overflow 10 in db/db_client.py). Not separately measured on UAT; carried at dev's figure."
+      },
+      "deploy_paths": [
+        {
+          "path": ".github/workflows/deploy-uat.yml",
+          "accepted_worst_case": {
+            "connections": 237,
+            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
+            "recorded": "2026-10-06"
+          }
+        },
+        {
+          "path": "scripts/ops/cloudbuild_release.sh",
+          "branch": "non_production",
+          "accepted_worst_case": {
+            "connections": 145,
+            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
+            "recorded": "2026-10-06"
+          }
+        }
+      ],
+      "companion_services": [
+        "deploy/drive/deploy_worker_service.sh"
+      ]
+    },
+    "production": {
+      "deploy_env": "production",
+      "cloud_sql_instance": "hushh-pda:us-central1:hushh-vault-db",
+      "tier": "db-custom-1-3840",
+      "max_connections": 100,
+      "max_connections_source": "Tier default: 3.75 GB to under 6 GB gives 100 (https://cloud.google.com/sql/docs/postgres/flags, max_connections). No max_connections flag is set (gcloud sql instances describe hushh-vault-db, 2026-10-06).",
+      "observed_peak": "63 backends on 2026-10-06 (cloudsql.googleapis.com/database/postgresql/num_backends, daily max).",
+      "external_reserve": {
+        "connections": 0,
+        "source": "No connection source outside the deployed config has been measured on production (peak 63 of 100, 2026-10-06). Raise this when a measurement shows one."
+      },
+      "deploy_paths": [
+        {
+          "path": ".github/workflows/deploy-production.yml",
+          "accepted_worst_case": {
+            "connections": 237,
+            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
+            "recorded": "2026-10-06"
+          }
+        },
+        {
+          "path": "scripts/ops/cloudbuild_release.sh",
+          "branch": "production",
+          "accepted_worst_case": {
+            "connections": 237,
+            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
+            "recorded": "2026-10-06"
+          }
+        }
+      ],
+      "companion_services": [
+        "deploy/drive/deploy_worker_service_prod.sh"
+      ]
+    }
+  }
+}

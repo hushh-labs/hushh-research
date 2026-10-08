@@ -96,6 +96,7 @@ function buildSources(envFiles) {
 export function resolveReviewerTestIdentity({
   envFiles = [],
   required = true,
+  requireVaultPassphrase = true,
 } = {}) {
   const sources = buildSources(envFiles);
   const uidMatch = lookupValue({
@@ -109,7 +110,7 @@ export function resolveReviewerTestIdentity({
 
   const missing = [];
   if (!uidMatch) missing.push(CANONICAL_UID_KEY);
-  if (!passphraseMatch) missing.push(CANONICAL_PASSPHRASE_KEY);
+  if (requireVaultPassphrase && !passphraseMatch) missing.push(CANONICAL_PASSPHRASE_KEY);
   if (required && missing.length > 0) {
     throw new Error(
       `missing canonical reviewer test identity value(s): ${missing.join(
@@ -140,6 +141,7 @@ export function resolveReviewerTestIdentity({
 export function resolveReviewerCounterpartIdentity({
   envFiles = [],
   required = false,
+  requireVaultPassphrase = true,
 } = {}) {
   const sources = buildSources(envFiles);
   const uidMatch = lookupValue({ sources, keys: [COUNTERPART_UID_KEY] });
@@ -150,7 +152,7 @@ export function resolveReviewerCounterpartIdentity({
 
   const missing = [];
   if (!uidMatch) missing.push(COUNTERPART_UID_KEY);
-  if (!passphraseMatch) missing.push(COUNTERPART_PASSPHRASE_KEY);
+  if (requireVaultPassphrase && !passphraseMatch) missing.push(COUNTERPART_PASSPHRASE_KEY);
   if (missing.length > 0) {
     if (required) {
       throw new Error(
@@ -164,8 +166,8 @@ export function resolveReviewerCounterpartIdentity({
 
   return {
     reviewerUid: uidMatch.value,
-    reviewerVaultPassphrase: passphraseMatch.value,
+    reviewerVaultPassphrase: passphraseMatch?.value || "",
     uidSourceKey: uidMatch.key,
-    passphraseSourceKey: passphraseMatch.key,
+    passphraseSourceKey: passphraseMatch?.key || "",
   };
 }

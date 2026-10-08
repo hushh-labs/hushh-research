@@ -596,6 +596,46 @@ def test_interpreter_is_manifest_owned_and_has_no_tools():
     assert "untrusted external content" in agent.instruction
 
 
+@pytest.mark.parametrize("revoked_during_model", [False, True])
+async def test_owner_model_dependency_rechecks_authority_before_releasing_answer(
+    monkeypatch, revoked_during_model
+):
+    model = object()
+    reader_factory = object()
+    service = EmailChatService(
+        chat_store=object(),
+        gmail_service=object(),
+        model_call=AsyncMock(),
+        model=model,
+        reader_factory=reader_factory,
+    )
+    access = AsyncMock(
+        side_effect=[None, PermissionError("revoked")] if revoked_during_model else None
+    )
+    gene = AsyncMock(return_value={"answer": "Synthetic answer"})
+    monkeypatch.setattr("hushh_mcp.agents.email.runtime.run_email_gene", gene)
+
+    async def execute(**kwargs):
+        assert kwargs["reader_factory"] is reader_factory
+        return await kwargs["gene_runner"](gene_id="agent_email_read_interpreter")
+
+    monkeypatch.setattr("hushh_mcp.services.email_delegated_read.run_delegated_mail_read", execute)
+    arguments = dict(
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        conversation_id="same-thread",
+        message="read my mail",
+        require_access=access,
+    )
+    if revoked_during_model:
+        with pytest.raises(PermissionError, match="revoked"):
+            await service.handle_delegated_turn(**arguments)
+    else:
+        assert await service.handle_delegated_turn(**arguments) == {"answer": "Synthetic answer"}
+    gene.assert_awaited_once_with(model=model, gene_id="agent_email_read_interpreter")
+    assert access.await_count == 2
+
+
 def test_mail_analyzer_schema_builds_as_a_toolless_manifest_gene():
     agent = build_single_turn_agent(
         load_email_gene("agent_email_read_analyzer"),

@@ -118,7 +118,10 @@ struct NativeTestConfiguration {
     let uiFlowRunId: String?
     let showStatusOverlay: Bool
 
-    init(arguments: [String] = ProcessInfo.processInfo.arguments) {
+    init(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         #if DEBUG
         let testModeEnabled = arguments.contains("-UITestMode")
         #else
@@ -131,8 +134,8 @@ struct NativeTestConfiguration {
             NativeTestConfiguration.value(for: "-UITestExpectedRoute", in: arguments)
             ?? NativeTestConfiguration.deriveExpectedRoute(from: initialRoute)
         autoReviewerLogin = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
-        vaultPassphrase = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestVaultPassphrase", in: arguments) : nil
-        expectedUserId = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestExpectedUserId", in: arguments) : nil
+        vaultPassphrase = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] : nil
+        expectedUserId = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_UID"] : nil
         resetAppState = NativeTestConfiguration.boolValue(
             for: "-UITestResetAppState",
             in: arguments,
@@ -721,6 +724,168 @@ final class NativeTestStatusLabel: UIButton {
         accessibilityValue = status
     }
 }
+
+#if DEBUG
+/// Attach-only layout evidence, separate from reviewer bootstrap and its
+/// persistent status store. Opt-in snapshots contain public geometry and passive
+/// event counts only; they cannot invoke unlock or inspect credential values.
+final class NativeVaultLayoutProbe {
+    private let label = NativeTestStatusLabel(frame: .zero, showOverlay: false)
+    private var timer: Timer?
+    private var inFlight = false
+    private var sequence = 0
+    private weak var webView: WKWebView?
+    private var observers = [NSObjectProtocol]()
+
+    static func acceptsSample(captured: HushhSessionPrivacyShield.Snapshot,
+                              current: HushhSessionPrivacyShield.Snapshot) -> Bool {
+        captured.appIsActive && !captured.shielded && current.appIsActive &&
+            !current.shielded && captured.generation == current.generation
+    }
+
+    private func conceal() {
+        label.isHidden = true
+        label.accessibilityElementsHidden = true
+        label.update(status: "{}")
+    }
+
+    init(host: UIView, webView: WKWebView) {
+        self.webView = webView
+        label.accessibilityIdentifier = "native-vault-layout"
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.update(status: "{}")
+        conceal()
+        host.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            label.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
+            label.widthAnchor.constraint(equalToConstant: 1),
+            label.heightAnchor.constraint(equalToConstant: 1),
+        ])
+        for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.conceal()
+            })
+        }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in self?.sample() }
+    }
+
+    deinit {
+        timer?.invalidate()
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        label.removeFromSuperview()
+    }
+
+    private func sample() {
+        let captured = HushhSessionPrivacyShield.shared.snapshot()
+        guard Self.acceptsSample(captured: captured, current: captured) else { conceal(); return }
+        guard !inFlight, let webView else { return }
+        inFlight = true
+        webView.evaluateJavaScript(Self.script) { [weak self, weak webView] result, _ in
+            guard let self else { return }
+            self.inFlight = false
+            let current = HushhSessionPrivacyShield.shared.snapshot()
+            guard Self.acceptsSample(captured: captured, current: current),
+                  let webView, self.webView === webView else { self.conceal(); return }
+            guard let values = result as? [String: Any] else { return }
+            // Whitelist numeric/bool geometry. Never propagate unexpected JS
+            // fields, text, credentials, provider bodies or a DOM hierarchy.
+            let keys = Set(["presentCount", "innerHeight", "visualHeight", "visualTop", "visualScale",
+                            "cssInset", "kbOpen", "kbResizes", "surfaceTop", "surfaceMaxHeight",
+                            "scrollTopEdge", "scrollBottomEdge", "clientHeight", "scrollHeight", "scrollTop",
+                            "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
+                            "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
+                            "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight"])
+            var payload = [String: Any]()
+            for (key, value) in values where keys.contains(key) {
+                guard let number = value as? NSNumber,
+                      number.doubleValue.isFinite, abs(number.doubleValue) <= 100_000 else { continue }
+                payload[key] = number
+            }
+            self.sequence += 1
+            payload["sequence"] = self.sequence
+            // Read UIKit's current docked-keyboard layout guide independently
+            // of the Capacitor height event consumed by CSS. A hardware/floating
+            // keyboard need not reserve a full-width inset.
+            payload["nativeGuideHeight"] = webView.keyboardLayoutGuide.layoutFrame.height
+            payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
+            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            self.label.update(status: json)
+            self.label.accessibilityElementsHidden = false
+            self.label.isHidden = false
+        }
+    }
+
+    private static let script = """
+    (() => {
+      const receiptKey = Symbol.for('hushh.native.vault.public-receipt');
+      if (!window[receiptKey]) {
+        const receipt = { clicks: 0, accepted: 0 };
+        window[receiptKey] = receipt;
+        document.addEventListener('click', event => {
+          const button = event.target instanceof Element ? event.target.closest('button') : null;
+          if (event.isTrusted && button?.closest('[data-vault-unlock-surface]') &&
+              button.textContent?.trim() === 'Unlock') receipt.clicks = Math.min(100000, receipt.clicks + 1);
+        }, { capture: true, passive: true });
+        // Occurrence only, never the event detail. This is not proof that React
+        // rendered protected content; the normal Chat assertion remains required.
+        window.addEventListener('vault-unlocked', () => {
+          receipt.accepted = Math.min(100000, receipt.accepted + 1);
+        });
+      }
+      const receipt = window[receiptKey];
+      const surfaces = document.querySelectorAll('[data-vault-unlock-surface]');
+      const root = document.documentElement;
+      const finite = value => { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined; };
+      const result = {
+        presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
+        visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
+        cssInset: finite(getComputedStyle(root).getPropertyValue('--kb-height')),
+        kbOpen: root.classList.contains('kb-open'), kbResizes: root.classList.contains('kb-resizes'),
+        unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted
+      };
+      // Public interaction admission only. Never read the editor's value,
+      // selection contents, transcript, account identity or arbitrary DOM.
+      const chats = document.querySelectorAll('textarea[aria-label="Message One"]');
+      result.chatCount = chats.length;
+      if (chats.length === 1) {
+        const editor = chats[0];
+        const rect = editor.getBoundingClientRect();
+        Object.assign(result, {
+          chatFocused: document.activeElement === editor,
+          chatDisabled: editor.disabled,
+          chatInert: Boolean(editor.closest('[inert]')),
+          chatHit: editor.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+          chatWidth: rect.width, chatHeight: rect.height
+        });
+      }
+      const surface = surfaces.length === 1 ? surfaces[0] : null;
+      const scroll = surface?.querySelector('[data-vault-flow-content]');
+      const recovery = scroll?.querySelector('[data-testid="vault-use-recovery-key-escape"]');
+      if (surface && scroll) {
+        const unlock = Array.from(scroll.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Unlock');
+        if (unlock) {
+          const u = unlock.getBoundingClientRect();
+          result.unlockHits = unlock.contains(document.elementFromPoint(u.left + u.width / 2, u.top + u.height / 2));
+        }
+        const s = scroll.getBoundingClientRect();
+        Object.assign(result, { surfaceTop: surface.getBoundingClientRect().top,
+          surfaceMaxHeight: finite(getComputedStyle(surface).maxHeight), scrollTopEdge: s.top, scrollBottomEdge: s.bottom,
+          clientHeight: scroll.clientHeight, scrollHeight: scroll.scrollHeight, scrollTop: scroll.scrollTop,
+          overflowAuto: getComputedStyle(scroll).overflowY === 'auto' });
+        if (recovery) {
+          const r = recovery.getBoundingClientRect();
+          Object.assign(result, { recoveryTop: r.top, recoveryBottom: r.bottom,
+            recoveryInside: r.top >= s.top && r.bottom <= s.bottom,
+            recoveryHits: recovery.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) });
+        }
+      }
+      return Object.fromEntries(Object.entries(result).filter(([, value]) => value !== undefined));
+    })()
+    """
+}
+#endif
 
 enum NativeTestStatusStore {
     private static let fileName = "native-test-status.txt"

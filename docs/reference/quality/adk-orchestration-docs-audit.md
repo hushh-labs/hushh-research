@@ -1,238 +1,215 @@
-# ADK Orchestration Documentation Audit
+# ADK and owner-pod integration: decision memo
 
-## Visual Map
+## Visual Context
 
-```mermaid
-flowchart LR
-  manifest["AgentManifestV2"] --> roster["One ADK roster"]
-  registry["Owner connector registry"] --> roster
-  roster --> review["Exact-call review authority"]
-  review --> mcp["Native MCP invocation"]
-  mcp --> projection["Private wire and history projection"]
-```
+Canonical visual owner: [Quality and Design System Index](README.md).
+Runtime boundaries: [private-agent north star](../architecture/private-agent-north-star.md)
+and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-The [One agent hierarchy](../one/one-agent-hierarchy.md) maps the runtime owners.
-This audit records revision-specific implementation and verification beneath that map.
+## Decision — 2026-10-08
 
-**Review basis:** repository `HEAD` `4fb27f5a06a397ac3d42599a55e5da2245ddf5a2`, inspected 2026-09-23. The Plaid retirement implementation is committed on this branch; this documentation audit is an uncommitted working-tree change. Branch source inspection does not establish that the code is deployed or that per-environment cleanup completed.
+**Dev 11 is deployed and independently verified at `3ab8992ec034`.
+GCP isolated image recovery, Files, 20 warm chats and bounded soak pass.
+Azure signed admission and encrypted Files transfers pass on a disposable app.
+Cold latency and normal-owner acceptance remain release gates.**
+New-owner defaults are 1 vCPU, 2 GiB, minimum zero, maximum one and one worker.
+GCP request concurrency is explicitly eight, including pods without Files;
+an explicit fractional-CPU choice requires concurrency one.
+Existing hosting selections remain authoritative. Computer Use stays disabled.
 
-## Shared MCP transport checkpoint — 2026-09-24
+### Candidate changes and verification
 
-On ADK base `236db2404`, discovery and invocation now use the same public-HTTPS
-transport. Validation happens at each socket connection: all DNS answers must
-be public, TCP uses a vetted numeric address, and TLS retains the original host.
-Redirect following, environment proxies, Unix sockets and connection retries are
-disabled. The initial endpoint policy admits HTTPS port 443 without userinfo,
-query credentials or fragments; nonstandard ports/query-based endpoints are not
-admitted by this policy. Error messages do not include endpoint contents.
+- Azure Files now uses owner Blob storage and an identifier-only Storage Queue,
+  managed identity and the existing bounded organization worker. Setup selection,
+  custody checks, late upgrade checkpoints and dev-only migration 957 are wired.
+- Existing Azure pods receive a separately bound Files configuration offer. Fresh
+  read-only preflight failures release an unattempted lease; uncertain mutations
+  retain recovery authority. No digest is qualified merely by version label.
+- Gmail notifications settle only durable processed deliveries. Account rotation
+  fences both initial watch creation and later cursor advancement.
+- Foreground wake is coalesced; recurring status polling no longer extends paid
+  idle. The relay retains its ten-minute grace and existing owner configuration.
+- Frozen ADK `31932bb01ae9` includes main `5774656cba82`; concurrent commerce
+  `18c3db9ab3b03` is preserved. Gmail keeps migration 283; commerce moves to 284,
+  subject to a live ledger check before deployment. Main `8a0d8a9f8` then supplied
+  the runtime-prompt packaging and privacy-fixture corrections required by hosted
+  freshness; 25 nearest checks passed. The ADK snapshot remains frozen.
+- Integrated checks: 198 backend boundary cases, 44 frontend cases and TypeScript
+  compilation passed. These establish local behavior, not cloud acceptance.
 
-The implementation uses the documented public
-[HTTPcore network-backend seam](https://www.encode.io/httpcore/network-backends/)
-and [HTTPX transport interface](https://www.python-httpx.org/advanced/transports/).
-HTTPcore is now an explicit dependency, without changing its installed version.
+## Exact release evidence
 
-Verification: **104 focused tests passed**, covering the transport and existing
-Workspace provider/runtime contracts. These include DNS rebinding, mixed private
-and public answers, TLS host preservation, redirect/proxy refusal, timeouts, and
-both MCP discovery and call factory wiring. This is automated evidence, not a
-live provider, custom-registration, browser, native or release acceptance claim.
+| Surface | Verified result | Boundary |
+| --- | --- | --- |
+| Source | `3ab8992ec034f6bfc13de31d254519badabc6719`; [exact-SHA hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/37749515091) passed. Main `bc08971f872a` and frozen ADK `31932bb01ae9` are included. | Later local test/evaluation corrections are separate from the deployed image. |
+| Dev application | [Governed deployment 37756665008](https://github.com/hushh-labs/hushh-research/actions/runs/37756665008) succeeded. Independent readback: backend `consent-protocol-00148-9kb`, frontend `hushh-webapp-00126-67p`, exact source/run, both ready with 100% traffic. | Application release success does not install owner pods or prove their journeys. |
+| Schema / recovery | All 55 dev-manifest migrations match, including 957; canonical schema version 284 has no missing required table, column or function. | Isolated database restoration remains separate from owner-image recovery. |
+| Pod offer | `2026.10-dev.11+3ab8992ec034.f91e6e30`; immutable digest `sha256:f91e6e30835d509e70bec822a7c2abd70a463cb26e3698d959eb132effbe5d80`; source and publishing run verified. | Published metadata has zero qualified predecessor digests. Fixture recovery does not amend that immutable offer or approve an owner installation. |
 
-Subsequent bounded checkpoints: `8b8a5a661` verifies private-registration erasure
-on disposable PostgreSQL; `5ce3f3453` adds owner-private REST registration with
-29 focused checks. Neither establishes private connector UI or live execution.
+Serving application digests: backend
+`sha256:054da89242b7acdc034913ab37f2583175f9d664266f48a0fc27dc6adf226960`;
+frontend `sha256:eb744c15535c95c438c6e9121d227111d28abed5d8377e2ab863af23fa35b104`.
+The workflow's preserved predeploy receipt establishes rollback targets backend
+`00147-tl7` and frontend `00125-zb9` from Dev 10 (`eff9466572b9`). Deployment
+completed in 21m35s. No owner installation or destructive history cutover occurred
+in this application deployment.
 
-Catalog admission now validates bounded JSON Schema 2020-12 object schemas,
-retains their constraints, and rejects remote references, rebasing IDs and
-unsupported dialects explicitly. Literal `$ref`/`$id` properties in example or
-constant information are not interpreted as schema directives. Refresh rejects
-late discovery at the caller boundary, not only at cache insertion. Fifty focused
-catalog, refresh, privacy and Workspace tests passed; the final ordering-only
-change was rechecked with 25 catalog/cache tests. This remains automated proof.
+## Journey matrix
 
-Still open: OAuth discovery protections, shared ADK toolset admission/approval, Settings/Chat
-catalog refresh, governed continuation, and the approved live/release gates.
-Response normalization limits are not proof of a wire-level response-byte limit.
+| Journey | Source / local evidence | Live gate still open |
+| --- | --- | --- |
+| Placement / setup | Explicit Shared and `unplaced`; assigned/pending modes preserved. Automatic direct setup checks identity, IAM, exact routes, CORS and admission. | New/existing setup; billing/policy retry without duplicate resources. |
+| Private connectors | Sealed native PKCE, credential hydration, declared pod routes and exact approval/resume. Refresh/CAS and account/project transitions fence old readers. | Real provider sign-in, scope upgrade, restart and verified removal of unchanged legacy credentials/readers. |
+| Notifications / consent | OAuth-project topic, owner-project authenticated subscription, durable coalescing/checkpoints, incarnation-bound revocations and signed metadata feeds. Nav receives owner authority. | Cloud provisioning, duplicate/lost delivery, renewal, queue drain and idle return. Reserved/commercial scopes retain canonical authority. |
+| Files | Dedicated `agent_files` and `/one/files` explorer; GCS and Azure Blob/Queue adapters, consented organization and exact upgrade checkpoints. | GCP Dev 11 byte-exact continuity and earlier authenticated organization passed. Azure Blob resume, duplicate chunks, move/rename/undo and trash/restore passed (4 MiB + 1 KiB). Azure settings requires the local custody-key correction; organization and owner installation remain unverified. |
+| Puppy | Existing trusted identity and signed direct stream retained; prior response/cancellation/withdrawal receipts. The existing Hermes relay is running in metadata-only activation wait. | Fresh binding/response, independent active internet, acceptable cold latency and bounded overlap. A waiting process or heartbeat is not inference acceptance. |
+| Updates / recovery | Exact owner approval, durable operation, authenticated drain and shared Settings/Feed state. | Dev 7 → 9 → 10 → 11 chained fixture recovery preserves digest, identity, configuration, encrypted conversation and Files. The last idle handoff reconciled one timed-out operation; no duplicate preparation. Owner Settings approval and active-work drain remain separate. |
+| Release experience | Existing dev accounts receive concise notes after unlock/setup; new/unknown accounts skip catch-up. Installed-pod notes require exact retained completion receipts. Hosting is untouched. | Actual owner-update receipt and production announcement/cohort qualification. Acknowledgement is per owner/installation, not a global cross-device receipt. |
+| Computer Use | Pod task runtime, scoped PKM, separate processing/disclosure reviews, preview/takeover and encrypted origin-bound remembered sessions with race-safe Forget. | Both execution gates remain closed. No real owner information or remembered login was admitted. |
 
-## Product-agent hierarchy audit — 2026-09-24
+## Blockers and next evidence
 
-### Shared native toolset integration checkpoint
+| Owner | Required next evidence |
+| --- | --- |
+| Release / recovery | Isolated synthetic authority qualifies image-pair recovery separately from normal-owner Settings approval. Dedicated reader access is repaired. GCP chained fixture recovery passes; Azure's Free Trial subscription refuses a second Container Apps environment and OpenAI S0 eligibility. A separate fixture app, identity, key, registry and storage now work using the existing environment without modifying its settings. This is not fresh-environment or model qualification. The authorized disposable subscription API request also returned `NotAllowed`; no subscription was created. Resolve eligibility without changing the existing personal pod. |
+| Owner / device | Normal Google-authenticated browser and unlocked vault; native provider flow and a second independent internet path. Google refused the automated Chromium sign-in on October 7; that attempt was stopped. Reviewer-minted sessions and cloud CLI access cannot substitute. The existing Hermes relay is available without re-enrollment. |
+| Native / provider | Live iOS authorization and qualified Android public-client registration. Android live opt-in remains false; no client-secret fallback. |
+| GCP / browser | Supported non-root worker identity, Chromium sandbox, private broker bridge, denied egress and lifecycle evidence. Required identity switch currently refuses; no unsandboxed fallback. |
+| Azure / browser | The earlier bounded preview policy/readback passed; a later read returned 403 and disposable cleanup was confirmed. Worker identity, private bridge, Chromium and enforced isolation remain unqualified. General availability and group membership do not establish execution readiness. |
+| Production / placement | Qualify the actual legacy Shared cohort against 955's predicates, then graduate its migration and release channels. Repeat IAM, billing, recovery and product acceptance in UAT. Publish separately reviewed production notes. |
 
-`one_adk/governed_mcp_toolset.py` now subclasses installed ADK `McpToolset` and
-uses native `McpTool` invocation, with bounded complete discovery, namespaced
-tools, call-time connection resolution, stale catalog/connection rejection, and
-an application-owned approval callback. Native tool errors are sanitized without
-retrying an uncertain mutation. `RegisteredMcpToolset` now joins the admitted
-typed-Chat roster for owner-private registrations and uses the existing exact-call
-approval callback. It discovers through the owner registry within task-local
-resources (32 connectors, four concurrent discoveries, 20-second discovery bound,
-500 aggregate tools). It disables ADK's invocation-ID-only cache and clears its
-retained catalog at turn teardown. Curated Google adapters remain separate until
-parity is verified; custom OAuth and live browser/native proof remain open.
-Native calls now establish the existing external-content barrier before dispatch;
-continued calls are limited to actual native tools using exact-call review.
-Tool names/annotations cannot admit an unreviewed downstream action. Since
-2026-09-27 the person's own connectors run without review (founder decision);
-curated rows and owner-blocked tools keep it. This does
-not yet establish same-turn first-party Memory capture or curated-action parity.
+## Existing-user transition
 
-The shared toolset accepts application-owned catalog and result policy ports for
-curated-provider migration. Discovery remains native MCP; a catalog policy cannot
-invent tools, and call arguments must satisfy both the original provider schema
-and its narrowed advertised schema, each at its own local-reference root. Catalog
-revisions include both views so changing either requires fresh review. Result
-projection runs within the existing bounded normalization path, without a second
-provider dispatch. These ports do not yet migrate Google's credential owners or
-activate curated providers through this toolset. Pending reviews created with the
-older revision digest require review again rather than silent compatibility.
+Migration 955 preserves the evidenced legacy Shared cohort only when its `cloud`
+setup marker exists and there is no recorded choice, deployment target, detach
+history or setup job. Production has not qualified that cohort or graduated 955.
+Missing placement alone must not become Shared. Without the migration, unassigned
+choice-dependent resolution is unknown; existing assignments remain authoritative.
 
-The existing action ledger now requires exact current contract, argument and
-resource-binding HMAC matches at confirmation and consumption for
-`connector.mcp.invoke`. No second approval table was added. Existing non-MCP
-callers retain their contracts. Thirty-seven focused tests passed, including
-installed ADK invocation against a synthetic session and actual disposable
-PostgreSQL rejection of changed arguments, schema revision, connection generation,
-missing terms and replay. Provider/network, browser and release proof remain open.
+Preserve assigned pods and pending setup. Existing-account app notes follow normal
+unlock and resolved setup; new accounts receive no historical catch-up. Pod notes
+follow the exact successful operation, current incarnation and verified installed
+digest, independently of a newer offer. Neither notice changes hosting, grants
+access or starts an update. The current announcement catalog is dev-only.
 
-Follow-up review fixes serialize catalog publication by discovery sequence and
-recheck discovery before review and dispatch; a slower discovery cannot supersede
-a later one. Native session creation is single-attempt without ADK's raw-error
-retry logger. Provider error payloads are not returned, and private calls refuse
-SDK HTTP-exchange diagnostics. Reserved framework tool names are excluded from
-the callable set. Provider descriptions remain untrusted tool metadata, never
-permission or an instruction-layer replacement.
+## Verification and performance
 
-The registry credential resolver now verifies current owner-token authority,
-owner-scoped registration, connection status, expiry and the same-row credential
-generation/version before opening its encrypted envelope. It covers registry-owned
-credentials; Google account credentials in other services still need their owning
-adapters. Forty-eight focused tests cover these paths and the existing ledger,
-including native SDK session-creation failure privacy. The confirmation endpoint,
-transient Chat review card, and private-registry roster now have implementations;
-live proof remains open. Dynamic-tool wire/history redaction
-was subsequently verified in `6cd38b9a9`; per-turn resource cleanup and owner
-isolation were committed in `06a4ef2dc`.
+Candidate `3ab8992ec034` includes main `bc08971f872a` and frozen ADK
+`31932bb01ae9`. Concurrent commerce and unrelated PDF work remain preserved.
+The local core mirror passed after environment-only fixture resumption:
+16,559 parallel protocol cases, 18 affected fixture cases, 645 isolated database
+cases and 380 integration cases, plus web-core, secrets, governance and MCP.
+These overlapping counts are not a unique-test total. Wallet, deployment and
+commerce integration checks passed; the architecture ratchet reports no new or
+worsened violations.
 
-The exact-call approval adapter now derives the existing ledger's HMAC terms
-from current connector, endpoint, credential generation/version, catalog, tool,
-arguments and owner session. The execution callback requires committed receipt
-consumption before provider dispatch; caller-owned database transactions are
-rejected. Expiry checks use wall-clock time, not a transaction-start timestamp.
+[Hosted CI 37749515091](https://github.com/hushh-labs/hushh-research/actions/runs/37749515091)
+passed on the exact candidate. Its initial protocol failure was a reproduced
+300 ms fixture race. Only failed jobs were resumed; all original successful gates
+remain authoritative. The permanent event-based correction passes 167 nearby
+cases, a delayed-frame reproduction and a broken-cancellation negative control.
+It is a later local test commit, not part of the deployed candidate.
 
-Integration inspection found that the old `typed_chat` foreign key targets
-legacy `agent_chat_conversations`, not current encrypted ADK sessions. Migration
-244 adds an `adk_chat` reference to the existing ledger, with an exact
-`(app_name,user_id,session_id)` foreign key to `one_adk_sessions`. It preserves
-legacy workflows and accepts native TEXT thread identities without creating
-shadow legacy conversations. The rollback intentionally retains this additive
-schema and receipts; roll back callers, not historical authority evidence.
-Explicit conversation deletion cascades its approval metadata, matching the
-legacy conversation-ledger lifetime; this is not a separate permanent audit
-archive. It also invalidates outstanding receipts. No conversation was deleted
-outside the disposable synthetic test schema.
+GCP's disposable owner passed real provisioning, signed admission, chained recovery
+through Dev 11 and byte-exact Files continuity. Transfers cover 4 MiB + 1 KiB,
+durable resume, duplicate chunks, move/rename/undo and trash/restore. Authenticated
+Cloud Tasks organization passed after explicit opt-in; exclusions and cancellation
+preserved original bytes. Analysis was turned off. Soft deletion is seven days.
 
-Verification: 66 focused tests passed, including disposable PostgreSQL
-owner/session binding, one-time consumption, argument/catalog/grant changes,
-session deletion and expiry in a long-running transaction. Migration 244 is
-registered in release/schema contracts but **has not been applied to shared
-environments**. Approval endpoint, live review card and root-roster activation
-remain required; this checkpoint does not claim live connector acceptance.
+| Dev 11 measurement | Observed result | Limit |
+| --- | --- | --- |
+| GCP warm chat | 20/20 complete; first-text p50 17.000 s, nearest-rank p95 20.277 s | Approved dev Gemini bridge; owner-cloud custody preserved. Earlier interrupted series retained as a failure. |
+| GCP genuine cold | Admission 67.742 s; first text 101.005 s; completion 106.120 s | **30-second target failed.** One sample is not p95; prior Dev 10 72.792 s receipt retained. |
+| GCP overlap / soak | One, two and four concurrent chat/Files/status operations passed; ten-minute soak settled 20 operations with byte-exact downloads | No real Puppy included. One-minute memory observation ~403 MiB of 2 GiB is not peak memory. |
+| Azure Files | 4,195,328 bytes; resumed upload, duplicate chunk, exact download, move/rename/undo and trash/restore passed in 52.628 s | Disposable 1 vCPU / 2 GiB app reuses an unchanged existing environment; custody resources in another region. Settings still returns 503 on the deployed image. |
 
-Source baseline: ADK `6ae5a2a5965a79d75ec72e4fdf5e90b667df1a2b`.
-Read-only comparison: infrastructure branch
-`5e0ade416f8b76fb81b472e762258401fb0d1250`. Neither branch was switched
-or merged for this audit. The earlier findings below retain their original revision.
+Two measured defects are fixed locally: Azure's second settings custody check now
+uses the same provider-specific key reference as the Files operation; managed
+identity queue scaling uses the supported Container Apps `2025-01-01` API.
+The latter provisioned the fixture successfully after `2024-03-01` rejected the
+scaler identity field.
 
-All 19 top-level manifests were inventoried against the generated registry and
-hierarchy verifier. This is structural/source evidence, not live verification of
-every specialist or a latency benchmark.
+Local startup changes share one verified scan among existing recovery reducers;
+per-turn memory reuses bounded sealed records with fresh custody, verified tails,
+owner/incarnation/storage binding and erasure checks. Overflow falls back to full
+replay. Unconfigured Gmail watch renewal no longer scans history. This bounds
+retained state, not historical startup scan work. Authority, recovery, Azure setup,
+Files and queue suites pass (latest affected batch: 166 cases; overlapping earlier
+memory suites also pass). No new-image latency improvement is claimed before
+serving readback. Remaining performance evidence: 20 cold GCP samples, both Azure
+sample sets, mixed Puppy work and idle return on the corrected image.
 
-| Manifest family | Declared composition / boundary |
-|---|---|
-| One | Chat root; bounded intro and public-search children; curated Workspace tools |
-| Kai | Finance task; RIA, brochure, Investor, optimizer, fundamental, sentiment, valuation, debate, synthesis, chat children |
-| Wallet | One's bounded task child; private reveal remains client-owned |
-| Nav / Connections | Nav chat specialist with Consent child; Connections parent is Nav |
-| Documents | Task with live-search planner, suggestions, interpreter; distinct from generic Workspace reads |
-| Email | Task with read planner/interpreter, request classifier, receipt extractor, draft, enrichment |
-| Location | Task plus transcriber; generated actions retain their own authority |
-| Personal Information | Task plus attribute learner; not a replacement PKM store |
-| Connected Systems | Chat plus CRM schema mapper; ingress/admission remains required |
-| Calendar | One-parent manifest with existing tools; do not infer an independent ADK root from its presence |
-| Onboarding | Deterministic runtime with bounded assessment contract |
-| KYC | Route, redraft, full-redraft, extract/draft stages; not a registered local dispatch handler |
-| Portfolio Import | Extract, relevance, comprehensive stages |
-| Memory Segmentation / Intent / Merge / PKM Structure | Separate semantic preparation stages, not four top-level conversational routers |
+### Reviewed integration debt
 
-The five local dispatch registrations and five external scope-admitted identifiers
-are intentionally different sets. Registry presence, a parent field, an AgentTool,
-and an A2A endpoint are not interchangeable evidence. Missing explicit runtime
-fields require tracing their consumer; adding a chat runtime everywhere is not an
-optimization. The infrastructure comparison does not justify wholesale hierarchy
-replacement; preserve its already-integrated specialist boundaries.
+Imported ADK and composition debt remains individually recorded in the
+[reviewed baseline](./architecture-fitness-baseline.json). Bounded extractions
+resolved six findings and tightened one; the remaining reviewed coupled seams
+retain their facades. The 500/250/80 budgets and new-or-worsened gate are unchanged.
+Seven bounded local recovery/test size increases received independent authority review and exact source hashes in that baseline; budgets and exclusions are unchanged. Memory composition moved to its existing chat-memory owner, reducing the agent-builder span. Prior rendering of 181 Mermaid figures is dated documentation evidence, not cloud
+acceptance. [Dev timing](../operations/dev-fast-lane.md#deployment-duration-and-independent-work)
+compares selected services separately from source CI; only measured duplicate
+selection was consolidated.
 
-### Bounded correction and remaining work
+### Historical model and economic qualification — October 7
 
-- Removed three Python repetitions of One's authored cancellation policy and a
-  contradictory Python Nav ownership paragraph. The YAML retains cancellation
-  priority, exact confirmation requirements, direct consent tools, and Connections
-  delegation. Regression coverage checks the authored policy survives composition.
-- One still composes substantial static Python instructions alongside its YAML.
-  Consolidate remaining static semantics through the authored owner in bounded
-  parity-tested changes; keep dynamic admission/context overlays in runtime code.
-- Generic Workspace reads and Documents' delegated interpretation are different
-  contracts. Their selection guidance and the external-read turn barrier still
-  need alignment before claiming same-turn read-to-reviewed-action composition.
-- Explicit credential-scoped MCP refresh and its Settings/Chat tool inventory are
-  unfinished. A cache invalidation primitive alone does not establish refresh UX.
-- No claim of faster Gemini responses, complete specialist acceptance, physical
-  device proof, release readiness, or deployment follows from this audit.
+At `92e9bfd54` plus the named local model/adaptor changes, 80 Files/Azure/erasure,
+67 setup/connector, two PostgreSQL selection, three route controls and both
+Scheduler receipt cases passed. Those earlier fixtures did not qualify cloud
+custody or an owner-image transition. Azure's new-source default is GPT-6 Luna
+(`2026-09-22`, Global Standard); the inspected personal deployment still used
+GPT-5.6 Luna. Historical first-tool scores were 54/60 and 45–49/60 respectively;
+Google's governed default was unchanged.
 
-Verification: focused manifest/factory/One runtime tests passed **326**, with
-**74 skipped**; generated registry and hierarchy checks passed. The ADK/A2A
-compliance check passed **preview containment only**, explicitly reporting
-`ADK_A2A_SDK_MATRIX_UNVERIFIED` and `official_a2a_v1.ready=false`.
-Do not promote that result to full A2A compatibility.
+| Bounded probe | Observed result | Limit |
+| --- | --- | --- |
+| Flash-Lite native tools | 3/3; valid call IDs/arguments and nonempty result-based answers; no 429 | Approved dev provider, not owner-pod acceptance. |
+| Flash-Lite One selection | 4/6 at LOW and MEDIUM; Drive/email delegation missed | Not qualified as One's default. |
+| Gemini 3.8 Flash | Native tools 2/3; one HTTP 504. Original first-tool roster 5/6; its legacy email fixture expected a forbidden tool. The corrected admitted mailbox case selected `react_to_message` first and failed the strict first-tool gate; no 429. | The original receipt remains unchanged. Corrected harness rejects inadmissible expectations before a provider call (43 focused checks). Combined conservative reservation and measured calls total $1.6046 against the $2 ceiling. No full task-outcome or default qualification claim. |
+| Azure GPT-6 Luna | Actual pod managed identity completed one native tool call and result-based answer in 4.735 s. The second exchange hit 429; its single paced retry also hit 429. | Third exchange and six-case first-tool roster were not run. The corrected console receipt is separate from earlier empty harness results. Synthetic deployment removed; existing GPT-5.6 Luna unchanged. Conservative additional reservation $0.01 leaves the combined qualification budget below $2. |
+| Resources | Local boot 3.07 s / 281.5 MiB; 64 MiB Files with 4 MiB encrypted chunks, 1/2/4/8 transfers, byte-exact, peak 601.8 MiB. Azure low-load maximum 369.6 MiB | No constrained combined-cloud workload, cold-start p95 or quota proof; edge 404s are not feature evidence. |
 
-Google's [ADK A2A guidance](https://adk.dev/a2a/) distinguishes local agents
-from remote agents. Its [MCP integration guidance](https://adk.dev/tools-custom/mcp-tools/)
-supports discovered tool integration. Apply these through the installed SDK's
-tested contracts: preserve local bounded delegation, owner-bound MCP admission,
-and explicit remote task compatibility gates rather than replacing every local
-specialist with a network hop.
+Whole monthly estimates at 30 billable hours, 50 GiB and 1,500 modeled calls are
+$38.69 Google/Flash and $18.74 Azure/Luna, including a $5 planning reserve.
+Different models are not equivalent quality. [Package assumptions and VM comparison](../operations/private-files-library.md#whole-package-planning-budget)
+include disks, retained addresses and a hypothetical wake service. Model calls,
+resource hours and scale-down tails remain separate meters. Promotional credits
+and invoices still need reconciliation; Computer Use is excluded and separately
+gated. The matched qualification target is 1 vCPU / 2 GiB; existing selections
+remain authoritative. Twenty warm GCP samples and its bounded chat/Files overlap passed; cold GCP,
+Azure sampling, real Puppy overlap and final-image idle return remain required. No observed 429 establishes quota capacity.
 
-## Earlier documentation audit
+## Next gate and historical boundaries
 
-See the [canonical runtime architecture visuals](../architecture/architecture.md).
+One normal-owner window must prove setup/provider transitions, Files, direct
+Puppy, exact update/recovery and bounded wake/idle behavior on the qualified image.
+Computer Use acceptance remains separate for each cloud. The exact dev release receipts above establish application deployment; cloud
+journeys require their own acceptance receipts.
+An October 7 readback placed the personal Hermes owner on Azure Dev 7 with
+direct readiness and the selected device grant recorded. These are metadata
+observations, not new inference, recovery or Dev 9 compatibility receipts.
+The isolated restore target is removed. Its restricted recovery point is retained
+only until a successful routine backup newer than this release is verified; the
+operations owner then deletes that exact rehearsal copy. Existing backups remain.
+No main merge, UAT/production deployment, stable publication or automatic upgrade.
 
-```mermaid
-flowchart LR
-  source["Inspected branch source"] --> code["Code contract inspected"]
-  code --> integration["Dashboard and browser proxy remain unverified"]
-  source --> deployment["Per-environment rollout evidence unavailable"]
-  deployment --> retirement["Retirement completion unverified"]
-```
+Operational owners: [Files contract](../operations/private-files-library.md),
+[dev pod runbook](../operations/dev-pod-first-light-runbook.md),
+[deployment standard](../architecture/deployment-standard.md) and
+[Mail/Drive acceptance](../operations/mail-drive-uat-acceptance.md).
 
-## Findings
+Dev history cleanup 944 completed on 2026-09-28 under
+[run 36392414630](https://github.com/hushh-labs/hushh-research/actions/runs/36392414630).
+Migration 249 is the public-profile bridge. No repeated deletion; a no-op SQL
+rollback is not recovery. Earlier cold Puppy and mixed-work failures remain
+usability/capacity evidence. Missing measurements are not zero; spending warnings
+never stop service.
 
-| Area | Status | Evidence and boundary |
-|---|---|---|
-| One delegation | Verified in checkout | [Agent hierarchy](../one/one-agent-hierarchy.md) distinguishes ADK `AgentTool`, process-local dispatch, and external scoped A2A. `adk_bridge` has five mapped specialist scope IDs; local dispatch registers document, location, email, Nav, and Personal Information handlers. These are separate contracts, not one universal router. |
-| Plaid vault passthrough | Implemented on branch; integration and rollout unverified | [`plaid_vault.py`](../../../consent-protocol/api/routes/kai/plaid_vault.py) exposes link-token, exchange, snapshot, and remove operations with owner authorization and no vault-route database persistence. The backend transiently receives access tokens and readable upstream records. The current portfolio hook reloads vault financial context and derives Plaid status from it; source inspection does not establish deployed UI behavior. The retirement route and migration are present on this branch; no per-environment migration, key cleanup, or disconnection evidence was reviewed. |
-| Browser proxy caching | Needs verification | Backend vault responses set `Cache-Control: no-store`, but the inspected generic Next Kai proxy rebuilds JSON through `withRequestIdJson` without visibly forwarding that header. Do not claim browser-facing proxy responses are no-store. Verify propagation in the owning frontend/API-contract workflow. |
-| Mail/Drive UAT | Deployment verified; acceptance incomplete | [Acceptance record](../operations/mail-drive-uat-acceptance.md) records successful post-merge deployment, while connector flags and the internal-owner cohort remain off and the user journey is not accepted. Deployment evidence does not establish feature acceptance. |
-| Recursive documentation model | Split recommendations stale | [Knowledge model](../operations/documentation-recursive-knowledge-model.md) now records that mobile and location guides already have their child documents; no further restructure is indicated. |
-| Runtime model claims | Repo defaults verified; deployment selection varies | [`model_catalog.py`](../../../consent-protocol/hushh_mcp/runtime_providers/model_catalog.py) lists `gemini-3.8-flash` and `gemini-3.7-flash`; manifests can use `gemini-default`, and [`live_compatibility.py`](../../../consent-protocol/hushh_mcp/runtime_providers/live_compatibility.py) documents Live model compatibility. Voice model selection is environment/configuration dependent. These sources do not support describing One as entirely model-agnostic or proving a deployed model selection. |
+## GCP-only pod deployment correction — 2026-09-25
 
-## Follow-up ownership
+Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.
+Current Google/Azure choices and their gates belong to the deployment standard.
 
-- **Frontend proxy and dashboard integration:** verify response-header propagation through [`api-contract-change`](../../../.codex/workflows/api-contract-change/workflow.json) and migrate/verify the mounted status/refresh consumer against the vault contract through [`frontend-cache-coherence`](../../../.codex/workflows/frontend-cache-coherence/workflow.json). Evidence required: route-level header test and a same-contract dashboard integration check.
-- **Plaid retirement rollout:** verify migration 239 through [`data-model-audit`](../../../.codex/workflows/data-model-audit/workflow.json), then prove migration and environment cleanup/disconnection through [`uat-scoped-deploy`](../../../.codex/workflows/uat-scoped-deploy/workflow.json) and the repo-operations owner. Evidence required: migration ledger and environment-specific cleanup results. Until then, retirement is implemented on this branch, not a completed rollout.
-- **Mail/Drive acceptance:** keep the acceptance record open until flags/cohort are enabled and the end-to-end document-sharing journey passes.
+## Files continuation evidence — 2026-09-25
 
-## Canonical evidence
-
-- [One agent hierarchy](../one/one-agent-hierarchy.md) and [agent development](../../../consent-protocol/docs/reference/agent-development.md)
-- [Kai brokerage connectivity architecture](../kai/kai-brokerage-connectivity-architecture.md) and [Plaid passthrough contract](../kai/plaid-vault-passthrough.md)
-- [Mail/Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md)
-- [Backend ADK bridge and agent tree](../../../consent-protocol/hushh_mcp/adk_bridge/__init__.py), [`delegation.py`](../../../consent-protocol/hushh_mcp/adk_bridge/delegation.py), [`agent_tree.py`](../../../consent-protocol/hushh_mcp/one_adk/agent_tree.py)
-- [Runtime model catalog](../../../consent-protocol/hushh_mcp/runtime_providers/model_catalog.py), [Live compatibility rules](../../../consent-protocol/hushh_mcp/runtime_providers/live_compatibility.py)
+Historical pointer: source checks were not owner-cloud activation receipts.
+The Files contract and current matrix above own later acceptance.

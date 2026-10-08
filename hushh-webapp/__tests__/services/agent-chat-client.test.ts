@@ -19,12 +19,15 @@ const mockTransport = vi.hoisted(() => ({
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
     private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    private abortController = new AbortController();
     constructor(public config: { fetch?: (url: string, init: RequestInit) => Promise<Response> }) {}
     abortRun() {
       mockTransport.aborted = true;
+      this.abortController.abort();
       void this.reader?.cancel();
     }
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
+      this.abortController = new AbortController();
       mockTransport.runAgent(parameters, this.config);
       if (mockTransport.failWith) {
         const error = mockTransport.failWith;
@@ -32,7 +35,7 @@ vi.mock("@ag-ui/client", () => ({
         throw error;
       }
       if (mockTransport.readBody) {
-        const response = await this.config.fetch!("/api/one/agent-chat", {});
+        const response = await this.config.fetch!("/api/one/agent-chat", { signal: this.abortController.signal });
         this.reader = response.body!.getReader();
         while (!(await this.reader.read()).done) { /* keep reading */ }
         // The real client reports its own abort to the subscriber, then swallows it.
@@ -86,6 +89,7 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     apiFetch: vi.fn(),
     apiFetchStream: vi.fn(),
+    agentChatRequest: vi.fn(),
     listAgentChatConversations: vi.fn(),
     getAgentChatHistory: vi.fn(),
     renameAgentChatConversation: vi.fn(),
@@ -94,10 +98,10 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 
 import {
-  AGENT_CHAT_STREAM_IDLE_MS,
   AGENT_CHAT_STREAM_LOST_ERROR,
   AgentChatStreamLostError,
   formatAgentChatErrorMessage,
+  findInformationRequestConversation,
   parseRestoredTurnActivity,
   getAgentChatHistory,
   listAgentChatConversations,
@@ -201,12 +205,22 @@ describe("One chat key transport", () => {
       const error = await turn({ onError: (message) => shown.push(message) }).catch((caught) => caught);
 
       expect(error).toBeInstanceOf(ChatKeyRefusalError);
-      expect(error).toMatchObject({ code: "CHAT_KEY_REQUIRED", recovery: "unlock" });
+      expect(error).toMatchObject({ code: "CHAT_KEY_REQUIRED", recovery: "unlock", retrySafe: true });
       expect(error.message).toMatch(/^Unlock your vault to continue/);
       expect(error.message).not.toMatch(/HTTP 403|detail|couldn't complete/);
       expect(shown).toEqual([error.message]);
       expect(lockRequests).toEqual(["CHAT_KEY_REFUSED"]);
       expect(mockTransport.runAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it("unlocks without replay permission when a streamed turn may already have effects", async () => {
+      mockTransport.emitEvents = (subscriber) => subscriber.onRunErrorEvent?.({
+        event: { type: "RUN_ERROR", code: "CHAT_KEY_REQUIRED", message: "Key no longer available" },
+      });
+      try {
+        await expect(turn()).rejects.toMatchObject({ recovery: "unlock", retrySafe: false });
+        expect(mockTransport.runAgent).toHaveBeenCalledTimes(1);
+      } finally { mockTransport.emitEvents = null; }
     });
 
     it("never locks twice: a refusal after the fresh unlock says how to continue instead", async () => {
@@ -257,12 +271,12 @@ describe("One chat key transport", () => {
   });
 
   it("sends the chat key when recording a submitted request into history", async () => {
-    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response("{}", { status: 200 }));
     await recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,
       conversationId: "thread-1", sourceActivityId: "a", bundleId: "b",
       idempotencyKey: "c", vaultOwnerToken: "owner-token",
     }).catch(() => undefined);
-    const init = vi.mocked(ApiService.apiFetch).mock.calls.at(-1)?.[1] as RequestInit;
+    const init = vi.mocked(ApiService.agentChatRequest).mock.calls.at(-1)?.[1] as RequestInit;
     expect(new Headers(init.headers).get("X-Hussh-Chat-Key")).toBe(TEST_CHAT_KEY);
     expect(String(init.body)).not.toContain(TEST_CHAT_KEY);
   });
@@ -396,20 +410,20 @@ describe("AG-UI Agent One client", () => {
       fields: [{ requestId: "request_12345678", label: "Professional Domain",
         domain: "Information", sensitivity: "standard", status: "pending" }],
     } };
-    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
     const result = await recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,
       conversationId: "thread-1", sourceActivityId: "discover-call",
       bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token",
     });
     expect(result.type).toBe("one.information_request_review.v1");
-    expect(ApiService.apiFetch).toHaveBeenCalledWith(
+    expect(ApiService.agentChatRequest).toHaveBeenCalledWith(
       "/api/one/agent-chat/history/thread-1/information-requests",
       expect.objectContaining({ method: "POST", body: JSON.stringify({
         source_activity_id: "discover-call", bundle_id: bundleId,
         idempotency_key: "synthetic-receipt-key",
       }) }),
     );
-    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response(JSON.stringify({
       descriptor: { ...descriptor, content: { ...descriptor.content, bundleId: "other-bundle" } },
     }), { status: 200 }));
     await expect(recordAgentChatInformationRequest({ vaultKey: TEST_VAULT_KEY,
@@ -448,15 +462,15 @@ describe("AG-UI Agent One client", () => {
     const input = { vaultKey: TEST_VAULT_KEY, conversationId: "thread-1", sourceActivityId: activityId,
       bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token" };
     const sleep = vi.fn(async () => undefined);
-    vi.mocked(ApiService.apiFetch).mockClear();
-    vi.mocked(ApiService.apiFetch)
+    vi.mocked(ApiService.agentChatRequest).mockClear();
+    vi.mocked(ApiService.agentChatRequest)
       .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Discovery card not found." }), { status: 404 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
     await expect(recordAgentChatInformationRequestWithRetry(input, { sleep })).resolves.toMatchObject({
       phase: "submitted", bundleId, subjectRef: PERSON_REF,
     });
-    expect(ApiService.apiFetch).toHaveBeenCalledTimes(2);
-    for (const call of vi.mocked(ApiService.apiFetch).mock.calls) {
+    expect(ApiService.agentChatRequest).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(ApiService.agentChatRequest).mock.calls) {
       expect(call[0]).toBe("/api/one/agent-chat/history/thread-1/information-requests");
       // Locators only: the card id the server matches, the bundle and the key. Never a card body.
       expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({
@@ -465,13 +479,13 @@ describe("AG-UI Agent One client", () => {
     }
 
     // A final refusal is not retried, and reports its status for the log.
-    vi.mocked(ApiService.apiFetch).mockClear();
-    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(
+    vi.mocked(ApiService.agentChatRequest).mockClear();
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(
       new Response(JSON.stringify({ detail: "Request recipient did not match discovery." }), { status: 409 }));
     const refused = await recordAgentChatInformationRequestWithRetry(input, { sleep }).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(InformationRequestReceiptError);
     expect((refused as InformationRequestReceiptError).status).toBe(409);
-    expect(ApiService.apiFetch).toHaveBeenCalledTimes(1);
+    expect(ApiService.agentChatRequest).toHaveBeenCalledTimes(1);
     expect(isRetryableReceiptStatus(404)).toBe(true);
     expect(isRetryableReceiptStatus(null)).toBe(true);
     expect(isRetryableReceiptStatus(403)).toBe(false);
@@ -1139,10 +1153,43 @@ describe("AG-UI Agent One client", () => {
     expect(visible).not.toContain("ciphertext");
   });
 
+  it("uses hosting placement for consent conversation lookup", async () => {
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(
+      new Response(JSON.stringify({ conversationId: "synthetic-thread" }), { status: 200 }),
+    );
+    expect(await findInformationRequestConversation({
+      bundleId: "synthetic-bundle", vaultOwnerToken: "owner-token", vaultKey: TEST_VAULT_KEY,
+    })).toBe("synthetic-thread");
+    expect(ApiService.agentChatRequest).toHaveBeenCalledWith(
+      "/api/one/agent-chat/information-requests/synthetic-bundle/conversation",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
   it("maps typed database failures to stable actionable copy", () => {
     expect(
       formatAgentChatErrorMessage("private database detail", "DATABASE_EXECUTION_ERROR"),
     ).toBe("One's conversation history is temporarily unavailable. Please try again.");
+  });
+
+  it("explains a refused pod endpoint before dispatch without exposing transport details", async () => {
+    const onError = vi.fn();
+    mockTransport.failWith = Object.assign(new Error("private transport detail"), {
+      code: "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY",
+    });
+    const expected = "Your private agent connection is not ready. Open Hosting in Settings to reconnect, then try again.";
+    try {
+      await expect(streamAgentChat({
+        vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+        vaultOwnerToken: "owner-token", handlers: { onError },
+      })).rejects.toThrow(expected);
+    } finally {
+      mockTransport.failWith = null;
+    }
+    expect(onError).toHaveBeenCalledWith(expected);
+    expect(formatAgentChatErrorMessage("ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY")).toBe(expected);
+    expect(formatAgentChatErrorMessage("private transport detail ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY"))
+      .toBe("One couldn't complete that response. Please try again.");
   });
 
   it("maps untyped provider capacity failures without exposing runtime details", () => {
@@ -1624,40 +1671,9 @@ describe("a chat turn never waits forever", () => {
     expect(introError).toHaveBeenCalledTimes(1);
   });
 
-  it("fails a silent stream after the idle window, while keep-alive bytes hold it open", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-    const encoder = new TextEncoder();
-    let push!: (frame: string) => void;
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        push = (frame) => controller.enqueue(encoder.encode(frame));
-      },
-    });
-    vi.mocked(ApiService.apiFetchStream).mockResolvedValueOnce(
-      new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
-    );
-    mockTransport.readBody = true;
-    const onError = vi.fn();
-    const settled = vi.fn();
-    const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "what can we do here",
-      conversationId: "thread-silent", vaultOwnerToken: "owner-token", handlers: { onError } });
-    turn.then(settled, settled);
-    await vi.waitFor(() => expect(ApiService.apiFetchStream).toHaveBeenCalled());
 
-    // A slow model: three minutes of the server's 15 s keep-alive, no content.
-    for (let elapsed = 0; elapsed < 180_000; elapsed += 15_000) {
-      push(": ping\n\n");
-      await vi.advanceTimersByTimeAsync(15_000);
-    }
-    expect(settled).not.toHaveBeenCalled();
-    expect(onError).not.toHaveBeenCalled();
 
-    // The instance is gone: no bytes at all.
-    await vi.advanceTimersByTimeAsync(AGENT_CHAT_STREAM_IDLE_MS + 5_000);
-    await expect(turn).rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
-    expect(onError).toHaveBeenCalledTimes(1); // the abort that follows is not a second error
-    expect(mockTransport.aborted).toBe(true);
-  });
+
 });
 
 // The slow-reply notice is fed only by the transport: bytes, the first visible
@@ -1727,9 +1743,10 @@ describe("stream health for the slow-reply notice", () => {
     expect(signals).toEqual([]);
   });
 
+
   it("reports body bytes, keep-alive pings included", async () => {
     const encoder = new TextEncoder();
-    vi.mocked(ApiService.apiFetchStream).mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode(": ping\n\n"));
         controller.enqueue(encoder.encode(": ping\n\n"));

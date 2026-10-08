@@ -28,7 +28,9 @@ from hushh_mcp.one_adk.mcp_pending_call import (
 )
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope, validate_mcp_turn_configurations
 from hushh_mcp.one_adk.request_secrets import store_request_secret
+from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.action_directive_ledger import (
+    ActionDirectiveAuthorityError,
     ActionDirectiveStore,
 )
 from hushh_mcp.services.external_connector_registry_service import (
@@ -39,6 +41,69 @@ from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 async def _never_execute(*_):
     return {"status": "permission_required"}
+
+
+async def verify_account(
+    *,
+    token: dict[str, Any],
+    connector_id: str,
+    configuration: dict[str, Any],
+    owner_admission=None,
+    vault_only: bool = False,
+):
+    """Explicit owner Settings action; no conversation or credential persistence."""
+    from hushh_mcp.one_adk.stripe_mcp_verification import verify_stripe_account
+    from hushh_mcp.services.stripe_mcp_policy import official_stripe_endpoint, stripe_readiness
+
+    if pod_mode() and (not vault_only or owner_admission is None):
+        raise ExternalMcpError(
+            "Owner-pod access required.", code="MCP_OWNER_REQUIRED", status_code=403
+        )
+    owner = str(token["user_id"])
+    record = validate_mcp_turn_configurations([configuration]).get(connector_id)
+    if record is None or not record["enabled"] or not official_stripe_endpoint(record["endpoint"]):
+        raise ExternalMcpError("Stripe connection unavailable.", code="MCP_CONNECTION_CHANGED")
+    thread = f"verify-{uuid4().hex}"
+    context = Context(
+        InvocationContext(
+            session_service=InMemorySessionService(),
+            invocation_id=uuid4().hex,
+            session=Session(
+                id=thread,
+                app_name="hussh_one",
+                user_id=owner,
+                state={
+                    "hussh:user_id": owner,
+                    "hussh:conversation_id": thread,
+                    "hussh:consent_token": store_request_secret(token["token"]),
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            ),
+        )
+    )
+    async with mcp_turn_scope(
+        thread,
+        owner_id=owner,
+        configurations=[record],
+        owner_admission=owner_admission,
+        vault_only=vault_only,
+    ) as scope:
+        toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
+        try:
+            values = await verify_stripe_account(toolset, context)
+        except ExternalMcpError as error:
+            return {
+                "connectorId": connector_id,
+                "configurationRevision": record["revision"],
+                "stripeReadiness": stripe_readiness(reason_code=error.code),
+            }
+        return {
+            "connectorId": connector_id,
+            "configurationRevision": record["revision"],
+            "stripeReadiness": stripe_readiness(tooling_connected=True, proof=toolset.stripe_proof),
+            "account": values["account"],
+            "balance": values["balance"],
+        }
 
 
 async def discover_catalog(
@@ -118,8 +183,15 @@ async def review_tool(
     conversation_id: str,
     tool_name: str,
     configuration: dict[str, Any] | None = None,
+    sessions=None,
+    owner_admission=None,
+    vault_only: bool = False,
 ):
     owner = str(token["user_id"])
+    if pod_mode() and not vault_only:
+        raise ActionDirectiveAuthorityError("Private connector review requires injected custody.")
+    if vault_only and (sessions is None or owner_admission is None or configuration is None):
+        raise ActionDirectiveAuthorityError("Private connector review unavailable.")
     if configuration is not None:
         records = validate_mcp_turn_configurations([configuration])
         record = records.get(connector_id)
@@ -136,7 +208,7 @@ async def review_tool(
                 "Connector unavailable.", code="MCP_CONNECTION_CHANGED", status_code=404
             )
         connector_label = definition.display_name
-    sessions = EncryptedAdkSessionService()
+    sessions = sessions if sessions is not None else EncryptedAdkSessionService()
     session = await sessions.get_session(
         app_name="hussh_one", user_id=owner, session_id=conversation_id
     )
@@ -158,7 +230,7 @@ async def review_tool(
                 "hussh:conversation_id": conversation_id,
                 "hussh:consent_token": store_request_secret(token["token"]),
                 "temp:one_execution_surface": "typed_chat",
-                "temp:hussh:workspace_chat_admission": True,
+                "temp:hussh:workspace_chat_admission": not vault_only,
                 "temp:mcp_connector_label": connector_label,
             },
         ),
@@ -168,6 +240,8 @@ async def review_tool(
         conversation_id,
         owner_id=owner,
         configurations=[configuration] if configuration is not None else None,
+        owner_admission=owner_admission,
+        vault_only=vault_only,
     ) as scope:
         toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
         tools = await toolset.get_tools(context)
@@ -275,9 +349,17 @@ async def confirm_review(
 
 
 async def prepare_pending_review(
-    *, token, connector_id, conversation_id, tool_name, pending_handle, configuration=None
-):
+    *,
+    token: dict[str, Any],
+    connector_id: str,
+    conversation_id: str,
+    tool_name: str,
+    pending_handle: str,
+    configuration: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Preview the already-issued native call; never issue another directive."""
+    if pod_mode():
+        raise ActionDirectiveAuthorityError("Private connector review requires injected custody.")
     session = await EncryptedAdkSessionService().get_session(
         app_name="hussh_one",
         user_id=str(token["user_id"]),

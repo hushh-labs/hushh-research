@@ -11,7 +11,8 @@ dependencies = [
     "ag-ui-adk==0.7.0",
     "ag-ui-protocol==0.1.21",
     "asyncpg>=0.29.0",
-    "cryptography>=44.0.0",
+    # Keep the PKCS#7 oracle fix required by the pod security baseline.
+    "cryptography>=50.0.0",
     "defusedxml>=0.7.1",
     "fastapi>=0.115.0",
     "firebase-admin==7.1.0",
@@ -74,6 +75,7 @@ dependencies = [
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",
     "pycountry>=26.2.16",
+    "webauthn>=3.0.0",
     "redis==5.3.1",
     "cachetools==7.1.7",
     "stripe>=13,<20",
@@ -110,6 +112,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.uv]
 package = false
+
+# Cloud Run has no GPU. Resolve Torch from the CPU wheel index so pod images do
+# not carry the CUDA runtime.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [tool.ruff]
 # Python 3.13 - aligned with CI and Dockerfile
@@ -208,6 +220,9 @@ follow_imports = "skip"
 [[tool.mypy.overrides]]
 module = [
     "hushh_mcp.services.one_location_agent_service",
+    # The extracted pure seams retain typed return contracts at the facade.
+    "hushh_mcp.services.one_location_recommendation_signals",
+    "hushh_mcp.services.one_location_share_lifecycle",
     # Preserve the public URL helper's return types at the service boundary.
     "hushh_mcp.services.one_location_public_invite_url",
     # Keep the shared manual/command public-link writer's return contract typed.

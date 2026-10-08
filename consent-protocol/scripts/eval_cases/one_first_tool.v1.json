@@ -249,9 +249,10 @@
       ]
     },
     {
-      "id": "email.approval_drafts",
+      "id": "email.unread_messages_v2",
       "family": "email",
-      "prompt": "which approval drafts are waiting on me",
+      "prompt": "which unread emails arrived in my inbox this week",
+      "runtime_context": "typed_chat",
       "expected": [
         "ask_email_agent"
       ]
@@ -445,9 +446,10 @@
       ]
     },
     {
-      "id": "delegation.email_client_request_workflow",
+      "id": "delegation.read_recent_mail_v2",
       "family": "delegation",
-      "prompt": "what client request workflows does the email specialist have open for me",
+      "prompt": "summarize the five most recent emails in my inbox",
+      "runtime_context": "typed_chat",
       "expected": [
         "ask_email_agent"
       ]

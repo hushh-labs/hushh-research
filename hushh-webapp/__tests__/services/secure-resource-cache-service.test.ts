@@ -9,7 +9,9 @@ const VAULT_KEY = "ab".repeat(32);
 
 async function readRawCacheRecord(): Promise<unknown> {
   return await new Promise((resolve, reject) => {
-    const request = indexedDB.open("hushh-secure-resource-cache", 1);
+    // No explicit version: open whatever the service last created, so a schema
+    // bump does not silently turn this raw read into a VersionError.
+    const request = indexedDB.open("hushh-secure-resource-cache");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const database = request.result;

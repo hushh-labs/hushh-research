@@ -17,7 +17,8 @@ import json
 import logging
 import re
 import time
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from functools import partial
@@ -85,7 +86,8 @@ def consume_turn_configurations(state: dict, *, owner_id: str, conversation_id: 
 def _vault_owner_token(secret: Any) -> bool:
     """A vault-owner token, under any auth scheme, never leaves for a server."""
     return (
-        isinstance(secret, str) and re.match(r"^(?:\S+\s+)?HCT:", secret.strip(), re.I) is not None
+        isinstance(secret, str)
+        and re.match(r"^(?:\S+\s+)?(?:HCT:|pst1\.|pod-session:)", secret.strip(), re.I) is not None
     )
 
 
@@ -208,16 +210,30 @@ def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
 
 class McpTurnResources:
     def __init__(
-        self, conversation_id: str, *, owner_id: str | None = None, configurations: Any = None
+        self,
+        conversation_id: str,
+        *,
+        owner_id: str | None = None,
+        configurations: Any = None,
+        owner_admission: Callable[[Any], Awaitable[bool]] | None = None,
+        configuration_admissions: dict[str, Callable[[dict], None]] | None = None,
+        vault_only: bool = False,
     ):
         self.conversation_id = conversation_id
         self._owner = owner_id
+        self.vault_only = vault_only
+        self._owner_admission = owner_admission
+        self._configuration_admissions = dict(configuration_admissions or {})
+        if vault_only and (configurations is None or not owner_id or owner_admission is None):
+            raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")
         self.has_vault_configurations = configurations is not None
         if configurations is not None and not owner_id:
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         self._configurations = (
             validate_mcp_turn_configurations(configurations) if configurations is not None else {}
         )
+        if not self._configuration_admissions.keys() <= self._configurations.keys():
+            raise ExternalMcpError("Connector custody unavailable.", code="MCP_CONNECTION_CHANGED")
         self._closed = False
         self._toolsets: dict[McpConnectionBinding, GovernedMcpToolset] = {}
         self._catalog_views: list[Any] = []
@@ -255,6 +271,23 @@ class McpTurnResources:
             )
         return sorted(entries, key=lambda entry: entry["name"].casefold())
 
+    async def owner_is_admitted(self, context: Any) -> bool:
+        if (
+            self._closed
+            or context.state.get("hussh:conversation_id") != self.conversation_id
+            or (self._owner is not None and context.user_id != self._owner)
+            or context.user_id != context.state.get("hussh:user_id")
+            or context.state.get("temp:one_execution_surface") != "typed_chat"
+        ):
+            return False
+        if self._owner_admission is not None:
+            return (await self._owner_admission(context)) is True
+        return (
+            await validate_first_party_owner_token(
+                context.user_id, resolve_request_secret(context.state.get("hussh:consent_token"))
+            )
+        ) is True
+
     async def resolve_connection(self, context: Any, connector_id: str) -> ResolvedMcpConnection:
         if self._closed or context.state.get("hussh:conversation_id") != self.conversation_id:
             raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")
@@ -262,6 +295,8 @@ class McpTurnResources:
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         record = self._configurations.get(connector_id)
         if record is None:
+            if self.vault_only:
+                raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
             if self.has_vault_configurations:
                 # An omitted/removed custom connector cannot be resurrected from
                 # the superseded readable database registry during this turn.
@@ -269,14 +304,13 @@ class McpTurnResources:
                     raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
                 return await resolve_registered_connection(context, connector_id, curated_only=True)
             return await resolve_registered_connection(context, connector_id)
-        if (
-            context.user_id != context.state.get("hussh:user_id")
-            or context.state.get("temp:one_execution_surface") != "typed_chat"
-            or not await validate_first_party_owner_token(
-                context.user_id, resolve_request_secret(context.state.get("hussh:consent_token"))
-            )
-        ):
+        admission = self._configuration_admissions.get(connector_id)
+        if admission is not None:
+            admission(record)
+        if not self._owner or not await self.owner_is_admitted(context):
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
+        if admission is not None:
+            admission(record)  # owner admission awaited: the login may have changed
         owner = self._owner
         if owner is None:
             # Vault configurations are admitted only for an owner-bound turn.
@@ -317,9 +351,17 @@ class McpTurnResources:
             ),
             headers,
             catalog_policy=admitted,
-            # The person's own connector either way; this only labels Activity.
-            review_policy="credentialless" if auth["kind"] == "none" else "credentialed",
+            # A sealed login cannot establish curated read policy. Its calls
+            # keep exact review until an authoritative catalog is available.
+            review_policy=(
+                "always"
+                if admission is not None
+                else "credentialless"
+                if auth["kind"] == "none"
+                else "credentialed"
+            ),
             forced_review_tool_ids=frozenset(item["id"] for item in record.get("blockedTools", [])),
+            authentication_kind=auth["kind"],
         )
 
     def track_catalog_view(self, view: Any) -> None:
@@ -361,6 +403,7 @@ class McpTurnResources:
     async def close(self) -> None:
         self._closed = True
         self._configurations.clear()
+        self._configuration_admissions.clear()
         self.unavailable_connectors.clear()
         self.catalog_tools.clear()
         views, self._catalog_views = self._catalog_views, []
@@ -389,14 +432,34 @@ def current_mcp_turn() -> McpTurnResources:
 
 @asynccontextmanager
 async def mcp_turn_scope(
-    conversation_id: str, *, owner_id: str | None = None, configurations: Any = None
+    conversation_id: str,
+    *,
+    owner_id: str | None = None,
+    configurations: Any = None,
+    owner_admission: Callable[[Any], Awaitable[bool]] | None = None,
+    configuration_admissions: dict[str, Callable[[dict], None]] | None = None,
+    vault_only: bool = False,
 ):
-    scope = McpTurnResources(conversation_id, owner_id=owner_id, configurations=configurations)
+    scope = McpTurnResources(
+        conversation_id,
+        owner_id=owner_id,
+        configurations=configurations,
+        owner_admission=owner_admission,
+        configuration_admissions=configuration_admissions,
+        vault_only=vault_only,
+    )
+    with bind_mcp_turn(scope):
+        try:
+            yield scope
+        finally:
+            await scope.close()
+
+
+@contextmanager
+def bind_mcp_turn(scope: McpTurnResources):
+    """Bind an already-owned scope; its runtime owns cleanup after producers settle."""
     token = _CURRENT.set(scope)
     try:
         yield scope
     finally:
-        try:
-            await scope.close()
-        finally:
-            _CURRENT.reset(token)
+        _CURRENT.reset(token)

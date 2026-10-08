@@ -19,6 +19,7 @@ from hushh_mcp.services.curated_connector_manifest import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+DEPLOY_SCRIPT = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text(encoding="utf-8")
 CLOUDBUILD = (REPO_ROOT / "deploy" / "backend.cloudbuild.yaml").read_text(encoding="utf-8")
 UAT_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "deploy-uat.yml").read_text(encoding="utf-8")
 
@@ -95,9 +96,14 @@ def test_the_reader_rejects_a_bad_secret_name(tmp_path):
 
 def test_cloud_build_has_one_generic_loop_and_no_per_provider_lines():
     assert "_CURATED_CONNECTOR_SECRETS" in CLOUDBUILD
-    assert 'add_secret "$s" "$s"' in CLOUDBUILD
+    assert '"scripts/deploy/backend-deploy.sh"' in CLOUDBUILD
+    assert '"_CURATED_CONNECTOR_SECRETS=${_CURATED_CONNECTOR_SECRETS}"' in CLOUDBUILD
+    assert 'for s in $(echo "${_CURATED_CONNECTOR_SECRETS}" | tr' in DEPLOY_SCRIPT
+    assert 'append_optional_secret "$s" "$s"' in DEPLOY_SCRIPT
+    assert "^[A-Z][A-Z0-9_]{1,127}$" in DEPLOY_SCRIPT
+    assert "Invalid curated connector secret name." in DEPLOY_SCRIPT
     for name in ("HUBSPOT", "NOTION"):
-        assert name not in CLOUDBUILD, "provider names must not be wired into the build file"
+        assert name not in CLOUDBUILD + DEPLOY_SCRIPT, "provider wiring must stay manifest-derived"
 
 
 def test_the_coverage_check_sees_the_generic_binding():

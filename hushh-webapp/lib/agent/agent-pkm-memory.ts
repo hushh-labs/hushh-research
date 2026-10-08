@@ -474,6 +474,8 @@ export async function addToPKM(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   source?: string;
+  /** Stable operation identity for safe retries of a reviewed import. */
+  idempotencyScope?: string;
   confirmation: PkmWriteAuthorization;
   beforeEffect?: () => Promise<void>;
   mayPublish?: () => boolean;
@@ -638,7 +640,6 @@ export async function addToPKM(params: {
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
-        idempotencyScope: params.idempotencyScopes?.[index],
         beforeEffect: params.beforeEffect,
         mayPublish: params.mayPublish,
         confirmation: automatic
@@ -659,7 +660,12 @@ export async function addToPKM(params: {
                     affectedExportIds: sharingImpact.affected_export_ids,
                   }
                 : undefined,
-            },
+        },
+        // Both callers' shapes: a per-card scope (the save job) wins; otherwise one
+        // operation scope is made unique per card (profile review, location finalize).
+        idempotencyScope:
+          params.idempotencyScopes?.[index] ??
+          (params.idempotencyScope ? `${params.idempotencyScope}:${cardId}` : undefined),
         build: async (context) => {
           if (params.businessOrigin) {
             if (automatic || params.source !== "business_profile_review")
@@ -669,21 +675,20 @@ export async function addToPKM(params: {
           // Re-run on a conflict retry, so the outcome follows the state that
           // was finally merged into.
           outcome = classifyMergeOutcome({
-            // Display-only classification; the coordinator always passes context.
             existing: context?.currentDomainData ?? {},
             incoming: candidatePayload,
             mergeMode,
           });
           return {
-          domainData: candidatePayload,
-          summary: {
-            ...nextSummaryProjection,
-            source: params.source || "agent_chat",
-          },
-          mergeDecision: card.merge_decision,
-          structureDecision: nextStructureDecision,
-          manifest: nextManifest || undefined,
-          scopePath: resolveCardScope(card) || undefined,
+            domainData: candidatePayload,
+            summary: {
+              ...nextSummaryProjection,
+              source: params.source || "agent_chat",
+            },
+            mergeDecision: card.merge_decision,
+            structureDecision: nextStructureDecision,
+            manifest: nextManifest || undefined,
+            scopePath: resolveCardScope(card) || undefined,
           };
         },
       });

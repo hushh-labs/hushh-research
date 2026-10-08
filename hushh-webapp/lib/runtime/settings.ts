@@ -36,3 +36,8 @@ export function resolveMailApiEndpoint(): string {
 export function resolveMailApiKey(): string {
   return normalizeText(process.env.MAIL_API_KEY);
 }
+
+/** Exact server-side application origin; callers enforce their own origin contract. */
+export function resolveServerAppFrontendOrigin(): string {
+  return normalizeText(process.env.APP_FRONTEND_ORIGIN);
+}

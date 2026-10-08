@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import limits.storage.memory as memory_storage
 import pytest
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.testclient import TestClient
@@ -827,6 +828,10 @@ def test_authenticated_product_limits_are_isolated_by_verified_firebase_uid(
     monkeypatch: pytest.MonkeyPatch,
     enforcing_product_limiter,
 ):
+    # Keep the real 60/minute contract while preventing a loaded CI worker
+    # from crossing the in-memory window between the first and 61st request.
+    frozen_now = memory_storage.time.time()
+    monkeypatch.setattr(memory_storage, "time", SimpleNamespace(time=lambda: frozen_now))
     calls = 0
 
     async def authenticated_uid(

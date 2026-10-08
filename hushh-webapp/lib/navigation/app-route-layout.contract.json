@@ -117,8 +117,9 @@
       "screen": "one_setup_hub",
       "entryCue": "Choose something to set up, or say \u2018finish setup\u2019 when you are ready.",
       "proactivity": "on_entry",
-      "primaryActionId": "setup.open_connections",
+      "primaryActionId": "setup.open_cloud",
       "happyPathActionIds": [
+        "setup.open_cloud",
         "setup.open_connections",
         "setup.open_gmail",
         "setup.open_calendar",
@@ -1136,6 +1137,42 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    }
+  },
+  {
+    "route": "/one/files",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.files",
+      "purpose": "Manage the owner\u2019s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "File changes complete only after the owner-bound pod confirms the matching operation; destructive changes require explicit confirmation.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally without inventing a control."
@@ -2377,6 +2414,78 @@
     }
   },
   {
+    "route": "/one/setup/cloud",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/byoc-cloud-setup-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.cloud",
+      "purpose": "Choose and authorize the person's own cloud so their private agent can be built there, before any AI-access choice is made.",
+      "screen": "one_setup_cloud",
+      "entryCue": "Choose where your agent lives, then sign in to your cloud so it can be built there.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.finish_cloud",
+      "happyPathActionIds": [
+        "setup.finish_cloud"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/cloud/azure/return",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/azure-cloud-return-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.cloud.azure.return",
+      "purpose": "Finish the Microsoft sign-in that sets up or updates the person's private agent in their own Azure subscription, without exposing credentials.",
+      "screen": "one_setup_cloud",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to cloud setup and explain that Azure was not connected.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to cloud setup without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The callback completes only after the hub verifies the sign-in state and starts the setup or update job; progress is read from that job's record.",
+      "nextRoute": "/one/setup/cloud",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/setup/connections",
     "mode": "standard",
     "shellVerification": {
@@ -2936,6 +3045,41 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/discovery",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/profile/discovery/page.tsx",
+      "includes": [
+        "CapabilityVaultPrerequisite",
+        "AppPageShell",
+        "AppPageContentRegion",
+        "PublicProfileReviewWorkspace"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.discovery",
+      "purpose": "Explain the source-linked public profile review without deciding which findings to claim.",
+      "screen": "profile_discovery",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the person's review goal.",
+        "cancelled": "Respect the cancellation and leave findings unclaimed.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer a safe retry in the review workspace.",
+        "callbackError": "Return to the protected review workspace without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Claim completion is shown only after the protected browser review confirms the selected information was added.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
     }
   },
   {
@@ -4700,6 +4844,78 @@
       "completionBoundary": "The handoff completes only after the signed-in Firebase user receives a bound one-time launch code and the browser reaches the exact allowlisted Hushh Tech callback.",
       "nextRoute": null,
       "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/hosting",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.hosting",
+      "purpose": "Help the person understand hosting through verified settings controls.",
+      "screen": "profile_hosting",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/software-updates",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.software-updates",
+      "purpose": "Help the person understand software updates through verified settings controls.",
+      "screen": "profile_software-updates",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   }

@@ -21,6 +21,16 @@ from hushh_mcp.services.gmail_delivery_service import (
 from hushh_mcp.services.gmail_reply_source_service import resolve_source_bound_reply
 
 
+@pytest.fixture(autouse=True)
+def shared_owner_placement(monkeypatch):
+    """These route fixtures exercise Shared mail; private refusals live in the route-wall suite."""
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value="shared")
+    )
+
+
 def _app(*, owner_user_id: str = "firebase-user") -> FastAPI:
     app = FastAPI()
     app.include_router(module.router)
