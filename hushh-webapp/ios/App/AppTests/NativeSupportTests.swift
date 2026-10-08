@@ -625,6 +625,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(config.initialRoute, "/login?redirect=%2Fconsents")
         XCTAssertEqual(config.expectedMarker, "consent-manager-primary")
         XCTAssertTrue(config.autoReviewerLogin)
+        XCTAssertTrue(config.resetAppState)
+
+        // Preparation for attach-only reviewer tests must select the normal
+        // passphrase surface without signing out, resetting or auto-unlocking.
+        let retainedSession = NativeTestConfiguration(arguments: [
+            "App", "-UITestMode",
+            "-UITestResetAppState", "false",
+            "-UITestAutoReviewerLogin", "false",
+            "-UITestRunUiFlows", "false",
+        ], environment: [:])
+        XCTAssertTrue(retainedSession.enabled)
+        XCTAssertFalse(retainedSession.resetAppState)
+        XCTAssertFalse(retainedSession.autoReviewerLogin)
+        XCTAssertFalse(retainedSession.runUiFlows)
+        XCTAssertNil(retainedSession.vaultPassphrase)
+        XCTAssertNil(retainedSession.expectedUserId)
+        XCTAssertNil(retainedSession.initialRoute)
     }
 
     func testNativeReviewerCredentialsNeverComeFromLaunchArguments() {
