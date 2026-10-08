@@ -49,8 +49,8 @@ type Props = {
   { kind: "date"; label: string; value: string; minimum: string; maximum: string; onValueChange: (value: string) => void });
 
 /** Opt-in presentation only. The caller retains its DOM control, layout and action
- * owner. History reserves 44x44; the two-option selector reserves 88..320 x 44.
- * New native families require --hushh-native-chat-chrome on a Debug iPhone.
+ * owner. Public preferences use supported native capabilities; chat families
+ * require --hushh-native-chat-chrome on a Debug iPhone.
  * Authored native/gesture dismissal can request acknowledged native focus;
  * DOM keyboard return keeps its fallback active until focus leaves the slot. */
 export function NativeChatChrome(props: Props) {

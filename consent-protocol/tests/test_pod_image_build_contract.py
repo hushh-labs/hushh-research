@@ -121,7 +121,7 @@ def _bash(script: str, cwd: str | None = None) -> str:
     ).stdout
 
 
-def _run_guard(script: str, deploy_env: str, build_flag: str) -> str:
+def _run_guard(script: str, deploy_env: str, build_flag: str, prefix: str = "") -> str:
     """Run a step's script with Cloud Build substitutions already expanded.
 
     Cloud Build expands ``${_FOO}`` textually before bash ever sees it, so that is what
@@ -137,8 +137,10 @@ def _run_guard(script: str, deploy_env: str, build_flag: str) -> str:
     an image with no contracts tree runs with an empty action gateway and no persona
     grounding, and shipping that silently is the bug this staging exists to fix.
     """
-    expanded = script.replace("${_DEPLOY_ENV}", deploy_env).replace(
-        "${_BUILD_POD_IMAGE}", build_flag
+    expanded = (
+        script.replace("${_DEPLOY_ENV}", deploy_env)
+        .replace("${_BUILD_POD_IMAGE}", build_flag)
+        .replace("${_SECRET_PREFIX}", prefix)
     )
     body, _, _ = expanded.partition("gcloud auth configure-docker")
     with tempfile.TemporaryDirectory() as workspace:
@@ -470,3 +472,9 @@ def test_the_step_keeps_its_substitution_tokens_in_the_yaml():
             f"{key} lost its ${{...}} token in the YAML; deploy-dev.yml's skew guard "
             f"would silently drop it and the deploy would use the template default."
         )
+
+
+def test_fixed_preview_never_publishes_a_pod_even_with_build_flag(pod_step: dict):
+    assert "REACHED_BUILD" not in _run_guard(
+        pod_step["args"][-1], "dev", "true", "SCOPE_COMMERCE_SANDBOX_"
+    )

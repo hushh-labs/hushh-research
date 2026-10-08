@@ -43,6 +43,69 @@ async def _never_execute(*_):
     return {"status": "permission_required"}
 
 
+async def verify_account(
+    *,
+    token: dict[str, Any],
+    connector_id: str,
+    configuration: dict[str, Any],
+    owner_admission=None,
+    vault_only: bool = False,
+):
+    """Explicit owner Settings action; no conversation or credential persistence."""
+    from hushh_mcp.one_adk.stripe_mcp_verification import verify_stripe_account
+    from hushh_mcp.services.stripe_mcp_policy import official_stripe_endpoint, stripe_readiness
+
+    if pod_mode() and (not vault_only or owner_admission is None):
+        raise ExternalMcpError(
+            "Owner-pod access required.", code="MCP_OWNER_REQUIRED", status_code=403
+        )
+    owner = str(token["user_id"])
+    record = validate_mcp_turn_configurations([configuration]).get(connector_id)
+    if record is None or not record["enabled"] or not official_stripe_endpoint(record["endpoint"]):
+        raise ExternalMcpError("Stripe connection unavailable.", code="MCP_CONNECTION_CHANGED")
+    thread = f"verify-{uuid4().hex}"
+    context = Context(
+        InvocationContext(
+            session_service=InMemorySessionService(),
+            invocation_id=uuid4().hex,
+            session=Session(
+                id=thread,
+                app_name="hussh_one",
+                user_id=owner,
+                state={
+                    "hussh:user_id": owner,
+                    "hussh:conversation_id": thread,
+                    "hussh:consent_token": store_request_secret(token["token"]),
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            ),
+        )
+    )
+    async with mcp_turn_scope(
+        thread,
+        owner_id=owner,
+        configurations=[record],
+        owner_admission=owner_admission,
+        vault_only=vault_only,
+    ) as scope:
+        toolset = await scope.acquire(context, connector_id, authorize_call=_never_execute)
+        try:
+            values = await verify_stripe_account(toolset, context)
+        except ExternalMcpError as error:
+            return {
+                "connectorId": connector_id,
+                "configurationRevision": record["revision"],
+                "stripeReadiness": stripe_readiness(reason_code=error.code),
+            }
+        return {
+            "connectorId": connector_id,
+            "configurationRevision": record["revision"],
+            "stripeReadiness": stripe_readiness(tooling_connected=True, proof=toolset.stripe_proof),
+            "account": values["account"],
+            "balance": values["balance"],
+        }
+
+
 async def discover_catalog(
     *, token: dict[str, Any], connector_id: str, configuration: dict[str, Any]
 ):

@@ -6,13 +6,30 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Runtime boundaries: [private-agent north star](../architecture/private-agent-north-star.md)
 and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-## Decision — 2026-10-07, 17:07 UTC
+## Decision — 2026-10-07
 
-**The application release is verified on dev. Owner-pod journey acceptance and
-production readiness remain held. Computer Use stays disabled in both clouds.**
-The interrupted BYOC handoff, release experience and confirmed integration defects
-are implemented and validated. Existing owner resources, hosting selections,
-trusted identities and concurrent work are preserved. No owner image was installed.
+**The economical BYOC candidate is assembled locally. Dev 9 remains the last
+verified serving release; no owner upgrade is implied by these source changes.**
+New-owner defaults are 1 vCPU, 2 GiB, minimum zero, maximum one and one worker.
+Existing hosting selections remain authoritative. Computer Use stays disabled.
+
+### Candidate changes and verification
+
+- Azure Files now uses owner Blob storage and an identifier-only Storage Queue,
+  managed identity and the existing bounded organization worker. Setup selection,
+  custody checks, late upgrade checkpoints and dev-only migration 957 are wired.
+- Existing Azure pods receive a separately bound Files configuration offer. Fresh
+  read-only preflight failures release an unattempted lease; uncertain mutations
+  retain recovery authority. No digest is qualified merely by version label.
+- Gmail notifications settle only durable processed deliveries. Account rotation
+  fences both initial watch creation and later cursor advancement.
+- Foreground wake is coalesced; recurring status polling no longer extends paid
+  idle. The relay retains its ten-minute grace and existing owner configuration.
+- Frozen ADK `31932bb01ae9` includes main `5774656cba82`; concurrent commerce
+  `18c3db9ab3b03` is preserved. Gmail keeps migration 283; commerce moves to 284,
+  subject to a live ledger check before deployment. Generated owners are rerun.
+- Integrated checks: 198 backend boundary cases, 44 frontend cases and TypeScript
+  compilation passed. These establish local behavior, not cloud acceptance.
 
 ## Exact release evidence
 
@@ -37,7 +54,7 @@ and its mixed serving pair remain historical evidence.
 | Placement / setup | Explicit Shared and `unplaced`; assigned/pending modes preserved. Automatic direct setup checks identity, IAM, exact routes, CORS and admission. | New/existing setup; billing/policy retry without duplicate resources. |
 | Private connectors | Sealed native PKCE, credential hydration, declared pod routes and exact approval/resume. Refresh/CAS and account/project transitions fence old readers. | Real provider sign-in, scope upgrade, restart and verified removal of unchanged legacy credentials/readers. |
 | Notifications / consent | OAuth-project topic, owner-project authenticated subscription, durable coalescing/checkpoints, incarnation-bound revocations and signed metadata feeds. Nav receives owner authority. | Cloud provisioning, duplicate/lost delivery, renewal, queue drain and idle return. Reserved/commercial scopes retain canonical authority. |
-| Files | Dedicated `agent_files` and `/one/files` explorer. Earlier installed-image receipts cover resumed transfer, byte integrity, undo, trash/restore and organization consent. | New-image regression and authenticated background completion after a qualified installation. Earlier receipts are dated. |
+| Files | Dedicated `agent_files` and `/one/files` explorer; GCS and Azure Blob/Queue adapters, consented organization and exact upgrade checkpoints. | Both-cloud transfer, queue completion and organization on the new executable image; predecessor recovery qualification before owner installation. |
 | Puppy | Existing trusted identity and signed direct stream retained; prior response/cancellation/withdrawal receipts. The existing Hermes relay is running in metadata-only activation wait. | Fresh binding/response, independent active internet, acceptable cold latency and bounded overlap. A waiting process or heartbeat is not inference acceptance. |
 | Updates / recovery | Exact owner approval, durable operation, authenticated drain and shared Settings/Feed state. | Actual predecessor pair, active-work handoff, one restart, digest/recovery verification and continuation. Historical Dev 4/5 success does not qualify Dev 9. |
 | Release experience | Existing dev accounts receive concise notes after unlock/setup; new/unknown accounts skip catch-up. Installed-pod notes require exact retained completion receipts. Hosting is untouched. | Actual owner-update receipt and production announcement/cohort qualification. Acknowledgement is per owner/installation, not a global cross-device receipt. |

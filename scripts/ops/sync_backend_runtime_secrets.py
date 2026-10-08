@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from runpy import run_path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -28,6 +29,11 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "google_drive_chat_reads",
     "curated_mcp_connectors",
 )
+
+def _scope_commerce_runtime_policy() -> dict[str, Any]:
+    # File-relative loading supports both direct CLI execution and importlib test harnesses.
+    return run_path(str(Path(__file__).with_name("scope_commerce_runtime_policy.py")))
+
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -334,7 +340,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "one_places_directory_enabled": args.one_places_directory_enabled,
         **_azure_owner_cloud_config(args.project, getattr(args, "app_frontend_origin", "")),
     }
-    return _drop_empty(config)
+    return _scope_commerce_runtime_policy()["apply_policy"](_drop_empty(config), getattr(args, "scope_commerce_policy", {}))
 
 
 def _split_production_drive_candidate_config(
@@ -485,6 +491,7 @@ def main() -> int:
         "--connector-production-all-users", default="false", choices=["true", "false"]
     )
     parser.add_argument("--production-drive-candidate-secret", default="")
+    _scope_commerce_runtime_policy()["register_arguments"](parser)
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to
@@ -568,18 +575,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         _validate_connector_rollout(args)
+        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](args, _run, _secret_exists)
     except ValueError as exc:
         parser.error(str(exc))
 
-    canonical_passkey_rp_ids = _canonical_passkey_allowed_rp_ids(args.app_frontend_origin)
-    if args.passkey_allowed_rp_ids and _normalize_passkey_rp_ids(
-        args.passkey_allowed_rp_ids
-    ) != _normalize_passkey_rp_ids(canonical_passkey_rp_ids):
-        parser.error(
-            "--passkey-allowed-rp-ids must contain only localhost, 127.0.0.1, "
-            "and the APP_FRONTEND_ORIGIN host"
-        )
-    args.passkey_allowed_rp_ids = canonical_passkey_rp_ids
+    _scope_commerce_runtime_policy()["validate_passkey_origin"](args, parser, _canonical_passkey_allowed_rp_ids, _normalize_passkey_rp_ids)
 
     if not str(args.nws_nearby_v4_api_key_source_secret or "").strip():
         args.nws_nearby_v4_api_key_source_secret = _NWS_V4_KEY_SOURCE_BY_PROJECT.get(

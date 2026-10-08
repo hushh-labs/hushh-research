@@ -47,7 +47,11 @@ NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 def cli(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
-    parser.add_argument("--sql-instance", required=True)
+    parser.add_argument("--sql-instance", default="")
+    parser.add_argument("--commerce-only", action="store_true")
+    parser.add_argument("--include-commerce", action="store_true")
+    parser.add_argument("--console-only", action="store_true")
+    parser.add_argument("--dashboard-id", default="hushh-observability-managed")
     parser.add_argument(
         "--email",
         action="append",
@@ -61,10 +65,14 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if not PROJECT_RE.fullmatch(args.project):
         parser.error("--project must be a Google Cloud project ID")
-    for key in ("sql_instance", "backend_service", "frontend_service"):
+    for key in ("sql_instance", "backend_service", "frontend_service", "dashboard_id"):
+        if key == "sql_instance" and args.commerce_only and not args.sql_instance:
+            continue
         if not NAME_RE.fullmatch(getattr(args, key)):
             parser.error(f"--{key.replace('_', '-')} must be a resource name")
-    args.email = list(dict.fromkeys(args.email or DEFAULT_EMAILS))
+    if args.console_only and args.email:
+        parser.error("--console-only cannot be combined with --email")
+    args.email = [] if args.console_only else list(dict.fromkeys(args.email or DEFAULT_EMAILS))
     if not all(
         re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in args.email
     ):
@@ -140,7 +148,7 @@ def reconcile(args: argparse.Namespace) -> None:
             "--format=json",
         )
     }
-    for name in METRICS:
+    for name in (() if args.commerce_only else METRICS):
         desired = render(ROOT / "log-metrics" / f"{name}.json", args)
         current = current_metrics.get(name)
         if current and same_config(
@@ -224,7 +232,10 @@ def reconcile(args: argparse.Namespace) -> None:
     by_name: dict[str, list[dict[str, Any]]] = {}
     for policy in policies:
         by_name.setdefault(policy["displayName"], []).append(policy)
-    for slug in POLICIES:
+    selected_policies = ("scope-commerce-policy",) if args.commerce_only else POLICIES
+    if args.include_commerce and not args.commerce_only:
+        selected_policies += ("scope-commerce-policy",)
+    for slug in selected_policies:
         desired = render(ROOT / "alerts" / f"{slug}.json.in", args)
         current_matches = by_name.get(desired["displayName"], [])
         if len(current_matches) > 1:
@@ -296,6 +307,13 @@ def reconcile(args: argparse.Namespace) -> None:
             write_config(desired, command)
 
     desired_dashboard = render(ROOT / "dashboard-observability.json.in", args)
+    desired_dashboard["name"] = f"projects/{project}/dashboards/{args.dashboard_id}"
+    desired_dashboard["gridLayout"]["widgets"] = [
+        widget for widget in desired_dashboard["gridLayout"]["widgets"]
+        if (widget.get("title", "").startswith("Scope Commerce:")
+            if args.commerce_only
+            else args.include_commerce or not widget.get("title", "").startswith("Scope Commerce:"))
+    ]
     dashboard_name = desired_dashboard["name"]
     current_dashboard = run(
         "gcloud",

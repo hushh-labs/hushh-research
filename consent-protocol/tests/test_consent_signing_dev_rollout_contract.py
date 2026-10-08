@@ -10,6 +10,8 @@ red/green facts instead of review-time assertions, the same way
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 
 import pytest
@@ -21,13 +23,44 @@ MINT_SCRIPT = "scripts/ops/mint_consent_ed25519_key.py"
 KID = "hushh-consent-dev-1"
 
 
-def _bash(script: str) -> str:
-    return subprocess.run(  # noqa: S603 - fixed argv, no shell=True, test-local input
-        ["bash", "-c", script],  # noqa: S607 - bash is resolved from PATH by design
+def _signing_run(tmp_path, deploy_env: str, prefix: str = "", missing: str = ""):
+    script = backend_deploy_script()
+    block = script[
+        script.index('personal_agent_enabled=""') : script.index(
+            'append_optional_env "PERSONAL_AGENT_ENABLED"'
+        )
+    ]
+    calls = tmp_path / "secret-calls"
+    env = {name: "" for name in re.findall(r"\$\{(_[A-Z0-9_]+)\}", block)}
+    env |= {
+        "_DEPLOY_ENV": deploy_env,
+        "PROJECT_ID": "synthetic-project",
+        "commerce_preview_prefix": prefix,
+        "CALLS": str(calls),
+        "MISSING": missing,
+    }
+    fake = r"""
+        gcloud() {
+          printf '%s\n' "$*" >> "$CALLS"
+          [[ "$1 $2" == "secrets describe" && "$3" != "$MISSING" ]] || return 1
+          [[ "$3" == CONSENT_ED25519_PRIVATE_KEY || "$3" == CONSENT_ED25519_PUBLIC_KEYS ]]
+        }
+    """
+    result = subprocess.run(  # noqa: S603 - actual authored guard, hermetic cloud function
+        [
+            "bash",
+            "-eu",
+            "-c",
+            fake
+            + block
+            + '\nprintf "%s|%s|%s|%s" "$consent_signing_alg" "$consent_ed25519_kid" "$dev_consent_ed25519_private_secret" "$dev_consent_ed25519_public_keys_secret"',
+        ],
         text=True,
         capture_output=True,
+        env={**os.environ, **env},
         check=False,
-    ).stdout
+    )
+    return result, calls.read_text().splitlines() if calls.exists() else []
 
 
 def test_consent_signing_locals_are_pre_initialised_before_assignment_and_append() -> None:
@@ -54,36 +87,32 @@ def test_consent_signing_locals_are_pre_initialised_before_assignment_and_append
         )
 
 
-@pytest.mark.parametrize("deploy_env", ["uat", "production", "manual"])
-def test_consent_signing_locals_are_empty_outside_dev(deploy_env: str) -> None:
-    """`append_optional_env`/`append_optional_secret` drop empties, so empty means
-    the lane carries none of this by construction rather than by discipline."""
-    out = _bash(
-        'consent_signing_alg=""; consent_ed25519_kid=""\n'
-        'dev_consent_ed25519_private_secret=""; dev_consent_ed25519_public_keys_secret=""\n'
-        f'if [[ "{deploy_env}" == "dev" ]]; then\n'
-        '  consent_signing_alg="ed25519"\n'
-        f'  consent_ed25519_kid="{KID}"\n'
-        '  dev_consent_ed25519_private_secret="CONSENT_ED25519_PRIVATE_KEY"\n'
-        '  dev_consent_ed25519_public_keys_secret="CONSENT_ED25519_PUBLIC_KEYS"\n'
-        "fi\n"
-        'echo "alg=${consent_signing_alg} kid=${consent_ed25519_kid} '
-        'priv=${dev_consent_ed25519_private_secret} pub=${dev_consent_ed25519_public_keys_secret}"'
-    )
-    assert out.strip() == "alg= kid= priv= pub="
+@pytest.mark.parametrize(
+    "deploy_env,prefix",
+    [("uat", ""), ("production", ""), ("manual", ""), ("dev", "SCOPE_COMMERCE_SANDBOX_")],
+)
+def test_consent_signing_locals_are_empty_outside_shared_dev(tmp_path, deploy_env, prefix):
+    result, calls = _signing_run(tmp_path, deploy_env, prefix)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "|||" and calls == []
 
 
-def test_flip_is_gated_on_both_secrets_existing() -> None:
-    """A deploy before the mint must stay HMAC: the assignment sits behind a
-    `gcloud secrets describe` for EACH secret, not a lane check alone."""
-    script = backend_deploy_script()
-    dev_block = script[script.index('if [[ "${_DEPLOY_ENV}" == "dev" ]]; then') :]
-    assignment = dev_block.index('consent_signing_alg="ed25519"')
-    gate = dev_block[:assignment]
-    assert 'gcloud secrets describe CONSENT_ED25519_PRIVATE_KEY --project="$PROJECT_ID"' in gate
-    assert 'gcloud secrets describe CONSENT_ED25519_PUBLIC_KEYS --project="$PROJECT_ID"' in gate
-    # And the pre-mint path says so out loud rather than silently staying HMAC.
-    assert "Ed25519 consent signing: secrets absent; issuance stays HMAC." in script
+@pytest.mark.parametrize(
+    "missing", ["", "CONSENT_ED25519_PRIVATE_KEY", "CONSENT_ED25519_PUBLIC_KEYS"]
+)
+def test_flip_is_gated_on_both_secrets_existing(tmp_path, missing):
+    result, calls = _signing_run(tmp_path, "dev", missing=missing)
+    assert result.returncode == 0, result.stderr
+    if missing:
+        assert result.stdout == "|||"
+        assert "Ed25519 consent signing: secrets absent; issuance stays HMAC." in result.stderr
+    else:
+        assert (
+            result.stdout
+            == f"ed25519|{KID}|CONSENT_ED25519_PRIVATE_KEY|CONSENT_ED25519_PUBLIC_KEYS"
+        )
+        for name in ("CONSENT_ED25519_PRIVATE_KEY", "CONSENT_ED25519_PUBLIC_KEYS"):
+            assert f"secrets describe {name} --project=synthetic-project" in calls
 
 
 def test_private_key_is_never_an_env_literal() -> None:

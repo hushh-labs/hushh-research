@@ -61,6 +61,7 @@ It does not own:
 | Learn the 3-agent debate system | [reference/kai-agents.md](./reference/kai-agents.md) |
 | Understand the product-facing One Voice contract | [../../docs/reference/one/one-voice-runtime-architecture.md](../../docs/reference/one/one-voice-runtime-architecture.md) |
 | Understand the current One Voice Kai compatibility runtime | [../../docs/reference/one/one-voice-kai-compatibility-runtime.md](../../docs/reference/one/one-voice-kai-compatibility-runtime.md) |
+| Implement consumer scope pricing and payments | [reference/consumer-scope-commerce.md](./reference/consumer-scope-commerce.md) |
 | Understand the consent token model | [reference/consent-protocol.md](./reference/consent-protocol.md) |
 | Implement the Hermes trusted-device vault handoff | [reference/trusted-device-vault-handoff.md](./reference/trusted-device-vault-handoff.md) |
 | FCM push notification architecture | [reference/fcm-notifications.md](./reference/fcm-notifications.md) |

@@ -29,13 +29,15 @@ import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
+import type { SegmentedPillOption } from "@/lib/morphy-ux/ui";
+import { BottomNavigationSurface } from "@/components/app-ui/bottom-navigation-surface";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import {
   BOTTOM_CHROME_COLUMN_CLASSNAME,
   BOTTOM_CHROME_INSET_CLASSNAME,
 } from "@/components/app-ui/bottom-chrome-column";
+import { useNativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -467,7 +469,10 @@ export const Navbar = ({
     }
   };
 
+  const nativeColumn = useNativeNavigationColumn(pillRef,
+    layout === "slot" && nativeAppearance !== null && isAuthenticated && !hideNavbar && !useOnboardingChrome && !shellNavigationHidden);
   const nativeNavigation = useNativeNavigation({
+    column: nativeColumn,
     enabled: layout === "slot" && nativeAppearance !== null,
     visible: isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
       !hideNavbar && !shellNavigationHidden && !chromeSuppressed &&
@@ -530,32 +535,7 @@ export const Navbar = ({
           )}
           ref={pillRef}
         >
-          {nativeNavigation.ready ? (
-            <div
-              aria-hidden="true"
-              data-native-navigation-reservation
-              className="w-full pointer-events-none"
-              style={{ height: nativeNavigation.height }}
-            />
-          ) : <div className="w-full min-w-0 pointer-events-auto">
-            <SegmentedPill
-              size="default"
-              layout="stacked"
-              hitArea="segment"
-              ripple={false}
-              value={activeNav}
-              options={navOptions}
-              onValueChange={navigateTo}
-              ariaLabel="Route navigation"
-              className={cn(
-                "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-                "[&_[role=radio]]:min-h-11",
-                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
-                "[&_[role=radio]>span:last-of-type]:!text-[10px] [&_[role=radio]>span:last-of-type]:!leading-[13px]",
-                "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
-              )}
-            />
-          </div>}
+          <BottomNavigationSurface native={nativeNavigation} value={activeNav} options={navOptions} onValueChange={navigateTo} />
         </div>
       </div>
     </nav>

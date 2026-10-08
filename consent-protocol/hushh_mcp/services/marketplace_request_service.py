@@ -5,7 +5,7 @@ A buyer's request to access a published data slice is a real record in
 has a real inbox; approve/deny is server-side and can be driven from the direct
 marketplace chat OR through Agent One over A2A (the same way Location approves a
 grant). Consent-first: a request never grants access on its own — the owner must
-approve, and only the safe-summary projection of the slice is ever involved.
+approve, and only owner-authorized ciphertext is relayed. Published discovery contains shape metadata.
 """
 
 from __future__ import annotations
@@ -14,15 +14,48 @@ import asyncio
 import hashlib
 import json
 import logging
-from datetime import UTC, datetime
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from db.connection import get_pool
 from db.db_client import get_db
 
 logger = logging.getLogger(__name__)
 
 _STATUSES = {"pending", "approved", "denied", "expired", "revoked"}
 _DEFAULT_KEY_ALGORITHM = "ECDH-P256-AES256-GCM"
+
+
+def _parse_metadata(value: Any) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _request_unexpired(row: dict, now: datetime | None = None) -> bool:
+    if row.get("status") != "approved":
+        return False
+    resolved = row.get("resolved_at")
+    if isinstance(resolved, str):
+        try:
+            resolved = datetime.fromisoformat(resolved.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if not isinstance(resolved, datetime) or resolved.tzinfo is None:
+        return False
+    metadata = _parse_metadata(row.get("metadata"))
+    seconds = (
+        metadata.get("approved_duration_seconds") or int(row.get("duration_days") or 0) * 86400
+    )
+    return (
+        isinstance(seconds, int)
+        and seconds > 0
+        and (now or datetime.now(UTC)) < resolved + timedelta(seconds=seconds)
+    )
 
 
 def _now_iso() -> str:
@@ -71,6 +104,7 @@ def _row_to_request(row: dict) -> dict[str, Any]:
         "createdAt": _str_or_none(row.get("created_at")),
         "resolvedAt": _str_or_none(row.get("resolved_at")),
         "latestEnvelopeId": _str_or_none(row.get("latest_envelope_id")),
+        "metadata": _parse_metadata(row.get("metadata")),
     }
 
 
@@ -98,6 +132,7 @@ class MarketplaceRequestService:
 
     def __init__(self) -> None:
         self._db = None
+        self._pool = None
 
     @property
     def db(self):
@@ -107,6 +142,47 @@ class MarketplaceRequestService:
 
     async def _execute_query(self, query):
         return await asyncio.to_thread(query.execute)
+
+    @asynccontextmanager
+    async def _transaction(self):
+        from hushh_mcp.services.scope_commerce.service import COMMERCE_GATE
+
+        pool = self._pool or await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            # Lock order matches the paid stage/approval boundary.
+            await conn.execute("SELECT pg_advisory_xact_lock($1)", COMMERCE_GATE)
+            yield conn
+
+    @staticmethod
+    async def _lock_request(conn, request_id, *, owner_user_id=None, buyer_user_id=None):
+        from hushh_mcp.services.marketplace_consent_ports import lock_request
+
+        return await lock_request(
+            conn, request_id, owner_user_id=owner_user_id, buyer_user_id=buyer_user_id
+        )
+
+    @staticmethod
+    async def _exact_scope(conn, row):
+        from hushh_mcp.services.marketplace_consent_ports import exact_scope
+
+        return await exact_scope(conn, row)
+
+    @staticmethod
+    async def _tariff(conn, row, handle, machine_scope):
+        from hushh_mcp.services.marketplace_consent_ports import tariff
+
+        return await tariff(conn, row, handle, machine_scope)
+
+    @staticmethod
+    async def _active_recipient(conn, buyer_user_id):
+        from hushh_mcp.services.marketplace_consent_ports import active_recipient
+
+        return await active_recipient(conn, buyer_user_id)
+
+    async def _store_locked_envelope(self, conn, row, envelope):
+        from hushh_mcp.services.marketplace_consent_ports import store_locked_envelope
+
+        return await store_locked_envelope(self, conn, row, envelope)
 
     async def create_request(
         self,
@@ -121,6 +197,8 @@ class MarketplaceRequestService:
         currency: str = "USD",
         duration_days: int = 30,
         message: str | None = None,
+        metadata: dict | None = None,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         """File a new pending access request for a published slice."""
         payload = {
@@ -135,12 +213,11 @@ class MarketplaceRequestService:
             "duration_days": int(duration_days or 30),
             "message": message,
             "status": "pending",
+            "metadata": metadata or {},
         }
-        result = await self._execute_query(
-            self.db.table("marketplace_access_requests").insert(payload)
-        )
-        rows = getattr(result, "data", None) or []
-        return _row_to_request(rows[0]) if rows else _row_to_request(payload)
+        from hushh_mcp.services.marketplace_consent_ports import create_request
+
+        return await create_request(self, payload, request_id, buyer_user_id, metadata)
 
     async def list_requests(
         self, *, owner_user_id: str, status: str | None = None
@@ -182,78 +259,76 @@ class MarketplaceRequestService:
         *,
         owner_user_id: str,
         request_id: str,
-        envelope: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Approve a pending request and, when an encrypted envelope is provided,
-        deliver it: the seller has sealed the slice against the buyer's recipient
-        key on-device, so we persist the ciphertext and point the request at it.
-        Without an envelope this is a plain status flip (legacy / no-delivery path).
-
-        The envelope is validated *before* the status flip so a malformed payload
-        cannot leave a request approved-but-undelivered."""
+        envelope: dict | None = None,
+        duration_seconds: int | None = None,
+    ) -> dict:
         if envelope is not None:
             self._validate_envelope(envelope)
-        resolved = await self._resolve(
-            owner_user_id=owner_user_id, request_id=request_id, next_status="approved"
-        )
-        if not resolved.get("ok") or envelope is None:
-            return resolved
-        request = resolved["request"]
-        buyer_user_id = request.get("buyerUserId")
-        if not buyer_user_id:
-            # Approved, but there is no buyer account to seal a delivery for
-            # (e.g. a labeled brand/agent request). Nothing to store.
-            return resolved
-        resolved["envelope"] = await self._store_delivery_envelope(
-            request=request,
-            owner_user_id=owner_user_id,
-            buyer_user_id=str(buyer_user_id),
-            envelope=envelope,
-        )
-        return resolved
+        async with self._transaction() as conn:
+            row = await self._lock_request(conn, request_id, owner_user_id=owner_user_id)
+            if not row or row["status"] != "pending":
+                return {"ok": False, "reason": "not_found_or_not_pending", "requestId": request_id}
+            scope, handle = await self._exact_scope(conn, row)
+            requested = int(
+                _parse_metadata(row.get("metadata")).get("duration_seconds")
+                or row["duration_days"] * 86400
+            )
+            approved = duration_seconds if duration_seconds is not None else requested
+            if (
+                isinstance(approved, bool)
+                or not isinstance(approved, int)
+                or not 0 < approved <= requested
+            ):
+                raise ValueError("Approved duration must be within the requested duration.")
+            tariff = await self._tariff(conn, row, handle, scope)
+            if (tariff and tariff["price_cents"] > 0) or _parse_metadata(row.get("metadata")).get(
+                "commercial_required"
+            ):
+                from hushh_mcp.consent.paid_admission import approve_paid_request
+
+                paid = await approve_paid_request(
+                    owner_user_id,
+                    request_id,
+                    approved,
+                    "owner-approve:" + request_id,
+                    connection=conn,
+                )
+                if paid is None:
+                    raise ValueError("Paid authorization is unavailable.")
+                return {"ok": True, **paid}
+            metadata = {
+                **_parse_metadata(row.get("metadata")),
+                "machine_scope": scope,
+                "approved_duration_seconds": approved,
+            }
+            row = dict(
+                await conn.fetchrow(
+                    "UPDATE marketplace_access_requests SET status='approved',resolved_at=now(),metadata=$2::jsonb WHERE id=$1 RETURNING *",
+                    row["id"],
+                    json.dumps(metadata),
+                )
+            )
+            result = {"ok": True, "request": _row_to_request(row)}
+            if envelope is not None and row.get("buyer_user_id"):
+                result["envelope"] = await self._store_locked_envelope(conn, row, envelope)
+            return result
 
     async def deliver_envelope(
-        self,
-        *,
-        owner_user_id: str,
-        request_id: str,
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Deliver a sealed slice for an ALREADY-approved request.
-
-        This is the fulfilment half of an agent-driven approval. When Agent One
-        (A2A) or the marketplace chat agent approves, it can only flip the request
-        to ``approved`` — it has no device to run the ECDH/AES-GCM sealing. The
-        seller's browser later runs a delivery sweep, seals the slice on-device,
-        and posts the ciphertext here. Unlike :meth:`approve_request` this does
-        NOT touch status: the request is already approved, so we only attach the
-        envelope. Owner-scoped and gated on ``status == "approved"`` so it can
-        never resurrect a denied/expired request or run cross-user.
-        """
+        self, *, owner_user_id: str, request_id: str, envelope: dict
+    ) -> dict:
         self._validate_envelope(envelope)
-        result = await self._execute_query(
-            self.db.table("marketplace_access_requests")
-            .select("*")
-            .eq("id", request_id)
-            .eq("owner_user_id", owner_user_id)
-            .limit(1)
-        )
-        rows = getattr(result, "data", None) or []
-        if not rows:
-            return {"ok": False, "reason": "not_found", "requestId": request_id}
-        request = _row_to_request(rows[0])
-        if request.get("status") != "approved":
-            return {"ok": False, "reason": "not_approved", "requestId": request_id}
-        buyer_user_id = request.get("buyerUserId")
-        if not buyer_user_id:
-            return {"ok": False, "reason": "no_buyer", "requestId": request_id}
-        stored = await self._store_delivery_envelope(
-            request=request,
-            owner_user_id=owner_user_id,
-            buyer_user_id=str(buyer_user_id),
-            envelope=envelope,
-        )
-        return {"ok": True, "request": request, "envelope": stored}
+        async with self._transaction() as conn:
+            row = await self._lock_request(conn, request_id, owner_user_id=owner_user_id)
+            if not row or not _request_unexpired(row):
+                return {"ok": False, "reason": "not_approved", "requestId": request_id}
+            scope, handle = await self._exact_scope(conn, row)
+            tariff = await self._tariff(conn, row, handle, scope)
+            if (tariff and tariff["price_cents"] > 0) or _parse_metadata(row.get("metadata")).get(
+                "commercial_required"
+            ):
+                raise ValueError("Paid delivery requires the canonical encrypted export stage.")
+            stored = await self._store_locked_envelope(conn, row, envelope)
+            return {"ok": True, "request": _row_to_request(row), "envelope": stored}
 
     @staticmethod
     def _validate_envelope(envelope: dict[str, Any]) -> None:
@@ -265,50 +340,13 @@ class MarketplaceRequestService:
             if not envelope.get(field):
                 raise ValueError(f"Encrypted envelope is missing {field}.")
         sender = envelope.get("senderEphemeralPublicKeyJwk")
-        if not isinstance(sender, dict) or not sender.get("kty"):
+        if (
+            not isinstance(sender, dict)
+            or sender.get("kty") != "EC"
+            or sender.get("crv") != "P-256"
+            or "d" in sender
+        ):
             raise ValueError("Envelope sender public key is invalid.")
-
-    async def _store_delivery_envelope(
-        self,
-        *,
-        request: dict[str, Any],
-        owner_user_id: str,
-        buyer_user_id: str,
-        envelope: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Persist a sealed slice envelope for an approved request and point the
-        request at it (mirrors one_location_share_grants.latest_envelope_id)."""
-        recipient_key_id = str(envelope.get("recipientKeyId") or "").strip()
-        if not recipient_key_id:
-            active = await self.get_recipient_key(user_id=buyer_user_id)
-            recipient_key_id = str((active or {}).get("keyId") or "").strip()
-        if not recipient_key_id:
-            raise ValueError("A recipient key id is required to deliver this slice.")
-        payload = {
-            "request_id": request["id"],
-            "owner_user_id": owner_user_id,
-            "buyer_user_id": buyer_user_id,
-            "recipient_key_id": recipient_key_id,
-            "algorithm": envelope.get("algorithm") or _DEFAULT_KEY_ALGORITHM,
-            "ciphertext": envelope.get("ciphertext"),
-            "iv": envelope.get("iv"),
-            "sender_ephemeral_public_key_jwk": envelope.get("senderEphemeralPublicKeyJwk"),
-            "metadata": envelope.get("metadata") or {},
-        }
-        result = await self._execute_query(
-            self.db.table("marketplace_delivery_envelopes").insert(payload)
-        )
-        rows = getattr(result, "data", None) or []
-        stored = _envelope_row(rows[0]) if rows else _envelope_row(payload)
-        envelope_id = stored.get("id")
-        if envelope_id:
-            await self._execute_query(
-                self.db.table("marketplace_access_requests")
-                .update({"latest_envelope_id": envelope_id})
-                .eq("id", request["id"])
-                .eq("owner_user_id", owner_user_id)
-            )
-        return stored
 
     async def list_buyer_requests(
         self, *, buyer_user_id: str, status: str | None = None
@@ -326,34 +364,12 @@ class MarketplaceRequestService:
         result = await self._execute_query(query)
         return [_row_to_request(r) for r in (getattr(result, "data", None) or [])]
 
-    async def get_delivered_envelope(
-        self, *, buyer_user_id: str, request_id: str
-    ) -> dict[str, Any] | None:
-        """Buyer-scoped fetch of the latest sealed envelope for one of their
-        requests. Returns None if the request is not theirs; returns the request
-        with envelope=None if nothing has been delivered yet."""
-        req_result = await self._execute_query(
-            self.db.table("marketplace_access_requests")
-            .select("*")
-            .eq("id", request_id)
-            .eq("buyer_user_id", buyer_user_id)
-            .limit(1)
+    async def get_delivered_envelope(self, *, buyer_user_id: str, request_id: str) -> dict | None:
+        from hushh_mcp.services.marketplace_consent_ports import get_delivered_envelope
+
+        return await get_delivered_envelope(
+            self, buyer_user_id=buyer_user_id, request_id=request_id
         )
-        req_rows = getattr(req_result, "data", None) or []
-        if not req_rows:
-            return None
-        request = _row_to_request(req_rows[0])
-        env_result = await self._execute_query(
-            self.db.table("marketplace_delivery_envelopes")
-            .select("*")
-            .eq("request_id", request_id)
-            .eq("buyer_user_id", buyer_user_id)
-            .order("created_at", desc=True)
-            .limit(1)
-        )
-        env_rows = getattr(env_result, "data", None) or []
-        envelope = _envelope_row(env_rows[0]) if env_rows else None
-        return {"request": request, "envelope": envelope}
 
     async def get_request_recipient_key(
         self, *, owner_user_id: str, request_id: str
@@ -384,81 +400,78 @@ class MarketplaceRequestService:
             owner_user_id=owner_user_id, request_id=request_id, next_status="denied"
         )
 
-    async def revoke_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
-        """Owner-scoped: withdraw a previously approved request. Flips the status to
-        ``revoked``, drops the ``latest_envelope_id`` pointer, and best-effort
-        deletes any delivered ciphertext so the buyer can no longer fetch the
-        slice. Only an ``approved`` request the owner owns can be revoked."""
-        result = await self._execute_query(
-            self.db.table("marketplace_access_requests")
-            .update({"status": "revoked", "resolved_at": _now_iso(), "latest_envelope_id": None})
-            .eq("id", request_id)
-            .eq("owner_user_id", owner_user_id)
-            .eq("status", "approved")
-        )
-        rows = getattr(result, "data", None) or []
-        if not rows:
-            return {"ok": False, "reason": "not_found_or_not_approved", "requestId": request_id}
-        # Purge delivered ciphertext (best-effort; the status flip is the source of
-        # truth for access, this just stops the server relaying a stale envelope).
-        try:
-            await self._execute_query(
-                self.db.table("marketplace_delivery_envelopes")
-                .delete()
-                .eq("request_id", request_id)
-                .eq("owner_user_id", owner_user_id)
+    async def revoke_request(self, *, owner_user_id: str, request_id: str) -> dict:
+        async with self._transaction() as conn:
+            row = await self._lock_request(conn, request_id, owner_user_id=owner_user_id)
+            if not row or row["status"] != "approved":
+                return {"ok": False, "reason": "not_found_or_not_approved", "requestId": request_id}
+            metadata = _parse_metadata(row.get("metadata"))
+            if metadata.get("commercial_required"):
+                from hushh_mcp.services.scope_commerce.service import ScopeCommerceService
+
+                await ScopeCommerceService().revoke_purchase(
+                    owner_user_id=owner_user_id,
+                    purchase_id=metadata["commerce_purchase_id"],
+                    conn=conn,
+                )
+            row = dict(
+                await conn.fetchrow(
+                    "UPDATE marketplace_access_requests SET status='revoked',resolved_at=now(),latest_envelope_id=NULL WHERE id=$1 RETURNING *",
+                    row["id"],
+                )
             )
-        except Exception:
-            logger.warning("marketplace.revoke_envelope_purge_failed", exc_info=True)
-        return {"ok": True, "request": _row_to_request(rows[0])}
+            await conn.execute(
+                "DELETE FROM marketplace_delivery_envelopes WHERE request_id=$1", row["id"]
+            )
+            return {"ok": True, "request": _row_to_request(row)}
 
     async def register_recipient_key(
         self,
         *,
         user_id: str,
-        public_key_jwk: dict[str, Any],
+        public_key_jwk: dict,
         key_id: str | None = None,
         algorithm: str = _DEFAULT_KEY_ALGORITHM,
-    ) -> dict[str, Any]:
-        """Publish a buyer's ECDH P-256 recipient public key so a seller can seal
-        a slice envelope for them at approve time. Only the public JWK is stored;
-        the private half never leaves the buyer's device. Idempotent: upserts on
-        (user_id, key_id) and rotates any other active key for the user."""
-        if not user_id:
-            raise ValueError("A user is required to register a recipient key.")
-        if not isinstance(public_key_jwk, dict) or not public_key_jwk.get("kty"):
-            raise ValueError("Recipient public key material is required.")
+    ) -> dict:
+        if (
+            not user_id
+            or not isinstance(public_key_jwk, dict)
+            or public_key_jwk.get("kty") != "EC"
+            or public_key_jwk.get("crv") != "P-256"
+            or not public_key_jwk.get("x")
+            or not public_key_jwk.get("y")
+            or "d" in public_key_jwk
+            or algorithm != _DEFAULT_KEY_ALGORITHM
+        ):
+            raise ValueError("A public P-256 recipient key is required.")
         normalized_key_id = (key_id or _fingerprint_public_key(public_key_jwk)).strip()
         if len(normalized_key_id) < 8:
             raise ValueError("Recipient key id is too short.")
-        fingerprint = _fingerprint_public_key(public_key_jwk)
-
-        # Retire any other active key so a device rotation leaves exactly one.
-        await self._execute_query(
-            self.db.table("marketplace_recipient_keys")
-            .update({"status": "rotated", "updated_at": _now_iso()})
-            .eq("user_id", user_id)
-            .eq("status", "active")
-            .neq("key_id", normalized_key_id)
-        )
-
-        payload = {
-            "user_id": user_id,
-            "key_id": normalized_key_id,
-            "public_key_jwk": public_key_jwk,
-            "public_key_fingerprint": fingerprint,
-            "algorithm": algorithm or _DEFAULT_KEY_ALGORITHM,
-            "status": "active",
-            "revoked_at": None,
-            "updated_at": _now_iso(),
-        }
-        result = await self._execute_query(
-            self.db.table("marketplace_recipient_keys").upsert(
-                payload, on_conflict="user_id,key_id"
+        async with self._transaction() as conn:
+            await self._active_recipient(conn, user_id)
+            existing = await conn.fetchrow(
+                "SELECT public_key_fingerprint FROM marketplace_recipient_keys WHERE user_id=$1 AND key_id=$2 FOR UPDATE",
+                user_id,
+                normalized_key_id,
             )
-        )
-        rows = getattr(result, "data", None) or []
-        return _recipient_key_row(rows[0]) if rows else _recipient_key_row(payload)
+            fingerprint = _fingerprint_public_key(public_key_jwk)
+            if existing and existing["public_key_fingerprint"] != fingerprint:
+                raise ValueError("A key id cannot be rebound to different key material.")
+            await conn.execute(
+                "UPDATE marketplace_recipient_keys SET status='rotated',updated_at=now() WHERE user_id=$1 AND status='active' AND key_id<>$2",
+                user_id,
+                normalized_key_id,
+            )
+            row = await conn.fetchrow(
+                """INSERT INTO marketplace_recipient_keys(user_id,key_id,public_key_jwk,public_key_fingerprint,algorithm,status)
+                   VALUES($1,$2,$3::jsonb,$4,$5,'active') ON CONFLICT(user_id,key_id) DO UPDATE SET status='active',revoked_at=NULL,updated_at=now() RETURNING *""",
+                user_id,
+                normalized_key_id,
+                json.dumps(public_key_jwk),
+                fingerprint,
+                algorithm,
+            )
+            return _recipient_key_row(dict(row))
 
     async def get_recipient_key(self, *, user_id: str) -> dict[str, Any] | None:
         """Fetch a buyer's current active recipient key (newest first), or None."""

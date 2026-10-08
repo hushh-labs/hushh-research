@@ -33,3 +33,6 @@ a158b1561d7e8342f00611c15d6904596405e520:consent-protocol/tests/test_personal_ag
 
 # Fixed public synthetic signing key used only by the isolated pod MCP transaction test.
 94f419c6e7c01ef42d1ac168c791d315eaa5c48a:consent-protocol/tests/test_pod_binding_transactions.py:generic-api-key:548
+
+# Public JSON-schema description of consent state, not a credential. Exact reviewed historical finding.
+18c3db9ab3b03e07d070eeba70e0031ff74f3059:consent-protocol/mcp_modules/commercial_contract.py:generic-api-key:49

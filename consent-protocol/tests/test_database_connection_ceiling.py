@@ -38,6 +38,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from runpy import run_path
 
 import pytest
 import yaml
@@ -149,13 +150,29 @@ def _effective_max_instances(values: dict[str, str], deploy_env: str) -> int:
     return int(_run_bash(block, env, "${_CLOUD_RUN_MAX_INSTANCES}"))
 
 
-def _hub_worker_count(deploy_env: str) -> int:
+def _process_bounds_source() -> str:
+    source = (REPO_ROOT / "scripts/deploy/commerce-preview-bindings.sh").read_text(encoding="utf-8")
+    return source.split("# BEGIN BACKEND PROCESS BOUNDS\n", 1)[1].split(
+        "# END BACKEND PROCESS BOUNDS", 1
+    )[0]
+
+
+def _hub_worker_count(deploy_env: str, *, preview: bool = False) -> int:
     """Run backend-deploy.sh's own worker selection, which becomes WEB_CONCURRENCY."""
     script = BACKEND_DEPLOY.read_text(encoding="utf-8")
     marker = 'env_vars+=("WEB_CONCURRENCY=${worker_count}")'
-    start = script.index('worker_count="')
-    snippet = script[start : script.index(marker, start)]
-    return int(_run_bash(snippet, {"_DEPLOY_ENV": deploy_env}, "${worker_count}"))
+    start = script.index("configure_backend_process_bounds\n")
+    snippet = _process_bounds_source() + script[start : script.index(marker, start)]
+    return int(
+        _run_bash(
+            snippet,
+            {
+                "_DEPLOY_ENV": deploy_env,
+                "commerce_preview_prefix": "SCOPE_COMMERCE_SANDBOX_" if preview else "",
+            },
+            "${worker_count}",
+        )
+    )
 
 
 def _dedicated_per_worker() -> int:
@@ -336,6 +353,82 @@ def test_container_takes_its_worker_count_from_the_deploy() -> None:
     dockerfile = (BACKEND_ROOT / "Dockerfile").read_text(encoding="utf-8")
     command = next(line for line in dockerfile.splitlines() if line.startswith("CMD "))
     assert "-w ${WEB_CONCURRENCY:-" in command
+
+
+def test_preview_oauth_returns_to_one_process_without_changing_shared_lanes() -> None:
+    assert _hub_worker_count("dev", preview=True) == 1
+    assert _hub_worker_count("uat") == 2
+    assert _hub_worker_count("production") == 2
+    block = _process_bounds_source() + "\nconfigure_backend_process_bounds\n"
+    variables = {
+        "_DEPLOY_ENV": "uat",
+        "_CLOUD_RUN_MAX_INSTANCES": "3",
+        "_CLOUD_RUN_MIN_INSTANCES": "0",
+    }
+    assert (
+        _run_bash(
+            block,
+            variables | {"commerce_preview_prefix": "SCOPE_COMMERCE_SANDBOX_"},
+            "${_CLOUD_RUN_MAX_INSTANCES}:${_CLOUD_RUN_MIN_INSTANCES}",
+        )
+        == "1:1"
+    )
+    assert (
+        _run_bash(
+            block,
+            variables | {"commerce_preview_prefix": ""},
+            "${_CLOUD_RUN_MAX_INSTANCES}:${_CLOUD_RUN_MIN_INSTANCES}",
+        )
+        == "3:0"
+    )
+    module = run_path(str(REPO_ROOT / "scripts/deploy/commerce-preview-verify.py"))
+    backend = {
+        "metadata": {"annotations": {"run.googleapis.com/maxScale": "1"}},
+        "spec": {
+            "template": {
+                "metadata": {"annotations": {"autoscaling.knative.dev/maxScale": "1"}},
+                "spec": {"containers": [{"env": [{"name": "WEB_CONCURRENCY", "value": "1"}]}]},
+            }
+        },
+    }
+    module["validate_oauth_process"](backend)
+    for unsafe in ("2", None):
+        changed = json.loads(json.dumps(backend))
+        changed["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"] = unsafe
+        with pytest.raises(module["PreviewError"], match="preview_oauth_process_unverified"):
+            module["validate_oauth_process"](changed)
+        changed = json.loads(json.dumps(backend))
+        changed["metadata"]["annotations"]["run.googleapis.com/maxScale"] = unsafe
+        with pytest.raises(module["PreviewError"], match="preview_oauth_process_unverified"):
+            module["validate_oauth_process"](changed)
+
+
+def test_preview_process_proof_rejects_a_candidate_that_is_not_serving() -> None:
+    module = run_path(str(REPO_ROOT / "scripts/deploy/commerce-preview-verify.py"))
+    service = {
+        "spec": {"template": {"metadata": {"name": "candidate-one"}}},
+        "status": {
+            "latestReadyRevisionName": "candidate-one",
+            "url": "https://preview.run.app",
+            "traffic": [{"revisionName": "candidate-one", "percent": 100}],
+        },
+    }
+    module["validate_serving_template"](service)
+    for traffic in (
+        [
+            {"revisionName": "previous-two", "percent": 100},
+            {"revisionName": "candidate-one", "percent": 0},
+        ],
+        [
+            {"revisionName": "previous-two", "percent": 50},
+            {"revisionName": "candidate-one", "percent": 50},
+        ],
+        [],
+    ):
+        changed = json.loads(json.dumps(service))
+        changed["status"]["traffic"] = traffic
+        with pytest.raises(module["PreviewError"], match="preview_serving_revision_unverified"):
+            module["validate_serving_template"](changed)
 
 
 def test_every_connection_source_is_counted() -> None:

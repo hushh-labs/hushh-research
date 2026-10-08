@@ -23,6 +23,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+import { announceCommerceReturn } from "@/lib/services/scope-commerce-browser";
 import { APP_FRONTEND_ORIGIN } from "@/lib/config";
 import { isNativePlaidLinkOpen } from "@/lib/kai/brokerage/native-plaid-session";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -44,6 +45,11 @@ export type NativeConnectorReturn = {
  * mistaken for a completed credential connection (or vice versa).
  */
 export type NativeDrivePickerReturn = NativeConnectorReturn;
+
+function followDeepLink(path: string, router: { replace: (path: string) => void }): void {
+  announceCommerceReturn(path);
+  router.replace(path);
+}
 
 function knownOrigins(): string[] {
   const configured = String(APP_FRONTEND_ORIGIN || "")
@@ -257,7 +263,7 @@ export function useDeepLinkReturn(): void {
           return;
         }
         const path = resolveDeepLinkPath(rawUrl);
-        if (path && !disposed && shouldFollowDeepLink(path)) router.replace(path);
+        if (path && !disposed && shouldFollowDeepLink(path)) followDeepLink(path, router);
       };
 
       // Register the listener before reading the cold URL so an early OAuth

@@ -271,6 +271,283 @@
             }
           ]
         }
+      },
+      {
+        "title": "Scope Commerce: Backing and Liabilities (micro USD)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "attributed backing micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/attributed_backing_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "liabilities micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/liabilities_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "fee reserve micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/fee_reserve_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "backing shortfall micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/backing_shortfall_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Recovery and Unallocated Costs (micro USD)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "recovery liabilities micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/recovery_liabilities_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "unallocated processing cost micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/unallocated_processing_cost_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Unresolved Work",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "unresolved obligations",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/unresolved_obligations\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "uncertain operations",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/uncertain_operations\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "pending provider events",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/pending_provider_events\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "pending transfer recoveries",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/pending_transfer_recoveries\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Oldest Due Retry (seconds)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "oldest due work seconds",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/oldest_due_work_seconds\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Receipt and Journal Failures",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "receipt failures",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/receipt_failures\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "unbalanced journals",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/unbalanced_journals\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Provider Observation (micro USD)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "provider available micro usd",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/provider_available_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Verification and Worker Freshness (Unix seconds)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "provider observed timestamp",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/provider_observed_timestamp\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            },
+            {
+              "plotType": "LINE",
+              "legendTemplate": "worker completed timestamp",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/worker_completed_timestamp\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Scope Commerce: Provider Observation Verified (1=yes)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "legendTemplate": "provider observation verified",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/provider_observation_verified\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX"
+                  }
+                }
+              }
+            }
+          ]
+        }
       }
     ]
   }

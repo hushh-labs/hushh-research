@@ -33,6 +33,10 @@ class CapacityObservabilityTest(unittest.TestCase):
         metrics = [module.render(ROOT / "log-metrics" / f"{name}.json", args)
                    for name in module.METRICS]
         dashboard = module.render(ROOT / "dashboard-observability.json.in", args)
+        dashboard["gridLayout"]["widgets"] = [
+            widget for widget in dashboard["gridLayout"]["widgets"]
+            if not widget.get("title", "").startswith("Scope Commerce:")
+        ]
         dashboard["gridLayout"]["columns"] = str(dashboard["gridLayout"]["columns"])
         policies = []
         for i, slug in enumerate(module.POLICIES):
@@ -143,6 +147,27 @@ class CapacityObservabilityTest(unittest.TestCase):
         self.assertTrue(
             all("create" not in call and "update" not in call for call in calls)
         )
+
+    def test_commerce_only_does_not_change_capacity_or_send_email(self) -> None:
+        args = module.cli([
+            "--project", "hushh-dev-123", "--commerce-only", "--console-only",
+            "--dashboard-id", "commerce-preview", "--apply",
+        ])
+        writes = []
+        with patch.object(module, "run", return_value=[]), \
+             patch.object(module, "write_config", side_effect=lambda config, action: writes.append((config, action))), \
+             contextlib.redirect_stdout(io.StringIO()):
+            module.reconcile(args)
+        self.assertEqual(len(writes), 2)
+        policy, dashboard = [config for config, _ in writes]
+        self.assertIn("Scope Commerce", policy["displayName"])
+        self.assertEqual(policy["notificationChannels"], [])
+        self.assertTrue(dashboard["name"].endswith("/commerce-preview"))
+        self.assertTrue(dashboard["gridLayout"]["widgets"])
+        self.assertTrue(all(widget["title"].startswith("Scope Commerce:")
+                            for widget in dashboard["gridLayout"]["widgets"]))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            module.cli(["--project", "hushh-dev-123"])
 
 
 if __name__ == "__main__":

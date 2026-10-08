@@ -11,7 +11,7 @@ import { rememberRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalo
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 vi.mock("@/lib/services/external-connector-service", () => ({
-  ExternalConnectorService: { refreshMcpCatalog: vi.fn(), privateMcpOAuth: vi.fn() },
+  ExternalConnectorService: { refreshMcpCatalog: vi.fn(), verifyStripeAccount: vi.fn(), privateMcpOAuth: vi.fn() },
   McpCatalogAuthenticationError: class extends Error {},
 }));
 vi.mock("@/lib/capacitor/oauth-return", async (importOriginal) => ({
@@ -46,6 +46,10 @@ beforeEach(() => {
     configurations: await loadCustomConnectorConfigurations(ownerAccess), invalid: [],
   }));
   vi.mocked(saveCustomConnectorConfiguration).mockImplementation(async (_access, record) => record);
+  vi.mocked(ExternalConnectorService.verifyStripeAccount).mockResolvedValue({ toolingConnected: true,
+    accountVerified: false, environmentVerified: false, accountToolsAvailable: false,
+    capability: "documentation_only", nextStep: "authenticated_account_contract_required",
+    managementPath: "/one/profile/connectors", verificationState: "unsupported" });
   vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockResolvedValue([{ id: "mcp_" + "b".repeat(40), name: "search", revision: "rev1", fingerprint: "c".repeat(64), permission: "ask_first" }]);
 });
 

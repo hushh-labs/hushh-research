@@ -130,6 +130,27 @@ def _location_metadata_record(raw: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _project_marketplace_feed(raw: dict[str, Any]) -> dict[str, Any]:
+    from hushh_mcp.services.pod_marketplace_read import (
+        MarketplaceReadOptions,
+        project_marketplace_read,
+    )
+
+    if raw.get("operation") in {"commerce_summary", "commerce_activity"}:
+        from hushh_mcp.services.pod_commerce_read import project_commerce_metadata
+
+        return project_commerce_metadata(raw["result"], raw["operation"])
+    if "operation" in raw:
+        raise OwnerFeedRefused("BAD_PROJECTION")
+    if "result" in raw:
+        return project_marketplace_read(raw["result"], MarketplaceReadOptions(operation="earnings"))
+    items = raw.get("items")
+    if not isinstance(items, list):
+        raise OwnerFeedRefused("BAD_PROJECTION")
+    operation = "published" if not items or "publicProfileHandle" in items[0] else "publishable"
+    return project_marketplace_read(items, MarketplaceReadOptions(operation=operation))
+
+
 def project_feed_projection(kind: str, raw: Any) -> dict[str, Any]:
     """Only declared hub metadata and publication summaries enter an owner feed."""
     if not isinstance(raw, dict):
@@ -158,20 +179,7 @@ def project_feed_projection(kind: str, raw: Any) -> dict[str, Any]:
 
         return project_nav_state(raw)
     if kind == "marketplace":
-        from hushh_mcp.services.pod_marketplace_read import (
-            MarketplaceReadOptions,
-            project_marketplace_read,
-        )
-
-        if "result" in raw:
-            return project_marketplace_read(
-                raw["result"], MarketplaceReadOptions(operation="earnings")
-            )
-        items = raw.get("items")
-        if not isinstance(items, list):
-            raise OwnerFeedRefused("BAD_PROJECTION")
-        operation = "published" if not items or "publicProfileHandle" in items[0] else "publishable"
-        return project_marketplace_read(items, MarketplaceReadOptions(operation=operation))
+        return _project_marketplace_feed(raw)
     if kind != "command" or not isinstance(raw.get("projection"), dict):
         raise OwnerFeedRefused("BAD_PROJECTION")
     from hushh_mcp.operons.location.references import LocationObservation

@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 283,
+  "expected_migration_version": 284,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -56,7 +56,11 @@
     "feed_from_bulk_share_outcome",
     "pkm_grant_credits",
     "pkm_spend_credits",
-    "bump_gmail_send_grant_generation"
+    "bump_gmail_send_grant_generation",
+    "scope_commerce_immutable",
+    "scope_commerce_balanced",
+    "scope_commerce_posting_admission",
+    "scope_commerce_queue_continuous_refresh_v1"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2434,6 +2438,248 @@
     "runtime_persona_state": [
       "user_id",
       "last_active_persona",
+      "updated_at"
+    ],
+    "scope_commerce_allocations": [
+      "purchase_id",
+      "lot_id",
+      "gross_micro_usd",
+      "fee_micro_usd"
+    ],
+    "scope_commerce_environment": [
+      "singleton",
+      "platform_account_id",
+      "livemode",
+      "created_at"
+    ],
+    "scope_commerce_financial_events": [
+      "event_id",
+      "kind",
+      "reference_id",
+      "request_hash",
+      "created_at"
+    ],
+    "scope_commerce_funding_lots": [
+      "lot_id",
+      "wallet_id",
+      "source_lot_id",
+      "funding_id",
+      "payment_intent_id",
+      "charge_id",
+      "balance_transaction_id",
+      "gross_micro_usd",
+      "available_micro_usd",
+      "fee_total_micro_usd",
+      "fee_remaining_micro_usd",
+      "fee_basis_remaining_micro_usd",
+      "refunded_micro_usd",
+      "refund_reserved_micro_usd",
+      "frozen",
+      "livemode",
+      "created_at"
+    ],
+    "scope_commerce_fundings": [
+      "funding_id",
+      "wallet_id",
+      "amount_cents",
+      "status",
+      "created_at"
+    ],
+    "scope_commerce_journal": [
+      "entry_id",
+      "idempotency_key",
+      "kind",
+      "reference_id",
+      "created_at"
+    ],
+    "scope_commerce_obligations": [
+      "obligation_id",
+      "kind",
+      "wallet_id",
+      "seller_id",
+      "funding_lot_id",
+      "amount_micro_usd",
+      "fee_micro_usd",
+      "status",
+      "idempotency_key",
+      "provider_id",
+      "source_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "next_check_at",
+      "created_at"
+    ],
+    "scope_commerce_postings": [
+      "entry_id",
+      "account",
+      "micro_usd"
+    ],
+    "scope_commerce_provider_events": [
+      "event_id",
+      "event_type",
+      "livemode",
+      "status",
+      "created_at",
+      "next_check_at"
+    ],
+    "scope_commerce_provider_operations": [
+      "operation_id",
+      "user_id",
+      "kind",
+      "request_hash",
+      "request_json",
+      "status",
+      "provider_id",
+      "provider_response",
+      "lease_until",
+      "created_at",
+      "updated_at"
+    ],
+    "scope_commerce_purchases": [
+      "purchase_id",
+      "quote_id",
+      "request_id",
+      "consent_token_hash",
+      "owner_user_id",
+      "payer_user_id",
+      "buyer_app_id",
+      "seller_id",
+      "wallet_id",
+      "machine_scope",
+      "scope_handle",
+      "recipient_key_fingerprint",
+      "status",
+      "price_cents",
+      "fee_policy",
+      "duration_seconds",
+      "fee_micro_usd",
+      "refunded_cents",
+      "preparation_id",
+      "activation_at",
+      "expires_at",
+      "export_id",
+      "export_revision",
+      "aad_sha256",
+      "ciphertext_sha256",
+      "staged_export",
+      "source_revisions",
+      "fulfillment_deadline",
+      "earnings_settled_at",
+      "revoked_at",
+      "erased_at",
+      "created_at"
+    ],
+    "scope_commerce_quotes": [
+      "quote_id",
+      "request_id",
+      "tariff_id",
+      "seller_id",
+      "wallet_id",
+      "owner_user_id",
+      "payer_user_id",
+      "buyer_app_id",
+      "machine_scope",
+      "scope_handle",
+      "recipient_key_fingerprint",
+      "scope_manifest_revision",
+      "purpose",
+      "refresh_policy",
+      "duration_seconds",
+      "price_cents",
+      "fee_policy",
+      "idempotency_key",
+      "request_hash",
+      "expires_at",
+      "request_deadline",
+      "created_at"
+    ],
+    "scope_commerce_reservations": [
+      "purchase_id",
+      "idempotency_key",
+      "request_hash",
+      "status",
+      "created_at"
+    ],
+    "scope_commerce_seller_accounts": [
+      "user_id",
+      "account_id",
+      "country",
+      "livemode",
+      "eligible",
+      "updated_at"
+    ],
+    "scope_commerce_sellers": [
+      "seller_id",
+      "owner_user_id",
+      "erased_at",
+      "account_id",
+      "country",
+      "livemode",
+      "created_at"
+    ],
+    "scope_commerce_source_refund_allocations": [
+      "refund_id",
+      "lot_id",
+      "amount_micro_usd",
+      "fee_micro_usd"
+    ],
+    "scope_commerce_stripe_customers": [
+      "user_id",
+      "customer_id",
+      "livemode"
+    ],
+    "scope_commerce_tariffs": [
+      "tariff_id",
+      "owner_user_id",
+      "scope_handle",
+      "machine_scope",
+      "revision",
+      "price_cents",
+      "base_duration_seconds",
+      "idempotency_key",
+      "request_hash",
+      "created_at"
+    ],
+    "scope_commerce_transfer_recoveries": [
+      "recovery_id",
+      "dispute_id",
+      "funding_lot_id",
+      "withdrawal_id",
+      "seller_id",
+      "amount_micro_usd",
+      "recovered_micro_usd",
+      "next_check_at",
+      "restored_at",
+      "created_at"
+    ],
+    "scope_commerce_wallets": [
+      "wallet_id",
+      "payer_user_id",
+      "buyer_app_id",
+      "erased_at",
+      "created_at"
+    ],
+    "scope_commerce_withdrawal_allocations": [
+      "withdrawal_id",
+      "purchase_id",
+      "amount_micro_usd",
+      "debt_micro_usd"
+    ],
+    "scope_commerce_withdrawals": [
+      "withdrawal_id",
+      "user_id",
+      "seller_id",
+      "net_cents",
+      "gross_micro_usd",
+      "fee_micro_usd",
+      "transfer_id",
+      "payout_id",
+      "settled_micro_usd",
+      "account_id",
+      "country",
+      "livemode",
+      "status",
+      "created_at",
       "updated_at"
     ],
     "trusted_connections": [

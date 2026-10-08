@@ -23,6 +23,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.routes.consent_commerce_support import (
+    commit_refreshed_export,
+    is_developer_information_requester,
+    paid_owner_approval,
+)
 from api.utils.firebase_auth import verify_firebase_bearer
 from db.db_client import get_db
 from hushh_mcp.consent.connector_crypto_profiles import (
@@ -679,22 +684,19 @@ async def approve_consent(
     connector_public_key = (
         metadata.get("connector_public_key") if isinstance(metadata, dict) else None
     )
-    is_developer_request = bool(
-        connector_public_key
-        or (
-            isinstance(metadata, dict)
-            and (
-                metadata.get("request_source") == "developer_api_v1"
-                or metadata.get("requester_actor_type") == "developer"
-            )
-        )
-    )
+    is_developer_request = is_developer_information_requester(metadata, connector_public_key)
     is_developer_information_request = is_developer_request and requested_scope.startswith("attr.")
     expiry_hours = _resolve_approval_expiry_hours(
         metadata=metadata if isinstance(metadata, dict) else None,
         requested_duration_hours=requested_duration_hours,
         is_developer_request=is_developer_request,
     )
+
+    paid_approval = await paid_owner_approval(
+        subject_user_id, requestId, requested_scope, metadata, expiry_hours
+    )
+    if paid_approval is not None:
+        return paid_approval
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
@@ -1984,22 +1986,8 @@ async def upload_refreshed_export(
             },
         ) from exc
 
-    stored = await service.complete_claimed_consent_export_refresh(
-        user_id=request.userId,
-        claim_id=request.jobClaimId,
-        expected_export_revision=prior_revision,
-        encrypted_data=request.encryptedData,
-        iv=request.encryptedIv,
-        tag=request.encryptedTag,
-        wrapped_key_bundle=wrapped_key_bundle,
-        connector_key_id=wrapped_key_bundle.get("connector_key_id"),
-        connector_wrapping_alg=str(wrapped_key_bundle.get("wrapping_alg") or ""),
-        envelope_aad=request.exportEnvelope.aad.model_dump(mode="json"),
-        envelope_aad_sha256=request.exportEnvelope.aad_sha256,
-        ciphertext_sha256=request.exportEnvelope.ciphertext_sha256,
-        ciphertext_bytes=request.exportEnvelope.ciphertext_bytes,
-        source_content_revision=request.sourceContentRevision,
-        source_manifest_revision=request.sourceManifestRevision,
+    stored = await commit_refreshed_export(
+        service, request, prior_revision, wrapped_key_bundle, existing_export
     )
     if not stored:
         raise HTTPException(

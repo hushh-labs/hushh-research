@@ -316,3 +316,61 @@ def test_marketplace_projection_drops_unknown_values_and_refuses_invalid_metadat
         project_marketplace_read([row] * 101, MarketplaceReadOptions())
     with pytest.raises(ValueError):
         MarketplaceReadOptions(operation="approve")
+
+
+def test_commerce_door_bounds_financial_metadata_without_provider_or_cipher_fields():
+    from hushh_mcp.services.pod_marketplace_read import (
+        MarketplaceReadOptions,
+        project_marketplace_read,
+    )
+
+    options = MarketplaceReadOptions(operation="commerce_activity", view="sales")
+    row = {
+        "id": "synthetic-purchase",
+        "kind": "sale",
+        "status": "reserved",
+        "created_at": "2026-10-06T12:00:00Z",
+        "gross_cents": 1,
+        "amount_cents": 1,
+        "direction": "incoming",
+        "currency": "USD",
+        "net_earnings_micro_usd": -5000,
+        "ciphertext": "must-drop",
+        "consent_token": "must-drop",
+        "counterpart": {"label": "Requester", "user_id": "must-drop"},
+    }
+    raw = {"items": [row], "next_cursor": None, "secret_key": "must-drop"}
+    page = project_marketplace_read(raw, options)["result"]
+    assert page["items"][0]["net_earnings_micro_usd"] == -5000
+    assert "must-drop" not in str(page)
+    with pytest.raises(ValueError):
+        project_marketplace_read({**raw, "items": [row] * 26}, options)
+    with pytest.raises(ValueError):
+        project_marketplace_read({**raw, "items": [{**row, "gross_cents": "1"}]}, options)
+
+
+async def test_canonical_commerce_failure_is_unavailable_without_private_diagnostics():
+    import asyncio
+
+    from hushh_mcp.services.pod_commerce_read import (
+        CommerceMetadataUnavailable,
+        read_commerce_metadata,
+    )
+    from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
+
+    class FailingRecords:
+        error = RuntimeError("private-database-diagnostic")
+
+        async def earnings(self, *, owner_user_id):
+            raise self.error
+
+    records = FailingRecords()
+    options = MarketplaceReadOptions(operation="commerce_summary")
+    with pytest.raises(CommerceMetadataUnavailable) as unavailable:
+        await read_commerce_metadata("owner", options, service=records)
+    assert str(unavailable.value) == "Canonical commerce metadata is unavailable"
+    assert unavailable.value.__suppress_context__ is True
+    for error in (PermissionError("owner-denied"), asyncio.CancelledError()):
+        records.error = error
+        with pytest.raises(type(error)):
+            await read_commerce_metadata("owner", options, service=records)

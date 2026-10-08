@@ -158,7 +158,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         # Settings' tool refresh and connector login (pod_agent_chat_connectors.py):
         # only owner-registered custom connectors, exactly as the hub routes admit.
         r"/api/one/pod/agent-chat/connectors/custom_[0-9a-f]{32}"
-        r"/mcp/(?:catalog|oauth/(?:begin|complete|cancel))",
+        r"/mcp/(?:catalog|verify|oauth/(?:begin|complete|cancel))",
         # Messages sent while a turn runs, and stop (pod_agent_chat.py).
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/(?:queue|stop)",
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/queue/[A-Za-z0-9_-]{{8,64}}",

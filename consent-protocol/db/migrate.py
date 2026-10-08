@@ -288,22 +288,24 @@ def _load_dev_manifest(path: Path) -> tuple[str, ...]:
 
 
 def dev_extra_active(*, explicit: bool = False, project_id: str | None = None) -> bool:
-    """Decide whether the dev-only parked lane should run.
-
-    Env-conditional by design. The dev deploy lane exports
-    ``GCP_PROJECT_ID=hushh-pda-dev`` as a workflow-level env
-    (.github/workflows/deploy-dev.yml), and that workflow DEFINITION runs from
-    ``main`` — so a new CLI flag could never be passed by it. Keying off the
-    already-present project id is what makes this reachable from a feature
-    branch at all. UAT (hushh-pda-uat) and production (hushh-pda) carry
-    different project ids, so this cannot fire there even by mistake.
-
-    ``explicit`` (the --dev-extra flag) is for manual/local runs only.
-    """
-    if explicit:
-        return True
-    resolved = project_id if project_id is not None else os.getenv("GCP_PROJECT_ID")
-    return str(resolved or "").strip() == DEV_GCP_PROJECT_ID
+    """Validate shared Dev or a release-only preview before connecting."""
+    resolved = str(
+        project_id if project_id is not None else os.getenv("GCP_PROJECT_ID") or ""
+    ).strip()
+    target = os.getenv("DEV_TARGET", "shared-dev")
+    if target == "scope-commerce-sandbox":
+        if (
+            explicit
+            or resolved != DEV_GCP_PROJECT_ID
+            or os.getenv("DB_NAME") != "scope_commerce_sandbox"
+        ):
+            raise ValueError(
+                "Isolated preview requires its fixed project/database and release-only lane"
+            )
+        return False
+    if target != "shared-dev":
+        raise ValueError("Unknown development migration target")
+    return explicit or resolved == DEV_GCP_PROJECT_ID
 
 
 # ============================================================================
@@ -1735,6 +1737,10 @@ Examples:
         return
 
     migration_mode = MigrationMode.parse(args.migration_mode)
+    try:
+        selected_dev_extra = dev_extra_active(explicit=args.dev_extra)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.establish_baseline and any(
         [
             args.init,
@@ -1820,17 +1826,8 @@ Examples:
                 release_environment=args.release_environment,
             )
 
-        # Dev-only tail. Runs after the release lane so the parked 900-band
-        # migrations land on top of the canonical schema. Implicit activation is
-        # keyed on the target GCP project because the dev deploy workflow's
-        # definition runs from main and cannot pass a new flag.
-        apply_dev_extra = False
-        if args.dev_extra:
-            apply_dev_extra = True
-        elif (args.release or args.init or args.full) and dev_extra_active():
-            apply_dev_extra = True
-
-        if apply_dev_extra:
+        # Shared dev retains its parked tail; preview validation ran before I/O.
+        if selected_dev_extra and (args.dev_extra or args.release or args.init or args.full):
             await run_dev_extra_migration(pool, mode=migration_mode)
 
         if args.establish_baseline:

@@ -15,6 +15,9 @@ import {
 } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { scopeCommerceStatusCopy } from "@/lib/services/scope-commerce-service";
+import { ConsentSharingRevokeDialog } from "@/components/consent/consent-sharing-revoke-dialog";
+import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { ExternalLink, RefreshCcw, Search } from "@/components/icons";
 import { toast } from "sonner";
 import {
@@ -33,16 +36,6 @@ import {
 } from "@/components/app-ui/settings-ui";
 import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
 import { ApiRetryState } from "@/components/system/api-retry-state";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -456,6 +449,7 @@ function entrySummary(entry: ConsentCenterEntry) {
       );
     return `${eventCount} event${eventCount === 1 ? "" : "s"} across ${trailCount} request${trailCount === 1 ? "" : "s"}.`;
   }
+  if (entry.metadata?.commercial_required === true) return scopeCommerceStatusCopy(entry.metadata.commerce_status);
   if (isEmailHelperConsent(entry.metadata)) {
     return emailHelperConsentSummary(entry.metadata);
   }
@@ -1704,32 +1698,15 @@ function ConsentEntryDetail({
           >
             {revokeBusy ? "Stopping..." : "Stop sharing"}
           </Button>
-          <AlertDialog
-            open={revokeDialogOpen}
-            onOpenChange={setRevokeDialogOpen}
-          >
-            <AlertDialogContent size="sm">
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Stop sharing with {resolveCounterpartLabel(entry)}?
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  They lose this access right away. The change stays visible in
-                  History.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Keep sharing</AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  onClick={() => onRevoke(entry)}
-                  className="h-11 w-full sm:w-auto"
-                >
-                  Stop sharing
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <ConsentSharingRevokeDialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen} counterpartLabel={resolveCounterpartLabel(entry)} onConfirm={() => onRevoke(entry)} />
+        </SettingsGroup>
+      ) : null}
+
+      {entry.metadata?.commercial_required === true && (entry.request_id || entry.metadata?.request_id) ? (
+        <SettingsGroup embedded title="Paid sharing" description="Review payment and prepare approved encrypted information.">
+          <SettingsRow title="Sharing payment" description="Payment and export preparation have separate statuses." trailing={
+            <Button asChild variant="none" effect="fade" size="sm"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(entry.metadata?.request_id || entry.request_id))}`}>Review payment</Link></Button>
+          } />
         </SettingsGroup>
       ) : null}
 
@@ -2225,6 +2202,7 @@ export function ConsentCenterPage() {
       const approved = approvalsInFlightRef.current.get(detail.requestId);
       if (!approved) return;
       approvalsInFlightRef.current.delete(detail.requestId);
+      if (detail.accessPending) return;
       const granted = toLocallyGrantedEntry(
         approved.entry,
         approved.durationHours,
@@ -2421,7 +2399,7 @@ export function ConsentCenterPage() {
         return;
       }
       if (isMarketplaceEntry(entry)) {
-        void handleMarketplaceApprove(entry);
+        void handleMarketplaceApprove(entry, durationHours);
         return;
       }
       recordApprovalInFlight(entry, durationHours);
@@ -3691,6 +3669,10 @@ export function ConsentCenterPage() {
                 <AccessibilityStatusAnnouncer
                   message={accessibilityStatusMessage}
                 />
+
+                {/^[A-Za-z0-9_-]{1,128}$/.test(searchParams.get("commerceRequestId") || "") ? (
+                  <ScopeCommerceRequestPanel key={`${user?.uid}:${searchParams.get("commerceRequestId")}`} requestId={searchParams.get("commerceRequestId")!} />
+                ) : null}
 
                 {showSessionRecovery ? <SessionExpiryRecovery /> : null}
 

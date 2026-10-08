@@ -11,7 +11,7 @@ sealed to it (``pod_connector_credentials``, connector id ``mcp_<name>``, kind
 ``mcp_oauth``):
 
 * the access token is minted here, by refreshing at the issuer's own token endpoint
-  (found from ``<issuer>/.well-known/oauth-authorization-server`` and required to be
+  (found from RFC 8414 issuer metadata and required to be
   on the issuer's own origin), and kept in memory only;
 * a rotated refresh token is recorded as the next generation, or the connector is
   left out of the turn; ``invalid_grant`` marks the login ``needs_reauth``;
@@ -36,6 +36,12 @@ from urllib.parse import urlsplit
 
 from hushh_mcp.services import pod_connector_credentials as store
 from hushh_mcp.services import pod_google_oauth as oauth
+from hushh_mcp.services.mcp_oauth_metadata import authorization_server_metadata_url
+from hushh_mcp.services.stripe_mcp_oauth import (
+    require_stripe_metadata,
+    require_stripe_registered_client,
+)
+from hushh_mcp.services.stripe_mcp_policy import STRIPE_MCP_ENDPOINT, STRIPE_OAUTH_ISSUER
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +101,10 @@ class CustodyMcpTokens:
 
     async def _token_endpoint(self, issuer: str) -> Optional[str]:
         base = issuer.rstrip("/")
-        status, body = await (self._get or _http_get_json)(
-            f"{base}/.well-known/oauth-authorization-server"
-        )
+        metadata_url = authorization_server_metadata_url(base)
+        status, body = await (self._get or _http_get_json)(metadata_url)
+        if status == 200 and base == STRIPE_OAUTH_ISSUER:
+            require_stripe_metadata(STRIPE_MCP_ENDPOINT, metadata_url, body)
         endpoint = str(body.get("token_endpoint") or "") if status == 200 else ""
         return endpoint if endpoint and _same_origin(endpoint, base) else None
 
@@ -125,6 +132,12 @@ class CustodyMcpTokens:
             or credential.status != store.STATUS_CONNECTED
         ):
             return None
+        require_stripe_registered_client(
+            str(mcp.get("endpoint") or ""),
+            issuer=issuer,
+            auth_method="none",
+            client_secret=mcp.get("clientSecret"),
+        )
         key = (credential.connector_id, credential.credential_id, credential.generation)
         now = int(self._clock())
         cached = self._cache.get(key)

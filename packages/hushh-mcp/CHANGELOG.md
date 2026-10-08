@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added exact-scope tariff discovery and separate consent, payment and access
+  metadata for consumer-priced requests, behind the paid-access rollout gates.
+  Human app owners confirm purchases; MCP authentication does not permit spending.
+- Fixed negotiation offer forwarding through the identifier-free MCP request
+  API. Offers and caller settlement references remain unverified metadata.
+
 ## 0.4.1 - 2026-07-30
 
 - Added an explicit npm bridge configuration for operations-provisioned OAuth

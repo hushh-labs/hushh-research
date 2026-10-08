@@ -79,7 +79,7 @@ steps:
           echo "pod image: skipped (deploy env '${_DEPLOY_ENV}' is not 'dev')"
           exit 0
         fi
-        if [[ "${_BUILD_POD_IMAGE}" != "true" ]]; then
+        if [[ "${_BUILD_POD_IMAGE}" != "true" || -n "${_SECRET_PREFIX}" ]]; then
           echo "pod image: skipped (_BUILD_POD_IMAGE='${_BUILD_POD_IMAGE}')"
           exit 0
         fi
@@ -123,7 +123,7 @@ steps:
       - "-c"
       - |
         set -euo pipefail
-        if [[ "${_DEPLOY_ENV}" != "dev" || "${_BUILD_POD_IMAGE}" != "true" ]]; then
+        if [[ "${_DEPLOY_ENV}" != "dev" || "${_BUILD_POD_IMAGE}" != "true" || -n "${_SECRET_PREFIX}" ]]; then
           echo "pod image digest: skipped"
           exit 0
         fi
@@ -188,7 +188,7 @@ steps:
       - "-c"
       - |
         set -euo pipefail
-        if [[ "${_DEPLOY_ENV}" != "dev" || "${_BUILD_POD_IMAGE}" != "true" ]]; then
+        if [[ "${_DEPLOY_ENV}" != "dev" || "${_BUILD_POD_IMAGE}" != "true" || -n "${_SECRET_PREFIX}" ]]; then
           echo "azure pod release: skipped"
           exit 0
         fi
@@ -448,7 +448,7 @@ steps:
       - "scripts/deploy/backend-deploy.sh"
     env:
       - "PROJECT_ID=$PROJECT_ID"
-      - "_IMAGE_SETTINGS=${_SKIP_IMAGE_BUILD}|${_IMAGE_REFERENCE}|${_CLOUD_RUN_TAG}|${_BUILD_POD_IMAGE}"
+      - "_IMAGE_SETTINGS=${_SKIP_IMAGE_BUILD}|${_IMAGE_REFERENCE}|${_CLOUD_RUN_TAG}|${_BUILD_POD_IMAGE}|${_SECRET_PREFIX}"
       - "_CLOUD_RUN_CAPACITY=max=${_CLOUD_RUN_MAX_INSTANCES},min=${_CLOUD_RUN_MIN_INSTANCES},no_traffic=${_CLOUD_RUN_NO_TRAFFIC},cpu=${_CLOUD_RUN_CPU},concurrency=${_CLOUD_RUN_CONCURRENCY}"
       - "_DB_POOL_SETTINGS=acquire_timeout=${_DB_POOL_ACQUIRE_TIMEOUT_SECONDS},max=${_DB_POOL_MAX_SIZE},min=${_DB_POOL_MIN_SIZE},sa_max_overflow=${_DB_SQLALCHEMY_MAX_OVERFLOW},sa_pool_size=${_DB_SQLALCHEMY_POOL_SIZE}"
       - "_MODEL_SETTINGS=puppy_relay_url=${_PUPPY_INFERENCE_RELAY_URL},puppy_model=${_PUPPY_INFERENCE_MODEL},puppy_timeout=${_PUPPY_INFERENCE_TIMEOUT_SECONDS},gemini_text=${_HUSSH_GEMINI_TEXT_MODEL},voice_enabled=${_ONE_VOICE_LIVE_ENABLED},voice_model=${_VERTEX_LIVE_MODEL_ID},voice_location=${_VERTEX_LIVE_LOCATION}"
@@ -560,6 +560,7 @@ timeout: "1800s"
 
 substitutions:
   _BACKEND_SERVICE: consent-protocol
+  _SECRET_PREFIX: ""
   _RUNTIME_SERVICE_ACCOUNT: ""
   _GENAI_PROJECT_ID: ""
   _REGION: us-central1

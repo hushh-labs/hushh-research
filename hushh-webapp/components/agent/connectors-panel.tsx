@@ -82,7 +82,8 @@ import {
 } from "@/lib/agent/drive-oauth-chat-recovery";
 import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
-import { PrivateGoogleConnectorsPanel } from '@/components/connections/private-google-connectors-panel';
+import { PrivateOwnerConnectorsPanel } from '@/components/connections/private-owner-connectors-panel';
+import { CatalogConnectorDetails } from '@/components/agent/catalog-connector-details';
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 
 type Props = {
@@ -376,7 +377,7 @@ export function ConnectorsPanel(props: Props) {
   if (!props.open) return null;
   if (placement === null) return <p role="status" className="p-4 text-sm">Checking where your agent runs…</p>;
   if (placement === 'unavailable') return <p role="status" className="p-4 text-sm">Your agent's hosting could not be verified. Try again.</p>;
-  if (placement === 'private') return <PrivateGoogleConnectorsPanel key={`${user?.uid}:${Boolean(vaultOwnerToken)}`} {...props} />;
+  if (placement === 'private') return <PrivateOwnerConnectorsPanel key={`${user?.uid}:${Boolean(vaultOwnerToken)}`} {...props} />;
   return (
     <OwnerConnectorsPanel
       key={`${user?.uid ?? "signed-out"}:${Boolean(vaultOwnerToken)}`}
@@ -2094,7 +2095,7 @@ function OwnerConnectorsPanel({
                 ? "Unavailable"
                 : undefined),
           connected: curated ? item.status === "connected" : storedGrant,
-          onOpen: storedGrant || canStartCurated ? () => showConnector(item.connectorId) : undefined,
+          onOpen: storedGrant || canStartCurated || item.stripeReadiness ? () => showConnector(item.connectorId) : undefined,
           pending: disconnecting[item.connectorId] ? "disconnect" : undefined,
           failure: disconnectFailures[item.connectorId],
           action: !curated
@@ -2807,55 +2808,17 @@ function OwnerConnectorsPanel({
               </section>
             )}
             {selectedCatalog && !["google_drive", "gmail", "calendar", "plaid"].includes(activeConnector ?? "") && (
-              <section className="space-y-3 rounded-xl border border-border p-3" aria-label={`${selectedCatalog.displayName} details`}>
-                <h3 className="font-semibold">{selectedCatalog.displayName}</h3>
-                <p className="text-sm text-muted-foreground">{selectedCatalog.description}</p>
-                {selectedCatalog.accountLabel ? <p className="break-all text-sm">{selectedCatalog.accountLabel}</p> : null}
-                <p role="status" className="text-sm">
-                  {selectedCatalog.curatedOAuth === true &&
-                  !canStartSelectedCurated &&
-                  !["not_connected", "revoked"].includes(selectedCatalog.status)
-                    ? "Unavailable"
-                    : selectedCatalog.curatedOAuth === true &&
-                        selectedCatalog.status === "verifying"
-                      ? "Sign-in needed"
-                    : (labels[selectedCatalog.status] ?? "Status unavailable")}
-                </p>
-                {selectedCatalog.curatedOAuth === true ? (
-                  <>
-                    <div className="flex flex-wrap gap-2">
-                      {canStartSelectedCurated &&
-                      ["not_connected", "revoked", "needs_reauth", "verifying"].includes(selectedCatalog.status) ? (
-                        <Button
-                          className={touch}
-                          disabled={curatedBusy || loading}
-                          onClick={() => connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName)}
-                        >
-                          {["needs_reauth", "verifying"].includes(selectedCatalog.status) ? "Reconnect" : "Connect"}
-                        </Button>
-                      ) : null}
-                      {curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId ? (
-                        <Button className={touch} variant="outline" onClick={() => curatedPopupCancel.current?.abort()}>
-                          Cancel sign-in
-                        </Button>
-                      ) : null}
-                      {!["not_connected", "revoked"].includes(selectedCatalog.status) ? (
-                        <Button
-                          className={touch}
-                          variant="outline"
-                          disabled={curatedBusy}
-                          onClick={() => setConfirm(`curated:${selectedCatalog.connectorId}`)}
-                        >
-                          Disconnect
-                        </Button>
-                      ) : null}
-                    </div>
-                    <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-                      {curatedBusy ? "Working…" : curatedMessage}
-                    </p>
-                  </>
-                ) : null}
-              </section>
+              <CatalogConnectorDetails connector={selectedCatalog}
+                canStartCurated={canStartSelectedCurated} loading={loading}
+                busy={curatedBusy} message={curatedMessage}
+                popupPending={curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId}
+                onCancelSignIn={() => curatedPopupCancel.current?.abort()}
+                onConnect={() => void connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName)}
+                onDisconnect={() => setConfirm(`curated:${selectedCatalog.connectorId}`)}
+                statusLabel={labels[selectedCatalog.status] ?? "Status unavailable"}
+                access={user?.uid && vaultKey && vaultOwnerToken ? { userId: user.uid, vaultKey, vaultOwnerToken } : null}
+                onPrepareRecovery={onPrepareRecovery}
+              />
             )}
           </div>
         )}

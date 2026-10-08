@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -272,3 +274,56 @@ def test_apply_migration_files_still_defaults_to_the_release_migrations_dir() ->
     """The release applier was not repointed at the parked directory."""
     assert migrate.MIGRATIONS_DIR == MIGRATIONS_DIR
     assert migrate.MIGRATIONS_DIR != migrate.PARKED_MIGRATIONS_DIR
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "target,project,database,extra,valid",
+    [
+        ("shared-dev", "hushh-pda-dev", "postgres", False, True),
+        ("scope-commerce-sandbox", "hushh-pda-dev", "scope_commerce_sandbox", False, True),
+        ("scope-commerce-sandbox", "hushh-pda-dev", "postgres", False, False),
+        ("scope-commerce-sandbox", "hushh-pda", "scope_commerce_sandbox", False, False),
+        ("scope-commerce-sandbox", "hushh-pda-dev", "scope_commerce_sandbox", True, False),
+        ("arbitrary-preview", "hushh-pda-dev", "scope_commerce_sandbox", False, False),
+    ],
+)
+async def test_real_release_handler_preserves_shared_tail_and_preview_release_only(
+    monkeypatch, target, project, database, extra, valid
+):
+    for key, value in {
+        "DEV_TARGET": target,
+        "GCP_PROJECT_ID": project,
+        "DB_NAME": database,
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["migrate.py", "--release", "--migration-mode", "replay"]
+        + (["--dev-extra"] if extra else []),
+    )
+    pool = AsyncMock()
+    create_pool = AsyncMock(return_value=pool)
+    release, parked, status = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(migrate.asyncpg, "create_pool", create_pool)
+    monkeypatch.setattr(
+        migrate, "get_database_url", lambda: "postgresql://synthetic@localhost/synthetic"
+    )
+    monkeypatch.setattr(migrate, "get_database_ssl", lambda: None)
+    monkeypatch.setattr(migrate, "run_release_migration", release)
+    monkeypatch.setattr(migrate, "run_dev_extra_migration", parked)
+    monkeypatch.setattr(migrate, "show_status", status)
+    if not valid:
+        with pytest.raises(SystemExit):
+            await migrate.main()
+        create_pool.assert_not_called()
+        release.assert_not_called()
+        parked.assert_not_called()
+        return
+    await migrate.main()
+    release.assert_awaited_once()
+    assert release.await_args.kwargs["mode"] is migrate.MigrationMode.REPLAY
+    assert parked.await_count == (1 if target == "shared-dev" else 0)
+    status.assert_awaited_once_with(pool)
+    pool.close.assert_awaited_once()

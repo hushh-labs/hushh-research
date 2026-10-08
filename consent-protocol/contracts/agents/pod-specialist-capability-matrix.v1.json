@@ -674,6 +674,7 @@
       "consent-protocol/hushh_mcp/adk_bridge/delegation.py",
       "consent-protocol/hushh_mcp/one_adk/pod_data_door_specialist.py",
       "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
+      "consent-protocol/hushh_mcp/services/pod_marketplace_ports.py",
       "consent-protocol/hushh_mcp/services/pod_specialist_runtime.py"
     ],
     "manifests": "consent-protocol/hushh_mcp/agents/*/agent.yaml"

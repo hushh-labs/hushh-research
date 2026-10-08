@@ -15,6 +15,8 @@ import yaml
         ("calendar_secret", True, False, True),
         ("calendar_runtime", True, False, True),
         ("signed_in_routes:/one", False, False, False),
+        ("preview_app", True, True, True),
+        ("preview_mounts", True, True, True),
     ],
 )
 def test_semantic_failure_selects_rollback(
@@ -62,6 +64,25 @@ def test_semantic_failure_selects_rollback(
         monkeypatch.setenv("PARITY_ATTEMPT_2", "failure")
         monkeypatch.setenv("SEMANTIC_ATTEMPT_1", "success")
         monkeypatch.setenv("SEMANTIC_ATTEMPT_2", "skipped")
+    if failure.startswith("preview_"):
+        monkeypatch.setenv("DEV_TARGET", "scope-commerce-sandbox")
+        for filename in ("dev-release-verify-attempt-2.json", "dev-runtime-parity-attempt-2.json"):
+            (tmp_path / filename).write_text(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "classifications": ["commerce_preview_unverified"],
+                        "required": {},
+                        "runtime_contract": {},
+                    }
+                )
+            )
+        if failure == "preview_mounts":
+            monkeypatch.setenv("PARITY_ATTEMPT_1", "failure")
+            monkeypatch.setenv("PARITY_ATTEMPT_2", "failure")
+            monkeypatch.setenv("SEMANTIC_ATTEMPT_1", "success")
+    else:
+        monkeypatch.setenv("DEV_TARGET", "shared-dev")
     exec(compile(source, str(root / ".github/workflows/deploy-dev.yml"), "exec"), {})  # noqa: S102 - trusted repository workflow
     result = json.loads((tmp_path / "dev-release-classification.json").read_text())
     assert result["release_failed"] is blocked

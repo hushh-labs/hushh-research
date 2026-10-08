@@ -361,6 +361,7 @@ class McpTurnResources:
                 else "credentialed"
             ),
             forced_review_tool_ids=frozenset(item["id"] for item in record.get("blockedTools", [])),
+            authentication_kind=auth["kind"],
         )
 
     def track_catalog_view(self, view: Any) -> None:

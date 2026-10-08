@@ -1,8 +1,24 @@
 import XCTest
 import SwiftUI
+import Capacitor
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    func testSandboxConnectorReturnNeedsDebugIdentityAndExactBuildPin() {
+        let pin = "https://scope-commerce-preview-123.us-central1.run.app"
+        let callback = pin + "/one/profile/connectors/oauth/return?code=synthetic&state=synthetic"
+        let policy = ScopeCommerceSandboxOAuthPolicy.self
+        XCTAssertTrue(policy.admits(URL(string: callback)!, pin: pin, bundleID: policy.bundleID, isDebug: true))
+        XCTAssertFalse(policy.admits(URL(string: callback)!, pin: pin, bundleID: policy.bundleID, isDebug: false))
+        XCTAssertFalse(policy.admits(URL(string: callback)!, pin: pin, bundleID: "com.hushh.app", isDebug: true))
+        for badPin: String? in [nil, "https://one.hushh.ai", "https://other.run.app", pin + "/", pin + ":443"] {
+            XCTAssertFalse(policy.admits(URL(string: callback)!, pin: badPin, bundleID: policy.bundleID, isDebug: true))
+        }
+        for badReturn in ["https://other.run.app/one/profile/connectors/oauth/return", pin + "/one/profile/account", pin + "/one/profile/connectors/oauth/return#token", pin + "/%6fne/profile/connectors/oauth/return"] {
+            XCTAssertFalse(policy.admits(URL(string: badReturn)!, pin: pin, bundleID: policy.bundleID, isDebug: true))
+        }
+    }
+
     func testReviewerCredentialsRequireExplicitTestModeAndEnvironment() {
         let environment = [
             "HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE": "synthetic-passphrase",
@@ -297,6 +313,78 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.acceptsTap("chat", appIsActive: false, shielded: false, keyboardVisible: false))
         XCTAssertFalse(state.acceptsTap("chat", appIsActive: true, shielded: true, keyboardVisible: false))
         XCTAssertFalse(state.acceptsTap("chat", appIsActive: true, shielded: false, keyboardVisible: true))
+    }
+    @MainActor
+    func testNativeNavigationConsumesTheShellColumnWithPaddingAndOneSafeArea() throws {
+        for width: CGFloat in [320, 393, 430, 862] {
+            let host = UIView(frame: CGRect(x: 0, y: 0, width: width, height: 844))
+            let web = UIView(frame: host.bounds)
+            host.addSubview(web)
+            let bar = UITabBar()
+            host.addSubview(bar)
+            let columnWidth = min(width - 32, 768)
+            let left = (width - columnWidth) / 2
+            let column = try XCTUnwrap(HushhNativeNavigationColumn(projection: [
+                "x": Double(left), "width": Double(columnWidth), "contentHeight": 64.0, "viewportWidth": Double(width),
+            ]))
+            for bottom: CGFloat in [0, 21, 34] {
+                bar.frame = try XCTUnwrap(column.frame(in: host, webView: web, bottomInset: bottom))
+                bar.layoutIfNeeded()
+                XCTAssertEqual(bar.frame.minX, left, accuracy: 0.5)
+                XCTAssertEqual(bar.frame.width, columnWidth, accuracy: 0.5)
+                XCTAssertEqual(bar.frame.height - bottom, 64, accuracy: 0.5)
+                XCTAssertGreaterThanOrEqual(bar.frame.height - bottom - 49, 15)
+                XCTAssertEqual(bar.frame.maxY, host.bounds.maxY, accuracy: 0.5)
+            }
+            // Native layout/foreground/tap boundaries revalidate the same
+            // projection while a resize is ahead of the WebView's next update.
+            host.bounds.size.width = 200
+            XCTAssertNil(column.frame(in: host, webView: web, bottomInset: 34))
+        }
+        for malformed: JSObject in [
+            ["x": -1, "width": 361, "contentHeight": 64, "viewportWidth": 393],
+            ["x": 16, "width": 393, "contentHeight": 64, "viewportWidth": 393],
+            ["x": 16, "width": 361, "contentHeight": 200, "viewportWidth": 393],
+            ["x": 16, "width": Double.nan, "contentHeight": 64, "viewportWidth": 393],
+        ] { XCTAssertNil(HushhNativeNavigationColumn(projection: malformed)) }
+    }
+
+    @MainActor
+    func testNativePublicPreferencePresentationKeepsTheValueInItsControl() throws {
+        guard #available(iOS 17.0, *) else {
+            XCTAssertTrue(HushhNativePreferencePresentation.families.isEmpty); return
+        }
+        XCTAssertEqual(HushhNativePreferencePresentation.families(for: .phone), ["appearance", "accent"])
+        XCTAssertFalse(HushhNativePreferencePresentation.families.contains("agent-surface"))
+        let theme = try XCTUnwrap(HushhNativeControlAppearance(appearance: "light", accentHex: "#007aff", foregroundHex: "#222222"))
+        let focus = ChromeFocusRequest()
+        for kind in ["appearance", "accent"] {
+            XCTAssertTrue(HushhNativePreferencePresentation.admitsWidth(172, kind: kind))
+            XCTAssertFalse(HushhNativePreferencePresentation.admitsWidth(120, kind: kind))
+            XCTAssertFalse(HushhNativePreferencePresentation.admitsWidth(321, kind: kind))
+            let control = try XCTUnwrap(HushhNativePreferencePresentation.control(kind: kind, value: kind == "accent" ? "gold" : "system", width: 172, theme: theme, focus: focus, select: { _ in }, open: {}, layout: { _ in }))
+            let controller = UIHostingController(rootView: control)
+            controller.loadViewIfNeeded()
+            controller.view.frame = CGRect(x: 0, y: 0, width: 172, height: 44)
+            controller.view.layoutIfNeeded()
+            XCTAssertEqual(controller.sizeThatFits(in: CGSize(width: 172, height: 44)), CGSize(width: 172, height: 44))
+        }
+    }
+    @MainActor
+    func testNativePublicPreferenceHostAdmissionSupportsPhoneAndPadOnly() {
+        guard #available(iOS 17.0, *) else {
+            XCTAssertTrue(HushhNativePreferencePresentation.families.isEmpty); return
+        }
+        let phoneFamilies = ["appearance", "accent"]
+        XCTAssertEqual(HushhNativePreferencePresentation.families(for: .phone), phoneFamilies)
+        XCTAssertEqual(HushhNativePreferencePresentation.families(for: .pad), phoneFamilies)
+        for idiom in [UIUserInterfaceIdiom.unspecified, .tv, .carPlay, .mac] {
+            XCTAssertTrue(HushhNativePreferencePresentation.families(for: idiom).isEmpty)
+        }
+        XCTAssertFalse(phoneFamilies.contains("back"))
+        XCTAssertFalse(phoneFamilies.contains("agent-surface"))
+        let expected = [UIUserInterfaceIdiom.phone, .pad].contains(UIDevice.current.userInterfaceIdiom) ? phoneFamilies : []
+        XCTAssertEqual(HushhNativePreferencePresentation.families, expected)
     }
     func testGoogleReauthenticationAcceptsEachStageExactlyOnce() {
         let fence = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)

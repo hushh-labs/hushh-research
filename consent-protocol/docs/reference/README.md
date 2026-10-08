@@ -28,6 +28,7 @@ This backend docs home uses the same founder-language matrix as root `docs/`, wh
 - [agent-development.md](./agent-development.md): agent, tool, operon, and service development model
 - [backend-semantic-baseline-audit.md](./backend-semantic-baseline-audit.md): backend semantic audit reference
 - [backend-semantic-boundary.md](./backend-semantic-boundary.md): backend semantic boundary contract
+- [consumer-scope-commerce.md](./consumer-scope-commerce.md): owner scope pricing, human purchase confirmation, v2 fulfillment and financial reconciliation
 - [consent-protocol.md](./consent-protocol.md): consent-token lifecycle and trust model
 - [developer-api.md](./developer-api.md): developer API and MCP-facing contract
 - [dev-environment-setup.md](./dev-environment-setup.md): hosted dev environment runbook

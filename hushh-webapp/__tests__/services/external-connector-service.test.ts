@@ -42,6 +42,30 @@ describe("ExternalConnectorService native Drive OAuth", () => {
         signal, isEffectCurrent }));
   });
 
+  it.each([false, true])("accepts only current revision-bound Stripe verification (stale=%s)", async (stale) => {
+    const configuration = { version: 1 as const, connectorId: "custom_" + "d".repeat(32),
+      revision: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", displayName: "Stripe",
+      endpoint: "https://mcp.stripe.com", enabled: true,
+      authentication: { kind: "oauth" as const, accessToken: "synthetic-stripe-oauth", expiresAt: 4070908800 } };
+    apiFetch.mockResolvedValue(Response.json({ connectorId: configuration.connectorId,
+      configurationRevision: configuration.revision, stripeReadiness: { toolingConnected: true,
+        accountVerified: true, environmentVerified: true, accountToolsAvailable: true,
+        capability: "account_balance_readonly", verificationState: "verified",
+        verifiedAt: "2026-10-07T12:00:00Z", catalogFingerprint: "e".repeat(64),
+        configurationRevision: stale ? "old-revision" : configuration.revision },
+      account: { email: "private@example.invalid" } }));
+    const pending = ExternalConnectorService.verifyStripeAccount({ vaultOwnerToken: "owner-token",
+      configuration, signal: new AbortController().signal, isEffectCurrent: () => true });
+    if (stale) await expect(pending).rejects.toThrow("Stripe connection changed");
+    else {
+      const readiness = await pending;
+      expect(readiness.accountVerified).toBe(true);
+      expect(JSON.stringify(readiness)).not.toContain("private@example");
+    }
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith(`/api/connectors/${configuration.connectorId}/mcp/verify`,
+      expect.objectContaining({ method: "POST", cache: "no-store" }));
+  });
+
   it("discards private OAuth delivery after vault authority changes", async () => {
     let current = true;
     apiFetch.mockImplementationOnce(async () => {

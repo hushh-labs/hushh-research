@@ -4487,7 +4487,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "bdc80505a82f849dbc673b7754ed1873a623931bd094e85bcc94f822b9bc9920",
+      "system_instruction_sha256": "4dc4515eb2bf7cd0ac61300a0b3f92b52826308051cefc8eea0af8be857a4cef",
       "telemetry_namespace": "agent.unclassified",
       "tools": [
         {
@@ -4503,9 +4503,21 @@
           "required_scope": "cap.pkm.marketplace.view"
         },
         {
-          "description": "Summarize real buyer demand (pending/approved/interested counts) + POTENTIAL monthly earnings across published slices, with per-slice show-math factors and the pricing formula. Payments coming soon; payouts disabled and nothing accrued.",
+          "description": "Read buyer interest and hypothetical research prices only. This estimate is separate from exact tariffs and recorded commercial earnings.",
           "name": "get_earnings_summary",
           "py_func": "hushh_mcp.agents.personal_information.tools.get_earnings_summary",
+          "required_scope": "cap.pkm.marketplace.view"
+        },
+        {
+          "description": "Read the current owner\u2019s canonical pending and withdrawable earnings, debt and configured/persisted payment readiness. No financial actions or provider calls.",
+          "name": "get_scope_commerce_summary",
+          "py_func": "hushh_mcp.agents.personal_information.tools.get_scope_commerce_summary",
+          "required_scope": "cap.pkm.marketplace.view"
+        },
+        {
+          "description": "Read a bounded owner-scoped sales, purchases or transaction history page with human review links. No payment or information activation.",
+          "name": "get_scope_commerce_activity",
+          "py_func": "hushh_mcp.agents.personal_information.tools.get_scope_commerce_activity",
           "required_scope": "cap.pkm.marketplace.view"
         },
         {

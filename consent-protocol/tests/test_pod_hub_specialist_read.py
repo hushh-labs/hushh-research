@@ -15,6 +15,7 @@ from typing import Any, Optional
 import pytest
 
 from hushh_mcp.services.pod_hub_client import PodHubClient, PodHubUnavailable
+from tests.test_pod_owner_feed import agent as agent
 
 
 class _Resp:
@@ -153,3 +154,137 @@ def test_calendar_read_rejects_old_or_mismatched_hub_coverage(state):
                 "end_at": "2026-10-08T00:00:00Z",
             },
         )
+
+
+async def test_commerce_port_uses_scoped_existing_door_and_owner_feed(monkeypatch):
+    from hushh_mcp.services import pod_specialist_runtime as runtime
+    from hushh_mcp.services.pod_owner_read_ports import OwnerFeedMarketplacePort
+
+    calls = []
+    page = {"items": [], "next_cursor": None}
+
+    def door(name, scope, **options):
+        calls.append((name, scope, options))
+        return {"operation": "commerce_activity", "result": page}
+
+    class Feed:
+        def read(self, door, owner, *, params):
+            calls.append((door, owner, params))
+            return {"operation": "commerce_activity", "result": page}
+
+    monkeypatch.setattr(runtime, "_hub_read", door)
+    port = runtime.PodMarketplaceReadPort("owner", "marketplace-scope")
+    assert await port.scope_commerce_activity(user_id="owner", view="sales", cursor=None) == page
+    feed = OwnerFeedMarketplacePort("owner", Feed())
+    assert (
+        await feed.scope_commerce_activity(user_id="owner", view="purchases", cursor=None) == page
+    )
+    assert calls[0][0:2] == ("marketplace", "marketplace-scope")
+    assert calls[0][2]["marketplace_read"]["operation"] == "commerce_activity"
+    assert calls[1][0:2] == ("marketplace", "owner")
+    for selected in (port, feed):
+        with pytest.raises(PermissionError):
+            await selected.scope_commerce_summary(user_id="other")
+    assert len(calls) == 2
+
+
+async def test_commerce_owner_feed_roundtrip_is_signed_sealed_and_owner_selected(agent):
+    import asyncio
+
+    from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
+    from hushh_mcp.services.pod_owner_read_ports import OwnerFeedMarketplacePort
+    from hushh_mcp.services.pod_specialist_runtime import PodSpecialistInformationUnavailable
+    from tests.test_pod_owner_feed import OWNER, _client, _Hub, _serve
+
+    observed = []
+    page = {
+        "operation": "commerce_activity",
+        "result": {"items": [], "next_cursor": None, "consent_token": "forbidden-token"},
+        "provider_response": {"secret": "forbidden-provider"},
+    }
+
+    class CommerceHub(_Hub):
+        def get(self, path, *, params=None):
+            async def reader(kind, owner_id, *, marketplace, command):
+                observed.append((kind, owner_id, marketplace.operation, marketplace.view))
+                return page
+
+            options = MarketplaceReadOptions(**params)
+            served = asyncio.run(
+                _serve(self.keypair, kind="marketplace", marketplace=options, reader=reader)
+            )
+            return _Resp(200, served)
+
+    port = OwnerFeedMarketplacePort(OWNER, _client(agent, CommerceHub(agent)))
+    assert await port.scope_commerce_activity(user_id=OWNER, view="sales", cursor=None) == {
+        "items": [],
+        "next_cursor": None,
+    }
+    assert observed == [("marketplace", OWNER, "commerce_activity", "sales")]
+    with pytest.raises(PermissionError):
+        await port.scope_commerce_summary(user_id="other")
+    assert len(observed) == 1
+    # A valid signed activity feed cannot stand in for a requested summary.
+    with pytest.raises(PodSpecialistInformationUnavailable):
+        await port.scope_commerce_summary(user_id=OWNER)
+    assert observed[-1][2] == "commerce_summary"
+
+
+async def test_unknown_commerce_operation_cannot_be_sealed_as_legacy_earnings(agent):
+    from fastapi import HTTPException
+
+    from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
+    from tests.test_pod_owner_feed import _serve
+
+    async def forged(kind, owner_id, *, marketplace, command):
+        return {"operation": "forged_operation", "result": {"accruedCents": 0}}
+
+    with pytest.raises(HTTPException) as refused:
+        await _serve(
+            agent,
+            kind="marketplace",
+            marketplace=MarketplaceReadOptions(operation="commerce_activity"),
+            reader=forged,
+        )
+    assert refused.value.status_code == 503
+
+
+async def test_owner_feed_http_commerce_query_is_typed_and_preserves_signed_authority(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+
+    from api.routes.one import pod_owner_feed as route
+
+    received = []
+
+    async def serve(request, kind, authorization, *, marketplace):
+        received.append((kind, authorization, marketplace))
+        return {"envelope": "synthetic-signed-feed"}
+
+    monkeypatch.setattr(route, "serve_owner_feed", serve)
+    app = FastAPI()
+    app.include_router(route.router)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as c:
+        path = "/api/one/pod/owner-feed/marketplace"
+        reply = await c.get(
+            path,
+            params={"operation": "commerce_activity", "view": "sales", "cursor": "bounded"},
+            headers={"Authorization": "signed-owner-request"},
+        )
+        assert reply.status_code == 200
+        assert received[0][0:2] == ("marketplace", "signed-owner-request")
+        assert received[0][2].operation == "commerce_activity"
+        assert (received[0][2].view, received[0][2].cursor) == ("sales", "bounded")
+        assert (await c.get(path, params={"operation": "commerce_summary"})).status_code == 200
+        for params in (
+            {"operation": "spend"},
+            {"operation": "commerce_activity", "view": "all_owners"},
+            {"operation": "commerce_activity", "cursor": "a" * 2049},
+        ):
+            assert (await c.get(path, params=params)).status_code == 422
+        assert (
+            await c.get("/api/one/pod/owner-feed/location", params={"view": "sales"})
+        ).status_code == 422
+    assert len(received) == 2

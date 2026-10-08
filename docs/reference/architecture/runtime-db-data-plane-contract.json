@@ -1725,6 +1725,21 @@
       "trust_boundary": "Active ordinary Circle members only, with an envelope matching the current membership joined_at generation. The server relays client ciphertext and recipient public keys; it never receives message or image plaintext.",
       "plaintext_posture": "ciphertext_and_membership_delivery_metadata",
       "expected_row_growth": "high_per_message_and_active_member"
+    },
+    {
+      "id": "consumer_scope_commerce",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "glob_tables": [
+        "scope_commerce_*"
+      ],
+      "primary_access_path": "hushh_mcp/services/scope_commerce owns PostgreSQL tariffs, immutable quotes, a shared funded-balance journal, reservations, pending earnings, original-source refunds and Connect settlement. api/routes/scope_commerce.py resolves existing authenticated request/owner authority; consent/paid_admission.py gates canonical exports independently of admission flags. Replaceable Stripe adapters persist provider operations before I/O and reconcile outside financial transactions.",
+      "retention_policy": "Financial journal and opaque obligations remain append-only under the approved financial retention policy, including after account erasure. Temporary encrypted staging is cleared on term completion, failure, revocation and erasure; provider retention deadlines govern small residual balances. Live enablement remains gated on verified business configuration, retention, country and tax approvals; source inspection alone does not establish deployed reconciliation or retention behavior.",
+      "deletion_behavior": "Revoke affected purchases and block retrieval immediately, release or refund liabilities through original funding provenance, then detach human identity mappings while preserving opaque money obligations and provider settlement routing. Financial reconciliation must continue after erasure and feature rollback; ciphertext deletion cannot withdraw copies already delivered.",
+      "trust_boundary": "Integer money and balanced append-only entries use PostgreSQL transactions and reservations; caller receipts and Checkout redirects are not payment evidence. Owner-approved immutable quotes bind exact scope, duration, app and recipient key, with separate human payer confirmation. Only a future fixed-time owner-encrypted export activates paid access; payment never broadens consent or refresh. Stripe receives opaque financial references, never decrypted information, private keys or request purpose.",
+      "plaintext_posture": "financial_and_consent_metadata_with_transient_ciphertext_only",
+      "expected_row_growth": "medium_per_purchase_funding_and_settlement"
     }
   ]
 }

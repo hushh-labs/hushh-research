@@ -25,6 +25,8 @@ import pytest
 
 from hushh_mcp.services import drive_sharing_retention
 from hushh_mcp.services.account_service import ACCOUNT_ERASURE_RETAINED_TABLES, AccountService
+from hushh_mcp.services.scope_commerce import ScopeCommerceService
+from hushh_mcp.services.scope_commerce import sync_bridge as commerce_bridge
 
 SERVICE_ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIGRATIONS = SERVICE_ROOT / "db" / "migrations"
@@ -79,6 +81,10 @@ _DRIVE_SPECIALIZED_TABLES = {
     "drive_share_management_contexts",
     "drive_share_live_sources",
 }
+_COMMERCE_SPECIALIZED_TABLES = {
+    "scope_commerce_stripe_customers",
+    "scope_commerce_seller_accounts",
+}
 
 
 def _user_keyed_tables() -> dict[str, str]:
@@ -114,6 +120,10 @@ def erased_tables(monkeypatch) -> set[str]:
     monkeypatch.setattr(
         drive_sharing_retention, "erase_drive_account_in_transaction", record_drive_erasure
     )
+    commerce = MagicMock()
+    # Financial journal behavior is proved by the real PostgreSQL erasure and
+    # same-transaction rollback acceptance; this fixture inventories the caller.
+    monkeypatch.setattr(commerce_bridge, "erase_account_in_transaction", commerce)
 
     @contextmanager
     def connection():
@@ -129,6 +139,7 @@ def erased_tables(monkeypatch) -> set[str]:
     first_delete = next(i for i, sql in enumerate(statements) if "DELETE FROM" in sql)
     assert guard < first_delete
     assert drive_calls == [("synthetic-owner", True)]
+    commerce.assert_called_once_with(conn, user_id="synthetic-owner", permanent=True)
 
     def deletion_index(table):
         return next(
@@ -176,6 +187,9 @@ def test_no_user_keyed_table_is_silently_left_behind(erased_tables) -> None:
     assert "r.recipient_user_id=:user" in helper_source
     for table in _DRIVE_SPECIALIZED_TABLES:
         assert re.search(rf"DELETE FROM {table}\b", helper_source)
+    commerce_source = inspect.getsource(inspect.getmodule(ScopeCommerceService.erase_account))
+    for table in _COMMERCE_SPECIALIZED_TABLES:
+        assert re.search(rf"DELETE FROM {table}\b", commerce_source)
     for table, parent in _CASCADE_PARENT.items():
         assert parent in erased_tables or parent in _CASCADE_PARENT
         assert table in tables
@@ -191,6 +205,7 @@ def test_no_user_keyed_table_is_silently_left_behind(erased_tables) -> None:
         - erased_tables
         - set(_CASCADE_PARENT)
         - _DRIVE_SPECIALIZED_TABLES
+        - _COMMERCE_SPECIALIZED_TABLES
         - set(ACCOUNT_ERASURE_RETAINED_TABLES)
     )
     assert not unaccounted, (

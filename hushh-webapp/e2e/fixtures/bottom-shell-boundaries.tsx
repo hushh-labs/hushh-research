@@ -20,6 +20,11 @@ export const useFeedUnreadCount = () => 0;
 
 /** `data-agent="live"` renders the One Live Voice dock; otherwise the command bar. */
 export const useOneVoiceLiveEnabled = () => root().agent === "live";
+export const useOneVoiceCommandsEnabled = () => root().agent !== "live";
+export const useOneVoiceReadiness = () => ({
+  status: "resolved",
+  microphoneOwner: root().agent === "live" ? "shared_live" : "pod_commands",
+});
 
 const idleCommand = {
   view: { phase: "idle", message: "", transcript: "" },

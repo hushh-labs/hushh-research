@@ -73,6 +73,7 @@ def _run(
     pod_image: str = POD_IMAGE,
     published: tuple[str, ...] = (),
     add_tag: str = "copy",
+    namespace: str = "",
 ) -> tuple[subprocess.CompletedProcess, list[str], list[str]]:
     """The step with Cloud Build's substitutions expanded textually, as Cloud Build does."""
     workspace, bin_dir = tmp_path / "workspace", tmp_path / "bin"
@@ -88,6 +89,7 @@ def _run(
     expanded = (
         script.replace("${_DEPLOY_ENV}", deploy_env)
         .replace("${_BUILD_POD_IMAGE}", build_flag)
+        .replace("${_SECRET_PREFIX}", namespace)
         .replace("${_IMAGE_TAG}", TAG)
         .replace("$PROJECT_ID", PROJECT)
         .replace("/workspace/", f"{workspace}/")
@@ -187,3 +189,9 @@ def test_the_step_never_changes_who_may_read_or_write(script):
     """Publishing copies bytes; it must never widen the reader or grant the hub."""
     for forbidden in ("iam-policy", "add-iam", "set-iam", "roles/", "serviceAccount:"):
         assert forbidden not in script
+
+
+def test_isolated_preview_never_publishes_shared_azure_pod_release(script, tmp_path):
+    result, calls, registry = _run(script, tmp_path, namespace="SCOPE_COMMERCE_SANDBOX_")
+    assert result.returncode == 0 and "skipped" in result.stdout
+    assert calls == [] and registry == []
