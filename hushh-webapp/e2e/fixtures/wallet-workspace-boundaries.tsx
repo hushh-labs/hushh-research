@@ -3,6 +3,7 @@
 // card, and nothing leaves the page. The scenario is read from
 // `window.__walletScenario`, set by the spec before the fixture script runs.
 import React from "react";
+import type { WalletCardPayload } from "../../lib/services/wallet-card-service";
 
 type FixtureCard = {
   cardId: string;
@@ -24,6 +25,7 @@ type Scenario = {
   locked?: boolean;
   delayMs?: number;
   error?: boolean;
+  profile?: WalletCardPayload;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -108,7 +110,7 @@ export class WalletService {
 export class WalletCardService {
   static async getCard() {
     return {
-      card: { cardPayload: { full_name: "Alex Rivera" } },
+      card: { cardPayload: { full_name: "Alex Rivera", ...scenario().profile } },
       shareUrl: "https://example.com/profile/alex",
     };
   }

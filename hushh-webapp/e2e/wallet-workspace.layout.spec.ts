@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { WalletCardPayload } from "../lib/services/wallet-card-service";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 import {
   resolveSignedInShellContentOffset,
@@ -107,7 +108,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; locked?: boolean; delayMs?: number };
+type Scenario = { cards?: number; locked?: boolean; delayMs?: number; profile?: WalletCardPayload };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -406,6 +407,43 @@ async function awaitWalletCardsSettled(page: Page) {
 }
 
 for (const width of [320, 390, 1024]) {
+  test(`Wallet Profile details remain readable and scroll-reachable at ${width}px`, async ({ page }) => {
+    const profile = {
+      full_name: "Alex Rivera with a longer display name for the responsive Profile card",
+      summary: "Synthetic product context for the responsive Wallet Profile. ".repeat(5).trim(),
+      email: `${"alex-rivera-".repeat(4)}@long-profile-example.test`,
+      website: `https://example.test/${"private-agent-product-context-".repeat(6)}`,
+      portfolio: `https://example.test/${"responsive-portfolio-".repeat(6)}`,
+    } satisfies WalletCardPayload;
+    const errors = await open(page, width, "light", { cards: 0, profile }, { height: 844, shell: true });
+    await mount(page);
+    await awaitWalletCardsSettled(page);
+    await page.getByTestId("wallet-preview-stack").getByRole("button", { name: "Everyday", exact: true }).click();
+    const details = page.getByTestId("wallet-demo-details");
+    for (const value of Object.values(profile)) await expect(details).toContainText(value);
+    await expect.poll(() => details.locator("dd").evaluateAll((values) => values.every((value) => {
+      const cell = value as HTMLElement;
+      if (cell.scrollWidth > cell.clientWidth + 1) return false;
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      const lines = Array.from(range.getClientRects());
+      for (let ancestor: HTMLElement | null = cell; ancestor; ancestor = ancestor.parentElement) {
+        if (ancestor !== cell && !/hidden|clip|auto|scroll/.test(getComputedStyle(ancestor).overflowX)) continue;
+        const bounds = ancestor.getBoundingClientRect();
+        if (lines.some((line) => line.left < bounds.left - 1 || line.right > bounds.right + 1)) return false;
+      }
+      return true;
+    }))).toBe(true);
+    const finalValue = details.locator("dd").last();
+    await page.mouse.move(width / 2, 400);
+    await page.mouse.wheel(0, 5000);
+    await expect(finalValue).toBeInViewport({ ratio: 1 });
+    await expect.poll(() => finalValue.evaluate((element) =>
+      element.getBoundingClientRect().bottom - document.querySelector("[data-bottom-chrome]")!.getBoundingClientRect().top,
+    )).toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+
   test(`Wallet profile overlays preserve card selection at ${width}px`, async ({ page }) => {
     const errors = await test.step("Open the authored Wallet overview", async () => {
       const errors = await open(page, width, "light", { cards: 0 }, { height: 844, shell: true });
