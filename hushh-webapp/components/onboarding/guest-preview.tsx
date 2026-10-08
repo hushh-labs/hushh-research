@@ -43,7 +43,6 @@ import {
   ONE_CAPABILITIES,
   isOneCapabilityEnabled,
 } from "@/lib/onboarding/one-capabilities";
-import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./guest-preview.module.css";
 import welcomeStyles from "./IntroStep.module.css";
@@ -54,6 +53,16 @@ const CAPABILITIES = ONE_CAPABILITIES.filter(
     capability.isVisibleOnRoster !== false &&
     isOneCapabilityEnabled(capability),
 );
+const AGENT_PREVIEW_COPY: Record<string, string> = {
+  finance: "Shows your accounts and spending.",
+  wallet: "Stores your card information, encrypted.",
+  location: "Shares where you are with people you pick.",
+  ria: "Puts you in touch with a financial advisor.",
+  gmail: "Reads and sorts your inbox for you.",
+  calendar: "Shows your week and finds time that is free.",
+  pkm: "Remembers what you have told One.",
+  consent: "Lets you change what each agent can see.",
+};
 // Presentation only. Calendar illustrates a connected calendar's free slots;
 // Location illustrates a ready Family Circle with device permission granted.
 // The sharing contract supports duration/early revocation, not arrival triggers.
@@ -335,7 +344,7 @@ function AgentStory() {
     >
       <div className={styles.agentCardList} aria-label="One’s private agents">
         {CAPABILITIES.map((capability) => {
-          const copy = getCapabilitySetupCopy(capability.id);
+            const description = AGENT_PREVIEW_COPY[capability.id] || capability.description;
           return (
           <div
             key={capability.id}
@@ -351,7 +360,7 @@ function AgentStory() {
               />
             </span>
             <span className={styles.agentName}>{capability.title}</span>
-            <span className={styles.agentDesc}>{copy?.introPremise || copy?.setupBlurb || capability.description}</span>
+            <span className={styles.agentDesc}>{description}</span>
           </div>
           );
         })}
