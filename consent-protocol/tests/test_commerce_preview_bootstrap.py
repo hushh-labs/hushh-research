@@ -21,20 +21,36 @@ def _bootstrap_fixture(module, identifier, *, bootstrap=True):
             f"gcr.io/{module['PROJECT']}/{repository}@sha256:" + "c" * 64
         )
         template["labels"] = {"deploy-sha": "d" * 40}
-    revision = {**template, "name": name + "/revisions/fixed"}
+    revision_id = identifier + "-00001-fixture"
+    revision = {**template, "name": name + "/revisions/" + revision_id}
     service = {
         "name": name,
         "etag": "fixture-etag",
         "template": template,
         "uri": "https://fixed-preview.run.app",
         "reconciling": False,
-        "trafficStatuses": [{"revision": revision["name"], "percent": 100}],
+        "latestReadyRevision": revision["name"],
+        "trafficStatuses": [{"revision": revision_id, "percent": 100}],
     }
     return service, revision, image
 
 
 @pytest.mark.parametrize(
-    "mutation", ["identity", "image", "secret", "public", "disabled", "traffic", "sha"]
+    "mutation",
+    [
+        "identity",
+        "image",
+        "secret",
+        "public",
+        "disabled",
+        "traffic",
+        "sha",
+        "revision",
+        "project",
+        "path",
+        "dot",
+        "ready",
+    ],
 )
 def test_preview_bootstrap_rejects_wrong_identity_or_capabilities(mutation):
     module = _preview_module("commerce-preview-bootstrap.py")
@@ -52,26 +68,46 @@ def test_preview_bootstrap_rejects_wrong_identity_or_capabilities(mutation):
         service["invokerIamDisabled"] = True
     elif mutation == "traffic":
         service["trafficStatuses"][0]["percent"] = 50
+    elif mutation == "revision":
+        service["trafficStatuses"][0]["revision"] = module["FRONTEND"] + "-00001-fixture"
+    elif mutation == "path":
+        service["trafficStatuses"][0]["revision"] = revision["name"] + "/../../other"
+    elif mutation == "project":
+        service["trafficStatuses"][0]["revision"] = revision["name"].replace(
+            module["PROJECT"], "other-project"
+        )
+    elif mutation == "dot":
+        service["trafficStatuses"][0]["revision"] = service["name"] + "/revisions/.."
+    elif mutation == "ready":
+        service["latestReadyRevision"] = revision["name"] + "-other"
     else:
         revision["labels"]["deploy-sha"] = "unverified"
 
     class FakeApi:
         def request(self, path):
-            return policy if path.endswith(":getIamPolicy") else revision
+            if path.endswith(":getIamPolicy"):
+                return policy
+            if path == f"projects/{module['PROJECT']}":
+                return {"projectId": module["PROJECT"]}
+            assert path == revision["name"], "Only the exact service revision may be read"
+            return revision
 
     with pytest.raises(module["BootstrapError"]):
         module["inspect"](FakeApi(), service["name"], service)
 
 
 @pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("full_revision", [False, True])
 def test_fixed_preview_bootstrap_creates_only_missing_lanes_and_preserves_applications(
-    tmp_path, existing
+    tmp_path, existing, full_revision
 ):
     module = _preview_module("commerce-preview-bootstrap.py")
     writes = []
     services, revisions = {}, {}
     for identifier in (module["BACKEND"], module["FRONTEND"]):
         service, revision, image = _bootstrap_fixture(module, identifier, bootstrap=not existing)
+        if full_revision:
+            service["trafficStatuses"][0]["revision"] = revision["name"]
         services[service["name"]] = service
         revisions[revision["name"]] = revision
     present = set(services) if existing else set()

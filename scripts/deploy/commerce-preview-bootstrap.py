@@ -68,8 +68,13 @@ def request_stage(path):
 
 def safe_failure(error):
     stages = {
-        "validation", "project_policy", "ancestor_policy", "ancestry",
-        "service_policy", "service_creation", "service_request",
+        "validation",
+        "project_policy",
+        "ancestor_policy",
+        "ancestry",
+        "service_policy",
+        "service_creation",
+        "service_request",
     }
     stage = getattr(error, "stage", None) if isinstance(error, BootstrapError) else None
     status = getattr(error, "http_status", None) if isinstance(error, BootstrapError) else None
@@ -231,7 +236,19 @@ def inspect(api, name, service, expected_image=None, expected_sha=None):
     if len(serving) != 1 or serving[0].get("percent") != 100:
         raise BootstrapError("bootstrap_serving_revision_unverified")
     revision_name = serving[0].get("revision", "")
+    if "/" not in revision_name:
+        identifier = name.rsplit("/", 1)[-1]
+        if len(revision_name) > 63 or not re.fullmatch(
+            re.escape(identifier) + r"-[a-z0-9]+(?:-[a-z0-9]+)*", revision_name
+        ):
+            raise BootstrapError("bootstrap_serving_revision_unverified")
+        # Cloud Run v2 trafficStatuses emits the short revision identifier;
+        # the revision GET still uses this exact service's resource path.
+        revision_name = name + "/revisions/" + revision_name
     if not revision_name.startswith(name + "/revisions/"):
+        raise BootstrapError("bootstrap_serving_revision_unverified")
+    revision_id = revision_name.removeprefix(name + "/revisions/")
+    if len(revision_id) > 63 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", revision_id):
         raise BootstrapError("bootstrap_serving_revision_unverified")
     revision = api.request(revision_name)
     if revision.get("name") != revision_name or revision.get("serviceAccount") != RUNTIME_SA:
@@ -243,6 +260,8 @@ def inspect(api, name, service, expected_image=None, expected_sha=None):
     image = containers[0].get("image", "")
     bootstrap = image.startswith(BOOTSTRAP_REPOSITORY + "@")
     if bootstrap:
+        if service.get("latestReadyRevision") != revision_name:
+            raise BootstrapError("bootstrap_serving_revision_unverified")
         if labels.get("hussh-bootstrap") != "commerce-preview":
             raise BootstrapError("bootstrap_provenance_unverified")
         image_reference(image)
