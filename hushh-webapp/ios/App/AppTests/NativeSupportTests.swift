@@ -72,12 +72,14 @@ final class NativeSupportTests: XCTestCase {
     #endif
 
     @MainActor
-    func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() {
+    func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() async {
         let plugin = HushhNativeChromePlugin()
         plugin.load()
         let ready = expectation(description: "Native lifecycle observers registered")
         DispatchQueue.main.async { ready.fulfill() }
-        wait(for: [ready], timeout: 1)
+        // load() registers on the main queue. Yield the actor so registration
+        // can complete before asserting the synchronous keyboard fence.
+        await fulfillment(of: [ready], timeout: 1)
         let notifications = NotificationCenter.default
         notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
         XCTAssertTrue(plugin.keyboardVisible)
