@@ -1,12 +1,12 @@
 {
-  "version": "2026.10-dev.10",
+  "version": "2026.10-dev.11",
   "channel": "dev",
-  "summary": "Private Files across both clouds, with more economical on-demand operation.",
+  "summary": "Startup and storage improvements for your private agent.",
   "notes": {
     "improvements": [
-      "Azure Files adds encrypted storage and background organization to the dev preview.",
-      "Opening One wakes your agent; background status checks do not extend its active time.",
-      "Files keeps its own explorer, with resumable transfers and reversible organization."
+      "Startup reuses the same verified recovery resources.",
+      "Encrypted storage reuses connections without caching private information.",
+      "Chat preparation keeps cloud key retrieval off the request loop."
     ],
     "fixes": [
       "Mail notification progress survives retries without skipping unprocessed changes.",
