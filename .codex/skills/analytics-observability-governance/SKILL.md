@@ -96,6 +96,8 @@ Non-owned surfaces:
 
 ## Required Checks
 
+`verify:analytics` includes offline Android package/app/export acceptance without credentials.
+
 ```bash
 python3 -m py_compile .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py
 python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate
