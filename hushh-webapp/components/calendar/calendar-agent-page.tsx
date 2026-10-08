@@ -495,7 +495,7 @@ export function CalendarAgentPage({
       width="reading"
       className={CALENDAR_SETUP_SHELL_CLASSNAME}
       nativeTest={{
-        routeId: journeyVariant === "setup" ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
+        routeId: journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
         marker: "native-route-calendar",
         authState: user ? "authenticated" : loading ? "pending" : "anonymous",
         dataState:
