@@ -1,12 +1,12 @@
 {
-  "version": "2026.10-dev.11",
+  "version": "2026.10-dev.12",
   "channel": "dev",
-  "summary": "Startup and storage improvements for your private agent.",
+  "summary": "Encrypted recovery and storage updates for your private agent.",
   "notes": {
     "improvements": [
-      "Startup reuses the same verified recovery resources.",
-      "Encrypted storage reuses connections without caching private information.",
-      "Chat preparation keeps cloud key retrieval off the request loop."
+      "Encrypted checkpoints reduce repeated history reads when your agent wakes.",
+      "Storage connections are reused without caching private information.",
+      "Saved conversations and selected settings are preserved through the qualified update."
     ],
     "fixes": [
       "Mail notification progress survives retries without skipping unprocessed changes.",
@@ -19,5 +19,7 @@
       "Computer Use remains disabled until its cloud isolation gates pass."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:ace34069a9eb348d27ace62e0f9aa6de804f0cee6e7dfebc8c8c28628ae4f14a"
+  ]
 }

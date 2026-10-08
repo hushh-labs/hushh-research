@@ -125,9 +125,11 @@ resource reconciliation and retry acceptance still require broader evidence. The
 personal dev rehearsal completed one denied queue-create continuation under its
 original operation; that receipt does not qualify other uncertain provider outcomes.
 
-The new economy qualification configuration uses 1 vCPU, 2 GiB, minimum zero, maximum one,
-one worker and request concurrency eight. Existing owners retain their chosen shape.
-Concurrency eight remains a configured bound pending live memory/load acceptance.
+The new economy qualification configuration uses 1 vCPU, 2 GiB, minimum zero, maximum one
+and one worker. Google caps concurrent container requests at eight. Azure's Files
+configuration uses an HTTP scaling threshold of eight; it does not cap requests at
+eight. Both runtimes guard eight active chat threads. Existing owners retain their
+chosen shape. Qualify total HTTP capacity and overload separately on each cloud.
 Puppy's direct socket closes after ten minutes without active work; heartbeats do not
 extend this grace. The trusted device then polls the existing hub metadata control
 lane every 15 seconds. An owner-requested, two-minute, incarnation-bound wake hint
