@@ -980,3 +980,25 @@ Cloud Monitoring readback remain required. Preserve
 [#7587 Consumer-controlled paid scope access and Stripe sandbox acceptance](https://github.com/hushh-labs/hushh-research/issues/7587)
 as In Progress. Keep live payments disabled, retain reconciliation and access
 enforcement, and preserve the original development branch and unrelated work.
+
+The three inherited frontend CI regressions were subsequently corrected in
+`abc151afc7f2923b59c16aeb2a8ac879366553e5`: Files retains its official
+256-unit vector fallback while registered launcher artwork retains 64-unit
+checks; the dashboard no longer asserts retired positional palette attributes;
+the native audit removes an unused backend fallback while preserving canonical
+environment resolution and prebuilt backend/Firebase identity validation.
+Independent static review found no weakened active contract. All three focused
+test files passed 28 cases with two platform-specific skips.
+
+A clean detached checkout at that published commit passed the repository core
+bundle in 380 seconds using CI's pinned scanner and non-authorizing process-level
+fixtures. Protocol passed 16,549 parallel and 396 serial cases, with 137 and 249
+skips respectively, followed by every-test import verification. Web lint,
+typecheck/build, MCP projections/packed runtime and integration passed, including
+380 backend PKM compatibility cases. Earlier fresh-checkout invocations stopped
+before backend tests because required CI signing/vault fixtures were omitted;
+the completed run supplied the exact fixture contract without application secrets.
+The skipped direct-database cases retain their hosted CI-service requirement.
+Full hosted CI on the concurrently advanced shared branch remains independent
+release evidence. A fresh reviewer identity lookup under the approved ADC still
+returned HTTP 403; no Firebase permission or reviewer fixture was changed.
