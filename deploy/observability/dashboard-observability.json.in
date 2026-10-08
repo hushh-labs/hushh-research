@@ -23,7 +23,8 @@
                   }
                 },
                 "unitOverride": "1/s"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -44,7 +45,8 @@
                   }
                 },
                 "unitOverride": "1/s"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -65,7 +67,8 @@
                   }
                 },
                 "unitOverride": "ms"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -86,7 +89,8 @@
                   }
                 },
                 "unitOverride": "1/s"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -108,7 +112,8 @@
                   }
                 },
                 "unitOverride": "1/s"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -129,7 +134,8 @@
                     "crossSeriesReducer": "REDUCE_SUM"
                   }
                 }
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -150,7 +156,8 @@
                   }
                 },
                 "unitOverride": "1"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -171,7 +178,8 @@
                   }
                 },
                 "unitOverride": "ms"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -192,7 +200,8 @@
                   }
                 },
                 "unitOverride": "1"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -213,7 +222,8 @@
                   }
                 },
                 "unitOverride": "%"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -234,7 +244,8 @@
                   }
                 },
                 "unitOverride": "1"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
@@ -255,7 +266,8 @@
                   }
                 },
                 "unitOverride": "%"
-              }
+              },
+              "targetAxis": "Y1"
             }
           ]
         }
