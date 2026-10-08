@@ -139,7 +139,6 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(tmp_path, legacy
     for relative in (
         "scripts/ci/verify-dev-candidate.sh",
         "scripts/ci/cloudrun-retention.sh",
-        "scripts/ci/cloudrun-retention.py",
         "scripts/ci/verify-cloudrun-revision-provenance.py",
         "scripts/ops/verify-env-secrets-parity.py",
         "deploy/backend.cloudbuild.yaml",
@@ -218,3 +217,67 @@ def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path):
         capture_output=True,
     )
     assert result.returncode != 0 and not (tmp_path / "calls").exists()
+
+
+@pytest.mark.parametrize(
+    "target,expected", [("shared-dev", 0), ("scope-commerce-sandbox", 0), ("arbitrary-target", 2)]
+)
+def test_main_owned_preview_selection_is_fixed_and_preserves_shared_defaults(
+    tmp_path, target, expected
+):
+    environment = tmp_path / "github-env"
+    result = subprocess.run(  # noqa: S603 - fixed repository selector with isolated output.
+        [
+            sys.executable,
+            str(ROOT / "scripts/deploy/commerce-preview-target.py"),
+            "--target",
+            target,
+            "--github-env",
+            str(environment),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected
+    if expected:
+        assert not environment.exists()
+        return
+    values = dict(row.split("=", 1) for row in environment.read_text().splitlines())
+    if target == "shared-dev":
+        assert values == {
+            "DEV_TARGET": "shared-dev",
+            "DEV_DB_NAME": "postgres",
+            "DEPLOY_SECRET_PREFIX": "",
+        }
+    else:
+        assert values["BACKEND_SERVICE"] == "consent-protocol-commerce-sandbox"
+        assert values["FRONTEND_SERVICE"] == "hushh-webapp-commerce-sandbox"
+        assert values["DEV_DB_NAME"] == "scope_commerce_sandbox"
+        assert values["DEPLOY_SECRET_PREFIX"] == "SCOPE_COMMERCE_SANDBOX_"
+
+
+def test_preview_bootstrap_uses_the_verified_candidate_and_attests_before_promotion():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    trigger = workflow.get("on", workflow.get(True))
+    assert trigger["workflow_dispatch"]["inputs"]["target"]["default"] == "shared-dev"
+    steps = workflow["jobs"]["deploy"]["steps"]
+    names = [step["name"] for step in steps]
+    assert names.index("Resolve fixed deployment target") < names.index("Checkout deployment SHA")
+    assert names.index("Validate deployment SHA against requested ref") < names.index(
+        "Checkout deployment SHA"
+    )
+    assert names.index("Checkout deployment SHA") < names.index(
+        "Build fixed preview bootstrap image"
+    )
+    assert names.index("Build fixed preview bootstrap image") < names.index(
+        "Bootstrap fixed private preview services"
+    )
+    assert names.index("Verify isolated preview bindings before traffic promotion") < names.index(
+        "Promote deployed revisions to dev traffic"
+    )
+    bootstrap = next(step for step in steps if step.get("id") == "preview-bootstrap")
+    assert "steps.resolve-sha.outputs.sha" in bootstrap["run"]
+    assert "steps.bootstrap-image.outputs.image_reference" in bootstrap["run"]
+    assert "continue-on-error" not in bootstrap
+    assert "scope-commerce-sandbox" in bootstrap["if"]
