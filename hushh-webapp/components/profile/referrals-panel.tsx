@@ -15,6 +15,7 @@ import {
   WarningRowIcon,
 } from "@/components/icons/agents";
 import { ProfilePaneInviteIcon } from "@/components/profile/profile-pane-icons";
+import typographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import {
   ProfileInnerAgentIcon,
   ProfileInnerJoinIcon,
@@ -43,6 +44,7 @@ import {
   type MilestoneProgress,
   type ReferralSummary,
 } from "@/lib/services/referral-service";
+import { cn } from "@/lib/utils";
 
 type GamificationState = {
   leaderboard: LeaderboardPage | null;
@@ -262,7 +264,12 @@ export function ReferralsPanel({
 
   if (state === "error") {
     return (
-      <div className="profile-inner-referrals space-y-4 sm:space-y-5">
+      <div
+        className={cn(
+          "profile-inner-referrals space-y-4 sm:space-y-5",
+          panePresentation && typographyStyles.paneReferrals,
+        )}
+      >
         <SettingsGroup>
           <SettingsRow
             icon={icons.warning}
@@ -271,14 +278,25 @@ export function ReferralsPanel({
             description="Check your connection."
           />
         </SettingsGroup>
-        <Button onClick={() => void load()}>Try again</Button>
+        <Button
+          className={panePresentation ? typographyStyles.action : undefined}
+          onClick={() => void load()}
+        >
+          Try again
+        </Button>
       </div>
     );
   }
 
   if (state === "loading" || !summary) {
     return (
-      <div className="profile-inner-referrals space-y-4 sm:space-y-5" aria-busy="true">
+      <div
+        className={cn(
+          "profile-inner-referrals space-y-4 sm:space-y-5",
+          panePresentation && typographyStyles.paneReferrals,
+        )}
+        aria-busy="true"
+      >
         <SettingsGroup>
           <SettingsRow icon={icons.invite} iconTone="capability" title="Loading" />
         </SettingsGroup>
@@ -296,7 +314,12 @@ export function ReferralsPanel({
     null;
 
   return (
-    <div className="profile-inner-referrals space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "profile-inner-referrals space-y-4 sm:space-y-5",
+        panePresentation && typographyStyles.paneReferrals,
+      )}
+    >
       <SettingsGroup title="Your link">
         <SettingsRow
           icon={icons.link}
@@ -307,8 +330,17 @@ export function ReferralsPanel({
       </SettingsGroup>
 
       <div className="flex gap-3">
-        <Button onClick={() => void onCopy()}>Copy</Button>
-        <Button variant="muted" onClick={() => void onShare()}>
+        <Button
+          className={panePresentation ? typographyStyles.action : undefined}
+          onClick={() => void onCopy()}
+        >
+          Copy
+        </Button>
+        <Button
+          className={panePresentation ? typographyStyles.action : undefined}
+          variant="muted"
+          onClick={() => void onShare()}
+        >
           <Share2 className="size-4" aria-hidden="true" />
           Share
         </Button>
@@ -370,7 +402,12 @@ export function ReferralsPanel({
               density="compact"
               description={
                 <div className="flex w-full flex-col gap-2 pt-1">
-                  <div className="flex items-center justify-end text-sm">
+                  <div
+                    className={cn(
+                      "flex items-center justify-end text-sm",
+                      panePresentation && typographyStyles.progressCount,
+                    )}
+                  >
                     <span data-testid="referral-milestone-progress">
                       {gamification.milestones.next_milestone.progress}/
                       {gamification.milestones.next_milestone.threshold}
@@ -444,6 +481,7 @@ export function ReferralsPanel({
             description={
               <div className="flex w-full flex-col gap-2 pt-1 sm:flex-row sm:items-center">
                 <Input
+                  className={panePresentation ? typographyStyles.field : undefined}
                   value={handleInput}
                   onChange={(event) => setHandleInput(event.target.value)}
                   placeholder="your-handle"
@@ -451,6 +489,7 @@ export function ReferralsPanel({
                   aria-label="Leaderboard handle"
                 />
                 <Button
+                  className={panePresentation ? typographyStyles.action : undefined}
                   onClick={() => void onSaveHandle()}
                   disabled={handleSaving || !handleInput.trim()}
                 >
