@@ -54,6 +54,9 @@ docs/
 .gemini/
 *.md
 !README.md
+# Runtime prompts must survive upload before Docker applies its own filter.
+!consent-protocol/hushh_mcp/agents/*.md
+!consent-protocol/hushh_mcp/agents/**/*.md
 tmp/
 temp/
 data/
