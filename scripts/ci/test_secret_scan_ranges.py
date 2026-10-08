@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import secrets
 import subprocess
 import tempfile
 
@@ -76,13 +75,16 @@ def verify_public_schema_bound_keeps_secret_detection() -> None:
     )
     # Synthetic credentials stay in process memory; scanner diagnostics are
     # redacted and never emitted. The same file must still detect a real value.
-    synthetic_secret = secrets.token_urlsafe(32)
+    # Keep this allowlist regression deterministic. Random URL-safe values can
+    # miss Gitleaks' generic-key heuristic, causing unrelated CI runs to fail.
+    # Construct a balanced synthetic value in memory; it is never a credential.
+    synthetic_secret = "".join(format(value, "x") for value in range(16)) * 4
     cases = (
         (public_bound, 0),
         (public_bound + f'api_key = "{synthetic_secret}"\n', 1),
         (f'api_key = "maxLength=32{synthetic_secret}"\n', 1),
     )
-    for fixture, expected in cases:
+    for index, (fixture, expected) in enumerate(cases):
         result = subprocess.run(
             [
                 "gitleaks", "stdin", "--no-banner", "--redact",
@@ -91,7 +93,10 @@ def verify_public_schema_bound_keeps_secret_detection() -> None:
             input=fixture, text=True, capture_output=True, check=False,
         )
         if result.returncode != expected:
-            raise AssertionError("public schema bound changed credential detection")
+            raise AssertionError(
+                f"public schema bound case {index}: expected scanner exit {expected}, "
+                f"received {result.returncode}"
+            )
 
 
 def main() -> None:

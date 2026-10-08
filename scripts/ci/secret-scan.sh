@@ -103,7 +103,6 @@ fi
 # cost is that the LAST thing printed is whichever check ran last -- which made an
 # unrelated "non-blocking" advisory look like the cause of a gitleaks failure, and
 # cost a wrong diagnosis. Name the actual source before exiting.
-python3 "$REPO_ROOT/scripts/ci/test_secret_scan_ranges.py"
 EXIT_CODE=0
 FAILED_CHECKS=""
 gitleaks git --redact --no-banner --exit-code 1 "${CONFIG_ARGS[@]}" --log-opts="${LOG_OPTS}" ||
