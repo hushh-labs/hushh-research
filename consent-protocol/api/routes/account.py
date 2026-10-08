@@ -8,6 +8,7 @@ Endpoints for account lifecycle management.
 Routes:
     POST /api/account/welcome - One-time first-account welcome to verified email
     POST /api/account/identity/refresh - Refresh backend identity shadow from Firebase Auth
+    GET  /api/account/created-at - When Firebase Auth created the signed-in account
     POST /api/account/phone/claim - Claim a Firebase-verified phone for the signed-in actor
     GET /api/account/email-aliases - List verified/pending account email aliases
     POST /api/account/email-aliases/verification/start - Start alias verification
@@ -854,6 +855,27 @@ async def refresh_account_identity(
         "success": True,
         "user_id": firebase_uid,
         "identity": identity,
+    }
+
+
+@router.get("/created-at")
+async def get_account_created_at(
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """The signed-in account's Firebase creation time, for "member since".
+
+    A fallback for clients whose Firebase user carries no creation metadata
+    (some native session restores). ``account_created_at`` is ``null`` when
+    Firebase cannot say; it is never filled with the current time.
+    """
+    response.headers["Cache-Control"] = "private, no-store"
+    return {
+        "success": True,
+        "user_id": firebase_uid,
+        "account_created_at": await ActorIdentityService().get_firebase_account_created_at(
+            firebase_uid
+        ),
     }
 
 

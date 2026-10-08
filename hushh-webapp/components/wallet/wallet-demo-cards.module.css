@@ -68,55 +68,23 @@
   overflow: hidden;
 }
 
-.dynamicCardName,
-.dynamicCardQr {
+/* Profile and Referral draw their details inside the artwork. The green NWS
+   artwork is left as supplied and only shows the owner's name, on its
+   USERNAME line. */
+.dynamicCardName {
   position: absolute;
   z-index: 2;
-}
-
-.dynamicCardName {
-  left: 37%;
-  top: 48%;
-  width: 45%;
+  left: 9.26%;
+  top: 73%;
+  width: 48%;
   overflow: hidden;
   color: #c9a96a;
-  font: 600 clamp(8px, 2.6cqw, 18px)/1.1 ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: .18em;
+  font: 600 clamp(6px, 1.8cqw, 12px)/1.1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .08em;
   text-transform: uppercase;
   white-space: nowrap;
   text-overflow: ellipsis;
-    padding: 0;
-    background: transparent;
-    text-shadow: 0 1px 1px rgb(0 0 0 / 35%);
-}
-
-/* Referral artwork places the cardholder field lower and farther left than
-   the profile artwork. Match that field instead of introducing a second
-   label or panel over the supplied card. */
-.graphite .dynamicCardName {
-  left: 9.26%;
-  top: 73%;
-  width: 52%;
-}
-
-.gold .dynamicCardName {
-  left: 37%;
-  top: 49%;
-  width: 55%;
-  color: #2b1e0c;
-  text-shadow: 0 1px 1px rgb(255 255 255 / 22%);
-}
-
-.graphite .dynamicCardName {
-  width: 48%;
-  font-size: clamp(6px, 1.8cqw, 12px);
-  letter-spacing: .08em;
-}
-
-.dynamicCardQr {
-  left: 9.26%;
-  top: 36.15%;
-  width: 20.37%;
-  height: auto;
-  border-radius: 2px !important;
+  padding: 0;
+  background: transparent;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 35%);
 }

@@ -7,25 +7,26 @@ import { Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
-import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails, walletDemoControls } from "@/components/wallet/wallet-demo-cards";
+import type { WalletCardIdentity } from "@/lib/wallet/wallet-card-identity";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 
 
-function EmptyCardPreview() {
+function EmptyCardPreview({ identity }: { identity?: WalletCardIdentity | null }) {
   const [selected, setSelected] = useState<string | null>(null);
   return (
     <figure className="space-y-3" data-testid="wallet-add-preview">
       <WalletAddCollection cards={WALLET_DEMO_CARDS} selectedCardId={selected} onSelect={setSelected}
-        onAdd={() => {}} onRemove={() => {}} busyCardId={null} preview />
-      {selected ? <WalletDemoCardDetails cardId={selected} /> : null}
+        onAdd={() => {}} onRemove={() => {}} busyCardId={null} preview identity={identity} />
+      {selected ? <WalletDemoCardDetails cardId={selected} identity={identity} /> : null}
       <figcaption className="text-center text-xs text-muted-foreground">Example cards</figcaption>
     </figure>
   );
 }
 
 /** Cards collection presentation of the workspace's summaries; never fetches or reveals secrets. */
-export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, onRemove, busyCardId, disabled = false, preview = false, initialExpanded = false, scrollStack = false, showActions = true, showDetailsLink = false, scrollReveal = false, hintOwnerId, onOpen, demoProfile }: {
+export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, onRemove, busyCardId, disabled = false, preview = false, initialExpanded = false, scrollStack = false, showActions = true, showDetailsLink = false, scrollReveal = false, hintOwnerId, onOpen, identity }: {
   scrollStack?: boolean;
   scrollReveal?: boolean;
   hintOwnerId?: string;
@@ -33,7 +34,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
   initialExpanded?: boolean;
   showActions?: boolean;
   onOpen?: (id: string) => void;
-  demoProfile?: WalletDemoProfile | null;
+  identity?: WalletCardIdentity | null;
   disabled?: boolean;
   preview?: boolean;
   cards: WalletCardSummary[];
@@ -169,7 +170,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
           {cards.length ? "Manage the cards available to your Wallet." : "No cards added yet."}
         </p>
       </div> : null}
-      {!selected ? <EmptyCardPreview /> : null}
+      {!selected ? <EmptyCardPreview identity={identity} /> : null}
       {selected ? (
         <>
           <div
@@ -206,7 +207,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                       zIndex: scrollReveal ? (active ? cards.length + 1 : rank) : isExpanded && scrollStack ? rank + 1 : cards.length - rank, opacity: hidden || busyCardId === card.cardId ? 0 : 1,
                       pointerEvents: hidden ? "none" : undefined }}>
                     <div data-card-motion className="relative origin-bottom">
-                    <WalletCardSwipe card={card} disabled={disabled || Boolean(busyCardId)} onOpen={() => onOpen?.(card.cardId)} hint={scrollReveal && active && Boolean(hintOwnerId) && hintOwner === hintOwnerId} dismissHint={() => setHintOwner(null)}>
+                    <WalletCardSwipe card={card} controls={preview ? walletDemoControls(card.cardId, identity) : undefined} disabled={disabled || Boolean(busyCardId)} onOpen={() => onOpen?.(card.cardId)} hint={scrollReveal && active && Boolean(hintOwnerId) && hintOwner === hintOwnerId} dismissHint={() => setHintOwner(null)}>
                     <button type="button"
                       disabled={disabled || Boolean(busyCardId)}
                       aria-label={preview ? card.nickname : `${card.nickname || cardNetworkLabel(card.brand)}, ${cardNetworkLabel(card.brand)} ending in ${card.last4}`}
@@ -219,7 +220,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                         else { onSelect(card.cardId); setExpanded(false); }
                       }}
                       className="block origin-bottom w-full rounded-[3.72cqw] text-left outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-                      {preview ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} collection />}
+                      {preview ? <WalletDemoCardFace summary={card} identity={identity} /> : <WalletCardFace summary={card} collection />}
                     </button>
                     </WalletCardSwipe>
                     {showDetailsLink && isExpanded ? <div data-stack-details className="flex h-10 items-center justify-center"><Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)} onClick={() => onOpen?.(card.cardId)} aria-label={`View details for ${card.nickname || cardNetworkLabel(card.brand)}`}>View details <span aria-hidden="true">›</span></Button></div> : null}

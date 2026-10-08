@@ -1441,6 +1441,46 @@ class ActorIdentityService:
         )
         return updated or cached
 
+    async def get_firebase_account_created_at(self, user_id: str) -> str | None:
+        """When Firebase Auth created this account, as an ISO 8601 UTC string.
+
+        This is Firebase's own ``user_metadata.creation_timestamp``. It is not
+        the identity shadow's ``created_at``, which is only when this backend
+        first cached the row. ``None`` when Firebase is unreachable or reports
+        nothing; callers must treat that as unknown, never as "now".
+        """
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id or not self._looks_like_firebase_uid(normalized_user_id):
+            return None
+        firebase_app = get_firebase_auth_app()
+        if firebase_app is None:
+            return None
+        try:
+            from firebase_admin import auth as firebase_auth
+
+            user_record = await asyncio.to_thread(
+                firebase_auth.get_user, normalized_user_id, app=firebase_app
+            )
+        except Exception as exc:
+            logger.debug(
+                "firebase account created_at lookup skipped error=%s",
+                type(exc).__name__,
+            )
+            return None
+        created_ms = getattr(
+            getattr(user_record, "user_metadata", None), "creation_timestamp", None
+        )
+        if (
+            isinstance(created_ms, bool)
+            or not isinstance(created_ms, (int, float))
+            or created_ms <= 0
+        ):
+            return None
+        try:
+            return datetime.fromtimestamp(created_ms / 1000, tz=timezone.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return None
+
     @staticmethod
     def validate_display_name(display_name: str) -> str:
         """Trim and bound a person-authored display name.

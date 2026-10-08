@@ -624,6 +624,38 @@ describe("AuthService.restoreNativeSession", () => {
     },
   );
 
+  it("restores the account's real creation time and never substitutes today", async () => {
+    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
+      token: createIdToken(60 * 60, "member-since-user"),
+    } as any);
+    // 2024-03-05T10:00:00Z, the way the iOS and Android plugins report it.
+    vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValueOnce({
+      user: {
+        uid: "member-since-user",
+        email: "owner@example.test",
+        metadata: { creationTime: Date.UTC(2024, 2, 5, 10) },
+      },
+    } as any);
+    const restored = await AuthService.restoreNativeSession();
+    expect(new Date(restored!.metadata.creationTime!).getUTCFullYear()).toBe(2024);
+
+    // A plugin that omits it leaves the field empty instead of inventing "now".
+    vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValueOnce({
+      user: { uid: "member-since-user", email: "owner@example.test" },
+    } as any);
+    const missing = await AuthService.restoreNativeSession();
+    expect(missing!.metadata.creationTime).toBeUndefined();
+
+    // Zero and junk are "unknown" too, never the 1970 epoch or "now".
+    for (const creationTime of [0, -1, "junk", Number.NaN]) {
+      vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValueOnce({
+        user: { uid: "member-since-user", email: "owner@example.test", metadata: { creationTime } },
+      } as any);
+      const unknown = await AuthService.restoreNativeSession();
+      expect(unknown!.metadata.creationTime).toBeUndefined();
+    }
+  });
+
   it("uses a live native token provider for restored users instead of a frozen launch token", async () => {
     const launchToken = createIdToken(60 * 60, "ios-google-user");
     const freshToken = createIdToken(2 * 60 * 60, "ios-google-user");

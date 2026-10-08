@@ -759,6 +759,18 @@ function isFeatureDisabled(error: unknown): boolean {
 
 const SHARE_LINK_STORAGE_PREFIX = "hushh.one.wallet-card.share-link";
 
+/**
+ * Broadcast on `window` after this device changes the owner's Wallet Profile
+ * (created, rotated, paused, resumed or revoked), so other surfaces showing it,
+ * such as the Wallet cards, refetch instead of waiting for a reload.
+ */
+export const WALLET_CARD_CHANGED_EVENT = "hushh:wallet-card-changed";
+
+function announceWalletCardChanged(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(WALLET_CARD_CHANGED_EVENT));
+}
+
 function shareLinkKey(userId: string): string {
   return `${SHARE_LINK_STORAGE_PREFIX}:${userId}`;
 }
@@ -898,6 +910,7 @@ export class WalletCardService {
       { method: "DELETE", headers: ownerHeaders(params.vaultOwnerToken) },
     );
     WalletCardService.forgetShareLink(params.userId);
+    announceWalletCardChanged();
     const card = toCardRecord(asRecord(response)?.card);
     if (!card) throw unreadableResponse();
     return card;
@@ -1131,6 +1144,7 @@ export class WalletCardService {
     });
     const card = toCardRecord(asRecord(response)?.card);
     if (!card) throw unreadableResponse();
+    announceWalletCardChanged();
     return card;
   }
 
@@ -1158,6 +1172,7 @@ export class WalletCardService {
       WalletCardService.rememberShareLink(userId, { card, shareToken, shareUrl });
     }
 
+    announceWalletCardChanged();
     return { card, shareToken, shareUrl, passUrl };
   }
 }
