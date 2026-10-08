@@ -430,6 +430,67 @@ def test_refresh_account_identity_returns_synced_identity(monkeypatch):
     assert payload["identity"]["last_active_persona"] == "investor"
 
 
+def test_account_created_at_requires_firebase_auth():
+    response = TestClient(_build_app()).get("/api/account/created-at")
+
+    assert response.status_code == 401
+
+
+def test_account_created_at_is_firebase_creation_time_not_identity_shadow_time(monkeypatch):
+    from types import SimpleNamespace
+
+    import firebase_admin.auth as firebase_auth
+
+    seen: list[str] = []
+
+    def _get_user(uid, app=None):
+        seen.append(uid)
+        # 2024-03-05T10:00:00Z
+        return SimpleNamespace(user_metadata=SimpleNamespace(creation_timestamp=1709632800000))
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.actor_identity_service.get_firebase_auth_app", lambda: object()
+    )
+    monkeypatch.setattr(firebase_auth, "get_user", _get_user)
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123456789012345678"
+    response = TestClient(app).get("/api/account/created-at")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["account_created_at"] == "2024-03-05T10:00:00+00:00"
+    assert seen == ["firebase_uid_123456789012345678"]
+
+
+def test_account_created_at_is_null_when_firebase_cannot_say(monkeypatch):
+    from types import SimpleNamespace
+
+    import firebase_admin.auth as firebase_auth
+
+    uid = "firebase_uid_123456789012345678"
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: uid
+    client = TestClient(app)
+    monkeypatch.setattr(
+        "hushh_mcp.services.actor_identity_service.get_firebase_auth_app", lambda: object()
+    )
+
+    for record in (
+        SimpleNamespace(user_metadata=SimpleNamespace(creation_timestamp=None)),
+        SimpleNamespace(user_metadata=SimpleNamespace(creation_timestamp=0)),
+        SimpleNamespace(user_metadata=None),
+    ):
+        monkeypatch.setattr(firebase_auth, "get_user", lambda *_a, _r=record, **_k: _r)
+        assert client.get("/api/account/created-at").json()["account_created_at"] is None
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("firebase down")
+
+    monkeypatch.setattr(firebase_auth, "get_user", _boom)
+    assert client.get("/api/account/created-at").json()["account_created_at"] is None
+
+
 def test_upload_account_avatar_requires_firebase_auth():
     client = TestClient(_build_app())
     data_url = "data:image/png;base64," + base64.b64encode(b"small png bytes payload").decode()
