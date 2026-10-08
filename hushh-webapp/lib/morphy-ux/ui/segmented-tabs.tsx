@@ -121,11 +121,12 @@ export function SegmentedTabs({
               if (next.value !== value) onValueChange(next.value);
             }}
               className={cn(
-                "relative isolate flex min-w-0 items-center justify-center overflow-hidden border text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                "relative isolate flex min-w-0 items-center justify-center overflow-hidden text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                !isSubordinate && "border",
                 variant === "agent-top"
                   ? "h-full min-h-0 rounded-[8px] px-1 py-0 min-[360px]:px-2 sm:px-3"
                   : isSubordinate
-                    ? "h-full min-h-0 rounded-none border-b-2 px-3 py-0 text-sm sm:px-4"
+                    ? "h-full min-h-0 rounded-none border-0 border-b-2 px-3 py-0 text-sm sm:px-4"
                     : isFilter
                       ? "h-8 min-h-8 flex-none rounded-full px-3 py-0 text-xs sm:text-sm"
                       : "min-h-10 rounded-[12px] px-3 py-2 sm:px-4",
@@ -163,6 +164,7 @@ export function SegmentedTabs({
               data-ui-truncation="forbid"
               data-ui-id={`segmented-tab-${option.value}`}
               className={cn(
+                !isSubordinate && "border",
                 variant === "agent-top"
                   ? "ui-text-agent-tab-label relative z-10 block min-w-0 truncate text-center"
                   : "ui-text-form-label relative z-10 block min-w-0 text-center",
