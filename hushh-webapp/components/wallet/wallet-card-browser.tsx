@@ -66,6 +66,12 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   }, [demo, selectedCardId]);
   const [demoId, setDemoId] = useState("demo-0");
   const [previewAction, setPreviewAction] = useState<PreviewAction | null>(null);
+  useEffect(() => {
+    if (active && demo) {
+      setMode("all");
+      setPreviewAction(null);
+    }
+  }, [active, demo]);
   const content = useRef<HTMLDivElement>(null);
   const gesture = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {

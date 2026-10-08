@@ -1469,3 +1469,13 @@ Ordinary device and simulator builds with the target setting now pass the
 unchanged product-bundle validator, and all 40 native-support tests pass on
 the simulator product. These are packaging and host-contract results, not
 physical-device, Siri discovery, visual or release acceptance.
+
+The subsequent main refresh at `03ab9d8fc` retains the demo collection reset
+on Cards activation, the NWS QR removal and the Profile details adjustment.
+It does not retain active-tab keys that replace the Cards panel: the nearest
+Travel → Add → Cards regression fails that implementation. The existing
+owner-bound panel identity and activation reset pass together, preserving the
+single page-start owner, inert artwork and owner/vault/request projection.
+The corrected merge passes 32 nearest Wallet tests and 24 Chromium/WebKit
+layout cases, including Add-draft continuity and long details. These results
+do not supersede exact-head core, CI or installed-device acceptance.

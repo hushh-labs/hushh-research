@@ -162,4 +162,18 @@ describe("Wallet video browser workspace", () => {
     expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
 
+  it("returns demo details to the collection without replacing the retained Cards panel", async () => {
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    await open();
+    const browser = screen.getByTestId("wallet-card-browser");
+    fireEvent.click(screen.getByRole("button", { name: "Travel", exact: true }));
+    expect(screen.getByTestId("wallet-demo-details")).toHaveTextContent("Travel card");
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", exact: true }));
+    await waitFor(() => expect(browser).toHaveAttribute("data-mode", "all"));
+    expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
+    expect(screen.queryByTestId("wallet-demo-details")).toBeNull();
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
+  });
+
 });
