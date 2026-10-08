@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 

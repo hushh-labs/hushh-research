@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeQrCode } from "@/components/wallet-card/qr-code";
 import {
   EMPTY_WALLET_CARD_IDENTITY,
+  resolveWalletProfileStatus,
   buildWalletArtworkMessage,
   buildWalletArtworkQr,
   deriveWalletCardDates,
@@ -80,5 +81,22 @@ describe("Wallet artwork QR and messages", () => {
     // A profile link must not leak onto the referral card when that link is missing.
     const onlyProfile = { ...EMPTY_WALLET_CARD_IDENTITY, profileUrl };
     expect(buildWalletArtworkMessage("referral", onlyProfile).qr).toBeNull();
+  });
+});
+
+describe("resolveWalletProfileStatus", () => {
+  const live = { enabled: true, exists: true, card: { status: "active" }, shareUrl: "https://one.hushh.ai/c/t" };
+
+  it("maps the server's answer to setup, link-missing or ready", () => {
+    expect(resolveWalletProfileStatus(live)).toBe("ready");
+    expect(resolveWalletProfileStatus({ ...live, card: { status: "paused" } })).toBe("ready");
+    expect(resolveWalletProfileStatus({ ...live, shareUrl: null })).toBe("link-missing");
+    expect(resolveWalletProfileStatus({ ...live, shareUrl: "  " })).toBe("link-missing");
+    expect(resolveWalletProfileStatus({ ...live, exists: false, card: null, shareUrl: null })).toBe("setup");
+    expect(resolveWalletProfileStatus({ ...live, card: { status: "revoked" }, shareUrl: null })).toBe("setup");
+  });
+
+  it("does not call a feature that is off an uncreated profile", () => {
+    expect(resolveWalletProfileStatus({ enabled: false, exists: false, card: null, shareUrl: null })).toBe("unknown");
   });
 });

@@ -1,5 +1,8 @@
 import { act, fireEvent, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 import { WALLET_DEMO_CARDS, WalletDemoCardFace } from "@/components/wallet/wallet-demo-cards";
 import {
@@ -14,6 +17,7 @@ const identity: WalletCardIdentity = {
   memberSince: "2026",
   validThru: "12/28",
   profileUrl: "https://one.hushh.ai/c/profile-token",
+  profileStatus: "ready",
   referralUrl: "https://one.hushh.ai/r/ada-ref",
 };
 
@@ -25,7 +29,19 @@ function mount(cardIndex: number, value: WalletCardIdentity) {
   return { view, frame, post };
 }
 
+function fromArtwork(frame: HTMLIFrameElement, data: unknown, origin = window.location.origin) {
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", { data, origin, source: frame.contentWindow as unknown as MessageEventSource }),
+    );
+  });
+}
+
+const OPEN = { type: "agent-one-card:action", action: "open-wallet-profile" };
+
 describe("Profile and Referral artwork", () => {
+  beforeEach(() => push.mockClear());
+
   it("sends the owner's details and the matching QR link, and clears them on logout", () => {
     const profile = mount(0, identity);
     fireEvent.load(profile.frame);
@@ -36,6 +52,7 @@ describe("Profile and Referral artwork", () => {
         memberSince: "2026",
         validThru: "12/28",
         qr: buildWalletArtworkQr(identity.profileUrl),
+        gate: null,
       }),
       window.location.origin,
     );
@@ -49,7 +66,7 @@ describe("Profile and Referral artwork", () => {
 
     profile.view.rerender(<WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} identity={EMPTY_WALLET_CARD_IDENTITY} />);
     expect(profile.post).toHaveBeenLastCalledWith(
-      expect.objectContaining({ name: null, memberSince: null, validThru: null, qr: null }),
+      expect.objectContaining({ name: null, memberSince: null, validThru: null, qr: null, gate: null }),
       window.location.origin,
     );
   });
@@ -63,15 +80,7 @@ describe("Profile and Referral artwork", () => {
     });
     expect(post).not.toHaveBeenCalled();
 
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "agent-one-card:ready" },
-          origin: window.location.origin,
-          source: frame.contentWindow as unknown as MessageEventSource,
-        }),
-      );
-    });
+    fromArtwork(frame, { type: "agent-one-card:ready" });
     expect(post).toHaveBeenCalledTimes(1);
   });
 
@@ -80,5 +89,53 @@ describe("Profile and Referral artwork", () => {
     expect(post).not.toHaveBeenCalled();
     expect(view.container.querySelector("svg")).toBeNull();
     expect(view.getByText("Ada Lovelace")).toBeTruthy();
+  });
+
+  describe("setup gate on the black card", () => {
+    const setup: WalletCardIdentity = { ...identity, profileUrl: null, profileStatus: "setup" };
+
+    it("shades the QR area when the profile is missing and opens the Wallet Profile page on request", () => {
+      const { frame, post } = mount(0, setup);
+      fireEvent.load(frame);
+      expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ gate: "setup", qr: null }), window.location.origin);
+
+      fromArtwork(frame, OPEN);
+      expect(push).toHaveBeenCalledExactlyOnceWith("/one/wallet-card");
+    });
+
+    it("never shades the QR area while status is unknown, and ignores a request made without a gate", () => {
+      const { frame, post } = mount(0, { ...setup, profileStatus: "unknown" });
+      fireEvent.load(frame);
+      expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ gate: null }), window.location.origin);
+      fromArtwork(frame, OPEN);
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("offers the same page for an existing profile whose link is not on this device", () => {
+      const { frame, post } = mount(0, { ...setup, profileStatus: "link-missing" });
+      fireEvent.load(frame);
+      expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ gate: "link-missing" }), window.location.origin);
+    });
+
+    it("ignores unvalidated requests: wrong origin, wrong sender, unknown action", () => {
+      const { frame } = mount(0, setup);
+      fromArtwork(frame, OPEN, "https://evil.example");
+      fromArtwork(frame, { type: "agent-one-card:action", action: "navigate", url: "https://evil.example" });
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { data: OPEN, origin: window.location.origin, source: window }));
+      });
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("never puts a gate on the gold card, even when the profile is missing", () => {
+      const { frame, post } = mount(1, setup);
+      fireEvent.load(frame);
+      expect(post).toHaveBeenLastCalledWith(
+        expect.objectContaining({ gate: null, qr: buildWalletArtworkQr(setup.referralUrl) }),
+        window.location.origin,
+      );
+      fromArtwork(frame, OPEN);
+      expect(push).not.toHaveBeenCalled();
+    });
   });
 });

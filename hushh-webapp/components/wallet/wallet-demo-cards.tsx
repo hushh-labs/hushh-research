@@ -8,7 +8,12 @@ import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { formatCardExpiry, formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
 import styles from "./wallet-demo-cards.module.css";
+import { useRouter } from "next/navigation";
+
+import { ROUTES } from "@/lib/navigation/routes";
 import {
+  WALLET_ARTWORK_ACTION_MESSAGE,
+  WALLET_ARTWORK_OPEN_PROFILE_ACTION,
   WALLET_ARTWORK_READY_MESSAGE,
   buildWalletArtworkMessage,
   type WalletCardIdentity,
@@ -55,11 +60,13 @@ function useArtworkIdentity(
   card: WalletIdentityCard | null,
   identity: WalletCardIdentity | null | undefined,
 ) {
+  const router = useRouter();
   const ownerId = identity?.ownerId ?? null;
   const name = identity?.name ?? null;
   const memberSince = identity?.memberSince ?? null;
   const validThru = identity?.validThru ?? null;
   const url = (card === "profile" ? identity?.profileUrl : identity?.referralUrl) ?? null;
+  const profileStatus = identity?.profileStatus ?? "unknown";
   const message = useMemo(
     () =>
       card
@@ -69,10 +76,11 @@ function useArtworkIdentity(
             memberSince,
             validThru,
             profileUrl: card === "profile" ? url : null,
+            profileStatus,
             referralUrl: card === "referral" ? url : null,
           })
         : null,
-    [card, ownerId, name, memberSince, validThru, url],
+    [card, ownerId, name, memberSince, validThru, url, profileStatus],
   );
   const post = useCallback(() => {
     const target = frameRef.current?.contentWindow;
@@ -86,11 +94,20 @@ function useArtworkIdentity(
     if (!message) return;
     const onMessage = (event: MessageEvent) => {
       if (event.source !== frameRef.current?.contentWindow || event.origin !== window.location.origin) return;
-      if (event.data?.type === WALLET_ARTWORK_READY_MESSAGE) post();
+      const type = event.data?.type;
+      if (type === WALLET_ARTWORK_READY_MESSAGE) post();
+      // The artwork may ask for exactly one thing, and only while its gate is up.
+      if (
+        type === WALLET_ARTWORK_ACTION_MESSAGE &&
+        event.data?.action === WALLET_ARTWORK_OPEN_PROFILE_ACTION &&
+        message.gate
+      ) {
+        router.push(ROUTES.ONE_WALLET_CARD);
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [frameRef, message, post]);
+  }, [frameRef, message, post, router]);
   return post;
 }
 

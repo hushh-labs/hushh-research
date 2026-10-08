@@ -16,6 +16,9 @@ export const WALLET_IDENTITY_CARDS: readonly WalletIdentityCard[] = ["profile", 
 
 export const WALLET_ARTWORK_IDENTITY_MESSAGE = "agent-one-card:identity";
 export const WALLET_ARTWORK_READY_MESSAGE = "agent-one-card:ready";
+export const WALLET_ARTWORK_ACTION_MESSAGE = "agent-one-card:action";
+/** The only action the artwork may ask for: open the Wallet Profile page. */
+export const WALLET_ARTWORK_OPEN_PROFILE_ACTION = "open-wallet-profile";
 
 /** How many years after the joining year the card is valid through. */
 export const WALLET_CARD_VALIDITY_YEARS = 2;
@@ -98,6 +101,31 @@ export interface WalletArtworkIdentityMessage {
   memberSince: string | null;
   validThru: string | null;
   qr: WalletArtworkQr | null;
+  /** Shades the QR area with a prompt that opens the Wallet Profile page. */
+  gate: Exclude<WalletProfileStatus, "unknown" | "ready"> | null;
+}
+
+/**
+ * Where the owner stands with their Wallet Profile, as the server reports it.
+ *
+ * - `unknown`: not asked yet, still loading, the request failed, the vault is
+ *   locked, or the feature is off. Never treated as "not created".
+ * - `setup`: the server says there is no active profile.
+ * - `link-missing`: the profile exists but this device does not hold its
+ *   once-only share link (set up on another device, or storage was cleared).
+ * - `ready`: the profile exists and this device holds its share link.
+ */
+export type WalletProfileStatus = "unknown" | "setup" | "link-missing" | "ready";
+
+export function resolveWalletProfileStatus(state: {
+  enabled: boolean;
+  exists: boolean;
+  card: { status: string } | null;
+  shareUrl: string | null;
+}): WalletProfileStatus {
+  if (!state.enabled) return "unknown";
+  if (!state.exists || !state.card || state.card.status === "revoked") return "setup";
+  return state.shareUrl?.trim() ? "ready" : "link-missing";
 }
 
 export interface WalletCardIdentity {
@@ -108,6 +136,7 @@ export interface WalletCardIdentity {
   validThru: string | null;
   /** Profile -> Apple Wallet share link, `null` until the owner has one on this device. */
   profileUrl: string | null;
+  profileStatus: WalletProfileStatus;
   /** The owner's Invite friends link, `null` until the server returns it. */
   referralUrl: string | null;
 }
@@ -118,6 +147,7 @@ export const EMPTY_WALLET_CARD_IDENTITY: WalletCardIdentity = {
   memberSince: null,
   validThru: null,
   profileUrl: null,
+  profileStatus: "unknown",
   referralUrl: null,
 };
 
@@ -133,5 +163,11 @@ export function buildWalletArtworkMessage(
     memberSince: source.memberSince,
     validThru: source.validThru,
     qr: buildWalletArtworkQr(card === "profile" ? source.profileUrl : source.referralUrl),
+    // Only the black card has a gate, and only on the server's word that the
+    // profile is missing or its link is not on this device; never while loading.
+    gate:
+      card === "profile" && source.ownerId && (source.profileStatus === "setup" || source.profileStatus === "link-missing")
+        ? source.profileStatus
+        : null,
   };
 }
