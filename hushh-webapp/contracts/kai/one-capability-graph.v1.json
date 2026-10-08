@@ -44586,7 +44586,7 @@
     "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "ffac63aec4fec5a936d69a7e8661f21437277c7e3c65036ee9ccbf8a1acff14c",
+    "kai_action_gateway": "2ada3badb72f7ade2061a102d274f844a132cef04d30f882a60659424636cc40",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -44602,6 +44602,7 @@
     "workflows": [
       {
         "compatible_graph_revisions": [
+          "0467388a49086079",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
           "0d62d7eee4a25fa1",
@@ -44694,6 +44695,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "0467388a49086079",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
           "0d62d7eee4a25fa1",
@@ -44786,6 +44788,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "0467388a49086079",
           "27c9fbd5a1b01b65",
           "2a7746fbb31459cf",
           "32b235f681091788",
@@ -44879,6 +44882,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "0467388a49086079",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
           "0d62d7eee4a25fa1",
@@ -44971,6 +44975,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "0467388a49086079",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
           "0d62d7eee4a25fa1",
@@ -45063,6 +45068,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "0467388a49086079",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
           "0d62d7eee4a25fa1",
@@ -45155,6 +45161,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "0467388a49086079",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
           "0d62d7eee4a25fa1",
