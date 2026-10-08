@@ -63,9 +63,11 @@ export function ProfileLegalRows({
 export function buildProfileLegalStackEntries({
   detail,
   updateView,
+  paneIcons = false,
 }: {
   detail: ProfileDetail | null;
   updateView: UpdateLegalView;
+  paneIcons?: boolean;
 }): ProfileStackEntry[] {
   const entries: ProfileStackEntry[] = [
     {
@@ -73,8 +75,9 @@ export function buildProfileLegalStackEntries({
       title: "Legal",
       description: "The terms you agreed to and how your information is handled.",
       content: (
-        <SettingsGroup separatorInset>
+        <SettingsGroup title={paneIcons ? "Documents" : undefined} separatorInset>
           <ProfileLegalRows
+            paneIcons={paneIcons}
             onOpen={(document) =>
               updateView({ panel: "legal", detail: document }, "push")
             }
