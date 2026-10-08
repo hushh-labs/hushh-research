@@ -115,7 +115,7 @@ def _chat_context() -> Any:
     context.hushh_id = "pod-synthetic"
     context.claims = {"user_id": "owner-uid", "hushh_id": "pod-synthetic"}
     context.authority = SimpleNamespace(
-        local_token=lambda _claims: "local-token", local_verifier=lambda _claims: None
+        epoch=1, local_token=lambda _claims: "local-token", local_verifier=lambda _claims: None
     )
     context.sessions = object()
 
@@ -147,7 +147,9 @@ def _record_agent_chat_build(monkeypatch) -> dict[str, Any]:
         "build_authenticated_agui",
         lambda *_a, **_k: SimpleNamespace(configure_pod_turn=lambda **_kw: None),
     )
-    monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: None)
+    monkeypatch.setattr(
+        text_runtime, "_resolve_pod_memory_service", lambda *, replay_projection=None: None
+    )
     monkeypatch.setattr(pod_turn, "_resolve_model", lambda *_a, **_k: ("gemini", "gemini-test"))
     return seen
 

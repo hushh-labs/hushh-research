@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from contextlib import contextmanager, nullcontext
 from typing import Any
@@ -17,7 +16,6 @@ from hushh_mcp.one_adk.pod_adk_session_repository import (
 from hushh_mcp.services.chat_key import bind_request_chat_key_owner, request_has_chat_key
 
 _projection: PodAdkSessionProjection | None = None
-_memory_replay: tuple[Any, Any] | None = None
 
 
 class PodChatContext:
@@ -222,24 +220,11 @@ class PodChatContext:
             runtime_vertex_project=options.vertex_project,
             runtime_vertex_location=options.vertex_location,
         )
-        from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
-        from hushh_mcp.one_adk.text_runtime import _resolve_pod_memory_service
-        from hushh_mcp.services.pod_memory_replay import PodMemoryReplay
+        from hushh_mcp.one_adk.pod_chat_memory import build_memory_hooks
 
-        global _memory_replay
-        if _memory_replay is None or _memory_replay[0] is not self.authority:
-            _memory_replay = (
-                self.authority,
-                PodMemoryReplay(owner=self.hushh_id, incarnation=self.authority.epoch),
-            )
-        service = await asyncio.to_thread(
-            _resolve_pod_memory_service, replay_projection=_memory_replay[1]
+        memory, prepare = await build_memory_hooks(
+            self, owner_model=owner_model, provider=provider, model=model
         )
-        memory = PodChatMemory(self, service) if service is not None else None
-
-        async def prepare(input):
-            if memory is not None:
-                await memory.prepare(input, model=owner_model, provider=provider, model_id=model)
 
         with self._browser_scope():
             head = build_one_text_agent(

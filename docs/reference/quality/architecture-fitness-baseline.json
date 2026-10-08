@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2243,
+  "finding_count": 2244,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -653,7 +653,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_memory_service.py",
       "symbol": "_PodMemoryService",
-      "value": 535
+      "value": 540
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1202,7 +1202,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py",
       "symbol": "PodGmailDoorbell",
-      "value": 293
+      "value": 295
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1760,7 +1760,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pod_memory_service.py",
       "symbol": "build_pod_memory_service",
-      "value": 583
+      "value": 589
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14000,7 +14000,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_memory_service.py",
       "symbol": null,
-      "value": 1273
+      "value": 1285
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15719,7 +15719,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_session_authority.py",
       "symbol": null,
-      "value": 837
+      "value": 848
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16655,7 +16655,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_memory_durability.py",
       "symbol": null,
-      "value": 717
+      "value": 831
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20193,6 +20193,15 @@
       "path": "consent-protocol/api/routes/one/byoc_azure.py",
       "symbol": null,
       "value": 531
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_gmail_doorbell.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_gmail_doorbell.py",
+      "symbol": null,
+      "value": 502
     }
   ],
   "inspected_files": 6149,
@@ -20216,6 +20225,63 @@
       "key": "module_size|consent-protocol/api/hub_route_classes.py||module exceeds the advisory operon budget",
       "rationale": "One exact GET business-suggestion route classified NETWORK after independent owner/verified-directory source review; no new handler, content authority, or disabled gate.82 nearest route/lifecycle checks passed. Canonical single inventory retained.",
       "source": "a40a9c740"
+    },
+    "runtime_recovery_review_20261008": {
+      "changes": [
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/pod_memory_service.py|_PodMemoryService|class exceeds the advisory operon budget",
+          "previous": 535,
+          "rationale": "Coupled optional replay port, same-request custody derivation and existing owner reducer. No expanded information authority.",
+          "reviewed": 540
+        },
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py|PodGmailDoorbell|class exceeds the advisory operon budget",
+          "previous": 293,
+          "rationale": "Two-line configured-topic guard prevents unconfigured history access.",
+          "reviewed": 295
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/pod_memory_service.py|build_pod_memory_service|function exceeds the advisory gene budget",
+          "previous": 583,
+          "rationale": "Coupled optional replay port, same-request custody derivation and existing owner reducer. No expanded information authority.",
+          "reviewed": 589
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/pod_memory_service.py||module exceeds the advisory operon budget",
+          "previous": 1273,
+          "rationale": "Coupled optional replay port, same-request custody derivation and existing owner reducer. No expanded information authority.",
+          "reviewed": 1285
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/pod_session_authority.py||module exceeds the advisory operon budget",
+          "previous": 837,
+          "rationale": "Startup composition and final incarnation fence remain beside the owning authority builder.",
+          "reviewed": 848
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_pod_memory_durability.py||module exceeds the advisory operon budget",
+          "previous": 717,
+          "rationale": "Nearest substantive owner/key/incarnation/location, tail/consent/erasure and bounded-cache negative controls; no duplicate suite.",
+          "reviewed": 831
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_pod_gmail_doorbell.py||module exceeds the advisory operon budget",
+          "previous": null,
+          "rationale": "Nearest no-topic history-access regression with configured negative control.",
+          "reviewed": 502
+        }
+      ],
+      "reviewer": "byoc_authority_readiness read-only review; root synthesis",
+      "scope": "Seven exact local size additions. No blanket refresh; budgets/exclusions unchanged. Separate memory-hook extraction removes the build_agent regression.",
+      "source_revision": "e26c2135d",
+      "source_sha256": {
+        "consent-protocol/hushh_mcp/services/pod_gmail_doorbell.py": "8d5ed36a719826036e9adbb66475d22bfc2cb193bfbc531d3b316a68210d2ee6",
+        "consent-protocol/hushh_mcp/services/pod_memory_service.py": "88666a387b148c6e570e4d6af2d12265509fa16cd6f9ec79864899d8ab2b111c",
+        "consent-protocol/hushh_mcp/services/pod_session_authority.py": "1707ca941f93877f75d5b3fc747f1451731aeabe1836ca0f28111e5ed9f3fbd6",
+        "consent-protocol/tests/test_pod_gmail_doorbell.py": "3d1b3178ab2690cb0d9c62f375fc5008c70c0a3b50905c578891f2920b37a90c",
+        "consent-protocol/tests/test_pod_memory_durability.py": "3abc652d8e68eec5912e805cc8fe165d2050088d5fd91d39cca8f379f9005f73"
+      },
+      "verification": "166 focused authority/recovery/Files/queue cases; memory integrity/erasure negative controls; 97 final memory/model composition cases pass."
     },
     "scope": "Only these reviewed sorted-multiset slots; original size budgets and complete ratchet unchanged. Existing debt is visible, not a claim of architecture completion.",
     "slots": [

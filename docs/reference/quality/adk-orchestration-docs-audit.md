@@ -145,7 +145,7 @@ Imported ADK and composition debt remains individually recorded in the
 [reviewed baseline](./architecture-fitness-baseline.json). Bounded extractions
 resolved six findings and tightened one; the remaining reviewed coupled seams
 retain their facades. The 500/250/80 budgets and new-or-worsened gate are unchanged.
-Prior rendering of 181 Mermaid figures is dated documentation evidence, not cloud
+Seven bounded local recovery/test size increases received independent authority review and exact source hashes in that baseline; budgets and exclusions are unchanged. Memory composition moved to its existing chat-memory owner, reducing the agent-builder span. Prior rendering of 181 Mermaid figures is dated documentation evidence, not cloud
 acceptance. [Dev timing](../operations/dev-fast-lane.md#deployment-duration-and-independent-work)
 compares selected services separately from source CI; only measured duplicate
 selection was consolidated.
@@ -165,7 +165,7 @@ Google's governed default was unchanged.
 | Flash-Lite native tools | 3/3; valid call IDs/arguments and nonempty result-based answers; no 429 | Approved dev provider, not owner-pod acceptance. |
 | Flash-Lite One selection | 4/6 at LOW and MEDIUM; Drive/email delegation missed | Not qualified as One's default. |
 | Gemini 3.8 Flash | Native tools 2/3; one HTTP 504. Original first-tool roster 5/6; its legacy email fixture expected a forbidden tool. The corrected admitted mailbox case selected `react_to_message` first and failed the strict first-tool gate; no 429. | The original receipt remains unchanged. Corrected harness rejects inadmissible expectations before a provider call (43 focused checks). Combined conservative reservation and measured calls total $1.6046 against the $2 ceiling. No full task-outcome or default qualification claim. |
-| Azure GPT-6 Luna | Catalog and synthetic deployment succeeded; operator inference returned 401 on both models | Pod-native console probe produced no rows; neither success nor inference refusal. Temporary role/deployment removed with absence readback. |
+| Azure GPT-6 Luna | Actual pod managed identity completed one native tool call and result-based answer in 4.735 s. The second exchange hit 429; its single paced retry also hit 429. | Third exchange and six-case first-tool roster were not run. The corrected console receipt is separate from earlier empty harness results. Synthetic deployment removed; existing GPT-5.6 Luna unchanged. Conservative additional reservation $0.01 leaves the combined qualification budget below $2. |
 | Resources | Local boot 3.07 s / 281.5 MiB; 64 MiB Files with 4 MiB encrypted chunks, 1/2/4/8 transfers, byte-exact, peak 601.8 MiB. Azure low-load maximum 369.6 MiB | No constrained combined-cloud workload, cold-start p95 or quota proof; edge 404s are not feature evidence. |
 
 Whole monthly estimates at 30 billable hours, 50 GiB and 1,500 modeled calls are

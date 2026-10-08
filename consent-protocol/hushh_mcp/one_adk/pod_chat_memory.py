@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from google.adk.memory.base_memory_service import BaseMemoryService
 
 logger = logging.getLogger(__name__)
+_memory_replay: tuple[Any, Any] | None = None
 
 
 class PodChatMemory(BaseMemoryService):
@@ -81,3 +84,27 @@ class PodChatMemory(BaseMemoryService):
             await self.add_session_to_memory(session)
         except Exception as exc:
             logger.warning("pod_chat.memory_write_failed kind=%s", type(exc).__name__)
+
+
+async def build_memory_hooks(
+    context: Any, *, owner_model: Any, provider: str, model: str
+) -> tuple[PodChatMemory | None, Callable[[Any], Awaitable[None]]]:
+    from hushh_mcp.one_adk.text_runtime import _resolve_pod_memory_service
+    from hushh_mcp.services.pod_memory_replay import PodMemoryReplay
+
+    global _memory_replay
+    if _memory_replay is None or _memory_replay[0] is not context.authority:
+        _memory_replay = (
+            context.authority,
+            PodMemoryReplay(owner=context.hushh_id, incarnation=context.authority.epoch),
+        )
+    service = await asyncio.to_thread(
+        _resolve_pod_memory_service, replay_projection=_memory_replay[1]
+    )
+    memory = PodChatMemory(context, service) if service is not None else None
+
+    async def prepare(input):
+        if memory is not None:
+            await memory.prepare(input, model=owner_model, provider=provider, model_id=model)
+
+    return memory, prepare

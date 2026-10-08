@@ -370,7 +370,9 @@ async def test_agent_chat_builds_one_and_its_specialists_on_the_selection(monkey
         "build_authenticated_agui",
         lambda *_a, **_k: SimpleNamespace(configure_pod_turn=lambda **_kw: None),
     )
-    monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: None)
+    monkeypatch.setattr(
+        text_runtime, "_resolve_pod_memory_service", lambda *, replay_projection=None: None
+    )
     monkeypatch.setattr(pod_turn, "_resolve_model", lambda *_a, **_k: ("gemini", "gemini-test"))
     pod_ai_selection.set_active_ai_selection(_selection("openai", "gpt-6-luna"))
 
@@ -378,7 +380,7 @@ async def test_agent_chat_builds_one_and_its_specialists_on_the_selection(monkey
     context.owner, context.hushh_id = "owner-uid", "pod-synthetic"
     context.claims = {"user_id": "owner-uid", "hushh_id": "pod-synthetic"}
     context.authority = SimpleNamespace(
-        local_token=lambda _c: "local-token", local_verifier=lambda _c: None
+        epoch=1, local_token=lambda _c: "local-token", local_verifier=lambda _c: None
     )
     context.sessions = object()
 
