@@ -73,7 +73,7 @@ describe("Profile canonical page layout", () => {
     );
 
     expect(workspace).toContain(
-      'className="profile-account-content profile-vault-methods-content"',
+      '"profile-account-content profile-vault-methods-content"',
     );
     expect(workspace).not.toContain('description: "Unlock methods.",');
     expect(workspace).toContain('data-testid="vault-default-unlock-actions"');
@@ -81,7 +81,7 @@ describe("Profile canonical page layout", () => {
     // Founder direction, 2026-09-28: nested Profile screens draw rows the way
     // the Profile menu does, so Vault methods carries no tile tones.
     const vaultMethods = workspace.slice(
-      workspace.indexOf('className="profile-account-content profile-vault-methods-content"'),
+      workspace.indexOf('"profile-account-content profile-vault-methods-content"'),
       workspace.indexOf("const gmailConnectionContent"),
     );
     const vaultTones = [...vaultMethods.matchAll(/iconTone="([a-z]+)"/g)].map(
