@@ -119,7 +119,7 @@ import type {
 } from "@/lib/one-location/types";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
-import { pushAndroidBackHandler } from "@/lib/navigation/android-back";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import {
   isLocationMapDemoAvailable,
   isLocationMapDemoEnabled,
@@ -3604,18 +3604,19 @@ export function LocationImmersiveMap({
     }, 1_200);
   }, [router]);
 
-  // Back goes through the app-wide owner (lib/navigation/android-back.ts),
-  // which closes an open sheet first; this screen only claims what is left.
-  useEffect(() => {
-    if (!isNative() || getPlatform() !== "android") return;
-    return pushAndroidBackHandler(() => {
+  // All Back surfaces share the map owner, after the topmost sheet has dismissed.
+  useBackLayer(
+    isCheckInSurface ? ROUTES.ONE_LOCATION_CHECK_IN : ROUTES.ONE_LOCATION_MAP,
+    100,
+    () => {
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
-        return;
+        return true;
       }
       closeMap();
-    });
-  }, [closeMap, closeNearbyCheckIn, nearbyCheckInOpen]);
+      return true;
+    },
+  );
 
   const toggleDemoPeople = useCallback(() => {
     if (!demoAvailable) return;

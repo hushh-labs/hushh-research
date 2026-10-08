@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 const mapHarness = vi.hoisted(() => {
   type CameraListener = (data: unknown) => void;
@@ -1076,6 +1077,22 @@ describe("LocationImmersiveMap demo experience", () => {
       "/one/location/check-in",
       { scroll: false },
     );
+  });
+
+  it("unwinds check-in then leaves the map through shared Back outside Android", async () => {
+    platformHarness.native = false;
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    seedConsentedRenderer();
+    const view = render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true"));
+    act(() => expect(unwindBackLayer("/one/location/check-in")).toBe(true));
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "false");
+    expect(navigationHarness.replace).not.toHaveBeenCalled();
+    act(() => expect(unwindBackLayer("/one/location/check-in")).toBe(true));
+    expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", { scroll: false });
+    view.unmount();
+    expect(unwindBackLayer("/one/location/check-in")).toBe(false);
   });
 
   it("renders and clears the transient 500 m check-in search circle", async () => {
