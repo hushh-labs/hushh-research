@@ -81,6 +81,7 @@ import {
 } from "@/components/profile/profile-your-account-icons";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
+import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
 import { toast } from "sonner";
 
@@ -3360,7 +3361,12 @@ function ProfilePageContent({
   );
 
   const accessContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && secondaryTypographyStyles.paneAccess,
+      )}
+    >
       <PkmAccessManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -3836,7 +3842,12 @@ function ProfilePageContent({
   );
 
   const gmailContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && secondaryTypographyStyles.paneGmail,
+      )}
+    >
       <SettingsGroup>
         <SettingsRow
           icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
@@ -3871,20 +3882,27 @@ function ProfilePageContent({
   );
 
   const connectedSystemsContent = (
-    <ConnectedSystemsPanel
-      cacheUserId={user?.uid}
-      vaultOwnerToken={vaultOwnerToken}
-      onRequestUnlock={() => requestVaultUnlock("profile_data")}
-      profile={{
-        displayName: user?.displayName,
-        email: user?.email,
-        phone: phoneNumber,
-      }}
-    />
+    <div className={auxiliaryTabStyles.connectedSystems}>
+      <ConnectedSystemsPanel
+        cacheUserId={user?.uid}
+        vaultOwnerToken={vaultOwnerToken}
+        onRequestUnlock={() => requestVaultUnlock("profile_data")}
+        profile={{
+          displayName: user?.displayName,
+          email: user?.email,
+          phone: phoneNumber,
+        }}
+      />
+    </div>
   );
 
   const vaultMethodsContent = (
-    <div className="profile-account-content profile-vault-methods-content">
+    <div
+      className={cn(
+        "profile-account-content profile-vault-methods-content",
+        isPanePresentation && secondaryTypographyStyles.paneVaultMethods,
+      )}
+    >
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
@@ -4069,7 +4087,12 @@ function ProfilePageContent({
   );
 
   const gmailConnectionContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && secondaryTypographyStyles.paneGmail,
+      )}
+    >
       <SettingsGroup title="Connection">
         <SettingsRow
           icon={isPanePresentation ? ProfileAccountMailIcon : GmailAgentIcon}
@@ -4367,12 +4390,20 @@ function ProfilePageContent({
         title: selectedConnection.requesterLabel,
         description: "Scopes and access.",
         content: (
-          <PkmAccessConnectionDetailPanel
-            connection={selectedConnection}
-            onRevokeAccess={async (scope) => {
-              await handleRevoke(scope);
-            }}
-          />
+          <div
+            className={
+              isPanePresentation
+                ? secondaryTypographyStyles.paneAccess
+                : undefined
+            }
+          >
+            <PkmAccessConnectionDetailPanel
+              connection={selectedConnection}
+              onRevokeAccess={async (scope) => {
+                await handleRevoke(scope);
+              }}
+            />
+          </div>
         ),
       });
     }

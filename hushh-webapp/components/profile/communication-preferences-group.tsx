@@ -38,6 +38,7 @@ import {
   STYLE_NOTE_MAX,
   type OwnerStyleSettings,
 } from "@/lib/agent/owner-style-settings";
+import paneStyles from "./communication-preferences-pane.module.css";
 
 const NO_PREFERENCE = "none";
 const CONTROL_WIDTH = "w-full min-w-0";
@@ -73,9 +74,9 @@ function ChoiceSelect<T extends string>({
         <SelectValue placeholder="No preference" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={NO_PREFERENCE}>No preference</SelectItem>
+        <SelectItem className={paneStyles.choiceOption} value={NO_PREFERENCE}>No preference</SelectItem>
         {options.map((option) => (
-          <SelectItem key={option} value={option}>
+          <SelectItem className={paneStyles.choiceOption} key={option} value={option}>
             {labels[option]}
           </SelectItem>
         ))}
@@ -112,7 +113,7 @@ export function CommunicationPreferencesGroup({
   };
   const note = value.owner_style_note ?? "";
   return (
-    <div className="profile-preferences-content space-y-4" data-testid="style-settings">
+    <div className={`profile-preferences-content space-y-4 ${paneStyles.paneTypography}`} data-testid="style-settings">
       <SettingsGroup
         title="How One writes to you"
         description="One follows these on every reply. They change its writing only, never what it can see, share or do."

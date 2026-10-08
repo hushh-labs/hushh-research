@@ -8766,4 +8766,25 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     font-size: 12px !important;
     line-height: 1.3 !important;
   }
+
+  /* Text fields inherit the app's larger form scale unless the pane supplies
+     its own value size. Keep nested Profile controls aligned with Your account. */
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is(
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+      textarea,
+      select,
+      [data-slot="select-trigger"],
+      [role="combobox"]
+    ) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 400 !important;
+    line-height: 1.3 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is(input, textarea)::placeholder {
+    font-size: 13px !important;
+  }
 }
