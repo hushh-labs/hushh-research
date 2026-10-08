@@ -17,6 +17,21 @@ function source(relativePath: string): string {
 }
 
 describe("native cold-audit and continuity contract", () => {
+  it("does not pass reviewer passphrase strings to XCTest diagnostic operands", () => {
+    const uiTests = source("ios/App/AppUITests/AppUITests.swift");
+    const start = uiTests.indexOf("private func assertReviewerPassphraseAliasesMatch()");
+    const end = uiTests.indexOf("private func replaceText", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const helper = uiTests.slice(start, end);
+    const exposesCredential = (text: string) => /XCTAssert(?:Equal|NotEqual)\(\s*(?:primary|canonical)\s*,/.test(text);
+    expect(exposesCredential(helper)).toBe(false);
+    // Negative control reproduces the legacy failure diagnostic without ever
+    // loading a credential or deliberately emitting an XCTest failure.
+    const unsafe = helper.replace("XCTAssertTrue(primary == canonical,", "XCTAssertEqual(primary, canonical,");
+    expect(exposesCredential(unsafe)).toBe(true);
+  });
+
   it("exports reviewer credentials as literal shell values, never executable substitutions", () => {
     const synthetic = 'synthetic $(printf expanded) `printf expanded` "quoted" \'literal\' $HUSHH_SYNTHETIC_EXPANSION';
     const environment = {

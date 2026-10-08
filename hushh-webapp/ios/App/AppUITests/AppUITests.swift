@@ -2765,7 +2765,9 @@ final class AppUITests: XCTestCase {
         let canonical = environment["REVIEWER_VAULT_PASSPHRASE"] ?? ""
         XCTAssertFalse(primary.isEmpty, "Forwarded reviewer vault passphrase is missing")
         XCTAssertFalse(canonical.isEmpty, "Canonical reviewer vault passphrase is missing")
-        XCTAssertEqual(primary, canonical, "Forwarded reviewer vault passphrase differs from canonical reviewer configuration")
+        // XCTest equality failures print both operands. Compare in memory and
+        // expose only the Boolean result, never the reviewer credential.
+        XCTAssertTrue(primary == canonical, "Forwarded reviewer vault passphrase differs from canonical reviewer configuration")
         if !primary.isEmpty, primary == canonical {
             print("native-ui-reviewer-passphrase-match true")
         }
