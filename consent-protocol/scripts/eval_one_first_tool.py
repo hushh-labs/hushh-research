@@ -99,6 +99,7 @@ class Case:
     prompt: str
     expected: tuple[str, ...]
     screen: str | None = None
+    runtime_context: str = "empty"
 
 
 @dataclass
@@ -153,6 +154,7 @@ def _parse_case(raw: Any, position: int) -> Case:
     prompt = raw.get("prompt")
     expected = raw.get("expected")
     screen = raw.get("screen")
+    runtime_context = raw.get("runtime_context", "empty")
     if not isinstance(case_id, str) or not case_id.strip():
         raise ValueError(f"case #{position} has no id")
     if not isinstance(family, str) or not family.strip():
@@ -167,12 +169,15 @@ def _parse_case(raw: Any, position: int) -> Case:
         raise ValueError(f"case {case_id!r} needs a non-empty expected list of strings")
     if screen is not None and not isinstance(screen, str):
         raise ValueError(f"case {case_id!r} screen must be a string")
+    if runtime_context not in ("empty", "typed_chat"):
+        raise ValueError(f"case {case_id!r} has an unsupported runtime context")
     return Case(
         id=case_id,
         family=family,
         prompt=prompt,
         expected=tuple(dict.fromkeys(expected)),
         screen=screen or None,
+        runtime_context=runtime_context,
     )
 
 
@@ -225,9 +230,22 @@ def _agent_tree() -> Any:
     return agent_tree
 
 
-def production_instruction() -> str:
-    """The runtime instruction as the model receives it with no per-turn context."""
-    return str(_agent_tree()._one_runtime_instruction(_EmptyReadonlyContext()))
+def production_instruction(runtime_context: str = "empty") -> str:
+    """Compose real runtime instructions with an explicit synthetic context.
+
+    Context qualifies tool selection only; this harness never executes a tool
+    or grants access to an owner's connector or information.
+    """
+    tree = _agent_tree()
+    context = _EmptyReadonlyContext()
+    if runtime_context == "typed_chat":
+        context.state = {
+            tree.STATE_EXECUTION_SURFACE: "typed_chat",
+            tree.STATE_USER_ID: "synthetic-first-tool-evaluation",
+        }
+    elif runtime_context != "empty":
+        raise ValueError("unsupported runtime context")
+    return str(tree._one_runtime_instruction(context))
 
 
 def _canonical_roster() -> list[Any]:
@@ -333,11 +351,25 @@ def score_cases(
     reps: int = DEFAULT_REPS,
     on_result: Callable[[CaseResult], None] | None = None,
     call_gap_seconds: float = 0.0,
+    instruction_overrides: dict[str, str] | None = None,
 ) -> list[CaseResult]:
     if reps < 1:
         raise ValueError("reps must be at least 1")
     if not math.isfinite(call_gap_seconds) or call_gap_seconds < 0:
         raise ValueError("call_gap_seconds must be finite and nonnegative")
+    instructions = {
+        case.id: (instruction_overrides or {}).get(case.id, instruction) for case in cases
+    }
+    # An inadmissible expected tool is an invalid experiment, not a model miss.
+    for case in cases:
+        composed = instructions[case.id]
+        forbidden: set[str] = set()
+        if "MAIL READ ADMISSION: disabled." in composed:
+            forbidden.add("ask_email_agent")
+        if "DRIVE READ ADMISSION: disabled." in composed:
+            forbidden.update(("ask_documents_agent", "inspect_selected_drive_files"))
+        if all(tool in forbidden for tool in case.expected):
+            raise ValueError(f"case {case.id!r} expects a tool forbidden by its runtime context")
     results: list[CaseResult] = []
     stopped = False
     for case in cases:
@@ -351,7 +383,7 @@ def score_cases(
         for _ in range(reps):
             started = time.perf_counter()
             try:
-                got = first_tool(instruction, _prompt_with_screen(case), case.screen)
+                got = first_tool(instructions[case.id], _prompt_with_screen(case), case.screen)
             except Exception as exc:
                 # Never retain provider messages: they may contain credentials,
                 # request contents or project identifiers. Preserve only bounded
@@ -711,6 +743,15 @@ def run_eval(
     stopped = False
     stop_reason: dict[str, Any] | None = None
     for label, source, instruction in _instruction_plan(instruction_files):
+        overrides = (
+            {
+                case.id: production_instruction(case.runtime_context)
+                for case in cases
+                if case.runtime_context != "empty"
+            }
+            if not instruction_files
+            else {}
+        )
         if not quiet:
             print(f"\n----- {label} ({len(cases)} cases x {reps} reps) -----")
         results = (
@@ -726,6 +767,7 @@ def run_eval(
                 reps=reps,
                 on_result=None if quiet else _print_result,
                 call_gap_seconds=CALL_GAP_SECONDS if first_tool is None else 0.0,
+                instruction_overrides=overrides,
             )
         )
         stopped = stopped or any(result.status == "infrastructure_error" for result in results)
@@ -751,6 +793,15 @@ def run_eval(
             roster_tools=roster_tools,
         )
         report["stopped_after_infrastructure_failure"] = stop_reason
+        report["case_instructions"] = {
+            case.id: {
+                "runtime_context": case.runtime_context
+                if not instruction_files
+                else "custom_instruction",
+                "sha256": hashlib.sha256(overrides.get(case.id, instruction).encode()).hexdigest(),
+            }
+            for case in cases
+        }
         named, latest = write_report(report, report_dir=report_dir)
         if not quiet:
             _print_summary(report)

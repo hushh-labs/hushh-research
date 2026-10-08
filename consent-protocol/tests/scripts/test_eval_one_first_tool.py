@@ -252,6 +252,31 @@ def test_production_instruction_preserves_identity_and_disables_reads_under_empt
     assert "do not send the person to Profile automatically" in text
 
 
+def test_mail_selection_requires_declared_synthetic_chat_context():
+    case = next(
+        case for case in harness.load_cases() if case.id == "delegation.read_recent_mail_v2"
+    )
+    calls = []
+
+    def probe(instruction, prompt, screen):
+        calls.append(instruction)
+        return "ask_email_agent"
+
+    empty = harness.production_instruction()
+    with pytest.raises(ValueError, match="forbidden by its runtime context"):
+        harness.score_cases([case], probe, empty, reps=1)
+    assert calls == []
+
+    admitted = harness.production_instruction(case.runtime_context)
+    assert "MAIL READ ADMISSION: enabled for this typed chat." in admitted
+    result = harness.score_cases(
+        [case], probe, empty, reps=1, instruction_overrides={case.id: admitted}
+    )
+    assert result[0].hit and calls == [admitted]
+    # Selecting an evaluation context must not mutate the neutral context.
+    assert harness.production_instruction() == empty
+
+
 # ---------------------------------------------------------------------------
 # Scoring math (stubbed first-tool function, no model)
 # ---------------------------------------------------------------------------
