@@ -146,6 +146,49 @@ def test_inherited_public_authority_blocks_bootstrap_before_service_creation(tmp
         )
 
 
+def test_ancestor_permission_failure_is_safe_and_prevents_provisioning(monkeypatch, tmp_path):
+    from urllib.error import HTTPError
+
+    module = _preview_module("commerce-preview-bootstrap.py")
+    api = module["CloudRun"].__new__(module["CloudRun"])
+    api._token = "synthetic-private-token"
+    calls = []
+
+    def denied(request, **_):
+        calls.append(request.get_method())
+        raise HTTPError(request.full_url, 403, "synthetic-private-body", {}, None)
+
+    monkeypatch.setitem(api.request.__globals__, "urlopen", denied)
+
+    class AncestryApi:
+        def request(self, path, **kwargs):
+            if path == f"projects/{module['PROJECT']}":
+                return {"projectId": module["PROJECT"], "parent": "folders/123"}
+            if path == f"projects/{module['PROJECT']}:getIamPolicy":
+                return {}
+            assert path == "folders/123:getIamPolicy", "No service admission after denied ancestor"
+            return api.request(path, **kwargs)
+
+    with pytest.raises(module["BootstrapError"]) as caught:
+        module["ensure"](
+            AncestryApi(),
+            module["BOOTSTRAP_REPOSITORY"] + "@sha256:" + "a" * 64,
+            "b" * 40,
+            tmp_path / "receipt.json",
+        )
+    assert calls == ["POST"]
+    assert module["safe_failure"](caught.value) == {
+        "error": "commerce_preview_bootstrap_unverified",
+        "stage": "ancestor_policy",
+        "http_status": 403,
+    }
+    assert module["safe_failure"](RuntimeError("synthetic-private-token")) == {
+        "error": "commerce_preview_bootstrap_unverified",
+        "stage": "validation",
+        "http_status": None,
+    }
+
+
 @pytest.mark.parametrize(
     "first,report_status,expected",
     [

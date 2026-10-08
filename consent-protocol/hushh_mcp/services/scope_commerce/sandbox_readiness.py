@@ -23,7 +23,12 @@ class SandboxReadiness:
         if (
             config.livemode
             or app_origin != config.frontend_origin
-            or set(config.countries) != {"US"}
+            or (
+                set(config.countries) != {"US"}
+                and not (
+                    not config.countries and commerce_enabled is False and config.enabled is False
+                )
+            )
         ):
             raise CommerceError("sandbox_readiness_unbound")
 

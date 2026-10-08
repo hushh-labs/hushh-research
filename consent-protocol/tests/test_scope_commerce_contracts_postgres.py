@@ -386,7 +386,17 @@ async def test_sandbox_readiness_refuses_actor_origin_mode_and_unbound_pin(
     monkeypatch.setenv("SCOPE_COMMERCE_ENABLED", "true")
     ctx.service.provider_config = replace(ctx.service.provider_config, enabled=False)
     assert (await ctx.get(path)).json()["new_activity_enabled"] is False
+    # Unknown costs can be inspected only while both admission switches are off.
+    ctx.service.provider_config = replace(ctx.service.provider_config, countries={})
+    assert (await ctx.get(path)).status_code == 503
+    monkeypatch.setenv("SCOPE_COMMERCE_ENABLED", "false")
+    unknown_costs = await ctx.get(path)
+    assert unknown_costs.status_code == 200, unknown_costs.text
+    assert unknown_costs.json()["new_activity_enabled"] is False
     ctx.service.provider_config = replace(ctx.service.provider_config, enabled=True)
+    assert (await ctx.get(path)).status_code == 503
+    monkeypatch.setenv("SCOPE_COMMERCE_ENABLED", "true")
+    ctx.service.provider_config = replace(ctx.service.provider_config, countries=original.countries)
     assert not any(key in proof for key in ("reviewer_user_ids", "DSN", "secret_key"))
     assert (await ctx.get(path, "stranger")).status_code == 404
     assert (await ctx.get("/sandbox-readiness?app_origin=https://other.example")).status_code == 503

@@ -91,6 +91,30 @@ def test_preview_substitutions_preserve_single_delimiter_and_namespace():
         module["substitutions"]("_UNDECLARED=unsafe", "backend")
 
 
+def test_preview_allows_unknown_costs_only_with_both_admission_switches_disabled():
+    module = _preview_module("commerce-preview-target.py")
+    target = module["PreviewTarget"]()
+    config = _preview_policy(module) | {
+        "scope_commerce_country_policies_json": {},
+        "scope_commerce_enabled": False,
+        "scope_commerce_provider_enabled": False,
+    }
+    frontend = config["scope_commerce_frontend_origin"]
+    backend = config["scope_commerce_drain_audience"]
+    assert target.validate_policy(config, frontend, backend) == ("synthetic-one", "synthetic-two")
+    for key in ("scope_commerce_enabled", "scope_commerce_provider_enabled"):
+        for value in (True, "false", None, 0):
+            with pytest.raises(module["PreviewError"], match="preview_commerce_policy_mismatch"):
+                target.validate_policy(config | {key: value}, frontend, backend)
+        missing = {name: value for name, value in config.items() if name != key}
+        with pytest.raises(module["PreviewError"], match="preview_commerce_policy_mismatch"):
+            target.validate_policy(missing, frontend, backend)
+    with pytest.raises(module["PreviewError"], match="preview_commerce_policy_mismatch"):
+        target.validate_policy(
+            config | {"scope_commerce_country_policies_json": {"CA": {}}}, frontend, backend
+        )
+
+
 def test_preview_mount_and_readiness_proof_reject_shared_or_stale_authority():
     module = _preview_module("commerce-preview-verify.py")
     env = [

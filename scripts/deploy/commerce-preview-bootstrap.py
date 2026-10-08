@@ -46,7 +46,38 @@ TEMPLATE_MASK = ",".join(
 
 
 class BootstrapError(ValueError):
-    pass
+    def __init__(self, code, *, stage="validation", http_status=None):
+        super().__init__(code)
+        self.stage = stage
+        self.http_status = http_status
+
+
+def request_stage(path):
+    if path == f"projects/{PROJECT}:getIamPolicy":
+        return "project_policy"
+    if re.fullmatch(r"(?:folders|organizations)/[0-9]+:getIamPolicy", path):
+        return "ancestor_policy"
+    if path == f"projects/{PROJECT}" or re.fullmatch(r"folders/[0-9]+", path):
+        return "ancestry"
+    if path.endswith(":getIamPolicy"):
+        return "service_policy"
+    if "?serviceId=" in path:
+        return "service_creation"
+    return "service_request"
+
+
+def safe_failure(error):
+    stages = {
+        "validation", "project_policy", "ancestor_policy", "ancestry",
+        "service_policy", "service_creation", "service_request",
+    }
+    stage = getattr(error, "stage", None) if isinstance(error, BootstrapError) else None
+    status = getattr(error, "http_status", None) if isinstance(error, BootstrapError) else None
+    return {
+        "error": "commerce_preview_bootstrap_unverified",
+        "stage": stage if stage in stages else "validation",
+        "http_status": status if type(status) is int and 100 <= status <= 599 else None,
+    }
 
 
 class CloudRun:
@@ -91,7 +122,9 @@ class CloudRun:
         except HTTPError as error:
             if missing and error.code == 404:
                 return None
-            raise BootstrapError("bootstrap_cloud_request_failed") from None
+            raise BootstrapError(
+                "bootstrap_cloud_request_failed", stage=request_stage(path), http_status=error.code
+            ) from None
         if not isinstance(result, dict):
             raise BootstrapError("bootstrap_cloud_receipt_invalid")
         return result
@@ -365,15 +398,22 @@ def main():
     parser.add_argument("--sha")
     parser.add_argument("--report-path", required=True, type=Path)
     args = parser.parse_args()
-    api = CloudRun()
-    if args.phase == "ensure":
-        ensure(api, args.image or "", args.sha or "", args.report_path)
-    else:
-        quarantine(api, args.report_path)
+    try:
+        api = CloudRun()
+        if args.phase == "ensure":
+            ensure(api, args.image or "", args.sha or "", args.report_path)
+        else:
+            quarantine(api, args.report_path)
+    except Exception as error:
+        if args.report_path.is_file():
+            report = json.loads(args.report_path.read_text())
+            if report.get("target") == "scope-commerce-sandbox":
+                write_report(args.report_path, report | {"failure": safe_failure(error)})
+        raise
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        raise SystemExit("commerce_preview_bootstrap_unverified") from None
+    except Exception as error:
+        raise SystemExit(json.dumps(safe_failure(error))) from None
