@@ -24,7 +24,14 @@ from hushh_mcp.one_adk.agui_factory import FirstUseAgent
 _BACKEND = Path(__file__).resolve().parents[1]
 
 _IMPORT_POD = """
+import sys
 import pod_server
+# Check before the deliberate compatibility import below. A pod wake must not
+# initialize hub-only composition, even when the shared suite already loaded it.
+assert 'api.routes.one.pod_session' in sys.modules
+assert 'api.routes.one.agent_chat' not in sys.modules
+assert 'api.routes.one.pod_lifecycle' not in sys.modules
+assert 'api.routes.one._hub_router' not in sys.modules
 from api.routes.one import agent_chat
 assert agent_chat._session_service is None, "Shared session storage was built at pod import"
 try:

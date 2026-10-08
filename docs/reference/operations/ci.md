@@ -864,3 +864,13 @@ the suite actually ran.
 
 The gate is deliberately separate from the manifest: the manifest answers "which
 suites gate a merge", and the gate answers "can every test file still be loaded".
+
+### Browser setup mirror — 2026-10-08
+
+PR run `37836804949` restored cached browsers, but the hosted Ubuntu mirror
+downloaded 116 MB of system dependencies in 23 minutes 9 seconds. The 30-minute
+job deadline interrupted the browser pack. The browser job removes only the
+runner's `azure.archive.ubuntu.com` mirror preference and retains its existing
+official archive/security entries and signed package checks. Chromium, WebKit,
+matched packs, workers and timeout remain unchanged. A faster install is a
+hosted measurement to verify, not a guaranteed mirror characteristic.

@@ -445,6 +445,13 @@ jobs:
           # Playwright CLI must exist first; the check step below is told
           # (WEB_CI_DEPS_INSTALLED) not to repeat it.
           bash -c 'source scripts/ci/web-common.sh && web_ci_install'
+          # Run 37836804949 spent 23m9s downloading 116 MB from the runner's
+          # preferred Azure apt mirror, then timed out during browser tests.
+          # Keep its existing official archive/security fallbacks and signed
+          # package verification; remove only that slow mirror preference.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
+          fi
           # `--with-deps` installs the browsers AND the apt libraries they link
           # against. The apt half is not covered by the cache (it writes outside
           # ~/.cache/ms-playwright), so on a cache hit install only the system
