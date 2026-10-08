@@ -2288,7 +2288,7 @@ final class AppUITests: XCTestCase {
         ]
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2930,7 +2930,7 @@ final class AppUITests: XCTestCase {
         ]
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -5138,7 +5138,7 @@ final class AppUITests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
