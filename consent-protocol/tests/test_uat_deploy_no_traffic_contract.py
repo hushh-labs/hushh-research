@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -381,8 +382,6 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     )
     assert "python3 scripts/ci/assert_one_voice_live_probe.py" in backend_build
 
-    import re
-
     for source in (uat_workflow, dev_workflow, production_workflow):
         model = re.search(r"_VERTEX_LIVE_MODEL_ID=([A-Za-z0-9._-]+)", source)
         location = re.search(r"_VERTEX_LIVE_LOCATION=([a-z0-9-]+)", source)
@@ -471,27 +470,27 @@ def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> Non
     assert "_CONSENT_SSE_ENABLED=false" in uat_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=2" in uat_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=5" in uat_workflow
-    # Per-worker pools multiply by workers and instances: UAT uses 7 x 2 x 5.
-    # Keep normal demand under 70 and cutover peak under 85 of Cloud SQL's 100
-    # slots, reserving room for migrations, scheduled work and operator reads.
-    # Prior incidents combined pool exhaustion with Cloud Run request saturation;
-    # bounded pool acquisition now refuses with 503 instead of hanging. Overflow
-    # remains zero so this envelope is deterministic. Operational background:
-    # docs/reference/operations/safe-changes-history.md, database capacity rule.
-    POSTGRES_MAX_CONNECTIONS = 100  # Cloud SQL default for db-custom-1-3840
+    # Each gunicorn WORKER opens the asyncpg pool (DB_POOL_MAX_SIZE) plus the
+    # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
+    # Both pools are module globals, so the ceiling is per worker process and
+    # multiplies by the gunicorn worker count before it multiplies by instances.
+    # UAT: 7 per worker, 14 per instance, 70 total across 5 instances.
+    #
+    # The admission check counts serving, rollback, and new candidate
+    # revisions at revision-level maxScale, plus jobs and administration.
+    budget = json.loads(_read("config/runtime-capacity.json"))
+    assert budget["database_max_connections"] == 1000
+    assert budget["admission_limit"] == 800
+    assert budget["administrative_reserve"] == 100
 
     uat_per_worker = 4 + 3 + 0
     assert uat_per_worker == 7
     assert uat_per_worker * gunicorn_workers == 14
     uat_total = uat_per_worker * gunicorn_workers * 5
     assert uat_total == 70
-    # A revision cutover briefly runs one instance more than the cap.
-    uat_peak_during_deploy = uat_per_worker * gunicorn_workers * 6
-    assert uat_peak_during_deploy <= POSTGRES_MAX_CONNECTIONS * 0.85, (
-        f"UAT would use {uat_peak_during_deploy} of ~{POSTGRES_MAX_CONNECTIONS} "
-        "Postgres connections during a deploy, leaving no room for migrations, "
-        "cron, or psql"
-    )
+    uat_candidate = budget["environments"]["uat"]["services"]["consent-protocol"]["candidate"]
+    assert uat_candidate["workers_per_instance"] == gunicorn_workers
+    assert uat_total * 3 <= budget["admission_limit"] - budget["administrative_reserve"]
 
     assert "_DB_POOL_MIN_SIZE=1" in production_workflow
     assert "_DB_POOL_MAX_SIZE=4" in production_workflow
@@ -509,12 +508,14 @@ def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> Non
     assert prod_per_worker * gunicorn_workers == 16
     prod_total = prod_per_worker * gunicorn_workers * 5
     assert prod_total == 80
-    # Prod runs a larger instance, but pin the same shape so a future bump has
-    # to state the ceiling it is sizing against rather than assume one.
-    assert prod_total <= 100
+    prod_candidate = budget["environments"]["production"]["services"]["consent-protocol"][
+        "candidate"
+    ]
+    assert prod_candidate["workers_per_instance"] == gunicorn_workers
+    assert prod_total * 3 <= budget["admission_limit"] - budget["administrative_reserve"]
 
     for workflow in (uat_workflow, production_workflow):
-        assert 'BACKEND_REVISION_RETENTION: "3"' in workflow
+        assert 'BACKEND_REVISION_RETENTION: "2"' in workflow
         assert 'FRONTEND_REVISION_RETENTION: "10"' in workflow
 
 

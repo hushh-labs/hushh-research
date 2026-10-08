@@ -82,6 +82,92 @@ async def test_a_metadata_read_issues_an_observation_that_revalidates_locally(ag
     assert len(page["untrusted_external_content"]) == 2
 
 
+async def test_owner_read_settles_only_returned_notification_ids_and_fences_replay(
+    agent, monkeypatch
+):
+    from hushh_mcp.services import pod_gmail_doorbell as bell
+
+    _log, _tokens, google = agent
+    doorbell = bell.PodGmailDoorbell()
+    monkeypatch.setattr(bell, "_DOORBELL", doorbell)
+    monkeypatch.setattr(bell, "_LISTENERS", [])
+    google.on(
+        "GET",
+        f"{h.GMAIL}/history",
+        {
+            "historyId": "130",
+            "history": [
+                {
+                    "messagesAdded": [
+                        {"message": {"id": "m1"}},
+                        {"message": {"id": "m2"}},
+                    ]
+                }
+            ],
+        },
+    )
+    await doorbell.stored_point()
+    await doorbell._store(100, h.EMAIL)
+    await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "120"})
+    old_delivery = await doorbell.queued_work()
+    port = PodLocalEmailReadPort(h.OWNER_UID, owner_session=True)
+
+    async def allowed():
+        return None
+
+    reader = port.metadata_reader(
+        gmail=port,
+        user_id=h.OWNER_UID,
+        require_access=allowed,
+        expect_account=h.SUBJECT,
+    )
+    await reader.read("list_recent", {"limit": 1, "mailbox": "inbox"})
+    assert reader.offered_message_ids() == ("m1",)
+    assert (await doorbell.queued_work())["messageIds"] == ["m2"]
+    assert google.calls("POST", f"{h.GMAIL}/messages/m1/modify") == []
+    # New notification work cannot be settled by an older read receipt.
+    google.on(
+        "GET",
+        f"{h.GMAIL}/history",
+        {
+            "historyId": "150",
+            "history": [{"messagesAdded": [{"message": {"id": "m3"}}]}],
+        },
+    )
+    await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "140"})
+    with pytest.raises(ValueError, match="WORK_CHANGED_RETRY"):
+        await doorbell.acknowledge_read(old_delivery, ("m2",))
+    assert (await doorbell.queued_work())["messageIds"] == ["m2", "m3"]
+    # A deleted message must not permanently consume backlog capacity; only a
+    # provider-confirmed 404 under this owner's current grant can release it.
+    google.on("GET", f"{h.GMAIL}/messages/m2", {"error": "not found"}, status=404)
+    google.on("GET", f"{h.GMAIL}/messages/m3", {"error": "not found"}, status=404)
+    delivery = await doorbell.queued_work()
+    await doorbell.reconcile_missing(delivery, allowed)
+    assert await doorbell.queued_work() is None
+    store.set_active_connector_credentials(
+        {
+            "gmail": h.credential(
+                "gmail",
+                h.SCOPES["gmail"],
+                credential_id="99999999-2222-4333-8444-555555555555",
+            )
+        }
+    )
+    google.on(
+        "GET",
+        f"{h.GMAIL}/history",
+        {
+            "historyId": "180",
+            "history": [{"messagesAdded": [{"message": {"id": "m4"}}]}],
+        },
+    )
+    assert (await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "170"}))[
+        "status"
+    ] == "queued_for_owner_read"
+    assert (await doorbell.queued_work())["messageIds"] == ["m4"]
+
+
 async def test_a_reconnected_account_invalidates_the_observation(agent):
     port = PodLocalEmailReadPort(h.OWNER_UID, owner_session=True)
 

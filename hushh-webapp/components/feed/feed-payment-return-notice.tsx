@@ -7,7 +7,7 @@ import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
 
-type ReturnState = "checking" | "processing" | "paid" | "reconciling" | "refunded" | "cancelled" | "unavailable";
+type ReturnState = "checking" | "processing" | "paid" | "reconciling" | "refunded" | "expired" | "cancelled" | "unavailable";
 
 /** Stripe's browser return is only a hint; the server's payment state decides the copy. */
 export function FeedPaymentReturnNotice() {
@@ -44,6 +44,11 @@ export function FeedPaymentReturnNotice() {
           dispatchConsentStateChanged({ source: "drive_payment_refunded" });
           return;
         }
+        if (payment.status === "expired") {
+          setState("expired");
+          dispatchConsentStateChanged({ source: "drive_payment_expired" });
+          return;
+        }
         if (request.checkout === "cancel") {
           setState("cancelled");
           return;
@@ -73,13 +78,15 @@ export function FeedPaymentReturnNotice() {
       ? "Payment received. We're checking this request and will update you."
       : state === "refunded"
         ? "Your payment was refunded because this request could not be completed."
-    : state === "cancelled"
-      ? "Payment wasn't completed. Your request is still waiting for payment."
-      : state === "unavailable"
-        ? "We couldn't check payment yet. Your request will update when confirmation arrives."
-        : state === "processing"
-          ? "Payment is processing. We'll update your request when it's confirmed."
-          : "Checking payment status…";
+        : state === "expired"
+          ? "This payment link expired. Return to the Feed to create a new link."
+          : state === "cancelled"
+            ? "Payment wasn't completed. Your request is still waiting for payment."
+            : state === "unavailable"
+              ? "We couldn't check payment yet. Your request will update when confirmation arrives."
+              : state === "processing"
+                ? "Payment is processing. We'll update your request when it's confirmed."
+                : "Checking payment status…";
   return (
     <div role="status" aria-live="polite" data-testid="feed-payment-return" className="mx-4 mb-3 rounded-xl bg-accent/[0.06] px-4 py-3 text-sm">
       {message}

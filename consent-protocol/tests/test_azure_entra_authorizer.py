@@ -116,6 +116,24 @@ def test_the_state_completes_only_for_the_caller_who_began_it():
     assert exc.value.code == "BAD_STATE"
 
 
+def test_files_selection_is_signed_and_cannot_authorize_an_existing_pod():
+    state = entra.make_state(
+        "uid-1", kind="setup", subscription_id="", authority="common", files_enabled=True
+    )
+    assert entra.verify_state(state, "uid-1").files_enabled is True
+    old = entra.make_state("uid-1", kind="setup", subscription_id="", authority="common")
+    assert entra.verify_state(old, "uid-1").files_enabled is False
+    exp, payload, mac = old.removeprefix("azure.").split(".")
+    forged = entra._b64(entra._unb64(payload) + b"|files")
+    with pytest.raises(entra.AzureAuthorizeError, match="verification"):
+        entra.verify_state(f"azure.{exp}.{forged}.{mac}", "uid-1")
+    for kind in ("upgrade", "rebuild"):
+        with pytest.raises(entra.AzureAuthorizeError):
+            entra.make_state(
+                "uid-1", kind=kind, subscription_id="", authority="common", files_enabled=True
+            )
+
+
 def test_a_tampered_state_is_refused():
     state = entra.make_state("uid-1", kind="setup", subscription_id="", authority="common")
     exp, payload, mac = state.removeprefix("azure.").split(".", 2)

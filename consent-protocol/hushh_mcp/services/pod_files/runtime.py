@@ -33,6 +33,9 @@ def active_library() -> FilesLibrary:
             raise FilesRefused("FILES_RECOVERY_UNAVAILABLE", 503)
 
         async def check() -> None:
+            from hushh_mcp.services.pod_role import require_serving_role
+
+            await require_serving_role()
             await require_files_access()
             await log.require_open()
             authority = active_session_authority()
@@ -40,11 +43,22 @@ def active_library() -> FilesLibrary:
                 raise FilesRefused("FILES_AUTHORITY_UNAVAILABLE", 503)
             await authority.require_held()
 
-        prefix = os.environ["POD_STORAGE_GCS_PREFIX"].strip("/") + "/files/v1"
+        from hushh_mcp.services.pod_platform import workload_platform
+
+        if workload_platform() == "azure":
+            from .azure_storage import FilesAzureStore
+
+            url = os.environ["POD_STORAGE_AZURE_BLOB_URL"].rstrip("/") + "/files/v1"
+            store = FilesAzureStore(
+                url, account_id=os.environ["POD_FILES_AZURE_STORAGE_RESOURCE_ID"]
+            )
+        else:
+            prefix = os.environ["POD_STORAGE_GCS_PREFIX"].strip("/") + "/files/v1"
+            store = FilesGcsStore(os.environ["POD_STORAGE_GCS_BUCKET"], prefix)
         _library = FilesLibrary(
             owner=os.environ["HUSSH_ID"],
             key=resolve_pod_log_key(),
-            store=FilesGcsStore(os.environ["POD_STORAGE_GCS_BUCKET"], prefix),
+            store=store,
             check=check,
         )
     return _library
@@ -64,7 +78,9 @@ async def operation(*, mutation: bool = False):
         permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
         library = active_library()
         await library.check()
-        await library.store.verify_bucket(os.getenv("HUSSH_POD_KMS_KEY", ""))
+        await library.store.verify_bucket(
+            os.getenv("HUSSH_POD_KEY_VAULT_KEY") or os.getenv("HUSSH_POD_KMS_KEY", "")
+        )
         if mutation:
             async with _mutation:
                 await require_files_access(manage=True)

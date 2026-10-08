@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from hushh_mcp.services.compute_backend import POD_CPU_MILLIS, POD_MEMORY, PodSpec
 
@@ -73,6 +74,7 @@ class AgentCoordinates:
     openai_endpoint: Optional[str] = None
     openai_deployment: Optional[str] = None
     tags: dict[str, str] = field(default_factory=dict)
+    files_storage_resource_id: str | None = None
 
 
 def refuse_metered_configuration(body: Any, *, where: str = "body") -> None:
@@ -205,6 +207,50 @@ def render_container_app(spec: PodSpec, coords: AgentCoordinates) -> dict[str, A
             },
         },
     }
+    if coords.files_storage_resource_id:
+        # Only the reviewed Files capability plan supplies this coordinate.
+        # Preserve HTTP wake and count leased messages in KEDA's scale decision.
+        account = coords.files_storage_resource_id.rsplit("/", 1)[-1]
+        blob = urlsplit(coords.blob_url)
+        if (
+            blob.netloc != f"{account}.blob.core.windows.net"
+            or blob.scheme != "https"
+            or blob.query
+            or blob.fragment
+            or not coords.files_storage_resource_id.startswith(
+                coords.identity_id.split("/providers/", 1)[0]
+                + "/providers/Microsoft.Storage/storageAccounts/"
+            )
+        ):
+            raise ValueError("Files storage must belong to this owner's agent resource group")
+        env += [
+            {"name": "POD_FILES_ENABLED", "value": "true"},
+            {
+                "name": "POD_FILES_AZURE_STORAGE_RESOURCE_ID",
+                "value": coords.files_storage_resource_id,
+            },
+            {
+                "name": "POD_FILES_AZURE_QUEUE_URL",
+                "value": f"https://{account}.queue.core.windows.net/files-organization",
+            },
+        ]
+        body["properties"]["template"]["scale"]["rules"] = [
+            {"name": "http", "http": {"metadata": {"concurrentRequests": "8"}}},
+            {
+                "name": "files",
+                "custom": {
+                    "type": "azure-queue",
+                    "identity": coords.identity_id,
+                    "metadata": {
+                        "accountName": account,
+                        "queueName": "files-organization",
+                        "queueLength": "1",
+                        "activationQueueLength": "0",
+                        "queueLengthStrategy": "all",
+                    },
+                },
+            },
+        ]
     refuse_metered_configuration(body)
     return body
 

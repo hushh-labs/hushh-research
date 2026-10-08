@@ -99,6 +99,7 @@ async def run_gmail_push(
         logger.info("pod_gmail_push.handled status=%s", outcome.get("status"))
         if outcome.get("status") not in {
             "processed",
+            "queued_for_owner_read",
             "duplicate",
             "ignored",
             "watching",

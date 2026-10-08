@@ -4,9 +4,9 @@ import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
-import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { useVoiceSurfaceMetadata, getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -49,6 +49,8 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     let cancelled = false;
     let subscriptionsFailed = false;
     const handles: PluginListenerHandle[] = [];
+    const recoveryDocument = nativeDocumentId(), recoveryEpoch = current.current.epoch;
+    const recovering = lease.current;
     const retain = async (promise: Promise<PluginListenerHandle>) => {
       const handle = await promise;
       if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
@@ -83,9 +85,15 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         if (cancelled) return;
         subscriptionsFailed = true;
         handles.splice(0).forEach((handle) => { void handle.remove(); });
+        if (nativeDocumentId() !== recoveryDocument || current.current.epoch !== recoveryEpoch) return;
         // Capability support does not prove listener installation. A concealed
-        // slot recovers only after any outstanding native view is retired.
-        try { await retireNativeChrome(current.current.epoch); if (!cancelled) setHidden(false); }
+        // slot cannot recover by deleting another installation. Vacant-slot
+        // uncertainty still requires confirmed removal before showing the DOM.
+        try {
+          if (recovering) await retireOwnedNativeChrome(recovering.projection);
+          else if (!hasOutstandingNativeChrome()) await retireNativeChrome(recoveryEpoch);
+          if (!cancelled) setHidden(hasOutstandingNativeChrome());
+        }
         catch { /* Retain quarantine; no provider error body is logged. */ }
       }
     })();
@@ -107,10 +115,12 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     if (!supported) return;
     let cancelled = false;
     let owned: NativeChromeLease | null = null;
+    let inactive = false;
     const activeEpoch = epoch;
     const wasFocused = document.activeElement === button.current;
     const previous = replacementCandidate.current;
     replacementCandidate.current = null;
+    const retiring = lease.current;
     lease.current?.invalidate();
     void (async () => {
       try {
@@ -118,17 +128,27 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         const geometry = allowed && theme && document.visibilityState !== "hidden" && slot.current
           ? measureNativeChromeGeometry(slot.current, "back") : null;
         const projection = geometry && theme ? { kind: "back" as const, label, enabled: true, ...theme, ...geometry } : null;
+        inactive = !projection;
         const replacing = backReplacement && previous && projection && previous.canReplaceBackWith(projection, activeEpoch, context);
         if (!replacing) {
+          if (projection && !wasFocused && retiring?.ownsInstallation) setHidden(true);
           // Uncertainty, owner, overlay or actual geometry changes require
           // removal. Cached capability never authorizes keeping a stale view.
-          await retireNativeChrome(activeEpoch);
+          // Inactive cleanup cannot take authority from a newer mounted slot.
+          if (projection) await retireNativeChrome(activeEpoch);
+          else if (retiring) await retireOwnedNativeChrome(retiring.projection);
           if (cancelled) return;
+          // A successful but delayed acknowledgement cannot overtake a newer
+          // mounted owner that prepared after this removal reserved its fence.
+          if (projection && hasOutstandingNativeChrome()) {
+            setPrepared(null); setHidden(true); return;
+          }
         }
         setPrepared(null);
         if (!projection) {
-          setHidden(false);
-          if (wasFocused) button.current?.focus({ preventScroll: true });
+          const occupied = hasOutstandingNativeChrome();
+          setHidden(occupied);
+          if (!occupied && wasFocused) button.current?.focus({ preventScroll: true });
           return;
         }
         const next = new NativeChromeLease(projection, activeEpoch, context, inPlaceUpdates);
@@ -138,11 +158,14 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       } catch {
         if (cancelled || (owned && lease.current !== owned)) return;
         owned?.invalidate();
-        // Uncertainty is recoverable only by a confirmed removal, never a replay.
-        // Refused replacement can leave the predecessor installed; timeout can
-        // leave either revision. This still-current reconciler owns the slot,
-        // so prove removal of whichever remains before exposing web controls.
-        try { await retireNativeChrome(activeEpoch); if (!cancelled) setHidden(false); }
+        // Failure never acquires authority over a newer mount. An attempted
+        // lease may still own either revision of its uncertain handoff.
+        try {
+          const recovery = owned ?? retiring;
+          if (recovery) await retireOwnedNativeChrome(recovery.projection);
+          else if (!inactive && !hasOutstandingNativeChrome()) await retireNativeChrome(activeEpoch);
+          if (!cancelled) setHidden(hasOutstandingNativeChrome());
+        }
         catch { if (!cancelled) setHidden(true); console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
       }
     })();
@@ -161,7 +184,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     active?.invalidate();
     // Pending replacement may still own its predecessor natively. The removal
     // revision is reserved synchronously; a later mount has a newer fence.
-    if (active) void retireNativeChrome(active.projection.ownerEpoch)
+    if (active) void retireOwnedNativeChrome(active.projection)
       .catch(() => console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"));
   }, []);
 
@@ -169,9 +192,14 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   useLayoutEffect(() => {
     if (!prepared || !hidden) return;
     void prepared.activate().catch(async () => {
-      if (lease.current !== prepared) return;
+      const isCurrent = () => lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
+        prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
+      if (!isCurrent()) return;
       prepared.invalidate();
-      try { await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection); if (lease.current === prepared) setHidden(false); }
+      try {
+        await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection);
+        if (isCurrent()) { setPrepared(null); setHidden(hasOutstandingNativeChrome()); }
+      }
       catch { console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
     });
   }, [prepared, hidden]);
@@ -179,9 +207,14 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   useLayoutEffect(() => {
     if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
     void prepared.update({ ...theme, enabled: true }).catch(async () => {
-      if (lease.current !== prepared) return;
+      const isCurrent = () => lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
+        prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
+      if (!isCurrent()) return;
       prepared.invalidate();
-      try { await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection); if (lease.current === prepared) setHidden(false); }
+      try {
+        await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection);
+        if (isCurrent()) { setPrepared(null); setHidden(hasOutstandingNativeChrome()); }
+      }
       catch { console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
     });
   }, [prepared, hidden, inPlaceUpdates, theme]);

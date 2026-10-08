@@ -37,10 +37,12 @@ def configure_new_service(
     annotations = template["metadata"]["annotations"]
     # Respect a deliberately warm configuration. Only the new economy profile changes.
     if annotations.get("autoscaling.knative.dev/minScale", "0") == "0":
-        env.append({"name": "POD_IDLE_GRACE_SECONDS", "value": "600"})
+        if not any(entry["name"] == "POD_IDLE_GRACE_SECONDS" for entry in env):
+            env.append({"name": "POD_IDLE_GRACE_SECONDS", "value": "600"})
         annotations["autoscaling.knative.dev/maxScale"] = "1"
         template["spec"]["containerConcurrency"] = 8
-        template["spec"]["containers"][0]["resources"]["limits"] = {"cpu": "1", "memory": "1Gi"}
+        # Resource sizing belongs to the backend's explicit owner configuration.
+        # Files adds its queue and bounded admission without replacing that choice.
 
 
 def preserve_existing_configuration(existing: dict[str, Any], desired: dict[str, Any]) -> None:

@@ -13,6 +13,32 @@ from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 from hushh_mcp.services.user_gcp_bootstrap import UserGcpBootstrap
 
 
+def test_azure_organization_reports_its_own_queue_and_model_contract(monkeypatch):
+    from api.routes.one.pod_capabilities import _files_organization
+
+    env = {
+        "CONTAINER_APP_NAME": "owner-pod",
+        "POD_FILES_ENABLED": "true",
+        "POD_STORAGE_AZURE_BLOB_URL": "https://ownerfiles.blob.core.windows.net/pod",
+        "POD_FILES_AZURE_QUEUE_URL": "https://ownerfiles.queue.core.windows.net/files-organization",
+        "AZURE_OPENAI_ENDPOINT": "https://owner-ai.openai.azure.com/",
+        "AZURE_OPENAI_DEPLOYMENT": "one-chat",
+        "AZURE_CLIENT_ID": "owner-identity",
+        "HUSSH_ID": "owner",
+    }
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("POD_STORAGE_GCS_BUCKET", raising=False)
+    assert _files_organization() == {"available": True, "reason": None}
+    monkeypatch.setenv(
+        "POD_FILES_AZURE_QUEUE_URL", "https://foreign.queue.core.windows.net/files-organization"
+    )
+    assert _files_organization()["reason"] == "background_worker_not_configured"
+    monkeypatch.setenv("POD_FILES_AZURE_QUEUE_URL", env["POD_FILES_AZURE_QUEUE_URL"])
+    monkeypatch.delenv("AZURE_OPENAI_DEPLOYMENT")
+    assert _files_organization()["reason"] == "model_not_configured"
+
+
 def test_files_queue_is_scoped_and_does_not_replace_runtime_identity(monkeypatch):
     monkeypatch.setenv("HUSSH_POD_FILES_ENABLED", "true")
     spec = PodSpec(
@@ -47,7 +73,10 @@ def test_files_queue_is_scoped_and_does_not_replace_runtime_identity(monkeypatch
     cfg = backend.render_deploy_config(spec)
     template = cfg["spec"]["template"]
     assert template["spec"]["containerConcurrency"] == 8
-    assert template["spec"]["containers"][0]["resources"]["limits"] == {"cpu": "1", "memory": "1Gi"}
+    assert template["spec"]["containers"][0]["resources"]["limits"] == {
+        "cpu": "1000m",
+        "memory": "2Gi",
+    }
     assert template["metadata"]["annotations"]["autoscaling.knative.dev/minScale"] == "0"
 
 
@@ -97,6 +126,7 @@ def test_files_selection_cannot_follow_a_project_or_identity_switch():
     from hushh_mcp.services.pod_files.selection import selected_for_row
 
     row = {
+        "deployment_target": "user_gcp",
         "user_cloud_project": "owner-project",
         "user_cloud_bootstrap_sa": "bootstrap",
         "user_cloud_authorized_at": "proven",
@@ -113,6 +143,17 @@ def test_files_selection_cannot_follow_a_project_or_identity_switch():
     assert not selected_for_row({**row, "user_cloud_project": "other-project"})
     assert not selected_for_row({**row, "user_cloud_bootstrap_sa": "other-identity"})
     assert not selected_for_row({**row, "user_cloud_authorized_at": None})
+    assert not selected_for_row({**row, "deployment_target": "user_azure"})
+    assert not selected_for_row(
+        {
+            **row,
+            "deployment_target": "user_azure",
+            "user_cloud_project": None,
+            "user_cloud_bootstrap_sa": None,
+            "backend_metadata": {"filesSetup": {"enabled": True, "version": 1}},
+        }
+    )
+    assert not selected_for_row({**row, "backend_metadata": {"filesSetup": "invalid"}})
 
 
 def test_queue_receipt_keeps_only_verified_planned_configuration():

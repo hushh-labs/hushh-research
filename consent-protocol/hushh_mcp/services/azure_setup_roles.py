@@ -21,6 +21,12 @@ from typing import Any, Iterable, Protocol
 ROLE_KEY_VAULT_CRYPTO_SERVICE_ENCRYPTION_USER = "e147488a-f6f5-4113-8e2d-b22465e65bf6"
 ROLE_KEY_VAULT_SECRETS_USER = "4633458b-17de-408a-b874-0445c86b69e6"
 ROLE_STORAGE_BLOB_DATA_CONTRIBUTOR = "ba92f5b4-2d11-453d-a403-e96b0029c9fe"
+ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR = "974c5e8b-45b9-4653-ba55-5f855dd0fb88"
+FILES_CUSTODY_ACTIONS = (
+    "Microsoft.Storage/storageAccounts/read",
+    "Microsoft.Storage/storageAccounts/blobServices/read",
+    "Microsoft.Storage/storageAccounts/blobServices/containers/read",
+)
 ROLE_ACR_PULL = "7f951dda-4ed3-4680-a7ca-43fe172d538d"
 ROLE_COGNITIVE_SERVICES_OPENAI_USER = "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
 
@@ -57,6 +63,10 @@ def observer_role_id(placement: _Placement) -> str:
 
 def removal_role_id(placement: _Placement) -> str:
     return deterministic_guid("removal", placement.subscription_id, placement.resource_group)
+
+
+def files_custody_role_id(storage_scope: str) -> str:
+    return deterministic_guid("files-custody", storage_scope)
 
 
 def removal_condition() -> str:

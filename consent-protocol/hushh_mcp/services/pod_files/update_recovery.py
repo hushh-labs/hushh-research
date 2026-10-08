@@ -5,8 +5,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 
-from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
-from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
+from hushh_mcp.services.pod_files.capability_contract import checkpoint_for, decode_plan
 from hushh_mcp.services.pod_release import image_digest
 
 
@@ -17,15 +16,14 @@ async def discover_replacement(*, row: dict, spec, backend, lease: str) -> dict 
     approval = metadata.get("upgradeApproval") or {}
     if not spec.files_upgrade_plan or discover is None or not lease:
         return None
-    plan = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+    plan = decode_plan(spec.files_upgrade_plan)
     plan.require_owner(row, spec.upgrade_target_image)
     attempt = hashlib.sha256(lease.encode()).hexdigest()
-    checkpoint = FilesUpgradeCheckpoint(
+    checkpoint = checkpoint_for(
         plan=plan,
         operation_id=spec.upgrade_operation_id or "",
         attempt_id=attempt,
-        original_inventory=metadata["substrateReceipt"],
-        previous=metadata.get("filesUpgradeCheckpoint"),
+        metadata=metadata,
     )
     if not checkpoint.complete:
         return None

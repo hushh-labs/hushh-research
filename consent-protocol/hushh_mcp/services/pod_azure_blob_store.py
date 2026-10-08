@@ -99,7 +99,13 @@ def _error_code(response: Any) -> str:
     for name, value in headers.items():
         if isinstance(name, str) and name.lower() == "x-ms-error-code":
             return str(value or "")
-    match = _ERROR_CODE.search(str(getattr(response, "text", "") or "")[:4096])
+    # Stream the fallback error, never materialize response.text before bounding it.
+    body = bytearray()
+    for chunk in response.iter_content(chunk_size=4096):
+        body.extend(chunk[: 4096 - len(body)])
+        if len(body) >= 4096:
+            break
+    match = _ERROR_CODE.search(body.decode("utf-8", "replace"))
     return match.group(1) if match else ""
 
 
@@ -174,9 +180,11 @@ class AzureBlobObjectStore:
 
         response = attempt()
         if getattr(response, "status_code", 0) in _CREDENTIAL_REFUSED:
+            response.close()
             self._forget_token(STORAGE_RESOURCE)
             response = attempt()
         if getattr(response, "status_code", 0) in _CREDENTIAL_REFUSED:
+            response.close()
             raise PodBlobStorageForbidden("pod storage refused this pod's identity")
         return response
 
@@ -203,17 +211,21 @@ class AzureBlobObjectStore:
             "Content-Type": "application/octet-stream",
             **condition,
         }
-        response = self._send("put", self._url(key), extra, data=data)
-        status, code = getattr(response, "status_code", 0), _error_code(response)
-        if status == 201:
-            return _etag(response)
-        if expected == ABSENT and status == 409 and code == "BlobAlreadyExists":
-            return None  # lost the create race; the caller adopts the winner
-        if status == 412 and code == "ConditionNotMet":
-            return None  # lost the swap; the caller retries from a fresh read
-        if expected != ABSENT and status == 404 and code == "BlobNotFound":
-            return None  # the version we expected is gone: also a lost swap
-        raise PodBlobStorageError("pod storage write unconfirmed")
+        response = self._send("put", self._url(key), extra, data=data, stream=True)
+        try:
+            status = getattr(response, "status_code", 0)
+            if status == 201:
+                return _etag(response)
+            code = _error_code(response)
+            if expected == ABSENT and status == 409 and code == "BlobAlreadyExists":
+                return None  # lost the create race; the caller adopts the winner
+            if status == 412 and code == "ConditionNotMet":
+                return None  # lost the swap; the caller retries from a fresh read
+            if expected != ABSENT and status == 404 and code == "BlobNotFound":
+                return None  # the version we expected is gone: also a lost swap
+            raise PodBlobStorageError("pod storage write unconfirmed")
+        finally:
+            response.close()
 
     def delete_blocking(self, key: str) -> bool:
         """202 removed it; only 404 ``BlobNotFound`` is already gone; 403 raised in _send."""

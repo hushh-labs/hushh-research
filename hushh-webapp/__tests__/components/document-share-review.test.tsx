@@ -686,6 +686,9 @@ describe("exact-file document review", () => {
 
     it.each([
       [new DriveSharingError("reconnect_required"), "Reconnect Drive in Connections, then retry."],
+      [new DriveSharingError("request_unavailable"), "This document request is no longer available."],
+      [new DriveSharingError("request_expired"), "This document request expired."],
+      [new DriveSharingError("owner_share_expired"), "This document search expired. Start a new request."],
       [new DriveSharingError("request_failed", 401), "Refresh to try again."],
     ])("treats a refused search as a real error", async (cause, copy) => {
       state.status.mockResolvedValue(pending());
@@ -780,6 +783,17 @@ describe("exact-file document review", () => {
       await waitFor(() => expect(state.status).toHaveBeenCalledTimes(3));
       read.resolve({ ...pending(), direction: "outgoing" });
       await tick;
+    });
+
+    it("keeps an outgoing request readable when recipient verification is unavailable", async () => {
+      state.status.mockResolvedValue({ ...pending(), direction: "outgoing" });
+      state.delivery.mockRejectedValue(
+        new DriveSharingError("recipient_verification_unavailable", 409),
+      );
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Request pending"));
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByText("Couldn't load request")).toBeNull();
     });
 
     it("never calls an approved request's empty delivery final for the requester", async () => {

@@ -80,7 +80,7 @@ describe("useProactiveAgentWake", () => {
     }
   });
 
-  it("keeps a healthy visible pod warm and stops the timer on a fault", async () => {
+  it("wakes on foreground entry without polling an idle visible pod", async () => {
     vi.useFakeTimers();
     const { rerender } = renderHook(
       ({ health }) =>
@@ -92,12 +92,12 @@ describe("useProactiveAgentWake", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(240_000);
     });
-    expect(wakePod).toHaveBeenCalledTimes(2);
+    expect(wakePod).toHaveBeenCalledTimes(1);
     rerender({ health: "unreachable" });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(480_000);
     });
-    expect(wakePod).toHaveBeenCalledTimes(2);
+    expect(wakePod).toHaveBeenCalledTimes(1);
   });
 
   it("does not keep a healthy pod warm while the tab is hidden", async () => {
@@ -258,7 +258,7 @@ describe("wake observation boundaries", () => {
   });
 });
 
-it("invalidates an awake observation when the next keepalive fails", async () => {
+it("invalidates an awake observation when foreground re-entry fails", async () => {
   vi.useFakeTimers();
   wakePod.mockResolvedValueOnce({ state: "awake", etaMs: 0 });
   const { result } = renderHook(() =>
@@ -273,6 +273,7 @@ it("invalidates an awake observation when the next keepalive fails", async () =>
   wakePod.mockRejectedValue(new Error("offline"));
   await act(async () => {
     await vi.advanceTimersByTimeAsync(240_000);
+    document.dispatchEvent(new Event("visibilitychange"));
   });
   expect(result.current.livePresence).toBe("unknown");
 });

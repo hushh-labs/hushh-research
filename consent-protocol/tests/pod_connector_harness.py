@@ -139,7 +139,17 @@ def body(request: httpx.Request) -> Any:
 
 def install(monkeypatch, tmp_path, *, connectors: dict[str, store.ConnectorCredential]):
     """An owner-cloud agent holding ``connectors``; returns (log, tokens, google)."""
+    from types import SimpleNamespace
+
     import hushh_mcp.config as config
+
+    async def held():
+        return None
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_session_authority.active_session_authority",
+        lambda: SimpleNamespace(require_held=held),
+    )
 
     monkeypatch.setenv("HUSSH_POD_MODE", "1")
     monkeypatch.setenv("HUSSH_ID", OWNER_HUSHH)

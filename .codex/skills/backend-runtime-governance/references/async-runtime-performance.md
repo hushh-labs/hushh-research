@@ -26,9 +26,11 @@ Two blocking classes seen in this repo:
 2. The synchronous SQLAlchemy + psycopg2 stack in `db/db_client.py`
    (`get_db().execute()`, `.execute_raw()`, `.table(...).execute()`).
 
-The async asyncpg pool in `db/connection.py` (`get_pool`) is non-blocking and
-safe; the synchronous `db_client` is the landmine. Both reach Cloud SQL through
-the same proxy. Cloud SQL is removed; Cloud SQL is the only datastore.
+The asyncpg pool in `db/connection.py` (`get_pool`) avoids blocking the event
+loop; synchronous `db_client` calls must be offloaded. The hub uses Cloud SQL
+Postgres through the configured local proxy or Cloud Run socket. Private pods
+retain their separate encrypted recovery and object-store contracts; they must
+not receive hub database credentials.
 
 ## Diagnosis: Confirm It Is The Loop, Not The DB
 

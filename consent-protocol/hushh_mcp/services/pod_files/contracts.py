@@ -27,7 +27,11 @@ def decode_metadata(value: bytes) -> dict[str, Any]:
 
 
 def identifier(value: str) -> str:
-    if len(value) != 32 or any(c not in "0123456789abcdef" for c in value):
+    if (
+        not isinstance(value, str)
+        or len(value) != 32
+        or any(c not in "0123456789abcdef" for c in value)
+    ):
         raise FilesRefused("FILES_INVALID_ID", 400)
     return value
 

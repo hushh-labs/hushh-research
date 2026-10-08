@@ -209,3 +209,17 @@ describe("Release notice acknowledgement", () => {
     expect(mockPreferences.remove).not.toHaveBeenCalledWith({ key: "release_notice_seen_v1:kept-owner:release" });
   });
 });
+
+describe("Wallet swipe hint preference", () => {
+  it("remembers the hint separately for each account", async () => {
+    const storage = new Map<string, string>();
+    mockGetLocalItem.mockImplementation(key => storage.get(key) ?? null);
+    mockSetLocalItem.mockImplementation((key, value) => storage.set(key, value));
+    mockPreferences.get.mockResolvedValue({ value: null });
+    mockPreferences.set.mockResolvedValue(undefined);
+    expect(await OnboardingLocalService.hasSeenWalletSwipeHint("swipe-owner-a")).toBe(false);
+    await OnboardingLocalService.markWalletSwipeHintSeen("swipe-owner-a");
+    expect(await OnboardingLocalService.hasSeenWalletSwipeHint("swipe-owner-a")).toBe(true);
+    expect(await OnboardingLocalService.hasSeenWalletSwipeHint("swipe-owner-b")).toBe(false);
+  });
+});

@@ -55,6 +55,17 @@ export class OnboardingLocalService {
     } catch { /* Erasure must still attempt the remaining local owners. */ }
   }
 
+  static async hasSeenWalletSwipeHint(ownerId: string): Promise<boolean> {
+    const key = `wallet_swipe_hint_seen_v1:${ownerId}`;
+    if (getLocalItem(key) === "true") return true;
+    try { return (await Preferences.get({ key })).value === "true"; } catch { return false; }
+  }
+  static async markWalletSwipeHintSeen(ownerId: string): Promise<void> {
+    const key = `wallet_swipe_hint_seen_v1:${ownerId}`;
+    setLocalItem(key, "true");
+    try { await Preferences.set({ key, value: "true" }); } catch { /* Cosmetic preference has a browser fallback. */ }
+  }
+
   /** Cosmetic Wallet introduction only; never grants setup, consent, or vault access. */
   static async hasSeenWalletIntroduction(ownerId: string): Promise<boolean> {
     const key = `wallet_introduction_seen_v1:${ownerId}`;

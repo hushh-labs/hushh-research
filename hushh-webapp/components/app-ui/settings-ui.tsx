@@ -594,12 +594,16 @@ export function SettingsRow({
     !containsInteractiveNode(title) &&
     !containsInteractiveNode(description) &&
     !containsInteractiveNode(leading);
+  // Uniform support-copy rows share a text start; title-only navigation keeps
+  // its existing vertical alignment with the icon and trailing action.
+  const alignUniformCopy = presentation.rowSizing === "uniform" && Boolean(description);
   const mainContent = (
     <div
       id={splitPrimaryAction ? contentId : undefined}
       aria-hidden={hideSplitContent || undefined}
       className={cn(
         "relative z-0 flex min-w-0 gap-[var(--settings-row-gap)]",
+        alignUniformCopy && "self-stretch",
         shouldStackTrailing ? "items-start sm:items-center" : "items-center",
       )}
     >
@@ -656,7 +660,7 @@ export function SettingsRow({
           />
         </span>
       ) : null}
-      <div className="min-w-0 flex-1 space-y-0.5">
+      <div className={cn("min-w-0 flex-1 space-y-0.5", alignUniformCopy && "self-start")}>
         <RowLabel
           as="div"
           compact={resolvedDensity === "compact"}

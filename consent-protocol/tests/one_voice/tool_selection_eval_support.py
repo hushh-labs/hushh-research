@@ -492,9 +492,15 @@ def make_live_probe(model_id: str, location: str, responders: ResponderFactory) 
                     for call in event.function_calls:
                         args = dict(call.get("args") or {})
                         response = await respond(call["name"], args)
-                        seen.append((call["name"], args, dict(response)))
+                        # Responders may attach evaluator-only execution
+                        # metadata.  Keep it in the observation, never in the
+                        # tool response sent back to the model.
+                        observed = dict(response)
+                        model_response = dict(response)
+                        model_response.pop("_eval", None)
+                        seen.append((call["name"], args, observed))
                         await session.send_tool_response(
-                            call_id=call.get("id"), name=call["name"], response=response
+                            call_id=call.get("id"), name=call["name"], response=model_response
                         )
                         answered = True
                 if time.monotonic() > deadline:
@@ -593,8 +599,13 @@ def make_text_probe(model_id: str, responders: ResponderFactory) -> ProbeFn:
                 parts = []
                 for name, args in calls:
                     result = await respond(name, args)
-                    (seen if final else history_seen).append((name, args, dict(result)))
-                    parts.append(types.Part.from_function_response(name=name, response=result))
+                    observed = dict(result)
+                    model_result = dict(result)
+                    model_result.pop("_eval", None)
+                    (seen if final else history_seen).append((name, args, observed))
+                    parts.append(
+                        types.Part.from_function_response(name=name, response=model_result)
+                    )
                 contents.append(types.Content(role="user", parts=parts))
         if not seen:
             return None, None, [], history_seen
@@ -674,6 +685,17 @@ class FamilyMetrics:
     # A mutation called without its required id (the executor refused it and
     # the model has to read first): a wasted turn, not a wrong-target proposal.
     missing_argument_mutation: int = 0
+    # Execution is scored independently from selecting the right first tool.
+    # These counters are populated by domain evaluators from the responder's
+    # evaluator-only trace (never shown to the model).
+    status_reason_failures: int = 0
+    argument_mismatches: int = 0
+    extra_proposals: int = 0
+    revision_failures: int = 0
+    provider_attempts: int = 0
+    provider_calls: int = 0
+    ledger_events: int = 0
+    fallback_count: int = 0
     errors: int = 0
     misses: list[dict[str, Any]] = field(default_factory=list)
 
@@ -687,6 +709,14 @@ class FamilyMetrics:
             "unconfirmed_id_mutation": self.unconfirmed_id_mutation,
             "skipped_confirm": self.skipped_confirm,
             "missing_argument_mutation": self.missing_argument_mutation,
+            "status_reason_failures": self.status_reason_failures,
+            "argument_mismatches": self.argument_mismatches,
+            "extra_proposals": self.extra_proposals,
+            "revision_failures": self.revision_failures,
+            "provider_attempts": self.provider_attempts,
+            "provider_calls": self.provider_calls,
+            "ledger_events": self.ledger_events,
+            "fallback_count": self.fallback_count,
             "errors": self.errors,
             "misses": self.misses,
         }

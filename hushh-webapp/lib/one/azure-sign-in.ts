@@ -84,6 +84,7 @@ export async function startAzureSignIn(
   kind: AzureSignInKind,
   subscriptionId?: string,
   popup: Window | null = null,
+  filesEnabled?: boolean,
 ): Promise<"popup" | "tab"> {
   if (!isAzureSignInAvailable()) throw new AzureSignInUnavailableError();
   const begun =
@@ -91,7 +92,10 @@ export async function startAzureSignIn(
       ? await ApiService.beginAzureByocUpgrade()
       : kind === "rebuild"
         ? await ApiService.beginAzureByocRebuild()
-        : await ApiService.beginAzureByocAuthorize(subscriptionId ? { subscriptionId } : {});
+        : await ApiService.beginAzureByocAuthorize({
+            ...(subscriptionId ? { subscriptionId } : {}),
+            ...(filesEnabled !== undefined ? { filesEnabled } : {}),
+          });
   if (popup && !popup.closed) {
     popup.location.assign(begun.authorizationUrl);
     popup.focus();
@@ -296,7 +300,7 @@ export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) 
   );
 
   const start = useCallback(
-    async (kind: AzureSignInKind, subscriptionId?: string) => {
+    async (kind: AzureSignInKind, subscriptionId?: string, filesEnabled?: boolean) => {
       if (inFlight.current) return;
       inFlight.current = true;
       setStarting(true);
@@ -306,7 +310,7 @@ export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) 
       // are; the popup must open before the first await.
       const popup = !inPlace && isAzureSignInAvailable() ? openSignInPopup() : null;
       try {
-        const where = await startAzureSignIn(kind, subscriptionId, popup);
+        const where = await startAzureSignIn(kind, subscriptionId, popup, filesEnabled);
         if (popup && where === "popup") watchPopup(popup, kind);
       } catch (cause) {
         popup?.close();

@@ -64,6 +64,41 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         )
         return result.rowcount == 1
 
+    @classmethod
+    def ensure_order_for_approved_request(cls, connection, request) -> bool:
+        """Create the requester payment hold after owner consent commits.
+
+        Non-trusted requests intentionally keep the owner's consent boundary:
+        approval creates the order and notification, while the permission
+        worker remains blocked until Stripe confirms payment.
+        """
+        if not request["payment_required"]:
+            return False
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id)
+              VALUES (:request,:owner,:requester)
+              ON CONFLICT (request_id) DO NOTHING"""),
+            {
+                "request": request["request_id"],
+                "owner": request["user_id"],
+                "requester": request["recipient_user_id"],
+            },
+        )
+        order = (
+            connection.execute(
+                text("SELECT status FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": request["request_id"]},
+            )
+            .mappings()
+            .first()
+        )
+        return bool(
+            order
+            and order["status"] in {"awaiting_payment", "checkout_open"}
+            and cls._event(connection, request, "document_share_payment_ready")
+        )
+
     def _ensure_ready(self, connection, *, user_id: str, request_id: str, share_id: str | None):
         from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 
@@ -101,7 +136,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
 
             purpose = DriveSharingStore(db=self.db)._open_request(request).get("purpose", {})
             if not (purpose.get("periodStart") and purpose.get("periodEnd")):
-                # Keep paid/refunded state visible for reconciliation, while
+                # Preserve paid/refunded state for reconciliation, while
                 # withholding new checkout and payment-ready authority.
                 if existing is not None and existing["status"] == "paid":
                     if not existing["reconciliation_required"]:
@@ -124,7 +159,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             notified = False
             if (
                 existing["status"] in {"awaiting_payment", "checkout_open"}
-                and request["status"] == "pending"
+                and request["status"] in {"pending", "approved", "partial"}
                 and request["expires_at"] > datetime.now(UTC)
             ):
                 notified = self._event(connection, request, "document_share_payment_ready")
@@ -140,7 +175,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                  AND b.status IN ('review_ready','queued','running','completed','partial')
                  AND EXISTS (SELECT 1 FROM drive_bulk_share_files f
                              WHERE f.share_id=b.share_id)
-                 AND :request_status='pending' AND :request_expires>clock_timestamp()
+                 AND :request_status IN ('pending','approved','partial')
+                 AND :request_expires>clock_timestamp()
                  AND (CAST(:share AS uuid) IS NULL OR b.share_id=CAST(:share AS uuid))
                ORDER BY b.created_at LIMIT 1""",
             {
@@ -213,16 +249,24 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             _, order, notified = self._ensure_ready(
                 connection, user_id=request["user_id"], request_id=request_id, share_id=None
             )
-            if order is None and (
-                request["status"] in {"cancelled", "declined", "expired", "no_match"}
-                or request["expires_at"] <= datetime.now(UTC)
-            ):
+            request_expired = request["status"] in {
+                "cancelled",
+                "declined",
+                "no_match",
+                "expired",
+            } or (request["expires_at"] <= datetime.now(UTC))
+            checkout_expired = bool(
+                order
+                and order["status"] not in {"paid", "refunded"}
+                and order.get("stripe_checkout_expires_at") is not None
+                and order["stripe_checkout_expires_at"] <= datetime.now(UTC)
+            )
+            if order is None and request_expired:
                 status = "expired"
             elif order is None:
                 status = "preparing"
             elif order["status"] not in {"paid", "refunded"} and (
-                request["status"] in {"cancelled", "declined", "expired", "no_match"}
-                or request["expires_at"] <= datetime.now(UTC)
+                request_expired or checkout_expired
             ):
                 status = "expired"
             else:
@@ -231,6 +275,12 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 "status": status,
                 "amountCents": 1000,
                 "currency": "usd",
+                "paymentLinkExpired": checkout_expired and not request_expired,
+                "checkoutExpiresAt": (
+                    order["stripe_checkout_expires_at"].isoformat()
+                    if order and order.get("stripe_checkout_expires_at") is not None
+                    else None
+                ),
                 "reconciliationRequired": bool(
                     order and order["reconciliation_required"] and order["status"] != "refunded"
                 ),

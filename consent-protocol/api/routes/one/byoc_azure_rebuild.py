@@ -81,6 +81,7 @@ def _spec(row: dict) -> Any:
         PodSpec,
         adoption_expectations,
     )
+    from hushh_mcp.services.pod_files.selection import selected_for_row
     from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row  # noqa: PLC0415
 
     return PodSpec(
@@ -90,6 +91,7 @@ def _spec(row: dict) -> Any:
         billing_space_id=row.get("billing_space_id"),
         deployment_target=BACKEND_USER_AZURE,
         model_credential_mode=str(row.get("model_credential_mode") or "user_azure_mi"),
+        files_library_enabled=selected_for_row(row),
         **spec_coordinates_from_row(row),
         **adoption_expectations(row.get("backend_metadata")),
     )

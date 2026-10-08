@@ -87,7 +87,7 @@ async def test_a_ring_lists_history_from_the_stored_point_and_dedupes(agent):
 
     assert [armed["status"], processed["status"], duplicate["status"]] == [
         "duplicate",
-        "processed",
+        "queued_for_owner_read",
         "duplicate",
     ]
     assert seen == [["n1", "n2"]]
@@ -125,6 +125,49 @@ async def test_renew_watch_arms_the_owners_own_topic(agent):
     assert result["status"] == "watching"
     (watch,) = google.calls("POST", f"{h.GMAIL}/watch")
     assert h.body(watch)["topicName"] == "projects/oauth-project/topics/one-mail-ha1-l6owner"
+
+
+async def test_first_watch_cannot_bind_an_old_profile_to_a_reconnected_account(agent):
+    from dataclasses import replace
+
+    from hushh_mcp.services import pod_connector_credentials as credentials
+
+    _log, _tokens, google, _seen = agent
+    original = credentials.active_connector_credential("gmail")
+    google.on("POST", f"{h.GMAIL}/watch", {"historyId": "77", "expiration": "1760000000000"})
+
+    def rotated_profile(_request):
+        credentials.set_active_connector_credentials(
+            {"gmail": replace(original, account_subject="different-google-account")}
+        )
+        return {"emailAddress": h.EMAIL, "historyId": "100"}
+
+    google.on("GET", f"{h.GMAIL}/profile", rotated_profile)
+    doorbell = bell.PodGmailDoorbell()
+    with pytest.raises(ValueError, match="MAILBOX_CHANGED_REQUIRES_RECOVERY"):
+        await doorbell.renew_watch()
+    assert await doorbell.stored_point() is None
+
+
+async def test_empty_mailbox_checkpoint_refuses_a_new_subject_even_with_lower_cursor(agent):
+    from dataclasses import replace
+
+    from hushh_mcp.services import pod_connector_credentials as credentials
+
+    _log, _tokens, google, _seen = agent
+    doorbell = bell.PodGmailDoorbell()
+    await _baseline(doorbell)
+    original = credentials.active_connector_credential("gmail")
+    credentials.set_active_connector_credentials(
+        {"gmail": replace(original, account_subject="different-google-account")}
+    )
+    with pytest.raises(bell.GmailDoorbellUnavailable, match="MAILBOX_CHANGED_REQUIRES_RECOVERY"):
+        await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "90"})
+    assert not google.calls("GET", f"{h.GMAIL}/history")
+    credentials.set_active_connector_credentials({"gmail": original})
+    assert (await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "90"}))[
+        "status"
+    ] == "duplicate"
 
 
 async def test_the_push_door_admits_only_this_agents_own_identity_and_url(agent, monkeypatch):
@@ -235,9 +278,111 @@ async def test_failed_listener_replays_durable_batch_after_restart(agent, monkey
     restarted = bell.PodGmailDoorbell()
     assert (await restarted.ring({"emailAddress": h.EMAIL, "historyId": "120"}))[
         "status"
-    ] == "processed"
+    ] == "queued_for_owner_read"
     assert seen == [["n1"]] and len(google.calls("GET", f"{h.GMAIL}/history")) == 1
     assert (await restarted.stored_point())["historyId"] == "130"
+
+
+async def test_default_consumer_retains_identifiers_across_restart_and_renewal(agent, monkeypatch):
+    _log, _tokens, google, _seen = agent
+    google.on(
+        "GET",
+        f"{h.GMAIL}/history",
+        {"historyId": "130", "history": [{"messagesAdded": [{"message": {"id": "n1"}}]}]},
+    )
+    monkeypatch.setattr(bell, "_LISTENERS", [])
+    doorbell = bell.PodGmailDoorbell()
+    await _baseline(doorbell)
+    result = await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "120"})
+    assert result["status"] == "queued_for_owner_read"
+    restarted = bell.PodGmailDoorbell()
+    point = await restarted.stored_point()
+    assert point["historyId"] == "130"
+    assert point["work"]["messageIds"] == ["n1"]
+    google.on("POST", f"{h.GMAIL}/watch", {"historyId": "130", "expiration": "1760000000000"})
+    await restarted.renew_watch()
+    assert (await restarted.queued_work())["messageIds"] == ["n1"]
+    assert (await restarted.notification_status())["queuedCount"] == 1
+
+
+async def test_full_owner_backlog_or_changed_grant_never_skips_notifications(agent, monkeypatch):
+    from hushh_mcp.services import pod_connector_credentials as credentials
+    from hushh_mcp.services import pod_gmail_work
+
+    _log, _tokens, google, _seen = agent
+    monkeypatch.setattr(bell, "_LISTENERS", [])
+    monkeypatch.setattr(pod_gmail_work, "MAX_PENDING_MESSAGES", 1)
+    google.on(
+        "GET",
+        f"{h.GMAIL}/history",
+        {
+            "historyId": "130",
+            "history": [
+                {
+                    "messagesAdded": [
+                        {"message": {"id": "n1"}},
+                        {"message": {"id": "n2"}},
+                    ]
+                }
+            ],
+        },
+    )
+    doorbell = bell.PodGmailDoorbell()
+    await _baseline(doorbell)
+    with pytest.raises(ValueError, match="OWNER_READ_BACKLOG_FULL"):
+        await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "120"})
+    point = await doorbell.stored_point()
+    assert point["historyId"] == "100" and point["pending"]["batch"]["ids"] == ["n1", "n2"]
+    from dataclasses import replace
+
+    original = credentials.active_connector_credential("gmail")
+    credentials.set_active_connector_credentials(
+        {"gmail": replace(original, account_subject="new-account-same-email")}
+    )
+    with pytest.raises(
+        (ValueError, bell.GmailDoorbellUnavailable), match="MAILBOX_CHANGED_REQUIRES_RECOVERY"
+    ):
+        await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "120"})
+    assert (await doorbell.stored_point())["historyId"] == "100"
+    credentials.set_active_connector_credentials({"gmail": original})
+    monkeypatch.setattr(pod_gmail_work, "MAX_PENDING_MESSAGES", 1000)
+    await doorbell.ring({"emailAddress": h.EMAIL, "historyId": "120"})
+    delivery = await doorbell.queued_work()
+    credentials.set_active_connector_credentials(
+        {
+            "gmail": h.credential(
+                "gmail",
+                h.SCOPES["gmail"],
+                credential_id="99999999-2222-4333-8444-555555555555",
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="MAILBOX_CHANGED_REQUIRES_RECOVERY"):
+        await doorbell.acknowledge_read(delivery, ("n1",))
+    assert (await doorbell.stored_point())["work"]["messageIds"] == ["n1", "n2"]
+
+
+async def test_standby_and_lost_incarnation_refuse_before_watch_or_notification_io(
+    agent, monkeypatch
+):
+    from hushh_mcp.services import pod_role
+
+    _log, _tokens, google, _seen = agent
+
+    async def standby():
+        raise pod_role.PodRoleRefused(pod_role.CODE_STANDBY, "standby")
+
+    with monkeypatch.context() as local:
+        local.setattr(pod_role, "require_serving_role", standby)
+        with pytest.raises(pod_role.PodRoleRefused):
+            await bell.PodGmailDoorbell().renew_watch()
+    with monkeypatch.context() as local:
+        local.setattr(
+            "hushh_mcp.services.pod_session_authority.active_session_authority", lambda: None
+        )
+        with pytest.raises(bell.GmailDoorbellUnavailable, match="POD_AUTHORITY_UNAVAILABLE"):
+            await bell.PodGmailDoorbell().ring({"emailAddress": h.EMAIL, "historyId": "120"})
+    assert not google.requests
 
 
 async def test_pagination_checkpoints_without_advancing_global_cursor(agent, monkeypatch):
@@ -264,7 +409,7 @@ async def test_pagination_checkpoints_without_advancing_global_cursor(agent, mon
     restarted = bell.PodGmailDoorbell()
     assert (await restarted.ring({"emailAddress": h.EMAIL, "historyId": "850"}))[
         "status"
-    ] == "processed"
+    ] == "queued_for_owner_read"
     assert (await restarted.stored_point())["historyId"] == "900"
     assert seen == [[f"n{i}"] for i in range(7)]
 

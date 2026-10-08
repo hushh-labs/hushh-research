@@ -32,7 +32,9 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(source).toContain("open={isHistoryDrawerOpen}");
     expect(source).toContain("chats={renderHistorySidebar(");
     expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
-    expect(source).toContain('Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you');
+    // The parent owns the owner-scoped review signal; the actual opener's
+    // accessible copy and native admission are covered in native-chrome.test.
+    expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
   });
 
   it("uses one accessible quick-prompt rail for both empty and post-setup states", () => {

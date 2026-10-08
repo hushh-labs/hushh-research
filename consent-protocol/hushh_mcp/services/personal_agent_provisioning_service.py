@@ -1562,18 +1562,17 @@ class PersonalAgentProvisioningService:
                 return unresolved
         if succeeded:
             if spec.files_upgrade_plan is not None:
-                from hushh_mcp.services.pod_files.capability_checkpoint import (
-                    FilesUpgradeCheckpoint,
+                from hushh_mcp.services.pod_files.capability_contract import (
+                    checkpoint_for,
+                    decode_plan,
                 )
-                from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
 
-                capability = FilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
-                checkpoint = FilesUpgradeCheckpoint(
+                capability = decode_plan(spec.files_upgrade_plan)
+                checkpoint = checkpoint_for(
                     plan=capability,
                     operation_id=spec.upgrade_operation_id or "",
                     attempt_id=attempt,
-                    original_inventory=metadata["substrateReceipt"],
-                    previous=metadata.get("filesUpgradeCheckpoint"),
+                    metadata=metadata,
                 )
                 if not checkpoint.complete or handle_metadata.get("filesCapability") != {
                     "planDigest": capability.digest,
@@ -1716,8 +1715,9 @@ class PersonalAgentProvisioningService:
                 "Files activation requires its exact owner approval"
             )
         if files_capability is not None and held is None:
-            readiness = getattr(self._registry, "files_upgrade_admission_ready", None)
-            if readiness is None or not await readiness():
+            from hushh_mcp.services.pod_files.capability_contract import admission_ready
+
+            if not await admission_ready(self._registry, files_capability):
                 raise PersonalAgentUpgradeUnsupportedError(
                     "Files upgrade recovery schema is not ready"
                 )
@@ -1969,14 +1969,13 @@ class PersonalAgentProvisioningService:
             )
 
         if files_capability is not None:
-            from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
+            from hushh_mcp.services.pod_files.capability_contract import checkpoint_for
 
-            files_checkpoint = FilesUpgradeCheckpoint(
+            files_checkpoint = checkpoint_for(
                 plan=files_capability,
                 operation_id=approval_operation_id or "",
                 attempt_id=spec.upgrade_attempt_id or "",
-                original_inventory=claimed_metadata["substrateReceipt"],
-                previous=claimed_metadata.get("filesUpgradeCheckpoint"),
+                metadata=claimed_metadata,
             )
 
             from hushh_mcp.services.pod_files.capability_checkpoint import (
@@ -1988,7 +1987,7 @@ class PersonalAgentProvisioningService:
                     backend_metadata={
                         **claimed_metadata,
                         "filesUpgradeCheckpoint": checkpoint,
-                        "substrateReceipt": inventory,
+                        files_checkpoint.inventory_key: inventory,
                     },
                     retain_lease=True,
                 )
@@ -2368,6 +2367,7 @@ class PersonalAgentProvisioningService:
             billing_space_id=(row or {}).get("billing_space_id"),
             pod_pubkey="",
             deployment_target=cloud.deployment_target,
+            files_library_enabled=cloud.files_library_enabled,
             **adoption_expectations(row.get("backend_metadata")),
             **spec_coordinates(cloud),
         )

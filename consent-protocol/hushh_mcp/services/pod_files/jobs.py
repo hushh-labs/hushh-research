@@ -1,4 +1,4 @@
-"""Owner-project Cloud Tasks delivery; identifiers only, finite consent-bound work."""
+"""Owner Cloud Tasks/Storage Queue delivery; identifiers only, consent-bound work."""
 
 from __future__ import annotations
 
@@ -17,6 +17,16 @@ from hushh_mcp.services.pod_files.contracts import decode_metadata
 from hushh_mcp.services.pod_files.library import FilesRefused, identifier
 from hushh_mcp.services.pod_files.runtime import files_access, operation
 from hushh_mcp.services.pod_object_version import ABSENT
+from hushh_mcp.services.pod_platform import workload_platform
+
+
+def require_background_delivery() -> None:
+    if workload_platform() == "azure":
+        from .azure_queue import queue_url
+
+        queue_url()
+    elif not os.getenv("POD_FILES_TASK_QUEUE") or not os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT"):
+        raise FilesRefused("FILES_BACKGROUND_NOT_CONFIGURED", 503)
 
 
 class OrganizationResult(BaseModel):
@@ -55,10 +65,7 @@ async def prepare_delivery(
             or manifest.get("automaticConsentRevision") != settings["revision"]
         ):
             return {"state": "not_requested"}
-    queue = os.getenv("POD_FILES_TASK_QUEUE", "")
-    service_account = os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT", "")
-    if not queue or not service_account:
-        raise FilesRefused("FILES_BACKGROUND_NOT_CONFIGURED", 503)
+    require_background_delivery()
     job_id = file_id  # one serialized job per file; cancelled/failed jobs need explicit retry
     path = f"jobs/{job_id}.bin"
     job = None
@@ -112,6 +119,27 @@ async def deliver(library: Any, job: dict[str, Any]) -> dict[str, Any]:
         return {key: job[key] for key in ("id", "state") if key in job}
     job_id = identifier(job["id"])
     path = f"jobs/{job_id}.bin"
+    require_background_delivery()
+    await library.check()
+    if workload_platform() == "azure":
+        from .azure_queue import FilesAzureQueue
+
+        sender = FilesAzureQueue()
+        try:
+            await sender.send(job_id, job["delivery"])
+        finally:
+            sender.session.close()
+    else:
+        await _deliver_google(library, job)
+    latest, generation = await library._read(path)
+    if latest["delivery"] == job["delivery"] and latest["state"] == "pending_delivery":
+        latest["state"] = "queued"
+        await library._write(path, latest, generation)
+    return {"id": job_id, "state": latest["state"]}
+
+
+async def _deliver_google(library: Any, job: dict[str, Any]) -> None:
+    job_id = identifier(job["id"])
     queue = os.getenv("POD_FILES_TASK_QUEUE", "")
     service_account = os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT", "")
     if not queue or not service_account:
@@ -150,11 +178,6 @@ async def deliver(library: Any, job: dict[str, Any]) -> dict[str, Any]:
         raise FilesRefused("FILES_JOB_DELIVERY_UNCONFIRMED", 503) from None
     if response.status_code not in {200, 201, 409}:
         raise FilesRefused("FILES_JOB_DELIVERY_FAILED", 503)
-    latest, generation = await library._read(path)
-    if latest["delivery"] == job["delivery"] and latest["state"] == "pending_delivery":
-        latest["state"] = "queued"
-        await library._write(path, latest, generation)
-    return {"id": job_id, "state": latest["state"]}
 
 
 async def enqueue(library: Any, *, file_id: str, automatic: bool = False) -> dict[str, Any]:
@@ -193,7 +216,9 @@ async def status(library: Any, file_id: str, *, cancel: bool = False) -> dict[st
     }
 
 
-async def run_job(job_id: str, delivery: str) -> dict[str, str]:
+async def run_job(
+    job_id: str, delivery: str, *, delivery_check: Callable[[], Awaitable[None]] | None = None
+) -> dict[str, str]:
     """The route verifies OIDC first. No task payload can supply a model instruction."""
     from hushh_mcp.services.pod_session_authority import active_session_authority
 
@@ -204,8 +229,14 @@ async def run_job(job_id: str, delivery: str) -> dict[str, str]:
         raise FilesRefused("FILES_AUTHORITY_UNAVAILABLE", 503)
 
     async def owner_check() -> None:
+        from hushh_mcp.services.pod_role import require_serving_role
+
+        await require_serving_role()
+        if delivery_check is not None:
+            await delivery_check()
         await authority.require_held()
 
+    await owner_check()
     with files_access(owner_check):
         # Keep the job admitted through terminal persistence. A new admission
         # after model completion could be refused once an update starts draining.

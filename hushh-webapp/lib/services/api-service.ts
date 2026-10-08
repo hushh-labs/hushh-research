@@ -1735,7 +1735,7 @@ export class ApiService {
   static async getByocSetupStatus(): Promise<{
     status: "none" | "running" | "recorded" | "failed";
     stage: string;
-    stages: Array<{ stage: string; at: string }>;
+    stages: Array<{ stage: string; at: string; enabled?: boolean }>;
     projectId: string;
     jobId?: string; // the record's job ("" when none); absent from an older hub
     errorCode: string | null;
@@ -1777,8 +1777,9 @@ export class ApiService {
   }
 
   /** Connect Azure (contract: azure-byoc-contract.ts): the setup sign-in, optionally for one subscription. */
-  static async beginAzureByocAuthorize(input: { subscriptionId?: string } = {}): Promise<AzureByoc.AzureAuthorizationStart> {
-    const body: Record<string, string> = input.subscriptionId ? { subscriptionId: input.subscriptionId } : {};
+  static async beginAzureByocAuthorize(input: { subscriptionId?: string; filesEnabled?: boolean } = {}): Promise<AzureByoc.AzureAuthorizationStart> {
+    const body = { ...(input.subscriptionId ? { subscriptionId: input.subscriptionId } : {}),
+      ...(input.filesEnabled !== undefined ? { filesEnabled: input.filesEnabled } : {}) };
     return AzureByoc.parseAzureAuthorizationStart(await ApiService.postAzureByoc("authorize/begin", body, "AZURE_AUTHORIZE_BEGIN_FAILED"));
   }
 
@@ -1802,7 +1803,7 @@ export class ApiService {
   }
 
   /** One Azure route; a null body is a GET. */
-  private static async postAzureByoc(path: AzureByoc.AzureByocPath, body: Record<string, string> | null, failure: AzureByoc.AzureByocFailure, signal?: AbortSignal): Promise<unknown> {
+  private static async postAzureByoc(path: AzureByoc.AzureByocPath, body: Record<string, string | boolean> | null, failure: AzureByoc.AzureByocFailure, signal?: AbortSignal): Promise<unknown> {
     const token = await ApiService.getFirebaseToken();
     const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const response = await apiFetch(`/api/one/runtime/byoc/azure/${path}`, body === null ? { method: "GET", headers: auth, signal }

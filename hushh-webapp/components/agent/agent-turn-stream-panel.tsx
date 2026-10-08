@@ -20,6 +20,70 @@ import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
+import { Activity, AccountProfileIcon, ConnectedSystemsAgentIcon, ConsentAgentIcon, FinanceAgentIcon, Globe, LocationAgentIcon, MemoryAgentIcon, WalletAgentIcon } from "@/components/icons";
+
+const ACTIVITY_ICONS = {
+  action: Activity,
+  connectors: ConnectedSystemsAgentIcon,
+  memory: MemoryAgentIcon,
+  consent: ConsentAgentIcon,
+  finance: FinanceAgentIcon,
+  wallet: WalletAgentIcon,
+  location: LocationAgentIcon,
+  profile: AccountProfileIcon,
+  web: Globe,
+} as const;
+export type AgentActivityIcon = keyof typeof ACTIVITY_ICONS;
+
+// Presentation only: exact app-owned identities, never a label, URL or a
+// provider-authored description. This table grants no action authority.
+const TOOL_ACTIVITY_ICONS: Readonly<Record<string, AgentActivityIcon>> = {
+  inspect_private_connectors: "connectors",
+  probe_private_connector: "connectors",
+  discover_workspace_tools: "connectors",
+  read_workspace_tool: "connectors",
+  ask_connected_systems_agent: "connectors",
+  ask_memory_agent: "memory",
+  read_my_pkm_domain_summary: "memory",
+  add_to_pkm: "memory",
+  ask_consent_agent: "consent",
+  discover_person_information: "consent",
+  propose_information_request: "consent",
+  propose_document_request: "consent",
+  list_active_grants: "consent",
+  list_pending_information_requests: "consent",
+  list_my_outgoing_information_requests: "consent",
+  list_information_shared_with_me: "consent",
+  finance: "finance",
+  wallet: "wallet",
+  ask_location_agent: "location",
+  get_my_location: "location",
+  list_my_location_circles: "location",
+  get_location_circle_members: "location",
+  list_my_location_shares: "location",
+  list_location_shared_with_me: "location",
+  list_pending_location_requests: "location",
+  list_my_outgoing_location_requests: "location",
+  read_my_profile_status: "profile",
+  list_my_connections: "profile",
+  list_pending_connection_requests: "profile",
+  google_search: "web",
+};
+
+export function agentActivityIconForTool(toolName: unknown): AgentActivityIcon {
+  if (typeof toolName !== "string") return "action";
+  if (/^mcp_[0-9a-f]{40}$/.test(toolName)) return "connectors";
+  return Object.hasOwn(TOOL_ACTIVITY_ICONS, toolName) ? TOOL_ACTIVITY_ICONS[toolName]! : "action";
+}
+
+/** Shared by the Activity row and the current-action header. */
+export function AgentActivityMark({ brand, icon = "action" }: {
+  brand?: ConnectorBrand | null; icon?: AgentActivityIcon;
+}) {
+  if (brand) return <ConnectorBrandMark brand={brand} size="sm" />;
+  const Icon = ACTIVITY_ICONS[icon];
+  return <Icon aria-hidden="true" data-agent-activity-icon={icon} className="size-3.5 shrink-0" />;
+}
 
 export type AgentVisibleStreamStatus = "running" | "waiting" | "done" | "blocked" | "error";
 
@@ -32,6 +96,7 @@ export type AgentVisibleStreamEvent = {
   tag?: string;
   /** First-party product whose official mark labels this step. */
   brand?: ConnectorBrand;
+  icon?: AgentActivityIcon;
   /** Opaque owner connector id on a restored step, resolved to the owner's name from the vault. */
   connectorId?: string;
   createdAtMs: number;
@@ -62,7 +127,9 @@ const GMAIL_TOOLS: ReadonlySet<string> = new Set([
 const DRIVE_TOOLS: ReadonlySet<string> = new Set([
   "ask_documents_agent",
   "inspect_selected_drive_files",
+  "read_selected_drive_search_result",
   "propose_drive_share",
+  "propose_drive_bulk_share",
   "propose_drive_file_share",
   "propose_drive_file_trash",
   "create_drive_file",
@@ -236,6 +303,7 @@ export function agentToolEventToVisibleStreamEvent(
     status,
     ...(toolEvent.tag ? { tag: toolEvent.tag } : {}),
     ...(brand ? { brand } : {}),
+    icon: agentActivityIconForTool(toolEvent.raw?.toolName),
     ...(isRoutineReadinessTool(toolEvent.raw?.toolName) ? { routine: true as const } : {}),
     createdAtMs: nowMs,
   };
@@ -371,7 +439,7 @@ export function AgentTurnStreamPanel({
         message: event.message,
         status: event.status,
         tag: event.tag,
-        ...(event.brand ? { mark: <ConnectorBrandMark brand={event.brand} size="sm" /> } : {}),
+        mark: <AgentActivityMark brand={event.brand} icon={event.icon ?? (event.id === PRIVATE_MEMORY_PREPARATION_EVENT_ID ? "memory" : "action")} />,
         durationMs: event.durationMs,
       })),
     [visibleEvents]

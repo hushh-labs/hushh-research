@@ -1,28 +1,17 @@
-"""The pod's tick: how background work reaches a machine that is usually off.
+"""Authenticated, bounded maintenance for the owner's sleeping pod.
 
-Phase 6 of the lifecycle plan, pod side. On the economy tier there is no CPU
-between requests, therefore no process -- no timer, no loop, no Pub/Sub
-subscriber. Every background action must arrive as an INBOUND authenticated
-HTTP request, because an inbound request is the only thing that scales the
-service off zero. A loop inside the pod is silently dead on economy, and a
-cost regression if someone "fixes" it by warming the fleet.
+Cloud Run request-based hosting needs inbound delivery to wake from zero and
+provide CPU for background work. Azure may also wake through its owner queue;
+this HTTP route uses the same scheduler identity contract on either cloud.
 
-AUTH IS THE EXISTING SCHEDULER IDENTITY, NOT A NEW TOKEN. Google-signed
-per-invocation OIDC, audience-bound, fail-closed on an empty allowlist
-(`scheduler_identity.verify_scheduler_request`). The live KYC purge job still
-carries the legacy shared header token that module was written to retire; this
-route is the chance not to add a third credential shape, taken.
+The two exact addresses, /pod/tick and /api/one/pod/maintenance/tick, invoke one
+handler behind the pod machine wall and the configured OIDC audience/allowlist.
+The latter is already bound into Scheduler and migration 956 receipts.
 
-THE TICK BODY IS DELIBERATELY BOUNDED AND CURRENTLY INERT. Checkpointing and
-at-most-once already exist in `pod_commit_log` (encrypted, hash-chained, and a
-compare-and-swap on the object generation -- a failed CAS means another tick
-won). The learning-loop body that would ride this route is a founder decision
-the plan records as BYOC-only in v1 (Q5), and the wake path that would ring
-this doorbell (push subscription + HTTP scheduler target + the run.invoker
-grant in the person's own project) is unvalidatable until a real BYOC provision
-exists in dev -- the plan says so in as many words. Shipping the route first
-means the wake wiring, when it lands, targets a surface that already exists,
-auth-gates, and is guard-tested, instead of a 404.
+Maintenance reconciles consented provider-memory erasure and renews/catches up
+Gmail notifications. Identifier pages persist in the existing sealed log before
+application consumers run; unavailable consumers leave delivery pending. A tick
+never authorizes model inference or an owner-session-only email body read.
 """
 
 from __future__ import annotations
@@ -36,9 +25,13 @@ from fastapi import APIRouter, Header, Request
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pod", tags=["pod-maintenance"])
+# Existing Scheduler receipts and migration 956 bind this exact path. Keep both
+# addresses on the same authenticated handler; neither bypasses the machine wall.
+scheduled_router = APIRouter(prefix="/api/one/pod/maintenance", tags=["pod-maintenance"])
 
 
 @router.post("/tick")
+@scheduled_router.post("/tick", include_in_schema=False)
 async def pod_tick(
     request: Request,
     authorization: str | None = Header(default=None),

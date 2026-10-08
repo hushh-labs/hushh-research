@@ -2,8 +2,9 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { loadWalletSharing } from "@/lib/services/wallet-sharing-service";
-const mocks = vi.hoisted(() => ({ push: vi.fn(), approve: vi.fn(), deny: vi.fn(), revoke: vi.fn(), vaultKey: "test-key" as string | null, user: { uid: "owner", getIdToken: vi.fn().mockResolvedValue("test") } }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey }) }));
+const mocks = vi.hoisted(() => ({ push: vi.fn(), approve: vi.fn(), deny: vi.fn(), revoke: vi.fn(), getProfile: vi.fn().mockResolvedValue({ card: null, shareUrl: null }), vaultKey: "test-key" as string | null, user: { uid: "owner", getIdToken: vi.fn().mockResolvedValue("test") } }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey, getVaultOwnerToken: () => "test-owner-token" }) }));
+vi.mock("@/lib/services/wallet-card-service", () => ({ WalletCardService: { getCard: mocks.getProfile } }));
 vi.mock("@/lib/consent/use-consent-actions", () => ({ useConsentActions: () => ({ handleApprove: mocks.approve, handleDeny: mocks.deny, handleRevoke: mocks.revoke }) }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
@@ -11,11 +12,19 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/lib/services/wallet-sharing-service", async (original) => ({ ...await original<object>(), loadWalletSharing: vi.fn() }));
 describe("Wallet Sharing", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.vaultKey = "test-key"; mocks.approve.mockResolvedValue(undefined); mocks.deny.mockResolvedValue(undefined); mocks.revoke.mockResolvedValue(undefined); });
-  it("shows real empty states", async () => {
+  it("shows current projected artwork and conceals it while locked, retaining the real empty state", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [] });
-    render(<WalletSharing />);
+    const profile = { displayName: "Current projected owner", shareUrl: "https://example.com/profile" };
+    const view = render(<WalletSharing profile={profile} />);
     await screen.findByText("Not shared with anyone yet.");
     expect(screen.getByText("Not shared with anyone yet.")).toBeVisible();
+    expect(screen.getByText("Current projected owner")).toBeVisible();
+    expect(screen.getByRole("img", { name: "Wallet Profile QR code" })).toBeVisible();
+    mocks.vaultKey = null;
+    view.rerender(<WalletSharing profile={profile} />);
+    expect(screen.queryByText("Current projected owner")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Wallet Profile QR code" })).toBeNull();
+    expect(mocks.getProfile).not.toHaveBeenCalled();
   });
   it("shows only recipients and shared information below the hero", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({
@@ -55,6 +64,7 @@ describe("Wallet Sharing", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
     expect(screen.getByRole("button", { name: "Revoke access" })).toBeDisabled();
     expect(mocks.revoke).not.toHaveBeenCalled();
+    expect(mocks.getProfile).not.toHaveBeenCalled();
   });
 
   it("does not carry a revoke confirmation across refresh to another grant", async () => {

@@ -64,6 +64,14 @@ async def test_selection_is_bound_to_current_job_and_preserves_unrelated_metadat
         with pytest.raises(JobSuperseded):
             await publish_selection(**{**args, **changed})
     db.execute_raw(
+        "UPDATE personal_agent_registry SET deployment_target='gcp' WHERE user_id='files-owner'"
+    )
+    with pytest.raises(JobSuperseded):
+        await publish_selection(**args)
+    db.execute_raw(
+        "UPDATE personal_agent_registry SET deployment_target='user_gcp' WHERE user_id='files-owner'"
+    )
+    db.execute_raw(
         "UPDATE personal_agent_registry SET status='provisioning' WHERE user_id='files-owner'"
     )
     with pytest.raises(JobSuperseded):

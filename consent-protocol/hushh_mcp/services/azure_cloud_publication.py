@@ -14,6 +14,7 @@ vanished mid-job is a refusal, not a parked cloud a GCP reader would misread.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
@@ -25,6 +26,7 @@ WITH job AS MATERIALIZED (
     SELECT user_id FROM byoc_setup_jobs
     WHERE user_id = :owner AND job_id = :job AND project_id = :group_ref
       AND status = 'running' AND stage = 'proving'
+      AND (stages @> CAST(:selected AS jsonb)) = :files_enabled
     FOR UPDATE
 ), attached AS (
     UPDATE personal_agent_registry r
@@ -37,6 +39,8 @@ WITH job AS MATERIALIZED (
         user_cloud_authorized_at = now(),
         deployment_target = :target,
         model_credential_mode = :model_mode,
+        backend_metadata = (coalesce(r.backend_metadata, '{}'::jsonb) - 'filesSetup')
+            || CAST(:files_metadata AS jsonb),
         updated_at = now()
     FROM job j
     WHERE r.user_id = j.user_id
@@ -58,6 +62,7 @@ async def record_proven_azure_cloud(
     resource_group: str,
     location: str,
     model_credential_mode: str,
+    files_enabled: bool = False,
 ) -> None:
     """Attach the proven subscription, or refuse; never park, never replace a pod."""
     result = await asyncio.to_thread(
@@ -73,6 +78,24 @@ async def record_proven_azure_cloud(
             "location": location,
             "target": BACKEND_USER_AZURE,
             "model_mode": model_credential_mode,
+            "files_enabled": files_enabled,
+            "selected": json.dumps([{"stage": "files_selection", "enabled": True, "version": 1}]),
+            "files_metadata": json.dumps(
+                {
+                    "filesSetup": {
+                        "version": 2,
+                        "provider": BACKEND_USER_AZURE,
+                        "enabled": True,
+                        "setupJobId": job_id,
+                        "tenantId": tenant_id,
+                        "subscriptionId": subscription_id,
+                        "resourceGroup": resource_group,
+                        "location": location,
+                    }
+                }
+                if files_enabled
+                else {}
+            ),
         },
     )
     rows = result.data or []

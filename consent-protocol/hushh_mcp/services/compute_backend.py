@@ -84,18 +84,12 @@ def owner_cloud_bind() -> dict[str, list[str]]:
 
 # --- the pod's resource profile, in ONE place -------------------------------------
 #
-# GCP renderers share this baseline. Per-owner configuration may override it.
-#
-# The numbers are measured, not guessed (MULTI-POD-DEV-SIMULATION.md): 211.9 MB
-# idle, 212.7 MB after 150 requests, 3.94 s cold start of which 58% is `google.adk`
-# importing. So the pod is memory-flat and CPU-bound only at boot -- which is what
-# makes a small steady-state CPU honest, paired with startup-cpu-boost.
-#
-# 1Gi against a 212 MB footprint is deliberate headroom, not waste: the JVM-less
-# Python runtime has no ballast to trim, and OOM in a per-user pod is a person's
-# agent dying rather than a request retrying.
-POD_CPU_MILLIS = 500
-POD_MEMORY = "1Gi"
+# New owner pods use the matched GCP/Azure qualification profile. This is an
+# approved resource budget, not measured throughput. The older ~212 MB simulation
+# did not exercise concurrent Files/model work. Updates preserve owner-selected
+# resources; provider overrides remain explicit and must be recorded in benchmarks.
+POD_CPU_MILLIS = 1000
+POD_MEMORY = "2Gi"
 POD_CPU = f"{POD_CPU_MILLIS}m"
 
 
@@ -502,5 +496,6 @@ def _owner_azure_backend(spec: PodSpec) -> ComputeBackend:
         location=str(spec.user_cloud_region).strip(),
         recorded_principal=spec.expected_runtime_principal or "",
         recorded_digest=spec.expected_image_digest or "",
+        files_library_enabled=spec.files_library_enabled,
     )
     return azure

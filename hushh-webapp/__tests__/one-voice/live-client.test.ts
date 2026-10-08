@@ -253,6 +253,7 @@ describe("handshake", () => {
     expect(auth.conversation_id).toBe(CONVERSATION_ID);
     expect(auth.resume).toBe(false);
     expect((auth.client as Record<string, unknown>).platform).toBe("web");
+    expect((auth.client as Record<string, unknown>).features).toContain("mail_draft_review");
     socket.receive(READY);
     await pending;
     expect(h.client.state).toBe("ready");
@@ -496,6 +497,7 @@ describe("control frames", () => {
     );
     expect(h.client.clientStepResult("step-2", "failed")).toBe(true);
     expect(h.client.mailDeliveryResult(DELIVERY_REF, SEND_ACTION_ID)).toBe(true);
+    expect(h.client.mailDraftChanged({ draft_ref: DELIVERY_REF, revision: 2, operation_id: "edit-1", closed: true })).toBe(true);
     expect(h.client.uiSettled("dir-1", "opened")).toBe(true);
     expect(h.client.interrupt()).toBe(true);
     const sent = socket.frames().slice(1);
@@ -526,6 +528,7 @@ describe("control frames", () => {
         delivery_ref: DELIVERY_REF,
         action_id: SEND_ACTION_ID,
       },
+      { type: "mail_draft.changed", draft_ref: DELIVERY_REF, revision: 2, operation_id: "edit-1", closed: true },
       { type: "ui.settled", directive_id: "dir-1", status: "opened" },
       { type: "interrupt" },
     ]);
@@ -540,6 +543,7 @@ describe("control frames", () => {
     expect(h.client.sendText("hello")).toBe(false);
     expect(h.client.confirm("pa-1", { receiptToken: null })).toBe(false);
     expect(h.client.mailDeliveryResult(DELIVERY_REF, SEND_ACTION_ID)).toBe(false);
+    expect(h.client.mailDraftChanged({ draft_ref: DELIVERY_REF, revision: 1, operation_id: "edit-1" })).toBe(false);
     expect(h.client.interrupt()).toBe(false);
     expect(socket.frames().map((f) => f.type)).toEqual(["auth"]);
     h.client.close("test");

@@ -50,13 +50,13 @@ def release_identity(
 
 def approved_files_plan(approval: dict):
     """Validate a saved plan independently of the currently offered image."""
-    from hushh_mcp.services.pod_files.capability_update import FilesCapabilityPlan
+    from hushh_mcp.services.pod_files.capability_contract import decode_plan
 
     digest = approval.get("capabilityPlanDigest")
     encoded = approval.get("capabilityPlan")
     if digest is None and encoded is None:
         return None
-    plan = FilesCapabilityPlan.model_validate(encoded)
+    plan = decode_plan(encoded)
     if (
         digest != plan.digest
         or approval.get("ownerId") != plan.ownerId

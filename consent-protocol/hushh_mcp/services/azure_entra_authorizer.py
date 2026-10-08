@@ -79,6 +79,7 @@ class AuthorizationState:
     #: The authority the sign-in used: a tenant id, or ``common`` for a first leg.
     authority: str
     nonce: str
+    files_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -120,13 +121,24 @@ def redirect_uri() -> str:
 
 
 def make_state(
-    user_id: str, *, kind: AuthorizationKind, subscription_id: str, authority: str
+    user_id: str,
+    *,
+    kind: AuthorizationKind,
+    subscription_id: str,
+    authority: str,
+    files_enabled: bool = False,
 ) -> str:
-    if kind not in _KINDS or "|" in user_id:
+    if (
+        kind not in _KINDS
+        or "|" in user_id
+        or type(files_enabled) is not bool
+        or (files_enabled and kind not in {"setup", "discover"})
+    ):
         raise AzureAuthorizeError("Unsupported authorization", code="BAD_STATE")
     exp = str(int(time.time()) + STATE_TTL_SECONDS)
     nonce = secrets.token_hex(16)
-    payload = _b64(f"{user_id}|{kind}|{subscription_id}|{authority}|{nonce}".encode())
+    raw = f"{user_id}|{kind}|{subscription_id}|{authority}|{nonce}"
+    payload = _b64((raw + "|files" if files_enabled else raw).encode())
     return f"{_STATE_PREFIX}{exp}.{payload}.{keyed_digest('oauth-state', exp, payload)}"
 
 
@@ -140,16 +152,24 @@ def verify_state(state: str, user_id: str) -> AuthorizationState:
             raise AzureAuthorizeError("Authorization state failed verification", code="BAD_STATE")
         if int(exp) < time.time():
             raise AzureAuthorizeError("This sign-in expired; start it again", code="STATE_EXPIRED")
-        uid, kind, subscription, authority, nonce = _unb64(payload).decode().split("|")
+        fields = _unb64(payload).decode().split("|")
+        files_enabled = len(fields) == 6 and fields[-1] == "files"
+        if len(fields) != 5 and not files_enabled:
+            raise ValueError("invalid Files selection")
+        uid, kind, subscription, authority, nonce = fields[:5]
     except AzureAuthorizeError:
         raise
     except Exception as exc:  # noqa: BLE001 - malformed input is a refusal, not a crash
         raise AzureAuthorizeError("Malformed authorization state", code="BAD_STATE") from exc
     if uid != user_id:
         raise AzureAuthorizeError("This sign-in belongs to a different account", code="BAD_STATE")
-    if kind not in _KINDS or (subscription and not is_guid(subscription)):
+    if (
+        kind not in _KINDS
+        or (subscription and not is_guid(subscription))
+        or (files_enabled and kind not in {"setup", "discover"})
+    ):
         raise AzureAuthorizeError("Malformed authorization state", code="BAD_STATE")
-    return AuthorizationState(uid, kind, subscription, authority, nonce)  # type: ignore[arg-type]
+    return AuthorizationState(uid, kind, subscription, authority, nonce, files_enabled)  # type: ignore[arg-type]
 
 
 def code_verifier(state: str) -> str:
@@ -190,6 +210,7 @@ def begin(
     subscription_id: str = "",
     tenant_id: str = "",
     login_hint: str = "",
+    files_enabled: bool = False,
     session: Any = None,
 ) -> str:
     """The Microsoft consent URL for one online-only grant.
@@ -205,7 +226,13 @@ def begin(
     if kind == "setup" and not subscription and not authority:
         kind = "discover"
     authority = federation.require_authority(authority or _FIRST_LEG_AUTHORITY)
-    state = make_state(user_id, kind=kind, subscription_id=subscription, authority=authority)
+    state = make_state(
+        user_id,
+        kind=kind,
+        subscription_id=subscription,
+        authority=authority,
+        files_enabled=files_enabled,
+    )
     params = {
         "client_id": federation.app_client_id(),
         "response_type": "code",

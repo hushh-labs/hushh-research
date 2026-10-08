@@ -44,6 +44,10 @@ export type NativeChromeCapabilities = {
   independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean;
   /** Same-owner, same-frame stationary Back only; retirement still means removal. */
   backReplacement?: boolean;
+  /** Same-owner, same-frame Profile Back; never inherits shell Back's slot. */
+  profileBackReplacement?: boolean;
+  /** Same-mounted-owner History only, never a relocation to the drawer's Close. */
+  historyReplacement?: boolean;
 };
 
 export interface HushhNativeChromePlugin {
@@ -53,6 +57,7 @@ export interface HushhNativeChromePlugin {
   setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;
   prepareBackReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
+  prepareHistoryReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
   activate(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
   retire(options: ChromeIdentity & { targetRevision?: number }): Promise<ChromeAcknowledgement>;
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
@@ -190,6 +195,16 @@ export async function retireNativeChrome(ownerEpoch: string, target?: ChromeIden
   if (!latest || latest.revision <= identity.revision) outstanding.delete(controlId);
 }
 
+/** An unmount owns only its installation, never another mounted instance of
+ * the same slot. Remove either revision of its own uncertain handoff without
+ * targeting a predecessor that may still be installed natively. */
+export async function retireOwnedNativeChrome(target: ChromeIdentity): Promise<void> {
+  const pending = outstanding.get(target.controlId);
+  if (target.documentId !== nativeDocumentId() || !pending || pending.documentId !== target.documentId || pending.ownerEpoch !== target.ownerEpoch ||
+      pending.revision > target.revision) return;
+  await retireNativeChrome(target.ownerEpoch, undefined, target.controlId);
+}
+
 /** Two-phase installation: the native control stays hidden until React commits
  * removal of the DOM interaction. A failed acknowledgement never enables both. */
 export class NativeChromeLease {
@@ -210,14 +225,33 @@ export class NativeChromeLease {
   get replacementReady(): boolean {
     return this.current && this.active && this.layoutConfirmed && this.requestedUpdate === this.appliedUpdate;
   }
+  /** Local references alone cannot establish current slot or document ownership. */
+  get ownsInstallation(): boolean {
+    const installed = outstanding.get(this.projection.controlId);
+    return nativeDocumentId() === this.projection.documentId &&
+      !!installed && matches({ ...installed, phase: "active" }, this.projection, "active");
+  }
+  /** Focus may reuse only the acknowledged installation still owning this slot. */
+  get focusReady(): boolean {
+    return this.replacementReady && this.projection.enabled && this.ownsInstallation;
+  }
   canReplaceBack(previous: NativeChromeLease): boolean {
     return previous.canReplaceBackWith(this.projection, this.projection.ownerEpoch, this.context) &&
       this.projection.documentId === previous.projection.documentId;
   }
+  canReplaceHistoryWith(projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    return this.canReplaceWith("history", projection, ownerEpoch, context) &&
+      projection.kind === "history" && this.projection.kind === "history" &&
+      (projection.expanded ?? false) === (this.projection.expanded ?? false);
+  }
   /** Compare before reserving a revision: ordinary preparation must be newer
    * than the removal tombstone, not merely newer than its predecessor. */
   canReplaceBackWith(projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
-    return projection.kind === "back" && this.projection.kind === "back" &&
+    const kind = this.projection.kind;
+    return (kind === "back" || kind === "profile-back") && this.canReplaceWith(kind, projection, ownerEpoch, context);
+  }
+  private canReplaceWith(kind: "back" | "profile-back" | "history", projection: ChromeControlProjection, ownerEpoch: string, context: string): boolean {
+    return projection.kind === kind && this.projection.kind === kind &&
       nativeDocumentId() === this.projection.documentId && ownerEpoch === this.projection.ownerEpoch &&
       projection.label === this.projection.label && context !== this.context && this.sameGeometry(projection);
   }
@@ -248,9 +282,19 @@ export class NativeChromeLease {
   /** Replace public presentation, never retain the predecessor's action authority. */
   async prepareBackReplacement(previous: NativeChromeLease): Promise<boolean> {
     if (!this.canReplaceBack(previous)) throw new Error("NATIVE_CHROME_REPLACEMENT_REFUSED");
+    return this.prepareReplacement(previous, nativeChrome.prepareBackReplacement.bind(nativeChrome));
+  }
+  async prepareHistoryReplacement(previous: NativeChromeLease): Promise<boolean> {
+    if (!previous.canReplaceHistoryWith(this.projection, this.projection.ownerEpoch, this.context)) {
+      throw new Error("NATIVE_CHROME_REPLACEMENT_REFUSED");
+    }
+    return this.prepareReplacement(previous, nativeChrome.prepareHistoryReplacement.bind(nativeChrome));
+  }
+  private async prepareReplacement(previous: NativeChromeLease,
+    prepare: (projection: ChromeProjection & { previousRevision: number }) => Promise<ChromeAcknowledgement>): Promise<boolean> {
     previous.invalidate();
     outstanding.set(this.projection.controlId, this.projection);
-    const ack = await bounded(nativeChrome.prepareBackReplacement({
+    const ack = await bounded(prepare({
       ...this.projection, previousRevision: previous.projection.revision,
     }));
     return this.acceptPreparation(ack);
@@ -266,8 +310,7 @@ export class NativeChromeLease {
   }
   /** Presentation only; a focus transfer cannot replay an authored action. */
   async restoreFocus(allowed: () => boolean): Promise<boolean> {
-    if (!this.active || !this.current || !this.projection.enabled || !allowed() ||
-        this.requestedUpdate !== this.appliedUpdate) return false;
+    if (!this.focusReady || !allowed()) return false;
     const updateSequence = this.appliedUpdate;
     const focusSequence = ++this.focusSequence;
     const ack = await bounded(nativeChrome.restoreFocus({ ...this.projection, updateSequence, focusSequence }));
@@ -275,8 +318,14 @@ export class NativeChromeLease {
         ack.updateSequence !== updateSequence || ack.focusSequence !== focusSequence || ack.restored !== true) {
       throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
     }
-    return this.current && this.active && allowed() && this.focusSequence === focusSequence &&
+    return this.focusReady && allowed() && this.focusSequence === focusSequence &&
       this.requestedUpdate === updateSequence && this.appliedUpdate === updateSequence;
+  }
+  private matchesPresentation(presentation: ChromeUpdate): boolean {
+    return presentation.appearance === this.projection.appearance && presentation.accentHex === this.projection.accentHex &&
+      presentation.foregroundHex === this.projection.foregroundHex && presentation.enabled === this.projection.enabled &&
+      presentation.value === ("value" in this.projection ? this.projection.value : undefined) &&
+      presentation.expanded === ("expanded" in this.projection ? this.projection.expanded : undefined);
   }
   /** Fence choices synchronously; only the latest acknowledged snapshot is usable.
    * A stale update failure cannot retire or overwrite a newer presentation. */
@@ -286,11 +335,13 @@ export class NativeChromeLease {
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }
-    if (this.active && this.requestedUpdate === this.appliedUpdate &&
-        presentation.appearance === this.projection.appearance && presentation.accentHex === this.projection.accentHex &&
-        presentation.foregroundHex === this.projection.foregroundHex && presentation.enabled === this.projection.enabled &&
-        presentation.value === ("value" in this.projection ? this.projection.value : undefined) &&
-        presentation.expanded === ("expanded" in this.projection ? this.projection.expanded : undefined)) return true;
+    if (this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation)) {
+      // Admission already contains this snapshot. Waiting for activation must
+      // not manufacture an update or recreate the native control afterward.
+      await this.activate();
+      return this.current && this.active && this.requestedUpdate === this.appliedUpdate &&
+        this.matchesPresentation(presentation);
+    }
     const updateSequence = ++this.requestedUpdate;
     await this.activate();
     if (!this.current || updateSequence !== this.requestedUpdate) return false;

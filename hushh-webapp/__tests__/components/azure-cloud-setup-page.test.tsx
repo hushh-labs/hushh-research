@@ -151,7 +151,7 @@ describe("Connect Azure on the cloud step", () => {
     expect(screen.queryByTestId("azure-card-subscription-id")).toBeNull();
     fireEvent.click(screen.getByTestId("azure-connect"));
     await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(SIGN_IN));
-    expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({});
+    expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ filesEnabled: true });
     expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
   });
 
@@ -255,7 +255,7 @@ describe("Connect Azure on the cloud step", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in with Microsoft again" }));
     // The retry reads the subscription back from the failed job's record.
     await waitFor(() =>
-      expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ subscriptionId: SUBSCRIPTION }),
+      expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ subscriptionId: SUBSCRIPTION, filesEnabled: false }),
     );
     expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
   });
@@ -277,7 +277,7 @@ describe("Connect Azure on the cloud step", () => {
     fireEvent.click(await screen.findByTestId("byoc-setup-retry"));
     // The retry reads the subscription back from the failed job's record.
     await waitFor(() =>
-      expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ subscriptionId: SUBSCRIPTION }),
+      expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ subscriptionId: SUBSCRIPTION, filesEnabled: false }),
     );
     expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
   });
@@ -323,7 +323,7 @@ describe("Connect Azure on the cloud step", () => {
     });
     render(<ByocCloudSetupPage />);
     fireEvent.click(await screen.findByTestId("byoc-reserved-project-deploy"));
-    await waitFor(() => expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({}));
+    await waitFor(() => expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ filesEnabled: true }));
     expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
   });
 });

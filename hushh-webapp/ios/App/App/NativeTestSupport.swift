@@ -735,12 +735,26 @@ final class NativeVaultLayoutProbe {
     private var inFlight = false
     private var sequence = 0
     private weak var webView: WKWebView?
+    private var observers = [NSObjectProtocol]()
+
+    static func acceptsSample(captured: HushhSessionPrivacyShield.Snapshot,
+                              current: HushhSessionPrivacyShield.Snapshot) -> Bool {
+        captured.appIsActive && !captured.shielded && current.appIsActive &&
+            !current.shielded && captured.generation == current.generation
+    }
+
+    private func conceal() {
+        label.isHidden = true
+        label.accessibilityElementsHidden = true
+        label.update(status: "{}")
+    }
 
     init(host: UIView, webView: WKWebView) {
         self.webView = webView
         label.accessibilityIdentifier = "native-vault-layout"
         label.translatesAutoresizingMaskIntoConstraints = false
         label.update(status: "{}")
+        conceal()
         host.addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: host.leadingAnchor),
@@ -748,29 +762,40 @@ final class NativeVaultLayoutProbe {
             label.widthAnchor.constraint(equalToConstant: 1),
             label.heightAnchor.constraint(equalToConstant: 1),
         ])
+        for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.conceal()
+            })
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in self?.sample() }
     }
 
     deinit {
         timer?.invalidate()
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
         label.removeFromSuperview()
     }
 
     private func sample() {
-        guard UIApplication.shared.applicationState == .active, !inFlight, let webView else { return }
+        let captured = HushhSessionPrivacyShield.shared.snapshot()
+        guard Self.acceptsSample(captured: captured, current: captured) else { conceal(); return }
+        guard !inFlight, let webView else { return }
         inFlight = true
         webView.evaluateJavaScript(Self.script) { [weak self, weak webView] result, _ in
             guard let self else { return }
             self.inFlight = false
-            guard UIApplication.shared.applicationState == .active,
-                  let webView, let values = result as? [String: Any] else { return }
+            let current = HushhSessionPrivacyShield.shared.snapshot()
+            guard Self.acceptsSample(captured: captured, current: current),
+                  let webView, self.webView === webView else { self.conceal(); return }
+            guard let values = result as? [String: Any] else { return }
             // Whitelist numeric/bool geometry. Never propagate unexpected JS
             // fields, text, credentials, provider bodies or a DOM hierarchy.
             let keys = Set(["presentCount", "innerHeight", "visualHeight", "visualTop", "visualScale",
                             "cssInset", "kbOpen", "kbResizes", "surfaceTop", "surfaceMaxHeight",
                             "scrollTopEdge", "scrollBottomEdge", "clientHeight", "scrollHeight", "scrollTop",
                             "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
-                            "unlockHits", "unlockClicks", "unlockAccepted"])
+                            "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
+                            "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -787,6 +812,8 @@ final class NativeVaultLayoutProbe {
             guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
                   let json = String(data: data, encoding: .utf8) else { return }
             self.label.update(status: json)
+            self.label.accessibilityElementsHidden = false
+            self.label.isHidden = false
         }
     }
 
@@ -818,6 +845,21 @@ final class NativeVaultLayoutProbe {
         kbOpen: root.classList.contains('kb-open'), kbResizes: root.classList.contains('kb-resizes'),
         unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted
       };
+      // Public interaction admission only. Never read the editor's value,
+      // selection contents, transcript, account identity or arbitrary DOM.
+      const chats = document.querySelectorAll('textarea[aria-label="Message One"]');
+      result.chatCount = chats.length;
+      if (chats.length === 1) {
+        const editor = chats[0];
+        const rect = editor.getBoundingClientRect();
+        Object.assign(result, {
+          chatFocused: document.activeElement === editor,
+          chatDisabled: editor.disabled,
+          chatInert: Boolean(editor.closest('[inert]')),
+          chatHit: editor.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+          chatWidth: rect.width, chatHeight: rect.height
+        });
+      }
       const surface = surfaces.length === 1 ? surfaces[0] : null;
       const scroll = surface?.querySelector('[data-vault-flow-content]');
       const recovery = scroll?.querySelector('[data-testid="vault-use-recovery-key-escape"]');

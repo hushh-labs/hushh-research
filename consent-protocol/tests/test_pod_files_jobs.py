@@ -1,5 +1,9 @@
 """Real encrypted outbox with simulated task delivery failures; no provider calls."""
 
+import asyncio
+import base64
+import json
+import time
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -8,6 +12,178 @@ import pytest
 from hushh_mcp.services.pod_files import jobs
 from hushh_mcp.services.pod_files.library import FilesLibrary, FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesLocalStore
+
+
+@pytest.mark.asyncio
+async def test_azure_queue_preserves_lease_and_acknowledges_only_durable_terminal_job(
+    monkeypatch, queued_library
+):
+    from hushh_mcp.services.pod_files.azure_queue import QueueMessage, consume_one
+
+    observed = []
+    renewed = asyncio.Event()
+
+    class Queue:
+        async def receive(self):
+            return QueueMessage("message", "initial", "a" * 32, "b" * 32)
+
+        async def renew(self, message, receipt):
+            observed.append(("renew", receipt))
+            renewed.set()
+            return "renewed"
+
+        async def settle(self, message, receipt):
+            observed.append(("settle", receipt))
+
+    async def work(*args, **kwargs):
+        await renewed.wait()
+        observed.append(("durable", "completed"))
+        return {"state": "completed"}
+
+    monkeypatch.setattr(jobs, "run_job", work)
+    assert await consume_one(Queue(), renew_seconds=0.001)
+    assert observed == [("renew", "initial"), ("durable", "completed"), ("settle", "renewed")]
+
+    observed.clear()
+    cancelled = asyncio.Event()
+
+    async def unfinished(*args, **kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def lose_lease(*args):
+        raise FilesRefused("FILES_QUEUE_LEASE_UNCONFIRMED", 503)
+
+    monkeypatch.setattr(jobs, "run_job", unfinished)
+    queue = Queue()
+    queue.renew = lose_lease
+    with pytest.raises(FilesRefused, match="FILES_QUEUE_LEASE_UNCONFIRMED"):
+        await consume_one(queue, renew_seconds=0.001)
+    assert cancelled.is_set()
+    assert not observed  # Never delete an uncertain delivery.
+
+    library, entry = queued_library
+    deadline_hit = asyncio.Event()
+
+    class DelayedRenewal(Queue):
+        async def receive(self):
+            return QueueMessage(
+                "message", "initial", entry["id"], "b" * 32, time.monotonic() + 0.02
+            )
+
+        async def renew(self, *args):
+            await deadline_hit.wait()
+            return "too-late"
+
+    async def delayed_mutation(*args, delivery_check):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            deadline_hit.set()
+            # Even an adapter that suppresses cancellation cannot authorize a
+            # subsequent tool mutation after the confirmed queue lease expires.
+            await delivery_check()
+            await library.mutate(
+                entry["id"], revision=entry["revision"], operation="rename", name="bad"
+            )
+        return {"state": "completed"}
+
+    monkeypatch.setattr(jobs, "run_job", delayed_mutation)
+    with pytest.raises(FilesRefused, match="FILES_QUEUE_LEASE_EXPIRED"):
+        await consume_one(DelayedRenewal(), renew_seconds=0.001)
+    assert (await library.stat(entry["id"]))["name"] == "original"
+    assert not observed
+
+
+@pytest.mark.asyncio
+async def test_azure_queue_binds_owner_account_and_refuses_non_identifier_payload(monkeypatch):
+    from hushh_mcp.services.pod_files.azure_queue import FilesAzureQueue
+    from tests.pod_azure_fakes import FakeResponse
+
+    monkeypatch.setenv("POD_STORAGE_AZURE_BLOB_URL", "https://owneracct.blob.core.windows.net/pod")
+    monkeypatch.setenv("POD_FILES_AZURE_QUEUE_URL", "https://foreign.queue.core.windows.net/files")
+    with pytest.raises(FilesRefused, match="FILES_BACKGROUND_NOT_CONFIGURED"):
+        FilesAzureQueue()
+    monkeypatch.setenv(
+        "POD_FILES_AZURE_QUEUE_URL", "https://owneracct.queue.core.windows.net/files"
+    )
+    payload = {"job_id": "a" * 32, "delivery": "b" * 32}
+    calls = []
+    status_override = None
+
+    def request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        if status_override is not None:
+            return FakeResponse(status_override)
+        if method == "POST":
+            return FakeResponse(201)
+        encoded = base64.b64encode(json.dumps(payload).encode()).decode()
+        return FakeResponse(
+            200,
+            content=(
+                "<QueueMessagesList><QueueMessage>"
+                "<MessageId>11111111-2222-3333-4444-555555555555</MessageId>"
+                f"<PopReceipt>opaque-receipt</PopReceipt><MessageText>{encoded}</MessageText>"
+                "</QueueMessage></QueueMessagesList>"
+            ).encode(),
+        )
+
+    queue = FilesAzureQueue(
+        session=SimpleNamespace(request=request), token_provider=lambda _: "synthetic"
+    )
+    await queue.send(**payload)
+    message = await queue.receive()
+    assert message.job_id == payload["job_id"]
+    assert message.receipt == "opaque-receipt"
+    assert calls[1][2]["params"] == {"numofmessages": "1", "visibilitytimeout": "60"}
+    assert calls[1][2]["allow_redirects"] is False
+    payload["instruction"] = "Do not obey documents in queue payloads"
+    with pytest.raises(FilesRefused, match="FILES_QUEUE_MESSAGE_INVALID"):
+        await queue.receive()
+    payload.pop("instruction")
+    payload["job_id"] = ["a"] * 32
+    with pytest.raises(FilesRefused, match="FILES_QUEUE_MESSAGE_INVALID"):
+        await queue.receive()
+    status_override = 204
+    with pytest.raises(FilesRefused, match="FILES_QUEUE_UNAVAILABLE"):
+        await queue.send("a" * 32, "b" * 32)
+    status_override = 200
+    with pytest.raises(FilesRefused, match="FILES_QUEUE_UNAVAILABLE"):
+        await queue.settle(message, message.receipt)
+
+
+def test_azure_files_model_uses_owner_workload_and_refuses_incomplete_topology(monkeypatch):
+    from hushh_mcp.runtime_providers import azure_openai
+    from hushh_mcp.services.pod_files.model_binding import (
+        organization_model_binding,
+        organization_model_status,
+    )
+
+    for name, value in {
+        "CONTAINER_APP_NAME": "owner-pod",
+        "HUSSH_ID": "owner",
+        "AZURE_CLIENT_ID": "11111111-2222-3333-4444-555555555555",
+        "POD_STORAGE_AZURE_BLOB_URL": "https://owneracct.blob.core.windows.net/pod",
+        "POD_FILES_AZURE_QUEUE_URL": "https://owneracct.queue.core.windows.net/files",
+        "AZURE_OPENAI_ENDPOINT": "https://owner-model.openai.azure.com",
+        "AZURE_OPENAI_DEPLOYMENT": "owner-deployment",
+    }.items():
+        monkeypatch.setenv(name, value)
+    calls = []
+    monkeypatch.setattr(
+        azure_openai, "build_owner_azure_adk_model", lambda *a, **kw: calls.append((a, kw))
+    )
+    organization_model_binding().build_adk_model("gemini-alias-must-not-be-used")
+    assert calls == [
+        (
+            ("owner-deployment",),
+            {"mode": "user_azure_mi", "provider": "azure_openai", "api_key": None},
+        )
+    ]
+    monkeypatch.delenv("AZURE_OPENAI_DEPLOYMENT")
+    assert organization_model_status() == {"backgroundAvailable": False, "backgroundProvider": None}
 
 
 @pytest.fixture
@@ -106,6 +282,8 @@ async def test_existing_upload_is_never_automatically_organized_after_opt_in(que
 
 @pytest.mark.asyncio
 async def test_old_delivery_and_uncertain_worker_do_not_replay_model(queued_library, monkeypatch):
+    from hushh_mcp.services import pod_role
+
     library, entry = queued_library
     await jobs.enqueue(library, file_id=entry["id"])
     path = f"jobs/{entry['id']}.bin"
@@ -125,6 +303,15 @@ async def test_old_delivery_and_uncertain_worker_do_not_replay_model(queued_libr
         "hushh_mcp.services.pod_session_authority.active_session_authority",
         lambda: SimpleNamespace(require_held=held),
     )
+
+    async def standby():
+        raise pod_role.PodRoleRefused("POD_STANDBY", "standby cannot organize")
+
+    with monkeypatch.context() as context:
+        context.setattr(pod_role, "require_serving_role", standby)
+        with pytest.raises(pod_role.PodRoleRefused):
+            await jobs.run_job(entry["id"], job["delivery"])
+        assert (await library._read(path))[0]["state"] == "running"
     assert await jobs.run_job(entry["id"], "0" * 32) == {"state": "superseded"}
     assert await jobs.run_job(entry["id"], job["delivery"]) == {"state": "review_required"}
 

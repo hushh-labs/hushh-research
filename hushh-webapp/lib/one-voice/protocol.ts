@@ -84,6 +84,14 @@ export type MailDeliveryResultFrame = {
   delivery_ref: string;
   action_id: string;
 };
+export type MailDraftChange = {
+  draft_ref: string;
+  revision: number;
+  operation_id: string;
+  draft?: { to: string; cc?: string; bcc?: string; subject: string; body: string };
+  closed?: boolean;
+};
+export type MailDraftChangedFrame = MailDraftChange & { type: "mail_draft.changed" };
 export type UiSettledFrame = {
   type: "ui.settled";
   directive_id: string;
@@ -125,6 +133,7 @@ export type ClientFrame =
   | CandidateChooseFrame
   | ClientStepResultFrame
   | MailDeliveryResultFrame
+  | MailDraftChangedFrame
   | UiSettledFrame
   | InterruptFrame
   | PerfFrame
@@ -458,6 +467,11 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "draft_open_dispatched",
   // Gmail may or may not have sent the draft; never shown as "Sent".
   "draft_send_unconfirmed",
+  "review_requested",
+  "review_pending",
+  "needs_input",
+  "outcome_unknown",
+  "sending",
   // A scheduled-mail cancel that cancelled nothing, and a scheduled send whose
   // confirmation could not be recorded (mirrors the relay's NOT_OK_STATUSES).
   "send_unconfirmed",

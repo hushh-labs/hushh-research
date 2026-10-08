@@ -180,6 +180,44 @@ def test_one_enabled_subscription_starts_setup_with_exactly_two_keys(spawned, mo
     )
 
 
+def test_files_selection_follows_the_signed_choice_through_setup(spawned, monkeypatch):
+    _redeems_as(monkeypatch)
+    _listing(monkeypatch, (_SUB, "Enabled"))
+    state = entra.make_state(
+        _UID, kind="setup", subscription_id="", authority="common", files_enabled=True
+    )
+    monkeypatch.delenv("HUSSH_POD_FILES_ENABLED", raising=False)
+    assert _client().post(_COMPLETE, json={"code": "c", "state": state}).status_code == 409
+    assert not spawned
+    monkeypatch.setenv("HUSSH_POD_FILES_ENABLED", "true")
+    response = _client().post(_COMPLETE, json={"code": "c", "state": state})
+    assert response.status_code == 200 and spawned[0][1]["spec"].files_library_enabled is True
+
+
+async def test_running_azure_setup_cannot_change_the_files_choice(spawned, monkeypatch):
+    async def running(self, **kwargs):
+        return False
+
+    async def selected(self, owner):
+        return {
+            "status": "running",
+            "project_id": "group",
+            "job_id": "j",
+            "stages": [
+                {"stage": "files_selection", "version": 1, "enabled": True},
+            ],
+        }
+
+    monkeypatch.setattr(_Jobs, "start", running)
+    monkeypatch.setattr(_Jobs, "get", selected)
+    assert await byoc_azure._claim_job(_UID, "group", files_enabled=True) == ("j", False)
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as refused:
+        await byoc_azure._claim_job(_UID, "group", files_enabled=False)
+    assert refused.value.detail["code"] == "SETUP_SELECTION_CHANGED"
+
+
 def test_an_ambiguous_choice_asks_and_discards_the_token(spawned, monkeypatch):
     _redeems_as(monkeypatch)
     _listing(monkeypatch, (_SUB, "Enabled"), (_OTHER_SUB, "Enabled"))

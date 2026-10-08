@@ -70,6 +70,8 @@ def extend_inventory(original: dict, plan: FilesCapabilityPlan, completed: list[
 class FilesUpgradeCheckpoint:
     """Validate one call at a time. Persistence remains the caller's authority."""
 
+    inventory_key = "substrateReceipt"
+
     def __init__(
         self,
         *,

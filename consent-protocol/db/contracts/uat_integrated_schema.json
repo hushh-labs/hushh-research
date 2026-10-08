@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 282,
+  "expected_migration_version": 283,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -55,7 +55,8 @@
     "feed_from_agent_outcome",
     "feed_from_bulk_share_outcome",
     "pkm_grant_credits",
-    "pkm_spend_credits"
+    "pkm_spend_credits",
+    "bump_gmail_send_grant_generation"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -1352,6 +1353,16 @@
       "completed_at_iso",
       "created_at",
       "expires_at"
+    ],
+    "kai_gmail_connections": [
+      "user_id",
+      "google_sub",
+      "google_email",
+      "scope_csv",
+      "status",
+      "revoked",
+      "send_enabled",
+      "send_grant_generation"
     ],
     "kai_run_state": [
       "run_id",

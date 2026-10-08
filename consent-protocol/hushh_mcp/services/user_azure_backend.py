@@ -50,11 +50,13 @@ from hushh_mcp.services.azure_registry_prune import RegistryPruneHook
 from hushh_mcp.services.azure_setup_plan import (
     NONCE_TAG,
     PlanInputs,
+    Scopes,
     app_id,
     environment_id,
     group_id,
     identity_id,
     resource_group_name,
+    resource_names,
 )
 from hushh_mcp.services.compute_backend import (
     BACKEND_USER_AZURE,
@@ -168,6 +170,7 @@ class UserAzureBackend(RegistryPruneHook):
         person: Optional[Callable[[str], ArmClient]] = None,
         recorded_principal: str = "",
         recorded_digest: str = "",
+        files_library_enabled: bool = False,
     ) -> None:
         self._tenant = tenant_id
         self._subscription = subscription_id
@@ -178,6 +181,7 @@ class UserAzureBackend(RegistryPruneHook):
         # What the registry recorded for this person's agent; adoption must match it.
         self._recorded_principal = recorded_principal.strip()
         self._recorded_digest = recorded_digest.strip()
+        self._files_library_enabled = files_library_enabled
 
     # -- identity and addressing ---------------------------------------------------
 
@@ -207,7 +211,7 @@ class UserAzureBackend(RegistryPruneHook):
 
         return ArmClient(lambda: azure_federation.app_token(self._tenant).access_token)
 
-    def plan_inputs(self, hushh_id: str, nonce: str) -> PlanInputs:
+    def plan_inputs(self, hushh_id: str, nonce: str, *, files_enabled: bool = False) -> PlanInputs:
         return PlanInputs(
             hushh_id=hushh_id,
             tenant_id=self._tenant,
@@ -215,6 +219,7 @@ class UserAzureBackend(RegistryPruneHook):
             location=self._location,
             resource_group=self._group,
             nonce=nonce,
+            files_enabled=files_enabled,
         )
 
     def provision_target_for(self, spec: PodSpec) -> dict[str, Any]:
@@ -236,7 +241,7 @@ class UserAzureBackend(RegistryPruneHook):
             source_registry="<source-registry>",
             source_repository="<source-repository>",
             incarnation="${incarnation}",
-        )(self.plan_inputs(spec.hushh_id, "0" * 16))
+        )(self.plan_inputs(spec.hushh_id, "0" * 16, files_enabled=spec.files_library_enabled))
         return dict(next(step.body for step in plan.steps if step.path == self.app_id))
 
     # -- observation ---------------------------------------------------------------
@@ -270,6 +275,7 @@ class UserAzureBackend(RegistryPruneHook):
         if not observation.present:
             raise observation.refusal("attach")
         handle = self.verified_handle(spec.hushh_id, observation)
+        self._require_files_installation(spec.hushh_id, observation, spec.files_library_enabled)
         spec.emit_stage("host_created")
         if spec.provision_attempt_id and spec.on_provision_ack is not None:
             metadata = handle.backend_metadata or {}
@@ -287,6 +293,20 @@ class UserAzureBackend(RegistryPruneHook):
         if handle.status == "live":
             spec.emit_stage("host_serving")
         return handle
+
+    def _require_files_installation(
+        self, hushh_id: str, observation: AzureAgentObservation, enabled: bool
+    ) -> None:
+        if enabled:
+            from hushh_mcp.services.pod_files.azure_provisioning import require_installation
+
+            inputs = self.plan_inputs(
+                hushh_id, observation.tags.get(NONCE_TAG, ""), files_enabled=True
+            )
+            scopes = Scopes(inputs, resource_names(inputs))
+            require_installation(
+                observation.app, storage_id=scopes.storage, identity_id=scopes.identity
+            )
 
     async def discover(self, hushh_id: str) -> Optional[BackendHandle]:
         """Adopt only this person's bound agent, on its recorded identity and an approved digest.
@@ -312,6 +332,7 @@ class UserAzureBackend(RegistryPruneHook):
         if refused:
             logger.warning("user_azure_backend.discover_refused reason=%s", refused)
             return None
+        self._require_files_installation(hushh_id, observation, self._files_library_enabled)
         metadata = {**(handle.backend_metadata or {}), "adopted": True}
         return BackendHandle(
             external_agent_id=handle.external_agent_id,
@@ -365,6 +386,42 @@ class UserAzureBackend(RegistryPruneHook):
 
         token = current_jit_token()
         return await asyncio.to_thread(upgrade_agent, self, spec, self._person_factory(token))
+
+    async def inspect_files_capability(self, spec: PodSpec) -> dict:
+        observation = await self.observe()
+        if not observation.present:
+            raise observation.refusal("inspect Files on")
+        handle = self.verified_handle(spec.hushh_id, observation)
+        if (handle.backend_metadata or {}).get("serviceUid") != spec.expected_service_uid:
+            raise ValueError("Files requires the current pod incarnation")
+        return observation.app
+
+    async def discover_files_upgrade_ack(self, spec: PodSpec) -> dict | None:
+        from hushh_mcp.services.azure_agent_upgrade import revision_suffix
+        from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
+        from hushh_mcp.services.pod_release import image_digest
+
+        plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+        app = await self.inspect_files_capability(spec)
+        revision = f"ca-hussh-one-pod--{revision_suffix(spec.upgrade_attempt_id or '')}"
+        props = app.get("properties") or {}
+        if (
+            props.get("latestRevisionName") != revision
+            or props.get("latestReadyRevisionName") != revision
+        ):
+            return None
+        plan.require_installed(app)
+        image = props["template"]["containers"][0]["image"]
+        if image_digest(image) != image_digest(plan.targetImage):
+            return None
+        return {
+            "version": 1,
+            "service": self.app_id,
+            "serviceUid": plan.serviceUid,
+            "revision": revision,
+            "attemptId": spec.upgrade_attempt_id,
+            "image": image,
+        }
 
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]

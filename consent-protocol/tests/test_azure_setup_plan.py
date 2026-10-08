@@ -75,6 +75,35 @@ def test_the_plan_is_deterministic():
     assert render_arm_template(first) == render_arm_template(second)
 
 
+def test_files_plan_keeps_custody_and_queue_with_pod_and_counts_leased_work():
+    ordinary = _plan()
+    plan = _plan(_inputs(files_enabled=True))
+    scopes = plan_module.Scopes(plan.inputs, plan.names)
+    assert {g for g in _grants(plan) if g[2] == HUSSH_PRINCIPAL} == {
+        g for g in _grants(ordinary) if g[2] == HUSSH_PRINCIPAL
+    }
+    grants = _grants(plan) - _grants(ordinary)
+    assert grants == {
+        (scopes.storage, plan_module.files_custody_role_id(scopes.storage), POD_PRINCIPAL),
+        (scopes.files_queue, plan_module.ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR, POD_PRINCIPAL),
+    }
+    queue = next(s for s in plan.steps if s.path == scopes.files_queue)
+    assert queue.create_only  # Never clear queued work during a retry.
+    app = next(s.body for s in plan.steps if s.path == scopes.app and s.kind == "resource")
+    scale = app["properties"]["template"]["scale"]
+    assert (scale["minReplicas"], scale["maxReplicas"]) == (0, 1)
+    rule = next(r["custom"] for r in scale["rules"] if r["name"] == "files")
+    assert rule["identity"] == scopes.identity
+    assert rule["metadata"]["queueLengthStrategy"] == "all"
+    assert rule["metadata"]["activationQueueLength"] == "0"
+    assert any(r.get("http") for r in scale["rules"])
+    env = {e["name"]: e.get("value") for e in app["properties"]["template"]["containers"][0]["env"]}
+    assert env["POD_FILES_AZURE_STORAGE_RESOURCE_ID"] == scopes.storage
+    assert env["POD_FILES_ENABLED"] == "true"
+    template = render_arm_template(plan)
+    assert any(r["id"] == scopes.files_queue for r in template["resources"])
+
+
 def test_steps_follow_the_http_contracts_stage_order():
     stages = [s.stage for s in _plan().steps]
     assert stages == sorted(stages, key=AZURE_JOB_STAGES.index)

@@ -243,6 +243,30 @@ function launchRoute(route) {
   });
 }
 
+function applyEnvValues(values = {}) {
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined && value !== "") {
+      process.env[key] = value;
+    }
+  }
+}
+
+function resolveNativeTestBackendUrl() {
+  const configured = String(process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
+  if (configured && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured)) {
+    return configured;
+  }
+
+  const uatEnvPath = path.join(repoRoot, ".env.uat.local");
+  const uatValues = parseEnvFile(uatEnvPath);
+  const uatBackend = String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
+  if (uatBackend) {
+    return uatBackend;
+  }
+
+  return configured;
+}
+
 function ensureNativeTestBuildEnv() {
   applyNativeAuditBuildEnvironment(repoRoot);
 }

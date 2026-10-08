@@ -58,7 +58,7 @@ def test_single_revision_scales_zero_to_one_writer_at_the_canonical_size():
     assert props["configuration"]["activeRevisionsMode"] == "Single"
     assert props["template"]["scale"] == {"minReplicas": 0, "maxReplicas": 1}
     resources = props["template"]["containers"][0]["resources"]
-    assert resources == {"cpu": 0.5, "memory": POD_MEMORY}
+    assert resources == {"cpu": 1, "memory": POD_MEMORY}
     assert props["workloadProfileName"] == "Consumption"
 
 

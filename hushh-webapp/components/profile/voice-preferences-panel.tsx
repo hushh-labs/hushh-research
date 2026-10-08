@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { PageSubtitle } from "@/components/app-ui/typography";
 import { OneVoicePreferencesSection } from "@/components/profile/one-voice-preferences-section";
-import { Badge } from "@/components/ui/badge";
+import { VoiceControlDomainsGroup } from "@/components/profile/voice-control-domains-group";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -20,7 +20,6 @@ import {
   updateVoicePreferences,
   type OneVoicePreferencesState,
 } from "@/lib/agent/voice-preferences";
-import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationSosVoiceDefaultAction } from "@/lib/one-location/types";
 import { ConnectionsService } from "@/lib/services/connections-service";
@@ -332,43 +331,16 @@ export function VoicePreferencesPanel({
       </SettingsGroup>
       <LocationAgentDefaultsGroup vaultOwnerToken={vaultOwnerToken} />
       <ConnectAgentDefaultsGroup getIdToken={getIdToken} />
-      <SettingsGroup
-        title="What voice can control"
-        description="Turn a domain off to block voice there; tap still works."
-      >
-        {VOICE_ENGINE_DOMAINS.map((domain) => {
-          const allowed = !state.disabledDomains.includes(domain.key);
-          return (
-            <SettingsRow
-              key={domain.key}
-              title={domain.label}
-              description={domain.description}
-              disabled={!state.voiceEnabled || !domain.enforced}
-              trailing={
-                domain.enforced ? (
-                  <Switch
-                    checked={allowed}
-                    disabled={!state.voiceEnabled}
-                    onCheckedChange={(checked) =>
-                      set((current) => ({
-                        ...current,
-                        disabledDomains: checked
-                          ? current.disabledDomains.filter(
-                              (key) => key !== domain.key,
-                            )
-                          : [...current.disabledDomains, domain.key],
-                      }))
-                    }
-                    aria-label={domain.label}
-                  />
-                ) : (
-                  <Badge variant="secondary">Coming soon</Badge>
-                )
-              }
-            />
-          );
-        })}
-      </SettingsGroup>
+      <VoiceControlDomainsGroup
+        enabled={state.voiceEnabled}
+        disabledDomains={state.disabledDomains}
+        onDomainChange={(domain, allowed) => set((current) => ({
+          ...current,
+          disabledDomains: allowed
+            ? current.disabledDomains.filter((key) => key !== domain)
+            : [...current.disabledDomains, domain],
+        }))}
+      />
     </div>
   );
 }

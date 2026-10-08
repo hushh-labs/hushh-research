@@ -2,10 +2,12 @@
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { XIcon } from "@/components/icons";
+import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
-import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
-import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { getVoiceSurfaceMetadata, useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -77,6 +79,7 @@ export function NativeChatChrome(props: Props) {
   const expanded = props.kind === "history" ? props.expanded ?? false : undefined;
   const current = useRef({ allowed, epoch, context, value, props, owningLayer, theme, expanded });
   const lease = useRef<NativeChromeLease | null>(null);
+  const replacementCandidate = useRef<NativeChromeLease | null>(null);
   const heldFocus = useRef(false);
   const moving = useRef(false);
   const focusPending = useRef(false);
@@ -84,6 +87,8 @@ export function NativeChatChrome(props: Props) {
   const mounted = useRef(true);
   const [supported, setSupported] = useState(false);
   const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
+  const [historyReplacement, setHistoryReplacement] = useState(false);
+  const [profileBackReplacement, setProfileBackReplacement] = useState(false);
   const [nativeFocusReturn, setNativeFocusReturn] = useState(false);
   type FocusRequest = { attempt: number; binding: NativeChromeLease | null; resolve: (restored: boolean) => void };
   const nativeFocusPending = useRef<FocusRequest | null>(null);
@@ -125,6 +130,58 @@ export function NativeChatChrome(props: Props) {
     current.current = { allowed, epoch, context, value, props, owningLayer, theme, expanded };
   });
 
+  const restorePendingDomFocus = useCallback(() => {
+    const pending = nativeFocusPending.current;
+    nativeFocusPending.current = null;
+    if (!pending) return;
+    const allowed = mounted.current && pending.attempt === focusAttempt.current && canAct();
+    if (!allowed) { pending.resolve(false); return; }
+    heldFocus.current = true; focusPending.current = true;
+    domFocusPending.current = pending;
+    // Preparation already exposes fallback. A ref change and setHidden(false)
+    // alone do not schedule the commit needed to apply its actual focus.
+    commitFocus((count) => count + 1);
+  }, [canAct]);
+  const restoreNativeFocus = useCallback(async (active: NativeChromeLease) => {
+    const pending = nativeFocusPending.current;
+    if (!pending || pending.binding || lease.current !== active) return;
+    pending.binding = active;
+    const isCurrent = () => mounted.current && nativeFocusPending.current === pending &&
+      focusAttempt.current === pending.attempt && pending.binding === active && lease.current === active &&
+      active.projection.documentId === nativeDocumentId() &&
+      active.projection.ownerEpoch === current.current.epoch && active.context === current.current.context &&
+      isCurrentNativeControlAppearance(active.projection, foreground) && canAct();
+    try {
+      if (await active.restoreFocus(() => {
+        const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
+        return isCurrent() && !!geometry && active.matchesGeometry(geometry);
+      }) && isCurrent() && active.ownsInstallation) {
+        nativeFocusPending.current = null; pending.resolve(true); return;
+      }
+    } catch { /* Unsupported/uncertain focus never replays an action. */ }
+    if (!isCurrent() || !active.ownsInstallation) {
+      // Cleanup can rebind the same current attempt to a resized replacement.
+      // Completion from its retired predecessor must not settle that request.
+      if (nativeFocusPending.current === pending && pending.binding === active) {
+        nativeFocusPending.current = null; pending.resolve(false);
+      }
+      return;
+    }
+    active.invalidate();
+    try {
+      await retireNativeChrome(active.projection.ownerEpoch, active.projection, controlId);
+      if (!isCurrent() || hasOutstandingNativeChrome(controlId)) {
+        if (nativeFocusPending.current === pending && pending.binding === active) {
+          nativeFocusPending.current = null; pending.resolve(false);
+        }
+        return;
+      }
+      restorePendingDomFocus(); setPrepared(null); setHidden(false);
+    } catch {
+      if (nativeFocusPending.current === pending) nativeFocusPending.current = null;
+      pending.resolve(false); // Remain quarantined until confirmed retirement.
+    }
+  }, [canAct, controlId, foreground, kind, restorePendingDomFocus]);
   useImperativeHandle(handleRef, () => ({ restoreFocus: async (preferNative = false) => {
     nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
     domFocusPending.current?.resolve(false); domFocusPending.current = null;
@@ -132,6 +189,19 @@ export function NativeChatChrome(props: Props) {
     const attempt = ++focusAttempt.current;
     const isCurrentAttempt = () => mounted.current && focusAttempt.current === attempt &&
       current.current.epoch === request.epoch && current.current.context === request.context;
+    const active = lease.current;
+    const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
+    if (preferNative && supported && nativeFocusReturn && canAct() && !heldFocus.current &&
+        !slot.current?.contains(document.activeElement) && active?.focusReady && geometry &&
+        active.projection.ownerEpoch === request.epoch && active.context === request.context &&
+        active.matchesGeometry(geometry) && isCurrentNativeControlAppearance(active.projection, foreground)) {
+      // Returning focus is not a new installation. Keep an already-active,
+      // stationary control; the acknowledged focus path still fences failure,
+      // resize, owner changes and stale completion before exposing fallback.
+      const result = new Promise<boolean>((resolve) => { nativeFocusPending.current = { attempt, binding: null, resolve }; });
+      void restoreNativeFocus(active);
+      return result;
+    }
     heldFocus.current = true;
     lease.current?.invalidate();
     try {
@@ -169,52 +239,6 @@ export function NativeChatChrome(props: Props) {
       return false;
     }
   } }));
-  const restorePendingDomFocus = useCallback(() => {
-    const pending = nativeFocusPending.current;
-    nativeFocusPending.current = null;
-    if (!pending) return;
-    const allowed = mounted.current && pending.attempt === focusAttempt.current && canAct();
-    if (!allowed) { pending.resolve(false); return; }
-    heldFocus.current = true; focusPending.current = true;
-    domFocusPending.current = pending;
-    // Preparation already exposes fallback. A ref change and setHidden(false)
-    // alone do not schedule the commit needed to apply its actual focus.
-    commitFocus((count) => count + 1);
-  }, [canAct]);
-  const restoreNativeFocus = useCallback(async (active: NativeChromeLease) => {
-    const pending = nativeFocusPending.current;
-    if (!pending || pending.binding || lease.current !== active) return;
-    pending.binding = active;
-    const isCurrent = () => mounted.current && nativeFocusPending.current === pending &&
-      focusAttempt.current === pending.attempt && pending.binding === active && lease.current === active && canAct();
-    try {
-      if (await active.restoreFocus(isCurrent) && isCurrent()) {
-        nativeFocusPending.current = null; pending.resolve(true); return;
-      }
-    } catch { /* Unsupported/uncertain focus never replays an action. */ }
-    if (!isCurrent()) {
-      // Cleanup can rebind the same current attempt to a resized replacement.
-      // Completion from its retired predecessor must not settle that request.
-      if (nativeFocusPending.current === pending && pending.binding === active) {
-        nativeFocusPending.current = null; pending.resolve(false);
-      }
-      return;
-    }
-    active.invalidate();
-    try {
-      await retireNativeChrome(active.projection.ownerEpoch, active.projection, controlId);
-      if (!isCurrent()) {
-        if (nativeFocusPending.current === pending && pending.binding === active) {
-          nativeFocusPending.current = null; pending.resolve(false);
-        }
-        return;
-      }
-      restorePendingDomFocus(); setPrepared(null); setHidden(false);
-    } catch {
-      if (nativeFocusPending.current === pending) nativeFocusPending.current = null;
-      pending.resolve(false); // Remain quarantined until confirmed retirement.
-    }
-  }, [canAct, controlId, restorePendingDomFocus]);
   useLayoutEffect(() => {
     if (!hidden && focusPending.current && canAct()) {
       focusPending.current = false;
@@ -239,6 +263,8 @@ export function NativeChatChrome(props: Props) {
     let cancelled = false;
     let subscriptionsFailed = false;
     const handles: PluginListenerHandle[] = [];
+    const recoveryDocument = nativeDocumentId(), recoveryEpoch = current.current.epoch;
+    const recovering = lease.current;
     const retain = async (pending: Promise<PluginListenerHandle>) => {
       const handle = await pending;
       if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
@@ -269,15 +295,19 @@ export function NativeChatChrome(props: Props) {
         })), retain(nativeChrome.addListener("invalidated", invalidate)), retain(subscribeNativeSessionPrivacy(invalidate))]);
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
+          setHistoryReplacement(capability.historyReplacement === true);
+          setProfileBackReplacement(capability.profileBackReplacement === true);
           setNativeFocusReturn(capability.focusReturn === true && kind !== "agent-surface"); setSupported(true);
         }
       } catch {
         if (cancelled) return;
         subscriptionsFailed = true;
         handles.splice(0).forEach((handle) => { void handle.remove(); });
+        if (nativeDocumentId() !== recoveryDocument || current.current.epoch !== recoveryEpoch) return;
         try {
-          await retireNativeChrome(current.current.epoch, undefined, controlId);
-          if (!cancelled) setHidden(false);
+          if (recovering) await retireOwnedNativeChrome(recovering.projection);
+          else if (!hasOutstandingNativeChrome(controlId)) await retireNativeChrome(recoveryEpoch, undefined, controlId);
+          if (!cancelled) setHidden(hasOutstandingNativeChrome(controlId));
         } catch { /* Retain quarantine until native retirement is confirmed. */ }
       }
     })();
@@ -383,17 +413,46 @@ export function NativeChatChrome(props: Props) {
     if (!supported) return;
     let cancelled = false;
     let owned: NativeChromeLease | null = null;
+    let inactive = false;
+    const previous = replacementCandidate.current;
+    replacementCandidate.current = null;
+    const retiring = lease.current;
     lease.current?.invalidate();
     void (async () => {
       let stage: "retire" | "prepare" = "retire";
       try {
-        reportRehearsal(stage, "pending");
-        await retireNativeChrome(epoch, undefined, controlId);
-        if (cancelled) return;
         const { theme, expanded, value, props } = current.current;
+        inactive = !allowed || !theme || !canAct() || heldFocus.current || !slot.current;
+        let geometry = allowed && theme && canAct() && !heldFocus.current && slot.current &&
+          !slot.current.contains(document.activeElement) ? measureNativeChromeGeometry(slot.current, kind) : null;
+        const replacing = previous && theme && geometry && (
+          historyReplacement && props.kind === "history" &&
+            previous.canReplaceHistoryWith({ kind: "history", expanded, label: "Chat history", enabled: true, ...theme, ...geometry }, epoch, context) ||
+          profileBackReplacement && props.kind === "profile-back" &&
+            previous.canReplaceBackWith({ kind: "profile-back", label: props.label, enabled: true, ...theme, ...geometry }, epoch, context));
+        if (!replacing) {
+          // Qualified warm geometry must not expose its web replacement while
+          // the bridge acknowledges strict retirement. Focused/moving fallback
+          // controls remain with their existing interaction owner.
+          if (geometry && retiring?.ownsInstallation) setHidden(true);
+          reportRehearsal(stage, "pending");
+          // An inactive retained instance owns only its previous installation,
+          // not a newer authored control sharing this presentation slot.
+          if (inactive) {
+            if (retiring) await retireOwnedNativeChrome(retiring.projection);
+          } else await retireNativeChrome(epoch, undefined, controlId);
+          if (cancelled) return;
+          if (!inactive && hasOutstandingNativeChrome(controlId)) {
+            // Newer slot ownership survived this older removal fence. Do not
+            // mint a fresh lease merely because its acknowledgement arrived.
+            setPrepared(null); setHidden(true);
+            nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
+            return;
+          }
+        }
         setPrepared(null);
         if (!allowed || !theme || !canAct() || heldFocus.current || !slot.current) {
-          setHidden(false);
+          setHidden(hasOutstandingNativeChrome(controlId));
           nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "not-admitted"); return;
         }
@@ -403,7 +462,9 @@ export function NativeChatChrome(props: Props) {
           heldFocus.current = true; nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "focused"); return;
         }
-        const geometry = measureNativeChromeGeometry(slot.current, kind);
+        // Strict removal can wait across a DOM-only position change. Its
+        // pre-removal measurement qualifies a handoff, not a new installation.
+        if (!replacing) geometry = measureNativeChromeGeometry(slot.current, kind);
         if (!geometry) {
           setHidden(false);
           nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
@@ -428,16 +489,25 @@ export function NativeChatChrome(props: Props) {
         // handoff. Do not paint an intermediate, clickable web replacement.
         setHidden(true);
         reportRehearsal(stage, "pending");
-        if (await next.prepare() && !cancelled) { reportRehearsal(stage, "acknowledged"); setHidden(true); setPrepared(next); }
+        const ready = replacing && previous
+          ? props.kind === "profile-back" ? await next.prepareBackReplacement(previous) : await next.prepareHistoryReplacement(previous)
+          : await next.prepare();
+        if (ready && !cancelled) { reportRehearsal(stage, "acknowledged"); setHidden(true); setPrepared(next); }
       } catch (error) {
         if (cancelled || (owned && lease.current !== owned)) return;
         reportRehearsal(stage, "rejected", rehearsalFailureCode(error));
         owned?.invalidate();
         try {
-          await retireNativeChrome(epoch, owned?.projection, controlId);
+          // Failure is not authority over a newer mounted control. Preserve
+          // cleanup of either revision of this lease's uncertain handoff.
+          const recovery = owned ?? retiring;
+          if (recovery) await retireOwnedNativeChrome(recovery.projection);
+          else if (!inactive && !hasOutstandingNativeChrome(controlId)) await retireNativeChrome(epoch, undefined, controlId);
           if (!cancelled) {
-            setHidden(false);
-            restorePendingDomFocus();
+            const occupied = hasOutstandingNativeChrome(controlId);
+            setHidden(occupied);
+            if (!occupied) restorePendingDomFocus();
+            else { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
           }
         }
         catch {
@@ -450,11 +520,22 @@ export function NativeChatChrome(props: Props) {
     })();
     return () => {
       cancelled = true;
+      replacementCandidate.current = (kind === "history" || kind === "profile-back") && owned?.replacementReady ? owned : null;
       owned?.invalidate();
       if (owned && nativeFocusPending.current?.binding === owned) nativeFocusPending.current.binding = null;
-      if (owned) void retireNativeChrome(epoch, owned.projection, controlId).catch(() => undefined);
+      // The next committed layout explicitly replaces or hard-retires this
+      // slot. Actual unmount has its own strict removal below.
     };
-  }, [supported, allowed, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, canAct, reportRehearsal, restorePendingDomFocus]);
+  }, [supported, allowed, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, historyReplacement, profileBackReplacement, canAct, reportRehearsal, restorePendingDomFocus]);
+
+  useLayoutEffect(() => () => {
+    replacementCandidate.current = null;
+    const active = lease.current;
+    active?.invalidate();
+    // Removal reserves its revision before another mounted slot can prepare.
+    // A pending handoff may still own its predecessor, so remove either one.
+    if (active) void retireOwnedNativeChrome(active.projection).catch(() => undefined);
+  }, [controlId]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden) return;
@@ -465,18 +546,24 @@ export function NativeChatChrome(props: Props) {
         if (!inPlaceUpdates) void restoreNativeFocus(prepared);
       }
     }).catch(async (error) => {
-      if (lease.current !== prepared) return;
+      const isCurrent = () => mounted.current && lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
+        prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
+      if (!isCurrent()) return;
       reportRehearsal("activate", "rejected", rehearsalFailureCode(error));
       prepared.invalidate();
       try {
         await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection);
-        if (lease.current === prepared) { restorePendingDomFocus(); setPrepared(null); setHidden(false); }
+        if (!isCurrent()) return;
+        const occupied = hasOutstandingNativeChrome(controlId);
+        if (!occupied) restorePendingDomFocus();
+        else { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
+        setPrepared(null); setHidden(occupied);
       } catch {
         if (lease.current === prepared) { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
         // Quarantine until confirmed retirement.
       }
     });
-  }, [prepared, hidden, reportRehearsal, inPlaceUpdates, restoreNativeFocus, restorePendingDomFocus]);
+  }, [prepared, hidden, controlId, reportRehearsal, inPlaceUpdates, restoreNativeFocus, restorePendingDomFocus]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
@@ -486,23 +573,56 @@ export function NativeChatChrome(props: Props) {
         reportRehearsal("update", "acknowledged"); void restoreNativeFocus(prepared);
       }
     }).catch(async (error) => {
-      if (lease.current !== prepared) return;
+      const isCurrent = () => mounted.current && lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
+        prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
+      if (!isCurrent()) return;
       reportRehearsal("update", "rejected", rehearsalFailureCode(error));
       prepared.invalidate();
       try {
         await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection);
-        if (lease.current === prepared) { restorePendingDomFocus(); setPrepared(null); setHidden(false); }
+        if (!isCurrent()) return;
+        const occupied = hasOutstandingNativeChrome(controlId);
+        if (!occupied) restorePendingDomFocus();
+        else { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
+        setPrepared(null); setHidden(occupied);
       } catch {
         if (lease.current === prepared) { nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null; }
         // Uncertain updates cannot restore a duplicate DOM control.
       }
     });
-  }, [prepared, hidden, inPlaceUpdates, theme, value, expanded, reportRehearsal, restoreNativeFocus, restorePendingDomFocus]);
+  }, [prepared, hidden, controlId, inPlaceUpdates, theme, value, expanded, reportRehearsal, restoreNativeFocus, restorePendingDomFocus]);
 
   return <div ref={slot} className={className} style={props.style} data-native-chrome-slot={controlId}>
     <div inert={hidden} aria-hidden={hidden || undefined} style={{ visibility: hidden ? "hidden" : undefined }}>{children}</div>
     {rehearsalStatus && <span id="native-selector-rehearsal-status" className="sr-only" role="status" aria-live="off" data-testid="native-selector-rehearsal-status">NATIVE_SELECTOR_STATUS {rehearsalStatus}</span>}
   </div>;
+}
+
+/** The authored opener shares the Close family's presentation and focus contract. */
+export function NativeHistoryOpener({ owner, context, eligible, open, pendingAttention, showAttentionDot,
+  focusRef, ref, onActivate }: {
+  owner: string | null; context: string; eligible: boolean; open: boolean;
+  pendingAttention: number; showAttentionDot: boolean;
+  focusRef: RefObject<HTMLButtonElement | null>; ref?: Ref<NativeChatChromeHandle>;
+  onActivate: (preferNativeFocus: boolean, trigger?: HTMLButtonElement) => void;
+}) {
+  const label = open ? "Close chat history" : "Open chat history";
+  return <NativeChatChrome kind="history" owner={owner} pendingAttention={pendingAttention}
+    context={context} eligible={eligible && !open} style={{ visibility: open ? "hidden" : undefined }}
+    onActivate={() => onActivate(true)} focusRef={focusRef} ref={ref}
+    className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
+    <ShellActionSurface variant="icon" id="one-chat-history-trigger" ref={focusRef}
+      // Pointer entry may return to acknowledged native focus. Keyboard and
+      // ambiguous activation retain the DOM focus target until explicit blur.
+      onClick={(event) => onActivate(event.detail > 0, event.currentTarget)}
+      aria-label={`${label}${pendingAttention > 0 && !open
+        ? `, ${pendingAttention} Drive ${pendingAttention === 1 ? "review needs" : "reviews need"} you` : ""}`}
+      title={label} aria-expanded={open} className="relative z-[540]">
+      <AnimatedMenuCrossIcon isOpen={open} />
+      {pendingAttention > 0 && !open && showAttentionDot
+        ? <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
+    </ShellActionSurface>
+  </NativeChatChrome>;
 }
 
 /** Same History control identity, relocated to the modal's authored Close

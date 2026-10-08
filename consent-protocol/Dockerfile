@@ -56,6 +56,10 @@ ENV VIRTUAL_ENV=/opt/venv \
 # Copy application code
 COPY . .
 
+# Validate the filtered image contents with the runtime loader. compileall alone
+# cannot detect a missing YAML prompt_reference. No model or network calls.
+RUN python -c 'from pathlib import Path; from hushh_mcp.hushh_adk.manifest import ManifestLoader; paths=sorted(Path("hushh_mcp/agents").rglob("agent.yaml")); assert paths, "No runtime manifests packaged"; [ManifestLoader.load(str(path)) for path in paths]'
+
 # The generated action catalog is static per image, so its passage vectors are
 # computed here, once, instead of by every instance and worker at startup (about
 # 70s per instance on Cloud Run, 2026-09-27). Runs the runtime's own code against

@@ -41,16 +41,6 @@ import { ApiService } from "@/lib/services/api-service";
 export type WakeState = "awake" | "waking" | "gone";
 type WakeObservation = WakeState | "unknown";
 
-/** How often to re-touch the pod while the person is actually looking at the app.
- *
- * Founder directive 2026-09-02: "we don't need to keep the agent asleep when user is
- * already on the app or has active tab running." A single wake is not enough for that
- * -- one request keeps a Cloud Run instance warm only for its idle window, so a person
- * reading the app for ten minutes still paid the ~11s cold start on their next message.
- * This re-touches inside that window, and ONLY while the tab is visible: the moment
- * they leave, the ticks stop and the pod goes back to costing nothing. */
-const KEEP_ALIVE_INTERVAL_MS = 240_000;
-
 /** Longer than cold start (~11s) + the serving idle window: one wake keeps the pod
  *  warm, so a second inside this window buys nothing and costs a request on a costed
  *  fleet. */
@@ -197,6 +187,13 @@ export function useProactiveAgentWake(input: {
         } else {
           // awake -> already serving; gone -> recovery owns it. Either way, not waking.
           setIsWaking(false);
+          if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+          if (result.state === "awake") {
+            clearTimerRef.current = setTimeout(
+              () => setLivePresence("unknown"),
+              WAKE_COOLDOWN_MS,
+            );
+          }
         }
       } catch {
         // Best-effort by construction: a wake that fails must never break the surface
@@ -225,19 +222,14 @@ export function useProactiveAgentWake(input: {
     };
   }, [enabled, input.userId, input.state, input.health, wakeNow]);
 
-  // The keep-alive. Deliberately NOT routed through `wakeNow`: that path asks
-  // `shouldWakePod`, which declines once health reads `healthy` -- correct for a
-  // courtesy wake, wrong for "stay awake while I am here", which is a decision about
-  // the person's presence rather than about the pod's last known health. The
-  // module-level cooldown still applies, so several open surfaces collapse to one
-  // request, and a hidden tab schedules nothing at all.
+  // One foreground-entry wake also covers a stale "healthy" observation. No
+  // recurring keepalive: reading an idle screen must not buy indefinite compute.
   useEffect(() => {
     if (!enabled) return;
     if (input.state !== "active") return;
     if (isAgentNotAnswering(input.health)) return;
     if (typeof document === "undefined") return;
 
-    let timer: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
     const touch = () => {
       void (async () => {
@@ -256,6 +248,11 @@ export function useProactiveAgentWake(input: {
                 },
                 Math.max(result.etaMs || 0, 1_000),
               );
+            } else if (result.state === "awake") {
+              clearTimerRef.current = setTimeout(
+                () => setLivePresence("unknown"),
+                WAKE_COOLDOWN_MS,
+              );
             }
           }
         } catch {
@@ -267,19 +264,8 @@ export function useProactiveAgentWake(input: {
         }
       })();
     };
-    const start = () => {
-      if (timer) return;
-      touch();
-      timer = setInterval(touch, KEEP_ALIVE_INTERVAL_MS);
-    };
-    const stop = () => {
-      if (!timer) return;
-      clearInterval(timer);
-      timer = null;
-    };
     const onVisibility = () => {
-      if (document.visibilityState === "visible") start();
-      else stop();
+      if (document.visibilityState === "visible") touch();
     };
 
     onVisibility();
@@ -287,7 +273,6 @@ export function useProactiveAgentWake(input: {
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisibility);
-      stop();
     };
   }, [enabled, input.userId, input.state, input.health]);
 

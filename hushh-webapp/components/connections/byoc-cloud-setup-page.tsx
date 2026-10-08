@@ -353,9 +353,12 @@ export function ByocCloudSetupPage() {
   const startAzureSetup = useCallback(
     (subscriptionId?: string | null) => {
       setError(null);
-      return startAzureSignIn("setup", subscriptionId ?? undefined);
+      const filesEnabled = job && azureSubscriptionFromRef(job.projectId)
+        ? job.stages.some((entry) => entry.stage === "files_selection" && entry.enabled === true)
+        : true;
+      return startAzureSignIn("setup", subscriptionId ?? undefined, filesEnabled);
     },
-    [startAzureSignIn],
+    [startAzureSignIn, job],
   );
 
   const chooseHosted = useCallback(async () => {

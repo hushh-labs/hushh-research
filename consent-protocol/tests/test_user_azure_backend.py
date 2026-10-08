@@ -119,6 +119,39 @@ async def test_provision_never_creates_a_missing_agent(arm):
     assert arm.writes() == []
 
 
+async def test_files_setup_attaches_only_after_queue_and_identity_readback(arm):
+    fake = FakeArm()
+    spec = _spec(files_library_enabled=True)
+    setup.run_agent_setup(
+        access_token=_PERSON_TOKEN,
+        tenant_id=_TENANT,
+        subscription_id=_SUB,
+        location="eastus2",
+        spec=spec,
+        source_image=f"{_SOURCE}@{_OLD}",
+        advance=lambda _s: None,
+        arm=fake,
+        hussh_principal_id="88888888-8888-8888-8888-888888888888",
+        http=_Http(),
+        sleep=lambda _s: None,
+    )
+    backend = _backend(fake, files_library_enabled=True, recorded_digest=_OLD)
+    fake.calls.clear()
+    assert (await backend.provision(spec)).status == "live"
+    assert (await backend.discover(_HUSHH_ID)).status == "live"
+    assert not fake.writes()
+    app = fake.resources[backend.app_id]
+    queue = next(
+        rule for rule in app["properties"]["template"]["scale"]["rules"] if rule["name"] == "files"
+    )
+    queue["custom"]["metadata"]["queueLengthStrategy"] = "visibleonly"
+    with pytest.raises(ValueError, match="queue lifecycle"):
+        await backend.provision(spec)
+    with pytest.raises(ValueError, match="queue lifecycle"):
+        await backend.discover(_HUSHH_ID)
+    assert not fake.writes()
+
+
 async def test_an_agent_without_this_persons_binding_is_refused(arm):
     backend = _backend(arm)
     arm.resources[backend.app_id]["tags"]["hussh-setup-binding"] = "0" * 64
@@ -274,7 +307,152 @@ async def test_files_activation_is_refused_on_azure(arm):
             await backend.upgrade(_upgrade_spec(arm, backend, [], files_upgrade_plan={"x": 1}))
 
 
+def test_files_late_receipts_keep_exact_owner_inventory_during_erasure(arm, monkeypatch):
+    import hashlib
+    import json
+    from copy import deepcopy
+    from pathlib import Path
+
+    from hushh_mcp.services.pod_files.azure_checkpoint import AzureFilesUpgradeCheckpoint
+    from tests.pkm_conformance.postgres_harness import find_pg_bin
+    from tests.test_azure_agent_upgrade_handoff import _files_plan
+    from tests.test_personal_agent_notification_checkpoint import _notification_server
+
+    if find_pg_bin() is None:
+        pytest.skip("local PostgreSQL unavailable")
+    plan, row = _files_plan(arm, _backend(arm), f"{_SOURCE}@{_NEW}")
+    lease = "bounded-upgrade-lease"
+    attempt = hashlib.sha256(lease.encode()).hexdigest()
+    root = Path(__file__).resolve().parents[1] / "db/migrations"
+    server = _notification_server(monkeypatch)
+    try:
+        migration = root / "parked/957_personal_agent_azure_files_upgrade.sql"
+        server.apply_file(migration)
+        server.apply_file(migration)
+        assert server.execute("SELECT azure_files_upgrade_admission_ready()")[0][0] is True
+        cp = AzureFilesUpgradeCheckpoint(
+            plan=plan, operation_id="op-files", attempt_id=attempt, original_inventory={}
+        )
+        completed = []
+        for call in plan.operations():
+            intent, inventory = cp.prepare("intent", call["step"], completed)
+            cp.acknowledge(intent)
+            completed = [
+                *completed,
+                {
+                    "step": call["step"],
+                    "ok": True,
+                    "status": 200,
+                    "observation": {
+                        "id": call["path"],
+                        "kind": call["kind"],
+                        "properties": call["body"]["properties"],
+                    },
+                },
+            ]
+            observed, _ = cp.prepare("observed", call["step"], completed)
+            cp.acknowledge(observed)
+            snapshot = {
+                **row,
+                "backend_metadata": {
+                    **row["backend_metadata"],
+                    "upgradeLease": lease,
+                    "upgradeApproval": {
+                        "operationId": "op-files",
+                        "targetImage": plan.targetImage,
+                        "capabilityPlanDigest": plan.digest,
+                        "capabilityPlan": plan.model_dump(),
+                    },
+                    "filesUpgradeCheckpoint": intent,
+                    "azureFilesInventory": inventory,
+                },
+            }
+            reserved = {
+                "version": 1,
+                "ownerId": plan.ownerId,
+                "hushhId": plan.hushhId,
+                "attemptId": "erase-files",
+                "phase": "reserved",
+                "registrySnapshot": snapshot,
+            }
+
+            def valid(value, receipt=observed):
+                return server.execute(
+                    "SELECT valid_erasure_files_upgrade_observation(%s::jsonb,%s::jsonb)",
+                    (json.dumps(value), json.dumps(receipt)),
+                )[0][0]
+
+            assert valid(reserved) is True, call["step"]
+            bad = deepcopy(observed)
+            bad["completed"][-1]["observation"]["id"] += "/foreign"
+            assert valid(reserved, bad) is False
+            for key in ("ownerId", "serviceUid", "principalId", "subscriptionId"):
+                bad_reservation = deepcopy(reserved)
+                bad_reservation["registrySnapshot"]["backend_metadata"]["upgradeApproval"][
+                    "capabilityPlan"
+                ][key] = "foreign"
+                assert valid(bad_reservation) is False
+            assert valid(reserved, {**observed, "attemptId": "wrong"}) is False
+        server.execute(
+            "INSERT INTO personal_agent_registry(user_id,hushh_id,status,deployment_target,user_cloud_tenant_id,user_cloud_subscription_id,user_cloud_resource_group,user_cloud_region,user_cloud_authorized_at,external_agent_id,backend_metadata) VALUES (%s,%s,'provisioned','user_azure',%s,%s,%s,%s,now(),%s,%s::jsonb)",
+            (
+                plan.ownerId,
+                plan.hushhId,
+                plan.tenantId,
+                plan.subscriptionId,
+                plan.resourceGroup,
+                plan.location,
+                plan.service,
+                json.dumps(snapshot["backend_metadata"]),
+            ),
+        )
+        server.execute(
+            "UPDATE personal_agent_registry SET status='suspended',backend_metadata=backend_metadata||jsonb_build_object('erasure',%s::jsonb) WHERE user_id=%s",
+            (json.dumps(reserved), plan.ownerId),
+        )
+        for _ in range(2):
+            assert (
+                server.execute(
+                    "SELECT retain_erasure_files_upgrade_observation(%s,%s,%s::jsonb)",
+                    (plan.ownerId, lease, json.dumps(observed)),
+                )[0][0]
+                is True
+            )
+        bad = {**observed, "attemptId": "other"}
+        assert (
+            server.execute(
+                "SELECT retain_erasure_files_upgrade_observation(%s,%s,%s::jsonb)",
+                (plan.ownerId, lease, json.dumps(bad)),
+            )[0][0]
+            is False
+        )
+        retained = server.execute(
+            "SELECT backend_metadata->'erasure' FROM personal_agent_registry WHERE user_id=%s",
+            (plan.ownerId,),
+        )[0][0]
+        assert retained["registrySnapshot"] == snapshot
+        assert (
+            len(
+                server.execute(
+                    "SELECT effective_erasure_azure_files_inventory(%s::jsonb)",
+                    (json.dumps(retained),),
+                )[0][0]["observations"]
+            )
+            == 4
+        )
+        with pytest.raises(Exception, match="obligations require reconciliation"):
+            server.apply_file(root / "rollback/957_personal_agent_azure_files_upgrade.rollback.sql")
+        server.execute("ROLLBACK")
+    finally:
+        server.stop()
+
+
 async def test_erasure_crypto_erases_first_and_revokes_hussh_last(arm):
+    from hushh_mcp.services.azure_setup_roles import (
+        ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR,
+        files_custody_role_id,
+    )
+
     backend, order = _backend(arm), []
 
     async def crypto_erase(resume: dict) -> dict:
@@ -298,6 +476,8 @@ async def test_erasure_crypto_erases_first_and_revokes_hussh_last(arm):
             (scopes.container, ROLE_STORAGE_BLOB_DATA_CONTRIBUTOR),
             (scopes.registry, ROLE_ACR_PULL),
             (scopes.openai, ROLE_COGNITIVE_SERVICES_OPENAI_USER),
+            (scopes.files_queue, ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR),
+            (scopes.storage, files_custody_role_id(scopes.storage)),
         )
     }
     hussh_last = [
@@ -305,8 +485,11 @@ async def test_erasure_crypto_erases_first_and_revokes_hussh_last(arm):
         role_assignment_path(scopes.environment, observer, HUSSH_PRINCIPAL),
         role_assignment_path(scopes.group, removal_role_id(inputs), HUSSH_PRINCIPAL),
     ]
-    assert set(deletes[:5]) == agent_first and deletes[5:] == hussh_last
-    assert len(receipt["agentAccessRevoked"]) == 5 and len(receipt["husshAccessRevoked"]) == 3
+    assert set(deletes[:7]) == agent_first and deletes[7:] == hussh_last
+    assert (
+        set(receipt["agentAccessRevoked"]) == agent_first
+        and len(receipt["husshAccessRevoked"]) == 3
+    )
     assert receipt["husshAccessRevoked"][-1].startswith(
         f"{group}/providers/Microsoft.Authorization/"
     )
@@ -348,11 +531,11 @@ async def test_a_resumed_revocation_reads_nothing_and_revokes_hussh_last(arm):
     inputs = backend.plan_inputs(_HUSHH_ID, nonce)
     scopes = Scopes(inputs, resource_names(inputs))
     deletes = [path for method, path in arm.writes() if method == "DELETE"]
-    assert len(deletes) == 8 and deletes[-1] == role_assignment_path(
+    assert len(deletes) == 10 and deletes[-1] == role_assignment_path(
         scopes.group, removal_role_id(inputs), HUSSH_PRINCIPAL
     )
     assert receipt["agentErased"] == _agent_erased(arm, backend)
-    assert receipt["husshAccessRevoked"] == deletes[5:]
+    assert receipt["husshAccessRevoked"] == deletes[7:]
 
 
 @pytest.mark.parametrize(

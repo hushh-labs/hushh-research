@@ -107,9 +107,11 @@ credentials, or durable intent across screens.
 - One policy tools: [action_tools.py](../../../consent-protocol/hushh_mcp/one_adk/action_tools.py)
 - Location command proposal route: [command_proposals.py](../../../consent-protocol/api/routes/one/command_proposals.py)
 
-Gmail is deliberately absent from generated discovery while it is paused. Its
-route and manifest remain dormant for an explicit future enablement; no action
-contract, Search result, or One tool can reactivate it by implication.
+Gmail route discovery and `email.chat.turn` are active in the current generated
+gateway. One Live Mail tools bind to that action and enforce their own typed
+read, draft, send-review and confirmation policies; see the
+[Live tool contract](../one/one-voice-live-tool-contract.md). Connector admission,
+Gmail scopes and the owner Send setting remain execution prerequisites.
 
 ## Verification
 

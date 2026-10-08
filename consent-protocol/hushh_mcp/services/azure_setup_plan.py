@@ -26,6 +26,7 @@ from typing import Any, Literal, Optional
 from hushh_mcp.services.azure_arm_client import API_VERSIONS
 from hushh_mcp.services.azure_keyed import keyed_digest
 from hushh_mcp.services.azure_setup_roles import (
+    FILES_CUSTODY_ACTIONS,
     HUSSH_PRINCIPAL,
     OBSERVER_ACTIONS,
     POD_PRINCIPAL,
@@ -35,6 +36,8 @@ from hushh_mcp.services.azure_setup_roles import (
     ROLE_KEY_VAULT_CRYPTO_SERVICE_ENCRYPTION_USER,
     ROLE_KEY_VAULT_SECRETS_USER,
     ROLE_STORAGE_BLOB_DATA_CONTRIBUTOR,
+    ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR,
+    files_custody_role_id,
     observer_role_id,
     removal_condition,
     removal_role_id,
@@ -89,20 +92,21 @@ StepKind = Literal["resource", "action", "role_definition", "role_assignment"]
 class ModelChoice:
     """The agent's own chat model, deployed in the person's Azure OpenAI account.
 
-    gpt-5.6-luna, measured inside Azure on the pod's own identity through the agent
-    harness (2026-10-04, 60 first-tool cases and 22 full Nav turns, two runs each):
-    the most accurate Azure model (54/60 at One's ``low`` effort; gpt-5-mini 45 to
-    49, gpt-6-luna 45 to 49), Nav goal 91%, and at the same time faster (2.9 s per
-    call, 4.8 s per turn) and three times cheaper than gpt-5-mini. One's head already
-    asks for ``low``, which the Responses transport now sends.
+    GPT-6 Luna is the owner-selected provisioning default (2026-10-07).
+    This selection does not change an existing owner's deployment or prove its
+    quality. The 2026-10-04 in-Azure evaluation favored GPT-5.6 Luna (54/60
+    first-tool cases versus GPT-6 Luna's 45 to 49); retain that result when
+    qualifying the new choice. One's head asks for ``low`` reasoning through
+    the existing Responses transport.
 
-    Capacity is thousands of tokens per minute and costs nothing on Global Standard
-    (billed per token). One agent call carries about 18,600 input tokens, so the old
-    50 allowed two or three calls a minute; 250 leaves room for a busy turn.
+    Capacity allocates model-specific rate quota, not a monthly allowance or a
+    reserved-compute fee on Global Standard (billed per token). Read back the
+    deployment's actual TPM/RPM limits; do not infer them for a new model from
+    this integer. Historical One calls carried about 18,600 input tokens.
     """
 
-    name: str = "gpt-5.6-luna"
-    version: str = "2026-07-09"
+    name: str = "gpt-6-luna"
+    version: str = "2026-09-22"
     sku: str = "GlobalStandard"
     capacity: int = 250
     account_kind: Literal["OpenAI", "AIServices"] = "OpenAI"
@@ -133,6 +137,8 @@ class PlanInputs:
     resource_group: str
     nonce: str
     model: Optional[ModelChoice] = field(default_factory=ModelChoice)
+    # Remains opt-in until the approved capability/update lifecycle admits it.
+    files_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -199,6 +205,7 @@ class Scopes:
         self.storage = f"{p}/Microsoft.Storage/storageAccounts/{names.storage_account}"
         self.blob_service = f"{self.storage}/blobServices/default"
         self.container = f"{self.blob_service}/containers/{names.blob_container}"
+        self.files_queue = f"{self.storage}/queueServices/default/queues/files-organization"
         self.registry = f"{p}/Microsoft.ContainerRegistry/registries/{names.registry}"
         self.openai = f"{p}/Microsoft.CognitiveServices/accounts/{names.openai_account}"
         self.deployment = f"{self.openai}/deployments/{names.model_deployment}"
@@ -298,7 +305,7 @@ def _custody_steps(inputs: PlanInputs, names: ResourceNames, scopes: Scopes) -> 
             "isVersioningEnabled": False,
         }
     }
-    return [
+    steps = [
         _resource("creating_key_vault", scopes.vault, "key_vault", vault),
         _resource("creating_key_vault", scopes.key, "key_vault", key, create_only=True),
         _resource("creating_key_vault", scopes.secret, "key_vault", secret, create_only=True),
@@ -311,6 +318,17 @@ def _custody_steps(inputs: PlanInputs, names: ResourceNames, scopes: Scopes) -> 
             {"properties": {"publicAccess": "None"}},
         ),
     ]
+    if inputs.files_enabled:
+        steps.append(
+            _resource(
+                "creating_storage",
+                scopes.files_queue,
+                "storage",
+                {"properties": {}},
+                create_only=True,
+            )
+        )
+    return steps
 
 
 def _platform_steps(inputs: PlanInputs, names: ResourceNames, scopes: Scopes) -> list[ArmStep]:
@@ -391,6 +409,21 @@ def _role_steps(inputs: PlanInputs, names: ResourceNames, scopes: Scopes) -> lis
         _assign(stage, scopes, scopes.container, ROLE_STORAGE_BLOB_DATA_CONTRIBUTOR, POD_PRINCIPAL),
         _assign(stage, scopes, scopes.registry, ROLE_ACR_PULL, POD_PRINCIPAL),
     ]
+    if inputs.files_enabled:
+        custody_role = files_custody_role_id(scopes.storage)
+        steps += [
+            _role_definition(
+                inputs, scopes, custody_role, "Hussh Files Custody Reader", FILES_CUSTODY_ACTIONS
+            ),
+            _assign(stage, scopes, scopes.storage, custody_role, POD_PRINCIPAL),
+            _assign(
+                stage,
+                scopes,
+                scopes.files_queue,
+                ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR,
+                POD_PRINCIPAL,
+            ),
+        ]
     if inputs.model is not None:
         steps.append(
             _assign(
@@ -402,6 +435,28 @@ def _role_steps(inputs: PlanInputs, names: ResourceNames, scopes: Scopes) -> lis
         _assign(stage, scopes, scopes.environment, observer, HUSSH_PRINCIPAL),
     ]
     return steps
+
+
+def files_capability_steps(inputs: PlanInputs) -> tuple[tuple[str, ArmStep], ...]:
+    """The same four Files additions for setup and exact approved capability updates."""
+    selected = replace(inputs, files_enabled=True)
+    names = resource_names(selected)
+    scopes = Scopes(selected, names)
+    queue = next(s for s in _custody_steps(selected, names, scopes) if s.path == scopes.files_queue)
+    role = files_custody_role_id(scopes.storage)
+    expected = {
+        f"{scopes.group}/providers/Microsoft.Authorization/roleDefinitions/{role}": "files_custody_role",
+        role_assignment_path(scopes.storage, role, POD_PRINCIPAL): "iam_files_custody",
+        role_assignment_path(
+            scopes.files_queue, ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR, POD_PRINCIPAL
+        ): "iam_files_queue",
+    }
+    roles = [
+        (expected[s.path], s) for s in _role_steps(selected, names, scopes) if s.path in expected
+    ]
+    if len(roles) != 3:
+        raise ValueError("Files role plan is not complete")
+    return (("files_queue", queue), *roles)
 
 
 def import_image_step(scopes: Scopes, source_registry: str, source_repository: str) -> ArmStep:

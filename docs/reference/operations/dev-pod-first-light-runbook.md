@@ -171,6 +171,25 @@ transient failure, but does not establish its cause. Verify serving digest,
 durable key/cursor, private IAM and unchanged service identity before recording
 recovery. Isolated maintenance never substitutes for Settings owner approval.
 
+### Azure Files activation on an existing pod
+
+Use the existing Files setup offer and exact release approval. Azure capability
+plan version 2 binds the current service identity, setup nonce, template, managed
+identity, storage, key, model and immutable image. Dev migration 957 must pass its
+admission check before the offer is available; it preserves the GCP receipt format.
+
+Fresh owner Microsoft authorization performs a read-only custody preflight before
+draining the agent. A preflight refusal makes no cloud changes and permits a fresh
+offer. Each approved queue or grant addition then records intent and verified
+readback through the same update operation. An uncertain write holds the operation
+for reconciliation; never clear its lease to make the interface retry.
+
+The replacement preserves selected CPU, memory, ingress and encrypted recovery.
+Completion requires the installed Files environment, exact queue scaler, managed
+identity and single-instance configuration to match approval. Record same-image
+activation as a configuration restart. The separate `azureFilesInventory` retains
+cleanup obligations; it is not a Google substrate receipt or proof of live erasure.
+
 ### Recovering a denied Files queue creation
 
 For a blocked Files activation, retain its existing approval, lease, successful
@@ -300,8 +319,10 @@ an explicit Google notification-project adapter; Azure authority alone is insuff
 The OAuth-project topic remains operator-owned and is outside automatic owner
 resource erasure. Owner resources and grants require qualified retained receipts.
 
-Parked migration 956 and its existing-operation checkpoint port must be validated
-and deployed before accepting notification mutations. Without that port or the
+Dev-only migration 956 is applied in the verified October 7 dev release. Recheck
+the target environment's ledger and existing-operation checkpoint port before
+accepting notification mutations; UAT and production graduation is separate.
+Without that port or the
 other prerequisites, notifications remain unavailable while core chat/recovery
 retain their independent status. Verify bounded retries/retention and operator
 recovery status, failed listener retry with unchanged history cursor, and daily
@@ -322,6 +343,11 @@ The disposable Azure native sandbox retry on 2026-10-06 reached the provider,
 created the sandbox and then returned `AZURE_PROBE_EGRESS_REFUSED`. Sandbox and
 outer resource-group deletion were confirmed. Browser readiness, owner-information
 execution and a private bridge remain unproved; that retry does not admit them.
+On October 7, the `2026-09-01-preview` API returned Deny/Full/Enforced policy in a
+bounded control. A later sandbox read returned 403 after creation; worker identity,
+Chromium and broker execution still lacked qualification. Exact sandbox, role and
+resource-group cleanup was confirmed. Retain those gates rather than substituting
+an older API's schema refusal for the current failure.
 
 ### Model project ownership
 

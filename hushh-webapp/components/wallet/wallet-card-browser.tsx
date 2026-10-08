@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode, type TouchEvent } from "react";
-import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowRight, Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WalletAddCollection } from "./wallet-add-collection";
 import { WalletCardFace } from "./wallet-card-face";
-import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails } from "./wallet-demo-cards";
-import { cardNetworkLabel } from "./card-network-mark";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails, type WalletDemoProfile } from "./wallet-demo-cards";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import styles from "./wallet-card-browser.module.css";
 
@@ -19,6 +17,12 @@ const SAMPLE_STATEMENTS = [
 ] as const;
 
 type PreviewAction = "Payment" | "Statement" | "Rewards" | "Autopay" | "Card offers";
+
+function scrollToWorkspaceStart(element: HTMLElement | null) {
+  // The page owns the title, tabs and top-shell clearance. Aligning the card
+  // body to the viewport hides that navigation, including after All cards.
+  element?.closest<HTMLElement>("[data-app-scroll-root]")?.scrollTo({ top: 0, behavior: "instant" });
+}
 
 /** These are illustrations only. No payment service or saved-card records enter this view. */
 function DemoActivity({ cardId, onPreview }: { cardId: string; onPreview: (action: PreviewAction) => void }) {
@@ -40,7 +44,7 @@ function DemoActivity({ cardId, onPreview }: { cardId: string; onPreview: (actio
   </div>;
 }
 
-export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, active = true }: {
+export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, ownerId, active = true, demoProfile }: {
   cards: WalletCardSummary[];
   selectedCardId: string | null;
   onSelect: (id: string) => void;
@@ -50,8 +54,9 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   busyCardId: string | null;
   disabled?: boolean;
   details: ReactNode;
-  dockHost: HTMLElement | null;
+  ownerId?: string;
   active?: boolean;
+  demoProfile?: WalletDemoProfile | null;
 }) {
   const demo = cards.length === 0;
   const collection = demo ? WALLET_DEMO_CARDS : cards;
@@ -61,64 +66,35 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   }, [demo, selectedCardId]);
   const [demoId, setDemoId] = useState("demo-0");
   const [previewAction, setPreviewAction] = useState<PreviewAction | null>(null);
+  useEffect(() => {
+    if (active && demo) {
+      setMode("all");
+      setPreviewAction(null);
+    }
+  }, [active, demo]);
   const content = useRef<HTMLDivElement>(null);
   const gesture = useRef<{ x: number; y: number } | null>(null);
-  const scrollDestination = useRef<number | null>(null);
-  const [scrollingDown, setScrollingDown] = useState(false);
   useEffect(() => {
-    const root = content.current?.closest<HTMLElement>("[data-app-scroll-root]");
-    if (!active || !root) return;
-    let previousTop = Math.max(0, root.scrollTop);
-    const onScroll = () => {
-      const top = Math.max(0, Math.min(root.scrollTop, root.scrollHeight - root.clientHeight));
-      const delta = top - previousTop;
-      if (scrollDestination.current !== null) {
-        const destination = scrollDestination.current;
-        scrollDestination.current = null;
-        if (Math.abs(top - destination) < 2) {
-          previousTop = top;
-          setScrollingDown(false);
-          return;
-        }
-      }
-      if (top <= 0) setScrollingDown(false);
-      else if (Math.abs(delta) >= 2) setScrollingDown(delta > 0);
-      if (Math.abs(delta) >= 2 || top <= 0) previousTop = top;
-    };
-    root.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      root.removeEventListener("scroll", onScroll);
-      setScrollingDown(false);
-    };
+    if (active) scrollToWorkspaceStart(content.current);
   }, [active]);
   const selected = collection.find((card) => card.cardId === (demo ? demoId : selectedCardId)) ?? collection[0];
   if (!selected) return null;
   const index = collection.indexOf(selected);
   const isBusy = disabled || Boolean(busyCardId);
-  const goToTop = () => {
-    const element = content.current;
-    const root = element?.closest<HTMLElement>("[data-app-scroll-root]");
-    if (!element || !root) return;
-    const top = Math.max(0, Math.min(root.scrollHeight - root.clientHeight,
-      root.scrollTop + element.getBoundingClientRect().top - root.getBoundingClientRect().top - 12));
-    scrollDestination.current = Math.abs(root.scrollTop - top) >= 1 ? top : null;
-    setScrollingDown(false);
-    root.scrollTo({ top, behavior: "instant" });
-  };
   const choose = (id: string) => {
     if (isBusy) return;
     setPreviewAction(null);
     if (demo) setDemoId(id);
     else onSelect(id);
     setMode("card");
-    goToTop();
+    scrollToWorkspaceStart(content.current);
   };
   const showAll = () => {
     if (isBusy) return;
     setMode("all");
     setPreviewAction(null);
     onOverview();
-    goToTop();
+    scrollToWorkspaceStart(content.current);
   };
   const finishSwipe = (event: TouchEvent) => {
     const start = gesture.current;
@@ -131,19 +107,10 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     const next = collection[index + (dx < 0 ? 1 : -1)];
     if (next) choose(next.cardId);
   };
-  const dock = <nav aria-label="Wallet card switcher" className={styles.dock} data-scrolling-down={scrollingDown} data-testid="wallet-card-switcher">
-    <Button variant="ghost" size="compact" aria-pressed={mode === "all"} disabled={isBusy} onClick={showAll} className={styles.allButton}>All <span>({collection.length})</span></Button>
-    <div className={styles.thumbnails} data-swipe-views-horizontal-scroll>
-      {collection.map((card, cardIndex) => <button key={card.cardId} type="button" disabled={isBusy} aria-label={`Open ${card.nickname || cardNetworkLabel(card.brand)}, ending ${card.last4}`} aria-pressed={mode === "card" && selected.cardId === card.cardId} onClick={() => choose(card.cardId)} className={styles.thumbnailButton}>
-        <span className={styles.thumbnail} data-finish={cardIndex % 3} aria-hidden="true"><span>{cardNetworkLabel(card.brand)}</span><i /><small>{card.last4}</small></span>
-      </button>)}
-    </div>
-    <Button variant="secondary" size="compact" disabled={isBusy} aria-label="Add a card" onClick={onAdd} className={styles.plus}><Plus aria-hidden="true" className="size-5" /></Button>
-  </nav>;
   return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
-    <h2 className={`${styles.title} ui-text-section-title`}>Your cards</h2>
+    <h2 className="sr-only">Your cards</h2>
     {mode === "all" ? <>
-      <WalletAddCollection cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} scrollStack showActions={false} showDetailsLink />
+      <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} demoProfile={demoProfile} scrollReveal showActions={false} showDetailsLink />
       <div className={styles.quickActions}>
         <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" />{demo ? "Add your first card" : "Add another card"}</Button>
         {demo ? <><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Statement")}>Statements <ArrowRight aria-hidden="true" className="size-4" /></Button><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Autopay")}>Autopay <ArrowRight aria-hidden="true" className="size-4" /></Button></> : null}
@@ -152,11 +119,10 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" onClick={showAll} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />All cards</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>
       {demo ? <div className={styles.paymentHeader}><Button variant="secondary" size="compact" onClick={() => setPreviewAction("Payment")}>Payment</Button></div> : null}
       <div data-swipe-views-horizontal-scroll onTouchStart={(event) => { const point = event.touches[0]; gesture.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null; }} onTouchEnd={finishSwipe} onTouchCancel={() => { gesture.current = null; }} className={styles.selectedFace}>
-        {demo ? <WalletDemoCardFace summary={selected} /> : <WalletCardFace summary={selected} collection />}
+        {demo ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} collection />}
       </div>
-      {demo ? <><DemoActivity cardId={selected.cardId} onPreview={setPreviewAction} /><WalletDemoCardDetails cardId={selected.cardId} /></> : details}
+      {demo ? <><DemoActivity cardId={selected.cardId} onPreview={setPreviewAction} /><WalletDemoCardDetails cardId={selected.cardId} profile={demoProfile} /></> : details}
     </div>}
-    {active && dockHost ? createPortal(dock, dockHost) : null}
     <Dialog modal open={active && Boolean(previewAction)} onOpenChange={(open) => { if (!open) setPreviewAction(null); }}>
       <DialogContent><DialogHeader><DialogTitle>{previewAction}</DialogTitle><DialogDescription>This feature is not connected to a bank. No money moves and no payment is scheduled.</DialogDescription></DialogHeader>
         <div className={styles.previewPanel}><strong>{previewAction === "Payment" ? "Payments are unavailable" : previewAction === "Autopay" ? "Autopay is not enabled" : previewAction === "Rewards" ? "Rewards are unavailable" : previewAction === "Statement" ? "September statement" : "Illustrative card offers"}</strong><p>Add your own card to keep its details securely in Wallet. Banking services are not connected.</p></div>

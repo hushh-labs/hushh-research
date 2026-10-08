@@ -27,6 +27,34 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
     }
 
+    #if DEBUG
+    @MainActor
+    func testNativeContinuityStillObservesNewFramesAndGapsAfterALongWarmSession() {
+        let probe = NativeBackContinuityProbe(host: UIView())
+        for _ in 0..<100_000 { probe.recordFrame(isMissing: true) }
+        let baseline = probe.sampledFrames
+        let missingBaseline = probe.missingFrames
+        probe.recordFrame(isMissing: true)
+        XCTAssertEqual(probe.sampledFrames - baseline, 1, "A long warm session must still prove fresh sampling")
+        XCTAssertEqual(probe.missingFrames - missingBaseline, 1, "A newly missing control must remain observable")
+    }
+
+    func testPublicLayoutObservationsRejectInactiveShieldedAndSupersededSamples() {
+        typealias Snapshot = HushhSessionPrivacyShield.Snapshot
+        let admitted = Snapshot(shielded: false, generation: 7, cause: "inactive", appIsActive: true)
+        XCTAssertTrue(NativeVaultLayoutProbe.acceptsSample(captured: admitted, current: admitted))
+        let refused = [
+            Snapshot(shielded: true, generation: 7, cause: "inactive", appIsActive: true),
+            Snapshot(shielded: false, generation: 7, cause: "inactive", appIsActive: false),
+            Snapshot(shielded: false, generation: 8, cause: "inactive", appIsActive: true),
+        ]
+        for snapshot in refused {
+            XCTAssertFalse(NativeVaultLayoutProbe.acceptsSample(captured: admitted, current: snapshot))
+            XCTAssertFalse(NativeVaultLayoutProbe.acceptsSample(captured: snapshot, current: admitted))
+        }
+    }
+    #endif
+
     @MainActor
     func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() {
         let plugin = HushhNativeChromePlugin()
@@ -133,6 +161,46 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.prepare(.init(document: "a", ownerEpoch: "owner-a", revision: 99)))
         state.invalidate()
         XCTAssertFalse(state.activate(next))
+
+        // History shares the state machine, not Back's presentation identity.
+        let history = HushhNativeChromeState.Identity(document: "c", ownerEpoch: "owner-a", revision: 1,
+                                                       controlId: "chat-history-toggle")
+        let historyNext = HushhNativeChromeState.Identity(document: "c", ownerEpoch: "owner-a", revision: 2,
+                                                           controlId: "chat-history-toggle")
+        XCTAssertTrue(state.prepare(history))
+        XCTAssertFalse(state.prepareHistoryReplacement(historyNext, previousRevision: 1)) // prepared only
+        XCTAssertTrue(state.activate(history))
+        XCTAssertFalse(state.prepareBackReplacement(historyNext, previousRevision: 1)) // wrong family
+        XCTAssertFalse(state.prepareHistoryReplacement(.init(document: "c", ownerEpoch: "other", revision: 2,
+            controlId: "chat-history-toggle"), previousRevision: 1))
+        XCTAssertFalse(state.prepareHistoryReplacement(.init(document: "d", ownerEpoch: "owner-a", revision: 2,
+            controlId: "chat-history-toggle"), previousRevision: 1))
+        XCTAssertEqual(state.identity, history)
+        XCTAssertTrue(state.prepareHistoryReplacement(historyNext, previousRevision: 1))
+        XCTAssertFalse(state.confirm(history, sequence: 3, latestSequence: 3, allowed: true))
+        XCTAssertFalse(state.confirm(historyNext, sequence: 3, latestSequence: 3, allowed: true))
+        XCTAssertTrue(state.activate(historyNext))
+        XCTAssertTrue(state.confirm(historyNext, sequence: 3, latestSequence: 3, allowed: true))
+        XCTAssertFalse(state.confirm(historyNext, sequence: 3, latestSequence: 3, allowed: true))
+
+        let profile = HushhNativeChromeState.Identity(document: "e", ownerEpoch: "owner-a", revision: 1,
+                                                     controlId: "profile-back")
+        let profileNext = HushhNativeChromeState.Identity(document: "e", ownerEpoch: "owner-a", revision: 2,
+                                                         controlId: "profile-back")
+        XCTAssertTrue(state.prepare(profile))
+        XCTAssertFalse(state.prepareBackReplacement(profileNext, previousRevision: 1)) // not active
+        XCTAssertTrue(state.activate(profile))
+        XCTAssertFalse(state.prepareBackReplacement(.init(document: "e", ownerEpoch: "owner-a", revision: 2),
+                                                    previousRevision: 1)) // shell cannot inherit Profile's slot
+        XCTAssertFalse(state.prepareBackReplacement(.init(document: "e", ownerEpoch: "owner-b", revision: 2,
+            controlId: "profile-back"), previousRevision: 1))
+        XCTAssertFalse(state.prepareHistoryReplacement(profileNext, previousRevision: 1))
+        XCTAssertEqual(state.identity, profile)
+        XCTAssertTrue(state.prepareBackReplacement(profileNext, previousRevision: 1))
+        XCTAssertFalse(state.confirm(profile, sequence: 4, latestSequence: 4, allowed: true))
+        XCTAssertFalse(state.confirm(profileNext, sequence: 4, latestSequence: 4, allowed: true))
+        XCTAssertTrue(state.activate(profileNext))
+        XCTAssertTrue(state.confirm(profileNext, sequence: 4, latestSequence: 4, allowed: true))
     }
 
     func testNativeChromeUpdatesFenceOldChoicesWithoutReplacingTheInstallation() {
@@ -421,6 +489,19 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(config.initialRoute, "/login?redirect=%2Fconsents")
         XCTAssertEqual(config.expectedMarker, "consent-manager-primary")
         XCTAssertTrue(config.autoReviewerLogin)
+    }
+
+    func testNativeReviewerCredentialsNeverComeFromLaunchArguments() {
+        let launch = NativeTestConfiguration(arguments: [
+            "App", "-UITestMode", "-UITestVaultPassphrase", "synthetic-argument-value",
+        ], environment: [:])
+        XCTAssertNil(launch.vaultPassphrase)
+        let environment = ["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE": " synthetic memory value "]
+        let admitted = NativeTestConfiguration(arguments: ["App", "-UITestMode"], environment: environment)
+        XCTAssertEqual(admitted.vaultPassphrase, " synthetic memory value ")
+        let ordinary = NativeTestConfiguration(arguments: ["App"], environment: environment)
+        XCTAssertNil(ordinary.vaultPassphrase)
+        XCTAssertFalse(ordinary.injectedScript.contains("synthetic memory value"))
     }
 
     func testNativeUiFlowConfigurationRequiresExplicitTestMode() {

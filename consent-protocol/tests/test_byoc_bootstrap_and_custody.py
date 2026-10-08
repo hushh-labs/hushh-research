@@ -1907,6 +1907,7 @@ def test_notification_checkpoint_receives_only_capability_steps_and_owner_receip
 
 @pytest.mark.parametrize("existing_job", [False, True])
 def test_direct_notification_configuration_retains_exact_owner_http_job(existing_job):
+    from api.routes.one.pod_maintenance import scheduled_router as maintenance_router
     from hushh_mcp.services.byoc_substrate import SubstrateReceipt
 
     plan = _plan()
@@ -1929,6 +1930,9 @@ def test_direct_notification_configuration_retains_exact_owner_http_job(existing
             "serviceAccountEmail": plan["gmailNotifications"]["pushServiceAccount"],
             "audience": "https://one-owner.a.run.app",
         },
+    }
+    assert job["httpTarget"]["uri"].removeprefix("https://one-owner.a.run.app") in {
+        route.path for route in maintenance_router.routes if "POST" in route.methods
     }
     assert "pubsubTarget" not in job
     writes = [

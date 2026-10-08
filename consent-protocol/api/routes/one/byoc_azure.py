@@ -51,6 +51,7 @@ _AZURE_TASKS: set = set()
 
 class AzureAuthorizeBeginRequest(BaseModel):
     subscriptionId: Optional[str] = Field(default=None, max_length=64)
+    filesEnabled: bool = Field(default=False, strict=True)
 
 
 class AzureAuthorizeBeginResponse(BaseModel):
@@ -78,6 +79,7 @@ class AzureAuthorizeCompleteResponse(BaseModel):
     #: Only with needs_subscription: choose_subscription | no_enabled_subscription |
     #: personal_account (a personal Microsoft account must name its subscription id).
     reason: Optional[str] = None
+    filesEnabled: Optional[bool] = None
 
 
 def _refuse(status: int, code: str, message: str) -> HTTPException:
@@ -182,6 +184,7 @@ async def _authorization_url(
     subscription_id: str = "",
     tenant_id: str = "",
     login_hint: str = "",
+    files_enabled: bool = False,
 ) -> str:
     """``entra.begin`` off the loop, every configuration refusal typed."""
     from hushh_mcp.services.azure_federation import AzureFederationError
@@ -194,6 +197,7 @@ async def _authorization_url(
             subscription_id=subscription_id,
             tenant_id=tenant_id,
             login_hint=login_hint,
+            files_enabled=files_enabled,
         )
     except entra.AzureAuthorizeError as exc:
         raise _pass_through(exc) from exc
@@ -219,8 +223,11 @@ async def begin_azure_authorize(
     if subscription and not entra.is_guid(subscription):
         raise _refuse(422, "BAD_SUBSCRIPTION", "That is not an Azure subscription id.")
     await _require_setup_admission(firebase_uid)
+    _require_files_available(body.filesEnabled)
     await _require_image_access(await _source_image())
-    url = await _authorization_url(firebase_uid, kind="setup", subscription_id=subscription)
+    url = await _authorization_url(
+        firebase_uid, kind="setup", subscription_id=subscription, files_enabled=body.filesEnabled
+    )
     from hushh_mcp.services.byoc_setup_intent import record_intent
 
     await record_intent(firebase_uid, provider="azure")  # pending, never Shared, meanwhile
@@ -271,22 +278,54 @@ async def _choose_subscription(
     )
 
 
-async def _claim_job(user_id: str, group_ref: str) -> tuple[str, bool]:
+def _require_files_available(selected: bool) -> None:
+    if selected and os.getenv("HUSSH_POD_FILES_ENABLED", "").lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        raise _refuse(
+            409, "FILES_SETUP_UNAVAILABLE", "Files setup is not available on this release."
+        )
+
+
+async def _claim_job(
+    user_id: str, group_ref: str, *, files_enabled: bool = False
+) -> tuple[str, bool]:
     """(job id, started). An identical running job is returned, never doubled."""
     from hushh_mcp.services import byoc_setup_job_service as jobs
 
     job_id = jobs.new_job_id()
     repo = jobs.ByocSetupJobRepo()
-    if await repo.start(user_id=user_id, job_id=job_id, project_id=group_ref):
+    if await repo.start(
+        user_id=user_id, job_id=job_id, project_id=group_ref, files_enabled=files_enabled
+    ):
         return job_id, True
     current = await repo.get(user_id)
     if current and current.get("status") == "running" and current.get("project_id") == group_ref:
+        selected = any(
+            item.get("stage") == "files_selection" and item.get("enabled") is True
+            for item in current.get("stages", [])
+            if isinstance(item, dict)
+        )
+        if selected != files_enabled:
+            raise _refuse(
+                409,
+                "SETUP_SELECTION_CHANGED",
+                "Finish the existing cloud setup before changing Files.",
+            )
         return str(current["job_id"]), False
     raise _refuse(409, "SETUP_IN_PROGRESS", "A cloud setup is already running.")
 
 
 async def _start_setup(
-    user_id: str, token: entra.DelegatedToken, subscription: str, row: dict
+    user_id: str,
+    token: entra.DelegatedToken,
+    subscription: str,
+    row: dict,
+    *,
+    files_enabled: bool = False,
 ) -> AzureAuthorizeCompleteResponse:
     from hushh_mcp.services.azure_setup_job import run_azure_setup_job
     from hushh_mcp.services.azure_setup_plan import group_id, resource_group_name
@@ -296,7 +335,10 @@ async def _start_setup(
 
     source = await _source_image()
     group = resource_group_name(str(row["hushh_id"]))
-    job_id, started = await _claim_job(user_id, group_id(subscription, group))
+    _require_files_available(files_enabled)
+    job_id, started = await _claim_job(
+        user_id, group_id(subscription, group), files_enabled=files_enabled
+    )
     if started:
         spec = PodSpec(
             hushh_id=str(row["hushh_id"]),
@@ -309,6 +351,7 @@ async def _start_setup(
             user_cloud_subscription_id=subscription,
             user_cloud_resource_group=group,
             user_cloud_region=DEFAULT_LOCATION,
+            files_library_enabled=files_enabled,
         )
         _spawn(
             run_azure_setup_job(
@@ -346,6 +389,7 @@ async def complete_azure_authorize(
         selection = entra.verify_state(body.state, firebase_uid)
         if selection.kind in ("setup", "discover"):
             row = await _require_setup_admission(firebase_uid)
+            _require_files_available(selection.files_enabled)
         if selection.kind == "discover":
             return await _continue_in_home_directory(firebase_uid, body.state, selection, body.code)
         token = await asyncio.to_thread(entra.redeem, body.state, selection, body.code)
@@ -360,8 +404,12 @@ async def complete_azure_authorize(
         return rebuilt
     subscription, ask = await _choose_subscription(token, selection.subscription_id)
     if ask is not None or subscription is None:
-        return ask or AzureAuthorizeCompleteResponse(status="needs_subscription", subscriptions=[])
-    return await _start_setup(firebase_uid, token, subscription, row)
+        return (
+            ask or AzureAuthorizeCompleteResponse(status="needs_subscription", subscriptions=[])
+        ).model_copy(update={"filesEnabled": True if selection.files_enabled else None})
+    return await _start_setup(
+        firebase_uid, token, subscription, row, files_enabled=selection.files_enabled
+    )
 
 
 async def _continue_in_home_directory(
@@ -375,10 +423,17 @@ async def _continue_in_home_directory(
     if not tenant:
         # Not found: the person names a subscription, whose directory ARM reveals.
         return AzureAuthorizeCompleteResponse(
-            status="needs_subscription", subscriptions=[], reason="personal_account"
+            status="needs_subscription",
+            subscriptions=[],
+            reason="personal_account",
+            filesEnabled=True if selection.files_enabled else None,
         )
     url = await _authorization_url(
-        user_id, kind="setup", tenant_id=tenant, login_hint=account.login_hint
+        user_id,
+        kind="setup",
+        tenant_id=tenant,
+        login_hint=account.login_hint,
+        files_enabled=selection.files_enabled,
     )
     return AzureAuthorizeCompleteResponse(status="continue", authorizationUrl=url)
 

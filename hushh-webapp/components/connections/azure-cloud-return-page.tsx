@@ -53,6 +53,7 @@ type ReturnView =
       kind: "needs_subscription";
       subscriptions: AzureSubscription[];
       reason?: AzureSubscriptionReason;
+      filesEnabled?: boolean;
     }
   | { kind: "upgrading"; jobId: string }
   | { kind: "error"; message: string };
@@ -97,6 +98,7 @@ function viewForCompletion(result: AzureAuthorizeCompletion): ReturnView {
     kind: "needs_subscription",
     subscriptions: result.subscriptions,
     reason: result.reason,
+    filesEnabled: result.filesEnabled,
   };
 }
 
@@ -270,7 +272,7 @@ export function AzureCloudReturnPage() {
             subscriptions={view.subscriptions}
             reason={view.reason}
             busy={signIn.starting}
-            onContinue={(subscriptionId) => start("setup", subscriptionId)}
+            onContinue={(subscriptionId) => start("setup", subscriptionId, view.filesEnabled)}
           />
         ) : view.kind === "upgrading" ? (
           keptHere ? (

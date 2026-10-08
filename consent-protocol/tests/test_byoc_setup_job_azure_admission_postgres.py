@@ -104,13 +104,16 @@ def _start(pg: TempPostgres, project_id: str, job: str = "job-1") -> bool:
     return asyncio.run(repo.start(user_id=OWNER, job_id=job, project_id=project_id))
 
 
-def test_an_azure_setup_job_runs_from_start_to_recorded(pg):
+@pytest.mark.parametrize("files_enabled", [False, True])
+def test_an_azure_setup_job_runs_from_start_to_recorded(pg, files_enabled):
     _reserved_owner(pg)
     repo = ByocSetupJobRepo(client=_Client(pg))
     group_ref = group_id(SUB, GROUP)
 
     # The insert the live run was refused at, through the real store.
-    assert asyncio.run(repo.start(user_id=OWNER, job_id="job-1", project_id=group_ref))
+    assert asyncio.run(
+        repo.start(user_id=OWNER, job_id="job-1", project_id=group_ref, files_enabled=files_enabled)
+    )
     # advance()/finish() use the query-builder client; the same UPDATEs, raw.
     for stage in ("creating_resource_group", "deploying_agent", "proving"):
         pg.execute(
@@ -121,6 +124,7 @@ def test_an_azure_setup_job_runs_from_start_to_recorded(pg):
         record_proven_azure_cloud(
             repo, user_id=OWNER, job_id="job-1", tenant_id=TENANT, subscription_id=SUB,
             resource_group=GROUP, location="eastus2", model_credential_mode="user_azure_mi",
+            files_enabled=files_enabled,
         )
     )  # fmt: skip
     pg.execute(
@@ -136,6 +140,14 @@ def test_an_azure_setup_job_runs_from_start_to_recorded(pg):
         (OWNER,),
     )
     assert row == ("user_azure", SUB, GROUP, None)
+    from hushh_mcp.services.pod_files.selection import selected_for_row
+
+    [stored] = pg.execute(
+        "SELECT row_to_json(r) FROM personal_agent_registry r WHERE user_id=%s", (OWNER,)
+    )
+    assert selected_for_row(stored[0]) is files_enabled
+    changed = {**stored[0], "user_cloud_subscription_id": TENANT}
+    assert selected_for_row(changed) is False
 
 
 def test_a_google_cloud_project_is_still_admitted(pg):

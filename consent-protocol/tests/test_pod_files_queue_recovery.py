@@ -178,6 +178,48 @@ async def test_files_queue_recovery_refuses_changed_authority_and_retains_blocke
     assert registry.final_writes == []
 
 
+@pytest.mark.asyncio
+async def test_read_only_files_preflight_refusal_releases_only_a_new_operation(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import personal_agent_provisioning_service as pas
+    from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
+
+    row, plan, spec, _observed, _prefix = _denied_queue_fixture()
+    row.update(phone_e164_hash="opaque", pod_pubkey="public")
+    metadata = row["backend_metadata"]
+    for name in ("upgradeLease", "filesUpgradeCheckpoint", "upgradeAcknowledgement"):
+        metadata.pop(name, None)
+    metadata["upgradeApproval"]["status"] = "approved"
+    metadata["image"] = spec.upgrade_target_image
+    metadata["source_image"] = spec.upgrade_target_image
+    registry = _ExecutionRegistry(row)
+    registry.get = AsyncMock(side_effect=lambda _: copy.deepcopy(registry.row))
+    registry.files_upgrade_admission_ready = AsyncMock(return_value=True)
+
+    async def claim(**_):
+        registry.row["backend_metadata"]["upgradeLease"] = "new-lease"
+        return "new-lease"
+
+    registry.claim_image_upgrade = claim
+    backend = SimpleNamespace(
+        live=True, upgrade=AsyncMock(side_effect=FilesCapabilityChanged("custody unavailable"))
+    )
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED", "1")
+    monkeypatch.setattr(pas, "resolve_user_cloud", AsyncMock(return_value=None))
+    monkeypatch.setattr(pas, "set_by_newer_hub", lambda _: False)
+    monkeypatch.setattr(pas, "pod_lifecycle_append", AsyncMock())
+    service = PersonalAgentProvisioningService(registry=registry, backend=backend)
+    monkeypatch.setattr(service, "_backend_for", lambda _: backend)
+    with pytest.raises(FilesCapabilityChanged):
+        await service.upgrade_pod(user_id=plan.ownerId, current_image=spec.upgrade_target_image)
+    backend.upgrade.assert_awaited_once()
+    final = registry.row["backend_metadata"]
+    assert "upgradeLease" not in final and "filesUpgradeCheckpoint" not in final
+    assert final["upgradeApproval"]["status"] == "failed"
+
+
 @pytest.mark.parametrize("failure", [None, "permission", "queue", "worker"])
 def test_files_queue_recovery_requires_provider_absence_and_original_identity(monkeypatch, failure):
     from unittest.mock import Mock

@@ -225,6 +225,12 @@ async def run_connector_put(
     result = {"connectorId": recorded.connector_id, "status": recorded.status}
     if not cleanup_confirmed:
         result["legacyCleanup"] = "unconfirmed"
+    elif recorded.connector_id == "gmail":
+        from hushh_mcp.services.pod_gmail_doorbell import arm_watch_after_connect
+
+        # A notification cannot precede confirmed custody transition. Failure
+        # leaves the connection intact; authenticated maintenance retries watch.
+        await arm_watch_after_connect()
     return result
 
 

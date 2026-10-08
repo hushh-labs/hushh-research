@@ -9,9 +9,42 @@ from typing import Any
 
 
 def selected_for_row(row: dict[str, Any]) -> bool:
-    value = (row.get("backend_metadata") or {}).get("filesSetup") or {}
+    metadata = row.get("backend_metadata")
+    if not isinstance(metadata, dict):
+        return False
+    value = metadata.get("filesSetup")
+    if not isinstance(value, dict):
+        return False
+    if row.get("deployment_target") == "user_azure":
+        coordinates = {
+            "tenantId": "user_cloud_tenant_id",
+            "subscriptionId": "user_cloud_subscription_id",
+            "resourceGroup": "user_cloud_resource_group",
+            "location": "user_cloud_region",
+        }
+        return bool(
+            type(value.get("version")) is int
+            and value.get("version") == 2
+            and value.get("provider") == "user_azure"
+            and value.get("enabled") is True
+            and isinstance(value.get("setupJobId"), str)
+            and value["setupJobId"].strip()
+            and all(
+                isinstance(row.get(column), str)
+                and row[column].strip()
+                and value.get(key) == row[column]
+                for key, column in coordinates.items()
+            )
+            and row.get("user_cloud_authorized_at")
+        )
     return bool(
-        value.get("version") == 1
+        row.get("deployment_target") == "user_gcp"
+        and isinstance(row.get("user_cloud_project"), str)
+        and bool(row["user_cloud_project"].strip())
+        and isinstance(row.get("user_cloud_bootstrap_sa"), str)
+        and bool(row["user_cloud_bootstrap_sa"].strip())
+        and type(value.get("version")) is int
+        and value.get("version") == 1
         and value.get("enabled") is True
         and value.get("project") == row.get("user_cloud_project")
         and value.get("bootstrapAccount") == row.get("user_cloud_bootstrap_sa")
@@ -95,6 +128,7 @@ async def publish_selection(
           AND j.stage IN ('proving', 'awaiting_agent_record', 'attached')
           AND j.stages @> CAST(:selected AS jsonb)
           AND r.user_cloud_project = :project
+          AND r.deployment_target = 'user_gcp'
           AND r.user_cloud_bootstrap_sa = :bootstrap
           AND r.user_cloud_authorized_at IS NOT NULL
           AND r.external_agent_id IS NULL

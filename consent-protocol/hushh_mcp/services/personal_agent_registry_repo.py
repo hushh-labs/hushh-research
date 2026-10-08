@@ -393,6 +393,11 @@ class PersonalAgentRegistryRepo:
         )
         return bool(result.data and result.data[0].get("ready") is True)
 
+    async def files_capability_admission_ready(self, version: int) -> bool:
+        from hushh_mcp.services.pod_files.capability_contract import provider_schema_ready
+
+        return await provider_schema_ready(self._db(), version)
+
     async def retain_erasure_memory_binding(
         self, *, user_id: str, reservation: dict, receipt: dict
     ) -> bool:

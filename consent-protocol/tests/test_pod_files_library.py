@@ -181,3 +181,122 @@ async def test_revocation_during_metadata_fetch_refuses_result(library, monkeypa
     monkeypatch.setattr(library.store, "get_with_generation", delayed)
     with pytest.raises(FilesRefused, match="AUTHORITY_REVOKED"):
         await library.stat(entry["id"])
+
+
+async def test_azure_files_restart_preserves_bytes_cas_and_ciphertext():
+    from hushh_mcp.services.pod_files.azure_storage import FilesAzureStore
+    from tests.pod_azure_fakes import CONTAINER_URL, FakeBlobService
+
+    cloud = FakeBlobService()
+    account = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/pod/providers/Microsoft.Storage/storageAccounts/podacct"
+
+    def reopen():
+        store = FilesAzureStore(
+            CONTAINER_URL + "/files/v1",
+            account_id=account,
+            session=cloud,
+            token_provider=lambda _: "synthetic-pod-token",
+        )
+        return FilesLibrary(owner="ha1", key=b"K" * 32, store=store, check=allowed)
+
+    library = reopen()
+    payload = b"synthetic private file bytes"
+    entry = await library.create(
+        name="private.txt", parent="root", size=len(payload), request_id="azure-upload"
+    )
+    await library.put_chunk(entry["id"], 0, payload)
+    recovered = reopen()
+    await recovered.put_chunk(entry["id"], 0, payload)
+    completed = await recovered.complete(entry["id"])
+    assert await recovered.read_chunk(entry["id"], 0) == payload
+    await recovered.mutate(
+        entry["id"], revision=completed["revision"], operation="rename", name="renamed.txt"
+    )
+    with pytest.raises(FilesRefused, match="REVISION"):
+        await library.mutate(
+            entry["id"], revision=completed["revision"], operation="rename", name="stale.txt"
+        )
+    assert all(
+        payload not in body and b"private.txt" not in body for body, _ in cloud.blobs.values()
+    )
+
+
+async def test_azure_files_custody_and_listing_refuse_foreign_or_public_storage(monkeypatch):
+    from hushh_mcp.services.pod_azure_blob_store import PodBlobStorageError
+    from hushh_mcp.services.pod_files.azure_storage import FilesAzureStore
+    from tests.pod_azure_fakes import CONTAINER_URL, FakeBlobService, FakeResponse
+
+    account = "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/pod/providers/Microsoft.Storage/storageAccounts/podacct"
+    cloud = FakeBlobService()
+    store = FilesAzureStore(
+        CONTAINER_URL + "/files/v1",
+        account_id=account,
+        session=cloud,
+        token_provider=lambda _: "synthetic",
+    )
+    with pytest.raises(FilesRefused, match="CUSTODY"):
+        FilesAzureStore(CONTAINER_URL, account_id=account.replace("podacct", "foreign"))
+    policy = {
+        "allowBlobPublicAccess": False,
+        "allowSharedKeyAccess": False,
+        "supportsHttpsTrafficOnly": True,
+        "minimumTlsVersion": "TLS1_2",
+        "encryption": {"services": {"blob": {"enabled": True}}},
+    }
+    monkeypatch.setattr(
+        store,
+        "_properties",
+        lambda path: (
+            policy
+            if path == account
+            else {"publicAccess": "None"}
+            if path.endswith("/agent")
+            else {"deleteRetentionPolicy": {"enabled": True, "days": 7}}
+        ),
+    )
+    assert (await store.verify_bucket("https://vault.vault.azure.net/keys/key/version"))[
+        "softDeleteSeconds"
+    ] == 604800
+    policy["allowBlobPublicAccess"] = True
+    store._security_checked_at = 0
+    with pytest.raises(FilesRefused, match="CUSTODY"):
+        await store.verify_bucket("https://vault.vault.azure.net/keys/key/version")
+    cloud.scripted.append(
+        (
+            "get",
+            FakeResponse(
+                200,
+                content=b"<EnumerationResults><Blobs><Blob><Name>pods/ha1/files/v1/entries/a.bin</Name></Blob></Blobs><NextMarker>next</NextMarker></EnumerationResults>",
+            ),
+        )
+    )
+    assert await store.list_page("entries") == (["entries/a.bin"], "next")
+    cloud.scripted.append(
+        (
+            "get",
+            FakeResponse(
+                200,
+                content=b"<EnumerationResults><Blobs><Blob><Name>pods/other/files/v1/entries/a.bin</Name></Blob></Blobs></EnumerationResults>",
+            ),
+        )
+    )
+    with pytest.raises(PodBlobStorageError, match="escaped"):
+        await store.list_page("entries")
+
+    class UnboundedError:
+        status_code = 404
+        headers = {}
+        closed = False
+
+        @property
+        def text(self):
+            pytest.fail("Do not materialize an unbounded error body")
+
+        def close(self):
+            self.closed = True
+
+    error = UnboundedError()
+    cloud.scripted.append(("get", error))
+    with pytest.raises(PodBlobStorageError):
+        await store.get("entries/missing.bin")
+    assert error.closed

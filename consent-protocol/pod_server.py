@@ -65,6 +65,9 @@ from api.routes.one.pod_connectors import router as pod_connectors_router
 from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_gmail_push import router as pod_gmail_push_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
+from api.routes.one.pod_maintenance import (
+    scheduled_router as pod_scheduled_maintenance_router,  # noqa: E402
+)
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
 from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
@@ -138,10 +141,10 @@ _POD_ROUTERS = (
     pod_gmail_push_router,
     pod_browser_router,
     # The tick: background attention arrives as an inbound authenticated request,
-    # because an economy pod has no CPU between requests and no process a loop
-    # could live in. Fail-closed without its audience/allowlist env; see the
-    # module docstring for why the wake wiring lands separately.
+    # so request-based Cloud Run can wake from zero. Both exact paths use the
+    # same audience/allowlist; the scheduled path preserves recorded receipts.
     pod_maintenance_router,
+    pod_scheduled_maintenance_router,
     # Export and import: the two steps of a migration that only a pod can do, because reading the
     # source log needs the source pod's key and writing the destination needs the destination's,
     # and hushh holds neither. Ships dark behind HUSSH_POD_MIGRATION_ENABLED and fail-closed on the
@@ -571,9 +574,34 @@ async def _pod_startup() -> None:
     from api.routes.one.pod_maintenance import gmail_notification_job
 
     await gmail_notification_job()
+    # Azure Queue wakes this same single-revision app through KEDA. The consumer
+    # holds ordinary Files/update admission and never creates a second writer.
+    from hushh_mcp.services.pod_platform import workload_platform
+
+    if workload_platform() == "azure" and os.getenv("POD_FILES_ENABLED", "").lower() in {
+        "1",
+        "true",
+    }:
+        from hushh_mcp.services.pod_files.azure_queue import consume_forever, queue_url
+
+        try:
+            queue_url()
+        except Exception:
+            logger.warning("pod.files_queue_unavailable")
+        else:
+            app.state.files_queue_consumer = asyncio.create_task(consume_forever())
     # Memory Bank, off the boot path. Creating the engine is a slow LRO in the
     # person's project; until it resolves, turns recall from the sealed log.
     asyncio.get_running_loop().create_task(_ensure_memory_bank_task())
+
+
+@app.on_event("shutdown")
+async def _stop_files_queue() -> None:
+    task = getattr(app.state, "files_queue_consumer", None)
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        app.state.files_queue_consumer = None
 
 
 # -- heartbeat ---------------------------------------------------------------

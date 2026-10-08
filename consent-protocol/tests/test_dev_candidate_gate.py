@@ -139,6 +139,7 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(tmp_path, legacy
     for relative in (
         "scripts/ci/verify-dev-candidate.sh",
         "scripts/ci/cloudrun-retention.sh",
+        "scripts/ci/cloudrun-retention.py",
         "scripts/ci/verify-cloudrun-revision-provenance.py",
         "scripts/ops/verify-env-secrets-parity.py",
         "deploy/backend.cloudbuild.yaml",

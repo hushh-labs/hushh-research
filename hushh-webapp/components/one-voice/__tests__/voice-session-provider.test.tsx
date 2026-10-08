@@ -24,6 +24,7 @@ import type {
 } from "@/lib/one-voice/live-client";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import type { VoiceSessionController } from "@/lib/one-voice/session-types";
+import type { MailDraftChange } from "@/lib/one-voice/protocol";
 
 import { pendingActionFrame, readyFrame } from "../../../__tests__/one-voice/fixtures/scripted-server";
 
@@ -121,6 +122,7 @@ class FakeClient {
   /** Each app_context payload, in order; each one replaces the relay's screen context. */
   readonly appContexts: AppContextInput[] = [];
   readonly mailDeliveries: Array<[deliveryRef: string, actionId: string]> = [];
+  readonly mailDraftChanges: MailDraftChange[] = [];
   readonly nameEdits: Array<[pendingActionId: string, name: string, operationId: string]> = [];
   closeReasons: string[] = [];
   connected = 0;
@@ -167,6 +169,10 @@ class FakeClient {
   }
   mailDeliveryResult(deliveryRef: string, actionId: string) {
     this.mailDeliveries.push([deliveryRef, actionId]);
+    return true;
+  }
+  mailDraftChanged(change: MailDraftChange) {
+    this.mailDraftChanges.push(change);
     return true;
   }
   nameEditSubmit(pendingActionId: string, name: string, operationId: string) {
@@ -1402,6 +1408,23 @@ describe("VoiceSessionProvider ownership", () => {
 describe("VoiceSessionProvider open mail row and Send reports", () => {
   const DELIVERY_REF = "Zr4mQ8vX2kLp9TnB_wYc7H-E";
   const ACTION_ID = "6f1c2b9a-3d4e-4f5a-8b6c-7d8e9f0a1b2c";
+
+  it("sends private draft changes only to a live relay advertising review support", async () => {
+    mount();
+    const change = { draft_ref: DELIVERY_REF, revision: 1, operation_id: "edit-1", closed: true };
+    expect(controller!.reportMailDraftChange!(change)).toBe(false);
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    expect(controller!.reportMailDraftChange!(change)).toBe(false);
+    await act(async () => client.options.onFrame(readyFrame({
+      conversation_id: client.options.auth()!.conversationId, features: ["mail_draft_review"],
+    })));
+    expect(controller!.reportMailDraftChange!(change)).toBe(true);
+    expect(client.mailDraftChanges).toEqual([change]);
+    await act(async () => controller!.stop());
+    expect(controller!.reportMailDraftChange!(change)).toBe(false);
+    expect(client.mailDraftChanges).toHaveLength(1);
+  });
   const namesMailRow = (context: AppContextInput | undefined) =>
     context !== undefined &&
     ("active_mail_ordinal" in context || "active_mail_offer_revision" in context);

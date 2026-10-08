@@ -32,7 +32,7 @@ function ciWorkers(): number {
  *
  * Environment:
  *   BASE_URL - override the dev server URL (default: http://localhost:3000)
- *   CI       - set in GitHub Actions; disables retries and video recording
+ *   CI       - enables GitHub reporting and two retries in GitHub Actions
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -141,6 +141,7 @@ export default defineConfig({
         // travel and the zero-shift open are felt on an iPhone first; the
         // fixture builds its own document.
         /wallet-workspace\.layout\.spec\.ts/,
+        /wallet-scroll-reveal\.layout\.spec\.ts/,
         /wallet-card-scan\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,

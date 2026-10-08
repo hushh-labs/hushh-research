@@ -192,6 +192,7 @@ async def run_azure_setup_job(
             resource_group=result.resource_group,
             location=result.location,
             model_credential_mode=result.model_credential_mode,
+            files_enabled=spec.files_library_enabled,
         )
         if on_recorded is not None:
             await on_recorded()

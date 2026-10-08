@@ -1,5 +1,7 @@
 vi.mock("@/lib/services/onboarding-local-service", () => ({
   OnboardingLocalService: {
+    hasSeenWalletSwipeHint: vi.fn().mockResolvedValue(true),
+    markWalletSwipeHintSeen: vi.fn().mockResolvedValue(undefined),
     hasSeenWalletIntroduction: vi.fn().mockResolvedValue(false),
     markWalletIntroductionSeen: vi.fn().mockResolvedValue(undefined),
   },
@@ -54,6 +56,9 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
+vi.mock("@/lib/services/wallet-card-service", () => ({
+  WalletCardService: { getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }) },
+}));
 
 vi.mock("@/lib/services/wallet-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-service")>(
@@ -103,41 +108,41 @@ describe("Wallet video browser workspace", () => {
     await screen.findByTestId("wallet-card-browser");
     return view;
   };
-  it("requires explicit reveal after selecting a real thumbnail and clears it on All", async () => {
+  it("requires explicit reveal after selecting a real card and clears it on All", async () => {
     serviceMock.getCard.mockResolvedValue({ summary: makeCards(1)[0], secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Test" } });
     await open();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
     await screen.findByTestId("secure-card-reveal");
-    fireEvent.click(screen.getByRole("button", { name: "All (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
   });
   it("drops a late reveal on workspace tab departure", async () => {
     let finish!: (value: unknown) => void;
     serviceMock.getCard.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     await open();
-    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
     fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     await act(async () => finish({ summary: makeCards(1)[0], secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Test" } }));
     fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
   });
-  it("opens the existing Add form from plus and clears a revealed card", async () => {
+  it("opens the existing Add form from its tab and clears a revealed card", async () => {
     serviceMock.getCard.mockResolvedValue({ summary: makeCards(1)[0], secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Test" } });
     await open();
-    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
     fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
     await screen.findByTestId("secure-card-reveal");
-    fireEvent.click(screen.getByRole("button", { name: "Add a card", exact: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true"));
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
     expect(screen.getByTestId("secure-card-add-form")).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Wallet card switcher" })).toBeNull();
   });
-  it("removes the browser and its thumbnail portal when the vault locks", async () => {
+  it("removes the browser when the vault locks", async () => {
     const view = await open();
     vaultMock.locked = true;
     view.rerender(<WalletWorkspace />);
@@ -154,6 +159,20 @@ describe("Wallet video browser workspace", () => {
     await screen.findByTestId("wallet-selected-card");
     expect(screen.getByTestId("wallet-card-face")).toHaveTextContent("Card 1");
     expect(screen.getByTestId("one-wallet-reveal-1001")).toBeVisible();
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
+  });
+
+  it("returns demo details to the collection without replacing the retained Cards panel", async () => {
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    await open();
+    const browser = screen.getByTestId("wallet-card-browser");
+    fireEvent.click(screen.getByRole("button", { name: "Travel", exact: true }));
+    expect(screen.getByTestId("wallet-demo-details")).toHaveTextContent("Travel card");
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", exact: true }));
+    await waitFor(() => expect(browser).toHaveAttribute("data-mode", "all"));
+    expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
+    expect(screen.queryByTestId("wallet-demo-details")).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
 

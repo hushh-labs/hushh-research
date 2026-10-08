@@ -471,6 +471,11 @@ class GcpBackend:
                 # re-provisioned pod computes the same key and can still read what
                 # its predecessor sealed. See `pod_key_custody` for what that costs.
                 *_durable_state_env(spec.hushh_id, self._storage_bucket),
+                *(
+                    [{"name": "POD_IDLE_GRACE_SECONDS", "value": "600"}]
+                    if min_instances == 0
+                    else []
+                ),
                 # Vertex/Gemini access, so the fleet inside the pod can call a
                 # model. On BYOC these name the USER'S OWN project and the pod SA
                 # carries aiplatform.user there -- the pod reaches Vertex as

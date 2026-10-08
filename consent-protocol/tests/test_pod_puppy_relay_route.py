@@ -542,18 +542,19 @@ async def test_replaced_device_socket_cannot_publish_a_catalog():
     assert (await broker.catalog(key))["receivedAt"] is None
 
 
-async def test_on_demand_relay_closes_after_idle_even_with_heartbeats(pod, monkeypatch):
-    monkeypatch.setenv("POD_IDLE_GRACE_SECONDS", "600")
+@pytest.mark.parametrize("grace", [600, 900])
+async def test_on_demand_relay_closes_after_idle_even_with_heartbeats(pod, monkeypatch, grace):
+    monkeypatch.setenv("POD_IDLE_GRACE_SECONDS", str(grace))
     device = Device()
     token, claims = await pod["admit"](device)
     envelope = _device_envelope(pod, device, claims)
     with _connect(pod, token) as ws:
         ws.send_json(_hello(device))
-        assert ws.receive_json()["idleGraceSeconds"] == 600
+        assert ws.receive_json()["idleGraceSeconds"] == grace
 
         # Advancing this link's work clock avoids changing event-loop time.
         async def idle():
-            pb.BROKER._links[(OWNER, device.subject_id)].last_work_monotonic -= 601
+            pb.BROKER._links[(OWNER, device.subject_id)].last_work_monotonic -= grace + 1
 
         pod["client"].portal.call(idle)
         ws.send_json(

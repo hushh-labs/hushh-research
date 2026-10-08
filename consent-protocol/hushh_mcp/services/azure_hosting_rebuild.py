@@ -176,7 +176,12 @@ def _surviving_principal(arm: ArmClient, scopes: Scopes, recorded_principal: str
 
 
 def survey_custody(
-    arm: ArmClient, *, subscription_id: str, hushh_id: str, recorded_principal: str
+    arm: ArmClient,
+    *,
+    subscription_id: str,
+    hushh_id: str,
+    recorded_principal: str,
+    files_enabled: bool = False,
 ) -> CustodySurvey:
     """Read-only, under the person's token: proceed only when just the hosting is gone."""
     nonce = _bound_group(arm, subscription_id=subscription_id, hushh_id=hushh_id)
@@ -198,6 +203,8 @@ def survey_custody(
         ("storage", scopes.storage, "storage"),
         ("container", scopes.container, "storage"),
     )
+    if files_enabled:
+        custody += (("files_queue", scopes.files_queue, "storage"),)
     for label, path, api in custody:
         if _read(arm, path, api) is None:
             logger.warning("azure_rebuild.custody_missing which=%s", label)

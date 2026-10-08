@@ -320,7 +320,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
   );
   const result = googleSync.result ?? deviceResult;
   const invitations = useContactInvitations(options.userId);
-  const { clear: clearInvitations, beginSync: beginInviteSync, open: openInvitations, captureSession: captureInviteSession } = invitations;
+  const { clear: clearInvitations, beginSync: beginInviteSync, open: openInvitations } = invitations;
   const [deviceResultsOpen, setResultsOpenState] = useState(false);
   const resultsOpen = googleSync.phase !== "idle" ? googleSync.open : deviceResultsOpen;
   const setResultsOpen = useCallback((open: boolean) => {
@@ -579,9 +579,6 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     }
   }, [invitations.enabled, invitations.candidates.length, setResultsOpen, openInvitations, prepareInvite]);
 
-  const inviteRef = useRef(invite);
-  useLayoutEffect(() => { inviteRef.current = invite; }, [invite]);
-
   const requestConnection = useCallback(async (addresseeUserId: string) => {
     const { getIdToken, userId } = optionsRef.current;
     const idToken = await getIdToken?.();
@@ -650,7 +647,6 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     const syncIsCurrent = () => syncGenerationRef.current === syncGeneration &&
       (optionsRef.current.userId ?? null) === initiatingUserId;
     const onInviteCandidates = beginInviteSync();
-    const inviteSessionIsCurrent = captureInviteSession();
 
     try {
       markSyncing(true);
@@ -751,18 +747,6 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
               label: "Open Settings",
               onClick: () => void openContactSettingsRef.current?.(),
             };
-          case "invite":
-            // The other half of a contact scan. Until this shipped, the count
-            // of people who are NOT on One was computed on every sync and read
-            // by nothing but an analytics dimension -- the product learned who
-            // was missing, recorded it, and offered the person no way to act
-            // on it.
-            //
-            // Reuses the existing invite share rather than minting a second
-            // one, and deliberately carries no pre-authorized connection:
-            // `buildInviteToOneShare` documents why, and an invite that
-            // consents on the recipient's behalf is not an invite.
-            return { label: "Invite them", onClick: () => { if (inviteSessionIsCurrent()) void inviteRef.current(); } };
           default:
             return null;
         }
@@ -828,7 +812,6 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     runGoogleSync,
     googleSync.phase,
     beginInviteSync,
-    captureInviteSession,
     setResultsOpen,
     markSyncing,
     requestContactCheck,

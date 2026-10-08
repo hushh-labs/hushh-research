@@ -132,6 +132,7 @@ def setup_nonce(arm: ArmClient, *, subscription_id: str, spec: PodSpec, adopt: b
         subscription_id=subscription_id,
         hushh_id=spec.hushh_id,
         recorded_principal=spec.expected_runtime_principal or "",
+        files_enabled=spec.files_library_enabled,
     ).nonce
 
 
@@ -162,6 +163,7 @@ def plan_factory(
             ),
             openai_deployment=names.model_deployment if inputs.model else None,
             tags=tags(inputs),
+            files_storage_resource_id=scopes.storage if inputs.files_enabled else None,
         )
         return build_setup_plan(
             inputs,
@@ -200,6 +202,10 @@ def prove(
         "podPrincipalId"
     ):
         raise AzureSetupRefused("the created agent did not read back as ours", code="PROOF_FAILED")
+    if plan.inputs.files_enabled:
+        from hushh_mcp.services.pod_files.azure_provisioning import require_installation
+
+        require_installation(app, storage_id=scopes.storage, identity_id=scopes.identity)
     if not fqdn or not _await_health(fqdn, http=http, sleep=sleep):
         raise AzureSetupRefused(
             "Your agent was created but has not started answering yet. Try again in a few "
@@ -253,6 +259,7 @@ def run_agent_setup(
         location=location,
         resource_group=resource_group_name(spec.hushh_id),
         nonce=nonce,
+        files_enabled=spec.files_library_enabled,
     )
     values = {"husshPrincipalId": principal, "imageDigest": digest}
     applier = SetupApplier(

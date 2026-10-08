@@ -48,6 +48,10 @@ from hushh_mcp.services.azure_setup_plan import (
     resource_names,
     role_assignment_path,
 )
+from hushh_mcp.services.azure_setup_roles import (
+    ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR,
+    files_custody_role_id,
+)
 from hushh_mcp.services.compute_backend import PodSpec
 
 if TYPE_CHECKING:
@@ -75,6 +79,12 @@ def _pod_grants(scopes: Scopes) -> list[str]:
         role_assignment_path(scopes.container, ROLE_STORAGE_BLOB_DATA_CONTRIBUTOR, POD_PRINCIPAL),
         role_assignment_path(scopes.registry, ROLE_ACR_PULL, POD_PRINCIPAL),
         role_assignment_path(scopes.openai, ROLE_COGNITIVE_SERVICES_OPENAI_USER, POD_PRINCIPAL),
+        # Address possible capability grants even when the app has disappeared.
+        # Deleting an absent deterministic assignment is already idempotent.
+        role_assignment_path(
+            scopes.files_queue, ROLE_STORAGE_QUEUE_DATA_CONTRIBUTOR, POD_PRINCIPAL
+        ),
+        role_assignment_path(scopes.storage, files_custody_role_id(scopes.storage), POD_PRINCIPAL),
     ]
 
 

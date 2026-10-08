@@ -9,6 +9,7 @@ from hushh_mcp.services.compute_backend import PodSpec, resolve_compute_backend_
 from hushh_mcp.services.personal_agent_registry_repo import upgrade_host_snapshot
 from hushh_mcp.services.pod_files.capability_update import plan_from_observation
 from hushh_mcp.services.pod_update_identity import release_identity
+from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row
 
 
 class FilesStoragePrerequisite(ValueError):
@@ -36,11 +37,13 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
     if os.getenv("HUSSH_POD_FILES_ENABLED", "").lower() not in {"1", "true"}:
         raise ValueError("Files activation is not enabled")
     metadata = row.get("backend_metadata") or {}
-    readiness = getattr(repo, "files_upgrade_admission_ready", None)
-    if readiness is None or not await readiness():
+    provider = row.get("deployment_target")
+    from .capability_contract import schema_ready
+
+    if not await schema_ready(repo, 2 if provider == "user_azure" else 1):
         raise ValueError("Files upgrade recovery schema is not ready")
     if (
-        row.get("deployment_target") != "user_gcp"
+        provider not in {"user_gcp", "user_azure"}
         or row.get("status") != "provisioned"
         or not row.get("user_cloud_authorized_at")
         or metadata.get("upgradeLease") is not None
@@ -51,15 +54,13 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
         hushh_id=row["hushh_id"],
         phone_e164_hash=row["phone_e164_hash"],
         pod_pubkey=row.get("pod_pubkey") or "",
-        deployment_target="user_gcp",
+        deployment_target=provider,
         expected_service_uid=metadata.get("serviceUid"),
-        user_cloud_project=row.get("user_cloud_project"),
-        user_cloud_region=row.get("user_cloud_region"),
-        user_cloud_bootstrap_sa=row.get("user_cloud_bootstrap_sa"),
+        **spec_coordinates_from_row(row),
     )
     backend = resolve_compute_backend_for_spec(spec)
     inspect = getattr(backend, "inspect_files_capability", None)
-    if inspect is None or not getattr(backend, "live", False):
+    if inspect is None:
         raise ValueError("Files capability inspection is unavailable")
     observation = await inspect(spec)
     # Only the existing approved dev bridge may be offered outside the owner
@@ -69,8 +70,15 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
         from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
 
         bridge = ManagedGeminiRuntimeBinding.from_environment().project
-    plan = plan_from_observation(row, target_image, observation, dev_model_project=bridge)
-    await verify_storage_prerequisite(plan)
+    if provider == "user_azure":
+        from .azure_capability import plan_from_observation as azure_plan
+
+        # The standing observer can read the app, not its private storage. Full
+        # custody preflight uses fresh owner authorization before any mutation.
+        plan = azure_plan(row, target_image, observation)
+    else:
+        plan = plan_from_observation(row, target_image, observation, dev_model_project=bridge)
+        await verify_storage_prerequisite(plan)
     current = await repo.get(row["user_id"])
 
     def authority_snapshot(value):
@@ -92,6 +100,21 @@ async def inspect_files_offer(repo, row: dict, target_image: str):
 
 
 def public_files_offer(plan) -> dict:
+    if plan.version == 2:
+        return {
+            "releaseId": release_identity(
+                plan.hushhId, plan.serviceUid, plan.targetImage, capability_digest=plan.digest
+            ),
+            "capabilityPlanDigest": plan.digest,
+            "summary": "Enable your encrypted Files library in your existing cloud storage.",
+            "changes": [
+                "Add a bounded queue and allow only your existing private agent to process its jobs.",
+                "Verify storage and permissions after your Microsoft sign-in, before setup starts.",
+                "Keep your compute size, recovery information, encryption key and network settings.",
+                "Content analysis stays off until you enable it in Files.",
+            ],
+            "modelProcessing": "Analysis uses the existing Azure model in your subscription.",
+        }
     return {
         "releaseId": release_identity(
             plan.hushhId, plan.serviceUid, plan.targetImage, capability_digest=plan.digest

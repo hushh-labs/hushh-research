@@ -36,6 +36,8 @@ docs/
 
 # Misc
 *.md
+# Authored runtime prompts are loaded by agent manifests, not documentation.
+!hushh_mcp/agents/**/*.md
 submissions/
 tmp/
 

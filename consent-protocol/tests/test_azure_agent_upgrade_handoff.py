@@ -18,6 +18,33 @@ from tests.test_user_azure_backend import (  # noqa: F401 - shared fixtures and 
 )
 
 
+def _files_plan(arm, backend, target):  # noqa: F811 - shared fixture
+    from hushh_mcp.services.pod_files.azure_capability import plan_from_observation
+    from tests.test_user_azure_backend import _HUSHH_ID, _SUB, _TENANT
+
+    app = arm.resources[backend.app_id]
+    meta = backend.verified_handle(_HUSHH_ID, backend.observe_sync()).backend_metadata
+    row = {
+        "user_id": "files-owner",
+        "hushh_id": _HUSHH_ID,
+        "status": "provisioned",
+        "deployment_target": "user_azure",
+        "external_agent_id": backend.app_id,
+        "user_cloud_tenant_id": _TENANT,
+        "user_cloud_subscription_id": _SUB,
+        "user_cloud_resource_group": backend._group,
+        "user_cloud_region": "eastus2",
+        "user_cloud_authorized_at": "2026-10-07",
+        "backend_metadata": meta,
+    }
+    plan = plan_from_observation(row, target, app)
+    # ARM supplies the default storage encryption status, absent from the PUT body.
+    arm.resources[plan.storageId]["properties"]["encryption"] = {
+        "services": {"blob": {"enabled": True}}
+    }
+    return plan, row
+
+
 class _Handoff:
     """The pod lifecycle client, recording the order of everything it is asked."""
 
@@ -91,3 +118,119 @@ async def test_without_an_approved_operation_there_is_nothing_to_drain(arm):  # 
     with jit_person_authority("person-jit-token"):
         await backend.upgrade(_upgrade_spec(arm, backend, []))
     assert _Handoff.events == []
+
+
+@pytest.mark.parametrize("failure", ["forbidden", "timeout"])
+async def test_files_preflight_read_refusal_has_no_mutations_or_ambiguous_receipts(arm, failure):  # noqa: F811
+    from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
+    from tests.test_user_azure_backend import _OLD, _SOURCE
+
+    backend = _backend(arm)
+    target = f"{_SOURCE}@{_OLD}"
+    plan, _ = _files_plan(arm, backend, target)
+    receipts = []
+    refusal = (
+        ArmError("forbidden", status=403, code="Denied", message="private", op="read")
+        if failure == "forbidden"
+        else TimeoutError("private transport context")
+    )
+    arm.fail("GET", plan.storageId, refusal)
+    arm.calls.clear()
+    spec = _upgrade_spec(
+        arm,
+        backend,
+        [],
+        upgrade_target_image=target,
+        upgrade_operation_id="op-files",
+        files_upgrade_plan=plan.model_dump(),
+        on_files_upgrade_checkpoint=lambda *receipt: receipts.append(receipt),
+    )
+    with jit_person_authority("person-jit-token"):
+        with pytest.raises(FilesCapabilityChanged, match="could not be verified"):
+            await backend.upgrade(spec)
+    assert not arm.writes() and not receipts and not _Handoff.events
+
+
+async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_image(arm):  # noqa: F811
+    from copy import deepcopy
+
+    from hushh_mcp.services.pod_files.azure_checkpoint import AzureFilesUpgradeCheckpoint
+    from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
+    from hushh_mcp.services.pod_update_identity import approved_files_plan
+    from tests.test_user_azure_backend import _OLD, _SOURCE
+
+    backend = _backend(arm)
+    target = f"{_SOURCE}@{_OLD}"
+    plan, row = _files_plan(arm, backend, target)
+    approval = {
+        "capabilityPlan": plan.model_dump(),
+        "capabilityPlanDigest": plan.digest,
+        "ownerId": plan.ownerId,
+        "hushhId": plan.hushhId,
+        "podIncarnation": plan.serviceUid,
+        "targetImage": target,
+    }
+    assert approved_files_plan(approval) == plan
+    with pytest.raises(ValueError, match="approval"):
+        approved_files_plan({**approval, "podIncarnation": "replaced"})
+    with pytest.raises(ValueError, match="assignment"):
+        plan.require_owner({**row, "user_id": "foreign-owner"}, target)
+    checkpoint = AzureFilesUpgradeCheckpoint(
+        plan=plan, operation_id="op-files", attempt_id="f" * 64, original_inventory={}
+    )
+    receipts = []
+
+    def persist(phase, step, completed):
+        value, inventory = checkpoint.prepare(phase, step, completed)
+        receipts.append((value, inventory))
+        checkpoint.acknowledge(value)
+
+    spec = _upgrade_spec(
+        arm,
+        backend,
+        [],
+        upgrade_target_image=target,
+        upgrade_operation_id="op-files",
+        files_upgrade_plan=plan.model_dump(),
+        on_files_upgrade_checkpoint=persist,
+    )
+    before = deepcopy(arm.resources[backend.app_id])
+    arm.resources[plan.storageId]["properties"]["allowBlobPublicAccess"] = True
+    arm.calls.clear()
+    with jit_person_authority("person-jit-token"):
+        with pytest.raises(FilesCapabilityChanged, match="private storage"):
+            await backend.upgrade(spec)
+    assert not arm.writes() and not _Handoff.events and not receipts
+    arm.resources[plan.storageId]["properties"]["allowBlobPublicAccess"] = False
+    with jit_person_authority("person-jit-token"):
+        handle = await backend.upgrade(spec)
+    assert checkpoint.complete and len(receipts) == 8
+    assert all(entry[1]["version"] == "azure.files.inventory.v1" for entry in receipts)
+    assert handle.backend_metadata["filesCapability"] == {
+        "planDigest": plan.digest,
+        "status": "enabled",
+    }
+    after = arm.resources[backend.app_id]
+    assert (
+        after["properties"]["template"]["containers"][0]["resources"]
+        == before["properties"]["template"]["containers"][0]["resources"]
+    )
+    assert after["identity"] == before["identity"]
+    assert after["properties"]["configuration"] == before["properties"]["configuration"]
+    plan.require_installed(after)
+    recovered = await backend.discover_files_upgrade_ack(spec)
+    assert recovered["attemptId"] == "f" * 64
+    assert (await backend.observe_upgrade(spec, recovered)).backend_metadata["filesCapability"][
+        "status"
+    ] == "enabled"
+    assert not any(event[0] == "release" for event in _Handoff.events)
+    last = deepcopy(receipts[-1][0])
+    last["completed"][-1]["observation"]["properties"]["principalId"] = "foreign"
+    with pytest.raises(ValueError, match="approved resource"):
+        AzureFilesUpgradeCheckpoint(
+            plan=plan,
+            operation_id="op-files",
+            attempt_id="f" * 64,
+            original_inventory={},
+            previous=last,
+        )

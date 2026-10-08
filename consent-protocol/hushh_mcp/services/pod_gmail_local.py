@@ -19,6 +19,7 @@ with no scope token, so a hub door read from it is impossible rather than avoide
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import secrets
 from typing import Any, Optional
@@ -58,6 +59,33 @@ _TOKEN_CODES = {
     NEEDS_REAUTH: "reconnect_required",
     SCOPE_NOT_GRANTED: "reconnect_required",
 }
+logger = logging.getLogger(__name__)
+
+
+class PodLocalMetadataReader(GmailMetadataReader):
+    """An authorized read can settle matching notification IDs, never mark mail read."""
+
+    async def read(self, operation: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+        from hushh_mcp.services.pod_gmail_doorbell import pod_gmail_doorbell
+
+        bell = pod_gmail_doorbell()
+        try:
+            await self._require_access()
+            delivery = await bell.queued_work()
+            if delivery:
+                await bell.reconcile_missing(delivery, self._require_access)
+        except Exception:  # A unavailable receipt cannot authorize or suppress the normal read.
+            delivery = None
+        result = await super().read(operation, arguments)
+        await self.require_current()
+        if delivery and self.offered_message_ids():
+            try:
+                await bell.acknowledge_read(delivery, self.offered_message_ids())
+            except Exception as exc:
+                # Keep the work pending; do not claim a durable receipt for a failed save.
+                logger.info("pod_gmail_read.receipt_pending reason=%s", type(exc).__name__)
+        await self.require_current()
+        return result
 
 
 class HubTableRefused(RuntimeError):
@@ -222,6 +250,31 @@ class PodLocalEmailReadPort(PodEmailReadPort):
         if not self._owner_session:
             raise PermissionError("Email on this agent answers only the owner's own session")
 
+    def metadata_reader(
+        self, *, gmail: Any, user_id: str, require_access: Any, expect_account: str = ""
+    ) -> GmailMetadataReader:
+        self.require_owner_session()
+        if user_id != self._owner or gmail is not self:
+            raise PermissionError("Email owner mismatch")
+        held = _held()
+        if expect_account and (held is None or held.account_subject != expect_account):
+            raise GmailMetadataError("connection_changed")
+        bound = held.credential_id if held else None
+
+        async def authorized() -> None:
+            self.require_owner_session()
+            await require_access()
+            current = _held()
+            if bound and (current is None or current.credential_id != bound):
+                raise GmailMetadataError("connection_changed")
+
+        return PodLocalMetadataReader(
+            gmail=self._connection,
+            user_id=user_id,
+            require_access=authorized,
+            expect_account=expect_account or None,
+        )
+
     def _context(self) -> tuple[Any, str]:
         from hushh_mcp.services.pod_mail_observation import MailObservationContext
         from hushh_mcp.services.pod_session_authority import expected_environment
@@ -261,7 +314,7 @@ class PodLocalEmailReadPort(PodEmailReadPort):
                 service=self._connection,
                 context=context,
                 require_access=still_bound,
-                reader_factory=GmailMetadataReader,
+                reader_factory=PodLocalMetadataReader,
             )
             return projection
         except GmailMetadataError as exc:

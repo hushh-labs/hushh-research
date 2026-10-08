@@ -145,6 +145,16 @@ async def _next_frame(
         return None
 
 
+def _idle_grace_seconds() -> int | None:
+    value = os.getenv("POD_IDLE_GRACE_SECONDS", "").strip()
+    if not value:
+        return None
+    seconds = int(value)
+    if seconds <= 0:
+        raise ValueError("Puppy idle grace must be positive")
+    return seconds
+
+
 @router.websocket("/relay")
 async def pod_puppy_relay(websocket: WebSocket) -> None:
     authority = active_session_authority()
@@ -215,6 +225,7 @@ async def pod_puppy_relay(websocket: WebSocket) -> None:
         )
         # The ready frame is the last plain frame: it tells the device which epoch
         # and key it is sealing against. It carries no secret.
+        idle_grace = _idle_grace_seconds()
         await websocket.send_json(
             {
                 "type": "relay.ready",
@@ -223,10 +234,9 @@ async def pod_puppy_relay(websocket: WebSocket) -> None:
                 "podKeyId": authority.pod_key_id,
                 "sessionExpiresAt": int(claims["exp"]) * 1000,
                 "sealed": True,
-                "idleGraceSeconds": 600 if os.getenv("POD_IDLE_GRACE_SECONDS") == "600" else None,
+                "idleGraceSeconds": idle_grace,
             }
         )
-        idle_grace = 600 if os.getenv("POD_IDLE_GRACE_SECONDS") == "600" else None
         while True:
             raw = await _next_frame(websocket, link, idle_grace)
             if raw is None:

@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-06.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-07.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -98,6 +98,13 @@ another navigation stack, WebView, session, or information store.
   native restoration waits for settlement and acknowledged layout. Release/iPad
   enablement and physical acceptance remain separate gates.
 
+  Opt-in Debug continuity counters retain fresh frame/gap deltas past 100,000
+  frames; the earlier saturation could stop an otherwise warm rehearsal.
+  The existing public layout probe also reports Chat focus, inert/disabled state
+  and hit geometry as booleans/numbers. It never reads draft values or transcript
+  content, changes focus, or submits an operation. These diagnostics distinguish
+  keyboard admission from native retirement; they are not visual acceptance.
+
   Other bounded public candidates include Location link duration, RIA tier
   filter and rows-per-page. Location's activity-range control is currently
   disabled, not a reachable adoption target. These controls are assessed, not
@@ -147,6 +154,9 @@ The Back pilot has a bounded `UIHostingController` child, not a full-screen
 transparent touch surface. Preparation acknowledges both SwiftUI geometry and
 UIKit layout while hidden and noninteractive. React then hides/disables its DOM
 control before activation. The original layout reservation remains unchanged.
+Late activation/update failure recovery rechecks document, owner and installation
+occupancy after targeted retirement. A no-op retirement that preserves a newer
+mount does not authorize revealing or focusing the displaced web fallback.
 Retirement is acknowledged only after touch, accessibility, child containment and
 any owned presented controller are removed. Popup retirement waits for actual
 UIKit dismissal completion. An uncertain acknowledgement quarantines the control until removal
@@ -357,13 +367,13 @@ add its explicit owner, public projection, evidence and rollback here.
 
 ### Route Coverage and Device Admission
 
-#### Complete screen accounting and batch order — 2026-10-06
+#### Complete screen accounting and batch order — 2026-10-07
 
 The existing [generated surface map](../frontend-native-surface-map.generated.json)
 accounts for **145 route entries / 144 physical pages**: 75 standard, 47 redirect,
 17 hidden and 6 flow layouts. `/agent` is a virtual compatibility entry. There are
 98 nonredirect physical pages, not 145 distinct native screens. The authored
-[native inventory](../native-route-inventory.json) has 125 rows: 98 functional,
+[native inventory](../native-route-inventory.json) has 126 rows: 99 functional,
 3 callback and 24 excluded; 20 required rows are explicitly legacy inputs.
 These counts describe source obligations, not passing device journeys.
 
@@ -387,8 +397,8 @@ canonical loaded/empty/unavailable states. No route or action authority changed.
 | Finance, Wallet and RIA | Workspace taps/swipes, holdings detail, Wallet Back, authorized advisor/client details | Wallet Back/return passed independently. The latest Finance test observed its introductory setup screen, not a completed workspace. Authorized Finance-complete and RIA detail fixtures remain unavailable. |
 | Public, auth and setup | Welcome/claim, login/back, invites, callback return, recovery | Source/fixture coverage exists; cold flows must not replace or reset the warm device session. |
 
-The following **20 map entries have no native-inventory row**. Together with
-the 125 classified rows, this accounts for every map entry without hiding gaps:
+The following **19 map entries have no native-inventory row**. Together with
+the 126 classified rows, this accounts for every map entry without hiding gaps:
 
 | Entries | Accounting and required proof |
 | --- | --- |
@@ -397,8 +407,10 @@ the 125 classified rows, this accounts for every map entry without hiding gaps:
 | `/c/[token]`, `/one/location/invite/[token]`, `/one/location/request/[token]`, `/one/location/view/[token]` | Four hidden token flows; authorized live fixtures required. Never invent or persist private tokens for coverage. |
 | `/products/hushh-tech/launch` | Hidden external-authorization flow; requires its owning launch prerequisites. |
 | `/one/connected-systems/[systemId]` | Localhost-only CRM detail; Capacitor export rejects it. Web proof, not a native acceptance obligation. |
-| `/one/messages` | Functional selected-conversation surface; current-owner selection and an authorized conversation fixture required. |
 | `/ria/clients/[userId]`, `/ria/clients/[userId]/accounts/[accountId]`, `/ria/clients/[userId]/requests/[requestId]` | Three functional role-bound detail templates; authorized RIA/client fixtures required before accepted device journeys. |
+
+`/one/messages` is now classified in the native inventory. Current-owner
+selection and an authorized conversation fixture remain required for device proof.
 
 Use one combined source candidate, nearest family contracts, core, export/sync,
 packaged-runtime verification and installation. Installation is preparation, not
@@ -428,8 +440,9 @@ unchanged resize notifications rebuilt layout-confirmed controls, and Profile
 Close reapplied the outer sheet's settlement on every inner-stack change. Exact
 frame/viewport comparison now preserves unchanged leases only while still
 admitted; inert/clipped ancestors and real movement still invalidate. Profile
-Close uses the outer pane's settled identity, while Back/content retain their
-stack-bound contexts. Identical active acknowledged updates no longer advance
+Close uses the outer pane's settled identity. Profile Back now shares that
+fixed-header admission while retaining its stack-bound action context; content
+controls still wait for inner-stack settlement. Identical active acknowledged updates no longer advance
 the update fence; pending changes/reverts remain ordered. Four nearest regressions
 failed the prior source; current focused tests pass, including owner replacement
 and clipping negative controls. These changes do **not** eliminate deliberate
@@ -1056,3 +1069,447 @@ full-row hit surfaces and all five action identities in both states. QR
 continuity, pause, rotation and permanent-removal explanations remain intact;
 status/date/count rows retain content sizing. This synthetic, non-private fixture
 does not qualify protected Wallet operations or physical-device appearance.
+
+The `d74f95d48` production-backed Debug product passes four attach-only warm
+iPhone journeys in one batch: Back/Consent query handoff and overlay retirement,
+Chat History/selector/reopen, public Appearance/Accent cancellation and return,
+and the Profile Account/Preferences/Security/Vault/Support stack. No tests are
+skipped. Normal reviewer unlock passes separately with one accepted submission.
+The matching iPad product passes public vault rest/focus/scroll/rotation/resume
+reachability, but exposes no software keyboard and does not qualify protected
+tablet journeys. These receipts remain bound to that installed product, not to
+later source changes. Its exact-head core passes; no native family is promoted.
+
+Freshness integration retains main's `f103bc8bb` Wallet cleanup. Two newly
+characterized regressions fail that source: an earlier owner's introduction
+write blocks the current owner's Continue, and readiness reports `empty-valid`
+while the introduction preference is still loading. The existing Wallet
+workspace now fences the cosmetic write by owner and exact operation, including
+A → B → A return, and reports loading until that preference settles. Both
+negative controls pass after correction, along with the nearest 22 workspace
+tests, typecheck, focused lint, cache/analytics contracts, surface-map and
+service-boundary checks. No vault authority, encrypted persistence, new store
+or automatic retry is introduced. This source proof is not an installed-device
+or latest-head release acceptance claim.
+
+A further independent review finds a presentation mechanism the host probe
+cannot see: preparation/replacement erased a bare SwiftUI control, while updates
+erased a `.disabled(...)`-modified control. Changing the erased type recreates
+its hierarchy under [Apple's AnyView contract](https://developer.apple.com/documentation/swiftui/anyview).
+All three phases now use the same per-family modifier shape; UIKit still
+quarantines interaction and accessibility until fresh activation. An unchanged
+snapshot arriving during activation no longer manufactures a native update.
+The nearest combined Back replacement/in-place-update and delayed-activation
+regressions both fail the prior code. All 54 native-control tests pass after the
+correction, preserving genuine changed/reverted updates, exact choice sequences,
+owner/overlay retirement and disabled/focus behavior. This identifies and fixes
+structural churn; visible glass continuity still requires current-device proof.
+
+The existing warm Wallet workspace case now requires enabled, hittable Cards
+admission (continuing the cosmetic introduction once when present), then visits
+Cards/Add/Sharing/Cards and asserts each public pane plus inactive Add isolation.
+It retains Back, draft and single-host assertions. It requests no card save,
+deletion, reveal or grant. A session with no pending Secrets/Chat handoff is a
+prerequisite: the selected-Cards guard rejects an already observed Add handoff,
+but cannot prevent an automatic reveal that was already pending. No handoff is
+cleared to force admission. Public pane bodies use bounded hittability waits,
+not a single sample taken before the pager settles.
+Its physical result was pending at that source snapshot. The preceding product head
+`eaed6d945` passes canonical core in 201s; this harness change does not inherit
+an exact-head pass or claim successful sharing-information retrieval.
+
+The installed `6117f25c8` product then passes four native warm journeys, while
+Wallet fails the assumption that its two-line Sharing heading is one XCUI static
+text. A failure-only public probe confirms the combined locator is absent but
+both exact heading fragments and the unique explanatory paragraph are hittable.
+The existing case now requires the complete combined heading or both fragments,
+plus that paragraph; it never substitutes selected-tab state for body proof.
+Diagnostics precede `XCTFail` because the runner stops at the first assertion.
+Only fixed public anchor names and existence/hittability booleans are emitted.
+The corrected Wallet-only run passes Cards/Add/Sharing/Cards, inactive Add
+isolation, Back, draft preservation and one identified host, without reinstalling
+the app or resetting the session. This qualifies public pane interaction, not
+successful sharing-information retrieval or universal visual acceptance.
+
+The exact `b6b94b3e2` signed production-backed Debug product is installed on
+both devices. Its normal iPhone unlock passes with one accepted submission;
+the Wallet-only warm journey passes all four public panes, Back, draft and
+single-host checks without skips. Its iPad public-layout check passes, still
+without software-keyboard or protected-tablet acceptance.
+
+Exact-head PR validation then exposes stale derived metadata and two distinct
+test/runtime seams. Canonical regeneration changes only 13 native marker
+references across the three route-index copies; action and authority metadata
+is unchanged. The Feed fixture changes only three content-sizing attributes.
+Profile's redundant exact opening-tag assertion is removed; the independent
+group/icon/layout and no-duplicate-workspace/Security contracts remain.
+
+The real Radix close callback can restore Message options focus after Reply's
+animation frame. The nearest owner/route regression now forces that ordering
+and fails the earlier source. Reply hands focus over at actual menu-close
+settlement instead, bound to the current operation and individual menu opening.
+Reopening cannot consume the newer Reply intent; ordinary Escape still returns
+focus to its trigger. All 14 nearest message tests pass.
+
+History's DOM opener also treated pointer entry as keyboard entry, intentionally
+holding a focused web fallback after Close. The existing opener is factored
+beside the authored Close family without moving parent route/drawer authority.
+Explicit pointer clicks may use acknowledged native focus; keyboard/ambiguous
+clicks retain DOM focus until blur. The actual opener/Close component journey
+with delayed capability discovery fails the old pointer policy and passes the
+correction plus its keyboard negative control. This models parent focus return;
+it is not yet physical pointer/assistive-activation or uninterrupted-pixel proof.
+
+Tablet WebKit layout measured footer containment immediately after scrolling
+started. The existing recovery test now polls its unchanged complete geometry
+predicate after real wheel input and additionally proves the footer remains
+uncontained with overflow deliberately hidden. Four Chromium/WebKit checks
+pass twice across portrait/landscape and split-width iterations, with enlarged
+text and fixed-frame keyboard occlusion. No timeout, pixel tolerance or hit
+region is relaxed; this does not simulate native keyboard events.
+
+Verification is selected by the changed seams, not by replaying every accepted
+device journey. New source still requires frozen-head core and exact-head CI.
+The unidentified Wallet hit-region issue and broader accessibility/Release
+performance gates remain open; no family, merge, deployment or distribution is
+promoted by these bounded results.
+
+The row audit now covers Voice's finite domain group and Mail's existing Actions
+group through small presentation-only leaves; the original preferences and Mail
+workspace retain all operation/state ownership. Source-equivalent content sizing
+fails the nearest WebKit geometry contract with 19px and 33px sibling spreads at
+393px. The shared uniform policy passes all eight Chromium/WebKit cases across
+320/393/834/1440px, including actual enlarged copy, one readable description per
+row, Voice's switch-only interaction and Mail's connected/reconnect/unavailable/
+busy states. Busy connected Sync/Disconnect do not execute. All 25 nearest owner
+and row contracts pass; no permission or deletion explanation is removed. Mixed
+Appearance/Accent controls and protected record lists deliberately retain their
+existing content geometry rather than a global uniform-height override.
+
+Canonical route-index repair also requires dependent topology, capability-graph
+and workflow-card regeneration. Semantic action/workflow nodes are unchanged;
+mirror equality and repeated generator checks pass. Failed earlier core runs
+remain failures, not evidence inherited by the newly combined candidate. The
+Wallet accessibility probe now emits only fixed public-copy IDs and unique
+frame/label-match booleans; it does not waive the audit or expose unknown text.
+
+The signed production-backed Debug `50464e5d8` product is installed on both
+devices, with packaged assets and signature verified. Normal iPhone unlock
+passes once; the changed-family batch passes three attach-only warm journeys
+with no skips: Back/query handoff, History/selector/keyboard/reopen, and the
+Profile Account/Preferences/Security/Vault/Support stack. The same iPad product
+passes public vault rest/focus/scroll/rotation/resume reachability, but exposes
+no software keyboard and does not qualify protected-tablet operation. The next
+iPhone theme audit times out enabling automation before its test body enters;
+no vault credential is retried. These action/host receipts do not establish
+frame-continuous glass appearance or resolve the unidentified Wallet hit region.
+
+Exact-head CI then exposes one stale source-location assertion in both the
+targeted-node job and full Vitest shard 1/3: it looks for Drive's accessible
+review label inside the parent after the History opener moved to its leaf.
+The parent still owns and passes the scoped count. The existing native test now
+renders that actual leaf, proving singular/plural counts, attention without a
+visible dot, expanded concealment and zero-count native admission without
+forwarding the count. Freezing the accessible label fails the new assertion;
+restoring it passes all 69 nearest checks. The parent wiring/singleton/sidebar
+activity checks remain. Neither runtime code nor a CI gate is relaxed.
+
+A further rendered check catches a distinction the height contract missed:
+uniform siblings still vertically center their differently wrapped text blocks,
+moving title starts by 9.5px at 393px WebKit width. The existing fixture now
+requires shared relative title starts as well as equal heights. The shared
+uniform-row policy stretches the content track and anchors text at its start;
+icons and trailing controls keep their centered alignment. All eight existing
+Chromium/WebKit cases pass at 320/393/834/1440px with ordinary and enlarged
+text, unchanged readable descriptions and actual action/busy-state checks.
+Content-sized mixed controls and record lists are unaffected. This CSS/browser
+proof does not inherit physical acceptance from the earlier installed product.
+
+Independent review then identifies title-only Profile/Legal rows as a separate
+alignment boundary. Rendering the actual `ProfileLegalRows` in the existing
+fixture fails title/icon/chevron centering on the unguarded alignment change.
+Both alignment classes now require actual supporting copy; title-only rows keep
+their original centering. The same eight browser cases additionally require two
+real Legal rows, centered titles/icons/chevrons, enlarged computed text and both
+authored callbacks. No global description clamp or empty supporting text is
+introduced to manufacture symmetry.
+
+History's stationary header still hard-retired its host on an agent-context
+change, unlike Back's retained handoff. Contract version 2 now negotiates a
+History-only replacement capability through the same state machine. Same
+mounted owner/document/family/label/expanded state and exact frame/viewport are
+required. The host stays visible, but predecessor choices expire immediately;
+fresh activation restores interaction and accessibility. Owner, privacy,
+keyboard, overlay, relocation, unconfirmed updates and unmount still require
+removal. Older wrappers retain their existing strict-install fallback. New
+families remain Debug iPhone opt-in, not Release or iPad qualified.
+
+The nearest pending-choice/uncertainty/unmount/late-failure tests now cover both
+Back and History. Same-frame History replacement fails the earlier source.
+Independent review catches a separate retirement-wait geometry race: the strict
+path remeasures after acknowledgement; a deferred removal with a DOM-only move
+fails the stale measurement. SwiftUI's single Button uses an explicit bounded
+interaction shape; no duplicate tap recognizer or inferred web action is added.
+The signed production-backed Debug `75085fa28` iPhone candidate passes the
+guarded center/cardinal edge presses for History, owned Close and Profile Close,
+including five Profile reopen cycles. Its One/Puppy/One changes retain the
+History host with no sampled missing frames; keyboard retirement and return
+also pass without a second blur or account reset. Native Appearance/Accent
+selection, cancellation and reopening, plus the Account/Preferences/Security/
+Vault methods/Support stack, pass separate warm journeys. Bidirectional body
+drawer gestures, Mail with its real software keyboard, Memory's Saved/Add/
+Sharing swipes and Connect's Circles/Connections tabs also pass. The explicit Debug
+launch opt-in is preparation, not continuity evidence. Host/frame receipts
+still cannot establish uninterrupted glass pixels or Release frame pacing.
+
+The same review exposes an independent teardown boundary: an older mounted
+control could untargetedly remove a newer installation sharing its control ID.
+Back and the generic chrome wrapper now guard unmount removal with the existing
+outstanding document, instance epoch and revision. Its own uncertain handoff
+still removes either native revision; another installation is untouched. The
+actual A/B mounting test fails both older Back and History cleanup paths and
+requires the replacement to remain actionable, then retire on its own unmount.
+This does not qualify other asynchronous recovery paths or device pixels.
+
+The same A/B case also reproduces inactive reconciliation retiring the newer
+mount, both normally and after an owned removal fails late. Back and the generic
+chrome wrapper now restrict inactive cleanup and its recovery to the existing
+installation-ownership guard; an occupied newer slot keeps the older fallback
+concealed. Active strict takeover and uncertain-predecessor cleanup remain
+unchanged. The source regression checks and `75085fa28` device receipts are
+different evidence: the later inactive-cleanup change needs its own candidate
+and exact-head verification.
+
+The same ownership tests additionally reproduce late active-preparation and
+listener-setup failure removing another mount's successful installation. Recovery
+now removes only its owned uncertain revision, or a vacant slot, and always
+releases partially installed listeners. A successful delayed removal also cannot
+resume admission over a newer installation: the existing revision fence is
+rechecked before minting the next lease. All these negative controls fail the
+unguarded paths; they are source evidence, not physical appearance proof.
+
+Normal inner Profile navigation previously delayed Back admission for 300ms
+despite its header living outside the sliding content. The optional version-2
+`profileBackReplacement` capability now reuses only the same Profile Back host,
+document, owner, label and exact geometry; its location-bound authority expires
+before fresh activation. Shell Back and Profile Back cannot exchange identities.
+Old wrappers use strict retirement; entry/drag, changed geometry, privacy, nested
+overlays, uncertainty and unmount still remove the owned presentation. The nearest
+Profile and handoff tests cover retained headers, expired choices and failed
+replacement recovery. The physical stack test now requires observed host/frame
+counters during Security → Vault methods → Security. Identical presentation also
+retains the SwiftUI root when its focus request is unused; a previously used
+focus object still resets for the new lease's focus sequence. Fresh identity,
+noninteractive/AX quarantine and activation remain required. Debug counters
+distinguish root rebinding from host retention; neither proves uninterrupted
+glass pixels. Until that latest product
+passes, the prior `75085fa28` interaction receipts do not prove this change.
+Chat/One/Connect still have different authored header controls; this bounded fix
+does not establish one continuous native presentation across every route.
+
+Native focus return also hard-retired an already-active stationary History
+control before requesting focus. The acknowledged focus path now reuses only
+the current document/instance/revision's installed control, with unchanged
+geometry and appearance and no pending update or DOM focus hold. The nearest
+focus test fails the old source's additional retirement/preparation/activation
+cycle; moved geometry, failed preparation, owner changes and resized pending
+focus still exercise strict recovery. Independent review identifies another
+boundary: a delayed focus response from a displaced installation could expose
+its DOM fallback beneath the replacement. The same test reproduces that
+outcome and requires stale-slot/document focus to settle false, preserve the
+fallback quarantine and leave the replacement actionable without removal.
+These source checks do not replace appearance, accessibility or Release
+performance evidence. The `75085fa28` theme journey passes light status/header
+matching on Chat/One/Connect/Feed, then fails the hit-region audit on Wallet's
+source-authored helper copy. Dark-mode steps are not reached and the issue is
+not waived. Isolated simulator diagnostics associate the recurring plain-root
+appearance warning with the temporary hidden-selector fixture: the geometry
+fixture reproduces it, while a state-only comparator does not. Exact teardown
+causality and product presenter acceptance remain unverified.
+
+The latest Circle layout from main is normally merged at `97bd81e7`; the four
+incoming files leave the native and Wallet fixes unchanged. Its core passes in
+232s and all 65 focused Circle tests pass. The subsequent nearest native,
+Wallet and continuity contracts pass 105 checks. These results retain their
+source identities; later heads still need canonical core and exact-head CI.
+
+### Wallet navigation and current-candidate admission — 2026-10-07
+
+The UAT-backed `b57bd1023` simulator candidate passes ordinary reviewer unlock
+and warm native Preferences, but its Wallet admission fails before the tab
+journey. Sanitized geometry establishes that Cards is enabled but above the
+viewport (`y = -50`), not that the vault input or backend failed. Its CI also
+fails Wallet/Location header-position parity. The nearest browser negative
+control reproduces the hidden tabs before any locator action can scroll them
+back into view.
+
+Wallet now uses the page's existing top position for entry, card selection and
+All cards instead of aligning its body above the authored title and tabs.
+The Wallet content region uses non-scrollable horizontal clipping: a separate
+Chromium negative control measured focus scrolling that region by 16px and
+clipping the first tab after All cards. No new scroll, route or gesture owner
+is introduced. Card artwork, reveal authority and real card proportions remain.
+
+The corrected source passes 24 focused Chromium/WebKit cases and 34 nearest
+Wallet unit tests, plus typecheck and targeted lint. Title/tab visibility stays
+strict; the artwork check directly proves exact rectangle containment, fixed
+chrome clearance and input hit points, avoiding WebKit's fractional rounded-mask
+intersection quantization without a tolerance or expanded product clip boundary.
+Actual loaded-artwork pointer clicks, swipes and wheel scrolling remain required.
+A stale visible-heading class assertion is removed; panel alignment remains.
+
+These source results are not the corrected installed-candidate result. Fresh
+combined-head builds, core, CI and warm Wallet admission are still required.
+Both physical devices remain paired but unavailable over Wi-Fi, with no observed
+discoverable endpoint or usable tunnel. Cached device metadata and signing
+profiles do not prove transport. iPad, accessibility, visual continuity and
+Release performance qualification remain open; no native family is promoted.
+
+The subsequent `f5a53530a` candidate passes uncontended canonical core, UAT
+package preparation, device/simulator Debug test builds, asset checks and device
+signatures. Its simulator passes all 40 native-support checks, ordinary reviewer
+unlock and an attach-only warm Wallet tab/draft journey. Installed binary and
+configuration match, as do all 1,394 public frontend files. This qualifies that
+simulator candidate, not the unavailable physical devices or a later head.
+
+Incoming Wallet Profile artwork from main retains the existing inert iframe and
+parent hit surface. Its first profile loader fails two nearest negative controls:
+previous-owner artwork remains visible during owner replacement, and an older
+refresh overwrites a newer response. The merged projection binds rendering and
+both success/failure settlement to the current owner/vault/token visit and latest
+request. A locked vault does not initiate the protected profile read. The tests
+then pass with all 34 focused Wallet checks. No new profile store is introduced.
+
+The incoming standard-width shell, profile name/QR overlays and simplified Add
+copy are retained. Duplicate workspace animation-frame scroll resets are not:
+the verified browser-local page-start owner already provides the same behavior.
+All 24 focused Chromium/WebKit cases pass, including exact Location header/tab
+geometry, pane alignment, artwork/name/QR taps, swipes and bottom-chrome clearance.
+This later combined source still requires its own core, native builds and CI.
+
+The `a9dd0b1b9` combined candidate passes canonical core, device/simulator Debug
+builds, bundled-asset checks, 40 native-support checks and ordinary reviewer
+unlock. Exact-head CI nevertheless fails its WebKit Wallet journey: 1024px
+exhausts the unchanged 30-second budget on three attempts; 320px is flaky.
+Name/QR pointer cycles are now separated into a short test at each existing
+width, preserving loaded-artwork admission and every navigation/Add assertion.
+Named steps expose the failing phase. Both focused engine runs pass locally;
+Linux exact-head CI remains authoritative. No timeout or layout waiver is added.
+
+The first combined warm simulator batch passes Preferences but fails four other
+journeys. Three probes are unavailable because preparation omitted the explicit
+Debug diagnostics launch flag. Wallet fails on composer availability, not proven
+draft loss; a later admission observes the public session-recovery screen.
+Corrected cold preparation reaches the ordinary vault gate and normal unlock
+passes once. This is a new preparation, not continuity of the failed session.
+Corrected warm acceptance and physical qualification remain separate gates.
+
+Corrected `a9dd0b1b9` preparation subsequently yields four warm passes: Back,
+Preferences, the Profile settings stack and Wallet tab/draft continuity. History
+reopen/hit-region and Cloud/Puppy handoffs report zero sampled missing frames.
+Chat remains failed at keyboard isolation: its History AX element still exists
+when the keyboard is observed. Layout-probe evidence was not enabled in that
+preparation; neither product causality nor full-batch acceptance is established.
+
+The nearest attach-only keyboard check now requires a fresh public layout packet,
+an observed keyboard, both native controls absent and a confirmed History host
+removal in one bounded ten-second check. It retains restoration and single-host
+assertions; this harness correction does not prove a product fix. Prepare with
+all three explicit Debug arguments before normal unlock:
+`--hushh-native-chat-chrome --hushh-native-chrome-diagnostics --hushh-vault-layout-diagnostics`.
+The earlier four-pass/one-failure result remains recorded until rebuilt acceptance.
+
+The next main refresh (`ae3f73b09`) retains Consent same-state navigation,
+independent summary/list availability and responsive date selection, plus
+profile artwork on all three illustrative cards. Its Sharing profile-loader
+copy fails the locked-read negative control. Sharing now consumes the existing
+workspace's current-owner projection instead of starting a second read/cadence;
+locked rendering removes its projected name and QR. The workspace's owner and
+latest-request fences remain authoritative. Incoming artwork captions are
+repaired for encoding, without changing card proportions or native admission.
+The deferred date grid also fails a held-scheduler negative control: a day from
+the previous year can commit while the selector already shows the new year.
+Pending cells are now disabled and their commit handler rejects the stale grid;
+selectors stay responsive and current-grid selection remains accepted.
+
+At `736511f9f`, canonical core passes in 204 seconds, both Debug native builds,
+bundle/signature checks and all 40 native-support tests pass. Installed simulator
+binary/configuration and all 1,394 frontend files match. Normal unlock and warm
+Wallet tab/draft return pass. Chat still fails keyboard isolation. Fresh public
+measurements report focused input but no keyboard inset; a subsequent stronger
+Mail check confirms an offscreen keyboard at y=922 in an 844-point window.
+
+The shared test guard now requires finite positive geometry with visible window
+intersection, including settlement and dismissal. Its regression fails
+existence-only admission and passes the stronger guard. Failed focus attempts
+still blur through the authored header. No native product retirement code changed;
+the cause of the missing onscreen keyboard is unconfirmed. Headless simulator
+checks do not qualify software-keyboard, physical-device or visual acceptance.
+
+### Debug product metadata compatibility
+
+The App target's Debug configuration opts out of the separate debug dylib.
+At `f6a6207e3`, an otherwise successful default Debug build omitted required
+App Intents metadata on device and simulator. The unchanged product validator
+rejected both bundles. A controlled monolithic Debug build restored the
+metadata, with 19 actions and 10 shortcuts observed in the simulator bundle.
+The earlier dylib build succeeded, so neither an SDK defect nor a universal
+dylib incompatibility is established.
+
+This is an App-target compatibility setting, not a workspace-wide override;
+Release, packages and test targets remain unchanged. Apple supports the
+[per-target opt-out](https://developer.apple.com/documentation/xcode/understanding-build-product-layout-changes).
+It removes modern Previews eligibility for App, while separate framework and
+package Previews remain available. No authored App previews were found in
+the inspected source. The metadata gate is not relaxed or replaced with copied
+output. Require ordinary device and simulator builds without a command-line
+override, their actual bundle checks, and independent runtime acceptance.
+
+Ordinary device and simulator builds with the target setting now pass the
+unchanged product-bundle validator, and all 40 native-support tests pass on
+the simulator product. These are packaging and host-contract results, not
+physical-device, Siri discovery, visual or release acceptance.
+
+The subsequent main refresh at `03ab9d8fc` retains the demo collection reset
+on Cards activation, the NWS QR removal and the Profile details adjustment.
+It does not retain active-tab keys that replace the Cards panel: the nearest
+Travel → Add → Cards regression fails that implementation. The existing
+owner-bound panel identity and activation reset pass together, preserving the
+single page-start owner, inert artwork and owner/vault/request projection.
+The corrected merge passes 32 nearest Wallet tests and 24 Chromium/WebKit
+layout cases, including Add-draft continuity and long details. These results
+do not supersede exact-head core, CI or installed-device acceptance.
+
+### Physical passphrase rehearsal and diagnostic boundaries
+
+The existing Debug `-UITestMode` preference can force the normal passphrase
+form even when biometric unlock is the account default. Explicitly pair it
+with `-UITestResetAppState false` and `-UITestAutoReviewerLogin false`, with
+no injected initial route or credential at app launch. This does not change
+the account's primary method or bypass vault cryptography. The configured
+memory-only reviewer helper supplies the whole value once through the normal
+secure field; secrets never enter launch arguments, artifacts or this document.
+Cold preparation is separate from subsequent attach-only warm journeys.
+
+At `3d9974107`, the physical iPhone passes normal passphrase unlock, all eight
+warm route cases and Voice Bar body cancellation. The route batch covers Mail
+with an onscreen keyboard, Memory Saved/Add/Sharing, native Chat controls and
+edge presses, preferences, the nested Profile stack/photo preview, and
+Connect/Finance/Consent/Wallet selection with the same host/session/draft.
+These results do not qualify Release frame pacing, iPad or whole-app visuals.
+
+Exact-head Linux CI still fails four WebKit Wallet scroll/alignment cases despite
+focused macOS passes. The existing synthetic tests now report bounded geometry
+without changing viewport requirements or budgets. Physical light status-canvas
+checks pass, but an unidentified outside-Back accessibility issue remains after
+Wallet readiness is proven; no issue is waived by coordinates or passive copy.
+The existing audit reports fixed source-owned candidate comparisons only, never
+an unknown label or protected hierarchy. Live speech does not observe the
+synthetic input transcript, so completion/echo-loop acceptance remains open;
+capture is stopped and the original appearance/session restored after failures.
+
+An attach-only run uses installed destination artifacts. Rebuilding a runner
+does not install it: verify its strict signature and install only the updated
+XCTest runner before assessing changed test diagnostics. Do not replace or
+restart One to update that runner, and do not present the rebuilt App binary
+on disk as the installed product without separate installation evidence.

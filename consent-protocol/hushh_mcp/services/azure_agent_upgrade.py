@@ -14,7 +14,7 @@ The new revision's suffix is derived from the attempt id, so the acknowledgement
 names exactly the revision this attempt created. The previous revision keeps serving
 until the new one is ready (single revision mode activates the new one only then),
 and the update answers only on the platform's verdict for that revision.
-Files background organization is not available on Azure yet, so a Files plan refuses.
+Files additions require a distinct exact approval, owner custody readback and durable checkpoints.
 The import reads the source as the configured image reader (``azure_image_source``),
 minted inside the fenced section so a refused credential releases the drained agent,
 and from the same pod-only release repository setup imports from (``import_source``).
@@ -168,8 +168,6 @@ def upgrade_agent(
     sleep: Callable[[float], None] = time.sleep,
 ) -> BackendHandle:
     """Synchronous: import the digest, re-fence, replace, acknowledge, wait for a verdict."""
-    if spec.files_upgrade_plan is not None:
-        raise ValueError("Files background organization is not available on Azure yet")
     expected = str(spec.expected_service_uid or "").strip()
     if not expected:
         raise RuntimeError("pod incarnation unverified; recovery required before upgrade")
@@ -177,11 +175,38 @@ def upgrade_agent(
     api = API_VERSIONS["container_apps"]
     app = arm.get(backend.app_id, api_version=api, op="upgrade")
     nonce, created = _fence(app, spec, expected)
+    files = None
+    if spec.files_upgrade_plan is not None:
+        from hushh_mcp.services.pod_files.azure_bootstrap import AzureFilesBootstrap
+        from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
+        from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
+
+        plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+        if (
+            not spec.on_files_upgrade_checkpoint
+            or not spec.upgrade_operation_id
+            or not spec.upgrade_attempt_id
+            or plan.hushhId != spec.hushh_id
+            or plan.serviceUid != expected
+            or plan.service.lower() != backend.app_id.lower()
+            or plan.targetImage != spec.upgrade_target_image
+        ):
+            raise FilesCapabilityChanged(
+                "Files requires exact owner approval and durable checkpoints"
+            )
+        try:
+            plan.require_observation(app)
+        except ValueError:
+            raise FilesCapabilityChanged(
+                "Files pod configuration changed before activation"
+            ) from None
+        files = AzureFilesBootstrap(plan, arm)
+        files.preflight()
     names = resource_names(backend.plan_inputs(spec.hushh_id, nonce))
     scopes = Scopes(backend.plan_inputs(spec.hushh_id, nonce), names)
     target = image_reference(f"{names.registry}.azurecr.io", digest)
     previous = _image(app)
-    if previous == target:
+    if previous == target and files is None:
         running = backend.verified_handle(spec.hushh_id, backend.observe_sync())
         return _with_metadata(running, upgraded=False, source_image=spec.upgrade_target_image)
     handoff = _prepare_handoff(spec, app)
@@ -198,6 +223,12 @@ def upgrade_agent(
     except Exception:
         _release_handoff(handoff, spec)
         raise
+    if files is not None:
+        # From the first attempted addition onward, uncertainty retains the
+        # upgrade fence. Never release it based on a failed provider response.
+        files.apply(spec.on_files_upgrade_checkpoint)
+        current = arm.get(backend.app_id, api_version=api, op="upgrade")
+        files.plan.require_observation(current)
     return _replace(
         backend,
         spec,
@@ -225,11 +256,18 @@ def _replace(
     api = API_VERSIONS["container_apps"]
     expected = str(spec.expected_service_uid or "")
     suffix = revision_suffix(spec.upgrade_attempt_id or spec.upgrade_operation_id or "")
+    body = replacement_body(current, image=target, suffix=suffix)
+    if spec.files_upgrade_plan is not None:
+        from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
+
+        AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan).apply_configuration(
+            existing=current, desired=body
+        )
     started = arm.request(
         "PUT",
         backend.app_id,
         api_version=api,
-        body=replacement_body(current, image=target, suffix=suffix),
+        body=body,
         op="deploying_agent",
     )
     revision = f"{CONTAINER_APP_NAME}--{suffix}"
@@ -254,6 +292,7 @@ def _replace(
         backend, spec, arm, revision=revision, target=target, clock=clock, sleep=sleep
     )
     handle = backend.verified_handle(spec.hushh_id, observation)
+    handle = _verified_files(handle, spec, observation.app)
     logger.info(
         "user_azure_backend.upgraded revision=%s waited_seconds=%.0f", revision, clock() - began
     )
@@ -462,6 +501,7 @@ def observe_upgrade(
         read_revision=_revision_reader(observer, backend.app_id, revision, "observe_upgrade"),
     )
     if verdict == "live":
+        handle = _verified_files(handle, spec, observation.app)
         return _with_metadata(handle, upgraded=True, source_image=receipt.get("targetImage") or "")
     if verdict is None:
         return None
@@ -472,6 +512,16 @@ def observe_upgrade(
         backend=handle.backend,
         backend_metadata={"image": observation.image, "failedRevision": revision},
     )
+
+
+def _verified_files(handle: BackendHandle, spec: PodSpec, app: dict) -> BackendHandle:
+    if spec.files_upgrade_plan is None:
+        return handle
+    from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
+
+    plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+    plan.require_installed(app)
+    return _with_metadata(handle, filesCapability={"planDigest": plan.digest, "status": "enabled"})
 
 
 def _with_metadata(handle: BackendHandle, **extra: Any) -> BackendHandle:

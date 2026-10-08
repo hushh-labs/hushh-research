@@ -52,6 +52,7 @@ export type AzureAuthorizeCompletion =
       status: "needs_subscription";
       subscriptions: AzureSubscription[];
       reason?: AzureSubscriptionReason;
+      filesEnabled?: boolean;
     };
 
 export type AzureByocFailure =
@@ -199,7 +200,8 @@ export function parseAzureAuthorizeCompletion(payload: unknown): AzureAuthorizeC
       .map(toSubscription)
       .filter((entry): entry is AzureSubscription => entry !== null);
     const reason = SUBSCRIPTION_REASONS.find((known) => known === payload.reason);
-    return reason ? { status, subscriptions, reason } : { status, subscriptions };
+    const files = payload.filesEnabled === true ? { filesEnabled: true } : {};
+    return reason ? { status, subscriptions, reason, ...files } : { status, subscriptions, ...files };
   }
   throw invalidResponse();
 }
