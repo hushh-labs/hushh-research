@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import {
   PieChart,
   Pie,
@@ -703,88 +704,6 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
   );
 }
 
-// NEW: Confidence Gauge (Semi-circle Pie)
-function ConfidenceGauge({ confidence }: { confidence: number }) {
-  const normalized = Number.isFinite(confidence)
-    ? Math.max(0, Math.min(1, confidence > 1 ? confidence / 100 : confidence))
-    : 0;
-  const score = Math.round(normalized * 100);
-  const tone =
-    score >= 70
-      ? RESULT_CHART_COLORS.positive
-      : score >= 40
-      ? RESULT_CHART_COLORS.primary
-      : RESULT_CHART_COLORS.negative;
-  const chartData = [
-    { key: "score", name: "Confidence", value: score, fill: "var(--color-score)" },
-    { key: "remaining", name: "Remaining", value: Math.max(0, 100 - score), fill: "var(--color-remaining)" },
-  ];
-  const confidenceChartConfig = {
-    score: {
-      label: "Confidence",
-      color: tone,
-    },
-    remaining: {
-      label: "Remaining",
-      color: "hsl(var(--muted))",
-    },
-  } satisfies ChartConfig;
-
-  return (
-    <div className="w-full">
-      <ChartContainer config={confidenceChartConfig} className="mx-auto aspect-square max-h-[170px] w-full max-w-[210px]">
-        <PieChart>
-          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
-            cursor={false}
-            content={<ChartTooltipContent hideLabel nameKey="name" />}
-          />
-          <Pie isAnimationActive={CHART_ANIMATION_ACTIVE}
-            data={chartData}
-            dataKey="value"
-            nameKey="name"
-            innerRadius={52}
-            outerRadius={74}
-            strokeWidth={4}
-          >
-            <Cell fill="var(--color-score)" />
-            <Cell fill="var(--color-remaining)" />
-            <Label
-              content={({ viewBox }) => {
-                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                  return (
-                    <text
-                      x={viewBox.cx}
-                      y={viewBox.cy}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                    >
-                      <tspan
-                        x={viewBox.cx}
-                        y={viewBox.cy}
-                        className="fill-foreground text-3xl font-semibold tracking-tighter"
-                      >
-                        {score}%
-                      </tspan>
-                      <tspan
-                        x={viewBox.cx}
-                        y={(viewBox.cy || 0) + 18}
-                        className="fill-muted-foreground text-[10px] uppercase tracking-wider font-semibold"
-                      >
-                        Confidence
-                      </tspan>
-                    </text>
-                  );
-                }
-                return null;
-              }}
-            />
-          </Pie>
-        </PieChart>
-      </ChartContainer>
-    </div>
-  );
-}
-
 // NEW: Renaissance Badge
 function RenaissanceBadge({ tier, score }: { tier: "ACE" | "KING" | "QUEEN" | "JACK"; score?: number }) {
   const badgeConfig = {
@@ -882,7 +801,8 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
 
   // Fallback for empty/missing decision to prevent layout shift
   const safeDecision = decisionPresentation.label || "REVIEW";
-  const safeConfidence = result.confidence || 0;
+  const confidence = Number.isFinite(result.confidence) ? result.confidence : 0;
+  const confidencePercent = Math.round(Math.max(0, Math.min(1, confidence > 1 ? confidence / 100 : confidence)) * 100);
   const llmSynthesis = rawCard?.llm_synthesis;
   const synthesisDrivers = (llmSynthesis?.key_drivers || []).filter(Boolean).slice(0, 6);
   const synthesisRisks = (llmSynthesis?.key_risks || []).filter(Boolean).slice(0, 6);
@@ -910,10 +830,10 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
       </MorphyCardHeader>
       
       <MorphyCardContent>
-        <div className="space-y-6">
+        <div className="space-y-4">
         
         {/* HERO SECTION: Decision + Badges */}
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
             
             {/* Renaissance Badge - Positioned prominently if exists */}
             {rawCard?.renaissance_tier && (
@@ -925,7 +845,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {/* Main Decision Pill */}
             <div
                 className={cn(
-                "px-10 py-5 rounded-2xl border-2 text-2xl font-semibold uppercase tracking-normal shadow-xl backdrop-blur-md transform transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:scale-[1.02]",
+                "px-4 py-2 rounded-xl border text-lg font-semibold uppercase tracking-normal",
                 isBuy
                     ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 shadow-emerald-500/10"
                     : isReduce
@@ -936,8 +856,9 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
                 {safeDecision}
             </div>
 
-            {/* Confidence Gauge - Replacing Linear Progress */}
-            <ConfidenceGauge confidence={safeConfidence} />
+            <span className="ml-auto text-sm text-muted-foreground">
+              <strong className="text-foreground">{confidencePercent}%</strong> confidence
+            </span>
         </div>
 
         <Separator className="bg-primary/10" />
@@ -965,17 +886,6 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
 
         {/* KEY INSIGHTS SECTION */}
         <div className="space-y-3">
-            {/* Risk Persona Alignment */}
-            {rawCard?.risk_persona_alignment && (
-            <div className={DETAIL_PANEL_CLASSNAME}>
-                <div className="flex items-center gap-2 mb-2">
-                <Icon icon={Shield} size="sm" className="text-primary" />
-                <span className={DETAIL_LABEL_CLASSNAME}>Risk Alignment</span>
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed">{rawCard.risk_persona_alignment}</p>
-            </div>
-            )}
-
             {/* Key Takeaway - Highlight the most important insight */}
             {rawCard?.fundamental_insight?.summary && (
             <div className={cn(DETAIL_PANEL_EMPHASIS_CLASSNAME, "relative overflow-hidden")}>
@@ -992,6 +902,22 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             </div>
             )}
         </div>
+
+        <Accordion type="multiple">
+          <AccordionItem value="rationale">
+            <AccordionTrigger>Rationale &amp; fundamentals</AccordionTrigger>
+            <AccordionContent className="space-y-3">
+            {/* Risk Persona Alignment */}
+            {rawCard?.risk_persona_alignment && (
+            <div className={DETAIL_PANEL_CLASSNAME}>
+                <div className="flex items-center gap-2 mb-2">
+                <Icon icon={Shield} size="sm" className="text-primary" />
+                <span className={DETAIL_LABEL_CLASSNAME}>Risk Alignment</span>
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">{rawCard.risk_persona_alignment}</p>
+            </div>
+            )}
+
 
         {/* SECONDARY METRICS GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1089,6 +1015,11 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             <p className="text-sm font-medium leading-relaxed">{rawCard?.debate_digest || result.final_statement}</p>
         </div>
 
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="strategy">
+            <AccordionTrigger>Strategy, risks &amp; action plan</AccordionTrigger>
+            <AccordionContent className="space-y-3">
         {/* LLM SYNTHESIS */}
         {(llmSynthesis?.thesis || llmSynthesis?.horizon_fit || llmSynthesis?.error) && (
           <div className={cn(DETAIL_PANEL_EMPHASIS_CLASSNAME, "space-y-3")}>
@@ -1206,6 +1137,11 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
           </div>
         )}
 
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="evidence">
+            <AccordionTrigger>Debate evidence &amp; sources</AccordionTrigger>
+            <AccordionContent className="space-y-3">
         {/* DEBATE HIGHLIGHTS */}
         {debateHighlights.length > 0 && (
           <div className={cn(DETAIL_PANEL_CLASSNAME, "space-y-3")}>
@@ -1277,6 +1213,9 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
           </>
         )}
 
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
         {/* DISCLAIMER */}
         <div className="pt-4">
           <p className="text-[10px] text-muted-foreground/50 text-center leading-relaxed max-w-xs mx-auto">
