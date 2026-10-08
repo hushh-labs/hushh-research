@@ -252,14 +252,16 @@ describe("memory capture input", () => {
       "utf8",
     );
     const paste = source.slice(
+      source.indexOf("const captureComposerPaste = "),
       source.indexOf("const handleComposerPaste = "),
-      source.indexOf("const editLongPromptAttachment = "),
     );
-    const collapsedBranch = paste.slice(paste.indexOf("return;\n    }"));
+    const collapsedBranch = paste.slice(paste.indexOf("return true;\n    }"));
 
     expect(collapsedBranch).toContain("attachmentText: pasted");
     expect(collapsedBranch).not.toContain("setInput(");
     expect(collapsedBranch).not.toContain("currentText: input");
+    expect(source).toContain('captureComposerPaste(event.clipboardData.getData("text")');
+    expect(source).toContain("captureComposerPaste(text, start, end)");
   });
 });
 

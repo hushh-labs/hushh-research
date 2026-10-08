@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * App accent preference: "blue" (iOS Blue, default) or "gold" (Molten Gold).
+ * App accent preference: "blue" (Blue, default) or "gold" (Molten Gold).
  *
  * Mirrors the next-themes pattern for a single custom axis:
  * - persisted in localStorage under ACCENT_STORAGE_KEY

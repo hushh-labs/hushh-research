@@ -9,10 +9,11 @@ type Pull = { id: number; x: number; y: number; time: number; width: number; off
 
 /** A presentation-only rightward pull. The existing Sheet keeps modal, focus,
  * route and native-overlay ownership; only its owner may commit dismissal. */
-export function ProfilePaneDrag({ open, presentationKey, panelRef, scrimRef, onClose }: {
+export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef = panelRef, scrimRef, onClose }: {
   open: boolean;
   presentationKey?: string;
   panelRef: RefObject<HTMLDivElement | null>;
+  semanticRef?: RefObject<HTMLDivElement | null>;
   scrimRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
 }) {
@@ -27,8 +28,9 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, scrimRef, onC
   }, [open, onClose]);
   useEffect(() => {
     const panel = panelRef.current;
+    const semantic = semanticRef.current;
     const scrim = scrimRef.current;
-    if (!panel || !scrim) return;
+    if (!panel || !semantic || !scrim) return;
     let pull: Pull | null = null;
     let settling = false;
     let timer = 0;
@@ -39,10 +41,15 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, scrimRef, onC
       document.visibilityState === "hidden" || Boolean(document.querySelector("html.kb-open")) ||
       Array.from(document.querySelectorAll(
         '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [data-slot="popover-content"][data-state="open"], [data-slot="dropdown-menu-content"][data-state="open"], [data-slot="command"]',
-      )).some(node => node !== panel);
-    const clear = () => {
-      panel.removeAttribute("data-profile-pull");
-      scrim.removeAttribute("data-profile-pull");
+      )).some(node => node !== semantic);
+    const clear = (retainOpen = true) => {
+      // Removing the suppression marker while still open restarts the CSS
+      // entry animation. A cancelled pull must stay at its settled endpoint.
+      if (retainOpen && owner.current.open) {
+        panel.dataset.profilePull = "settled"; scrim.dataset.profilePull = "settled";
+      } else {
+        panel.removeAttribute("data-profile-pull"); scrim.removeAttribute("data-profile-pull");
+      }
       for (const property of ["transform", "transition", "will-change", "--profile-pull-x"]) panel.style.removeProperty(property);
       for (const property of ["opacity", "transition", "will-change", "--profile-pull-opacity"]) scrim.style.removeProperty(property);
       settling = false;
@@ -55,6 +62,7 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, scrimRef, onC
       cancelSettlement();
       const currentGeneration = generation;
       settling = true;
+      panel.dataset.profilePull = "drag";
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       panel.style.transition = reduced ? "none" : "transform var(--motion-drawer-settle-duration) var(--motion-sheet-enter-ease)";
       scrim.style.transition = reduced ? "none" : "opacity var(--motion-drawer-settle-duration) var(--motion-sheet-enter-ease)";
@@ -92,13 +100,14 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, scrimRef, onC
       }
       const touch = event.touches[0];
       if (!touch || panel.offsetWidth <= 0 || touch.clientX <= 28) return;
-      const offset = settling ? Math.max(0, renderedDrawerOffset(panel)) : 0;
+      const offset = Math.min(panel.offsetWidth, Math.max(0, renderedDrawerOffset(panel)));
       cancelSettlement();
       settling = false;
       pull = { id: touch.identifier, x: touch.clientX, y: touch.clientY, time: event.timeStamp, width: panel.offsetWidth, offset, engaged: offset > 0 };
       if (pull.engaged) {
         panel.style.transition = "none"; scrim.style.transition = "none";
         panel.style.transform = `translate3d(${offset}px, 0, 0)`;
+        panel.dataset.profilePull = "drag";
         panel.style.setProperty("--profile-pull-x", `${offset}px`);
         scrim.style.opacity = String(1 - offset / pull.width);
         scrim.style.setProperty("--profile-pull-opacity", scrim.style.opacity);
@@ -166,7 +175,7 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, scrimRef, onC
     return () => {
       cancelSettlement();
       reconcile.current = null;
-      clear();
+      clear(false);
       panel.removeEventListener("touchstart", start);
       panel.removeEventListener("touchmove", move);
       panel.removeEventListener("touchend", end);
@@ -176,6 +185,6 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, scrimRef, onC
       document.removeEventListener("visibilitychange", restore);
       window.removeEventListener("resize", resized);
     };
-  }, [presentationKey, panelRef, scrimRef]);
+  }, [presentationKey, panelRef, semanticRef, scrimRef]);
   return null;
 }

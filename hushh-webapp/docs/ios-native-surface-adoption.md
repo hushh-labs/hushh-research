@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-07.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-08.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -12,6 +12,74 @@ One Capacitor host retains the active document; adopting a control does not crea
 another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
+
+### Current candidate: retained controls and private dock
+
+This candidate extends NativeChrome **version 2** with capability-negotiated
+`retainedControls`. A suspended control is hidden, noninteractive and unavailable
+to accessibility; its owned popup must complete dismissal before suspension is
+acknowledged. Reopening can reuse its hosting controller only with the same
+document, opaque owner epoch, family, immutable configuration and exact frame/
+viewport. It always receives a new action revision. Ownership, geometry or schema
+replacement and privacy/keyboard invalidation retain strict retirement. Uncertain
+retirement never exposes an interactive web duplicate. Older wrappers retain their
+existing path.
+
+Cold eligible slots are reserved before capability discovery settles; unsupported
+wrappers restore their authored fallback without creating an installation.
+Native preparation/activation still owns interaction transfer. This avoids a
+brief interactive DOM control before the first native admission; it is not a
+claim that native geometry exists before React lays out the owning surface.
+
+[NativeDock](../lib/capacitor/native-dock.ts) is a separate private editor contract,
+not an extension of the public chrome payload. The dedicated
+[plugin](../ios/App/App/Plugins/HushhNativeDockPlugin.swift) retains one SwiftUI
+glass container and `UITextView`. [The adapter](../components/agent/native-agent-dock.tsx)
+connects it to the existing Chat, command-capture and Live feature owners. React
+owns drafts, attachments, guarded submission, routing and voice operations. No
+native persistence, provider call, new microphone engine or second WebView exists.
+Return inserts a newline; Command-Return requests the existing guarded Send.
+The retained host follows UIKit keyboard-guide constraints without requiring
+another JavaScript apply. Ordered, owner/update/privacy-fenced frame receipts
+include equal-height keyboard movement; the existing transcript layout owner
+uses them for local clearance and reveal. Position-only receipts do not rerender
+the feature tree or introduce a second keyboard offset.
+
+Native input is document/owner/conversation/editing-purpose/revision-bound. Send
+consumes one confirmed snapshot; its editor is held noneditable until owner
+settlement. An uncertain consumption retires the replica before restoring the
+unsent owner projection and never dispatches or retries Send. Feature-directed
+text/purpose replacement is atomic; old-purpose events cannot overwrite it.
+Privacy-cover release cannot revive the editor: a fresh active, unshielded
+generation must be admitted. Private editor content stays in process memory and
+is excluded from diagnostics and public chrome.
+
+Accent has a complete swatch/name/chevron trigger and an owned Blue/Molten Gold
+chooser with accessible selection and explicit Done/Cancel. Stored values remain
+`blue`/`gold`; colors come from the existing app tokens. Cloud/Puppy retains its
+icon-based segmented selection. Existing friendly Vault method rows, owner
+authorization and recovery safeguards remain unchanged.
+
+**Enablement and evidence:** all added families remain iPhone/iOS 26 Debug-only.
+The dock additionally requires `--hushh-native-agent-dock`. Focused contracts cover
+suspension/retirement, stale choices, editing-purpose fencing, one-shot draft
+consumption and actual host editor/selection retention. These source/simulator
+checks do not establish physical visual, speech or performance acceptance.
+
+Profile and History now share an opt-in stationary semantic frame and a separate
+motion body; their existing dialog and gesture owners remain authoritative.
+Profile's public Appearance/Accent controls use a stable slot outside both the
+scroller and stack transform. Header and preference action admission still ends
+on close, lock or ownership change. Other sheets keep their original motion.
+
+**Remaining:** physical stationary-header and Preferences acceptance. Complete dock
+IME/paste/attachment/refusal and keyboard geometry journeys, ten warm cycles per
+family, VoiceOver/Dynamic Type/rotation/transparency, and three physical Release
+performance runs remain required. The current route inventory continues below;
+historic receipts do not qualify this candidate. iPad is unqualified. Complex
+multiselects, protected forms, scrolling controls and rich approval cards remain
+React deliberately. Rollback is capability denial/removal of the Debug arguments;
+fallback and strict retirement must still be verified before any family promotion.
 
 - [HushhNativeNavigationPlugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift)
   presents a standard UIKit `UITabBar` on iOS 26+. It does not use SwiftUI `TabView`
@@ -91,10 +159,10 @@ another navigation stack, WebView, session, or information store.
   independent `profile-appearance` and `profile-accent` IDs. Appearance uses an
   icon segmented SwiftUI Picker for Light/Dark/System; System remains the selected
   preference even when its resolved canvas is light or dark. Accent uses the
-  owned UIKit short menu for the existing Blue/Gold values. Choices invoke
+  owned SwiftUI chooser for the existing Blue/Molten Gold values. Choices invoke
   `setTheme`/`writeAccent`; no native preference store is introduced. The owning
-  Profile pane must be open and stationary. Scroll, ancestor animation/transition,
-  clipped geometry, inactive retained panes and nested overlays retire admission;
+  Profile pane must be open; its header and public preferences slots are outside
+  the moving body. Clipped geometry, inactive retained panes and nested overlays end admission;
   native restoration waits for settlement and acknowledged layout. Release/iPad
   enablement and physical acceptance remain separate gates.
 

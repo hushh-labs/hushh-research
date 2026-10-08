@@ -3,6 +3,153 @@ import SwiftUI
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testDockFollowsKeyboardLayoutWithoutAnotherApplyAndVoiceReleasesTheLift() {
+        let parent = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let window = UIWindow(frame: parent.bounds)
+        let controller = UIViewController(); controller.view = parent
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true }
+        let dock = UIView(); parent.addSubview(dock)
+        let keyboard = UILayoutGuide(); parent.addLayoutGuide(keyboard)
+        let top = keyboard.topAnchor.constraint(equalTo: parent.topAnchor, constant: 844)
+        NSLayoutConstraint.activate([top, keyboard.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+            keyboard.widthAnchor.constraint(equalTo: parent.widthAnchor), keyboard.heightAnchor.constraint(equalToConstant: 0)])
+        let placement = NativeDockPlacement(parent: parent, dock: dock, keyboard: keyboard)
+        placement.update(frame: CGRect(x: 16, y: 700, width: 358, height: 52), height: 52, editing: true)
+        parent.layoutIfNeeded()
+        XCTAssertEqual(dock.frame.maxY, 752, accuracy: 0.5)
+        var receipts = NativeDockLayoutState()
+        XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))
+        XCTAssertEqual(receipts.sequence, 1)
+        top.constant = 500 // No bridge apply or web resize occurs here.
+        parent.layoutIfNeeded()
+        XCTAssertEqual(dock.frame.maxY, 492, accuracy: 0.5)
+        XCTAssertEqual(dock.frame.height, 52, accuracy: 0.5)
+        XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))
+        XCTAssertEqual(receipts.sequence, 2) // Equal height does not hide occlusion movement.
+        XCTAssertFalse(receipts.record(dock.frame, update: 1, privacy: 0))
+        placement.update(frame: CGRect(x: 16, y: 700, width: 358, height: 52), height: 52, editing: false)
+        parent.layoutIfNeeded()
+        XCTAssertEqual(dock.frame.maxY, 752, accuracy: 0.5)
+        XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))
+    }
+
+    @MainActor
+    func testDockRetainsEditorAndSelectionAcrossVoiceAndThemeUpdates() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native dock requires iOS 26") }
+        let model = NativeDockModel()
+        model.mode = "text"; model.visible = true; model.editable = true; model.text = "Hello 👋"
+        let host = UIHostingController(rootView: NativeAgentDockView(model: model))
+        host.safeAreaRegions = []
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let parent = UIViewController(); window.rootViewController = parent; window.isHidden = false
+        parent.addChild(host); parent.view.addSubview(host.view); host.didMove(toParent: parent)
+        host.view.frame = CGRect(x: 16, y: 700, width: 358, height: 100)
+        defer { model.clear(); host.view.removeFromSuperview(); host.removeFromParent(); window.isHidden = true }
+        host.view.layoutIfNeeded()
+        let editor = try XCTUnwrap(model.editor)
+        editor.selectedRange = NSRange(location: 2, length: 2)
+        for mode in ["voice", "text", "voice", "text"] {
+            model.mode = mode
+            model.accent = UIColor.label
+            host.overrideUserInterfaceStyle = .dark
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            host.view.layoutIfNeeded()
+            XCTAssertTrue(model.editor === editor)
+            XCTAssertEqual(editor.text, "Hello 👋")
+            XCTAssertEqual(editor.selectedRange, NSRange(location: 2, length: 2))
+        }
+        // Return is ordinary editing, not Send. IME is owned by UITextView.
+        XCTAssertTrue(editor.delegate?.textView?(editor, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: "\n") == true)
+        var sends = 0
+        editor.submit = { sends += 1 }
+        XCTAssertTrue(editor.becomeFirstResponder())
+        let selected = editor.selectedRange
+        let escape = try XCTUnwrap(editor.keyCommands?.first { $0.input == UIKeyCommand.inputEscape })
+        editor.perform(escape.action, with: escape)
+        XCTAssertFalse(editor.isFirstResponder)
+        XCTAssertEqual(editor.text, "Hello 👋")
+        XCTAssertEqual(editor.selectedRange, selected)
+        XCTAssertEqual(sends, 0)
+        model.awaitingConsumption = true
+        model.consumeText()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertFalse(editor.isEditable) // An uncertain Send cannot overwrite the unsent owner draft.
+        model.awaitingConsumption = false; model.text = "Restored unsent draft"
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertTrue(editor.isEditable)
+        XCTAssertTrue(model.editor === editor)
+        XCTAssertEqual(editor.text, "Restored unsent draft")
+        model.awaitingTransition = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertFalse(editor.isEditable)
+        model.awaitingTransition = false
+    }
+
+    func testDockEditsSurviveAppearanceEchoButActionsRequireCurrentSnapshot() {
+        var fence = HushhDockFence()
+        let identity = HushhDockFence.Identity(document: "dock-doc", owner: "owner-a", revision: 1)
+        XCTAssertTrue(fence.apply(identity, sequence: 1))
+        fence.edited()
+        let edit = fence.emitted(kind: "edit")
+        let oldSend = fence.emitted(kind: "action")
+        XCTAssertTrue(fence.apply(identity, sequence: 2))
+        XCTAssertTrue(fence.confirm(identity, sequence: edit, applied: 1, editRevision: 1, kind: "edit", allowed: true))
+        XCTAssertFalse(fence.confirm(identity, sequence: oldSend, applied: 1, editRevision: 1, kind: "action", allowed: true))
+        let send = fence.emitted(kind: "action")
+        XCTAssertFalse(fence.confirm(identity, sequence: send, applied: 2, editRevision: 1, kind: "edit", allowed: true))
+        XCTAssertTrue(fence.confirm(identity, sequence: send, applied: 2, editRevision: 1, kind: "action", allowed: true))
+        XCTAssertFalse(fence.confirm(identity, sequence: send, applied: 2, editRevision: 1, kind: "action", allowed: true))
+    }
+
+    func testDockOwnerRetirementAndPrivacyCannotAuthorizeAnEarlierChoice() {
+        var fence = HushhDockFence()
+        let old = HushhDockFence.Identity(document: "dock-doc", owner: "owner-a", revision: 1)
+        let next = HushhDockFence.Identity(document: "dock-doc", owner: "owner-b", revision: 2)
+        XCTAssertTrue(fence.apply(old, sequence: 1))
+        let choice = fence.emitted(kind: "action")
+        XCTAssertFalse(fence.confirm(old, sequence: choice, applied: 1, editRevision: 0, kind: "action", allowed: false))
+        XCTAssertTrue(fence.retire(old))
+        XCTAssertFalse(fence.apply(old, sequence: 2))
+        XCTAssertTrue(fence.apply(next, sequence: 1))
+        XCTAssertFalse(fence.confirm(old, sequence: choice, applied: 1, editRevision: 0, kind: "action", allowed: true))
+        XCTAssertFalse(fence.retire(old))
+        XCTAssertEqual(fence.identity, next)
+        XCTAssertTrue(fence.retire(next))
+        let nextDocument = HushhDockFence.Identity(document: "next-doc", owner: "owner-b", revision: 1)
+        XCTAssertTrue(fence.apply(nextDocument, sequence: 1), "A new document starts its own revision sequence after confirmed retirement")
+        XCTAssertFalse(fence.apply(.init(document: "dock-doc", owner: "owner-a", revision: 3), sequence: 2),
+            "The earlier document cannot regain its private editor")
+    }
+
+    func testDockConsumesConfirmedSendOnceButNeverDiscardsAnInterveningEdit() {
+        var fence = HushhDockFence()
+        let identity = HushhDockFence.Identity(document: "dock-doc", owner: "owner-a", revision: 1)
+        XCTAssertTrue(fence.apply(identity, sequence: 1))
+        fence.edited()
+        let send = fence.emitted(kind: "action", action: "send")
+        XCTAssertTrue(fence.confirm(identity, sequence: send, applied: 1, editRevision: 1, kind: "action", allowed: true))
+        XCTAssertTrue(fence.consume(identity, sequence: send, editRevision: 1, allowed: true))
+        XCTAssertEqual(fence.edit, 2)
+        XCTAssertFalse(fence.consume(identity, sequence: send, editRevision: 1, allowed: true))
+        fence.edited()
+        let next = fence.emitted(kind: "action", action: "send")
+        XCTAssertTrue(fence.confirm(identity, sequence: next, applied: 1, editRevision: 3, kind: "action", allowed: true))
+        fence.edited() // A later keystroke before the acknowledgement.
+        XCTAssertFalse(fence.consume(identity, sequence: next, editRevision: 3, allowed: true))
+        let open = fence.emitted(kind: "action", action: "attachment-edit")
+        XCTAssertTrue(fence.confirm(identity, sequence: open, applied: fence.update, editRevision: fence.edit, kind: "action", allowed: true))
+        XCTAssertTrue(fence.admitsEditingTransition(identity, sequence: open, editRevision: fence.edit))
+        let editAtOpen = fence.edit
+        fence.edited()
+        XCTAssertFalse(fence.admitsEditingTransition(identity, sequence: open, editRevision: editAtOpen))
+        XCTAssertEqual(fence.edit, editAtOpen + 1, "Refusing a stale transition must preserve the intervening keystroke")
+    }
+
     #if DEBUG
     @MainActor
     func testNativeContinuityStillObservesNewFramesAndGapsAfterALongWarmSession() {
@@ -123,6 +270,12 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.confirm(first, sequence: 2, latestSequence: 2, allowed: true))
         XCTAssertFalse(state.confirm(replacement, sequence: 2, latestSequence: 2, allowed: true))
         XCTAssertTrue(state.activate(replacement))
+        XCTAssertTrue(state.suspend(replacement))
+        XCTAssertEqual(state.identity, replacement) // Host identity survives; action authority does not.
+        XCTAssertFalse(state.confirm(replacement, sequence: 2, latestSequence: 2, allowed: true))
+        XCTAssertFalse(state.update(replacement, sequence: 1))
+        XCTAssertFalse(state.activate(replacement)) // A new preparation is required after suspension.
+        XCTAssertFalse(state.suspend(first))
         let next = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-b", revision: 3)
         XCTAssertTrue(state.prepare(next))
         XCTAssertFalse(state.activate(first))

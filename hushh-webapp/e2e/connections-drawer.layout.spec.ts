@@ -273,6 +273,35 @@ async function mountAppChrome(page: import("@playwright/test").Page, barHeight: 
   }, barHeight);
 }
 
+test("stationary History chrome retains its grid while only the body follows a pull", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.getByRole("button", { name: "Open drawer" }).click();
+  const dialog = page.locator("[data-agent-history-drawer]");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Create new chat" })).toBeVisible();
+  await expect.poll(() => dialog.locator('[data-side-panel-body="left"]').evaluate(element =>
+    Math.abs(element.getBoundingClientRect().left - element.parentElement!.getBoundingClientRect().left))).toBeLessThanOrEqual(1);
+  const measured = await dialog.evaluate(frame => {
+    const title = frame.querySelector("h2")!;
+    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
+    const before = [title.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    const dispatch = (type: string, x: number, time: number) => {
+      const point = { identifier: 1, clientX: x, clientY: 320 };
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperties(event, { touches: { value: [point] }, changedTouches: { value: [point] }, timeStamp: { value: time } });
+      body.dispatchEvent(event);
+    };
+    dispatch("touchstart", 160, 100); dispatch("touchmove", 110, 220);
+    const after = [title.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    dispatch("touchcancel", 110, 240);
+    return { before, after, frameTransform: (frame as HTMLElement).style.transform };
+  });
+  expect(Math.abs(measured.after[0]! - measured.before[0]!)).toBeLessThanOrEqual(1);
+  expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(-50, 0);
+  expect(measured.frameTransform).toBe("");
+  await expect(dialog).toHaveAttribute("aria-hidden", "false");
+});
+
 /** What a finger at (x, y) would land on: the scrim, the panel, or chrome. */
 function hitAt(page: import("@playwright/test").Page, x: number, y: number) {
   return page.evaluate(([px, py]) => {
@@ -294,10 +323,11 @@ for (const width of [390, 1440])
     await page.evaluate(() => new Promise(requestAnimationFrame));
     const result = await page.evaluate(async () => {
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
-      const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const panel = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
-      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x };
+      const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x, frame: frame.getBoundingClientRect().x };
       const closed = panel.getBoundingClientRect().x;
       let time = 0;
       function finger(type: string, dx: number) {
@@ -316,9 +346,9 @@ for (const width of [390, 1440])
         samples.push({ offset: panel.getBoundingClientRect().x, expected: closed + dx,
           opacity: Number(getComputedStyle(scrim).opacity), visible: getComputedStyle(scrim).visibility === "visible" });
       }
-      const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar;
+      const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar && frame.getBoundingClientRect().x === before.frame;
       const filter = getComputedStyle(scrim).backdropFilter || getComputedStyle(scrim).webkitBackdropFilter;
-      const inertDuringPull = panel.inert;
+      const inertDuringPull = frame.inert;
       finger("touchend", 120);
       return { samples, stationary, filter, inertDuringPull };
     });
@@ -335,9 +365,10 @@ for (const width of [390, 1440])
     await expect(drawer).toBeVisible();
     // Let the opening settle, then exercise the same owner in the other
     // direction. WebKit and Chromium must follow the finger, not wait for up.
-    await expect(page.locator("[data-agent-history-drawer]")).not.toHaveAttribute("style", /will-change/);
+    await expect(page.locator('[data-side-panel-body="left"]')).not.toHaveAttribute("style", /will-change/);
     const closing = await page.evaluate(async () => {
-      const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+      const panel = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
@@ -357,7 +388,7 @@ for (const width of [390, 1440])
         finger("touchmove", dx);
         await new Promise(requestAnimationFrame);
         samples.push({ offset: panel.getBoundingClientRect().x, expected: dx,
-          opacity: Number(getComputedStyle(scrim).opacity), inert: panel.inert });
+          opacity: Number(getComputedStyle(scrim).opacity), inert: frame.inert });
       }
       const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar;
       finger("touchend", -120);

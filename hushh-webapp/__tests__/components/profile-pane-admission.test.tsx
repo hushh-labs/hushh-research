@@ -103,7 +103,7 @@ it("tracks an owned Profile close without moving the page and commits exactly on
   vi.spyOn(window, "getComputedStyle").mockImplementation((node) => {
     const style = computedStyle(node);
     return new Proxy(style, { get: (target, key) => key === "animationName" && node.getAttribute("data-slot") === "sheet-content"
-      ? node.getAttribute("data-state") === "closed" ? "profile-pull-exit" : "sheet-surface-enter"
+      ? node.getAttribute("data-state") === "closed" ? "stationary-side-frame-exit" : "stationary-side-frame-enter"
       : Reflect.get(target, key, target) });
   });
   let reopen = () => {};
@@ -113,14 +113,17 @@ it("tracks an owned Profile close without moving the page and commits exactly on
     return <ProfilePane open={open} onOpenChange={(next) => { close(next); setOpen(next); }} />;
   }
   const view = render(<ControlledPane />);
-  const panel = screen.getByTestId("profile-pane");
+  const frame = screen.getByTestId("profile-pane");
+  const panel = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
   Object.defineProperty(panel, "offsetWidth", { value: 390 });
-  const title = screen.getByRole("heading");
+  const title = panel;
   const scrim = document.querySelector<HTMLElement>('[data-slot="sheet-overlay"]')!;
   pull("touchstart", title, 100, 150, 0);
   pull("touchmove", title, 150, 152, 120);
   expect(panel.style.transform).toBe("translate3d(50px, 0, 0)");
   expect(panel.style.transition).toBe("none");
+  expect(frame.style.transform).toBe("");
+  expect(screen.getByRole("heading").closest("[data-side-panel-body]")).toBeNull();
   expect(Number(scrim.style.opacity)).toBeCloseTo(1 - 50 / 390);
   expect(document.body.style.transform).toBe("");
   expect(close).not.toHaveBeenCalled();
@@ -134,7 +137,7 @@ it("tracks an owned Profile close without moving the page and commits exactly on
   expect(panel).toHaveAttribute("data-state", "open");
   expect(panel.style.transform).toBe("translate3d(0px, 0, 0)");
   act(() => vi.advanceTimersByTime(200));
-  expect(panel).not.toHaveAttribute("data-profile-pull");
+  expect(panel).toHaveAttribute("data-profile-pull", "settled");
   expect(panel.style.transform).toBe("");
   view.unmount();
   expect(panel.style.transform).toBe("");
@@ -145,9 +148,9 @@ it("freezes a re-grab at its current rendered position before the next movement"
   vault.isVaultUnlocked = true;
   const close = vi.fn();
   const view = render(<ProfilePane open onOpenChange={close} />);
-  const panel = screen.getByTestId("profile-pane");
+  const panel = screen.getByTestId("profile-pane").querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
   Object.defineProperty(panel, "offsetWidth", { value: 390 });
-  const title = screen.getByRole("heading");
+  const title = panel;
   pull("touchstart", title, 100, 150, 0);
   pull("touchmove", title, 125, 151, 120);
   pull("touchend", title, 125, 151, 240);
@@ -171,14 +174,15 @@ it("keeps Profile scroll, fields, horizontal rails and nested dialogs outside th
   vault.isVaultUnlocked = true;
   const close = vi.fn();
   const view = render(<ProfilePane open onOpenChange={close} />);
-  const panel = screen.getByTestId("profile-pane");
+  const panel = screen.getByTestId("profile-pane").querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
   Object.defineProperty(panel, "offsetWidth", { value: 390 });
-  const title = screen.getByRole("heading");
+  const title = panel;
   const swipe = (target: Element, vertical = false) => {
     pull("touchstart", target, 100, 150, 0);
     pull("touchmove", target, vertical ? 105 : 210, vertical ? 270 : 152, 120);
     pull("touchend", target, 220, vertical ? 290 : 152, 240);
   };
+  swipe(screen.getByRole("heading")); // Stationary chrome is not a gesture target.
   swipe(title, true);
   swipe(screen.getByRole("button", { name: "Close Profile" }));
   const field = document.createElement("input");

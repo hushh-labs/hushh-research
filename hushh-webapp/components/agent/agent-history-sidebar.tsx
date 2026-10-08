@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { SidePanelMotionBody } from "@/components/app-ui/side-panel-motion";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { parseChatTimestamp } from "@/lib/agent/chat-time-separators";
@@ -515,7 +516,7 @@ export function AgentHistorySidebar({
         data-agent-history-sidebar={isMobileMode ? "drawer" : "persistent"}
       >
         {isMobileMode ? (
-          <div className="px-4 pb-1 pt-4">
+          <div data-stationary-panel-chrome className="px-4 pb-1 pt-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <h2 className="truncate text-[22px] font-bold leading-7 tracking-[-0.022em] text-foreground">
@@ -542,6 +543,11 @@ export function AgentHistorySidebar({
                 </Button>
               ) : null}
             </div>
+          </div>
+        ) : null}
+        <SidePanelMotionBody>
+        {isMobileMode ? (
+          <div className="px-4 pb-1">
             {puppyFootnote}
             <Button
               type="button"
@@ -742,6 +748,7 @@ export function AgentHistorySidebar({
             ) : null}
           </div>
         ) : null}
+        </SidePanelMotionBody>
       </aside>
 
       <AlertDialog

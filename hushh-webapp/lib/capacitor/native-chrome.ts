@@ -10,10 +10,11 @@ export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-
 export type ChromeFamily = "back" | "profile-back" | "history" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
 export type ChromeAgentSurface = "one" | "puppy";
 export type ChromeOption = { value: string; label: string; disabled?: boolean };
+export type ChromeAccentPalette = { blue: string; gold: string };
 export type ChromeControl = { kind: "back" | "profile-back" | "close" } | { kind: "history"; expanded?: boolean } |
   { kind: "agent-surface"; value: ChromeAgentSurface } |
   { kind: "appearance"; value: "light" | "dark" | "system" } |
-  { kind: "accent"; value: "blue" | "gold" } |
+  { kind: "accent"; value: "blue" | "gold"; fullTrigger?: boolean; palette?: ChromeAccentPalette } |
   { kind: "more"; options: readonly ChromeOption[] } |
   { kind: "selection"; value: string; options: readonly ChromeOption[] } |
   { kind: "date"; value: string; minimum: string; maximum: string };
@@ -31,7 +32,7 @@ export type ChromeControlProjection = NativeControlAppearance & ChromeControl & 
 };
 export type ChromeProjection = ChromeIdentity & ChromeControlProjection;
 export type ChromeAcknowledgement = ChromeIdentity & {
-  phase: "prepared" | "active" | "retired";
+  phase: "prepared" | "active" | "suspended" | "retired";
   frame?: ChromeFrame;
 };
 export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string };
@@ -48,6 +49,8 @@ export type NativeChromeCapabilities = {
   profileBackReplacement?: boolean;
   /** Same-mounted-owner History only, never a relocation to the drawer's Close. */
   historyReplacement?: boolean;
+  fullAccentTrigger?: boolean;
+  retainedControls?: boolean;
 };
 
 export interface HushhNativeChromePlugin {
@@ -59,6 +62,7 @@ export interface HushhNativeChromePlugin {
   prepareBackReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
   prepareHistoryReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
   activate(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
+  suspend(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
   retire(options: ChromeIdentity & { targetRevision?: number }): Promise<ChromeAcknowledgement>;
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
   addListener(eventName: "choiceRequested", listener: (event: ChromeChoice) => void): Promise<PluginListenerHandle>;
@@ -103,7 +107,8 @@ export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamil
   const viewport = { width: window.innerWidth, height: window.innerHeight };
   const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
   const widthAdmitted = kind === "agent-surface" || kind === "appearance"
-    ? frame.width >= minimumWidth && frame.width <= 320 : frame.width === 44;
+    ? frame.width >= minimumWidth && frame.width <= 320 : kind === "accent"
+      ? frame.width === 44 || frame.width >= 132 && frame.width <= 320 : frame.width === 44;
   if (!widthAdmitted || frame.height !== 44 ||
       ![frame.x, frame.y, viewport.width, viewport.height].every(Number.isFinite) ||
       frame.left < 0 || frame.top < 0 || frame.right > viewport.width || frame.bottom > viewport.height) return null;
@@ -138,6 +143,55 @@ export async function syncNativeCanvasAppearance(): Promise<boolean> {
 // A lease survives a React remount until native retirement is confirmed. This is
 // not persisted; the native document fence handles a WebView reload.
 const outstanding = new Map<ChromeControlId, ChromeIdentity>();
+export function currentChromeInstallation(controlId: ChromeControlId): ChromeIdentity | undefined {
+  const installed = outstanding.get(controlId);
+  return installed?.documentId === nativeDocumentId() ? { ...installed } : undefined;
+}
+// Bounded by authored control IDs and this document; no callbacks or operations.
+const epochs = new Map<ChromeControlId, { owner: string; documentId: string; epoch: string }>();
+const suspended = new Map<ChromeControlId, { projection: ChromeProjection; ready: Promise<void> }>();
+export function chromeOwnerEpoch(owner: string | null, controlId: ChromeControlId): string {
+  const documentId = nativeDocumentId();
+  const existing = epochs.get(controlId);
+  if (owner && existing?.owner === owner && existing.documentId === documentId) return existing.epoch;
+  const epoch = crypto.randomUUID();
+  if (owner) epochs.set(controlId, { owner, documentId, epoch });
+  else epochs.delete(controlId);
+  return epoch;
+}
+function retainedShape(projection: ChromeProjection | ChromeControlProjection) {
+  const { kind, label, frame, viewport } = projection;
+  return JSON.stringify({ kind, label, frame, viewport,
+    options: "options" in projection ? projection.options : undefined,
+    bounds: projection.kind === "date" ? [projection.minimum, projection.maximum] : undefined,
+    accent: projection.kind === "accent" ? [projection.fullTrigger, projection.palette] : undefined });
+}
+/** Suspension removes interaction and completes popup dismissal, not containment. */
+export async function suspendOwnedNativeChrome(lease: NativeChromeLease): Promise<void> {
+  if (!lease.ownsInstallation) return;
+  const projection = lease.projection;
+  const existing = suspended.get(projection.controlId);
+  if (existing?.projection.revision === projection.revision) return existing.ready;
+  lease.invalidate();
+  const ready = bounded(nativeChrome.suspend(projection)).then(ack => {
+    if (!matches(ack, projection, "suspended")) throw new Error("NATIVE_CHROME_SUSPEND_UNCONFIRMED");
+  });
+  const entry = { projection, ready };
+  suspended.set(projection.controlId, entry);
+  try { await ready; } catch (error) {
+    if (suspended.get(projection.controlId) === entry) suspended.delete(projection.controlId);
+    throw error;
+  }
+}
+/** Re-admission always mints fresh authority; only the native host may survive. */
+export async function canResumeNativeChrome(projection: ChromeControlProjection, ownerEpoch: string): Promise<boolean> {
+  const id = chromeControlId(projection.kind);
+  const entry = suspended.get(id);
+  if (!entry || entry.projection.ownerEpoch !== ownerEpoch || entry.projection.documentId !== nativeDocumentId() ||
+      retainedShape(entry.projection) !== retainedShape(projection)) return false;
+  await entry.ready;
+  return suspended.get(id) === entry && outstanding.get(id)?.revision === entry.projection.revision;
+}
 export function chromeControlId(kind: ChromeFamily): ChromeControlId {
   if (kind === "profile-back") return "profile-back";
   if (kind === "history") return "chat-history-toggle";
@@ -192,7 +246,10 @@ export async function retireNativeChrome(ownerEpoch: string, target?: ChromeIden
   const ack = await bounded(nativeChrome.retire({ ...identity, targetRevision: target?.revision }));
   if (!matches(ack, identity, "retired")) throw new Error("NATIVE_CHROME_RETIRE_UNCONFIRMED");
   const latest = outstanding.get(controlId);
-  if (!latest || latest.revision <= identity.revision) outstanding.delete(controlId);
+  if (!latest || latest.revision <= identity.revision) {
+    outstanding.delete(controlId);
+    suspended.delete(controlId);
+  }
 }
 
 /** An unmount owns only its installation, never another mounted instance of
@@ -275,6 +332,7 @@ export class NativeChromeLease {
     return this.current;
   }
   async prepare(): Promise<boolean> {
+    suspended.delete(this.projection.controlId);
     outstanding.set(this.projection.controlId, this.projection);
     const ack = await bounded(nativeChrome.prepare(this.projection));
     return this.acceptPreparation(ack);

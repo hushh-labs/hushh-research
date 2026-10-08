@@ -134,6 +134,50 @@ async function mount(
 const pane = (page: Page) => page.getByTestId("profile-pane");
 const paneTitle = (page: Page) => pane(page).locator("h2").first();
 
+test("stationary Profile chrome and Preferences keep their grid while only the body follows a pull", async ({ page }) => {
+  await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
+  const preferences = pane(page).locator("[data-profile-stationary-preferences]");
+  await expect(preferences.getByText("Appearance", { exact: true })).toBeVisible();
+  const measured = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLElement>('[data-testid="profile-pane"]')!;
+    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
+    const title = frame.querySelector("h2")!;
+    const controls = frame.querySelector("[data-profile-stationary-preferences]")!;
+    const before = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    const dispatch = (type: string, x: number, time: number) => {
+      const point = { identifier: 1, clientX: x, clientY: 320 };
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperties(event, { touches: { value: [point] }, changedTouches: { value: [point] }, timeStamp: { value: time } });
+      body.dispatchEvent(event);
+    };
+    dispatch("touchstart", 120, 100); dispatch("touchmove", 170, 220);
+    const after = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    dispatch("touchcancel", 170, 240);
+    return { before, after, frameTransform: frame.style.transform, hasDuplicatedAppearance: frame.querySelectorAll('[data-profile-stationary-preferences]').length };
+  });
+  expect(Math.abs(measured.after[0]! - measured.before[0]!)).toBeLessThanOrEqual(1);
+  expect(Math.abs(measured.after[1]! - measured.before[1]!)).toBeLessThanOrEqual(1);
+  expect(measured.after[2]! - measured.before[2]!).toBeCloseTo(50, 0);
+  expect(measured.frameTransform).toBe("");
+  expect(measured.hasDuplicatedAppearance).toBe(1);
+  await expect(pane(page)).toBeVisible(); // Cancellation never commits dismissal.
+  // Observe settlement cleanup, where removing animation suppression used to
+  // replay the entire opening slide. A settled screenshot cannot catch it.
+  const afterCancellation = await pane(page).evaluate(async frame => {
+    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
+    let worstSettledOffset = 0;
+    const started = performance.now();
+    while (performance.now() - started < 550) {
+      await new Promise(requestAnimationFrame);
+      if (!body.style.transform) worstSettledOffset = Math.max(worstSettledOffset,
+        Math.abs(body.getBoundingClientRect().x - frame.getBoundingClientRect().x));
+    }
+    return { worstSettledOffset, inlineTransform: body.style.transform };
+  });
+  expect(afterCancellation.inlineTransform).toBe("");
+  expect(afterCancellation.worstSettledOffset).toBeLessThanOrEqual(1);
+});
+
 function query(page: Page) {
   return new URL(page.url()).searchParams;
 }

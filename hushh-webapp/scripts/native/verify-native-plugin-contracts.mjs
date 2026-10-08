@@ -15,6 +15,7 @@ const tsPluginFiles = [
   "lib/capacitor/session-privacy.ts",
   "lib/capacitor/native-navigation.ts",
   "lib/capacitor/native-chrome.ts",
+  "lib/capacitor/native-dock.ts",
   "lib/capacitor/stream.ts",
   "lib/capacitor/oauth-return.ts",
   "lib/capacitor/plaid-link.ts",
@@ -40,7 +41,7 @@ const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
 // (HushhPlaidLink is implemented on both platforms: LinkKit on iOS, Plaid's
 // Link SDK on Android, so it is held to full parity like every other plugin.)
-const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome"]);
+const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock"]);
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
@@ -56,6 +57,7 @@ const ignoredTsMethodsByPlugin = new Map([
   ["HushhSessionPrivacy", new Set(["addListener"])],
   ["HushhNativeNavigation", new Set(["addListener"])],
   ["HushhNativeChrome", new Set(["addListener"])],
+  ["HushhNativeDock", new Set(["addListener"])],
   ["HushhStream", new Set(["addListener"])],
   ["HushhPlaidLink", new Set(["addListener"])],
 ]);

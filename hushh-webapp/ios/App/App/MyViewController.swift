@@ -100,6 +100,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         super.viewDidLayoutSubviews()
         (bridge?.plugin(withName: "HushhNativeNavigation") as? HushhNativeNavigationPlugin)?.layoutTabBar()
         (bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?.layoutControls()
+        (bridge?.plugin(withName: "HushhNativeDock") as? HushhNativeDockPlugin)?.layoutDock()
     }
 
     deinit {
@@ -223,6 +224,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhSessionPrivacyPlugin())
         bridge?.registerPluginInstance(HushhNativeNavigationPlugin())
         bridge?.registerPluginInstance(HushhNativeChromePlugin())
+        bridge?.registerPluginInstance(HushhNativeDockPlugin())
         bridge?.registerPluginInstance(HushhStreamPlugin())
         bridge?.registerPluginInstance(HushhOAuthReturnPlugin())
         bridge?.registerPluginInstance(HushhPlaidLinkPlugin())
@@ -269,6 +271,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "HushhSessionPrivacy",
             "HushhNativeNavigation",
             "HushhNativeChrome",
+            "HushhNativeDock",
             "HushhStream",
             "HushhOAuthReturn",
             "HushhPlaidLink"

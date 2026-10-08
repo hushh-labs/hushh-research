@@ -119,6 +119,8 @@ type SheetContentProps =
     side?: "top" | "right" | "bottom" | "left"
     /** Authored owner, only for a native control belonging to this layer. */
     nativeLayer?: string
+    /** Opt-in side frame: chrome stays stationary while its authored body moves. */
+    stationaryChrome?: boolean
     showCloseButton?: boolean
     /**
      * Enables the native-style downward drag dismissal used by mobile bottom
@@ -176,6 +178,7 @@ function SheetContent(
     contentRef,
     overlayRef,
     nativeLayer,
+    stationaryChrome = false,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -224,6 +227,7 @@ function SheetContent(
       <SheetPrimitive.Content
         ref={nativeContentRef}
         data-slot="sheet-content"
+        data-stationary-side-frame={stationaryChrome && (side === "left" || side === "right") ? side : undefined}
         className={cn(
           "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-(--z-sheet) flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
           // A full-height side sheet reaches the top of the window; on the

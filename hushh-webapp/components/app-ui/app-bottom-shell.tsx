@@ -10,6 +10,7 @@ import {
 
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import {
   BOTTOM_CHROME_COLUMN_CLASSNAME,
   BOTTOM_CHROME_INSET_CLASSNAME,
@@ -93,15 +94,14 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     return () => observer.disconnect();
   }, [hidden, model.agentBarHidden, model.navigationHidden]);
 
-  if (hidden) return null;
-
   return (
     <>
+      <NativeAgentDock enabled={!hidden} />
       {/* The fixed wrapper keeps its original hit box while the chrome
           inside it rides the scroll transform. Let taps pass through that
           empty area to content (especially Chat's composer); the actual nav
           controls opt back into pointer events in Navbar. */}
-      <div
+      {!hidden && <div
         ref={shellRef}
         style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
@@ -145,7 +145,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
             />
           </div>
         </div>
-      </div>
+      </div>}
     </>
   );
 });

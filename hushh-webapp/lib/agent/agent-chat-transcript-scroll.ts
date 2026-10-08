@@ -71,7 +71,7 @@ export function findPendingAssistantTurn(transcript: HTMLElement): HTMLElement |
 export function measureTranscriptReveal(
   transcript: HTMLElement,
   element: HTMLElement,
-  overlay: HTMLElement | null,
+  overlay: Pick<HTMLElement, "getBoundingClientRect"> | null,
 ): TranscriptRevealGeometry {
   const transcriptRect = transcript.getBoundingClientRect();
   const elementRect = element.getBoundingClientRect();

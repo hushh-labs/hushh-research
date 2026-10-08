@@ -68,6 +68,11 @@ struct HushhNativeChromeState {
         phase = "active"
         return true
     }
+    mutating func suspend(_ requested: Identity) -> Bool {
+        guard identity == requested, ["active", "prepared", "suspended"].contains(phase) else { return false }
+        phase = "suspended"
+        return true
+    }
     mutating func prepareBackReplacement(_ next: Identity, previousRevision: Int) -> Bool {
         guard ["top-shell-back", "profile-back"].contains(next.controlId) else { return false }
         return prepareReplacement(next, previousRevision: previousRevision, controlId: next.controlId)
@@ -156,6 +161,30 @@ private struct NativeChromeButton: View {
     }
 }
 
+@available(iOS 26.0, *)
+private struct NativeAccentTrigger: View {
+    let selected: String
+    let width: CGFloat
+    let theme: HushhNativeControlAppearance
+    let action: () -> Void
+    let layout: (CGSize) -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle().fill(Color(uiColor: theme.accent)).frame(width: 12, height: 12).accessibilityHidden(true)
+                Text(selected == "gold" ? "Molten Gold" : "Blue").lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
+            }.padding(.horizontal, 12).frame(width: width, height: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.glass).tint(Color(uiColor: theme.accent))
+        .foregroundStyle(Color(uiColor: theme.foreground))
+        .accessibilityLabel("App accent color").accessibilityValue(selected == "gold" ? "Molten Gold" : "Blue")
+        .accessibilityIdentifier("profile-accent")
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
+    }
+}
+
 /// Transient presentation intent, never a route or operation. The plugin
 /// acknowledges assistive focus from UIKit's actual focused-element event.
 private final class ChromeFocusRequest: ObservableObject {
@@ -226,6 +255,12 @@ private final class ChromeHostingController: UIHostingController<AnyView> {
 struct HushhChromeConfiguration {
     var options = [HushhChromeOption]()
     var dateBounds: ClosedRange<Date>?
+    var swatches = [String: UIColor]()
+    func matches(_ other: Self) -> Bool {
+        options.count == other.options.count && zip(options, other.options).allSatisfy { pair in
+            pair.0.value == pair.1.value && pair.0.label == pair.1.label && pair.0.disabled == pair.1.disabled
+        } && dateBounds == other.dateBounds && swatches == other.swatches
+    }
 
     mutating func prepare(_ identity: HushhNativeChromeState.Identity, parsed: Self?, state: inout HushhNativeChromeState) -> Bool {
         guard let parsed, state.prepare(identity) else { return false }
@@ -233,12 +268,18 @@ struct HushhChromeConfiguration {
         return true
     }
 
-    static func parse(kind: String, value: String?, options: [JSObject]?, minimum: String?, maximum: String?) -> Self? {
+    static func parse(kind: String, value: String?, options: [JSObject]?, minimum: String?, maximum: String?, palette: JSObject? = nil) -> Self? {
         var result = Self()
         if kind == "appearance" { return ["light", "dark", "system"].contains(value ?? "") ? result : nil }
         if kind == "accent" {
             guard ["blue", "gold"].contains(value ?? "") else { return nil }
-            result.options = [.init(value: "blue", label: "iOS Blue", disabled: false), .init(value: "gold", label: "Molten Gold", disabled: false)]
+            result.options = [.init(value: "blue", label: "Blue", disabled: false), .init(value: "gold", label: "Molten Gold", disabled: false)]
+            if let palette {
+                guard Set(palette.keys) == Set(["blue", "gold"]),
+                      let blue = HushhNativeControlAppearance.color(palette["blue"] as? String),
+                      let gold = HushhNativeControlAppearance.color(palette["gold"] as? String) else { return nil }
+                result.swatches = ["blue": blue, "gold": gold]
+            }
             return result
         }
         if kind == "date" {
@@ -265,6 +306,7 @@ struct HushhChromeConfiguration {
 }
 
 private final class ChromeSlot {
+    var layoutConfirmed = false
     var state = HushhNativeChromeState()
     var hosting: ChromeHostingController?
     var pendingLayout: CAPPluginCall?
@@ -276,6 +318,7 @@ private final class ChromeSlot {
     var choiceValue: String?
     var kind = "back"
     var label = ""
+    var fullAccentTrigger = false
     var presentation: ChromePresentation?
     var configuration = HushhChromeConfiguration()
     var options: [HushhChromeOption] { configuration.options }
@@ -321,6 +364,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "activate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "suspend", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "restoreFocus", returnType: CAPPluginReturnPromise),
     ]
@@ -411,6 +455,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
                           "families": families, "canvasAppearance": true, "independentControls": true,
                           "inPlaceUpdates": true,
+                          "fullAccentTrigger": self?.chatControlsAdmitted == true,
+                          "retainedControls": self?.chatControlsAdmitted == true,
                           "backReplacement": self?.backAdmitted == true,
                           "profileBackReplacement": self?.chatControlsAdmitted == true,
                           "historyReplacement": self?.chatControlsAdmitted == true,
@@ -479,20 +525,29 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.acceptDocument(identity.document)
             guard !self.slots.contains(where: { id, slot in
-                id != identity.controlId && slot.hosting?.view.frame.intersects(frame) == true
+                id != identity.controlId && slot.hosting?.view.isHidden == false && slot.hosting?.view.frame.intersects(frame) == true
             }) else { call.reject("NATIVE_CHROME_OVERLAPPING_CONTROLS"); return }
             let slot = self.slot(identity.controlId)
             guard slot.presenter == nil, let configuration = self.readOptions(call, kind: kind) else {
                 call.reject("NATIVE_CHROME_OPTIONS_INVALID"); return
             }
+            guard kind != "accent" || call.getBool("fullTrigger") != true || configuration.swatches.count == 2 else {
+                call.reject("NATIVE_CHROME_OPTIONS_INVALID"); return
+            }
+            let previous = slot.state.identity
+            let retained = slot.layoutConfirmed && slot.state.phase == "suspended" && previous?.document == identity.document &&
+                previous?.ownerEpoch == identity.ownerEpoch && slot.kind == kind && slot.label == label &&
+                slot.fullAccentTrigger == (kind == "accent" && call.getBool("fullTrigger") == true) &&
+                slot.hosting?.view.frame == frame && slot.viewport == bounds && slot.configuration.matches(configuration)
             guard slot.configuration.prepare(identity, parsed: configuration, state: &slot.state) else { call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return }
-            self.removeHosting(slot)
+            if !retained { self.removeHosting(slot) }
             slot.kind = kind
             slot.label = label
+            slot.fullAccentTrigger = kind == "accent" && call.getBool("fullTrigger") == true
             slot.presentation = ChromePresentation(call)
-            slot.focus = ChromeFocusRequest()
+            if !retained { slot.focus = ChromeFocusRequest() }
             slot.viewport = parent.view.bounds.size
-            var swiftUILayout = false
+            var swiftUILayout = retained
             let layout: (CGSize) -> Void = { [weak slot] size in
                 swiftUILayout = size == frame.size
                 slot?.hosting?.view.setNeedsLayout()
@@ -507,13 +562,17 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             } else if kind == "appearance" {
                 root = AnyView(NativeAppearanceSelector(selected: call.getString("value") ?? "system", width: frame.width,
                     theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout).disabled(false))
+            } else if slot.fullAccentTrigger {
+                root = AnyView(NativeAccentTrigger(selected: call.getString("value") ?? "blue", width: frame.width,
+                    theme: theme, action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout).disabled(false))
             } else {
                 root = AnyView(NativeChromeButton(label: kind == "history" ? (call.getBool("expanded") == true ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
-                    value: kind == "accent" ? (call.getString("value") == "gold" ? "Molten Gold" : "iOS Blue") : nil,
+                    value: kind == "accent" ? (call.getString("value") == "gold" ? "Molten Gold" : "Blue") : nil,
                     symbol: self.symbol(kind, expanded: call.getBool("expanded") == true), theme: theme,
                     action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout, focus: slot.focus).disabled(false))
             }
-            let controller = ChromeHostingController(rootView: root)
+            let controller = retained ? slot.hosting! : ChromeHostingController(rootView: root)
+            if retained { controller.rootView = root }
             slot.hosting = controller
             controller.overrideUserInterfaceStyle = theme.style
             controller.view.backgroundColor = .clear
@@ -523,16 +582,20 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             // The web shell has already applied safe-area clearance. SwiftUI
             // must not apply a second inherited inset to this 44pt slot.
             controller.safeAreaRegions = []
-            parent.addChild(controller)
-            if let cover = parent.view.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
-                parent.view.insertSubview(controller.view, belowSubview: cover)
-            } else { parent.view.addSubview(controller.view) }
+            if !retained {
+                parent.addChild(controller)
+                if let cover = parent.view.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
+                    parent.view.insertSubview(controller.view, belowSubview: cover)
+                } else { parent.view.addSubview(controller.view) }
+            }
             controller.view.frame = frame
-            controller.didMove(toParent: parent)
+            if !retained { controller.didMove(toParent: parent) }
             #if DEBUG
-            if kind == "back" { self.backContinuity?.installed(controller.view) }
-            if kind == "history" { self.historyContinuity?.installed(controller.view) }
-            if kind == "profile-back" { self.profileBackContinuity?.installed(controller.view) }
+            if !retained {
+                if kind == "back" { self.backContinuity?.installed(controller.view) }
+                if kind == "history" { self.historyContinuity?.installed(controller.view) }
+                if kind == "profile-back" { self.profileBackContinuity?.installed(controller.view) }
+            }
             #endif
             slot.pendingLayout = call
             controller.didLayout = { [weak self, weak slot, weak controller] in
@@ -540,6 +603,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                       slot.state.identity == identity, let pending = slot.pendingLayout else { return }
                 guard swiftUILayout, controller.view.bounds.size == frame.size, controller.view.superview != nil else { return }
                 slot.pendingLayout = nil
+                slot.layoutConfirmed = true
                 controller.didLayout = nil
                 pending.resolve(self.payload(identity, phase: "prepared", frame: controller.view.frame))
             }
@@ -628,6 +692,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   self.canPresent, self.geometryIsCurrent(slot), self.document == identity.document,
                   slot.pendingLayout == nil, let hosting = slot.hosting,
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+                  !self.slots.contains(where: { id, other in
+                      id != identity.controlId && other.hosting?.view.isHidden == false &&
+                          other.hosting?.view.frame.intersects(hosting.view.frame) == true
+                  }),
                   slot.state.activate(identity) else { call.reject("NATIVE_CHROME_ACTIVATE_REFUSED"); return }
             hosting.view.isHidden = false
             hosting.view.isUserInteractionEnabled = true
@@ -638,6 +706,25 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if slot.kind == "profile-back" { self.profileBackContinuity?.activated() }
             #endif
             call.resolve(self.payload(identity, phase: "active"))
+        }
+    }
+
+    @objc func suspend(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.chatControlsAdmitted, let identity = self.identity(call),
+                  let slot = self.slots[identity.controlId], slot.state.suspend(identity) else {
+                call.reject("NATIVE_CHROME_SUSPEND_REFUSED"); return
+            }
+            slot.hosting?.view.isHidden = true
+            slot.hosting?.view.isUserInteractionEnabled = false
+            slot.hosting?.view.accessibilityElementsHidden = true
+            slot.hosting?.didLayout = nil
+            slot.pendingLayout?.reject("NATIVE_CHROME_LAYOUT_RETIRED"); slot.pendingLayout = nil
+            slot.pendingFocus?.reject("NATIVE_CHROME_FOCUS_RETIRED"); slot.pendingFocus = nil
+            slot.choiceValue = nil
+            if let presenter = slot.presenter {
+                presenter.retire { call.resolve(self.payload(identity, phase: "suspended")) }
+            } else { call.resolve(self.payload(identity, phase: "suspended")) }
         }
     }
 
@@ -691,9 +778,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     root = AnyView(NativeAppearanceSelector(selected: presentation.value ?? "system", width: hosting.view.frame.width,
                         theme: presentation.theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) },
                         layout: { _ in }).disabled(!presentation.enabled))
+                } else if slot.fullAccentTrigger {
+                    root = AnyView(NativeAccentTrigger(selected: presentation.value ?? "blue", width: hosting.view.frame.width,
+                        theme: presentation.theme, action: { [weak self] in self?.activateControl(identity.controlId) }, layout: { _ in }).disabled(!presentation.enabled))
                 } else {
                     root = AnyView(NativeChromeButton(label: slot.kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : slot.label, controlId: identity.controlId,
-                        value: slot.kind == "accent" ? (presentation.value == "gold" ? "Molten Gold" : "iOS Blue") : nil,
+                        value: slot.kind == "accent" ? (presentation.value == "gold" ? "Molten Gold" : "Blue") : nil,
                         symbol: self.symbol(slot.kind, expanded: presentation.expanded), theme: presentation.theme,
                         action: { [weak self] in self?.activateControl(identity.controlId) }, layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
                 }
@@ -824,7 +914,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func readOptions(_ call: CAPPluginCall, kind: String) -> HushhChromeConfiguration? {
         HushhChromeConfiguration.parse(kind: kind, value: call.getString("value"),
-            options: call.getArray("options", JSObject.self), minimum: call.getString("minimum"), maximum: call.getString("maximum"))
+            options: call.getArray("options", JSObject.self), minimum: call.getString("minimum"), maximum: call.getString("maximum"), palette: call.getObject("palette"))
     }
     private func admittedValue(_ value: String?, slot: ChromeSlot, forUpdate: Bool) -> Bool {
         switch slot.kind {
@@ -852,7 +942,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             self.requestChoice(controlId, value: value)
         }
         let presenter: HushhNativeChromePresenter
-        if slot.kind == "more" || slot.kind == "accent" {
+        if slot.kind == "accent", !slot.configuration.swatches.isEmpty, let value = presentation.value {
+            presenter = .accent(parent: parent, value: value, options: slot.options, swatches: slot.configuration.swatches,
+                theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
+        } else if slot.kind == "more" || slot.kind == "accent" {
             presenter = .menu(parent: parent, source: source, title: slot.label, options: slot.options, theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
         } else if slot.kind == "selection", let value = presentation.value {
             presenter = .selection(parent: parent, title: slot.label, value: value, options: slot.options, theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
@@ -898,6 +991,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         notifyListeners("invalidated", data: [:])
     }
     private func removeHosting(_ slot: ChromeSlot) {
+        slot.layoutConfirmed = false
         slot.pendingLayout?.reject("NATIVE_CHROME_LAYOUT_RETIRED")
         slot.pendingLayout = nil
         slot.pendingFocus?.reject("NATIVE_CHROME_FOCUS_RETIRED")
@@ -936,7 +1030,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         guard let value = call.getObject("frame"), let x = value["x"] as? Double, let y = value["y"] as? Double,
               let width = value["width"] as? Double, let height = value["height"] as? Double,
               let viewport = viewport(call), [x, y, width, height].allSatisfy({ $0.isFinite }),
-              (kind == "appearance" ? width >= 132 && width <= 320 : kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44),
+              (kind == "appearance" || kind == "accent" && call.getBool("fullTrigger") == true ? width >= 132 && width <= 320 : kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44),
               height == 44, x >= 0, y >= 0,
               x + width <= viewport.width, y + height <= viewport.height else { return nil }
         return CGRect(x: x, y: y, width: width, height: height)

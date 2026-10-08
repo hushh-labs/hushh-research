@@ -174,6 +174,7 @@ final class AppUITests: XCTestCase {
         defer { reportReceipt("after") }
         let unlock = web.buttons["Unlock"].firstMatch
         let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        let nativeEditor = app.textViews["native-dock-editor"].firstMatch
         let signIn = web.buttons["Continue with Google"].firstMatch
         let passphraseMethod = web.buttons["Passphrase"].firstMatch
         let passphraseFallback = web.buttons["Use passphrase instead"].firstMatch
@@ -181,7 +182,7 @@ final class AppUITests: XCTestCase {
         // restoration settles. Absence of Unlock at that instant does not
         // prove admission; wait for an actual public gate or protected shell.
         let sessionReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            unlock.exists && unlock.isHittable || composer.exists && composer.isHittable || signIn.exists && signIn.isHittable ||
+            unlock.exists && unlock.isHittable || composer.exists && composer.isHittable || nativeEditor.exists && nativeEditor.isHittable || signIn.exists && signIn.isHittable ||
                 passphraseMethod.exists && passphraseMethod.isHittable || passphraseFallback.exists && passphraseFallback.isHittable
         }, object: web)
         XCTAssertEqual(XCTWaiter.wait(for: [sessionReady], timeout: 30), .completed, "SESSION_ADMISSION_NOT_SETTLED")
@@ -209,7 +210,10 @@ final class AppUITests: XCTestCase {
         }, object: app)
         XCTAssertEqual(XCTWaiter.wait(for: [navigationReady], timeout: 15), .completed, "SESSION_NAVIGATION_NOT_SETTLED")
         perfTapNav(app, label: "Chat")
-        XCTAssertTrue(composer.waitForExistence(timeout: 15) && composer.isHittable, "Protected Chat was not admitted")
+        let protectedChat = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            composer.exists && composer.isHittable || nativeEditor.exists && nativeEditor.isHittable
+        }, object: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [protectedChat], timeout: 15), .completed, "Protected Chat was not admitted")
         print("VAULT_UNLOCK_VERIFIED protected_chat=true")
     }
 
@@ -899,6 +903,57 @@ final class AppUITests: XCTestCase {
         print("NATIVE_BACK_CONTINUITY layout_overlay_resume_existing_handler_single_host")
     }
 
+    func testLocalSessionNativeDockKeepsDraftAndKeyboardAcrossRoutes() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_DOCK_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in native dock warm-session proof")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("NATIVE_DOCK_REQUIRES_RUNNING_APP"); return
+        }
+        app.activate()
+        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15), "NATIVE_DOCK_HOST_UNAVAILABLE")
+        XCTAssertFalse(web.buttons["Unlock"].exists, "Normal unlock must precede the warm dock proof")
+        XCTAssertFalse(web.buttons["Continue with Google"].exists, "No reviewer bootstrap in continuity proof")
+        returnToRehearsalChat(app)
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10) && editor.isHittable, "NATIVE_DOCK_EDITOR_UNAVAILABLE")
+        guard (editor.value as? String ?? "").isEmpty else {
+            XCTFail("NATIVE_DOCK_REQUIRES_EMPTY_REVIEWER_DRAFT"); return // Never overwrite an existing draft.
+        }
+        let draft = "Dock continuity 👋\nSecond line"
+        defer {
+            if editor.exists && (editor.value as? String) == draft {
+                editor.tap(); editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.count))
+                editor.typeText(XCUIKeyboardKey.escape.rawValue)
+            }
+        }
+        editor.tap()
+        XCTAssertTrue(waitForSoftwareKeyboard(app), "NATIVE_DOCK_SOFTWARE_KEYBOARD_UNAVAILABLE")
+        editor.typeText(draft)
+        XCTAssertTrue((editor.value as? String) == draft, "NATIVE_DOCK_UNICODE_OR_NEWLINE_LOST")
+        XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY - 4,
+            "The system keyboard must not cover the private editor")
+        editor.typeText(XCUIKeyboardKey.escape.rawValue)
+        let hiddenKeyboard = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)
+        }, object: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [hiddenKeyboard], timeout: 5), .completed)
+        for _ in 0..<10 {
+            perfTapNav(app, label: "One")
+            let dock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
+            XCTAssertTrue(dock.waitForExistence(timeout: 10), "NATIVE_DOCK_VOICE_PRESENTATION_UNAVAILABLE")
+            perfTapNav(app, label: "Chat")
+            XCTAssertTrue(editor.waitForExistence(timeout: 10) && editor.isHittable, "NATIVE_DOCK_ROUTE_RETURN_UNAVAILABLE")
+            XCTAssertTrue((editor.value as? String) == draft, "NATIVE_DOCK_ROUTE_RETURN_LOST_DRAFT")
+            XCTAssertFalse(web.textViews["Message One"].firstMatch.isHittable, "An interactive web duplicate must not appear")
+            XCTAssertEqual(hosts.count, 1)
+        }
+        // Teardown clears only this exact synthetic draft through its owner.
+        print("NATIVE_DOCK_CONTINUITY ten_warm_routes_unicode_newline_keyboard_no_web_duplicate")
+    }
+
     func testLocalSessionNativeChatControlsRespectOverlayKeyboardAndSingleHost() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_CHROME_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in native History/Close and selector proof; Debug candidate must admit these families")
@@ -1475,8 +1530,7 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
         let picker = app.segmentedControls["profile-appearance"].firstMatch
         let accent = app.buttons["profile-accent"].firstMatch
-        let accentSheet = app.sheets.containing(.button, identifier: "iOS Blue")
-            .containing(.button, identifier: "Molten Gold").firstMatch
+        let accentSheet = app.descendants(matching: .any).matching(identifier: "native-accent-presentation").firstMatch
         func controlsReady() -> Bool {
             picker.exists && accent.exists && accent.isHittable &&
                 ["Light", "Dark", "System"].allSatisfy { picker.buttons[$0].exists && picker.buttons[$0].isHittable }
@@ -1516,31 +1570,25 @@ final class AppUITests: XCTestCase {
         func selectAccent(_ name: String) {
             if (accent.value as? String) == name { return }
             accent.tap()
-            let option = app.buttons[name].firstMatch
+            let option = accentSheet.buttons[name].firstMatch
             XCTAssertTrue(option.waitForExistence(timeout: 10) && option.isHittable, "NATIVE_ACCENT_MENU_UNAVAILABLE")
             option.tap()
+            let done = accentSheet.buttons["Done"].firstMatch
+            XCTAssertTrue(done.exists && done.isHittable, "NATIVE_ACCENT_COMMIT_UNAVAILABLE")
+            done.tap()
             let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", name), object: accent)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_ACCENT_NOT_ACKNOWLEDGED")
         }
         func cancelAccentMenu() -> Bool {
             let sheet = accentSheet
             guard sheet.waitForExistence(timeout: 5),
-                  sheet.buttons["iOS Blue"].firstMatch.isHittable,
+                  sheet.buttons["Blue"].firstMatch.isHittable,
                   sheet.buttons["Molten Gold"].firstMatch.isHittable else {
                 XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return false
             }
-            // iOS 26 anchors action sheets at their source and removes the
-            // Cancel button. An outside tap invokes the same cancel handler.
-            // Prove dismissal, not a legacy button or an arbitrary delay.
-            let bounds = app.frame, menu = sheet.frame.insetBy(dx: -8, dy: -8)
-            let points = [CGPoint(x: bounds.midX, y: bounds.maxY - 90),
-                          CGPoint(x: bounds.minX + 24, y: bounds.midY),
-                          CGPoint(x: bounds.maxX - 24, y: bounds.midY)]
-            guard let point = points.first(where: { bounds.contains($0) && !menu.contains($0) }) else {
-                XCTFail("NATIVE_ACCENT_OUTSIDE_TARGET_UNAVAILABLE"); return false
-            }
-            app.coordinate(withNormalizedOffset: .zero).withOffset(
-                CGVector(dx: point.x - bounds.minX, dy: point.y - bounds.minY)).tap()
+            let cancel = sheet.buttons["Cancel"].firstMatch
+            guard cancel.exists && cancel.isHittable else { XCTFail("NATIVE_ACCENT_CANCEL_UNAVAILABLE"); return false }
+            cancel.tap()
             let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 !sheet.exists && controlsReady()
             }, object: app)
@@ -1553,7 +1601,7 @@ final class AppUITests: XCTestCase {
         }
         openPreferences()
         guard let originalTheme = ["Light", "Dark", "System"].first(where: selectedTheme),
-              let originalAccent = accent.value as? String, ["iOS Blue", "Molten Gold"].contains(originalAccent) else {
+              let originalAccent = accent.value as? String, ["Blue", "Molten Gold"].contains(originalAccent) else {
             XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return
         }
         addTeardownBlock {
@@ -1571,7 +1619,7 @@ final class AppUITests: XCTestCase {
             selectTheme(name)
             XCTAssertTrue(accent.isHittable)
         }
-        for name in ["iOS Blue", "Molten Gold"] { selectAccent(name) }
+        for name in ["Blue", "Molten Gold"] { selectAccent(name) }
         let value = accent.value as? String
         for _ in 0..<2 {
             accent.tap()

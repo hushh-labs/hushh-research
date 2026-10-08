@@ -9,6 +9,7 @@ import {
 } from "@capacitor/core";
 import { useTheme } from "next-themes";
 import { getNativeChromeCapabilities, syncNativeCanvasAppearance } from "@/lib/capacitor/native-chrome";
+import { getNativeDockCapabilities } from "@/lib/capacitor/native-dock";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import {
   AMBIENT_CHROME_TOP_SURFACE_ATTR,
@@ -90,6 +91,7 @@ export function StatusBarManager() {
   // Wait for theme to be mounted to avoid hydration mismatch
   useEffect(() => {
     void getNativeChromeCapabilities().catch(() => undefined);
+    void getNativeDockCapabilities();
     setMounted(true);
   }, []);
 

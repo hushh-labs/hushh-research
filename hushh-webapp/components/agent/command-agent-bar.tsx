@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { AudioLines, Send, X, ChevronUp } from "@/components/icons";
 import { AgentBarSurface } from "./agent-bar-surface";
+import { useAgentDockSurface } from "./agent-dock";
+import { useNativeDockPort } from "./native-dock-port";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { LocationCommandCard } from "./location-command-card";
 import {
@@ -90,6 +92,20 @@ export function CommandAgentBar({
           : working
             ? view.message
             : "Talk to One";
+  const dock = useAgentDockSurface();
+  useNativeDockPort("voice", dock ? {
+    projection: { context: "command-voice", mode: "voice", text: "", placeholder: status, expanded: false,
+      editable: false, sendEnabled: false, micEnabled: false, cancelEnabled: active,
+      recording: Boolean(recording), recordingReady: recording === "recording", supportsHold: true,
+      muted: false, attachments: [], attachmentRevision: 0, editorRevision: 0 },
+    onAction: event => {
+      if (event.action === "voice-tap") { if (active) cancelTask(); else run(startCapture()); }
+      else if (event.action === "capture-start" && !active) run(startCapture());
+      else if (event.action === "capture-finish") run(finishCapture());
+      else if (event.action === "capture-cancel") cancelCapture();
+      else if (event.action === "cancel") { if (recording) cancelCapture(); else cancelTask(); }
+    },
+  } : null);
   return (
     <div
       data-agent-bar-shell

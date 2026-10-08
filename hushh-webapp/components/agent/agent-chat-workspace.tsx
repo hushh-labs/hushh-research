@@ -243,6 +243,7 @@ import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { AgentDockPortal, useAgentDockFrame, useAgentDockHost } from "@/components/agent/agent-dock";
+import { useNativeDockPort, useNativeDockPorts } from "@/components/agent/native-dock-port";
 import { NativeChatChrome, NativeHistoryClose, NativeHistoryOpener, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
@@ -2466,6 +2467,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
   const agentDockHost = useAgentDockHost();
   const agentDockFrame = useAgentDockFrame();
+  const nativeDockPorts = useNativeDockPorts();
+  const agentDockOccluder = useMemo(() => ({
+    getBoundingClientRect: () => {
+      const layout = nativeDockPorts?.owned ? nativeDockPorts.layout : null;
+      if (layout?.viewport.width === window.innerWidth && layout.viewport.height === window.innerHeight)
+        return DOMRect.fromRect(layout.frame);
+      return agentDockFrame?.getBoundingClientRect() ?? new DOMRect();
+    },
+  }), [agentDockFrame, nativeDockPorts]);
   const searchParams = useSearchParams();
   const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
@@ -2585,7 +2595,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const transcript = transcriptRef.current;
       if (!transcript || !transcript.contains(element)) return;
       const top = transcriptRevealScrollTop(
-        measureTranscriptReveal(transcript, element, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current),
+        measureTranscriptReveal(transcript, element, isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current),
       );
       if (Math.abs(top - transcript.scrollTop) < 1) return;
       beginTranscriptProgrammaticScroll(top);
@@ -2594,7 +2604,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
     });
-  }, [agentDockFrame, isCanonicalChatRoute, beginTranscriptProgrammaticScroll]);
+  }, [agentDockOccluder, isCanonicalChatRoute, beginTranscriptProgrammaticScroll]);
   const enterPuppySurface = useCallback(() => {
     // Unconditional, and not behind a `voiceActive` guard. It is a no-op when
     // nothing is running, and it is the only shape that also covers the window
@@ -3395,7 +3405,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // composer, not the raw scroll bottom, and is sticky once followed, so a
     // growing answer never slides under the composer and bottom bar.
     const endBelowBand = transcriptRevealScrollTop(
-      measureTranscriptReveal(transcript, messagesEnd, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current),
+      measureTranscriptReveal(transcript, messagesEnd, isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current),
     ) - transcript.scrollTop;
     const shouldFollowTranscript = transcriptFollowsLatest({
       userScrolled: transcriptUserScrollRef.current,
@@ -3420,7 +3430,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const target =
       (submittedTurn ? findPendingAssistantTurn(transcript) : null) ?? messagesEnd;
     const top = transcriptRevealScrollTop(
-      measureTranscriptReveal(transcript, target, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current),
+      measureTranscriptReveal(transcript, target, isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current),
     );
     if (Math.abs(top - transcript.scrollTop) < 1) return;
     beginTranscriptProgrammaticScroll(top);
@@ -3435,7 +3445,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     isPuppySurface,
     messages,
     pendingSpecialistDirective,
-    agentDockFrame,
+    agentDockOccluder,
     isCanonicalChatRoute,
   ]);
 
@@ -7817,9 +7827,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   };
 
-  const submitComposerText = async () => {
+  const submitComposerText = async (nativeText?: string) => {
     const attachment = longPromptAttachment;
-    const draftText = input;
+    const draftText = nativeText ?? input;
     // An opened attachment is edited in the composer itself, so the editor
     // text IS the attachment; otherwise the composer holds the typed message.
     const attachmentText = attachment?.isExpanded ? draftText : attachment?.text ?? null;
@@ -7850,7 +7860,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     generatedDriveSearchDraftRef.current = false;
     setLongPromptAttachment(null);
     setComposerExpanded(false);
-    void enqueueGuardedTurn({
+    const guard = enqueueGuardedTurn({
       typedText,
       // The paste leaves as its own attachment part: a chip in the transcript
       // and a separate document for One, never text folded into the message.
@@ -7867,6 +7877,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }
       },
     });
+    if (nativeText !== undefined) await guard; // Keep the native replica held until refusal/queue settlement.
   };
 
   /**
@@ -7970,22 +7981,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     await submitComposerText();
   };
 
-  const handleComposerPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
-    const pasted = event.clipboardData.getData("text");
-    if (!shouldCaptureLargePaste(pasted)) return;
-    event.preventDefault();
+  const captureComposerPaste = (pasted: string, selectionStart: number, selectionEnd: number) => {
+    if (!shouldCaptureLargePaste(pasted)) return false;
     if (longPromptAttachment?.isExpanded) {
       // The opened editor is the attachment itself: paste in place.
       const nextText = mergePastedText({
         currentText: input,
         pastedText: pasted,
-        selectionStart: event.currentTarget.selectionStart,
-        selectionEnd: event.currentTarget.selectionEnd,
+        selectionStart,
+        selectionEnd,
       });
       setLongPromptAttachment(createPendingTextAttachment(nextText));
       setInput("");
       setComposerExpanded(false);
-      return;
+      return true;
     }
     // What the person typed stays their message; the paste joins the
     // attachment, so the sent bubble shows their words beside the chip.
@@ -7995,6 +8004,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
     setLongPromptAttachment(createPendingTextAttachment(nextText));
     setComposerExpanded(false);
+    return true;
+  };
+  const handleComposerPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    if (captureComposerPaste(event.clipboardData.getData("text"), event.currentTarget.selectionStart, event.currentTarget.selectionEnd)) event.preventDefault();
   };
 
   const editLongPromptAttachment = (text: string) => {
@@ -8478,7 +8491,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     // The composer floats over the transcript, so "in view" ends at its top.
     const transcriptRect = transcript.getBoundingClientRect();
-    const overlay = isCanonicalChatRoute ? agentDockFrame : composerStackRef.current;
+    const overlay = isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current;
     const overlayRect = overlay?.getBoundingClientRect();
     const visibleBottom = Math.max(transcriptRect.top, Math.min(transcriptRect.bottom,
       overlayRect && overlayRect.height > 0 ? overlayRect.top : transcriptRect.bottom));
@@ -8487,7 +8500,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (row.getBoundingClientRect().bottom > visibleBottom + 4) count += 1;
     });
     setMessagesBelow(count);
-  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface]);
+  }, [agentDockOccluder, isCanonicalChatRoute, isPuppySurface]);
   const scheduleMessagesBelowCount = useCallback(() => {
     if (messagesBelowFrameRef.current !== null) return;
     messagesBelowFrameRef.current = window.requestAnimationFrame(countMessagesBelow);
@@ -8524,16 +8537,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop <= 24;
       transcript.style.setProperty(
         "--agent-chat-composer-stack-height",
-        `${Math.ceil(stack.getBoundingClientRect().height)}px`,
+        `${Math.ceil(isCanonicalChatRoute && nativeDockPorts?.layout ? nativeDockPorts.layout.frame.height : stack.getBoundingClientRect().height)}px`,
       );
+      const nativeLayout = isCanonicalChatRoute && nativeDockPorts?.owned ? nativeDockPorts.layout : null;
+      if (nativeLayout && nativeLayout.viewport.width === window.innerWidth && nativeLayout.viewport.height === window.innerHeight)
+        transcript.style.setProperty("--agent-chat-native-occlusion", `${Math.max(0, Math.ceil(transcript.getBoundingClientRect().bottom - nativeLayout.frame.y + 16))}px`);
+      else transcript.style.removeProperty("--agent-chat-native-occlusion");
       if (atEnd) transcript.scrollTop = transcript.scrollHeight;
       scheduleMessagesBelowCount();
     };
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(stack);
-    return () => observer.disconnect();
-  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface, scheduleMessagesBelowCount]);
+    let layoutFrame = 0;
+    const unsubscribe = nativeDockPorts?.subscribeLayout(() => {
+      if (!layoutFrame) layoutFrame = requestAnimationFrame(() => { layoutFrame = 0; publish(); });
+    });
+    return () => { observer.disconnect(); unsubscribe?.(); cancelAnimationFrame(layoutFrame); };
+  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface, nativeDockPorts, scheduleMessagesBelowCount]);
   const openGetApp = useCallback((trigger: HTMLButtonElement) => {
     // The drawer is modal at every width. Close it before raising the sheet.
     getAppReturnFocusRef.current =
@@ -8561,7 +8582,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // own close control instead of leaving a modal with no visible way out.
       hideCloseButton={false}
       closeControl={isHistoryDrawerOpen && onClose ? <NativeHistoryClose owner={renderedWorkspaceOwnerId}
-        context={`${chatChromeContext}:${agentSurface}`} onClose={onClose} /> : undefined}
+        context={`${chatChromeContext}:${agentSurface}`} onClose={onClose} stationary /> : undefined}
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
@@ -8586,6 +8607,57 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!firebaseIdToken) return null;
     return { firebaseIdToken, vaultOwnerToken: currentVaultOwnerToken };
   };
+  const nativeComposerContext = useRef(crypto.randomUUID());
+  const editorPurpose = `${composerExpanded}:${longPromptAttachment?.isExpanded ?? false}`;
+  const nativeEditor = useRef({ text: input, purpose: editorPurpose, revision: 0, echo: null as string | null });
+  if (nativeEditor.current.text !== input || nativeEditor.current.purpose !== editorPurpose) {
+    if (nativeEditor.current.purpose !== editorPurpose || nativeEditor.current.echo !== input) nativeEditor.current.revision++;
+    nativeEditor.current.text = input; nativeEditor.current.purpose = editorPurpose; nativeEditor.current.echo = null;
+  }
+  const nativeAttachments = useRef({ paste: longPromptAttachment, drive: activeDriveSearchSelection, revision: 0 });
+  if (nativeAttachments.current.paste !== longPromptAttachment || nativeAttachments.current.drive !== activeDriveSearchSelection) {
+    nativeAttachments.current = { paste: longPromptAttachment, drive: activeDriveSearchSelection, revision: nativeAttachments.current.revision + 1 };
+  }
+  useNativeDockPort("text", isCanonicalChatRoute && !isPuppySurface ? {
+    projection: {
+      context: conversationId ?? nativeComposerContext.current,
+      mode: "text", text: input,
+      placeholder: chatOnboarding.composerPlaceholder ?? "Message One…",
+      expanded: composerExpanded,
+      editable: !recoveryInspectionPending && !isVoiceConnecting && !isHistoryDrawerOpen,
+      sendEnabled: canSend,
+      micEnabled: canToggleVoice && !voiceActive,
+      cancelEnabled: Boolean(stoppableTurn && (isStreaming || isChatLoading) && !canSend),
+      recording: false, recordingReady: false, supportsHold: false, muted: false,
+      attachmentRevision: nativeAttachments.current.revision,
+      editorRevision: nativeEditor.current.revision,
+      attachments: [
+        ...(longPromptAttachment ? [{ id: "paste", label: "Pasted text", editable: true }] : []),
+        ...(activeDriveSearchSelection ? [{ id: "drive", label: activeDriveSearchSelection.name, editable: false }] : []),
+      ],
+    },
+    onEdit: text => { nativeEditor.current.echo = text; generatedDriveSearchDraftRef.current = false; setInput(text); },
+    onPaste: (text, start, end) => {
+      nativeEditor.current.revision++;
+      if (!captureComposerPaste(text, start, end)) setInput(mergePastedText({ currentText: input, pastedText: text, selectionStart: start, selectionEnd: end }));
+    },
+    onAction: event => {
+      if (["attachment-edit", "attachment-remove", "collapse"].includes(event.action ?? "")) nativeEditor.current.revision++;
+      if (event.action === "send" && !recoveryInspectionPending && !isVoiceConnecting && !voiceActive) return submitComposerText(event.text);
+      else if (event.action === "mic" && canToggleVoice) void startConversationalVoice();
+      else if (event.action === "cancel" && stoppableTurn) void stopActiveTurnRef.current?.();
+      else if (event.action === "attachment-edit" && event.attachmentId === "paste" && longPromptAttachment) {
+        setInput(longPromptAttachment.text); setLongPromptAttachment(createPendingTextAttachment(longPromptAttachment.text, true)); setComposerExpanded(true);
+      } else if (event.action === "attachment-remove" && event.attachmentId === "paste") removeLongPromptAttachment();
+      else if (event.action === "collapse") collapseComposer();
+      else if (event.action === "attachment-remove" && event.attachmentId === "drive") {
+        pendingDriveSearchSelectionRef.current = null; setPendingDriveSearchSelection(null);
+        const generated = generatedDriveSearchDraftRef.current; generatedDriveSearchDraftRef.current = false;
+        if (generated) setInput(current => clearGeneratedDriveSearchDraft(current, generated));
+      }
+      return undefined;
+    },
+  } : null);
   const composerActionRail = (
     <>
       {agentVoiceEnabled ? (
@@ -9059,7 +9131,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               }}
               className={cn(
                 "h-full w-full touch-pan-y overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-                "pb-[calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem))] lg:px-8",
+                "pb-[max(var(--agent-chat-native-occlusion,0px),calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem)))] lg:px-8",
               )}
               tabIndex={0}
               role="region"
@@ -10397,7 +10469,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <AgentBar layout="slot" />
               ) : null}
               <form onSubmit={handleSubmit} hidden={showVoiceBar} inert={showVoiceBar}>
-                  {activeDriveSearchSelection ? (
+                  {activeDriveSearchSelection && !nativeDockPorts?.owned ? (
                     <div className="mb-2 flex min-w-0 items-center gap-2 rounded-[18px] bg-foreground/[0.045] px-3 py-1.5 text-sm" aria-label="Selected Drive file">
                       <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
                       <span className="min-w-0 flex-1 truncate">{activeDriveSearchSelection.name}</span>
@@ -10411,7 +10483,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }}><X className="h-4 w-4" /></Button>
                     </div>
                   ) : null}
-                  {longPromptAttachment ? (
+                  {longPromptAttachment && !nativeDockPorts?.owned ? (
                     <AgentComposerTextAttachment
                       attachment={longPromptAttachment}
                       onChange={editLongPromptAttachment}

@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   WarningIcon as AlertTriangle,
@@ -18,9 +19,7 @@ import {
   UserCircleIcon as User,
 } from "@/components/icons";
 import {
-  AccentRowIcon,
   AccountProfileIcon,
-  AppearanceRowIcon,
   ConsentAgentIcon,
   ConnectedSystemsAgentIcon,
   DeleteRowIcon,
@@ -84,8 +83,7 @@ import {
   ProfileLegalRows,
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
-import { ThemeToggleLean } from "@/components/theme-toggle";
-import { NativeAccentChoice } from "@/components/app-ui/native-accent-choice";
+import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
@@ -543,11 +541,13 @@ function ProfilePageContent({
   presentation = "route",
   paneLocation,
   nativeControlsEligible = true,
+  stationaryPreferencesHost,
 }: {
   presentation?: ProfilePagePresentation;
   /** Pane only: the location to show, when the host holds it (see ProfilePane). */
   paneLocation?: ProfilePaneLocation;
   nativeControlsEligible?: boolean;
+  stationaryPreferencesHost?: HTMLDivElement | null;
 }) {
   const isPanePresentation = presentation === "pane";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
@@ -3474,33 +3474,11 @@ function ProfilePageContent({
     </div>
   );
 
+  const appearanceControls = <ProfileAppearanceControls value={appAccent} nativeContext={preferenceChrome} />;
   const preferencesContent = (
     <div className="space-y-4">
+      {!stationaryPreferencesHost ? appearanceControls : null}
       <SettingsGroup>
-        <SettingsRow
-          icon={AppearanceRowIcon}
-          iconTone="capability"
-          title="Appearance"
-          description="Light, dark, or system."
-          trailing={
-            <ThemeToggleLean
-              size="expanded"
-              className="w-full sm:w-60 min-w-0"
-              nativeContext={preferenceChrome}
-            />
-          }
-          stackTrailingOnMobile
-        />
-        <SettingsRow
-          icon={AccentRowIcon}
-          iconTone="capability"
-          title="Accent"
-          description="Choose the app accent."
-          trailing={
-            <NativeAccentChoice value={appAccent} {...preferenceChrome} />
-          }
-          stackTrailingOnMobile
-        />
         <SettingsRow
           leading={<GeminiLogo className="h-8 w-8" />}
           title="Gemini"
@@ -4390,6 +4368,8 @@ function ProfilePageContent({
       }
     >
       <SettingsPresentationProvider density="compact">
+        {stationaryPreferencesHost && !routeBlockedByVault && activePanel === "preferences" && !activeDetail
+          ? createPortal(appearanceControls, stationaryPreferencesHost) : null}
         <ProfileStackNavigator
           rootContent={profileRootContent}
           entries={profileStackEntries}
@@ -4639,10 +4619,12 @@ export function ProfilePage({
   presentation = "route",
   paneLocation,
   nativeControlsEligible = true,
+  stationaryPreferencesHost,
 }: {
   presentation?: ProfilePagePresentation;
   paneLocation?: ProfilePaneLocation;
   nativeControlsEligible?: boolean;
+  stationaryPreferencesHost?: HTMLDivElement | null;
 }) {
   return (
     <Suspense fallback={null}>
@@ -4650,6 +4632,7 @@ export function ProfilePage({
         presentation={presentation}
         paneLocation={paneLocation}
         nativeControlsEligible={nativeControlsEligible}
+        stationaryPreferencesHost={stationaryPreferencesHost}
       />
     </Suspense>
   );
