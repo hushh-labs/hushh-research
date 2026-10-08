@@ -45,7 +45,8 @@ export async function commercePreflight(repoRoot, options) {
   "EXPLICIT_SANDBOX_ORIGIN_REQUIRED");
   const authMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE);
   const humanAuthenticated = authMode === "human_authenticated";
-  const identityOptions = { envFiles: humanAuthenticated ? [] : defaultReviewerIdentityEnvFiles({ repoRoot, webDir: path.join(repoRoot, "hushh-webapp") }),
+  const processOnlyIdentity = humanAuthenticated || authMode === "operator_issued_token";
+  const identityOptions = { envFiles: processOnlyIdentity ? [] : defaultReviewerIdentityEnvFiles({ repoRoot, webDir: path.join(repoRoot, "hushh-webapp") }),
     requireVaultPassphrase: !humanAuthenticated, required: true };
   const identities = { primary: resolveReviewerTestIdentity(identityOptions), counterpart: resolveReviewerCounterpartIdentity(identityOptions) };
   commerceEvidence(identities.primary.reviewerUid && identities.counterpart.reviewerUid &&

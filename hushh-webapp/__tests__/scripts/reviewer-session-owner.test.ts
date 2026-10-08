@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepareReviewerRehearsal } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs";
 import { createReviewerBootstrap } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs";
 import { createReviewerSessionHarness } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { installOperatorReviewerTokenBinding } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-operator-token-binding.mjs";
 
 afterEach(() => vi.unstubAllEnvs());
 async function harness() {
@@ -222,4 +223,53 @@ it("human preflight requires explicit identity and HTTPS without a credential or
     vi.stubEnv("REVIEWER_AUTH_MODE", "unrecognized");
     await expect(prepareReviewerRehearsal(options)).rejects.toThrow("Unsupported reviewer authentication mode");
   } finally { fetchSpy.mockRestore(); }
+});
+
+
+it("issues one operator token only to the exact owner and HTTPS main frame", async () => {
+  const issueToken = vi.fn(async () => "synthetic-proof");
+  const makePage = () => {
+    const frame = { url: () => "https://synthetic.example/login" };
+    let callback;
+    const page = { mainFrame: () => frame, exposeBinding: vi.fn(async (_name, fn) => { callback = fn; }) };
+    return { page, frame, call: (source, uid) => callback(source, uid) };
+  };
+  for (const cold of [false, true]) {
+    const b = makePage();
+    await installOperatorReviewerTokenBinding(b.page, { appOrigin: "https://synthetic.example", reviewerUid: "synthetic-owner", issueToken });
+    const before = issueToken.mock.calls.length;
+    await expect(b.call({ page: {}, frame: b.frame }, "synthetic-owner")).rejects.toThrow("authority refused");
+    await expect(b.call({ page: b.page, frame: { url: b.frame.url } }, "synthetic-owner")).rejects.toThrow("authority refused");
+    const ownUrl = b.frame.url; b.frame.url = () => "https://foreign.example/login";
+    await expect(b.call({ page: b.page, frame: b.frame }, "synthetic-owner")).rejects.toThrow("authority refused");
+    b.frame.url = ownUrl;
+    await expect(b.call({ page: b.page, frame: b.frame }, "foreign-owner")).rejects.toThrow("authority refused");
+    expect(issueToken).toHaveBeenCalledTimes(before);
+    await expect(b.call({ page: b.page, frame: b.frame }, "synthetic-owner")).resolves.toBe("synthetic-proof");
+    await expect(b.call({ page: b.page, frame: b.frame }, "synthetic-owner")).rejects.toThrow("authority refused");
+    expect(issueToken).toHaveBeenCalledTimes(cold ? 2 : 1);
+  }
+});
+
+it("withholds operator phrases until owner-bound challenge and refuses challenge-free unlock", async () => {
+  const b = browser();
+  const frame = { url: () => "https://synthetic.example/login" };
+  Object.assign(b.page, { mainFrame: () => frame, exposeBinding: vi.fn() });
+  const fill = vi.fn(), click = vi.fn();
+  b.page.locator = () => ({ ...b.page.getByRole(), isVisible: async () => true, fill });
+  b.page.getByRole = () => ({ first() { return this; }, isVisible: async () => false, isEnabled: async () => true, click });
+  b.page.waitForTimeout = vi.fn(async () => { b.window.__HUSHH_NATIVE_TEST__.bootstrapState = "vault_unlocked"; });
+  const bootstrap = createReviewerBootstrap({ reviewerUid: "synthetic-owner", reviewerPassphrase: "synthetic-phrase",
+    reviewerAuthMode: "operator_issued_token", appOrigin: "https://synthetic.example", reviewerTokenProvider: vi.fn(),
+    deferLegalAcceptance: async () => {}, timeoutMs: 1000 });
+  await bootstrap.installBridge(b.page);
+  const [script, payload] = b.page.addInitScript.mock.calls[0];
+  expect(JSON.stringify(payload)).not.toContain("synthetic-phrase");
+  const isolatedWindow = {};
+  runInNewContext(`(${script.toString()})(argument)`, { window: isolatedWindow, argument: payload });
+  expect(isolatedWindow.__HUSHH_NATIVE_TEST__).not.toHaveProperty("vaultPassphrase");
+  expect(isolatedWindow.__HUSHH_NATIVE_TEST__).not.toHaveProperty("reviewerSessionPassphrase");
+  await bootstrap.waitForUnlock(b.page, { assertNoBlockedMutation() {} });
+  expect(fill).toHaveBeenCalledWith("synthetic-phrase"); expect(click).toHaveBeenCalledOnce();
+  await expect(bootstrap.waitForUnlock(b.page, { assertNoBlockedMutation() {} })).rejects.toThrow("visible vault challenge");
 });

@@ -1,4 +1,4 @@
-# Explicit Human Reviewer Authentication
+# Explicit Reviewer Authentication
 
 An isolated preview may select `REVIEWER_AUTH_MODE=human_authenticated` before
 preflight when reviewer mint credentials are deliberately absent. This is an
@@ -15,3 +15,37 @@ remain in browser/process memory; no storage-state export or protected capture i
 Normal reviewer mode keeps its existing credential-pair preflight and mint contract.
 The mutation guard admits only the narrow human provider exchanges; financial
 writes still require the existing exact human-confirmed action admission.
+
+
+## Headless operator admission for an isolated preview
+
+When explicitly selected before preflight, `REVIEWER_AUTH_MODE=operator_issued_token`
+uses the canonical harness with a supplied `reviewerTokenProvider`. This is not a
+fallback after failed authentication. The dedicated preview has no stored reviewer
+passphrases and both approved reviewers use Google identities, so the vault
+passphrase cannot be used as a Firebase password.
+
+`createOperatorReviewerTokenProvider` invokes the private pipe-only
+`reviewer_operator_token.py` adapter. It verifies the approved ADC principal,
+dedicated prefixed secrets, canonical fixed-target runtime policy, exact HTTPS
+origin and UID-only reviewer pair before minting. Both Firebase subjects must
+exist and be enabled. The real Firebase Admin token carries `hushh_review_mint=uat`;
+this is environment containment, not proof of service-level isolation. No backend
+mint response is intercepted or manufactured.
+
+One main frame at the exact origin may request one token for its expected UID.
+Firebase uses in-memory persistence before exchange. The browser helper refuses
+production and native execution. Failed issuance or subsequent canonical identity
+loss/mismatch retires admission; it cannot remint or retain an unlocked proof.
+A fresh cold context needs its own real token and visible locked-vault challenge.
+The passphrase stays in the operator process until the expected authenticated
+owner's normal challenge is visible, then enters the ordinary browser form.
+Neither the initialization bridge nor Secret Manager stores it.
+
+Supply secrets through private process input; never place them in CLI arguments,
+files, traces, environment dumps or retained browser state. This mode remains
+subject to the canonical mutation guard and exact human financial confirmation.
+It does not create a vault or waive first-run, legal, phone, cloud or consent gates.
+For the schema-only preview, authorized synthetic preparation must use ordinary
+browser encryption and narrowly admitted fixture writes. Physical iOS uses the
+existing native reviewer flow; this web-only provider is not native admission.

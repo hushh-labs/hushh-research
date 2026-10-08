@@ -47,7 +47,9 @@ export async function openCommerceBrowsers(repoRoot, options, preflight) {
     for (const role of ["primary", "counterpart"]) {
       const admission = createCommerceMutationAdmission({ appOrigin: options.appOrigin, role });
       const harness = await createReviewerSessionHarness({ repoRoot, appOrigin: options.appOrigin, timeoutMs: preflight.authMode === "human_authenticated" ? 360_000 : 90_000,
-        reviewerIdentity: preflight.identities[role], admitMutation: request => admission.admit(request) });
+        reviewerIdentity: preflight.identities[role], admitMutation: request => admission.admit(request),
+        reviewerTokenProvider: preflight.authMode === "operator_issued_token"
+          ? uid => options.reviewerTokenProvider(role, uid) : null });
       if (!browser) browser = await harness.chromium.launch({ headless: preflight.authMode !== "human_authenticated" });
       if (preflight.authMode !== "human_authenticated") await harness.assertVisibleVaultChallenge(browser, "/one");
       const session = await harness.openSession(browser, "/one");

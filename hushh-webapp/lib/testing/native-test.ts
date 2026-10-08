@@ -14,7 +14,8 @@ declare global {
        * automation and every production host stay blocked.
        */
       allowUatAnalyticsSmokeTelemetry?: boolean;
-      reviewerAuthMode?: "local_credentials" | "custom_token" | "human_authenticated";
+      reviewerAuthMode?: "local_credentials" | "custom_token" | "human_authenticated" | "operator_issued_token";
+      requestOperatorReviewerToken?: (expectedUserId: string) => Promise<string>;
       reviewerMutationPolicy?: "read_only" | "preparation_only" | "bounded_mutation" | "mutation_authorized";
       pkmProofEnabled?: boolean;
       pkmProofExpectation?: import("@/lib/testing/reviewer-pkm-proof").ReviewerPkmExpectation;
@@ -114,7 +115,7 @@ declare global {
 }
 
 export type NativeTestConfig = {
-  reviewerAuthMode?: "local_credentials" | "custom_token" | "human_authenticated";
+  reviewerAuthMode?: "local_credentials" | "custom_token" | "human_authenticated" | "operator_issued_token";
   enabled: boolean;
   autoReviewerLogin: boolean;
   vaultPassphrase: string | null;
@@ -147,7 +148,7 @@ export function getNativeUiTestVaultPassphrase(): string | null {
   if (typeof window === "undefined") {
     return null;
   }
-  if (window.__HUSHH_NATIVE_TEST__?.enabled !== true || window.__HUSHH_NATIVE_TEST__?.reviewerAuthMode === "human_authenticated") {
+  if (window.__HUSHH_NATIVE_TEST__?.enabled !== true || ["human_authenticated", "operator_issued_token"].includes(window.__HUSHH_NATIVE_TEST__?.reviewerAuthMode || "")) {
     return null;
   }
   const value = String(

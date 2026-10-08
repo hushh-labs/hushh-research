@@ -90,9 +90,12 @@ Before building in a disposable sandbox checkout:
    in-memory build environment and explicitly resolved APP_RUNTIME_PROFILE.
    Do not use cap:sync:ios, which synchronizes production Firebase identities.
    Check plugins.HushhOAuthReturn.sandboxFrontendOrigin in the copied config.
-5. Use the generated iOS xcconfig for an App Debug product build only. A later
-   build-for-testing must assign distinct sandbox IDs to the AppTests/AppUITests
-   targets; a global product bundle override is not a test-target identity plan.
+5. In the disposable checkout, apply build-plan.json iosDebugTargetSettings
+   to each named target's Debug build settings. Leave Release and dependency
+   settings unchanged. The xcconfig is a reference for the App target only;
+   never pass it through xcodebuild -xcconfig or globally override bundle IDs
+   or entitlements. Global overrides also rename embedded frameworks and make
+   device installation fail. Verify every embedded bundle retains its own ID.
 6. Verify installed OS link association, then run existing normal-session iOS
    and Android reviewer tooling. Physical transport, unlock, automation-body
    entry, matching account, and normal vault admission are separate prerequisites.

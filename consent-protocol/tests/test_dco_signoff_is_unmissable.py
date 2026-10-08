@@ -228,61 +228,70 @@ def test_the_dco_check_actually_fails_on_an_unsigned_commit(tmp_path: Path) -> N
     )
 
 
-def test_pre_push_refuses_unsigned_commits_before_they_reach_the_remote() -> None:
-    """Run the hook against this repo's own unsigned history.
+def test_pre_push_refuses_unsigned_commits_before_they_reach_the_remote(tmp_path: Path) -> None:
+    """Drive the real hook with fixed history in branch and detached-tag checkouts."""
+    root = tmp_path / "pre-push"
+    _throwaway_repo(root)
+    for directory in (".githooks", "scripts/ci", "consent-protocol/ops/monorepo"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    hook = root / ".githooks/pre-push"
+    checker = root / "scripts/ci/check-dco-signoff.sh"
+    shutil.copy(_PRE_PUSH, hook)
+    shutil.copy(_DCO_CHECK, checker)
+    # The delegate is irrelevant to DCO admission; make its successful exit explicit.
+    (root / "consent-protocol/ops/monorepo/pre-push.sh").write_text("#!/bin/sh\nexit 0\n")
+    env = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": str(root / ".gitconfig"),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "HUSSH_ALLOW_UNSIGNED_PUSH": "0",
+    }
 
-    The CI `dco-check` is correct and fires on `pull_request` — after the commits
-    are written, when the only remedy left is rewriting published history. This
-    moves the same check to the last moment it is still cheap.
+    def git(*args: str) -> str:
+        return subprocess.run(  # noqa: S603
+            ["git", *args], cwd=root, env=env, capture_output=True, text=True, check=True
+        ).stdout.strip()
 
-    Scoped to commits NEW in the push, deliberately: a check over the whole branch
-    would refuse every future push over already-published history that cannot be
-    signed without a rewrite, and a gate that can never go green gets disabled.
-    """
-    base = _git("rev-parse", "origin/main")
-    head = _git("rev-parse", "HEAD")
-    if not base or not head:
-        import pytest  # noqa: PLC0415
-
-        pytest.skip("no origin/main in this checkout")
-
+    (root / "record.txt").write_text("base\n")
+    git("add", "record.txt")
+    git("commit", "--quiet", "-s", "-m", "signed base")
+    base = git("rev-parse", "HEAD")
+    (root / "record.txt").write_text("unsigned child\n")
+    git("add", "record.txt")
+    git("commit", "--quiet", "-m", "deliberately unsigned")
+    head = git("rev-parse", "HEAD")
     unsigned = subprocess.run(  # noqa: S603
-        ["bash", str(_DCO_CHECK), base, head], cwd=_REPO, capture_output=True, text=True
-    )
-    if unsigned.returncode == 0:
-        import pytest  # noqa: PLC0415
-
-        # Good news, not a failure: the branch is fully signed. The refusal path is
-        # covered against a synthetic repo by the test above regardless.
-        pytest.skip("this branch carries no unsigned commits to drive the refusal with")
-
-    refused = subprocess.run(  # noqa: S603
-        ["sh", str(_PRE_PUSH), "origin", "git@example.invalid:x/y.git"],
-        cwd=_REPO,
-        input=f"refs/heads/probe {head} refs/heads/probe {base}\n",
+        ["bash", str(checker), base, head],
+        cwd=root,
+        env=env,
         capture_output=True,
         text=True,
     )
-    assert refused.returncode != 0, (
-        "pre-push accepted unsigned commits; CI would be the first thing to notice, "
-        "by which point the remedy is a history rewrite"
-    )
-    assert "Refusing to push unsigned commits" in refused.stderr, (
-        "pre-push failed without saying why, which teaches people to use the override"
-    )
+    assert unsigned.returncode != 0 and "Missing DCO signoff" in unsigned.stderr
 
-    allowed = subprocess.run(  # noqa: S603
-        ["sh", str(_PRE_PUSH), "origin", "git@example.invalid:x/y.git"],
-        cwd=_REPO,
-        input=f"refs/heads/probe {head} refs/heads/probe {base}\n",
-        capture_output=True,
-        text=True,
-        env={**os.environ, "HUSSH_ALLOW_UNSIGNED_PUSH": "1"},
-    )
-    assert "Refusing to push unsigned commits" not in allowed.stderr, (
-        "the documented override does not work, so the only way past a false "
-        "positive is deleting the hook"
-    )
+    def push(candidate: str, *, override: bool = False) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603
+            ["sh", str(hook), "origin", "git@example.invalid:x/y.git"],
+            cwd=root,
+            input=f"refs/heads/probe {candidate} refs/heads/probe {base}\n",
+            env={**env, "HUSSH_ALLOW_UNSIGNED_PUSH": "1" if override else "0"},
+            capture_output=True,
+            text=True,
+        )
+
+    for detached in (False, True):
+        if detached:
+            git("tag", "ci-fixture")
+            git("switch", "--detach", "ci-fixture")
+        refused = push(head)
+        assert refused.returncode != 0, "pre-push accepted the deliberately unsigned commit"
+        assert "Refusing to push unsigned commits" in refused.stderr
+        allowed = push(head, override=True)
+        assert allowed.returncode == 0 and "Refusing to push unsigned commits" not in allowed.stderr
+
+    git("commit", "--quiet", "--amend", "-s", "--no-edit")
+    signed = push(git("rev-parse", "HEAD"))
+    assert signed.returncode == 0, f"pre-push refused a signed commit: {signed.stderr}"
 
 
 def test_the_repo_documents_how_to_activate_the_hooks() -> None:

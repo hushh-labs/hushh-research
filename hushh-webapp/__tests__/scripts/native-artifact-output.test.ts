@@ -63,6 +63,13 @@ it("pins public sandbox identities and exact account claims without changing pro
   expect(plan.environment.NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN).toBe(sandboxOrigin);
   expect(plan.environment.NEXT_PUBLIC_IOS_BUNDLE_ID).toBe("com.hushh.app.scopecommerce.sandbox");
   expect(plan.commandsAfterReadiness.nativeSync).toEqual(["node", "./scripts/native/with-ios-native-env.mjs", "npx", "cap", "sync"]);
+  expect(plan.commandsAfterReadiness.iosBuild).not.toContain("-xcconfig");
+  expect(plan.commandsAfterReadiness.iosBuild.some((arg: string) => arg.startsWith("PRODUCT_BUNDLE_IDENTIFIER="))).toBe(false);
+  expect(plan.iosDebugTargetSettings).toEqual({
+    App: { PRODUCT_BUNDLE_IDENTIFIER: "com.hushh.app.scopecommerce.sandbox", DEVELOPMENT_TEAM: "WVDK9JW99C", CODE_SIGN_ENTITLEMENTS: join(options.outputDir, "ios/ScopeCommerceSandbox.entitlements") },
+    AppTests: { PRODUCT_BUNDLE_IDENTIFIER: "com.hushh.app.scopecommerce.sandbox.tests" },
+    AppUITests: { PRODUCT_BUNDLE_IDENTIFIER: "com.hushh.app.scopecommerce.sandbox.uitests" },
+  });
   expect(plan.requiredReadiness).toContain("SANDBOX_FIREBASE_REGISTRATIONS");
   expect(plan.commandsAfterReadiness.androidBuild).toContain(":app:assembleDebug");
   expect(sourceFiles.map(file => readFileSync(join(process.cwd(), file), "utf8"))).toEqual(before);

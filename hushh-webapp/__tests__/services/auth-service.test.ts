@@ -386,28 +386,6 @@ describe("AuthService native custom-token continuity", () => {
     expect(HushhAuth.getIdToken).not.toHaveBeenCalled();
   });
 
-  it("persists the reviewer session in native Firebase", async () => {
-    vi.mocked(FirebaseAuthentication.signInWithCustomToken).mockResolvedValue({
-      user: {
-        uid: "reviewer-user",
-        email: "reviewer@example.com",
-        displayName: "Reviewer",
-        emailVerified: true,
-      },
-    } as any);
-    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
-      token: "native-id-token",
-    });
-
-    const result = await AuthService.signInWithCustomToken("custom-token");
-
-    expect(FirebaseAuthentication.signInWithCustomToken).toHaveBeenCalledWith({
-      token: "custom-token",
-    });
-    expect(result.user.uid).toBe("reviewer-user");
-    expect(result.idToken).toBe("native-id-token");
-  });
-
   it("falls back to the iOS keychain token when FirebaseAuthentication fails", async () => {
     const keychainToken = createIdToken(60 * 60);
     vi.mocked(FirebaseAuthentication.getIdToken).mockRejectedValue(

@@ -13,6 +13,7 @@
 
 import { Capacitor } from "@capacitor/core";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
+import { authenticateCustomToken } from "@/lib/auth/custom-token-auth";
 import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
@@ -26,7 +27,6 @@ import {
   linkWithPopup,
   setPersistence,
   signInWithCredential,
-  signInWithCustomToken as firebaseSignInWithCustomToken,
   signInWithPopup,
   reauthenticateWithPopup,
   signOut as firebaseSignOut,
@@ -696,35 +696,9 @@ export class AuthService {
    * Used for app-review mode where backend mints a short-lived token
    * for a pre-approved reviewer UID. No reviewer password is exposed to clients.
    */
-  static async signInWithCustomToken(customToken: string): Promise<AuthResult> {
-    if (Capacitor.isNativePlatform()) {
-      const nativeResult = await FirebaseAuthentication.signInWithCustomToken({
-        token: customToken,
-      });
-      if (!nativeResult.user) {
-        throw new Error("Native custom-token login returned no user");
-      }
-      const idTokenResult = await FirebaseAuthentication.getIdToken();
-      const idToken = idTokenResult.token || "";
-      if (!idToken) {
-        throw new Error("Native custom-token login returned no ID token");
-      }
-      return {
-        user: this.createUserFromNative(
-          nativeResult.user,
-          idToken,
-          "custom",
-        ),
-        idToken,
-      };
-    }
-
-    const result = await firebaseSignInWithCustomToken(auth, customToken);
-    const idToken = await result.user.getIdToken();
-    return {
-      user: result.user,
-      idToken,
-    };
+  static async signInWithCustomToken(customToken: string, options: { memoryOnly?: boolean } = {}): Promise<AuthResult> {
+    return authenticateCustomToken(customToken, options,
+      (user, idToken) => this.createUserFromNative(user, idToken, "custom"));
   }
 
   /**

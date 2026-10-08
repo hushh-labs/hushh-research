@@ -1,7 +1,13 @@
+import { installOperatorReviewerTokenBinding } from "./reviewer-operator-token-binding.mjs";
 /** Memory-only admission inside the canonical reviewer-session harness. */
 export function createReviewerBootstrap({ reviewerUid, reviewerPassphrase,
-  reviewerAuthMode, allowMemoryPreparation, admitMutation, deferLegalAcceptance, timeoutMs }) {
+  reviewerAuthMode, allowMemoryPreparation, admitMutation, deferLegalAcceptance, timeoutMs,
+  appOrigin, reviewerTokenProvider }) {
+  const operatorIssued = reviewerAuthMode === "operator_issued_token";
   async function installBridge(page, { includePassphrase = true } = {}) {
+    if (operatorIssued) await installOperatorReviewerTokenBinding(page, {
+      appOrigin, reviewerUid, issueToken: reviewerTokenProvider,
+    });
     const reviewerMutationPolicy = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
       ? admitMutation ? "bounded_mutation" : "mutation_authorized"
       : allowMemoryPreparation
@@ -22,16 +28,19 @@ export function createReviewerBootstrap({ reviewerUid, reviewerPassphrase,
           expectedUserId,
           reviewerMutationPolicy,
           reviewerAuthMode,
+          ...(reviewerAuthMode === "operator_issued_token" ? {
+            requestOperatorReviewerToken: expected => window.__hushhIssueOperatorReviewerToken(expected),
+          } : {}),
           // The backend review-session mint requires the reviewer passphrase
           // even when this context must not auto-unlock the vault.
-          ...(reviewerAuthMode === "human_authenticated" ? {} : { reviewerSessionPassphrase }),
-          ...(reviewerAuthMode !== "human_authenticated" && vaultPassphrase ? { vaultPassphrase } : {}),
+          ...(["human_authenticated", "operator_issued_token"].includes(reviewerAuthMode) ? {} : { reviewerSessionPassphrase }),
+          ...(!["human_authenticated", "operator_issued_token"].includes(reviewerAuthMode) && vaultPassphrase ? { vaultPassphrase } : {}),
         };
       },
       {
         expectedUserId: reviewerUid,
-        vaultPassphrase: includePassphrase ? reviewerPassphrase : "",
-        reviewerSessionPassphrase: reviewerPassphrase,
+        vaultPassphrase: !operatorIssued && includePassphrase ? reviewerPassphrase : "",
+        reviewerSessionPassphrase: operatorIssued ? "" : reviewerPassphrase,
         reviewerMutationPolicy,
         reviewerAuthMode,
       }
@@ -76,7 +85,7 @@ export function createReviewerBootstrap({ reviewerUid, reviewerPassphrase,
       if (bootstrap.userMatches &&
         (bootstrap.state === "vault_unlocked" ||
           (!requireVaultUnlocked && bootstrap.state === "authenticated"))) {
-        if (humanAuthenticated && requireVaultUnlocked && !challengeObserved) {
+        if ((humanAuthenticated || operatorIssued) && requireVaultUnlocked && !challengeObserved) {
           throw new Error("Human reviewer admission requires an owner-bound visible vault challenge.");
         }
         return;

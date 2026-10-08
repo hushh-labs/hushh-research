@@ -63,6 +63,14 @@ describe("AuthStep human reviewer admission", () => {
     expect(screen.queryByText("Continue as Reviewer")).toBeNull();
   });
 
+  it("leaves explicit operator authentication to the bounded native-test bootstrap", async () => {
+    state.config.reviewerAuthMode = "operator_issued_token";
+    render(<AuthStep redirectPath="/one" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); state.bridge.triggerReviewerLogin?.(); });
+    expect(state.mint).not.toHaveBeenCalled(); expect(state.custom).not.toHaveBeenCalled();
+    expect(screen.queryByText("Continue as Reviewer")).toBeNull();
+  });
+
   it("rejects the bridge trigger without entering reviewer authentication", async () => {
     render(<AuthStep redirectPath="/one" />);
     await act(async () => state.bridge.triggerReviewerLogin?.());

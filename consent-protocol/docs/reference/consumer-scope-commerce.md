@@ -1334,3 +1334,90 @@ were independently verified at `18:30:56Z`; this is readiness infrastructure evi
 not an unlocked browser session or financial acceptance. The official host Stripe
 connector remains uninstalled on the current host readback; enabling Stripe's MCP
 setting does not establish host OAuth. Paid/provider admission remains disabled.
+
+
+## Healthy preview and headless reviewer continuation — 2026-10-08
+
+The prior readiness/quarantine repairs have completed their required gates.
+The application continuation passed full CI
+[37828686289](https://github.com/hushh-labs/hushh-research/actions/runs/37828686289).
+[PR #7639](https://github.com/hushh-labs/hushh-research/pull/7639) landed through the
+authorized Admin queue bypass at `cfe633cec9a56944b602cff0e32cb8455066118c`;
+[post-merge smoke 37830792541](https://github.com/hushh-labs/hushh-research/actions/runs/37830792541)
+passed. [Preview release 37836642806](https://github.com/hushh-labs/hushh-research/actions/runs/37836642806)
+finished healthy, with independent Ready/source/100%-traffic checks at 20:23:24Z.
+
+Application `f026ba9eaf54782fcf3d09fd9578a68af1c4ad3f` passed
+[full CI 37846374234](https://github.com/hushh-labs/hushh-research/actions/runs/37846374234),
+including iOS, Android and all frontend/browser lanes. The current main-owned
+definition at `b2fb5b168d87329f15665f4658258de01d10eb70` passed
+[smoke 37855824085](https://github.com/hushh-labs/hushh-research/actions/runs/37855824085).
+[Preview release 37856141606](https://github.com/hushh-labs/hushh-research/actions/runs/37856141606)
+finished healthy: semantic verification passed, postdeploy schema was `ok`, and
+both source/image provenance checks passed. Independent Cloud Run readback at
+23:12:48Z verified both services Ready, no reconciliation pending, matching
+created/ready revisions, exact application source and 100% traffic. Application
+invocation is public as required for browser use; the provisioning responders
+were IAM-private. This release is deployment evidence, not financial acceptance.
+
+The isolated database retains the approved manifest through migration 284 and
+fingerprint above; no shared UAT records or divergent main SQL were replayed.
+Signed platform/Connect webhook secrets remain dedicated. The exact scheduler
+OIDC audience and existing scheduler identity were read back at 20:33:36Z, and a
+real scheduled drain returned HTTP 200 at 20:34Z. The anonymous drain returned
+401. The 17 aggregate Cloud Monitoring metrics were independently verified at
+22:51:02Z, including fresh worker/provider timestamps, balanced journals and no
+unresolved work. Native association documents matched the generated Sandbox
+contracts at 20:34:24Z. These observations precede financial activity.
+
+The user selected headless reviewer browser sessions. Both approved Firebase
+subjects are enabled Google-only identities; a vault passphrase is not their
+Firebase password. The canonical harness now has explicit operator-token
+admission, documented in the reviewer authentication reference. It uses a real
+Firebase Admin mint with the UAT reviewer claim, the approved operator identity,
+fixed preview configuration and both enabled subjects. Token exchange is confined
+to one exact-origin main frame/UID and memory-only Firebase persistence. Normal
+browser vault challenges precede passphrase input; lost or mismatched identity
+invalidates proof and retires admission. No backend mint receipt is fabricated.
+This is web-only admission and does not replace physical native authentication.
+Both real operator mints passed the live ADC/policy/subject checks and returned
+the expected UID and UAT claim through private IPC. Neither source checks nor
+these mint receipts establish a deployed headless browser session.
+
+The schema-only preview requires new isolated synthetic vaults and scope fixtures
+through ordinary browser encryption. It cannot inherit UAT wrappers, consent,
+recipient keys or setup completion. The subsequent physical readback found the iPhone connected, paired, in developer
+mode and unlocked; the iPad remains unavailable. The approved development signing
+identity exists. After the user signed into Xcode, an admission-only build at
+9839980c2d3bc522350ee8bda12ae517fdda5713 passed signing and signature checks.
+Installation then rejected an embedded framework whose bundle ID had inherited
+a global Sandbox xcconfig override. The generated build plan now declares
+separate Debug settings for App, AppTests and AppUITests, and never passes a
+global bundle/entitlement override. Keep these settings confined to a disposable
+native checkout; embedded framework IDs and Release settings remain unchanged.
+The target-scoped admission-only product subsequently passed deep signature,
+12 distinct embedded-framework identities and exact association-entitlement
+checks, installed on the iPhone, and completed the credential-free attach-only
+WebView test at 2026-10-09T00:12:46Z. It observed the public guest screen; this
+proves transport and automation admission, not native reviewer authentication,
+vault unlock, payment journeys or final-source physical acceptance.
+
+Profile can create a vault independently, but Memory, Connections and Consent
+still require genuine cloud, verified-phone and runtime setup. Never inject
+setup completion. Prepare recipient keys through the existing browser-generated
+and encrypted connector flow before binding fixtures. The visible request
+controls retain 24/72/168/720-hour terms and section pricing; the existing bounded
+rehearsal submits exact leaf scopes and one-hour terms, which is distinct from
+all-UI duration and tariff coverage.
+The host Stripe connector remains uninstalled on the inspected host. One's
+separate owner OAuth and authenticated account/balance reads remain unverified.
+
+Both paid/provider admission switches remain disabled. No Checkout funding,
+purchase, transfer, bank payout or refund is claimed. The business-cost evidence
+or explicit synthetic Sandbox cost decision, exact financial confirmations,
+physical device prompts and both OAuth receipts remain prerequisites for full
+acceptance. Keep issue #7587 In Progress, Android physical acceptance as the
+agreed follow-up, and live activation disabled pending the existing Stripe,
+monthly Connect-cost, residual, country and tax/reporting gates. Cleanup disables
+new admission first and retains reconciliation, access enforcement and financial
+history until outstanding obligations resolve.

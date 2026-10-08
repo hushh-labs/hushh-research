@@ -1,7 +1,7 @@
 /** Authentication policy for the explicitly injected, memory-only reviewer bridge. */
 export function resolveReviewerAuthMode(value = "local_credentials") {
   const mode = value || "local_credentials";
-  if (!["local_credentials", "custom_token", "human_authenticated"].includes(mode)) {
+  if (!["local_credentials", "custom_token", "human_authenticated", "operator_issued_token"].includes(mode)) {
     throw new Error("Unsupported reviewer authentication mode.");
   }
   return mode;
@@ -12,11 +12,11 @@ export function isHumanReviewerSession(config) {
 }
 
 export function shouldAutoAuthenticateReviewer(config) {
-  return config.enabled === true && config.autoReviewerLogin === true && !isHumanReviewerSession(config);
+  return config.enabled === true && config.autoReviewerLogin === true && !isHumanReviewerSession(config) && config.reviewerAuthMode !== "operator_issued_token";
 }
 
 export function canStartReviewerLogin(config, reviewModeEnabled, hasLocalCredentials) {
-  return !isHumanReviewerSession(config) && Boolean(reviewModeEnabled || config.autoReviewerLogin || hasLocalCredentials);
+  return !isHumanReviewerSession(config) && config.reviewerAuthMode !== "operator_issued_token" && Boolean(reviewModeEnabled || config.autoReviewerLogin || hasLocalCredentials);
 }
 
 export function shouldBootstrapReviewerVault(config) {

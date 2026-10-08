@@ -121,6 +121,8 @@ export async function installReadOnlyMutationGuard(context, {
       (method === "POST" && READ_ONLY_SAFE_POST_PATHS.has(pathname)
         && (reviewerAuthMode !== "human_authenticated" ||
           pathname !== "/api/app-config/review-mode/session")
+        && (reviewerAuthMode !== "operator_issued_token" ||
+          pathname !== "/api/app-config/review-mode/session")
         && ((!admitMutation && reviewerAuthMode !== "human_authenticated") ||
           new URL(request.url()).origin === appOrigin)) ||
       memoryPreparation ||
@@ -200,6 +202,7 @@ export async function createReviewerSessionHarness({
   allowMemoryPreparation = false,
   admitMutation = null,
   reviewerIdentity = /** @type {{ reviewerUid: string, reviewerVaultPassphrase: string } | null} */ (null),
+  reviewerTokenProvider = /** @type {((uid: string) => Promise<string>) | null} */ (null),
 }) {
   const webDir = path.join(repoRoot, "hushh-webapp");
   const requireFromWeb = createRequire(path.join(webDir, "package.json"));
@@ -209,9 +212,13 @@ export async function createReviewerSessionHarness({
   );
   const reviewerAuthMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE);
   const humanAuthenticated = reviewerAuthMode === "human_authenticated";
+  const operatorIssued = reviewerAuthMode === "operator_issued_token";
+  if (operatorIssued !== (typeof reviewerTokenProvider === "function")) {
+    throw new Error("Operator reviewer authentication requires its explicit token provider.");
+  }
   const identity = reviewerIdentity ?? identityModule.resolveReviewerTestIdentity({
     requireVaultPassphrase: !humanAuthenticated,
-    envFiles: identityModule.defaultReviewerIdentityEnvFiles({ repoRoot, webDir }),
+    envFiles: operatorIssued || humanAuthenticated ? [] : identityModule.defaultReviewerIdentityEnvFiles({ repoRoot, webDir }),
   });
   const reviewerUid = identity.reviewerUid;
   const reviewerPassphrase = humanAuthenticated ? "" : identity.reviewerVaultPassphrase;
@@ -222,6 +229,7 @@ export async function createReviewerSessionHarness({
   const { installBridge, waitForUnlock } = createReviewerBootstrap({
     reviewerUid, reviewerPassphrase, reviewerAuthMode, allowMemoryPreparation,
     admitMutation, deferLegalAcceptance, timeoutMs,
+    appOrigin: normalizedOrigin, reviewerTokenProvider,
   });
 
   function vaultKeyCommitment(vaultState) {
@@ -376,7 +384,7 @@ export async function createReviewerSessionHarness({
     requireVaultUnlocked = true,
     onPageCreated,
   } = {}) {
-    const maxAttempts = humanAuthenticated ? 1 : 3;
+    const maxAttempts = humanAuthenticated || operatorIssued ? 1 : 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
     const redirectUrl = new URL(redirect, normalizedOrigin);

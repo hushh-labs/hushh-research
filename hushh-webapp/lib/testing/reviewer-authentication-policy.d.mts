@@ -1,4 +1,4 @@
-export type ReviewerAuthMode = "local_credentials" | "custom_token" | "human_authenticated";
+export type ReviewerAuthMode = "local_credentials" | "custom_token" | "human_authenticated" | "operator_issued_token";
 type ReviewerConfig = {
   enabled?: boolean;
   autoReviewerLogin?: boolean;

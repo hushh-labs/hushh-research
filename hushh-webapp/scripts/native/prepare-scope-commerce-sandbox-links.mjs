@@ -25,16 +25,21 @@ function explicitFingerprints(values) {
   return [...new Set(values.map(value => value.toUpperCase()))];
 }
 
-function publicBuildPlan(origin, output) {
+function publicBuildPlan(origin, output, teamId) {
   return {
     version: 1, frontendOrigin: origin, iosApplicationId: SANDBOX_IOS_APP_ID, androidApplicationId: SANDBOX_ANDROID_APP_ID,
     environment: { NEXT_PUBLIC_APP_URL: origin, NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN: origin,
       NEXT_PUBLIC_IOS_BUNDLE_ID: SANDBOX_IOS_APP_ID, NEXT_PUBLIC_ANDROID_APP_ID: SANDBOX_ANDROID_APP_ID },
     requiredReadiness: ["SANDBOX_FIREBASE_REGISTRATIONS", "SANDBOX_IOS_PROVISIONING", "SANDBOX_OAUTH_CLIENTS", "ANDROID_CERTIFICATE_MATCH", "BUNDLED_RUNTIME_IDENTITY", "OS_LINK_VERIFICATION", "PHYSICAL_REVIEWER_ADMISSION"],
+    iosDebugTargetSettings: {
+      App: { PRODUCT_BUNDLE_IDENTIFIER: SANDBOX_IOS_APP_ID, DEVELOPMENT_TEAM: teamId, CODE_SIGN_ENTITLEMENTS: path.join(output, "ios/ScopeCommerceSandbox.entitlements") },
+      AppTests: { PRODUCT_BUNDLE_IDENTIFIER: `${SANDBOX_IOS_APP_ID}.tests` },
+      AppUITests: { PRODUCT_BUNDLE_IDENTIFIER: `${SANDBOX_IOS_APP_ID}.uitests` },
+    },
     commandsAfterReadiness: {
       webBuild: ["npm", "run", "cap:build"],
       nativeSync: ["node", "./scripts/native/with-ios-native-env.mjs", "npx", "cap", "sync"],
-      iosBuild: ["xcodebuild", "-project", "ios/App/App.xcodeproj", "-scheme", "App", "-configuration", "Debug", "-xcconfig", path.join(output, "ios/ScopeCommerceSandbox.xcconfig"), "build"],
+      iosBuild: ["xcodebuild", "-project", "ios/App/App.xcodeproj", "-scheme", "App", "-configuration", "Debug", "build"],
       androidBuild: ["./android/gradlew", "-p", "android", "--init-script", path.join(output, "android/sandbox.init.gradle"), ":app:assembleDebug", "--no-daemon"],
     },
     instructions: "Read README.md and satisfy registration/signing prerequisites in a disposable sandbox checkout before any build. No command is executed by generation.",
@@ -60,10 +65,10 @@ export function buildScopeCommerceSandboxArtifacts({ frontendOrigin, androidFing
     ".well-known/apple-app-site-association": json(documents.aasa),
     ".well-known/assetlinks.json": json(documents.assetlinks),
     "ios/ScopeCommerceSandbox.entitlements": documents.entitlements,
-    "ios/ScopeCommerceSandbox.xcconfig": `// App Debug sandbox product only; see README for test targets.\nPRODUCT_BUNDLE_IDENTIFIER = ${SANDBOX_IOS_APP_ID}\nDEVELOPMENT_TEAM = ${teamId}\nCODE_SIGN_ENTITLEMENTS = ${path.join(output, "ios/ScopeCommerceSandbox.entitlements")}\n`,
+    "ios/ScopeCommerceSandbox.xcconfig": `// Reference for App Debug target settings only. Never pass via xcodebuild -xcconfig.\nPRODUCT_BUNDLE_IDENTIFIER = ${SANDBOX_IOS_APP_ID}\nDEVELOPMENT_TEAM = ${teamId}\nCODE_SIGN_ENTITLEMENTS = ${path.join(output, "ios/ScopeCommerceSandbox.entitlements")}\n`,
     "android/AndroidManifest.xml": sandboxAndroidManifest(fs.readFileSync(path.join(sourceRoot, "android/app/src/main/AndroidManifest.xml"), "utf8"), host),
     "android/sandbox.init.gradle": sandboxGradleInit(path.join(output, "android/AndroidManifest.xml")),
-    "build-plan.json": json(publicBuildPlan(origin, output)),
+    "build-plan.json": json(publicBuildPlan(origin, output, teamId)),
     "README.md": sandboxReadinessGuide({ frontendOrigin: origin, teamId }),
   };
 }

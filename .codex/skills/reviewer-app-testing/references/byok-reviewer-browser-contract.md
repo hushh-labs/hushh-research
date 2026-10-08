@@ -15,6 +15,10 @@ Use this contract for browser rehearsals whose result depends on protected infor
    preflight, as defined in [reviewer preflight](human-reviewer-authentication.md).
    This observes ordinary human Google sign-in and manual vault unlock without
    injecting mint credentials; it never converts a failed automatic run to human mode.
+   Explicit headless `operator_issued_token` admission for an isolated preview
+   follows that same reference: real operator-minted Firebase tokens, exact
+   main-frame/origin/owner binding, no initialized passphrase and no backend
+   receipt fabrication. It never falls back from another failed mode.
    Apple exchanges are not admitted by this rehearsal contract.
 
 ## Memory-only BYOK boundary

@@ -46,6 +46,16 @@ export async function prepareReviewerRehearsal({
 } = {}) {
   const identityModule = await loadIdentityModule(repoRoot);
   const authMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE);
+  if (authMode === "operator_issued_token") {
+    const origin = new URL(appOrigin);
+    if (origin.protocol !== "https:" || origin.origin !== appOrigin || !configuredValue(process.env.REVIEWER_UID)) {
+      throw new Error("Operator reviewer admission requires exact HTTPS origin and canonical UID.");
+    }
+    identityModule.resolveReviewerTestIdentity({ envFiles: [] });
+    createRequire(path.join(repoRoot, "hushh-webapp", "package.json")).resolve("playwright");
+    return { appOrigin, identitySource: "operator_issued_memory_token", authMode,
+      mutationPolicy: process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" ? "explicit_mutation_authorized" : "read_only" };
+  }
   if (authMode === "human_authenticated") {
     if (!configuredValue(process.env.REVIEWER_UID) ||
         new URL(appOrigin).protocol !== "https:" || new URL(appOrigin).origin !== appOrigin) {
