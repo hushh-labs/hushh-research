@@ -8,11 +8,14 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 ## Decision — 2026-10-08
 
+Measurement snapshot: **23:08 UTC**. Later samples require a dated refresh.
+
 **The dev application and isolated Files journeys work on both clouds. Release
 acceptance is held on cold latency and normal-owner journeys.** The corrected image
 serves dev and passes exact-predecessor recovery on both clouds. Current cold
-responses remain above the 30-second target. The fixed 20-sample cohorts are
-running; slow samples are retained and do not count as latency passes. The original failures
+responses remain above the 30-second target. Azure's complete 20-sample cold cohort
+has p95 **71.304 seconds**; Google has 14/20 samples and continues. These are
+operator-bootstrap measurements, not browser timing. Slow samples and original failures
 remain recorded. Current-image warm and bounded concurrent journeys pass.
 
 Qualification uses **1 vCPU, 2 GiB RAM, minimum zero, maximum one and one worker**.
@@ -28,7 +31,8 @@ automatic owner upgrade is authorized by these results.
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
-| Source | `e30732de37f21759e86b95027252163319de3d60`; [hosted CI 37828524953](https://github.com/hushh-labs/hushh-research/actions/runs/37828524953) passed | Frozen ADK `31932bb01ae9`; later unrelated ADK changes belong to the next cycle. |
+| Verified candidate | `f026ba9eaf54782fcf3d09fd9578a68af1c4ad3f`; local core and [hosted CI 37846374234](https://github.com/hushh-labs/hushh-research/actions/runs/37846374234) passed | Not deployed. Frozen ADK `31932bb01ae9`; later unrelated ADK changes belong to the next cycle. |
+| Serving source | `e30732de37f21759e86b95027252163319de3d60`; [hosted CI 37828524953](https://github.com/hushh-labs/hushh-research/actions/runs/37828524953) passed | Source and serving evidence remain separate. |
 | Dev application | [Deployment 37832290957](https://github.com/hushh-labs/hushh-research/actions/runs/37832290957) succeeded; backend `00151-9x6`, frontend `00129-bn5`, exact source/run and 100% traffic independently read back | Rollback targets: backend `00150-slh`, frontend `00128-8m7`. |
 | Schema | Version 284; all 55 dev-manifest rows match; no required schema gaps | Isolated schema restoration and owner-image recovery are separate receipts. |
 | Pod release | `2026.10-dev.12+caaa5a82fd9c.e213acf2`; digest `sha256:e213acf2468179177371709fb2651eb622439ec8c2a2df3d11394d23867ffa1e` | Published dev-only offer admits only exact predecessor `ace34069` after recovery passed on both clouds. Reused image retains source `caaa5a82` and its original provenance. Publication does not approve an owner installation. |
@@ -46,7 +50,8 @@ The archived release descriptor and independent serving readback match the run. 
 | Files | Dedicated `agent_files` and `/one/files` explorer. Both clouds: resumable 4 MiB + 1 KiB transfer, duplicate chunks, byte-exact download, folder move/rename/undo, trash/restore. | Normal owner browser, exact Files configuration offer and installation. |
 | Organization | Google authenticated Cloud Tasks and Azure managed-identity Storage Queue consumer both complete opted-in synthetic organization. Exclusions refuse dispatch; cancellation preserves originals. Analysis switched off afterward. | Normal owner experience and production IAM/queue qualification. |
 | Recovery / updates | Exact `ace34069` → `e213acf2` transition passed on both clouds: identity, keys, selected configuration and encrypted history retained. Google file bytes matched; separate current-image fixtures on both clouds also retain Files. | Normal Settings approval during active work, refresh/reconnect and one durable operation. Qualification is at 1 vCPU / 2 GiB, not capacity proof for every existing owner configuration. |
-| Chat / runtime | Current `e213acf2`: 20 warm chats and one/two/four overlapping chat/Files/status pass; ten-minute soak settles 20 operations per cloud. Warm results are below. | Cold target and 20 genuine cold samples per cloud; real Puppy overlap; full-workload resource peaks. Genuine scale-to-zero has been observed on the current image. |
+| Chat / runtime | Current `e213acf2`: 20 warm chats and one/two/four overlapping chat/Files/status pass; ten-minute soak settles 20 operations per cloud. Azure's 20 cold samples complete; Google 14/20. | Cold target fails; normal-browser cold timing, real Puppy overlap and full-workload resource peaks remain unverified. Genuine scale-to-zero observed on the current image. |
+| Headless reviewer | Deployed dev: canonical reviewer authentication, visible locked-vault challenge, unlock, Hosting/Updates and same-session continuity pass. | Overall rehearsal fails on automatic self-enrollment during bounded reads. Local guard and focused negative control pass; no new device enrolled. This session does not establish personal-owner approval. |
 | Puppy | Existing Hermes identity and signed direct stream retained; prior grant/withdrawal, response and cancellation receipts. | Fresh response/reconnect on qualified image and independent active internet. Heartbeat alone is not inference. |
 | Setup / billing | Durable retry, explicit Shared/`unplaced`, pending/assigned preservation, owner identity/IAM/CORS/admission gates. | New and existing owner setup, billing/policy return without duplicate resources. Azure trial refuses a second environment and new OpenAI S0 resource. |
 | Connectors / commands | Sealed native Google authorization, scoped pod tools, exact approval/resume, refresh/restart fencing, notification coalescing and bounded durable jobs. | Real provider sign-in, native iOS/Android, scope upgrades, recorded commands, notification delivery and verified legacy hub cleanup. |
@@ -59,8 +64,8 @@ The archived release descriptor and independent serving readback match the run. 
 | Google new-image warm chat | 20/20; first-text p50 **6.611 s**, p95 **7.700 s** | `e213acf2`; approved dev bridge. First post-install turn was 24.821 s, separate from this warm series. Cold wake requires independent platform-zero evidence. |
 | Google previous-image cold | Admission **50.958 s**, first text **129.795 s**, complete **134.314 s** | Target failed. Stopped after one sample to fix the measured replay cost; original failure retained. |
 | Azure new-image warm chat | 20/20; first-text p50 **10.703 s**, p95 **13.389 s** | Previous image p95 was 29.018 s on the same fixture. First post-install turn was 25.643 s. Existing environment and cross-region custody remain qualification limits. |
-| Current-image cold | Google **30.688 / 31.866 s**; Azure original **66.691 s**, same-region registry **55.707 / 54.880 s** | Fresh platform zero before each sample. Operator-bootstrap admission is included; this is not normal-browser timing. Original Google 129.795 s and Azure 90 s admission timeout remain recorded. |
-| Azure cold phases | Image pull **26.048 s**; startup recovery **3.251 s** | Same-image EastUS2 registry comparison preserves identity, ingress, keys and file bytes; cold cohort running. Original registry and custody are WestUS2 while compute is EastUS2. |
+| Current-image cold | Google **14/20**, range **29.455–36.055 s**; Azure **20/20**, p50 **60.035 s**, p95 **71.304 s** | Fresh platform zero before each sample. Operator-bootstrap admission is included; this is not normal-browser timing. Azure target failed. Original Google 129.795 s and Azure 90 s admission timeout retained. |
+| Azure cold phases | Image pull **26.048 s**; startup recovery **3.251 s** | Same-image EastUS2 registry comparison preserves identity, ingress, keys and file bytes; 20-sample cohort complete. Original registry and custody are WestUS2 while compute is EastUS2. |
 | Azure transport probe | Six bounded reads/path: median **289 ms → 70 ms** with existing pooled transport | Same-resource microbenchmark; no response cache. A same-resource microbenchmark does not establish end-to-end improvement. |
 | Gemini 3.8 | Native exchange 2/3; third response 504, including the one allowed transient retry | Not qualified as default. Corrected mailbox trace follows authored acknowledgement then Email delegation; strict first-tool score alone was misleading. |
 | Azure GPT-6 Luna | 3/3 native tool round trips and 6/6 representative first-tool cases; 3.0–6.6 s/native exchange | Actual pod identity, temporary scoped Responses-only deployment. No 429 at configured capacity; earlier capacity-one 429 and its retry remain failures. Small sample is not quota capacity. |
@@ -89,12 +94,21 @@ source correction loads the hub router only when requested, retaining the public
 1.515 seconds; all 104 pod routes and 345 hub routes retained their contracts.
 Local import timing does not establish a cloud cold-start improvement.
 
+The headless run identified unsolicited browser enrollment during bounded reviewer
+reads. The local client now refuses fresh enrollment before key creation or network
+mutation, while reusing existing subjects. The server's review-mint refusal remains
+unchanged. The nearest 63 checks pass; removing the guard fails the regression.
+This correction has not been deployed and cannot authorize a personal pod update.
+
 ### Reviewed integration debt
 
 The [architecture baseline](./architecture-fitness-baseline.json) retains measured
 legacy debt and unchanged 500/250/80 budgets. Small extensions to existing recovery,
 object-store and nearest regression owners require explicit source review; new
 checkpoint logic stays in its own bounded leaf. No mass split or gate removal.
+The bounded enrollment correction received independent review: only its service
+module span (709 to 715) and nearest regression module (495 to 516) were accepted.
+Scanner rules, exclusions and future regression enforcement remain unchanged.
 
 The released source persists bounded encrypted derived checkpoints of existing
 log reducers and completed conversation state. The log remains authoritative:

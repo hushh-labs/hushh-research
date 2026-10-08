@@ -76,12 +76,12 @@ Health or static checks do not prove browser acceptance. Report the first failed
 
 ## Trusted Devices with an existing pod
 
-The default Trusted Devices rehearsal is read-only. If the app's proactive wake
-is part of an explicitly authorized pod rehearsal, set both
-`REVIEWER_ALLOW_SHARED_MUTATIONS=true` and `REVIEWER_ALLOW_POD_WAKE=true` for
-`verify-reviewer-trusted-devices.mjs`. Its bounded callback admits only
-same-origin `POST /api/one/pod/wake`; other fixture mutations remain blocked.
-This does not enroll, revoke, upgrade or replace a device or pod.
+The default rehearsal is read-only. For an authorized wake, set both
+`REVIEWER_ALLOW_SHARED_MUTATIONS=true` and `REVIEWER_ALLOW_POD_WAKE=true`.
+`verify-reviewer-trusted-devices.mjs` admits only same-origin `POST /api/one/pod/wake`.
+Fresh bounded contexts refuse new enrollment; existing subjects may be reused.
+The server still refuses review-minted device approvals. Headless Settings checks
+do not prove normal owner sign-in, pod admission or installation.
 
 ## Wallet rehearsal
 

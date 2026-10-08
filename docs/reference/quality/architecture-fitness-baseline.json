@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2245,
+  "finding_count": 2246,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -16727,7 +16727,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/owner-pod-endpoint.ts",
       "symbol": null,
-      "value": 709
+      "value": 715
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20211,6 +20211,15 @@
       "path": "consent-protocol/tests/test_pod_crypto_erase.py",
       "symbol": null,
       "value": 532
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/owner-pod-endpoint.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/owner-pod-endpoint.test.ts",
+      "symbol": null,
+      "value": 516
     }
   ],
   "inspected_files": 6149,

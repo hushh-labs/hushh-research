@@ -137,6 +137,27 @@ describe("owner pod endpoint", () => {
     await ownerPod.forgetOwnerPodState(USER);
   });
 
+  it("does not enroll a fresh browser during bounded reviewer reads, while normal enrollment remains available", async () => {
+    const previous = window.__HUSHH_NATIVE_TEST__;
+    try {
+      window.__HUSHH_NATIVE_TEST__ = {
+        enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "bounded_mutation",
+      };
+      await expect(ownerPod.ensureAppEnrollment(USER, world.transport()))
+        .rejects.toThrow("POD_ENROLLMENT_REQUIRES_OWNER_SESSION");
+      expect(world.calls).toHaveLength(0);
+      window.__HUSHH_NATIVE_TEST__ = previous;
+      expect(await ownerPod.ensureAppEnrollment(USER, world.transport())).toBe("tdv_app_1");
+      window.__HUSHH_NATIVE_TEST__ = {
+        enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "bounded_mutation",
+      };
+      expect(await ownerPod.ensureAppEnrollment(USER, world.transport())).toBe("tdv_app_1");
+      expect(world.calls.filter(call => call.url.endsWith("/self-enroll"))).toHaveLength(1);
+    } finally {
+      window.__HUSHH_NATIVE_TEST__ = previous;
+    }
+  });
+
   it("shares cold admission across concurrent requests without replacing the app identity", async () => {
     const enrollment = ownerPod.ensureAppEnrollment(USER, world.transport());
     const connections = await Promise.all(Array.from({ length: 3 }, async () => {
