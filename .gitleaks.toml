@@ -84,6 +84,10 @@ regexes = [
   # files still trips the rule with a different secret. A path allowlist would
   # blind the scanner to that; this does not.
   '''^max_length=[0-9]+$''',
+  # The equivalent public JSON Schema length bound, captured as a value after
+  # prose containing "access" by Gitleaks 8.24.2. Exempt the numeric bound only;
+  # credentials elsewhere in the same schema remain scanned.
+  '''^maxLength=[0-9]+$''',
   # Public financial subdomain identifiers, not credentials; exact values only.
   '''^financial\.(holdings|securities|derived)_v1$''',
   # Azure's built-in "Key Vault Secrets User" role definition id. It is the same
