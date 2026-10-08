@@ -912,7 +912,7 @@ This internal ciphertext-only provenance is excluded from manifests, model
 context and exported knowledge paths; it never replaces the user or entity ID.
 
 Owner/business-scoped, vault-encrypted `business_profile_review:uat:v1:{businessUid}` device recovery
-holds only control state and the exact approved cards/scopes. It is not profile
+holds control state, the original listing snapshot, reviewed edits and exact approved cards/scopes. It is not profile
 authority. Later defers 24 hours; Not my business and saved suppress this device's
 offer. These decisions are not cross-device. Checkpoints have a 30-day freshness
 bound; expired, unreadable or unavailable recovery fails closed rather than
@@ -924,6 +924,16 @@ Lock (in-process fallback where unavailable); a stale Later preserves a pending
 job and cannot overwrite saved. Only acknowledged numeric revisions count as saved.
 Lock, account/session change and expired authority fence every effect and hide
 old content. Recovering a pending save requires another explicit Save action.
+Recovery failures expose a retry without starting a replacement job. Pending
+reviews retain their original listing and edits even when discovery returns
+newer fields for the same UID. New writes require a fresh matching snapshot;
+existing commit receipts can be reconciled while the listing is unavailable.
+Legacy jobs without snapshots can reconcile receipts but cannot authorize new
+writes. Scope/card acknowledgements are validated against their owner and revision.
+An unsaved preview can refresh its listing and restart review; pending cards are
+not silently discarded. Within the current PKM domain, the conflict-aware writer
+rejects the same business UID at a different entity destination. This is not a
+cross-domain or cross-user uniqueness guarantee.
 
 This is not a business ownership claim system. Business-authority verification,
 cross-device lifecycle and deployment acceptance remain separate gates. Source/unit tests do not certify
