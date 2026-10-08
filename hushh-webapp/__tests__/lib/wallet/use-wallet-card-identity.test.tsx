@@ -1,13 +1,14 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { auth, vault, getCard, getSummary, getIdentity, getCreatedAt } = vi.hoisted(() => ({
+const { auth, vault, getCard, getSummary, getIdentity, getCreatedAt, peekIdentity } = vi.hoisted(() => ({
   auth: { user: null as unknown },
   vault: { vaultKey: "key" as string | null, getVaultOwnerToken: vi.fn((): string | null => "owner-token") },
   getCard: vi.fn(),
   getSummary: vi.fn(),
   getIdentity: vi.fn(),
   getCreatedAt: vi.fn(),
+  peekIdentity: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: auth.user }) }));
@@ -17,7 +18,11 @@ vi.mock("@/lib/services/wallet-card-service", () => ({
   WalletCardService: { getCard },
 }));
 vi.mock("@/lib/services/account-identity-service", () => ({
-  AccountIdentityService: { getIdentitySwr: getIdentity, getAccountCreatedAt: getCreatedAt },
+  AccountIdentityService: {
+    getIdentitySwr: getIdentity,
+    getAccountCreatedAt: getCreatedAt,
+    peekCachedIdentity: peekIdentity,
+  },
 }));
 vi.mock("@/lib/services/referral-service", () => ({ ReferralService: { getSummary } }));
 
@@ -52,6 +57,7 @@ describe("useWalletCardIdentity", () => {
     profileFor("ada");
     getIdentity.mockResolvedValue({ identity: null, isStale: false });
     getCreatedAt.mockResolvedValue(null);
+    peekIdentity.mockReturnValue(null);
   });
 
   it("serves one authenticated identity to both cards", async () => {
@@ -273,6 +279,62 @@ describe("useWalletCardIdentity", () => {
       expect(result.current.memberSince).toBeNull(); // unknown, not today
       await waitFor(() => expect(result.current).toMatchObject({ memberSince: "2027", validThru: "12/29", profileUrl: null }));
       expect(getCard).not.toHaveBeenCalled();
+    });
+
+    describe("after a Profile name edit, before any Wallet Profile exists", () => {
+      const cached = (userId: string, displayName: string) => ({ data: { user_id: userId, display_name: displayName }, isStale: false });
+
+      it("shows the new name even when the Firebase user object still carries the old one (native snapshot)", async () => {
+        auth.user = account("ada", "Old Name", "Thu, 05 Mar 2026 10:00:00 GMT");
+        getCard.mockResolvedValue(NO_PROFILE);
+        peekIdentity.mockReturnValue(cached("ada", " New Name "));
+        const { result } = renderHook(() => useWalletCardIdentity());
+        expect(result.current.name).toBe("New Name"); // on the very first render, no flash of the old name
+        await waitFor(() => expect(result.current.profileStatus).toBe("setup"));
+        expect(result.current.name).toBe("New Name");
+        expect(getIdentity).not.toHaveBeenCalled(); // memory read, no request
+      });
+
+      it("uses the live Firebase name when the identity is not cached (web reload updates it in place)", async () => {
+        auth.user = account("ada", "Web Updated Name", "Thu, 05 Mar 2026 10:00:00 GMT");
+        getCard.mockResolvedValue(NO_PROFILE);
+        const { result } = renderHook(() => useWalletCardIdentity());
+        expect(result.current.name).toBe("Web Updated Name");
+      });
+
+      it("still lets the saved Wallet Profile name win over both", async () => {
+        auth.user = account("ada", "Old Name", "Thu, 05 Mar 2026 10:00:00 GMT");
+        peekIdentity.mockReturnValue(cached("ada", "New Name"));
+        const { result } = renderHook(() => useWalletCardIdentity());
+        await waitFor(() => expect(result.current.name).toBe("ada Saved Name"));
+      });
+
+      it("never uses another owner's cached identity", () => {
+        auth.user = account("ada", "Ada Lovelace", "Thu, 05 Mar 2026 10:00:00 GMT");
+        peekIdentity.mockReturnValue(cached("ben", "Ben Cached"));
+        const { result } = renderHook(() => useWalletCardIdentity());
+        expect(result.current.name).toBe("Ada Lovelace");
+      });
+    });
+
+    describe.each([
+      ["no metadata object at all", undefined],
+      ["an unparseable creation time", "not a date"],
+      ["an empty creation time", ""],
+      ["a pre-epoch creation time", "Tue, 01 Jan 1900 00:00:00 GMT"],
+    ])("when the client carries %s", (_label, value) => {
+      it("asks the backend for Firebase's creation time before any Wallet Profile exists", async () => {
+        const user = account("ada", "Ada Lovelace", undefined) as { metadata?: unknown };
+        user.metadata = value === undefined ? undefined : { creationTime: value };
+        auth.user = user;
+        getCard.mockResolvedValue(NO_PROFILE);
+        getCreatedAt.mockResolvedValue("2026-10-08T04:00:00+00:00");
+        const { result } = renderHook(() => useWalletCardIdentity());
+        expect(result.current.memberSince).toBeNull(); // never today while unknown
+        await waitFor(() => expect(result.current).toMatchObject({ memberSince: "2026", validThru: "12/28" }));
+        await waitFor(() => expect(result.current.profileStatus).toBe("setup"));
+        expect(result.current).toMatchObject({ memberSince: "2026", validThru: "12/28", profileUrl: null });
+      });
     });
 
     it("stays empty, never today or the wallet-creation date, when no source knows the creation time", async () => {

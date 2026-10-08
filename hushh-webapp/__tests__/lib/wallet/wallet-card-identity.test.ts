@@ -35,7 +35,7 @@ describe("deriveWalletCardDates", () => {
   it("never substitutes today's year for a missing or unreadable timestamp", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2031-05-05T00:00:00Z"));
-    for (const missing of [undefined, null, "", "not a date", Number.NaN]) {
+    for (const missing of [undefined, null, "", "not a date", Number.NaN, 0, -5, "Thu, 01 Jan 1970 00:00:00 GMT"]) {
       expect(deriveWalletCardDates(missing)).toBeNull();
     }
     expect(deriveWalletCardDates("2024-03-05T00:00:00Z")?.memberSince).toBe("2024");

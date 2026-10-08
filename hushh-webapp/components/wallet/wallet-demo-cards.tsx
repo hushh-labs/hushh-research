@@ -143,12 +143,16 @@ function WalletArtworkFace({ summary, finish, name, identity }: { summary: Walle
   );
 }
 
-/** What the swipe-left controls print for an illustration card: the owner's real valid-through, never a sample date. */
+/**
+ * What the swipe-left controls print for the Profile and Referral cards: the
+ * owner's real valid-through, never a sample date. The green NWS card is left
+ * as it was, so it returns nothing and keeps its original controls.
+ */
 export function walletDemoControls(cardId: string, identity: WalletCardIdentity | null | undefined) {
   const artwork = ARTWORK[cardId as keyof typeof ARTWORK];
-  if (!artwork) return undefined;
+  if (artwork !== "profile" && artwork !== "referral") return undefined;
   return {
-    title: `Agent One ${artwork === "nws" ? "NWS" : artwork === "profile" ? "Profile" : "Referral"}`,
+    title: `Agent One ${artwork === "profile" ? "Profile" : "Referral"}`,
     detail: identity?.validThru ? `Valid through ${identity.validThru}` : "Valid through —",
   };
 }
@@ -158,10 +162,12 @@ export function WalletDemoCardDetails({ cardId, identity }: { cardId: string; id
   const summary = WALLET_DEMO_CARDS.find((card) => card.cardId === cardId);
   if (!demo || !summary) return null;
   const payload = identity?.cardPayload;
+  // Dates belong to the Profile and Referral faces; the NWS card keeps its own.
+  const showsDates = ARTWORK[cardId as keyof typeof ARTWORK] !== "nws";
   const fields = [
     ["Name", identity?.name || null],
-    ["Member since", identity?.memberSince || null],
-    ["Valid through", identity?.validThru || null],
+    ["Member since", showsDates ? identity?.memberSince || null : null],
+    ["Valid through", showsDates ? identity?.validThru || null : null],
     ["Headline", payload?.headline || null],
     ["Organisation", payload?.organisation || null],
     ["Location", payload?.location_label || null],

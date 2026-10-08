@@ -143,7 +143,7 @@ describe("Profile and Referral artwork", () => {
 });
 
 describe("View details and swipe controls", () => {
-  it.each(WALLET_DEMO_CARDS.map((card) => card.cardId))("%s prints the owner's real name and valid-through, no sample", (cardId) => {
+  it.each(["demo-0", "demo-1"])("%s prints the owner's real name and dates, no sample", (cardId) => {
     const { container } = render(<WalletDemoCardDetails cardId={cardId} identity={identity} />);
     const text = container.textContent ?? "";
     expect(text).toContain("Ada Lovelace");
@@ -151,6 +151,13 @@ describe("View details and swipe controls", () => {
     expect(text).toContain("12/28");
     expect(text).toContain("Mathematician"); // the saved Wallet Profile fields stay
     expect(text).not.toMatch(/Alex Morgan|2030/);
+  });
+
+  it("keeps the NWS card's details to the owner's name, with no dates added", () => {
+    const { container } = render(<WalletDemoCardDetails cardId="demo-2" identity={identity} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Ada Lovelace");
+    expect(text).not.toMatch(/Member since|Valid through|2026|12\/28|Alex Morgan|2030/);
   });
 
   it("shows no sample values before the owner's details are known", () => {
@@ -165,9 +172,11 @@ describe("View details and swipe controls", () => {
     );
     const controls = Array.from(container.querySelectorAll("[data-card-controls]")).map((node) => node.textContent ?? "");
     expect(controls.length).toBe(WALLET_DEMO_CARDS.length);
-    for (const text of controls) {
+    for (const text of controls.slice(0, 2)) {
       expect(text).toContain("Valid through 12/28");
-      expect(text).not.toMatch(/Expires|12\/30|4242|4444|1234/);
+      expect(text).not.toMatch(/Expires|12\/30|4242|4444/);
     }
+    // The green NWS card's controls are untouched.
+    expect(controls[2]).toContain("1234");
   });
 });

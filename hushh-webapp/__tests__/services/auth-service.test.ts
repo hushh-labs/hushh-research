@@ -645,6 +645,15 @@ describe("AuthService.restoreNativeSession", () => {
     } as any);
     const missing = await AuthService.restoreNativeSession();
     expect(missing!.metadata.creationTime).toBeUndefined();
+
+    // Zero and junk are "unknown" too, never the 1970 epoch or "now".
+    for (const creationTime of [0, -1, "junk", Number.NaN]) {
+      vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValueOnce({
+        user: { uid: "member-since-user", email: "owner@example.test", metadata: { creationTime } },
+      } as any);
+      const unknown = await AuthService.restoreNativeSession();
+      expect(unknown!.metadata.creationTime).toBeUndefined();
+    }
   });
 
   it("uses a live native token provider for restored users instead of a frozen launch token", async () => {

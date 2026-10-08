@@ -373,7 +373,10 @@ export class AuthService {
     if (typeof raw !== "number" && typeof raw !== "string") return undefined;
     if (raw === "") return undefined;
     const created = new Date(raw);
-    return Number.isFinite(created.getTime()) ? created.toUTCString() : undefined;
+    // Zero is how a native SDK reports "unknown", not the 1970 epoch.
+    return Number.isFinite(created.getTime()) && created.getTime() > 0
+      ? created.toUTCString()
+      : undefined;
   }
 
   private static async resolveLiveNativeIdToken(

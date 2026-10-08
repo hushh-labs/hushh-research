@@ -39,7 +39,8 @@ function parseCreationTime(value: unknown): Date | null {
       : typeof value === "number" || typeof value === "string"
         ? new Date(value)
         : null;
-  return date && Number.isFinite(date.getTime()) ? date : null;
+  // A zero or negative time is how some native SDKs say "unknown", not 1970.
+  return date && Number.isFinite(date.getTime()) && date.getTime() > 0 ? date : null;
 }
 
 /**
@@ -54,7 +55,7 @@ export function deriveWalletCardDates(creationTime: unknown): WalletCardDates | 
   const created = parseCreationTime(creationTime);
   if (!created) return null;
   const year = created.getUTCFullYear();
-  if (year < 1970 || year > 9999 - WALLET_CARD_VALIDITY_YEARS) return null;
+  if (year > 9999 - WALLET_CARD_VALIDITY_YEARS) return null;
   const validYear = year + WALLET_CARD_VALIDITY_YEARS;
   return {
     memberSince: String(year),

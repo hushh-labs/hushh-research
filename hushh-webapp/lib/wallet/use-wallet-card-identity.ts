@@ -42,6 +42,20 @@ interface LoadedAccount {
   createdAt: string | null;
 }
 
+/**
+ * The account's display name as the backend last confirmed it. Firebase Auth is
+ * the source of the name and the Profile name edit writes it there, then caches
+ * the confirmed identity. A native Firebase user object is a snapshot whose
+ * `reload()` does nothing, so after an edit it can still carry the old name;
+ * this cached mirror cannot. Memory read only: no request, never another owner.
+ */
+function cachedAccountName(ownerId: string | null): string | null {
+  if (!ownerId) return null;
+  const identity = AccountIdentityService.peekCachedIdentity(ownerId)?.data;
+  if (!identity || identity.user_id !== ownerId) return null;
+  return identity.display_name?.trim() || null;
+}
+
 /** Runs `refresh` whenever the person could have changed something elsewhere. */
 function subscribeToRefreshSignals(refresh: () => void): () => void {
   const onVisible = () => {
@@ -63,8 +77,10 @@ function subscribeToRefreshSignals(refresh: () => void): () => void {
  * The one authenticated source behind every Agent One card in Wallet.
  *
  * - name: the saved Wallet Profile name (`full_name`, then the card's display
- *   name), then Firebase `displayName`, then the backend account identity's
- *   `display_name`. Nothing else: no email, no sample;
+ *   name), then the account's Firebase Auth `displayName`. That tier reads the
+ *   backend identity's `display_name` (Firebase's value as the server confirmed
+ *   it, kept current by Profile name edits) and falls back to the live
+ *   `user.displayName`. Nothing else: no email, no sample;
  * - member since / valid through: Firebase `metadata.creationTime` from the
  *   signed-in user (web SDK, or the native plugin's `metadata.creationTime`),
  *   so they never wait on a network call. Only when the client has none, the
@@ -183,7 +199,9 @@ export function useWalletCardIdentity(): WalletCardIdentity {
   // missing, independently of the Wallet Profile and the vault, and never again
   // once answered.
   const ownAccount = account?.ownerId === ownerId ? account : null;
-  const needsAccountName = Boolean(ownerId) && !user?.displayName?.trim() && !ownAccount?.name;
+  const accountName = cachedAccountName(ownerId);
+  const needsAccountName =
+    Boolean(ownerId) && !user?.displayName?.trim() && !accountName && !ownAccount?.name;
   const needsCreatedAt =
     Boolean(ownerId) && !deriveWalletCardDates(user?.metadata?.creationTime) && !ownAccount?.createdAt;
   useEffect(() => {
@@ -234,7 +252,12 @@ export function useWalletCardIdentity(): WalletCardIdentity {
     deriveWalletCardDates(user.metadata?.creationTime) ?? deriveWalletCardDates(ownAccount?.createdAt);
   return {
     ownerId,
-    name: ownProfile?.cardName || user.displayName?.trim() || ownAccount?.name || null,
+    name:
+      ownProfile?.cardName ||
+      accountName ||
+      user.displayName?.trim() ||
+      ownAccount?.name ||
+      null,
     memberSince: dates?.memberSince ?? null,
     validThru: dates?.validThru ?? null,
     profileUrl: ownProfile?.profileUrl ?? null,
