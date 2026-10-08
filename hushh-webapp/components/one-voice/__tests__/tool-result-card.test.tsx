@@ -1333,6 +1333,30 @@ describe("ToolResultCard: a spoken open runs the same code as a tap", () => {
     // Nothing opened, so nothing is named for "reply to it".
     expect(onActiveMailChange).not.toHaveBeenCalled();
   });
+
+  it("refuses a directive for a position that was not offered, without asking", async () => {
+    const calls: unknown[] = [];
+    const onActiveMailChange = vi.fn();
+    render(
+      <ToolResultCard
+        result={result()}
+        tool="read_mail"
+        ok
+        onOpenMail={async (input) => {
+          calls.push(input);
+          throw new Error("must not be called");
+        }}
+        onActiveMailChange={onActiveMailChange}
+      />,
+    );
+
+    const missing = await speakOpen({ ordinal: 9 });
+
+    expect(missing).toEqual([["failed", "not_offered"]]);
+    expect(calls).toEqual([]);
+    expect(screen.queryByTestId("one-voice-mail-original")).toBeNull();
+    expect(onActiveMailChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("ToolResultCard: drafts and scheduled mail", () => {
