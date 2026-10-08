@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import type { AppAccent } from "@/lib/theme/accent";
 import styles from "./profile-appearance-preferences.module.css";
@@ -47,15 +48,6 @@ function DropletIcon() {
     <RowIcon>
       <path d="M12 3s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11Z" />
       <path d="M9 15.2c.5 1.4 1.5 2.1 3 2.2" className={styles.accentStroke} />
-    </RowIcon>
-  );
-}
-
-function SparkleIcon() {
-  return (
-    <RowIcon>
-      <path d="M12 3c.8 4.7 3.3 7.2 8 8-4.7.8-7.2 3.3-8 8-.8-4.7-3.3-7.2-8-8 4.7-.8 7.2-3.3 8-8Z" />
-      <path d="M19 3v4M17 5h4" className={styles.accentStroke} />
     </RowIcon>
   );
 }
@@ -126,7 +118,7 @@ export function ProfileAppearancePreferences({
         </div>
 
         <button type="button" className={`${styles.row} ${styles.action}`} onClick={onGeminiClick}>
-          <span className={styles.icon}><SparkleIcon /></span>
+          <span className={styles.icon}><GeminiLogo /></span>
           <RowCopy title="Gemini" description="Choose managed or BYOK." />
           <span className={`${styles.trailing} ${styles.chevron}`}><ChevronIcon /></span>
         </button>
