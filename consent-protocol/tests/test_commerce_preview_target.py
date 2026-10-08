@@ -133,6 +133,49 @@ def test_preview_mount_and_readiness_proof_reject_shared_or_stale_authority():
             module["validate_app_proof"](proof | {key: value}, context)
 
 
+def test_preview_rejects_migration_secrets_and_privileged_runtime():
+    module = _preview_module("commerce-preview-verify.py")
+    role = {
+        "rolname": "scope_commerce_sandbox",
+        **dict.fromkeys(
+            (
+                "rolsuper",
+                "rolcreaterole",
+                "rolcreatedb",
+                "rolreplication",
+                "rolbypassrls",
+                "elevated_membership",
+                "other_database_ownership",
+            ),
+            False,
+        ),
+    }
+    module["validate_runtime_database_role"](role)
+    for flag in role.keys() - {"rolname"}:
+        with pytest.raises(module["PreviewError"], match="preview_runtime_database_privileged"):
+            module["validate_runtime_database_role"](role | {flag: True})
+    with pytest.raises(module["PreviewError"]):
+        module["validate_runtime_database_role"](
+            role | {"rolname": "scope_commerce_sandbox_migrator"}
+        )
+    for name, secret in (
+        ("MIGRATOR_DB_USER", None),
+        ("DB_PASSWORD", "SCOPE_COMMERCE_SANDBOX_MIGRATOR_DB_PASSWORD"),
+    ):
+        entry = {"name": name, "value": "synthetic"}
+        if secret:
+            entry = {"name": name, "valueFrom": {"secretKeyRef": {"name": secret}}}
+        spec = {"containers": [{"env": [entry]}]}
+        with pytest.raises(module["PreviewError"], match="preview_migration_credential_mounted"):
+            module["validate_mounts"]({"spec": {"template": {"spec": spec}}}, {})
+    spec = {
+        "containers": [{"env": []}],
+        "volumes": [{"secret": {"secretName": "SCOPE_COMMERCE_SANDBOX_MIGRATOR_DB_PASSWORD"}}],
+    }
+    with pytest.raises(module["PreviewError"], match="preview_migration_credential_mounted"):
+        module["validate_mounts"]({"spec": {"template": {"spec": spec}}}, {})
+
+
 @pytest.mark.parametrize(
     "unsafe_url",
     [
@@ -348,3 +391,34 @@ def test_preview_authentication_requires_both_existing_enabled_reviewers(monkeyp
     with pytest.raises((RuntimeError, module["PreviewError"])):
         verifier.app({"users": ["synthetic-one", "synthetic-two"]})
     assert calls == ["synthetic-one", "synthetic-two", "deleted"]
+
+
+@pytest.mark.parametrize("volume", [False, True])
+def test_preview_resolves_provider_aliases_before_secret_admission(volume):
+    module = _preview_module("commerce-preview-verify.py")
+    prefix = "SCOPE_COMMERCE_SANDBOX_"
+    alias = prefix + "DB_PASSWORD"
+    spec = {"containers": [{"env": []}]}
+    if volume:
+        spec["volumes"] = [{"secret": {"secretName": alias}}]
+    else:
+        spec["containers"][0]["env"] = [
+            {"name": "DB_PASSWORD", "valueFrom": {"secretKeyRef": {"name": alias}}}
+        ]
+    document = {
+        "metadata": {"namespace": "123456"},
+        "spec": {"template": {"spec": spec, "metadata": {"annotations": {}}}},
+    }
+    annotations = document["spec"]["template"]["metadata"]["annotations"]
+    expected = {} if volume else {"DB_PASSWORD": "DB_PASSWORD"}
+    annotations["run.googleapis.com/secrets"] = f"{alias}:projects/123456/secrets/{alias}"
+    module["validate_mounts"](document, expected)
+    for resource in (prefix + "MIGRATOR_DB_PASSWORD", "DB_PASSWORD"):
+        annotations["run.googleapis.com/secrets"] = (
+            f"{alias}:projects/hushh-pda-dev/secrets/{resource}"
+        )
+        with pytest.raises(module["PreviewError"]):
+            module["validate_mounts"](document, expected)
+    annotations["run.googleapis.com/secrets"] = f"{alias}:projects/other-project/secrets/{alias}"
+    with pytest.raises(module["PreviewError"], match="preview_secret_project_mismatch"):
+        module["validate_mounts"](document, expected)

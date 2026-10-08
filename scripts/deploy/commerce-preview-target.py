@@ -14,11 +14,11 @@ PROJECT = "hushh-pda-dev"
 BACKEND = "consent-protocol-commerce-sandbox"
 FRONTEND = "hushh-webapp-commerce-sandbox"
 RUNTIME_SA = "commerce-sandbox-runtime@hushh-pda-dev.iam.gserviceaccount.com"
-SCHEDULER_SA = (
-    "commerce-sandbox-scheduler@hushh-pda-dev.iam.gserviceaccount.com"
-)
+SCHEDULER_SA = "commerce-sandbox-scheduler@hushh-pda-dev.iam.gserviceaccount.com"
 DATABASE = "scope_commerce_sandbox"
 STRIPE_ACCOUNT = "acct_1UNyyyLsJU9ZDBZX"
+MIGRATOR_USER = "scope_commerce_sandbox_migrator"
+MIGRATION_SECRETS = ("MIGRATOR_DB_USER", "MIGRATOR_DB_PASSWORD")
 PRIVATE_SECRETS = (
     "APP_SIGNING_KEY",
     "VAULT_DATA_KEY",

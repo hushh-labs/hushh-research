@@ -147,6 +147,9 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(tmp_path, legacy
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relative, destination)
+    retention_helper = ROOT / "scripts/ci/cloudrun-retention.py"
+    if retention_helper.exists():
+        shutil.copy2(retention_helper, tmp_path / "scripts/ci/cloudrun-retention.py")
     if legacy_interface == "missing-probe":
         (tmp_path / "scripts/ci/verify-dev-candidate.sh").unlink()
     elif legacy_interface == "unprotected-retention":
@@ -164,3 +167,54 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(tmp_path, legacy
     assert result.returncode == (1 if legacy_interface else 0), result.stderr
     if legacy_interface:
         assert "Candidate deployment interface is incompatible" in result.stderr
+
+
+def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    run = next(
+        s["run"]
+        for s in workflow["jobs"]["deploy"]["steps"]
+        if s.get("name") == "Apply dev DB migrations and predeploy schema gate"
+    )
+    start = run.index(
+        'if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then\n  MIGRATOR_DB_USER='
+    )
+    section = run[start:]
+    section = section[: section.index("\nfi") + 3]
+    section = section.replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-dev")
+    section = section.replace("${{ env.PROTOCOL_PYTHON }}", str(tmp_path / "python-gate"))
+    (tmp_path / "consent-protocol").mkdir()
+    (tmp_path / "python-gate").write_text(
+        '#!/bin/sh\nprintf "%s:%s:%s\\n" "$1" "$DB_USER" "$DB_PASSWORD" >> "$CALLS"\n'
+    )
+    (tmp_path / "python-gate").chmod(0o755)
+    (tmp_path / "gcloud").write_text(
+        '#!/bin/sh\ncase "$*" in *MIGRATOR_DB_USER*) echo scope_commerce_sandbox_migrator;; '
+        "*MIGRATOR_DB_PASSWORD*) echo synthetic-migration-password;; *) exit 1;; esac\n"
+    )
+    (tmp_path / "gcloud").chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": str(tmp_path) + ":" + os.environ["PATH"],
+        "DEV_TARGET": "scope-commerce-sandbox",
+        "DEPLOY_SECRET_PREFIX": "SCOPE_COMMERCE_SANDBOX_",
+        "DB_USER": "scope_commerce_sandbox",
+        "DB_PASSWORD": "synthetic-runtime-password",
+        "CALLS": str(tmp_path / "calls"),
+    }
+    result = subprocess.run(  # noqa: S603 - real workflow with hermetic command adapters.
+        ["bash", "-eu", "-c", section], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0
+    assert (tmp_path / "calls").read_text().splitlines() == [
+        "db/migrate.py:scope_commerce_sandbox_migrator:synthetic-migration-password",
+        "scripts/deploy/commerce-preview-verify.py:scope_commerce_sandbox:synthetic-runtime-password",
+    ]
+    (tmp_path / "calls").unlink()
+    result = subprocess.run(  # noqa: S603 - real workflow with hermetic command adapters.
+        ["bash", "-eu", "-c", section],
+        cwd=tmp_path,
+        env=env | {"DB_USER": "shared_database_user"},
+        capture_output=True,
+    )
+    assert result.returncode != 0 and not (tmp_path / "calls").exists()

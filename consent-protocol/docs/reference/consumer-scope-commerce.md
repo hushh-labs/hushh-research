@@ -413,8 +413,8 @@ Provision the dedicated resources, distinct DB credentials/signing/vault/payment
 bindings, full schema and provider-attested account pin first. Do not clone UAT
 records. Both configured Firebase subjects must already exist and be active;
 readiness verification cannot create an account. For controlled initialization of
-the fresh dedicated database, supply its own `DB_*` credentials in process memory
-and use the canonical runner from `consent-protocol`:
+the fresh dedicated database, supply the dedicated migration login through `DB_*`
+in process memory and use the canonical runner from `consent-protocol`:
 
 ```bash
 DEV_TARGET=scope-commerce-sandbox GCP_PROJECT_ID=hushh-pda-dev \
@@ -425,7 +425,32 @@ The existing migration authority validates the fixed target/project/database
 before connecting. It applies the canonical release lane and excludes the parked
 pod tail for this target; explicit `--dev-extra` is rejected. Shared Dev keeps its
 existing parked lane. This initialization command has not been executed against
-the preview database. After those prerequisites and
+the preview database. Migration 201 installs the canonical deletion-guard event
+trigger and requires Cloud SQL's operator-controlled `cloudsqlsuperuser`
+authority. Replay repeats that requirement on each deployment. Keep this
+capability on the fixed `scope_commerce_sandbox_migrator` login, stored only in
+prefixed `MIGRATOR_DB_USER` / `MIGRATOR_DB_PASSWORD` secrets. The workflow injects
+these into `DB_*` only for the migration subprocess; resource verification,
+schema checks and application mounts retain the runtime credentials. Neither
+migration secret may be mounted into a service, including through an alias or
+secret volume. Shared Dev's credential behavior is unchanged.
+
+The runtime login `scope_commerce_sandbox` must have no superuser, role/database
+creation, replication, RLS bypass, privileged role membership or ownership of
+another database. Preserve its ownership of the dedicated application's public
+tables, excluding the migration ledger: existing default-deny RLS relies on
+owner access. The migration operator must be able to manage those objects while
+the runtime cannot assume the migrator role. Verify ownership after initialization
+and replay; a new migration that leaves another table owner blocks release until
+the owning operator resolves it. Keep the elevated event trigger and its canonical
+security-definer functions under their required operator authority.
+
+Initialization uses replay and does not create a schema-head ledger receipt.
+Complete the existing value-free [preservation/restore procedure](../../../scripts/ops/db_preservation_manifest.py)
+and [verified baseline procedure](../../db/migration_authority.py) against this
+schema-only database before admission. A fabricated head-283 marker or changing
+initialization to ledger mode without a verified baseline is not permitted.
+After those prerequisites and
 the workflow definition on `main` are verified, dispatch the existing workflow:
 
 ```bash
@@ -833,7 +858,26 @@ provider receipt verification, or either reviewer's payment acceptance.
 The final local core rerun passed in 355 seconds using CI's pinned Gitleaks
 8.24.2, including the public-bound negative controls and historical source scan.
 The main-owned definition is proposed in [PR #7613](https://github.com/hushh-labs/hushh-research/pull/7613),
-head `dc14752d1a2cea4a857948f63d3d50534426cd39`. Ordinary independent review
+whose initial head was `dc14752d1a2cea4a857948f63d3d50534426cd39`. Ordinary independent review
 is required; the existing draft PR remains unchanged. The approved ADC principal
 can read the dedicated database, but its dedicated login role is not yet present.
 No role, schema or financial mutation is implied by that inventory read.
+
+A final database authority review identified and corrected the fixed-preview
+credential split. The verifier rejects privileged runtime roles, cross-database
+ownership, missing application-table ownership and migration-secret mounts.
+The real workflow subprocess test proves migration credentials are scoped to the
+migration process and that a wrong runtime identity prevents migration dispatch.
+Database roles, grants, schema initialization and verified baseline evidence
+still require actual operator provisioning; no database mutation was performed.
+
+The final frozen application candidate passed the repository core bundle in
+402 seconds with CI's pinned scanner. The final main-owned definition passed
+core in 279 seconds and retains all 21 focused deployment-contract cases.
+The alias admission controls passed 19 focused cases; the two frontend fixtures
+passed 15 cases after providing authenticated owner context and reading the
+extracted provider-identity component. The earlier hosted run's two failing
+frontend shards supplied those regression findings and was superseded; exact-head
+hosted CI remains required. The independent mount review found no remaining
+bypass in its inspected boundary. These are source checks, not cloud-role,
+provider-payment or physical-device acceptance.
