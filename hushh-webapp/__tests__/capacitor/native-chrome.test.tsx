@@ -106,7 +106,7 @@ describe("private dock asynchronous submission boundary", () => {
     useLayoutEffect(() => {
       dock?.setHost(host.current);
       dock?.claim(owner.current, true, false);
-    }, [dock?.setHost, dock?.claim]);
+    }, [dock]);
     useNativeDockPort("text", { projection: {
       context: "synthetic-conversation", mode: "text", text: "Synthetic draft", placeholder: "Message One",
       expanded: false, editable: true, sendEnabled: true, micEnabled: true, cancelEnabled: false,
@@ -1016,15 +1016,16 @@ describe("native chrome presentation lease", () => {
     bridge.getCapabilities.mockReturnValueOnce(discovery.promise);
     function OpenerJourney() {
       const [open, setOpen] = useState(false);
-      const didOpen = useRef(false), preference = useRef(false);
+      const [didOpen, setDidOpen] = useState(false);
+      const preference = useRef(false);
       const handle = useRef<NativeChatChromeHandle>(null), fallback = useRef<HTMLButtonElement>(null);
       useEffect(() => {
-        if (!open && didOpen.current) void handle.current?.restoreFocus(preference.current);
-      }, [open]);
+        if (!open && didOpen) void handle.current?.restoreFocus(preference.current);
+      }, [open, didOpen]);
       return <>
-        <NativeHistoryOpener owner="synthetic-owner" context="chat:stable" eligible={didOpen.current} open={open}
+        <NativeHistoryOpener owner="synthetic-owner" context="chat:stable" eligible={didOpen} open={open}
           pendingAttention={0} showAttentionDot focusRef={fallback} ref={handle}
-          onActivate={(preferNative) => { preference.current = preferNative; didOpen.current = true; setOpen(true); }} />
+          onActivate={(preferNative) => { preference.current = preferNative; setDidOpen(true); setOpen(true); }} />
         {open ? <NativeHistoryClose owner="synthetic-owner" context="history:stable" onClose={() => setOpen(false)} /> : null}
       </>;
     }
