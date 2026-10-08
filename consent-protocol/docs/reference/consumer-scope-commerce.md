@@ -1196,7 +1196,7 @@ The exact application/provider binding, synthetic fixtures, action admission and
 cumulative financial caps still apply. This mode is never an automatic fallback
 from failed credential-pair authentication. Apple provider exchanges remain outside
 the human rehearsal allowlist. See the canonical
-[reviewer preflight](../../../.codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md#explicit-human-authentication).
+[reviewer preflight](../../../.codex/skills/reviewer-app-testing/references/human-reviewer-authentication.md).
 
 Focused reviewer tests and the reviewer skill gate passed; a removed live-mode
 manual-login guard caused the negative control to fail as expected. These source
