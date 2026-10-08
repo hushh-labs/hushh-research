@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] One Account Mail Delivery Failure",
   "documentation": {
-    "content": "One support or account-security mail failed or has uncertain delivery. Inspect sanitized backend event codes; do not blindly retry an uncertain send.",
+    "content": "One support or account-security mail failed or has uncertain delivery. Inspect sanitized backend event codes; do not blindly retry an uncertain send.\n\nInspect account-mail delivery failures and repair the provider or delivery configuration.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
@@ -9,7 +9,8 @@
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "ops"
+    "scope": "ops",
+    "incident_purpose": "actionable"
   },
   "conditions": [
     {
@@ -26,8 +27,17 @@
         "comparison": "COMPARISON_GT",
         "thresholdValue": 0,
         "duration": "0s",
-        "trigger": { "count": 1 }
+        "trigger": {
+          "count": 1
+        }
       }
     }
-  ]
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
 }

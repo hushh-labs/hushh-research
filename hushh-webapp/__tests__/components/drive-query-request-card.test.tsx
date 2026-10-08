@@ -115,7 +115,12 @@ describe("Drive question card", () => {
     mount({ direction: "incoming" });
     expect(await screen.findByText("Bea asked about your Drive")).toBeVisible();
     expect(screen.getByText("“potential bank statement”")).toBeVisible();
-    expect(screen.getByText(/searches your Drive once for this question/)).toBeVisible();
+    expect(
+      screen.getByText(
+        "If you allow, your private agent searches your Drive once and shares the answer and file names. Your files aren't shared.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText(/with Bea/)).toBeNull();
     expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
     expect(state.service.getQuery).toHaveBeenCalledWith("owner-a", requestId, expect.any(Function));

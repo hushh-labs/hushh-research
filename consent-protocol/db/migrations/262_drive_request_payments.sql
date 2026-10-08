@@ -1,5 +1,6 @@
--- One fixed-price payment per eligible Trusted Circle document request.
--- Existing requests remain free. Provider references contain no document data.
+-- One fixed-price payment per new requester-driven Drive document request.
+-- Existing requests remain free. Trusted requests can pay before automatic sharing;
+-- non-trusted requests pay after owner approval. Provider references contain no document data.
 BEGIN;
 
 DO $$

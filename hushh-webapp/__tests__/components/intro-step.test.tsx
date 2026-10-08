@@ -178,7 +178,7 @@ describe("IntroStep voice contract", () => {
     render(<IntroStep onLogin={onLogin} />);
     expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
     expect(screen.getByText("Your agents. Yours to own.")).toBeInTheDocument();
-    expect(screen.getByText("Your private network of AI agents")).toBeInTheDocument();
+    expect(screen.getByText("Your personal team of AI agents.")).toBeInTheDocument();
     expect(screen.getByText("You choose what to share.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in", exact: true })).not.toBeInTheDocument();
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");

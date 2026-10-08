@@ -7,6 +7,9 @@ export type AgentAppIconId = keyof typeof AGENT_APP_ICON_PALETTE;
 // One 32-unit drawing grid. Filled silhouettes and open counters remain legible
 // at the 40px list size; larger launchers use exactly the same vector artwork.
 const GLYPHS: Record<AgentAppIconId, ReactNode> = {
+  messages: (
+    <path fillRule="evenodd" d="M5 6h22a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H14l-6 4v-4H5a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3Zm4 6h14v2H9v-2Zm0 5h10v2H9v-2Z" />
+  ),
   finance: (
     <>
       <path d="M16 3.7 28 10.5a1 1 0 0 1-.5 1.9h-23a1 1 0 0 1-.5-1.9L16 3.7Z" />

@@ -60,6 +60,7 @@ import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handof
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
+import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
@@ -72,6 +73,7 @@ import {
   WalletService,
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
+import { WalletCardService } from "@/lib/services/wallet-card-service";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { CARD_CORNER_RADIUS_RATIO } from "@/lib/wallet/wallet-card-presentation";
@@ -207,6 +209,7 @@ export function WalletWorkspace() {
     };
   }, [renderedOwnerId]);
   const { vaultKey, getVaultOwnerToken } = useVault();
+  const [demoProfile, setDemoProfile] = useState<WalletDemoProfile | null>(null);
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -264,12 +267,32 @@ export function WalletWorkspace() {
     }
   }, [ready, view.kind]);
 
+  useEffect(() => {
+    if (!ready || activeTab !== "cards") return;
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() => {
+        document.querySelector<HTMLElement>("[data-app-scroll-root='true']")?.scrollTo({ top: 0, behavior: "instant" });
+      });
+    });
+    return () => { window.cancelAnimationFrame(first); if (second) window.cancelAnimationFrame(second); };
+  }, [activeTab, ready]);
+
   const selectTab = (value: string) => {
     if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
     // Drop revealed values and reject an in-flight reveal when leaving Cards.
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
     setTab(value as WalletTab);
+    if (value === "cards") {
+      // Add and Sharing can be much taller than the deck. Restore the card
+      // surface to its start when returning so the first card is the entry
+      // point instead of inheriting the previous pane's scroll position.
+      window.requestAnimationFrame(() => {
+        const root = document.querySelector<HTMLElement>("[data-app-scroll-root='true']");
+        root?.scrollTo({ top: 0, behavior: "instant" });
+      });
+    }
   };
   // Metadata search stays in q; presentation selection stays in memory.
   const routeQuery = searchParams?.get("q") || "";
@@ -299,6 +322,27 @@ export function WalletWorkspace() {
     if (!user?.uid || !vaultKey || !token) return null;
     return { userId: user.uid, vaultKey, vaultOwnerToken: token };
   }, [user?.uid, vaultKey]);
+  useEffect(() => {
+    if (!user?.uid) { setDemoProfile(null); return; }
+    let cancelled = false;
+    const load = async () => {
+      const fallbackName = user.displayName?.trim() || null;
+      const token = getVaultOwnerTokenRef.current();
+      if (!token) {
+        if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null, cardPayload: null });
+        return;
+      }
+      try {
+        const state = await WalletCardService.getCard({ userId: user.uid, vaultOwnerToken: token });
+        if (cancelled) return;
+        const payloadName = state.card?.cardPayload.full_name?.trim() || null;
+        setDemoProfile({ displayName: payloadName || state.card?.displayName?.trim() || user.displayName?.trim() || null, shareUrl: state.shareUrl, cardPayload: state.card?.cardPayload ?? null });
+      } catch { if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null, cardPayload: null }); }
+    };
+    void load();
+    const timer = window.setInterval(load, 15000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [user?.uid, user?.displayName, vaultKey]);
   // Decryption is asynchronous; whether the vault is still open is re-read
   // from the latest render when it settles, never from the tap that began it.
   const vaultContextRef = useRef(vaultContext);
@@ -545,7 +589,7 @@ export function WalletWorkspace() {
   return (
     <AppPageShell
       as="div"
-      width="agent"
+      width="standard"
       fitContent
       className="relative isolate [--app-page-content-bottom-gap:0px]"
     >
@@ -616,7 +660,7 @@ export function WalletWorkspace() {
             tabSetId="wallet"
             activeValue={activeTab}
             onSelectionChange={selectTab}
-            viewportMinHeight="fill"
+            viewportMinHeight="0px"
             heightMode="active"
             holdHeightDuringTransition={false}
           >
@@ -682,8 +726,8 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser ownerId={renderedOwnerId || undefined}
-              key={renderedOwnerId}
+            <WalletCardBrowser demoProfile={demoProfile} ownerId={renderedOwnerId || undefined}
+              key={`${renderedOwnerId || "wallet"}-${activeTab}`}
               cards={cards}
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}
@@ -798,7 +842,7 @@ export function WalletWorkspace() {
           />
         ) : null}
       </AppPageContentRegion>
-      <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto w-full max-w-[820px] border-t border-border bg-[var(--app-card-surface-default-solid)] px-2 py-1 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-[var(--app-bottom-shell-height,132px)] after:bg-[var(--app-card-surface-default-solid)] after:content-['']")} data-testid="wallet-card-dock-host" />
+      <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto h-0 w-full max-w-[820px] overflow-hidden bg-transparent p-0")} data-testid="wallet-card-dock-host" />
     </AppPageShell>
   );
 }

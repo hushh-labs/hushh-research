@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import {
   Popover,
@@ -187,6 +187,78 @@ const EMOJI_BY_VALUE = new Set(
 );
 const DEFAULT_CATEGORY = EMOJI_CATEGORIES[0]!;
 
+// The picker is intentionally dependency-free, so keep the small searchable
+// vocabulary here instead of pretending that a category label is an emoji
+// index. These aliases cover the common names people use in a chat search
+// (including the reported “cat” case) and can grow without changing the UI.
+const EMOJI_SEARCH_TERMS: Record<string, string> = {
+  "🐶": "dog puppy pet animal",
+  "🐱": "cat kitten kitty pet animal",
+  "🐭": "mouse animal pet",
+  "🐹": "hamster animal pet",
+  "🐰": "rabbit bunny animal pet",
+  "🦊": "fox animal",
+  "🐻": "bear animal",
+  "🐼": "panda animal",
+  "🐨": "koala animal",
+  "🐯": "tiger animal",
+  "🦁": "lion animal",
+  "🐮": "cow animal farm",
+  "🐷": "pig animal farm",
+  "🐸": "frog animal",
+  "🐵": "monkey animal",
+  "🐔": "chicken animal bird farm",
+  "🐧": "penguin bird animal",
+  "🐦": "bird animal",
+  "🦆": "duck bird animal",
+  "🦉": "owl bird animal",
+  "🐴": "horse animal",
+  "🦄": "unicorn animal fantasy",
+  "🐝": "bee insect animal",
+  "🦋": "butterfly insect animal",
+  "🐌": "snail animal",
+  "🕷️": "spider insect animal",
+  "🐢": "turtle animal",
+  "🐍": "snake animal",
+  "🦖": "dinosaur animal",
+  "🐙": "octopus animal sea",
+  "🐟": "fish animal sea",
+  "🐬": "dolphin animal sea",
+  "🐳": "whale animal sea",
+  "🦈": "shark animal sea",
+  "🐘": "elephant animal",
+  "🦒": "giraffe animal",
+  "🦘": "kangaroo animal",
+  "🐐": "goat animal farm",
+  "🐑": "sheep animal farm",
+  "🦌": "deer animal",
+  "🦓": "zebra animal",
+  "🦍": "gorilla animal",
+  "🐲": "dragon animal fantasy",
+  "🌹": "rose flower",
+  "🌻": "sunflower flower",
+  "🌈": "rainbow weather",
+  "☀️": "sun weather",
+  "🌙": "moon night",
+  "🔥": "fire hot",
+  "❤️": "heart love",
+  "💔": "broken heart sad",
+  "👍": "thumbs up like approve",
+  "👎": "thumbs down dislike",
+  "🙏": "pray thanks please",
+  "😂": "laugh funny tears joy",
+  "😊": "smile happy",
+  "😍": "love heart eyes",
+  "😢": "sad cry tear",
+  "😡": "angry mad",
+  "🎉": "party celebrate",
+  "🎂": "cake birthday",
+  "☕": "coffee drink",
+  "🍕": "pizza food",
+  "🍔": "burger food",
+  "🍎": "apple fruit food",
+};
+
 function readRecentEmojis(): string[] {
   if (typeof window === "undefined") return [];
   try {
@@ -218,6 +290,7 @@ export function DirectMessageEmojiPicker({
   triggerClassName,
   compact = false,
 }: DirectMessageEmojiPickerProps) {
+  const searchId = useId();
   const [open, setOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState(DEFAULT_CATEGORY.id);
   const [recent, setRecent] = useState<string[]>([]);
@@ -227,17 +300,7 @@ export function DirectMessageEmojiPicker({
     setRecent(readRecentEmojis());
   }, []);
 
-  const visibleCategories = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    if (!normalizedQuery) return EMOJI_CATEGORIES;
-    return EMOJI_CATEGORIES.filter((category) =>
-      [category.label, ...category.keywords]
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(normalizedQuery),
-    );
-  }, [query]);
-
+  const normalizedQuery = query.trim().toLocaleLowerCase();
   const selectedCategory = useMemo(() => {
     if (query.trim()) return null;
     return EMOJI_CATEGORIES.find(
@@ -245,9 +308,20 @@ export function DirectMessageEmojiPicker({
     ) || DEFAULT_CATEGORY;
   }, [activeCategory, query]);
 
-  const emojis = query.trim()
-    ? visibleCategories.flatMap((category) => category.emojis)
-    : selectedCategory?.emojis || [];
+  const emojis = useMemo(() => {
+    if (!normalizedQuery) return selectedCategory?.emojis || [];
+    const matches = new Set<string>();
+    for (const category of EMOJI_CATEGORIES) {
+      const categoryTerms = [category.label, ...category.keywords]
+        .join(" ")
+        .toLocaleLowerCase();
+      for (const emoji of category.emojis) {
+        const terms = `${emoji} ${EMOJI_SEARCH_TERMS[emoji] || ""} ${categoryTerms}`;
+        if (terms.includes(normalizedQuery)) matches.add(emoji);
+      }
+    }
+    return [...matches];
+  }, [normalizedQuery, selectedCategory]);
 
   const selectEmoji = (emoji: string) => {
     const updated = [emoji, ...recent.filter((value) => value !== emoji)].slice(
@@ -286,17 +360,18 @@ export function DirectMessageEmojiPicker({
         className={styles.content}
         aria-label="Emoji picker"
       >
-        <label className="sr-only" htmlFor="direct-message-emoji-search">
+        <label className="sr-only" htmlFor={searchId}>
           Search emoji categories
         </label>
         <input
-          id="direct-message-emoji-search"
+          id={searchId}
           className={styles.search}
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search emoji"
           autoComplete="off"
+          inputMode="search"
         />
         {!query.trim() && recent.length ? (
           <section className={styles.recent} aria-label="Recently used emoji">
@@ -316,7 +391,12 @@ export function DirectMessageEmojiPicker({
             </div>
           </section>
         ) : null}
-        <div className={styles.categories} role="tablist" aria-label="Emoji categories">
+        <div
+          className={styles.categories}
+          role="tablist"
+          aria-label="Emoji categories"
+          hidden={Boolean(normalizedQuery)}
+        >
           {EMOJI_CATEGORIES.map((category) => (
             <button
               key={category.id}
@@ -339,8 +419,8 @@ export function DirectMessageEmojiPicker({
           className={styles.grid}
           role="tabpanel"
           aria-label={
-            query.trim()
-              ? "Matching emoji"
+            normalizedQuery
+              ? `Emoji results for ${query.trim()}`
               : selectedCategory?.label || "Emoji"
           }
         >
@@ -356,7 +436,9 @@ export function DirectMessageEmojiPicker({
             </button>
           ))}
           {!emojis.length ? (
-            <p className={styles.empty}>No emoji category matches that search.</p>
+            <p className={styles.empty}>
+              No emojis match “{query.trim()}”.
+            </p>
           ) : null}
         </div>
       </PopoverContent>

@@ -538,9 +538,8 @@ function UnlockedDriveQueryCard({
       {showDecision ? (
         <>
           <HelperText>
-            If you allow, your private agent searches your Drive once for this
-            question and shares the answer and file names with{" "}
-            {name ?? "them"}. Your files aren&apos;t shared.
+            If you allow, your private agent searches your Drive once and shares
+            the answer and file names. Your files aren&apos;t shared.
           </HelperText>
           <FlowActionGroup
             primary={

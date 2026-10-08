@@ -741,6 +741,23 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestView=sent");
   });
 
+  it("does not replace the route when Received is already selected", async () => {
+    mocks.search = "tab=pending";
+    mocks.listEntries.mockResolvedValue(emptyListResponse());
+
+    render(<ConsentCenterPage />);
+
+    const received = await screen.findByRole("button", { name: "Received" });
+    expect(received).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(received);
+
+    // A same-URL replace re-renders the mounted pager and its list resource,
+    // which is the source of the visible title/button jitter reported on this
+    // tab. The active direction is already the desired state, so navigation
+    // must remain untouched.
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
   it("keeps Northstar's material decision terms once without duplicate controls", async () => {
     mocks.search = "tab=requests&requestId=northstar-scope-upgrade";
     mocks.listEntries.mockResolvedValue(
@@ -1195,6 +1212,33 @@ describe("ConsentCenterPage requestId deep links", () => {
       "History",
       "Connections",
     ]);
+  });
+
+  it("keeps the visible request list usable when the secondary summary read fails", async () => {
+    // Summary counts are a secondary projection. A transient summary timeout
+    // must not turn a healthy Requests surface into a blocking service error.
+    mocks.search = "tab=pending";
+    mocks.getSummary.mockRejectedValueOnce(new Error("Internal server error"));
+    mocks.listEntries.mockResolvedValue(
+      pendingListResponse({
+        id: "drive-request-1",
+        request_id: "drive-request-1",
+        kind: "incoming_request",
+        status: "pending",
+        action: "DOCUMENT_SHARE_REVIEW",
+        counterpart_type: "investor",
+        counterpart_label: "Abdul Rashid",
+        scope_description: "Google Drive files",
+      }),
+    );
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Abdul Rashid")).toBeVisible();
+    expect(screen.queryByText("Consent service is unavailable")).toBeNull();
+    expect(
+      screen.queryByText(/did not return the latest access state/i),
+    ).toBeNull();
   });
 
   it("does not auto-select the first row or open the detail panel after switching tabs", async () => {

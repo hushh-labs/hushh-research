@@ -26,6 +26,7 @@ from tests.one_voice.test_tools_people import AYESHA, OWNER, ConnectionsDouble, 
 
 CONV = "11111111-2222-4333-8444-555555555555"
 MESSAGE = "I will send the demo tomorrow. " + "A" * 220
+REVIEWED_MESSAGE = "Private reviewed mail body must never reach the model"
 CONFIG = OneVoiceLiveConfig(
     enabled=True,
     model_id="gemini-live-2.5-flash-native-audio",
@@ -373,7 +374,10 @@ async def reviewed_mail(draft_session, monkeypatch):
     created = await session.executor.call(
         session.ctx,
         "compose_mail",
-        {"recipients": [{"kind": "address", "address": "friend@example.com"}], "message": "Hi"},
+        {
+            "recipients": [{"kind": "address", "address": "friend@example.com"}],
+            "message": REVIEWED_MESSAGE,
+        },
     )
     assert created.result.status == "review_requested"
     await session._after_execution(created, source="voice", origin_turn_id=session.turn.turn_id)
@@ -418,7 +422,8 @@ async def test_spoken_send_requires_exact_render_and_fresh_send_approval(reviewe
     )
     assert confirmed.result.status == "sent"
     delivery.execute.assert_awaited_once()
-    assert "Hi" not in str(confirmed.result.model_public())
+    # A two-letter greeting can occur by chance in the opaque random draft ID.
+    assert REVIEWED_MESSAGE not in str(confirmed.result.model_public())
     again = await session.executor.call(
         session.ctx, "confirm_pending_action", {"pending_action_id": proposal.pending.id}
     )

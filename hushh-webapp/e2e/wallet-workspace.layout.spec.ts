@@ -19,6 +19,7 @@ const BOUNDARY_MODULES = [
   "@/hooks/use-auth",
   "@/lib/vault/vault-context",
   "@/lib/services/wallet-service",
+  "@/lib/services/api-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
   "@/lib/pkm/secrets-vault-service",
@@ -325,7 +326,6 @@ test("Wallet tabs preserve a draft and cancel to the Cards collection", async ({
   await page.getByLabel("Nickname", { exact: true }).fill("Travel");
   await page.getByRole("tab", { name: "Cards", exact: true }).click();
   await expect(page.getByTestId("wallet-add-layer-4242")).toBeVisible();
-  await expect(page.getByTestId("secure-card-add-form")).not.toBeInViewport();
   await expect(page.locator("#top-shell-wallet-panel-add")).toHaveAttribute("inert", "");
   await page.getByRole("tab", { name: "Add", exact: true }).click();
   await expect(page.getByLabel("Nickname", { exact: true })).toHaveValue("Travel");
@@ -389,65 +389,64 @@ for (const [width, height] of [[320, 667], [390, 844], [714, 668], [1440, 900]])
   });
 }
 
+// PR #7574 removed the visual thumbnail dock and duplicate section title.
+// Exercise the card faces and detail controls that people can actually see.
+async function expectScreenReaderSwitcher(page: Page) {
+  const dock = page.getByRole("navigation", { name: "Wallet card switcher" });
+  await expect(dock).toHaveClass(/sr-only/);
+  await expect(dock.getByRole("button", { name: "Open Everyday, ending 4242" })).toBeEnabled();
+}
+
 for (const width of [320, 390, 1024]) {
-  test(`video card browser switches and clears chrome at ${width}px`, async ({ page }, testInfo) => {
+  test(`card faces and detail controls navigate without selector chrome at ${width}px`, async ({ page }, testInfo) => {
     const errors = await open(page, width, "light", { cards: 0 }, { height: 844, shell: true });
-    await mount(page, false);
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    const dock = page.getByTestId("wallet-card-switcher");
-    await expect(dock).toBeVisible();
-    await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
+    await mount(page);
+    await expectScreenReaderSwitcher(page);
+    const browser = page.getByTestId("wallet-card-browser");
+    await expect(browser).toHaveAttribute("data-mode", "all");
     await expect(page.getByTestId("wallet-preview-stack")).toHaveAttribute("data-unfolded", "false");
-    const geometry = () => dock.evaluate((element) => ({
-      bottom: element.getBoundingClientRect().bottom,
-      top: element.getBoundingClientRect().top,
-      chrome: document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
-      overflow: document.documentElement.scrollWidth - window.innerWidth,
-    }));
-    let bounds = await geometry();
-    expect(bounds.bottom).toBeLessThanOrEqual(bounds.chrome);
-    expect(bounds.top).toBeGreaterThan(0);
-    expect(bounds.overflow).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath("cards-overview.png") });
-    await dock.getByRole("button", { name: "Open Travel, ending 4444" }).click();
-    await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
+    const everyday = page.getByTestId("wallet-preview-collection").getByRole("button", { name: "View details for Everyday", exact: true });
+    await expect(everyday).toBeInViewport();
+    await everyday.click();
+    await expect(browser).toHaveAttribute("data-mode", "card");
+    const detail = page.getByTestId("wallet-selected-card");
+    const allCards = detail.getByRole("button", { name: "All cards", exact: true });
+    await allCards.scrollIntoViewIfNeeded();
+    await expect(allCards).toBeInViewport();
+    const next = detail.getByRole("button", { name: "Next card", exact: true });
+    await next.scrollIntoViewIfNeeded();
+    await expect(next).toBeInViewport();
+    await next.click();
     await expect(page.getByTestId("wallet-demo-details")).toContainText("Travel card");
     await expect(page.getByTestId("wallet-demo-activity")).toContainText("₹8,640.00");
-    await expect(dock.getByRole("button", { name: "Open Travel, ending 4444" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("navigation", { name: "Wallet card switcher" }).getByRole("button", { name: "Open Travel, ending 4444" })).toHaveAttribute("aria-pressed", "true");
     await page.screenshot({ path: testInfo.outputPath("cards-detail.png") });
     await page.getByRole("button", { name: "Payment", exact: true }).first().click();
     await expect(page.getByRole("dialog")).toContainText("No money moves and no payment is scheduled");
     await page.getByRole("button", { name: "Got it", exact: true }).click();
-    await page.locator("[data-app-scroll-root]").evaluate((element) => { element.scrollTop = 0; });
-    await dock.getByRole("button", { name: "All (3)", exact: true }).click();
-    await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
-    await expect.poll(() => page.getByTestId("wallet-card-browser").evaluate((element) =>
-      element.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length,
-    )).toBe(0);
-    await page.locator('[data-app-scroll-root]').evaluate((element) => { element.scrollTop = 0; });
-    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    await expect(page.getByTestId("wallet-card-dock-host")).toHaveAttribute("data-scrolling-down", "false");
-    // Finish the programmatic return-to-overview before testing user scroll direction.
-    await page.waitForTimeout(400);
-    await page.locator('[data-app-scroll-root]').evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(page.getByTestId("wallet-card-dock-host")).toHaveAttribute("data-scrolling-down", "true");
-    bounds = await geometry();
-    expect(bounds.bottom).toBeLessThanOrEqual(bounds.chrome);
-    await page.locator("[data-app-scroll-root]").evaluate((element) => { element.scrollTop -= 20; });
-    await dock.getByRole("button", { name: "Add a card", exact: true }).click();
+    await detail.getByRole("button", { name: "All cards", exact: true }).click();
+    await expect(browser).toHaveAttribute("data-mode", "all");
+    const add = browser.getByRole("button", { name: "Add your first card", exact: true });
+    await add.scrollIntoViewIfNeeded();
+    await expect(add).toBeInViewport();
+    const bounds = await add.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth - window.innerWidth,
+    }));
+    expect(bounds.overflow).toBeLessThanOrEqual(1);
+    await add.click();
     await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(dock).not.toBeVisible();
+    await expect(page.getByTestId("secure-card-add-form")).toBeVisible();
+    await expect(page.getByTestId("wallet-card-switcher")).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 }
 
-test("video card browser supports reduced motion and dark mode", async ({ page }) => {
+test("card face browsing supports reduced motion and dark mode", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page, 390, "dark", { cards: 0 }, { height: 844, shell: true });
-  await mount(page, false);
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  const dock = page.getByTestId("wallet-card-switcher");
-  await dock.getByRole("button", { name: "Open Everyday, ending 4242" }).click();
+  await mount(page);
+  await page.getByTestId("wallet-preview-collection").getByRole("button", { name: "View details for Everyday", exact: true }).click();
   const face = page.locator('[data-testid="wallet-selected-card"] [data-swipe-views-horizontal-scroll]');
   await face.evaluate((element) => {
     const start = new Event("touchstart", { bubbles: true });
@@ -463,27 +462,22 @@ test("video card browser supports reduced motion and dark mode", async ({ page }
   expect(moving).toBe(0);
 });
 
-test("card thumbnail bar stays hidden after scrolling down and returns on scrolling up", async ({ page }) => {
+test("scrolling keeps selector chrome clipped and the visible Add action keyboard accessible", async ({ page }) => {
   await open(page, 390, "light", { cards: 0 }, { height: 844, shell: true });
-  await mount(page, false);
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  const dock = page.getByTestId("wallet-card-switcher");
-  await expect(dock).toBeVisible();
+  await mount(page);
+  await expectScreenReaderSwitcher(page);
   const root = page.locator("[data-app-scroll-root]");
-  await root.evaluate(async (element) => {
-    for (let step = 0; step < 8; step++) {
-      element.scrollTop += 8;
-      await new Promise((resolve) => setTimeout(resolve, 40));
-    }
-  });
-  await expect(page.getByTestId("wallet-card-dock-host")).toHaveAttribute("data-scrolling-down", "true");
-  await expect(dock).toBeHidden();
-  await page.waitForTimeout(250);
-  await expect(dock).toBeHidden();
-  await root.evaluate((element) => { element.scrollTop -= 20; });
-  await expect(dock).toBeVisible();
-  await dock.getByRole("button", { name: "Add a card", exact: true }).click();
+  const add = page.getByTestId("wallet-card-browser").getByRole("button", { name: "Add your first card", exact: true });
+  await add.scrollIntoViewIfNeeded();
+  await expect.poll(() => root.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(page.getByTestId("wallet-card-switcher")).toHaveClass(/sr-only/);
+  await root.evaluate((element) => { element.scrollTop = 0; });
+  await expectScreenReaderSwitcher(page);
+  await add.focus();
+  await expect(add).toBeFocused();
+  await add.press("Enter");
   await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("secure-card-add-form")).toBeVisible();
 });
 
 for (const width of [320, 393, 1440]) {
@@ -566,8 +560,12 @@ for (const width of [320, 820, 1440]) {
       }, selector)).toBeLessThan(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       if (width === 1440) {
-        const heading = panel.locator('h2').first();
-        await expect(heading).toHaveClass(/ui-text-section-title/);
+        if (tab === "Cards") {
+          const heading = panel.getByRole("heading", { name: "Your cards", level: 2, exact: true }).first();
+          await expect(heading).toHaveClass(/sr-only/);
+        } else {
+          await expect(panel.locator('h2').first()).toHaveClass(/ui-text-section-title/);
+        }
         await expect(panel).toHaveCSS('background-image', 'none');
       }
       await page.screenshot({ path: test.info().outputPath(`wallet-${tab.toLowerCase()}-mail-style.png`) });

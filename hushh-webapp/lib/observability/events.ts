@@ -297,6 +297,7 @@ export interface EventContext {
   platform: ObservabilityPlatform;
   event_category: ObservabilityEventCategory;
   app_version: string;
+  app_build?: string;
   route_id?: RouteId;
 }
 

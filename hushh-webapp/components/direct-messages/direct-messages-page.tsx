@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   FormEvent,
+  PointerEvent as ReactPointerEvent,
+  TouchEvent as ReactTouchEvent,
   useCallback,
   useEffect,
   useRef,
@@ -41,11 +43,13 @@ import {
   Mic,
   MoreVertical,
   Pencil,
+  PhoneCall,
   Quote,
   RefreshCw,
   Search,
   Send,
   Trash2,
+  X,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -136,7 +140,11 @@ function conversationPreview(conversation: DirectMessageConversation): string {
   if (!latest) return "Start a conversation";
   if (latest.deletedForEveryoneAt) return "Message deleted";
   const prefix = latest.senderIsViewer ? "You: " : "";
-  return `${prefix}${latest.content}`;
+  const preview = `${prefix}${latest.content}`.replace(/\s+/g, " ").trim();
+  const maxLength = 88;
+  return preview.length > maxLength
+    ? `${preview.slice(0, maxLength - 1).trimEnd()}…`
+    : preview;
 }
 
 function isNewMessageDay(
@@ -249,8 +257,56 @@ export function DirectMessagesPage() {
   const loadedRouteKey = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
-
+  const editingInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const messageLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timestampRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messageTouchStart = useRef<{ x: number; y: number } | null>(null);
+  const acknowledgedReadConversations = useRef(new Set<string>());
+  const [showMessageTimes, setShowMessageTimes] = useState(false);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const activeConversationId = thread.conversation?.id ?? null;
+
+  useEffect(() => {
+    const currentConversationId = activeConversationId || requestedConversationId;
+    for (const conversationId of acknowledgedReadConversations.current) {
+      if (conversationId !== currentConversationId) {
+        acknowledgedReadConversations.current.delete(conversationId);
+      }
+    }
+  }, [activeConversationId, requestedConversationId]);
+
+  useEffect(() => {
+    return () => {
+      if (messageLongPressTimer.current) clearTimeout(messageLongPressTimer.current);
+      if (timestampRevealTimer.current) clearTimeout(timestampRevealTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    setShowMessageTimes(false);
+    setMessageSearchOpen(false);
+    setMessageSearchQuery("");
+    if (timestampRevealTimer.current) {
+      clearTimeout(timestampRevealTimer.current);
+      timestampRevealTimer.current = null;
+    }
+  }, [activeConversationId]);
+
+  const editingMessageId = editingMessage?.id;
+
+  useEffect(() => {
+    if (!editingMessageId) return;
+    const frame = requestAnimationFrame(() => {
+      const input = editingInputRef.current;
+      if (!input) return;
+      input.focus();
+      const caret = input.value.length;
+      input.setSelectionRange(caret, caret);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editingMessageId]);
+
   const hasRouteSelection = Boolean(requestedPersonRef || requestedConversationId);
 
   const loadInbox = useCallback(
@@ -263,7 +319,13 @@ export function DirectMessagesPage() {
         const idToken = await user.getIdToken();
         const inbox = await DirectMessagesService.listConversations({ idToken });
         if (generation !== inboxLoadGeneration.current) return;
-        setInboxItems(inbox.items);
+        setInboxItems(
+          inbox.items.map((conversation) =>
+            acknowledgedReadConversations.current.has(conversation.id)
+              ? { ...conversation, unreadCount: 0 }
+              : conversation,
+          ),
+        );
       } catch {
         if (generation !== inboxLoadGeneration.current) return;
         if (!options?.preserveItems) {
@@ -274,6 +336,38 @@ export function DirectMessagesPage() {
       }
     },
     [user],
+  );
+
+  const acknowledgeConversationRead = useCallback(
+    (idToken: string, conversationId: string) => {
+      const alreadyAcknowledged = acknowledgedReadConversations.current.has(conversationId);
+      acknowledgedReadConversations.current.add(conversationId);
+      setInboxItems((current) =>
+        current.map((conversation) =>
+          conversation.id === conversationId
+            ? { ...conversation, unreadCount: 0 }
+            : conversation,
+        ),
+      );
+      if (alreadyAcknowledged) return;
+      void DirectMessagesService.markConversationRead({
+        idToken,
+        conversationId,
+      })
+        .then((result) => {
+          if (result.readCount < 1) return;
+          dispatchDirectMessagesUpdated({
+            userId: user?.uid || "",
+            conversationId,
+            messageId: null,
+            source: "read",
+          });
+        })
+        .catch(() => {
+          acknowledgedReadConversations.current.delete(conversationId);
+        });
+    },
+    [user?.uid],
   );
 
   const openOneVoiceChat = useCallback(() => {
@@ -340,19 +434,7 @@ export function DirectMessagesPage() {
             }),
           );
           setMessages(sortMessages(history.items));
-          if (history.conversation.unreadCount > 0) {
-            void DirectMessagesService.markConversationRead({
-              idToken,
-              conversationId: history.conversation.id,
-            }).then(() => {
-              dispatchDirectMessagesUpdated({
-                userId: user.uid,
-                conversationId: history.conversation.id,
-                messageId: null,
-                source: "read",
-              });
-            });
-          }
+          acknowledgeConversationRead(idToken, history.conversation.id);
           return;
         }
 
@@ -376,19 +458,7 @@ export function DirectMessagesPage() {
           }),
         );
         setMessages(sortMessages(history.items));
-        if (history.conversation.unreadCount > 0) {
-          void DirectMessagesService.markConversationRead({
-            idToken,
-            conversationId: history.conversation.id,
-          }).then(() => {
-            dispatchDirectMessagesUpdated({
-              userId: user.uid,
-              conversationId: history.conversation.id,
-              messageId: null,
-              source: "read",
-            });
-          });
-        }
+        acknowledgeConversationRead(idToken, history.conversation.id);
       } catch (error) {
         if (generation !== loadGeneration.current) return;
         // A short-lived refresh failure must not replace an already readable
@@ -417,7 +487,7 @@ export function DirectMessagesPage() {
         if (generation === loadGeneration.current) setLoadingThread(false);
       }
     },
-    [requestedConversationId, requestedPersonRef, user],
+    [acknowledgeConversationRead, requestedConversationId, requestedPersonRef, user],
   );
 
   useEffect(() => {
@@ -544,7 +614,19 @@ export function DirectMessagesPage() {
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
-  const visibleMessages = messages;
+  const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
+  const visibleMessages = normalizedMessageSearch
+    ? messages.filter((message) =>
+        [message.content, message.replyTo?.content]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(normalizedMessageSearch),
+      )
+    : messages;
+  const messageSearchSummary = normalizedMessageSearch
+    ? `${visibleMessages.length} ${visibleMessages.length === 1 ? "match" : "matches"}`
+    : "";
   const normalizedInboxSearch = inboxSearch.trim().toLocaleLowerCase();
   const visibleConversations = normalizedInboxSearch
     ? inboxItems.filter((conversation) =>
@@ -668,7 +750,7 @@ export function DirectMessagesPage() {
 
   const startReply = (message: DirectMessage) => {
     setOpenMessageMenu(null);
-    setActiveMessageActions(message.id);
+    setActiveMessageActions(null);
     setComposerError(null);
     setReplyingTo(message);
     requestAnimationFrame(() => composerRef.current?.focus());
@@ -676,10 +758,55 @@ export function DirectMessagesPage() {
 
   const startEditing = (message: DirectMessage) => {
     setOpenMessageMenu(null);
-    setActiveMessageActions(message.id);
+    setActiveMessageActions(null);
     setMessageActionError(null);
     setEditingMessage(message);
     setEditingContent(message.content);
+  };
+
+  const clearMessageLongPress = () => {
+    if (messageLongPressTimer.current) {
+      clearTimeout(messageLongPressTimer.current);
+      messageLongPressTimer.current = null;
+    }
+  };
+
+  const handleMessagePointerDown = (
+    event: ReactPointerEvent<HTMLElement>,
+    message: DirectMessage,
+  ) => {
+    if (event.pointerType === "mouse") return;
+    if ((event.target as HTMLElement).closest("button, textarea")) return;
+    clearMessageLongPress();
+    messageLongPressTimer.current = setTimeout(() => {
+      setActiveMessageActions(message.id);
+      window.navigator.vibrate?.(8);
+      messageLongPressTimer.current = null;
+    }, 450);
+  };
+
+  const revealMessageTimes = () => {
+    setShowMessageTimes(true);
+    if (timestampRevealTimer.current) clearTimeout(timestampRevealTimer.current);
+    timestampRevealTimer.current = setTimeout(() => {
+      setShowMessageTimes(false);
+      timestampRevealTimer.current = null;
+    }, 2_500);
+  };
+
+  const handleMessageTouchStart = (event: ReactTouchEvent<HTMLElement>) => {
+    const touch = event.changedTouches[0];
+    if (touch) messageTouchStart.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleMessageTouchEnd = (event: ReactTouchEvent<HTMLElement>) => {
+    const start = messageTouchStart.current;
+    const touch = event.changedTouches[0];
+    messageTouchStart.current = null;
+    if (!start || !touch) return;
+    const deltaX = start.x - touch.clientX;
+    const deltaY = Math.abs(start.y - touch.clientY);
+    if (deltaX > 48 && deltaX > deltaY * 1.25) revealMessageTimes();
   };
 
   const saveEdit = () => {
@@ -696,6 +823,7 @@ export function DirectMessagesPage() {
         });
         replaceMessage(updated);
         setMessageActionError(null);
+        setActiveMessageActions(null);
         setEditingMessage(null);
         setEditingContent("");
       } catch {
@@ -720,6 +848,7 @@ export function DirectMessagesPage() {
         });
         replaceMessage(updated);
         setMessageActionError(null);
+        setActiveMessageActions(null);
       } catch {
         setMessageActionError({
           messageId: message.id,
@@ -776,6 +905,7 @@ export function DirectMessagesPage() {
       <section
         className={styles.page}
         data-one-chat-surface
+        data-direct-message-page="true"
         data-chat-open={hasRouteSelection ? "true" : "false"}
         data-direct-message-composer-docked={
           hasRouteSelection && thread.canSend ? "true" : undefined
@@ -841,6 +971,7 @@ export function DirectMessagesPage() {
             {visibleConversations.map((conversation) => {
               const active =
                 activeConversationId === conversation.id ||
+                requestedConversationId === conversation.id ||
                 (Boolean(requestedPersonRef) &&
                   requestedPersonRef === conversation.peerPersonRef);
               const lastMessageAt =
@@ -871,7 +1002,7 @@ export function DirectMessagesPage() {
                     <time dateTime={lastMessageAt || undefined}>
                       {formatConversationTime(lastMessageAt)}
                     </time>
-                    {conversation.unreadCount > 0 ? (
+                    {conversation.unreadCount > 0 && !active ? (
                       <span className={styles.unreadCount} aria-label={`${conversation.unreadCount} unread`}>
                         {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
                       </span>
@@ -913,6 +1044,63 @@ export function DirectMessagesPage() {
                       <h2 title={selectedLabel}>{selectedLabel}</h2>
                     </div>
                   </div>
+                  <div className={styles.threadHeaderActions}>
+                    {messageSearchOpen ? (
+                      <label className={styles.threadSearchField}>
+                        <Search className="h-4 w-4" aria-hidden="true" />
+                        <span className="sr-only">Search messages</span>
+                        <input
+                          autoFocus
+                          type="search"
+                          value={messageSearchQuery}
+                          onChange={(event) => setMessageSearchQuery(event.target.value)}
+                          placeholder="Search messages"
+                          aria-label="Search messages"
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              setMessageSearchOpen(false);
+                              setMessageSearchQuery("");
+                            }
+                          }}
+                        />
+                        {messageSearchSummary ? (
+                          <output className={styles.threadSearchCount} aria-live="polite">
+                            {messageSearchSummary}
+                          </output>
+                        ) : null}
+                        <button
+                          type="button"
+                          className={styles.threadSearchClear}
+                          aria-label="Close message search"
+                          onClick={() => {
+                            setMessageSearchOpen(false);
+                            setMessageSearchQuery("");
+                          }}
+                        >
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </label>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.headerAction}
+                        aria-label="Search messages"
+                        title="Search messages"
+                        onClick={() => setMessageSearchOpen(true)}
+                      >
+                        <Search className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={styles.headerAction}
+                      aria-label="Start voice call"
+                      title="Open voice chat"
+                      onClick={openOneVoiceChat}
+                    >
+                      <PhoneCall className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               </header>
 
@@ -920,6 +1108,7 @@ export function DirectMessagesPage() {
                 className={styles.messageList}
                 ref={messageListRef}
                 data-testid="direct-message-list"
+                data-show-message-times={showMessageTimes ? "true" : undefined}
                 aria-label={`${selectedLabel} message feed`}
               >
                 {loadingThread && messages.length === 0 ? (
@@ -949,6 +1138,12 @@ export function DirectMessagesPage() {
                   >
                     {loadingOlder ? "Loading…" : "Load older messages"}
                   </Button>
+                ) : null}
+                {normalizedMessageSearch && messages.length > 0 && visibleMessages.length === 0 ? (
+                  <div className={styles.emptyThread} role="status">
+                    <Search className="h-7 w-7" aria-hidden="true" />
+                    <p>No messages match “{messageSearchQuery.trim()}”.</p>
+                  </div>
                 ) : null}
                 {!loadingThread && messages.length === 0 && thread.disconnectedNotice ? (
                   <div className={styles.emptyThread} role="status">
@@ -989,6 +1184,12 @@ export function DirectMessagesPage() {
                         data-actions-visible={
                           activeMessageActions === message.id ? "true" : undefined
                         }
+                        onPointerDown={(event) => handleMessagePointerDown(event, message)}
+                        onPointerUp={clearMessageLongPress}
+                        onPointerCancel={clearMessageLongPress}
+                        onPointerLeave={clearMessageLongPress}
+                        onTouchStart={handleMessageTouchStart}
+                        onTouchEnd={handleMessageTouchEnd}
                         onClick={(event) => {
                           if ((event.target as HTMLElement).closest("button, textarea")) return;
                           setActiveMessageActions(message.id);
@@ -1027,6 +1228,7 @@ export function DirectMessagesPage() {
                                     </label>
                                     <textarea
                                       id={`edit-message-${message.id}`}
+                                      ref={editingInputRef}
                                       value={editingContent}
                                       maxLength={DIRECT_MESSAGE_MAX_LENGTH}
                                       className={styles.messageEditInput}
@@ -1037,7 +1239,6 @@ export function DirectMessagesPage() {
                                           saveEdit();
                                         }
                                       }}
-                                      autoFocus
                                     />
                                     <div className={styles.messageEditActions}>
                                       <button
@@ -1076,12 +1277,14 @@ export function DirectMessagesPage() {
                                 {editingMessage?.id !== message.id ? (
                                   <div className={styles.messageBubbleMeta}>
                                     {message.editedAt ? <span>Edited</span> : null}
-                                    <time
-                                      dateTime={message.createdAt}
-                                      title={new Date(message.createdAt).toLocaleString()}
-                                    >
-                                      {formatMessageTime(message.createdAt)}
-                                    </time>
+                                    <span className={styles.messageTimestamp}>
+                                      <time
+                                        dateTime={message.createdAt}
+                                        title={new Date(message.createdAt).toLocaleString()}
+                                      >
+                                        {formatMessageTime(message.createdAt)}
+                                      </time>
+                                    </span>
                                     {message.senderIsViewer ? (
                                       <span
                                         className={styles.messageDeliveryState}
@@ -1098,7 +1301,7 @@ export function DirectMessagesPage() {
                                   </div>
                                 ) : null}
                               </OneChatBubble>
-                              <div className={styles.messageActions}>
+                              <div className={styles.messageActions} aria-label="Message actions">
                                 {!message.deletedForEveryoneAt ? (
                                   <DirectMessageEmojiPicker
                                     label="Choose a reaction"
@@ -1245,6 +1448,13 @@ export function DirectMessagesPage() {
                       disabled={sending}
                       rows={1}
                       className={styles.composerInput}
+                      data-direct-message-composer-input="true"
+                      onFocus={(event) => {
+                        const input = event.currentTarget;
+                        requestAnimationFrame(() => {
+                          input.scrollIntoView?.({ block: "nearest" });
+                        });
+                      }}
                       onKeyDown={(event) => {
                         if (
                           event.key !== "Enter" ||
@@ -1318,9 +1528,9 @@ export function DirectMessagesPage() {
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Keep message</AlertDialogCancel>
+                    <AlertDialogCancel>No, keep it</AlertDialogCancel>
                     <AlertDialogAction variant="destructive" onClick={confirmDelete}>
-                      Delete message
+                      Yes, delete
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>

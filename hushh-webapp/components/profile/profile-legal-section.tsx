@@ -2,6 +2,10 @@
 
 import { ScrollText, ShieldCheck } from "@/components/icons";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import {
+  ProfilePanePrivacyIcon,
+  ProfilePaneTermsIcon,
+} from "@/components/profile/profile-pane-icons";
 import { LegalReader } from "@/components/legal/legal-reader";
 import type { ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
@@ -21,13 +25,15 @@ type UpdateLegalView = (
  */
 export function ProfileLegalRows({
   onOpen,
+  paneIcons = false,
 }: {
   onOpen: (document: LegalDocumentDetail) => void;
+  paneIcons?: boolean;
 }) {
   return (
     <>
       <SettingsRow
-        icon={ShieldCheck}
+        icon={paneIcons ? ProfilePanePrivacyIcon : ShieldCheck}
         iconTone="capability"
         title={LEGAL_DOCUMENTS.privacy.title}
         testId="profile-legal-privacy-row"
@@ -35,7 +41,7 @@ export function ProfileLegalRows({
         onClick={() => onOpen("privacy")}
       />
       <SettingsRow
-        icon={ScrollText}
+        icon={paneIcons ? ProfilePaneTermsIcon : ScrollText}
         iconTone="capability"
         title={LEGAL_DOCUMENTS.terms.title}
         testId="profile-legal-terms-row"

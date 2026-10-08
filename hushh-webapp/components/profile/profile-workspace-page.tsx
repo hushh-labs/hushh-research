@@ -46,6 +46,16 @@ import {
   VoiceRowIcon,
   WalletAgentIcon,
 } from "@/components/icons/agents";
+import {
+  ProfilePaneAccountIcon,
+  ProfilePaneAppearanceIcon,
+  ProfilePaneConnectorsIcon,
+  ProfilePaneDevicesIcon,
+  ProfilePaneHelpIcon,
+  ProfilePaneInviteIcon,
+  ProfilePaneSecurityIcon,
+  ProfilePaneSignOutIcon,
+} from "@/components/profile/profile-pane-icons";
 import { toast } from "sonner";
 
 import {
@@ -4511,21 +4521,21 @@ function ProfilePageContent({
           <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
-                icon={AccountProfileIcon}
+                icon={isPanePresentation ? ProfilePaneAccountIcon : AccountProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.account}
                 chevron
                 onClick={openAccountPanel}
               />
               <SettingsRow
-                icon={PreferencesProfileIcon}
+                icon={isPanePresentation ? ProfilePaneAppearanceIcon : PreferencesProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
-                icon={SecurityProfileIcon}
+                icon={isPanePresentation ? ProfilePaneSecurityIcon : SecurityProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.security}
                 chevron
@@ -4536,7 +4546,7 @@ function ProfilePageContent({
                 onClick={openSecurityPanel}
               />
               <SettingsRow
-                icon={DevicesProfileIcon}
+                icon={isPanePresentation ? ProfilePaneDevicesIcon : DevicesProfileIcon}
                 iconTone="capability"
                 title="Trusted devices"
                 chevron
@@ -4545,7 +4555,7 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={ConnectedSystemsAgentIcon}
+                icon={isPanePresentation ? ProfilePaneConnectorsIcon : ConnectedSystemsAgentIcon}
                 iconTone="capability"
                 title="Connectors"
                 description="Google Workspace and finance connections"
@@ -4553,7 +4563,7 @@ function ProfilePageContent({
                 onClick={() => openVaultBackedPanel("connectors")}
               />
               <SettingsRow
-                icon={InviteFriendsProfileIcon}
+                icon={isPanePresentation ? ProfilePaneInviteIcon : InviteFriendsProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.referrals}
                 chevron
@@ -4569,7 +4579,7 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={SupportProfileIcon}
+                icon={isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.support}
                 chevron
@@ -4592,6 +4602,7 @@ function ProfilePageContent({
             <SettingsGroup title="Legal" separatorInset>
               {/* Read in place: Profile never leaves the pane for /terms. */}
               <ProfileLegalRows
+                paneIcons={isPanePresentation}
                 onOpen={(document) =>
                   updateProfileView(
                     { panel: "legal", detail: document },
@@ -4603,7 +4614,7 @@ function ProfilePageContent({
 
             <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
               <SettingsRow
-                icon={SignOutProfileIcon}
+                icon={isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon}
                 iconTone="capability"
                 title="Sign out"
                 tone="destructive"

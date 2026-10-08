@@ -1,9 +1,15 @@
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
-import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
-import { formatCardExpiry, formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
+import type { WalletCardPayload } from "@/lib/services/wallet-card-service";
 import styles from "./wallet-demo-cards.module.css";
+import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
+
+export type WalletDemoProfile = {
+  displayName: string | null;
+  shareUrl: string | null;
+  cardPayload?: WalletCardPayload | null;
+};
 
 /** Fixed illustration records, never accepted as saved Wallet cards. */
 const DEMOS = [
@@ -29,9 +35,13 @@ function demoFor(cardId: string) {
 }
 
 /** Only the preview branch calls this; real cards never receive these numbers. */
-export function WalletDemoCardFace({ summary }: { summary: WalletCardSummary }) {
+export function WalletDemoCardFace({ summary, profile, onArtworkLoad }: { summary: WalletCardSummary; profile?: WalletDemoProfile | null; onArtworkLoad?: () => void }) {
   const demo = demoFor(summary.cardId);
   if (!demo) return <WalletCardFace summary={summary} collection />;
+  // All supplied card artwork represents the same user's wallet identity. Keep
+  // the artwork-specific finish and layout, but overlay the live profile name
+  // and profile QR on every card variant (Profile, Referral, and NWS).
+  const profileArtwork = profile;
   return (
     <div className={`${styles.face} ${styles[demo.finish]}`} data-demo-card="true">
       <div className="@container w-full">
@@ -40,25 +50,35 @@ export function WalletDemoCardFace({ summary }: { summary: WalletCardSummary }) 
             title={`${demo.name} Agent One card`}
             src={`/wallet/agent-one-card-${summary.cardId === "demo-0" ? "profile" : summary.cardId === "demo-1" ? "referral" : "nws"}.html?v=2`}
             className={styles.htmlArtwork}
+            onLoad={onArtworkLoad}
           />
+          {profileArtwork?.displayName ? <span className={styles.dynamicCardName}>{profileArtwork.displayName}</span> : null}
+          {profileArtwork?.shareUrl && summary.cardId !== "demo-2" ? <WalletCardQr value={profileArtwork.shareUrl} label="Wallet Profile QR code" className={styles.dynamicCardQr} /> : null}
         </div>
       </div>
     </div>
   );
 }
 
-export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
+export function WalletDemoCardDetails({ cardId, profile }: { cardId: string; profile?: WalletDemoProfile | null }) {
   const demo = demoFor(cardId);
   const summary = WALLET_DEMO_CARDS.find((card) => card.cardId === cardId);
   if (!demo || !summary) return null;
+  const payload = profile?.cardPayload;
   const fields = [
-    ["Card number", formatCardNumber(summary.brand, demo.number)],
-    ["Cardholder", "Alex Morgan"],
-    ["Network", cardNetworkLabel(summary.brand)],
-    ["Valid until", formatCardExpiry(summary.expiryMonth, summary.expiryYear)],
-  ];
+    ["Name", profile?.displayName || payload?.full_name || null],
+    ["Headline", payload?.headline || null],
+    ["Organisation", payload?.organisation || null],
+    ["Location", payload?.location_label || null],
+    ["Summary", payload?.summary || null],
+    ["Email", payload?.email || null],
+    ["Phone", payload?.phone || null],
+    ["Website", payload?.website || null],
+    ["LinkedIn", payload?.linkedin || null],
+    ["Portfolio", payload?.portfolio || null],
+  ].filter((field): field is [string, string] => Boolean(field[1]));
   return (
-    <section aria-label="Example card details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">
+    <section aria-label="Wallet Profile details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">
       <div key={cardId} className="motion-step-enter space-y-4">
         <div className="space-y-1">
           <p className={TYPOGRAPHY_CLASSNAMES.helperText}>{demo.tier}</p>
@@ -72,7 +92,7 @@ export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
             </div>
           ))}
         </dl>
-        <p className={TYPOGRAPHY_CLASSNAMES.helperText}>These example details cannot be used for payments.</p>
+        {!fields.length ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>No saved Wallet Profile information is available.</p> : null}
       </div>
     </section>
   );

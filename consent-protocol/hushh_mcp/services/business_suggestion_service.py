@@ -28,11 +28,17 @@ class BusinessSuggestionUnavailable(RuntimeError):
 def _setup_resolved(user_id: str) -> bool:
     # Read canonical setup state without creating a placeholder or changing login metadata.
     rows = (
-        get_db().table("vault_keys").select("setup_completed,vault_status")
-        .eq("user_id", user_id).limit(1).execute().data
+        get_db()
+        .table("vault_keys")
+        .select("setup_completed,vault_status")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
     )
-    return bool(rows and rows[0].get("setup_completed") is True
-                and rows[0].get("vault_status") == "active")
+    return bool(
+        rows and rows[0].get("setup_completed") is True and rows[0].get("vault_status") == "active"
+    )
 
 
 def build_uat_business_candidate() -> dict[str, Any]:
@@ -81,13 +87,14 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
     }
     # Gate BEFORE provider access. A conflicting deployment label always wins.
     real_enabled = one_business_directory_enabled()
-    if not (real_enabled or one_business_uat_fixture_enabled() or
-            one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)):
+    if not (
+        real_enabled
+        or one_business_uat_fixture_enabled()
+        or one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
+    ):
         return result
     try:
-        record = await asyncio.wait_for(
-            run_in_threadpool(_lookup_identity, user_id), timeout=5
-        )
+        record = await asyncio.wait_for(run_in_threadpool(_lookup_identity, user_id), timeout=5)
     except Exception:
         raise BusinessSuggestionUnavailable() from None
     # A fresh primary Firebase email, not token claims, aliases or request input.
@@ -123,8 +130,15 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
             return result
         try:
             # Real mode never falls back to a synthetic match, including on outage.
-            result.update(await lookup_directory(*contacts, local=(local_loopback and
-                one_business_local_rehearsal_enabled(user_id, loopback=local_loopback))))
+            result.update(
+                await lookup_directory(
+                    *contacts,
+                    local=(
+                        local_loopback
+                        and one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
+                    ),
+                )
+            )
         except DirectoryUnavailable:
             raise BusinessSuggestionUnavailable() from None
         return result

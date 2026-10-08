@@ -151,6 +151,7 @@ tests/test_fcm_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_agent_manifests.py
+tests/test_pass_assets_reach_the_deployed_image.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
 # A pasted context transfer is kept whole (Phase 4): recorded server answers.
