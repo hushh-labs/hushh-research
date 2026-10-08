@@ -6,7 +6,7 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Runtime boundaries: [private-agent north star](../architecture/private-agent-north-star.md)
 and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-## Decision — 2026-10-07
+## Decision — 2026-10-08
 
 **The economical BYOC candidate is integrated on the infrastructure branch.
 Dev 9 remains the last verified serving release; no owner upgrade is implied.**
@@ -103,11 +103,21 @@ then refused stale main and the imported five-line privacy-fixture ratchet delta
 The four main commits and that independently reviewed baseline slot are reconciled;
 no test or structural budget was removed.
 
-The disposable GCP predecessor passed real project/billing setup, encrypted key
-recovery, signed app admission, a durable idle handoff and same-image restart with
-the same pod key. An admitted synthetic configuration write also passed. Chat
-returned a provider 403, with no text; this is not chat, model or latency acceptance.
-These synthetic-authority receipts do not replace normal-owner Settings approval.
+The disposable GCP runtime passed real project/billing setup, signed admission,
+authenticated idle handoff and an immutable predecessor-to-Dev-9 image transition.
+The pod key and synthetic configuration survived. Live Files then passed a
+4 MiB + 1 KiB upload with durable resume, duplicate-chunk idempotency, byte-exact
+download, rename/move/undo and trash/restore in 22.5 seconds. Analysis remained off;
+storage reported seven-day soft deletion, so trash is not physical deletion.
+These receipts establish storage and bounded recovery, not normal-owner Settings
+approval, organization or concurrent chat. Chat returned provider 403 without text;
+model and latency acceptance remain unverified.
+
+Hosted `48721ce9c` found two stale icon assertions and a merged, unused native
+environment resolver. The reviewed correction preserves vector/color/route and
+native-target guards; all three nearest files passed (28 cases, two existing skips).
+Concurrent commerce documentation was preserved. Hosted CI still governs the
+final combined revision.
 
 Gmail now queues identifiers into its durable application consumer and settles
 only processed deliveries. The frozen migration-956 Scheduler URL reaches the

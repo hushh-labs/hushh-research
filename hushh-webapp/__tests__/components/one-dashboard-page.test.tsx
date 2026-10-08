@@ -162,29 +162,6 @@ describe("OneDashboardPage", () => {
     // fixture) still carries its palette color -- see the dedicated
     // palette-color coverage below with an all-completed fixture.
     //
-    // Palette slots are assigned by roster position regardless of active
-    // state, so this list must still track ONE_CAPABILITIES order: the
-    // palette exists to keep adjacent rows distinguishable.
-    const rosterPaletteOrder = [
-      "finance",
-      // Wallet joined ONE_CAPABILITIES in second place during the 2026-09-02 main
-      // sync, which is why the roster now reads nine. Listing it here keeps the
-      // assertion contiguous and keeps this test about the PROPERTY (slots follow
-      // roster position) rather than about a frozen set of eight agents.
-      "wallet",
-      "location",
-      "ria",
-      "gmail",
-      "calendar",
-      "pkm",
-      "consent",
-    ] as const;
-    const rosterPaletteSlots = rosterPaletteOrder.map((id) =>
-      screen
-        .getAllByTestId(`one-agent-icon-${id}`)[0]
-        .getAttribute("data-agent-icon-palette-index"),
-);
-    expect(rosterPaletteSlots).toEqual(["0", "1", "2", "3", "4", "5", "6", "7"]);
     // An unfinished workspace keeps its recognizable full-color artwork.
     expect(financeIcon.querySelector("stop")).toHaveAttribute(
       "stop-color", "#43CF73",

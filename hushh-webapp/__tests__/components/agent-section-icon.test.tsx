@@ -24,8 +24,12 @@ describe("AgentSectionIcon roster palette", () => {
 
     expect(container.querySelectorAll("svg")).toHaveLength(ONE_CAPABILITIES.length);
     expect(container.querySelector("img, image, foreignObject")).toBeNull();
-    for (const svg of container.querySelectorAll("svg")) {
-      expect(svg.getAttribute("viewBox")).toBe("0 0 64 64");
+    for (const capability of ONE_CAPABILITIES) {
+      const svg = screen.getByTestId(`one-agent-icon-${capability.id}`).querySelector("svg");
+      expect(svg).not.toBeNull();
+      expect(svg?.getAttribute("viewBox")).toBe(
+        capability.id === "files" ? "0 0 256 256" : "0 0 64 64",
+      );
     }
   });
 
