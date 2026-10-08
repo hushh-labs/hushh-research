@@ -2805,6 +2805,17 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   pointer-events: none;
 }
 
+/* Direct messages already has a compact split-view header immediately below
+ * the persistent top shell. The standard route contract adds a 32px body
+ * start gap for page heroes; keeping that gap here creates the unexplained
+ * blank band above Chats and makes the shared top and bottom navigation look
+ * vertically displaced. Reuse the measured shell reservation, while leaving
+ * both persistent navigation bars owned by the app shell. */
+body:has([data-direct-message-page="true"])
+  [data-app-scroll-root="true"] {
+  --app-top-content-offset: var(--top-shell-reserved-height);
+}
+
 /* Location owns a compact module header rather than a large route hero. Keep
  * the shared shell reservation, but give this route the 24px breathing room
  * the actual utility row needs instead of an empty band below it. */
@@ -5885,6 +5896,39 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
 [data-app-bottom-shell] :is(.bottom-chrome-surface, .kai-bottom-nav-pill) svg {
   color: currentColor;
   stroke: currentColor;
+}
+
+/* The direct-message page is a desktop split view. Its shared bottom shell is
+ * mounted above the route tree, so center the navigation within the thread
+ * pane using the same 0.8fr / 1.45fr geometry as the page. Mobile remains the
+ * default full-width single-column shell. */
+@media (min-width: 768px) {
+  body:has([data-direct-message-page="true"])
+    [data-app-bottom-shell]
+    [data-bottom-shell-motion-stack] {
+    --direct-message-frame-width: min(
+      var(--app-shell-expanded, 96rem),
+      calc(100vw - 2 * var(--page-inline-gutter-standard, 1rem))
+    );
+    --direct-message-frame-left: max(
+      var(--page-inline-gutter-standard, 1rem),
+      calc((100vw - var(--app-shell-expanded, 96rem)) / 2)
+    );
+    --direct-message-inbox-width: calc(var(--direct-message-frame-width) * 0.8 / 2.25);
+    --direct-message-thread-width: calc(var(--direct-message-frame-width) * 1.45 / 2.25);
+    --direct-message-footer-width: min(
+      var(--app-bottom-shell-max-width, 40rem),
+      var(--direct-message-thread-width)
+    );
+    width: var(--direct-message-footer-width);
+    max-width: none;
+    margin-left: calc(
+      var(--direct-message-frame-left) + var(--direct-message-inbox-width) +
+        (var(--direct-message-thread-width) - var(--direct-message-footer-width)) / 2 -
+        var(--app-bottom-shell-inline-inset, 1rem)
+    );
+    margin-right: 0;
+  }
 }
 
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */

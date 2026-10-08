@@ -106,6 +106,12 @@ export class WalletService {
 // Secrets vault: the fixture never stages a Secrets card offer, so nothing is
 // decrypted or filed. Inert, like the Wallet service, so the layout bundle
 // never pulls in the PKM, cache and API stack behind the real service.
+export class WalletCardService {
+  static async getCard(): Promise<{ card: null; shareUrl: null }> {
+    return { card: null, shareUrl: null };
+  }
+}
+
 export class SecretsVaultService {
   static async revealSecret(): Promise<string | null> {
     record("secret-reveal");
@@ -148,6 +154,11 @@ export function VaultUnlockDialog({ open, title }: { open: boolean; title?: stri
 }
 
 export const trackEvent = () => undefined;
+// Keep the fixture boundary aligned with the production observability module.
+// Wallet layout tests do not exercise telemetry, but api-service imports these
+// symbols while the fixture bundle is compiled.
+export const toDurationBucket = () => "lt_100ms";
+export const trackApiRequestCompleted = () => undefined;
 export const NativeTestBeacon = () => null;
 
 export class ConsentCenterService {
