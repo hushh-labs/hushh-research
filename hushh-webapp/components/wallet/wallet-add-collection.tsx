@@ -11,6 +11,7 @@ import { WalletCardFace } from "@/components/wallet/wallet-card-face";
 import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails, type WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
+import styles from "./wallet-card-gesture.module.css";
 
 
 function EmptyCardPreview() {
@@ -59,7 +60,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       timer = setTimeout(() => {
         setHintOwner(null);
         void OnboardingLocalService.markWalletSwipeHintSeen(owner);
-      }, 4800);
+      }, 6800);
     });
     return () => { cancelled = true; clearTimeout(timer); };
   }, [scrollReveal, hintOwnerId]);
@@ -73,8 +74,8 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
   const start = useRef<{ x: number; y: number; time: number; cardId?: string } | null>(null);
   const suppressClickUntil = useRef(0);
   const selected = cards.find((card) => card.cardId === selectedCardId) ?? cards[0];
-  // Derive presentation order only. The workspace and encrypted store retain their order.
-  const displayCards = selected ? [selected, ...cards.filter((card) => card !== selected)] : [];
+  // The scrolling deck keeps the same order when a card opens or its information updates.
+  const displayCards = scrollReveal ? cards : selected ? [selected, ...cards.filter((card) => card !== selected)] : [];
   const depth = Math.min(3, Math.max(0, cards.length - 1));
   const canExpand = cards.length > 1;
   const isExpanded = canExpand && (expanded || scrollReveal);
@@ -83,20 +84,31 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const stack = stackRef.current;
     if (!stack) return;
-    const root = stack.closest<HTMLElement>("[data-app-scroll-root]");
-    const target = root ?? window;
+    // Nested shells and the document can both own native scrolling. Listen to
+    // ancestors rather than assuming one named shell is always the scroll owner.
+    const ancestors: HTMLElement[] = [];
+    for (let element = stack.parentElement; element; element = element.parentElement) ancestors.push(element);
+    const documentRoot = document.scrollingElement ?? document.documentElement;
     let frame = 0;
     const update = () => {
       frame = 0;
-      const width = stack.clientWidth;
-      const cardHeight = width * 53.98 / 85.6;
-      const top = root?.getBoundingClientRect().top ?? 0;
-      const progress = reducedMotion.matches ? 1 : Math.min(1, Math.max(0, (top + 40 - stack.getBoundingClientRect().top) / Math.max(1, cardHeight)));
+      const cardHeight = stack.clientWidth * 53.98 / 85.6;
+      const scrollers = ancestors.filter(element => element !== documentRoot &&
+        (element.matches("[data-app-scroll-root]") || /(auto|scroll|overlay)/.test(getComputedStyle(element).overflowY)));
+      const scrollOwners = [...scrollers, documentRoot];
+      const offset = scrollOwners.reduce((total, element) => total + Math.max(0, element.scrollTop), 0);
+      const available = scrollOwners.reduce((total, element) => total + Math.max(0, element.scrollHeight - element.clientHeight), 0);
+      // The reserved final column gives native scrolling its full range. Finish
+      // before that range ends, including short pages and tall desktop windows.
+      const travel = Math.min(cardHeight, available * .8);
+      const progress = reducedMotion.matches || travel <= 1 ? 1 : Math.min(1, offset / travel);
+      const gap = (showDetailsLink ? 52 : 0) + 36;
+      const layers = Array.from(stack.querySelectorAll<HTMLElement>("li[data-reveal-rank]"));
       stack.dataset.unfolded = String(progress === 1);
-      stack.querySelectorAll<HTMLElement>("li[data-reveal-rank]").forEach(layer => {
+      layers.forEach(layer => {
         const rank = Number(layer.dataset.revealRank);
-        const folded = rank ? cardHeight + 64 + (rank - 1) * 28 : 0;
-        const lined = rank * (cardHeight + 64);
+        const folded = rank ? cardHeight + gap + (rank - 1) * 28 : 0;
+        const lined = rank * (cardHeight + gap);
         const scale = rank ? 1 - Math.min(2, cards.length - 1 - rank) * .035 * (1 - progress) : 1;
         layer.style.transform = `translate3d(0, ${folded + (lined - folded) * progress}px, 0) scale(${scale})`;
         const details = layer.querySelector<HTMLElement>("[data-stack-details]");
@@ -106,14 +118,27 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
     const observer = new ResizeObserver(schedule);
     observer.observe(stack);
+    ancestors.forEach(element => { observer.observe(element); element.addEventListener("scroll", schedule, { passive: true }); });
     reducedMotion.addEventListener("change", schedule);
-    target.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    // These only schedule a read of the ensuing native scroll position. They
+    // never consume input or manufacture progress when the page did not move.
+    stack.addEventListener("wheel", schedule, { passive: true });
+    stack.addEventListener("touchmove", schedule, { passive: true });
     schedule();
     return () => {
-      cancelAnimationFrame(frame); observer.disconnect(); reducedMotion.removeEventListener("change", schedule); target.removeEventListener("scroll", schedule);
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      reducedMotion.removeEventListener("change", schedule);
+      ancestors.forEach(element => element.removeEventListener("scroll", schedule));
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      stack.removeEventListener("wheel", schedule);
+      stack.removeEventListener("touchmove", schedule);
       stack.querySelectorAll<HTMLElement>("[data-stack-details]").forEach(details => { details.style.visibility = ""; });
     };
-  }, [scrollReveal, expanded, selectedCardId, cards.length]);
+  }, [scrollReveal, expanded, cards.length, showDetailsLink]);
   useEffect(() => {
     const stack = stackRef.current;
     if (!stack || !isExpanded || scrollReveal) return;
@@ -192,7 +217,12 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
             className="@container relative isolate w-full"
             data-testid={preview ? "wallet-preview-stack" : "wallet-add-stack"}
             data-expanded={isExpanded}
-            onFocusCapture={() => { if (scrollReveal) setExpanded(true); }}
+            data-unfolded={expanded ? true : undefined}
+            onKeyDownCapture={(event) => {
+              // Tab exposes the whole keyboard traversal; pointer focus and
+              // horizontal card controls must never move the vertical deck.
+              if (scrollReveal && event.key === "Tab") setExpanded(true);
+            }}
             onTouchStart={(event) => {
               suppressClickUntil.current = 0;
               const touch = event.touches[0];
@@ -204,7 +234,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
           >
             {/* In-flow geometry reserves the whole stack; only the cards' transforms animate. */}
             <div aria-hidden="true" style={{ height: isExpanded
-              ? `calc(${cards.length} * 100cqw * 53.98 / 85.6 + ${(cards.length - 1) * 16 + (showDetailsLink ? cards.length * 48 : 0)}px)`
+              ? `calc(${cards.length} * 100cqw * 53.98 / 85.6 + ${(cards.length - 1) * (scrollReveal ? 36 : 16) + (showDetailsLink ? cards.length * 52 : 0) + (scrollReveal ? 32 : 0)}px)`
               : `calc(100cqw * 53.98 / 85.6 + ${depth * 20}px)` }} />
             <ul className="absolute inset-x-0 top-0 m-0 list-none p-0" aria-label={preview && !renderCard ? "Example cards" : "Your cards"}>
               {cards.map((card) => {
@@ -212,7 +242,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                 const active = rank === 0;
                 const hidden = !isExpanded && rank > 3;
                 const scale = scrollReveal && !expanded ? (rank ? 1 - Math.min(2, cards.length - 1 - rank) * .035 : 1) : isExpanded ? 1 : 1 - Math.min(rank, 3) * .045;
-                const y = scrollReveal && !expanded ? (rank ? `calc(100cqw * 53.98 / 85.6 + ${64 + (rank - 1) * 28}px)` : "0px") : isExpanded ? `calc(${rank} * (100% + 16px))` : `${(depth - Math.min(rank, depth)) * 20}px`;
+                const y = scrollReveal && !expanded ? (rank ? `calc(100cqw * 53.98 / 85.6 + ${(showDetailsLink ? 52 : 0) + 36 + (rank - 1) * 28}px)` : "0px") : isExpanded ? `calc(${rank} * (100% + ${scrollReveal ? 36 : 16}px))` : `${(depth - Math.min(rank, depth)) * 20}px`;
                 return (
                   <li key={card.cardId} data-gesture-card={card.cardId} data-reveal-rank={rank}
                     className={`absolute inset-x-0 top-0 origin-top ${scrollReveal ? "" : "[transition:transform_300ms_var(--motion-ease-decelerate),opacity_220ms_ease-out]"} motion-reduce:[transition:none] ${!isExpanded && !active ? "[&_[data-testid=wallet-card-face]>span]:invisible" : ""}`}
@@ -238,7 +268,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                       {renderCard ? renderCard(card) : preview ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} collection />}
                     </button>
                     </WalletCardSwipe>
-                    {showDetailsLink && isExpanded ? <div data-stack-details className="flex h-12 items-center justify-center"><ShellActionSurface variant="pill" className="h-11 px-4 text-xs font-medium sm:text-xs" disabled={disabled || Boolean(busyCardId)} onClick={() => openCard(card.cardId)} aria-label={`View details for ${cardControlSummary?.(card).title ?? card.nickname ?? cardNetworkLabel(card.brand)}`}>View details <span aria-hidden="true">›</span></ShellActionSurface></div> : null}
+                    {showDetailsLink && isExpanded ? <div data-stack-details className="flex h-[52px] items-center justify-center"><ShellActionSurface variant="pill" className={styles.detailsButton} disabled={disabled || Boolean(busyCardId)} onClick={() => openCard(card.cardId)} aria-label={`View details for ${cardControlSummary?.(card).title ?? card.nickname ?? cardNetworkLabel(card.brand)}`}><span data-card-details-label className={styles.detailsLabel}>View details <span aria-hidden="true">›</span></span></ShellActionSurface></div> : null}
                     </div>
                   </li>
                 );
@@ -250,7 +280,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
               onClick={() => setExpanded(!isExpanded)}>
               {isExpanded ? "Collapse cards" : `View all ${cards.length} cards`}
             </Button> : <span />}
-            {showDetailsLink && !isExpanded ? <ShellActionSurface variant="pill" className="h-11 px-4 text-xs font-medium sm:text-xs" disabled={disabled || Boolean(busyCardId)} onClick={() => openCard(selected.cardId)}>View details <span aria-hidden="true">›</span></ShellActionSurface> : null}
+            {showDetailsLink && !isExpanded ? <ShellActionSurface variant="pill" className={styles.detailsButton} disabled={disabled || Boolean(busyCardId)} onClick={() => openCard(selected.cardId)}><span data-card-details-label className={styles.detailsLabel}>View details <span aria-hidden="true">›</span></span></ShellActionSurface> : null}
             {!preview && showActions ? <Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)}
               onClick={() => { setExpanded(false); onRemove(selected); }}>
               Remove card
