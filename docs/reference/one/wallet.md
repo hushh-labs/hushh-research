@@ -115,8 +115,10 @@ Agent One cards use the owner's identity and existing sharing services. Profile
 details compose `WalletCardWorkspace`, including the real QR, aggregate scans,
 last scan, edits, pause/resume, rotation, removal and Apple Wallet handoff. Referral
 uses the existing referral link, qualification counts and referral event stream.
-NWS has no computed score in this release; it never presents the old example
-score as a real result. Saved-card selection remains metadata-only; the existing explicit
+NWS has no computed score in this release. Its emerald face shows the fixed
+900/1000 sample requested for the card design; the accessible description and
+details identify it as a sample, not an evaluation. The NWS face has no QR;
+its existing Wallet Profile QR and sharing controls remain in details. Saved-card selection remains metadata-only; the existing explicit
 Show card details action owns decryption, and leaving Cards or selecting All
 clears any revealed values.
 

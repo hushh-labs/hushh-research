@@ -5,15 +5,11 @@
     "hushh-webapp/app/getting-started/page.voice-action-contract.json",
     "hushh-webapp/app/login/page.voice-action-contract.json",
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
-    "hushh-webapp/app/one/connected-systems/[systemId]/page.voice-action-contract.json",
-    "hushh-webapp/app/one/email/page.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
-    "hushh-webapp/app/one/messages/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
-    "hushh-webapp/app/one/puppy/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/calendar/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connections/page.voice-action-contract.json",
@@ -23,7 +19,6 @@
     "hushh-webapp/app/one/setup/kai/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
-    "hushh-webapp/app/one/wallet-card/page.voice-action-contract.json",
     "hushh-webapp/app/one/wallet/page.voice-action-contract.json",
     "hushh-webapp/app/page.voice-action-contract.json",
     "hushh-webapp/app/people/[personRef]/page.voice-action-contract.json",
@@ -71,7 +66,7 @@
         "speaker_persona": "one"
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -99,7 +94,7 @@
         "speaker_persona": "one"
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -128,77 +123,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
-        "source_module_count": 1510
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "connected_systems",
-      "surface_title": "Connected System",
-      "docs_references": [],
-      "contract_file": "hushh-webapp/app/one/connected-systems/[systemId]/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "routes": [
-            "/one/connected-systems/[systemId]"
-          ],
-          "screens": [
-            "connected_systems"
-          ],
-          "hidden_navigable": true,
-          "navigation_prerequisites": [
-            "Signed-in user; destination retains its existing access checks."
-          ]
-        },
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "speaker_persona": "one"
-      },
-      "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
-        "source_module_count": 1510
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "email_agent",
-      "surface_title": "Mail",
-      "docs_references": [],
-      "contract_file": "hushh-webapp/app/one/email/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "routes": [
-            "/one/email"
-          ],
-          "screens": [
-            "email_agent"
-          ],
-          "hidden_navigable": true,
-          "navigation_prerequisites": [
-            "Signed-in user; destination retains its existing access checks."
-          ]
-        },
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "speaker_persona": "one"
-      },
-      "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -225,7 +150,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -251,7 +176,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -284,7 +209,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510,
         "subview_action_boost": {
           "": [
@@ -351,41 +276,6 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "one_messages",
-      "surface_title": "Messages",
-      "docs_references": [],
-      "contract_file": "hushh-webapp/app/one/messages/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "routes": [
-            "/one/messages"
-          ],
-          "screens": [
-            "one_messages"
-          ],
-          "hidden_navigable": true,
-          "navigation_prerequisites": [
-            "Signed-in user; destination retains its existing access checks."
-          ]
-        },
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "speaker_persona": "one"
-      },
-      "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
-        "source_module_count": 1510
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_agents",
       "surface_title": "One",
       "docs_references": [
@@ -402,7 +292,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -429,42 +319,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
-        "source_module_count": 1510
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "puppy_one",
-      "surface_title": "Puppy",
-      "docs_references": [],
-      "contract_file": "hushh-webapp/app/one/puppy/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "routes": [
-            "/one/puppy"
-          ],
-          "screens": [
-            "puppy_one"
-          ],
-          "hidden_navigable": true,
-          "navigation_prerequisites": [
-            "Signed-in user; destination retains its existing access checks."
-          ]
-        },
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "speaker_persona": "one"
-      },
-      "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -496,7 +351,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -525,7 +380,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -554,7 +409,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -583,7 +438,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -611,7 +466,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -643,7 +498,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -674,7 +529,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -708,7 +563,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -737,42 +592,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
-        "source_module_count": 1510
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "one_wallet_card",
-      "surface_title": "Wallet Profile",
-      "docs_references": [],
-      "contract_file": "hushh-webapp/app/one/wallet-card/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "routes": [
-            "/one/wallet-card"
-          ],
-          "screens": [
-            "one_wallet_card"
-          ],
-          "hidden_navigable": true,
-          "navigation_prerequisites": [
-            "Signed-in user; destination retains its existing access checks."
-          ]
-        },
-        "guard_ids": [
-          "auth_signed_in"
-        ],
-        "speaker_persona": "one"
-      },
-      "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -805,7 +625,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -834,7 +654,7 @@
         "speaker_persona": "one"
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -863,7 +683,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -895,7 +715,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -921,7 +741,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -947,7 +767,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -973,7 +793,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -999,7 +819,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1029,7 +849,7 @@
           "source": "kai",
           "category": "top-picks"
         },
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1055,7 +875,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1081,7 +901,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1107,7 +927,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1133,7 +953,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1173,7 +993,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1212,7 +1032,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1239,7 +1059,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1274,7 +1094,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1301,7 +1121,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510,
         "legacy_control_exemptions": {
           "add_holding": "Existing control outside the current Search action catalog; retained as explicit legacy coverage debt.",
@@ -1357,7 +1177,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1383,7 +1203,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1409,7 +1229,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1435,7 +1255,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1467,7 +1287,7 @@
         ]
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1493,7 +1313,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1519,7 +1339,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -1545,7 +1365,7 @@
         }
       },
       "search": {
-        "source_revision": "28afe6c727a075b08a18b747b443d19ab5b6c08061df86bd037d001b074d17bb",
+        "source_revision": "769273063ab0a9387ddeb20b2bac2618ffc2f384c77b8d69c294b0fb230b5119",
         "source_module_count": 1510
       },
       "orchestration": {
@@ -3564,208 +3384,6 @@
             "settlement_target": {
               "route": "/one/connect",
               "screen": "connect"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.connected_system_list",
-      "surface_id": "connected_systems",
-      "label": "Back to Connected Systems",
-      "aliases": [
-        "back to connected systems"
-      ],
-      "search_keywords": [
-        "connected system",
-        "back to connected systems"
-      ],
-      "meaning": "Navigates from Connected System to connected systems.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/connected-systems/[systemId]"
-        ],
-        "screens": [
-          "connected_systems"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "Signed-in user; destination retains its existing access checks."
-        ],
-        "active_personas": [],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/connected-systems"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/connected-systems"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.connected_system_list",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.connected_system_list",
-            "label": "Back to Connected Systems",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/connected-systems",
-              "screen": "connected_systems"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.mail_connections",
-      "surface_id": "email_agent",
-      "label": "Open Mail connection",
-      "aliases": [
-        "open mail connection"
-      ],
-      "search_keywords": [
-        "mail",
-        "open mail connection"
-      ],
-      "meaning": "Navigates from Mail to open mail connection.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/email"
-        ],
-        "screens": [
-          "email_agent"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "Signed-in user; destination retains its existing access checks."
-        ],
-        "active_personas": [],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/gmail"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.mail_connections",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.mail_connections",
-            "label": "Open Mail connection",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "email_agent"
             }
           }
         ],
@@ -12753,107 +12371,6 @@
       }
     },
     {
-      "action_id": "route.messages_connections",
-      "surface_id": "one_messages",
-      "label": "Back to Connections",
-      "aliases": [
-        "back to connections"
-      ],
-      "search_keywords": [
-        "messages",
-        "back to connections"
-      ],
-      "meaning": "Navigates from Messages to connections.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/messages"
-        ],
-        "screens": [
-          "one_messages"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "Signed-in user; destination retains its existing access checks."
-        ],
-        "active_personas": [],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/connect"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/connect"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.messages_connections",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.messages_connections",
-            "label": "Back to Connections",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/connect",
-              "screen": "one_messages"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "route.one_agents",
       "surface_id": "one_agents",
       "label": "Open Agents",
@@ -15152,107 +14669,6 @@
             "action_id": "profile.set_contact_discoverable",
             "label": "Set contact discoverability",
             "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.puppy_agents",
-      "surface_id": "puppy_one",
-      "label": "Back to Agents",
-      "aliases": [
-        "back to agents"
-      ],
-      "search_keywords": [
-        "puppy",
-        "back to agents"
-      ],
-      "meaning": "Navigates from Puppy to agents.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/puppy"
-        ],
-        "screens": [
-          "puppy_one"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "Signed-in user; destination retains its existing access checks."
-        ],
-        "active_personas": [],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.puppy_agents",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.puppy_agents",
-            "label": "Back to Agents",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one",
-              "screen": "puppy_one"
-            }
           }
         ],
         "progress_contract": {
@@ -17780,107 +17196,6 @@
             "settlement_target": {
               "route": "/one/setup",
               "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.wallet_profile_cards",
-      "surface_id": "one_wallet_card",
-      "label": "Back to Wallet cards",
-      "aliases": [
-        "back to wallet cards"
-      ],
-      "search_keywords": [
-        "wallet profile",
-        "back to wallet cards"
-      ],
-      "meaning": "Navigates from Wallet Profile to wallet cards.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/wallet-card"
-        ],
-        "screens": [
-          "one_wallet_card"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "Signed-in user; destination retains its existing access checks."
-        ],
-        "active_personas": [],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/wallet"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/wallet"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.wallet_profile_cards",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.wallet_profile_cards",
-            "label": "Back to Wallet cards",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/wallet",
-              "screen": "one_wallet_card"
             }
           }
         ],
