@@ -40,10 +40,15 @@ test.beforeAll(async () => {
     define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
     build: {
       outDir, emptyOutDir: false,
+      copyPublicDir: false,
       lib: { entry: path.join(root, "e2e/fixtures/style-settings.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" },
     },
   });
   script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const moduleCss = fs.readdirSync(outDir)
+    .filter((file) => file.endsWith(".css"))
+    .map((file) => fs.readFileSync(path.join(outDir, file), "utf8"))
+    .join("\n");
   const { compile } = await import("tailwindcss");
   const compiler = await compile(
     fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""),
@@ -57,17 +62,17 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + moduleCss;
 });
 
-async function open(page: Page, theme: "light" | "dark", state = "saved", reducedMotion: "reduce" | "no-preference" = "reduce") {
+async function open(page: Page, theme: "light" | "dark", state = "saved", reducedMotion: "reduce" | "no-preference" = "reduce", pane = false) {
   // The ripple picks its mode when it mounts, so motion is set before the fixture loads.
   await page.emulateMedia({ reducedMotion });
   await page.route("http://localhost/style-settings**", (route) => route.fulfill({
     contentType: "text/html",
     body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
   }));
-  await page.goto(`http://localhost/style-settings?state=${state}`);
+  await page.goto(`http://localhost/style-settings?state=${state}&pane=${pane}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await expect(page.getByTestId("style-settings-row")).toHaveCount(5);
@@ -216,6 +221,63 @@ for (const theme of ["light", "dark"] as const)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
       expect(errors).toEqual([]);
     });
+
+test("writing controls align below readable labels in a narrow desktop profile pane", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page, "light");
+  const section = page.getByTestId("style-settings");
+  for (const width of [272, 342, 398]) {
+    await section.evaluate((node, width) => { node.style.width = `${width}px`; }, width);
+    for (const row of await page.locator(".profile-preferences-control-row").all()) {
+      const title = await box(row.locator("[data-slot='settings-row-title']"));
+      const description = await box(row.locator("[data-slot='settings-row-description']"));
+      const control = await box(row.locator("input, [data-slot='select-trigger']"));
+      expect(title.width).toBeGreaterThan(150);
+      expect(Math.abs(control.x - title.x)).toBeLessThan(1);
+      expect(control.y).toBeGreaterThanOrEqual(description.y + description.height);
+      expect(control.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(await section.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  }
+});
+
+test("Profile pane writing preferences use the Your account type scale", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, "light", "saved", "reduce", true);
+  const typography = await page.getByTestId("style-settings").evaluate((root) => {
+    const size = (selector: string) => getComputedStyle(root.querySelector(selector)!).fontSize;
+    return {
+      groupHeading: size('[data-slot="settings-group-heading"]'),
+      groupDescription: size('[data-slot="settings-group-heading"] + .ui-text-row-description'),
+      rowTitles: [...root.querySelectorAll('[data-slot="settings-row-title"]')].map((node) => getComputedStyle(node).fontSize),
+      rowDescriptions: [...root.querySelectorAll('[data-slot="settings-row-description"]')].map((node) => getComputedStyle(node).fontSize),
+      input: size('input[data-slot="input"]'),
+      select: size('[data-slot="select-trigger"]'),
+      note: size('textarea'),
+      noteCount: size('[data-testid="style-settings-note-count"]'),
+      status: size('[data-testid="style-settings-status"]'),
+      save: size('[data-testid="style-settings-save"]'),
+    };
+  });
+  expect(typography).toEqual({
+    groupHeading: "10px",
+    groupDescription: "12px",
+    rowTitles: Array(5).fill("13px"),
+    rowDescriptions: Array(5).fill("12px"),
+    input: "13px",
+    select: "13px",
+    note: "13px",
+    noteCount: "10px",
+    status: "12px",
+    save: "12px",
+  });
+  await page.getByRole("combobox", { name: "Tone" }).click();
+  expect(await page.getByRole("option", { name: "No preference" }).evaluate((option) => getComputedStyle(option).fontSize)).toBe("13px");
+
+  await open(page, "light");
+  await page.getByRole("combobox", { name: "Tone" }).click();
+  expect(await page.getByRole("option", { name: "No preference" }).evaluate((option) => getComputedStyle(option).fontSize)).toBe("14px");
+});
 
 test("the Save press ripples without scaling, and a chat offer reads as unsaved", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });

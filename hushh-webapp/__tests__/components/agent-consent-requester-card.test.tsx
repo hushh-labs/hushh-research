@@ -446,7 +446,9 @@ describe("InformationRequestReviewView with and without progress", () => {
     // The doorbell reads the approval; every read after it stalls.
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("granted", true));
     mocks.getInformationRequest.mockReturnValue(new Promise(() => undefined));
-    await act(async () => { await readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token" }); });
+    // Rendering pending does not guarantee its shared read has finished its
+    // finally handler. This post-approval reading must not join that older read.
+    await act(async () => { await readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token", fresh: true }); });
     phase = "reading";
     view.rerender(card());
     const progress = screen.getByTestId("requester-progress");

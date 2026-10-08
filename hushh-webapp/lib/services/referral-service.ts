@@ -28,6 +28,9 @@ export type ReferralRow = {
 export type ReferralSummary = {
   slug: string;
   link: string;
+  /** Accepted referral-link opens, including QR navigation; not unique visitors. */
+  link_open_count?: number;
+  last_opened_at?: string | null;
   qualified_count: number;
   in_progress_count: number;
   under_review_count: number;

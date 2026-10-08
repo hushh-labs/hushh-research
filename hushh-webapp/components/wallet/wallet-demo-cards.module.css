@@ -1,39 +1,14 @@
-.face [data-testid="wallet-card-face"] {
-  background-image: var(--demo-finish);
-}
+.face { width:100%; }
+.artworkFrame { position:relative; isolation:isolate; width:100%; aspect-ratio:85.6/53.98; overflow:hidden; border-radius:4.2cqw; box-shadow:var(--app-shadow-product); color:#d4b980; }
+.artwork { display:block; width:100%; height:100%; border:0; pointer-events:none; user-select:none; }
+.referral { color:#302513; }
+.nws { color:#f2efe3; }
+.profileQr,.qrPlaceholder { position:absolute; display:block; left:9.25%; top:36.15%; width:20.4%; aspect-ratio:1; background:#fff; color:#333; border-radius:1cqw; padding:1cqw; }
+.qrPlaceholder { display:flex; align-items:center; justify-content:center; opacity:.7; font-size:4cqw; }
+.identityFields { position:absolute; left:37%; top:40%; width:41%; display:grid; grid-template-columns:1fr 1fr; gap:5cqw 5cqw; min-width:0; margin:0; }
+.identityFields > div:first-child { grid-column:1/-1; }
+.identityFields dt { text-transform:uppercase; font-size:1.65cqw; letter-spacing:.1em; opacity:.9; line-height:1.4; }
+.identityFields dd { margin:1.4cqw 0 0; font-size:2.8cqw; line-height:1.25; font-weight:650; overflow-wrap:anywhere; }
+.details { padding:1.25rem; border:1px solid var(--border); border-radius:1.25rem; background:var(--card); color:var(--card-foreground); }
 
-.face [data-testid="wallet-card-face"]::before {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  content: "";
-  pointer-events: none;
-  background: repeating-linear-gradient(115deg, transparent 0 3px, rgb(255 255 255 / 2%) 3px 4px);
-}
-
-.platinum {
-  --demo-finish: radial-gradient(ellipse at 85% 5%, #c251ff 0%, transparent 55%), linear-gradient(125deg, #a000e6 0%, #8200cc 48%, #4c0786 100%);
-}
-
-.gold {
-  --demo-finish: radial-gradient(ellipse at 80% 15%, #815376 0%, transparent 65%), linear-gradient(125deg, #482440, #241e2e);
-}
-
-.graphite {
-  --demo-finish: radial-gradient(ellipse at 90% 80%, #73245d 0%, transparent 50%), linear-gradient(125deg, #14233e, #101525);
-}
-
-.details {
-  padding: 1.25rem;
-  border: 1px solid var(--border);
-  border-radius: 1.25rem;
-  background: var(--card);
-  color: var(--card-foreground);
-}
-
-.face [data-slot="wallet-card-number"] { text-shadow:0 1px 1px rgb(0 0 0 / 40%); font-family:ui-monospace,monospace; font-size:clamp(13px,4.1cqw,18px); }
-.face [data-slot="wallet-card-top"] > span:first-child { font-size:clamp(16px,5cqw,22px); letter-spacing:-.025em; }
-.face [data-testid="wallet-card-face"]::after { content:""; position:absolute; pointer-events:none; z-index:-1; width:85%; aspect-ratio:1; right:-28%; bottom:-65%; border:1px solid rgb(255 255 255 / 12%); border-radius:50%; box-shadow:0 0 0 18px rgb(255 255 255 / 3%),0 0 0 38px rgb(255 255 255 / 3%),0 0 0 65px rgb(255 255 255 / 2%); transform:rotate(-25deg) scaleX(.8); }
-.gold [data-testid="wallet-card-face"]::after { border-radius:8%; bottom:-50%; transform:rotate(35deg); }
-.face svg[viewBox="0 0 48 36"] { color:#e5d1a0; filter:drop-shadow(0 1px 1px rgb(0 0 0 / 30%)); }
+.nwsIdentityFields { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; font-family:"Lexend",system-ui,-apple-system,sans-serif; font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }

@@ -322,6 +322,39 @@ async def test_recipient_sees_status_not_private_suggestions(sharing):
 
 
 @pytest.mark.asyncio
+async def test_payment_context_is_only_the_requesters_own_text(sharing, monkeypatch):
+    created = await request(sharing)
+    request_id = created["requestId"]
+    # Free/owner-initiated shares must not expose owner-authored context.
+    with pytest.raises(DriveSharingError, match="request_unavailable"):
+        await sharing.requester_context(user_id="recipient", request_id=request_id)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
+            {"id": request_id},
+        )
+    context = await sharing.requester_context(user_id="recipient", request_id=request_id)
+    assert context == {
+        "requestId": request_id,
+        "purpose": {
+            "purpose": "Private six-month statements",
+            "periodStart": "2026-01-01",
+            "periodEnd": "2026-06-30",
+        },
+    }
+    # Authorization fails before private-envelope decryption, identically for
+    # the file owner, an unrelated viewer, and an unknown request.
+    monkeypatch.setattr(sharing, "_open_request", lambda _: pytest.fail("unauthorized decrypt"))
+    for viewer, target in (
+        ("owner", request_id),
+        ("other", request_id),
+        ("recipient", str(uuid4())),
+    ):
+        with pytest.raises(DriveSharingError, match="request_unavailable"):
+            await sharing.requester_context(user_id=viewer, request_id=target)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mutation",
     [

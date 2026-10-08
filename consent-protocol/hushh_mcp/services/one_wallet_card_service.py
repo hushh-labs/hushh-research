@@ -12,10 +12,10 @@ would silently list the owner for sale; it also mints a fresh handle on every
 edit, which would invalidate an already-printed QR code. See the plan's D1.
 
 **The share token.** Minted as ``secrets.token_urlsafe(32)`` and stored only as
-its SHA-256 hex digest, mirroring the shipped One Location public-invite
-pattern (``one_location_agent_service._hash_public_value``). The plaintext is
-returned to the owner exactly once — at create and at rotate — and is never
-stored, never logged, and never echoed in an error body. Rotating overwrites
+its SHA-256 hex digest for public lookup, mirroring the shipped One Location public-invite
+pattern (``one_location_agent_service._hash_public_value``). Plaintext is never stored, logged or echoed in an error body. New tokens
+optionally retain an AES-GCM envelope for authenticated owner recovery;
+legacy hash-only rows require a known device token or explicit rotation. Rotating overwrites
 the digest, so the previous token stops resolving the instant the statement
 commits. Lookup hashes the presented token and confirms the row with
 ``hmac.compare_digest``.
@@ -58,6 +58,11 @@ from typing import Any, Final, TypedDict, cast
 from urllib.parse import urlparse
 
 from db.db_client import get_db
+from hushh_mcp.services.one_wallet_card_token_store import open_share_token, seal_share_token
+from hushh_mcp.services.one_wallet_card_username import (
+    generate_wallet_username,
+    validate_wallet_username,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +119,7 @@ _PUBLIC_ORIGIN_ENV: Final = (
 # Declaration order is the serialisation order of the visitor projection.
 _ORDERED_ALLOWLIST: Final[tuple[str, ...]] = (
     "full_name",
+    "username",
     "headline",
     "organisation",
     "location_label",
@@ -131,6 +137,7 @@ _ALLOWED_KEYS: Final = frozenset(_ORDERED_ALLOWLIST)
 
 _TEXT_FIELD_LIMITS: Final[dict[str, int]] = {
     "full_name": 80,
+    "username": 30,
     "headline": 120,
     "organisation": 80,
     "location_label": 80,
@@ -146,6 +153,7 @@ _TEXT_FIELD_LIMITS: Final[dict[str, int]] = {
 
 _FIELD_LABELS: Final[dict[str, str]] = {
     "full_name": "Name",
+    "username": "Username",
     "headline": "Headline",
     "organisation": "Organisation",
     "location_label": "Location",
@@ -211,11 +219,11 @@ _SELECT_CARD_BY_SHARE_HASH: Final = """
 # loser gets no row back and falls through to the update path.
 _INSERT_CARD: Final = """
     INSERT INTO one_wallet_cards (
-      user_id, share_token_hash, status, card_payload,
+      user_id, share_token_hash, share_token_envelope, status, card_payload,
       display_name, headline, avatar_url, expires_at, created_at, updated_at
     )
     VALUES (
-      :user_id, :share_token_hash, 'active', CAST(:card_payload_json AS JSONB),
+      :user_id, :share_token_hash, CAST(:share_token_envelope AS JSONB), 'active', CAST(:card_payload_json AS JSONB),
       :display_name, :headline, CAST(:avatar_url AS TEXT),
       CAST(:expires_at AS TIMESTAMPTZ), NOW(), NOW()
     )
@@ -250,6 +258,7 @@ _REACTIVATE_CARD: Final = """
         display_name = :display_name,
         headline = :headline,
         share_token_hash = :share_token_hash,
+        share_token_envelope = CAST(:share_token_envelope AS JSONB),
         share_token_version = share_token_version + 1,
         status = CASE WHEN status = 'revoked' THEN 'active' ELSE status END,
         revoked_at = NULL,
@@ -266,11 +275,25 @@ _REACTIVATE_CARD: Final = """
 _ROTATE_SHARE_HASH: Final = """
     UPDATE one_wallet_cards
     SET share_token_hash = :share_token_hash,
+        share_token_envelope = CAST(:share_token_envelope AS JSONB),
         share_token_version = share_token_version + 1,
         updated_at = NOW()
     WHERE user_id = :user_id
       AND status <> 'revoked'
     RETURNING *
+"""
+
+_ADOPT_SHARE_ENVELOPE: Final = """
+    UPDATE one_wallet_cards
+    SET share_token_envelope = CAST(:share_token_envelope AS JSONB)
+    WHERE user_id = :user_id AND share_token_hash = :share_token_hash
+      AND share_token_envelope IS NULL AND status <> 'revoked'
+    RETURNING *
+"""
+
+_SELECT_OWNER_BASICS: Final = """
+    SELECT display_name, email, photo_url, phone_number
+    FROM actor_identity_cache WHERE user_id = :user_id LIMIT 1
 """
 
 _SET_CARD_STATUS: Final = """
@@ -350,6 +373,7 @@ class PublicCardProjection(TypedDict, total=False):
     allowlisted field is optional; absent values are omitted, never blank."""
 
     fullName: str
+    username: str
     headline: str
     organisation: str
     locationLabel: str
@@ -394,7 +418,7 @@ class OwnerCardView(TypedDict, total=False):
 
 class WalletCardMutation(TypedDict, total=False):
     """Owner mutation result. ``shareToken``/``shareUrl`` appear only when a
-    token was minted — at create and at rotate — and never on a plain edit."""
+    token was minted or recovered for the owner, never on a plain edit."""
 
     card: OwnerCardView
     shareToken: str
@@ -410,6 +434,7 @@ class PassMaterial(TypedDict, total=False):
     displayName: str | None
     headline: str | None
     expiresAt: str | None
+    variant: str
 
 
 class PassMaterialResult(TypedDict):
@@ -682,6 +707,11 @@ def _validated_field(field_key: str, value: Any) -> Any | None:
     if len(text) > limit:
         raise _invalid(field_key, f"must be {limit} characters or fewer.")
 
+    if field_key == "username":
+        try:
+            return validate_wallet_username(text)
+        except ValueError as exc:
+            raise _invalid(field_key, str(exc)) from exc
     if field_key in _URL_FIELDS:
         return _validated_https_url(field_key, text)
     if field_key == "email" and not _EMAIL_PATTERN.match(text):
@@ -781,6 +811,7 @@ def allowlisted_card_payload(stored: Any) -> dict[str, Any]:
 # Stored key -> public key. Declaration order is the emitted order.
 _PROJECTION_KEYS: Final[tuple[tuple[str, str], ...]] = (
     ("full_name", "fullName"),
+    ("username", "username"),
     ("headline", "headline"),
     ("organisation", "organisation"),
     ("location_label", "locationLabel"),
@@ -1065,7 +1096,7 @@ class OneWalletCardService:
 
         Scoped to the caller by primary key, so one owner can never read
         another's row. The plaintext share token is not returned here — it
-        exists only in the create and rotate responses.
+        is returned by create, rotate, or authenticated ensure recovery.
         """
 
         owner_id = _require_user_id(user_id)
@@ -1085,6 +1116,109 @@ class OneWalletCardService:
 
     # --- owner mutations --------------------------------------------------
 
+    @staticmethod
+    def _token_columns(owner_id: str, token: str) -> dict[str, Any]:
+        token_hash = _hash_share_secret(token)
+        envelope = seal_share_token(
+            db=get_db(), user_id=owner_id, token_hash=token_hash, token=token
+        )
+        return {
+            "share_token_hash": token_hash,
+            "share_token_envelope": json.dumps(envelope) if envelope else None,
+        }
+
+    def _recover_share_token(
+        self, owner_id: str, row: dict[str, Any], known_token: str | None = None
+    ) -> str | None:
+        if row.get("status") == STATUS_REVOKED:
+            return None
+        digest = _text(row.get("share_token_hash"))
+        envelope = _json_object(row.get("share_token_envelope"))
+        token = open_share_token(
+            db=get_db(), user_id=owner_id, token_hash=digest, envelope=envelope
+        )
+        if token and hmac.compare_digest(_hash_share_secret(token), digest):
+            return token
+        # Upgrade an existing device's link only after proving it is current.
+        # A concurrent rotate defeats this compare-and-swap; no link is changed.
+        supplied = _normalised_share_secret(known_token)
+        if supplied and hmac.compare_digest(_hash_share_secret(supplied), digest):
+            columns = self._token_columns(owner_id, supplied)
+            if columns["share_token_envelope"]:
+                self._execute_one(_ADOPT_SHARE_ENVELOPE, {"user_id": owner_id, **columns})
+            return supplied
+        return None
+
+    def ensure_card(
+        self,
+        *,
+        user_id: str,
+        card_payload: Any = None,
+        avatar_url: str | None = None,
+        share_token: str | None = None,
+    ) -> WalletCardMutation:
+        """Create a missing card from account basics, never replace owner choices.
+
+        Both returning users and first sign-ins use this operation. A competing
+        create wins unchanged; paused/revoked cards are never reactivated.
+        Recovery returns the same QR, never a silent rotation.
+        """
+        owner_id = _require_user_id(user_id)
+        existing = self._row_for_owner(owner_id)
+        if existing is not None:
+            return self._mutation(
+                existing, share_token=self._recover_share_token(owner_id, existing, share_token)
+            )
+        basics = self._execute_one(_SELECT_OWNER_BASICS, {"user_id": owner_id}) or {}
+        payload: dict[str, Any] = {}
+        for key, source in (
+            ("full_name", "display_name"),
+            ("email", "email"),
+            ("phone", "phone_number"),
+        ):
+            value = basics.get(source)
+            if key == "full_name" and value == owner_id:
+                continue
+            try:
+                cleaned = _validated_field(key, value)
+                if cleaned:
+                    payload[key] = cleaned
+            except OneWalletCardError:
+                continue
+        payload.update(validate_card_payload(card_payload or {}))
+        payload.setdefault(
+            "username", generate_wallet_username(payload.get("full_name", ""), owner_id)
+        )
+        try:
+            _, avatar = _avatar_parameters(avatar_url or basics.get("photo_url"))
+        except OneWalletCardError:
+            avatar = None
+        token = secrets.token_urlsafe(_SHARE_SECRET_BYTES)
+        created = self._execute_one(
+            _INSERT_CARD,
+            {
+                "user_id": owner_id,
+                "card_payload_json": json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                "display_name": payload.get("full_name"),
+                "headline": payload.get("headline"),
+                "avatar_url": avatar,
+                "expires_at": None,
+                **self._token_columns(owner_id, token),
+            },
+        )
+        if created is not None:
+            return self._mutation(created, share_token=token)
+        existing = self._row_for_owner(owner_id)
+        if existing is None:
+            raise OneWalletCardError(
+                CODE_WRITE_FAILED,
+                "Your Wallet Profile could not be created. Try again.",
+                status_code=409,
+            )
+        return self._mutation(
+            existing, share_token=self._recover_share_token(owner_id, existing, share_token)
+        )
+
     def upsert_card(
         self,
         *,
@@ -1095,7 +1229,7 @@ class OneWalletCardService:
     ) -> WalletCardMutation:
         """Create or replace the shared fields. Idempotent.
 
-        The token is minted on first creation and returned exactly once; a
+        The token is minted on first creation and recoverable through ensure; a
         later edit leaves it untouched so an already-printed QR keeps working.
         Setting the card up again after a revoke re-mints the token instead of
         resurrecting the old one, so links shared before the revoke stay dead.
@@ -1122,7 +1256,7 @@ class OneWalletCardService:
 
         created = self._execute_one(
             _INSERT_CARD,
-            {**columns, "share_token_hash": _hash_share_secret(share_token)},
+            {**columns, **self._token_columns(owner_id, share_token)},
         )
         if created is not None:
             logger.info("wallet_card.created user_id=%s", owner_id)
@@ -1142,7 +1276,7 @@ class OneWalletCardService:
         if _text(existing.get("status")).lower() == STATUS_REVOKED:
             reactivated = self._execute_one(
                 _REACTIVATE_CARD,
-                {**mutable, "share_token_hash": _hash_share_secret(share_token)},
+                {**mutable, **self._token_columns(owner_id, share_token)},
             )
             if reactivated is None:
                 raise self._missing_or_turned_off(owner_id)
@@ -1160,7 +1294,8 @@ class OneWalletCardService:
 
         Only the current digest is retained, so the moment this statement
         commits every previously shared link stops resolving. The plaintext is
-        returned here once and is not recoverable afterwards. ``pass_serial``
+        returned here and can be recovered through authenticated ensure when
+        its encrypted envelope is configured. ``pass_serial``
         is untouched, so re-adding the pass overwrites the installed one rather
         than stacking a duplicate.
         """
@@ -1169,7 +1304,7 @@ class OneWalletCardService:
         share_token = secrets.token_urlsafe(_SHARE_SECRET_BYTES)
         row = self._execute_one(
             _ROTATE_SHARE_HASH,
-            {"user_id": owner_id, "share_token_hash": _hash_share_secret(share_token)},
+            {"user_id": owner_id, **self._token_columns(owner_id, share_token)},
         )
         if row is None:
             raise self._missing_or_turned_off(owner_id)
@@ -1235,7 +1370,9 @@ class OneWalletCardService:
 
         return _public_result(self._row_for_share_token(share_token))
 
-    def resolve_pass_material(self, *, share_token: str) -> PassMaterialResult:
+    def resolve_pass_material(
+        self, *, share_token: str, variant: str = "profile"
+    ) -> PassMaterialResult:
         """Material for the signed `.pkpass`, under the same status rules.
 
         Returns no material for any state other than ``active``, so a paused,
@@ -1249,7 +1386,28 @@ class OneWalletCardService:
             return {"status": result["status"], "material": None}
 
         record = WalletCardRecord.from_row(row)
-        return {"status": STATUS_ACTIVE, "material": _pass_material(record, presented)}
+        material = _pass_material(record, presented)
+        if variant not in {"profile", "referral", "nws"}:
+            raise ValueError("Unknown Wallet pass variant.")
+        if variant != "profile":
+            # Each card is installed independently. No score, contact fields or
+            # arbitrary client-provided URL is copied into these card variants.
+            material["passSerial"] = f"{record.pass_serial}-{variant}"
+            material["variant"] = variant
+            material["cardPayload"] = {"full_name": material.get("displayName") or ""}
+            material["headline"] = (
+                "Agent One Referral" if variant == "referral" else "Agent One NWS"
+            )
+        if variant == "referral":
+            from hushh_mcp.services.one_referral_service import (
+                get_active_policy,
+                get_or_create_referral_code,
+                referral_base_url,
+            )
+
+            code = get_or_create_referral_code(record.user_id, get_active_policy())
+            material["publicCardUrl"] = f"{referral_base_url()}/r/{code['slug']}"
+        return {"status": STATUS_ACTIVE, "material": material}
 
     def record_scan(self, *, share_token: str) -> None:
         """Bump the coarse scan counters. Best effort, never fatal.

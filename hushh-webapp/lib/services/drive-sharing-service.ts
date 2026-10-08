@@ -25,6 +25,10 @@ export type DocumentRequestDraft = {
     periodEnd: string | null;
   };
 };
+export type SharingRequestContext = {
+  requestId: string;
+  purpose: DocumentRequestDraft["purpose"];
+};
 
 export function validDocumentRequestPeriod(
   start: string | null,
@@ -947,6 +951,25 @@ export class DriveSharingService {
       token, null, guard, `/by-client/${clientRequestId}`,
     );
     return result.status === "draft" ? null : id(result.requestId);
+  }
+
+  static async requesterContext(
+    token: string,
+    requestId: string,
+    guard: SharingSessionGuard,
+  ): Promise<SharingRequestContext> {
+    const result = await this.request(token, requestId, guard, "/context");
+    if (id(result.requestId) !== requestId)
+      throw new DriveSharingError("invalid_response");
+    const raw = record(result.purpose);
+    const purpose = {
+      purpose: string(raw.purpose, 2000),
+      periodStart: raw.periodStart == null ? null : string(raw.periodStart, 10),
+      periodEnd: raw.periodEnd == null ? null : string(raw.periodEnd, 10),
+    };
+    if (!purpose.purpose.trim() || !validDocumentRequestPeriod(purpose.periodStart, purpose.periodEnd))
+      throw new DriveSharingError("invalid_response");
+    return { requestId, purpose };
   }
 
   static async listRules(token: string, guard: SharingSessionGuard): Promise<TrustedDocumentRule[]> {

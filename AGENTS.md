@@ -73,6 +73,12 @@ Durable persona rationale lives in `docs/reference/operations/hussh-code-persona
 
 Repository rules, skills, workflow packs, tests, generated contracts, and runtime evidence override this kernel when they are more specific.
 
+## Back navigation contracts
+
+Back uses one hierarchy across shell, iOS edge gesture and Android system Back: top overlay, route-scoped feature layer, then authored route parent. Register local nested states with `useBackLayer`; reuse the feature's existing cancel/review-reset callback. Never fall back to raw history for application route Back. The narrowly reviewed pane/auth/error/map history owners are ratcheted against new bypasses.
+
+Every route declares `backVerification` in `hushh-webapp/lib/navigation/app-route-layout.contract.json`, including query parents or an explained entry/redirect/hidden boundary. Add behavior cases when changing query state or nested interactions. Run `cd hushh-webapp && npm run build:back-contracts` after reviewing the cases, commit the source revision and owning contracts, then run `npm run verify:back-contracts`. The independent Back Navigation Contracts job and both required aggregate gates reject failures and skipped checks. A source stamp proves freshness, not the meaning of a new interaction.
+
 ## Project-Wide Bacterial Software Architecture Gate
 
 Parent and child agents must apply [Bacterial Software Architecture](docs/vision/bacterial-software-architecture.md) as a top-level engineering north star.
@@ -288,3 +294,7 @@ The AI tool is NEVER a contributor. Do not credit Claude/Anthropic (or any AI ag
 2. This is enforced by `includeCoAuthoredBy: false` in `.claude/settings.json` (committed) and each developer's `~/.claude/settings.json`. Keep it set; do not re-enable it.
 3. Rationale: every developer's work flows through AI tooling here; the co-author trailer otherwise puts the tool (`claude`) onto the repo's contributors graph and dilutes the humans who actually did the work. Human authorship must land under the developer's own linked git email.
 4. Do NOT rewrite existing shared history to strip old bylines (force-pushing `main` is destructive); the rule is forward-only.
+
+## Search web contracts
+
+For changes to web screens, routes, layouts or their imported UI modules, review the owning `.voice-action-contract.json` actions, reachability and context defaults. Search reads these contracts automatically; do not add a separate Search catalog. Run `cd hushh-webapp && npm run build:search-contracts`, commit authored contracts and generated mirrors, then run `npm run verify:search-contracts`. The independent Search Web Contracts CI job and required CI Status Gate reject stale outputs and skipped Search checks. Source fingerprints do not replace semantic review of new actions.

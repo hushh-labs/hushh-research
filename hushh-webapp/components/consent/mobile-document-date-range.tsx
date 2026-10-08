@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import {
   addDays,
   addMonths,
@@ -36,12 +36,28 @@ export function MobileDocumentDateRange({
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const startButton = useRef<HTMLButtonElement>(null);
   const endButton = useRef<HTMLButtonElement>(null);
-  const firstDay = startOfWeek(startOfMonth(month));
-  const days = Array.from({ length: 42 }, (_, index) => addDays(firstDay, index));
-  const years = Array.from(
-    { length: Math.max(new Date().getFullYear() + 11 - 1900, month.getFullYear() - 1899) },
-    (_, index) => 1900 + index,
+  // Native mobile selects can emit several year changes while a person drags
+  // through the option list. Keep the select itself responsive and let the
+  // 42-cell calendar settle on the latest month after that burst. Rendering
+  // every intermediate grid synchronously made reverse scrolling feel stuck.
+  const calendarMonth = useDeferredValue(month);
+  const currentYear = new Date().getFullYear();
+  const yearRangeEnd = Math.max(currentYear + 10, month.getFullYear());
+  const firstDay = useMemo(
+    () => startOfWeek(startOfMonth(calendarMonth)),
+    [calendarMonth],
   );
+  const days = useMemo(
+    () => Array.from({ length: 42 }, (_, index) => addDays(firstDay, index)),
+    [firstDay],
+  );
+  const years = useMemo(() => {
+    const firstYear = 1900;
+    return Array.from(
+      { length: yearRangeEnd - firstYear + 1 },
+      (_, index) => firstYear + index,
+    );
+  }, [yearRangeEnd]);
 
   const open = (field: "start" | "end") => {
     if (editing === field) {
@@ -148,7 +164,7 @@ export function MobileDocumentDateRange({
           <div className="grid grid-cols-7" data-calendar-days>
             {days.map((date) => {
               const value = format(date, "yyyy-MM-dd");
-              if (date.getMonth() !== month.getMonth())
+              if (date.getMonth() !== calendarMonth.getMonth())
                 return <span key={value} aria-hidden="true" className="min-h-11 min-w-11" />;
               const selected = value === start || value === end;
               const inRange = Boolean(start && end && value > start && value < end);

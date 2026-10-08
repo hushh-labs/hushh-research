@@ -2159,6 +2159,555 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-secondary-label) !important;
 }
 
+/*
+ * Profile pane: a bounded liquid-glass card that keeps the existing Profile
+ * page and route stack intact. The reference surface owns its breathing room
+ * outside the card, so the right-side Sheet is inset instead of touching the
+ * viewport's top and bottom edges. All rules are scoped to this pane class so
+ * route-level Profile pages and shared settings surfaces keep their existing
+ * presentation.
+ */
+.profile-pane-sheet[data-slot="sheet-content"] {
+  --profile-pane-gutter: clamp(12px, 2.5vw, 18px);
+  --profile-pane-top-inset: max(
+    var(--profile-pane-gutter),
+    env(safe-area-inset-top, 0px)
+  );
+  --profile-pane-right-inset: max(
+    var(--profile-pane-gutter),
+    env(safe-area-inset-right, 0px)
+  );
+  --profile-pane-bottom-inset: max(
+    var(--profile-pane-gutter),
+    env(safe-area-inset-bottom, 0px)
+  );
+  --profile-pane-left-inset: max(
+    var(--profile-pane-gutter),
+    env(safe-area-inset-left, 0px)
+  );
+  --profile-pane-available-height: calc(
+    100dvh - var(--profile-pane-top-inset) - var(--profile-pane-bottom-inset)
+  );
+  --profile-pane-height: min(820px, var(--profile-pane-available-height));
+  --profile-pane-surface: rgba(255, 255, 255, 0.48);
+  --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
+  --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
+  --profile-pane-card-surface: rgba(255, 255, 255, 0.78);
+  --profile-pane-card-border: rgba(255, 255, 255, 0.38);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.82);
+  --profile-pane-hair: rgba(36, 43, 52, 0.12);
+  --profile-pane-shadow:
+    0 36px 90px rgba(35, 42, 51, 0.22),
+    0 4px 18px rgba(35, 42, 51, 0.1);
+  top: calc(
+    var(--profile-pane-top-inset) +
+      (var(--profile-pane-available-height) - var(--profile-pane-height)) * 0.5
+  ) !important;
+  right: var(--profile-pane-right-inset) !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: min(
+    430px,
+    calc(100vw - var(--profile-pane-left-inset) - var(--profile-pane-right-inset))
+  ) !important;
+  max-width: 430px !important;
+  height: var(--profile-pane-height) !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 25px !important;
+  background: var(--profile-pane-surface) !important;
+  box-shadow:
+    var(--profile-pane-shadow),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.74),
+    inset -1px -1px 0 rgba(35, 42, 51, 0.08) !important;
+  backdrop-filter: blur(34px) saturate(175%);
+  -webkit-backdrop-filter: blur(34px) saturate(175%);
+  color: var(--ios-account-label);
+  color-scheme: light;
+}
+
+.profile-pane-sheet[data-slot="sheet-content"]::after {
+  content: "";
+  position: absolute;
+  z-index: 5;
+  inset: -35% -85%;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.17) 49%,
+    rgba(255, 255, 255, 0.05) 54%,
+    transparent 62%
+  );
+  transform: translateX(-38%) rotate(2deg);
+  animation: profile-pane-sheen 11s ease-in-out infinite;
+}
+
+@keyframes profile-pane-sheen {
+  0%,
+  38% {
+    transform: translateX(-38%) rotate(2deg);
+  }
+  72%,
+  100% {
+    transform: translateX(42%) rotate(2deg);
+  }
+}
+
+html.dark .profile-pane-sheet[data-slot="sheet-content"],
+.dark .profile-pane-sheet[data-slot="sheet-content"] {
+  --profile-pane-surface: rgba(22, 24, 29, 0.73);
+  --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
+  --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
+  --profile-pane-card-surface: rgba(39, 42, 49, 0.78);
+  --profile-pane-card-border: rgba(255, 255, 255, 0.08);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.12);
+  --profile-pane-hair: rgba(237, 234, 228, 0.14);
+  --profile-pane-shadow:
+    0 42px 110px rgba(0, 0, 0, 0.58),
+    0 4px 20px rgba(0, 0, 0, 0.32);
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  box-shadow:
+    var(--profile-pane-shadow),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.18),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.35) !important;
+  color-scheme: dark;
+}
+
+.profile-pane-header {
+  z-index: 2 !important;
+  gap: 4px !important;
+  padding: 20px 68px 15px 20px !important;
+  border-color: var(--profile-pane-hair) !important;
+  background: linear-gradient(180deg, var(--profile-pane-surface-soft), transparent);
+}
+
+.profile-pane-header [data-slot="sheet-title"] {
+  color: var(--ios-account-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em !important;
+  line-height: 1.15 !important;
+}
+
+.profile-pane-header [data-slot="sheet-description"] {
+  color: var(--ios-account-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+/* Inner views use the reference's balanced Back / title / Close header. */
+.profile-pane-header--inner {
+  display: grid !important;
+  align-items: center;
+  min-height: 79px;
+  padding: 16px !important;
+}
+
+.profile-pane-header--inner > div:first-child {
+  display: grid !important;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-pane-header--inner > div:first-child > button {
+  width: 44px !important;
+  height: 44px !important;
+  margin-left: 0 !important;
+}
+
+.profile-pane-header--inner [data-slot="sheet-title"] {
+  text-align: center;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  text-wrap: balance;
+}
+
+.profile-pane-header--inner ~ .profile-pane-close {
+  top: 17px !important;
+  width: 44px !important;
+  height: 44px !important;
+}
+
+.profile-pane-header--inner :is(button, [data-slot="sheet-title"]) svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
+}
+
+.profile-pane-close {
+  top: 20px !important;
+  width: 44px !important;
+  height: 44px !important;
+  border: 1px solid transparent !important;
+  background: var(--profile-pane-surface-soft) !important;
+  color: var(--ios-account-secondary-label) !important;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 280ms cubic-bezier(0.2, 0.9, 0.2, 1) !important;
+}
+
+.profile-pane-close:hover {
+  background: var(--profile-pane-surface-strong) !important;
+  color: var(--ios-account-label) !important;
+  transform: rotate(5deg);
+}
+
+.profile-pane-scroll-root {
+  z-index: 2 !important;
+  background: transparent !important;
+}
+
+.profile-pane-scroll-root .profile-home-screen--pane {
+  padding-top: 0 !important;
+}
+
+.profile-pane-scroll-root .profile-home-hero {
+  gap: 13px !important;
+  padding: 15px 4px 12px !important;
+}
+
+.profile-pane-scroll-root .profile-home-screen [data-profile-avatar-frame="true"] {
+  height: 44px !important;
+  width: 44px !important;
+}
+
+.profile-pane-scroll-root .profile-home-screen [data-profile-avatar-display="true"],
+.profile-pane-scroll-root .profile-home-screen [data-profile-avatar-frame="true"] [data-slot="avatar-fallback"] {
+  font-size: 13px !important;
+}
+
+.profile-pane-scroll-root .profile-home-screen [data-profile-avatar-camera="true"] {
+  right: -3px !important;
+  bottom: -2px !important;
+  height: 17px !important;
+  width: 17px !important;
+  border: 2px solid var(--profile-pane-surface-strong) !important;
+}
+
+.profile-pane-scroll-root .profile-home-copy {
+  gap: 4px !important;
+}
+
+.profile-pane-scroll-root .profile-home-name {
+  font-size: clamp(19px, 4vw, 24px) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.045em !important;
+  line-height: 1.1 !important;
+}
+
+.profile-pane-scroll-root .profile-home-meta {
+  gap: 6px !important;
+  font-size: 10.5px !important;
+  line-height: 1.3 !important;
+}
+
+.profile-pane-scroll-root .profile-home-meta svg {
+  height: 14px !important;
+  width: 14px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content {
+  gap: 0 !important;
+  margin-top: 0 !important;
+  padding: 0 0 16px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-testid="settings-group"] > div:first-child {
+  margin-bottom: 5px !important;
+  margin-top: 10px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-testid="settings-group"]:first-child > div:first-child {
+  margin-top: 0 !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-group-heading"] {
+  padding-inline: 6px !important;
+  color: var(--ios-account-secondary-label) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  line-height: 14px !important;
+}
+
+/* Every Profile panel shares the pane's material, including nested details. */
+.profile-pane-scroll-root [data-slot="settings-group-shell"] {
+  border: 0 !important;
+  border-radius: 15px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.profile-pane-scroll-root [data-row-layout="settings"] {
+  background: transparent !important;
+}
+
+/* Profile can be a narrow pane in a wide viewport. Size controls to the
+   section, so their labels keep the same leading alignment as other rows. */
+.profile-preferences-content {
+  container: profile-preferences / inline-size;
+}
+
+.profile-preferences-content .profile-preferences-control-row {
+  --profile-control-icon-size: 34px;
+}
+
+.profile-preferences-content .profile-preferences-control-row > .grid {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: var(--settings-row-stack-gap);
+}
+
+.profile-preferences-control-row[data-settings-density="compact"] {
+  --profile-control-icon-size: 28px;
+}
+
+.profile-preferences-control-row [data-slot="settings-row-trailing"] {
+  width: 100%;
+  min-width: 0;
+  padding-inline-start: calc(var(--profile-control-icon-size) + var(--settings-row-gap));
+  padding-top: 4px;
+}
+
+@container profile-preferences (min-width: 560px) {
+  .profile-preferences-content .profile-preferences-control-row > .grid {
+    grid-template-columns: minmax(0, 1fr) 240px;
+    row-gap: 0;
+  }
+
+  .profile-preferences-control-row [data-slot="settings-row-trailing"] {
+    padding-inline-start: 0;
+    padding-top: 0;
+  }
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
+  --settings-row-px: 6px !important;
+  --settings-row-py: 6px !important;
+  --settings-row-gap: 5px !important;
+  min-height: 43px !important;
+  padding: 0 !important;
+  transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), color 200ms ease;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] > button:not([data-slot="settings-row-action"]),
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"] {
+  min-height: 43px !important;
+  padding: 6px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]::after {
+  background: var(--profile-pane-hair) !important;
+  left: 37px !important;
+  right: 6px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:hover),
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:focus-visible) {
+  transform: translateX(3px);
+}
+
+/* Share the home menu's glass highlight across every Profile section,
+   including keyboard focus on preference fields. The sheet owns the blur. */
+.profile-pane-scroll-root [data-row-layout="settings"]:has(:is(button, input, textarea):not(:disabled):hover)::before,
+.profile-pane-scroll-root [data-row-layout="settings"]:has(:focus-visible)::before,
+.profile-pane-scroll-root [data-row-layout="settings"][data-state="active"]::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 2px 0;
+  border-radius: 12px;
+  background: linear-gradient(
+    110deg,
+    var(--profile-pane-surface-strong),
+    var(--profile-pane-surface-soft)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  opacity: 1;
+  pointer-events: none;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"] {
+  gap: 5px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-icon"] {
+  height: 22px !important;
+  width: 22px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-icon"] svg {
+  height: 22px !important;
+  width: 22px !important;
+}
+
+.profile-pane-scroll-root .profile-home-content .profile-pane-icon {
+  color: var(--ios-account-label) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content .profile-pane-icon-accent {
+  stroke: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content .profile-pane-icon-accent-fill {
+  fill: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-tone="destructive"] .profile-pane-icon {
+  color: var(--app-destructive) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-tone="destructive"] .profile-pane-icon-accent {
+  stroke: var(--app-destructive) !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-title"] {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.2 !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-description"] {
+  margin-top: 2px !important;
+  color: var(--ios-account-secondary-label) !important;
+  font-size: 9px !important;
+  line-height: 1.2 !important;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-slot="settings-row-chevron"] {
+  height: 15px !important;
+  width: 15px !important;
+  color: var(--ios-account-secondary-label) !important;
+  opacity: 0.68;
+}
+
+.profile-pane-scroll-root .profile-home-content [data-tone="destructive"] [data-slot="settings-row-icon"] {
+  color: var(--app-destructive) !important;
+}
+
+/* The reference's inner views share one card, row, icon, and type rhythm.
+   Keep these selectors inside the pane stack: route-level Profile remains on
+   the app's ordinary settings presentation. */
+.profile-pane-scroll-root .profile-pane-page--inner {
+  padding-inline: 28px !important;
+  padding-bottom: 28px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] {
+  gap: 0 !important;
+  padding-top: 22px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"] {
+  border: 1px solid var(--profile-pane-card-border) !important;
+  border-radius: 17px !important;
+  background: var(--profile-pane-card-surface) !important;
+  box-shadow:
+    inset 0 1px 0 var(--profile-pane-card-highlight),
+    0 8px 24px rgba(35, 42, 51, 0.05) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] {
+  --settings-row-px: 14px;
+  --settings-row-py: 9px;
+  --settings-row-gap: 9px;
+  min-height: 58px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] > :is(button, [data-slot="settings-row-content"]) {
+  min-height: 58px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"]::after {
+  left: 0 !important;
+  right: 0 !important;
+  background: var(--profile-pane-hair) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] {
+  width: 24px !important;
+  height: 24px !important;
+  color: var(--ios-account-label) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] svg {
+  width: 24px !important;
+  height: 24px !important;
+  stroke-width: 1.8 !important;
+}
+
+.profile-pane-scroll-root .profile-pane-icon {
+  color: var(--ios-account-label) !important;
+}
+
+.profile-pane-scroll-root :is(.profile-pane-icon-accent, .profile-account-icon-accent) {
+  stroke: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root :is(.profile-pane-icon-accent-fill, .profile-account-icon-accent-fill) {
+  fill: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-chevron"] {
+  width: 14px !important;
+  height: 14px !important;
+  color: var(--ios-account-secondary-label) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-tone="destructive"]
+  :is([data-slot="settings-row-icon"], .profile-pane-icon) {
+  color: var(--app-destructive) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-tone="destructive"]
+  :is(.profile-pane-icon-accent, .profile-account-icon-accent) {
+  stroke: var(--app-destructive) !important;
+}
+
+@media (max-width: 440px) {
+  .profile-pane-scroll-root .profile-pane-page--inner {
+    padding-inline: 12px !important;
+  }
+
+  .profile-pane-scroll-root [data-profile-stack-content="true"] {
+    padding-top: 17px !important;
+  }
+
+  .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] {
+    --settings-row-px: 10px;
+    --settings-row-gap: 7px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .profile-pane-sheet[data-slot="sheet-content"] {
+    background: var(--app-card-surface-default-solid) !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .profile-pane-sheet[data-slot="sheet-content"]::after {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-pane-sheet[data-slot="sheet-content"]::after {
+    animation: none;
+  }
+
+  .profile-pane-close,
+  .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
+    transition: none !important;
+  }
+}
+
 html:has(.profile-home-screen),
 html:has(.profile-account-content),
 html:has([data-profile-stack="true"]),
@@ -2803,6 +3352,17 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   height: var(--app-top-content-offset);
   flex-shrink: 0;
   pointer-events: none;
+}
+
+/* Direct messages already has a compact split-view header immediately below
+ * the persistent top shell. The standard route contract adds a 32px body
+ * start gap for page heroes; keeping that gap here creates the unexplained
+ * blank band above Chats and makes the shared top and bottom navigation look
+ * vertically displaced. Reuse the measured shell reservation, while leaving
+ * both persistent navigation bars owned by the app shell. */
+body:has([data-direct-message-page="true"])
+  [data-app-scroll-root="true"] {
+  --app-top-content-offset: var(--top-shell-reserved-height);
 }
 
 /* Location owns a compact module header rather than a large route hero. Keep
@@ -5887,6 +6447,39 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
   stroke: currentColor;
 }
 
+/* The direct-message page is a desktop split view. Its shared bottom shell is
+ * mounted above the route tree, so center the navigation within the thread
+ * pane using the same 0.8fr / 1.45fr geometry as the page. Mobile remains the
+ * default full-width single-column shell. */
+@media (min-width: 768px) {
+  body:has([data-direct-message-page="true"])
+    [data-app-bottom-shell]
+    [data-bottom-shell-motion-stack] {
+    --direct-message-frame-width: min(
+      var(--app-shell-expanded, 96rem),
+      calc(100vw - 2 * var(--page-inline-gutter-standard, 1rem))
+    );
+    --direct-message-frame-left: max(
+      var(--page-inline-gutter-standard, 1rem),
+      calc((100vw - var(--app-shell-expanded, 96rem)) / 2)
+    );
+    --direct-message-inbox-width: calc(var(--direct-message-frame-width) * 0.8 / 2.25);
+    --direct-message-thread-width: calc(var(--direct-message-frame-width) * 1.45 / 2.25);
+    --direct-message-footer-width: min(
+      var(--app-bottom-shell-max-width, 40rem),
+      var(--direct-message-thread-width)
+    );
+    width: var(--direct-message-footer-width);
+    max-width: none;
+    margin-left: calc(
+      var(--direct-message-frame-left) + var(--direct-message-inbox-width) +
+        (var(--direct-message-thread-width) - var(--direct-message-footer-width)) / 2 -
+        var(--app-bottom-shell-inline-inset, 1rem)
+    );
+    margin-right: 0;
+  }
+}
+
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */
 .carousel-side-glass {
   background-color: color-mix(in oklch, lab(100 0 0 / 0.68) 28%, transparent);
@@ -8087,5 +8680,111 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 @keyframes boot-line-fade-out {
   to {
     opacity: 0;
+  }
+}
+
+/* Base-layer important type rules own app headings and row labels. Keep the
+   pane's reference scale in that same layer so it survives those locks. */
+@layer base {
+  .profile-pane-sheet .profile-pane-header [data-slot="sheet-title"] {
+    font-size: 20px !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.025em !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell .profile-home-name {
+    font-size: clamp(19px, 4vw, 24px) !important;
+    line-height: 1.1 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.045em !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell .profile-home-content
+    [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-size: 10px !important;
+    line-height: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell .profile-home-content
+    [data-slot="settings-row-title"] {
+    color: var(--ios-account-label) !important;
+    font-size: 13px !important;
+    line-height: 1.2 !important;
+    font-weight: 500 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell .profile-home-content
+    [data-slot="settings-row-description"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-group-heading"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+    line-height: 14px !important;
+    text-transform: none !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-row-title"] {
+    color: var(--ios-account-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.22 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-tone="destructive"] [data-slot="settings-row-title"] {
+    color: var(--app-destructive) !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-row-description"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.3 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is([data-slot="settings-row-trailing"], .profile-account-row-value, .profile-account-inline-action) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+  }
+
+  /* Text fields inherit the app's larger form scale unless the pane supplies
+     its own value size. Keep nested Profile controls aligned with Your account. */
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is(
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+      textarea,
+      select,
+      [data-slot="select-trigger"],
+      [role="combobox"]
+    ) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 400 !important;
+    line-height: 1.3 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is(input, textarea)::placeholder {
+    font-size: 13px !important;
   }
 }

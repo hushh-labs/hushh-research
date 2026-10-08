@@ -132,6 +132,7 @@ import {
   TrustNoteCard,
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { RequestCard, SharedWithMeCard, type GrantViewStatus } from "./cards";
@@ -1348,8 +1349,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       } else {
         params.delete(FLOW_SOURCE_PARAM);
       }
+      if (source === "circle") {
+        const parentSource = searchParams.get(FLOW_SOURCE_PARAM);
+        if (parentSource === "settings" || parentSource === SOS_FLOW_SOURCE) params.set("parentSource", parentSource);
+        else params.delete("parentSource");
+      } else params.delete("parentSource");
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
-      params.delete("circleId");
+      if (source !== "circle") params.delete("circleId");
       const href = `${pathname}?${params.toString()}`;
       if (!commitLocationFlowHistory(href, navigation)) {
         router[navigation](href, { scroll: false });
@@ -1384,12 +1390,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       const params = new URLSearchParams(searchParams.toString());
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
       params.set("circleId", circleId);
+      params.delete("parentSource");
       if (source) {
         params.set(FLOW_SOURCE_PARAM, source);
       } else {
         params.delete(FLOW_SOURCE_PARAM);
       }
-      if (source !== SOS_FLOW_SOURCE) {
+      if (source !== SOS_FLOW_SOURCE && source !== "settings") {
         params.set(LOCATION_HUB_TAB_PARAM, "people");
       }
       const href = `${pathname}?${params.toString()}`;
@@ -1467,6 +1474,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       if (flow === "share") {
         vm.clearNamedCircleShareContext();
       }
+      const parentCircleId = searchParams.get("circleId");
+      if (flowSource === "circle" && parentCircleId) {
+        const parentSource = searchParams.get("parentSource");
+        openCircleDetail(parentCircleId, "replace", parentSource === "settings" || parentSource === SOS_FLOW_SOURCE ? parentSource : undefined);
+        return;
+      }
       setFlow("none");
       setSelectedCircleId(null);
       setFlowSource(null);
@@ -1494,7 +1507,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         scroll: false,
       });
     },
-    [flow, pathname, router, searchParams, tab, vm],
+    [flow, flowSource, openCircleDetail, pathname, router, searchParams, tab, vm],
   );
 
   const dismissFocusedCircleMemberInvite = useCallback(() => {
@@ -1760,7 +1773,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onBack={() =>
               editingSosContacts
                 ? openFlow("sos", undefined, "replace")
-                : closeFlow("people")
+                : flowSource === "settings"
+                  ? openFlow("settings", undefined, "replace")
+                  : closeFlow("people")
             }
             onLoad={vm.onLoadNamedCircle}
             onLoadOverview={vm.onLoadNamedCircleOverview}
@@ -1780,7 +1795,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 );
                 if (!prepared) return;
                 setShareStep("details");
-                openFlow("share");
+                openFlow("share", "circle");
               })();
             }}
             onRemoveMember={vm.onRemoveNamedCircleMember}
@@ -1831,9 +1846,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             smsContactCount={vm.smsContactUserIds.length}
             onManageSmsContacts={() => {
               if (smsSystemCircleId) {
-                openCircleDetail(smsSystemCircleId, "push");
+                openCircleDetail(smsSystemCircleId, "push", "settings");
               } else {
-                openFlow("sms-contacts");
+                openFlow("sms-contacts", "settings");
               }
             }}
           />
@@ -5056,6 +5071,7 @@ function ShareFlow({
     setShareReviewOpen(false);
     setStep("person");
   }, [setShareReviewOpen, setStep]);
+  useBackLayer(ROUTES.ONE_LOCATION, step === "details" ? 2 : 0, () => { backToPeople(); return true; }, { action: "share" });
 
   // The consent read-back is now part of the confirm step rather than a screen
   // of its own, so entering that step is what "the review was shown" means.
@@ -6008,6 +6024,7 @@ function AskFlow({
 }) {
   const filtered = vm.visibleRecipients;
   const [step, setStep] = useState<"person" | "details">(initialStep);
+  useBackLayer(ROUTES.ONE_LOCATION, step === "details" ? 2 : 0, () => { setStep("person"); return true; }, { action: "ask" });
   /**
    * The field is local; the FILTER is debounced.
    *

@@ -369,6 +369,9 @@ for (const viewport of [
           for (const agent of await screen
             .locator("[data-agent-tour] button")
             .all()) {
+            const target = (await agent.boundingBox())!;
+            expect(target.width, "agent tap target width").toBeGreaterThanOrEqual(44);
+            expect(target.height, "agent tap target height").toBeGreaterThanOrEqual(44);
             await agent.click();
             expect(
               (await next.boundingBox())!.y +

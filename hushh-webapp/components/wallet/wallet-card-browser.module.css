@@ -58,10 +58,11 @@
 .dock { max-width:460px; border:0; border-radius:0; box-shadow:none; padding-block:4px; background:var(--app-card-surface-default-solid); }
 .browser { padding-top:16px; }
 .browser [data-testid="wallet-preview-collection"],
-.browser [data-testid="wallet-add-collection"] { max-width:clamp(220px, calc((100svh - 360px) * 1.05), 420px); }
+.browser [data-testid="wallet-add-collection"] { max-width:420px; }
 
 /* Compact reference strip: retain touch targets without a tall surrounding shelf. */
 .dock { gap:6px; padding:0; min-height:44px; }
+.dock { position:relative; top:-44px; }
 .thumbnails { gap:6px; padding:0 2px; }
 .thumbnailButton { flex-basis:54px; min-height:44px; display:flex; align-items:center; padding:2px; }
 .thumbnail { width:100%; }

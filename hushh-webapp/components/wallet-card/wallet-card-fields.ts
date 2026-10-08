@@ -8,6 +8,7 @@
  * pre-filled from information the product already holds.
  */
 
+import { validateWalletProfileUsername, walletProfileUsername } from "@/lib/wallet/wallet-profile-username";
 import {
   isAllowedWalletCardUrl,
   type WalletCardPayload,
@@ -16,6 +17,7 @@ import {
 
 export type WalletCardFieldKey =
   | "fullName"
+  | "username"
   | "headline"
   | "organisation"
   | "locationLabel"
@@ -35,6 +37,7 @@ export type WalletCardDraft = Record<WalletCardFieldKey, string> & {
 
 export const EMPTY_WALLET_CARD_DRAFT: WalletCardDraft = {
   fullName: "",
+  username: "",
   headline: "",
   organisation: "",
   locationLabel: "",
@@ -52,6 +55,7 @@ export const EMPTY_WALLET_CARD_DRAFT: WalletCardDraft = {
 /** Field limits mirror contract §3 exactly. */
 export const WALLET_CARD_FIELD_LIMITS: Record<WalletCardFieldKey, number> = {
   fullName: 80,
+  username: 30,
   headline: 120,
   organisation: 80,
   locationLabel: 80,
@@ -98,6 +102,13 @@ export const WALLET_CARD_RECOMMENDED_FIELDS: readonly WalletCardFieldDefinition[
       key: "fullName",
       label: "Name",
       placeholder: "Your name",
+    },
+    {
+      key: "username",
+      label: "Username",
+      placeholder: "your.name",
+      description: "3–30 lowercase letters, numbers or dots.",
+      autoComplete: "off",
     },
     {
       key: "headline",
@@ -272,6 +283,7 @@ export function buildSmartDefaultDraft(
       normalise(identity.displayName),
       WALLET_CARD_FIELD_LIMITS.fullName,
     ),
+    username: identity.displayName?.trim() ? walletProfileUsername(identity.displayName) : "",
     email: clamp(email, WALLET_CARD_FIELD_LIMITS.email),
     phone: clamp(phone, WALLET_CARD_FIELD_LIMITS.phone),
     preferredContact: email ? "email" : phone ? "phone" : "email",
@@ -282,6 +294,7 @@ export function buildSmartDefaultDraft(
 export function draftFromPayload(payload: WalletCardPayload): WalletCardDraft {
   return {
     fullName: normalise(payload.full_name),
+    username: normalise(payload.username),
     headline: normalise(payload.headline),
     organisation: normalise(payload.organisation),
     locationLabel: normalise(payload.location_label),
@@ -322,6 +335,11 @@ export function validateDraft(
     }
   }
 
+  if (draft.username.trim()) {
+    const message = validateWalletProfileUsername(draft.username.trim());
+    if (message) errors.username = message;
+  }
+
   const email = draft.email.trim();
   if (email && !EMAIL_SHAPE.test(email)) {
     errors.email = "Enter a valid mail address.";
@@ -354,7 +372,7 @@ export function validateDraft(
   const preferred = WALLET_CARD_PREFERRED_CONTACT_OPTIONS.find(
     (option) => option.value === draft.preferredContact,
   );
-  if (preferred && !draft[preferred.field].trim()) {
+  if (preferred && !draft[preferred.field].trim() && [draft.email, draft.phone, draft.linkedin, draft.website].some((value) => value.trim())) {
     errors.preferredContact = `Add a ${preferred.label.toLowerCase()} or pick a different preferred contact.`;
   }
 
@@ -373,6 +391,7 @@ export function hasValidationErrors(
  */
 export function draftToPayload(draft: WalletCardDraft): WalletCardPayload {
   const payload: WalletCardPayload = {};
+  assign(payload, "username", draft.username, WALLET_CARD_FIELD_LIMITS.username);
   assign(
     payload,
     "full_name",
@@ -436,6 +455,7 @@ export function draftToPayload(draft: WalletCardDraft): WalletCardPayload {
 export function describeSharedFields(draft: WalletCardDraft): string[] {
   const shared: string[] = [];
   if (draft.fullName.trim()) shared.push("Name");
+  if (draft.username.trim()) shared.push("Username");
   shared.push("Photo");
   if (draft.headline.trim()) shared.push("Headline");
   if (draft.organisation.trim()) shared.push("Company or college");

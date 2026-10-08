@@ -464,6 +464,15 @@ class VoiceSession:
         # always re-read from the ledger through ``_mail_delivery_status``.
         self.mail_deliveries: dict[str, dict[str, Any]] = {}
         self._mail_delivery_status = mail_delivery_status or get_owner_send_action
+        # A tap arrives on the client pump, while the reviewed send may wait on
+        # recipient/Gmail I/O. Keep that execution out of the receive loop so
+        # corrections and cancellation can revoke its admission in time.
+        self._mail_execution_tasks: set[asyncio.Task[None]] = set()
+        # Repeated taps for one card share the first tap's admission. A second
+        # tap must not revoke a send that is already proving or claiming the
+        # same card; new input or a different card gets a fresh generation.
+        self._mail_confirm_admissions: dict[str, tuple[int, bool]] = {}
+        self._mail_pending_ids: set[str] = set()
         self.pending_receipts: dict[str, str] = {}
         # Answered typed name edits by operation id: a resend gets the same
         # name_edit.result back and never proposes a second card.
@@ -726,6 +735,14 @@ class VoiceSession:
     async def _close(self, code: int, reason: str) -> None:
         if self._closed:
             return
+        # Revoke unclaimed voice approval before closing the transport. Mail
+        # execution tasks continue draining so their final provider fence can
+        # record a superseded attempt or preserve an already-posted outcome;
+        # the input_active callback also observes ``_closed`` below, so a close
+        # does not masquerade as a new user utterance in telemetry.
+        self._mail_input_active = False
+        self._mail_confirm_admissions.clear()
+        self._mail_pending_ids.clear()
         self._closed = True
         self.close_code = code
         self.close_reason = reason
@@ -733,6 +750,73 @@ class VoiceSession:
             await self.transport.close(code, reason)
         except Exception:  # noqa: BLE001 - already closing
             pass
+
+    def _track_mail_execution(self, pending: PendingAction, *, origin_turn_id: str | None) -> None:
+        """Run a reviewed send without blocking client-frame intake.
+
+        The task deliberately keeps running after socket close: once a delivery
+        has reached the ledger, cancelling the coroutine could strand a
+        ``sending`` row without a truthful outcome. The wrapper suppresses late
+        transport errors and removes itself from the bounded task set.
+        """
+        task = asyncio.create_task(
+            self._execute_mail_pending(pending, origin_turn_id=origin_turn_id),
+            name=f"one-voice-mail-send:{getattr(pending, 'id', 'unknown')}",
+        )
+        self._mail_execution_tasks.add(task)
+
+        def _finished(done: asyncio.Task[None]) -> None:
+            self._mail_execution_tasks.discard(done)
+            self._mail_confirm_admissions.pop(getattr(pending, "id", ""), None)
+            if not done.cancelled():
+                try:
+                    done.exception()
+                except Exception:  # noqa: BLE001 - done task is already logged by wrapper
+                    pass
+
+        task.add_done_callback(_finished)
+
+    def _admit_confirm(self, pending_action_id: str) -> tuple[int, bool]:
+        existing = self._mail_confirm_admissions.get(pending_action_id)
+        if existing is not None:
+            return existing
+        self._mail_input_generation += 1
+        admission = (self._mail_input_generation, self._mail_input_active)
+        self._mail_confirm_admissions[pending_action_id] = admission
+        return admission
+
+    def _track_confirm(
+        self, frame: protocol.ConfirmActionFrame, admission: tuple[int, bool]
+    ) -> None:
+        task = asyncio.create_task(
+            self._confirm_by_tap(frame, admission=admission),
+            name=f"one-voice-confirm:{frame.pending_action_id}",
+        )
+
+        def _finished(done: asyncio.Task[None]) -> None:
+            self._mail_pending_ids.discard(frame.pending_action_id)
+            if not done.cancelled():
+                try:
+                    done.exception()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        task.add_done_callback(_finished)
+
+    async def _execute_mail_pending(
+        self, pending: PendingAction, *, origin_turn_id: str | None
+    ) -> None:
+        # ToolExecutor stores its prepared snapshot on the context while the
+        # handler runs. A shallow context copy prevents a concurrent read/edit
+        # from replacing that snapshot underneath the send.
+        execution_ctx = replace(self.ctx, prepared=None)
+        try:
+            outcome = await self.executor.execute_pending(execution_ctx, pending)
+            await self._after_execution(outcome, source="tap", origin_turn_id=origin_turn_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - ledger outcome remains authoritative
+            logger.warning("one_voice.mail_execution_failed")
 
     async def _fail(self, code: int, error_code: str, message: str) -> None:
         try:
@@ -818,7 +902,7 @@ class VoiceSession:
         self.ctx.services["mail_compose"] = MailComposeRuntime(
             review_supported=self._mail_review_supported,
             input_generation=lambda: self._mail_input_generation,
-            input_active=lambda: self._mail_input_active,
+            input_active=lambda: self._mail_input_active or self._closed,
             approval_input=self._mail_approval_input.get,
         )
         self.ctx.services["mail_delivery_status"] = self._mail_delivery_status
@@ -831,6 +915,9 @@ class VoiceSession:
         )
         self._pending_turn_ids.update(
             (row.id, row.origin_turn_id) for row in open_rows if row.origin_turn_id is not None
+        )
+        self._mail_pending_ids.update(
+            row.id for row in open_rows if row.tool_name == "send_reviewed_mail"
         )
         await self._send(
             protocol.session_ready(
@@ -991,36 +1078,86 @@ class VoiceSession:
 
     # -- client → provider ---------------------------------------------------
 
-    async def _pump_client(self) -> None:
-        while not self._closed:
-            try:
-                raw = await self.transport.receive()
-            except SessionClosed:
-                raise
-            except Exception:  # noqa: BLE001 - socket gone
-                await self._close(protocol.CLOSE_ENDED, "client_disconnected")
-                raise SessionClosed(protocol.CLOSE_ENDED, "client_disconnected")
-            try:
-                frame = protocol.parse_client_frame(raw)
-            except protocol.FrameError as exc:
-                await self._send(protocol.error("protocol", str(exc)))
-                continue
-            try:
-                await self._handle_client_frame(frame)
-            except _STORAGE_ERRORS as exc:
-                # Whatever this frame asked for did not happen; the card or
-                # setting stays as it was, and the person can simply try again.
-                # A device's own step report is not something they did, so it
-                # gets no "try again" (storage recovers that row on its own).
-                self._storage_failed("frame", exc)
-                if not isinstance(frame, protocol.ClientStepResultFrame):
-                    await self._send(
-                        protocol.error(
-                            "storage_unavailable", "That didn't go through. Please try again."
-                        )
-                    )
+    def _observe_client_mail_input(self, frame: Any) -> tuple[int, bool] | None:
+        # Observe only protocol facts at intake. Ordered dispatch still owns
+        # edits, proof, CAS and all generic tool execution.
+        if isinstance(frame, protocol.ConfirmActionFrame):
+            return self._admit_confirm(frame.pending_action_id)
+        if isinstance(
+            frame,
+            (
+                protocol.TextFrame,
+                protocol.CancelActionFrame,
+                protocol.InterruptFrame,
+                protocol.MailDraftChangedFrame,
+            ),
+        ):
+            self._mail_input_generation += 1
+            if isinstance(frame, (protocol.TextFrame, protocol.CancelActionFrame)):
+                self._mail_input_active = False
+        if isinstance(frame, protocol.EndFrame):
+            self._mail_input_active = True
+        return None
 
-    async def _handle_client_frame(self, frame: Any) -> None:
+    async def _pump_client(self) -> None:
+        queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=128)
+
+        async def receive() -> None:
+            while not self._closed:
+                try:
+                    raw = await self.transport.receive()
+                except SessionClosed as exc:
+                    self._mail_input_active = True
+                    await queue.put(exc)
+                    return
+                except Exception:
+                    self._mail_input_active = True
+                    await queue.put(SessionClosed(protocol.CLOSE_ENDED, "client_disconnected"))
+                    return
+                try:
+                    frame = protocol.parse_client_frame(raw)
+                except protocol.FrameError as exc:
+                    await self._send(protocol.error("protocol", str(exc)))
+                    continue
+                admission = self._observe_client_mail_input(frame)
+                if queue.full():
+                    self._mail_input_generation += 1
+                await queue.put((frame, admission))
+
+        # Intake is independent of proof/storage I/O; effects remain ordered.
+        intake = asyncio.create_task(receive())
+        try:
+            while not self._closed:
+                queued = await queue.get()
+                if isinstance(queued, SessionClosed):
+                    await self._close(queued.code, queued.reason)
+                    raise queued
+                frame, admission = queued
+                try:
+                    await self._handle_client_frame(
+                        frame, input_observed=True, mail_admission=admission
+                    )
+                except _STORAGE_ERRORS as exc:
+                    self._storage_failed("frame", exc)
+                    if not isinstance(frame, protocol.ClientStepResultFrame):
+                        await self._send(
+                            protocol.error(
+                                "storage_unavailable", "That didn't go through. Please try again."
+                            )
+                        )
+        finally:
+            intake.cancel()
+            await asyncio.gather(intake, return_exceptions=True)
+
+    async def _handle_client_frame(
+        self,
+        frame: Any,
+        *,
+        input_observed: bool = False,
+        mail_admission: tuple[int, bool] | None = None,
+    ) -> None:
+        if not input_observed:
+            mail_admission = self._observe_client_mail_input(frame)
         if isinstance(frame, protocol.AudioFrame):
             size = len(frame.data) * 3 // 4
             if size > protocol.MAX_AUDIO_FRAME_BYTES:
@@ -1045,8 +1182,6 @@ class VoiceSession:
             return
         self._touch()
         if isinstance(frame, protocol.TextFrame):
-            self._mail_input_generation += 1
-            self._mail_input_active = False
             if self.turn.input_seen:
                 if len(self._queued_texts) >= 8:
                     await self._send(protocol.error("turn_busy", "Too many questions are waiting."))
@@ -1105,7 +1240,12 @@ class VoiceSession:
                         {"kind": "pending_shown", "pending_action_id": shown.id}
                     )
         elif isinstance(frame, protocol.ConfirmActionFrame):
-            await self._confirm_by_tap(frame)
+            if frame.pending_action_id in self._mail_pending_ids:
+                self._track_confirm(
+                    frame, mail_admission or self._admit_confirm(frame.pending_action_id)
+                )
+            else:
+                await self._confirm_by_tap(frame, admission=mail_admission)
         elif isinstance(frame, protocol.CancelActionFrame):
             await self._cancel(frame)
         elif isinstance(frame, protocol.CandidateChooseFrame):
@@ -1120,7 +1260,7 @@ class VoiceSession:
         elif isinstance(frame, protocol.ClientStepResultFrame):
             await self._client_step_result(frame)
         elif isinstance(frame, protocol.MailDraftChangedFrame):
-            await self._mail_draft_changed(frame)
+            await self._mail_draft_changed(frame, input_observed=True)
         elif isinstance(frame, protocol.MailDeliveryResultFrame):
             await self._settle_mail_delivery(frame)
         elif isinstance(frame, protocol.UiSettledFrame):
@@ -1137,7 +1277,6 @@ class VoiceSession:
                     }
                 )
         elif isinstance(frame, protocol.InterruptFrame):
-            self._mail_input_generation += 1
             await self._send(protocol.turn("interrupted", turn_id=self.turn.turn_id))
         elif isinstance(frame, protocol.EndFrame):
             await self._close(protocol.CLOSE_ENDED, "ended")
@@ -1266,19 +1405,25 @@ class VoiceSession:
 
     # -- confirmations -------------------------------------------------------
 
-    async def _confirm_by_tap(self, frame: protocol.ConfirmActionFrame) -> None:
+    async def _confirm_by_tap(
+        self,
+        frame: protocol.ConfirmActionFrame,
+        *,
+        admission: tuple[int, bool] | None = None,
+    ) -> None:
         # A tap is new owner input. Bind it before proof/storage awaits and
         # never clear speech that arrives while those checks are pending.
-        self._mail_input_generation += 1
-        admitted = self._mail_approval_input.set(
-            (self._mail_input_generation, self._mail_input_active)
-        )
+        admitted_value = admission or self._admit_confirm(frame.pending_action_id)
+        admitted = self._mail_approval_input.set(admitted_value)
         try:
             await self._confirm_by_tap_admitted(frame)
         finally:
             self._mail_approval_input.reset(admitted)
 
     async def _confirm_by_tap_admitted(self, frame: protocol.ConfirmActionFrame) -> None:
+        if self._closed:
+            self._mail_confirm_admissions.pop(frame.pending_action_id, None)
+            return
         spec = None
         row = await self.pending.get(
             user_id=self.ctx.user_id, pending_action_id=frame.pending_action_id
@@ -1302,6 +1447,7 @@ class VoiceSession:
                         else "Sign-in proof is invalid or names another account.",
                     )
                 )
+                self._mail_confirm_admissions.pop(frame.pending_action_id, None)
                 return
         if frame.firebase_id_token:
             self.ctx.firebase_id_token = frame.firebase_id_token
@@ -1329,6 +1475,13 @@ class VoiceSession:
         self._bump(confirmations_completed=1)
         if origin_turn_id is not None:
             await self._send(protocol.voice_state("executing", turn_id=origin_turn_id))
+        if confirmed.tool_name == "send_reviewed_mail":
+            # The CAS above is the admission point. The task inherits the
+            # ContextVar snapshot captured by _confirm_by_tap, while this pump
+            # immediately returns to receive typed edits/cancellation frames.
+            self._track_mail_execution(confirmed, origin_turn_id=origin_turn_id)
+            return
+        self._mail_confirm_admissions.pop(frame.pending_action_id, None)
         outcome = await self.executor.execute_pending(self.ctx, confirmed)
         await self._after_execution(outcome, source="tap", origin_turn_id=origin_turn_id)
 
@@ -1350,6 +1503,7 @@ class VoiceSession:
                 if await self.pending.cancel(user_id=self.ctx.user_id, pending_action_id=row.id):
                     cancelled.append(row.id)
         for pending_id in cancelled:
+            self._mail_pending_ids.discard(pending_id)
             origin_turn_id = self._pending_turn_ids.get(pending_id)
             self.pending_receipts.pop(pending_id, None)
             self._pending_turn_ids.pop(pending_id, None)
@@ -1775,13 +1929,16 @@ class VoiceSession:
                     user_id=self.ctx.user_id, pending_action_id=row.id
                 )
                 if retired is not None:
+                    self._mail_pending_ids.discard(row.id)
                     await self._send(
                         protocol.pending_resolved(
                             pending_action_id=row.id, status="cancelled", result_public=None
                         )
                     )
 
-    async def _mail_draft_changed(self, frame: protocol.MailDraftChangedFrame) -> None:
+    async def _mail_draft_changed(
+        self, frame: protocol.MailDraftChangedFrame, *, input_observed: bool = False
+    ) -> None:
         owner = self.ctx.services.get("mail_compose")
         if not isinstance(owner, MailComposeRuntime) or not owner.review_supported:
             return
@@ -1789,7 +1946,8 @@ class VoiceSession:
         if isinstance(current, Rejected):
             return
         # Local input fences old authority before storage/normalization can fail.
-        self._mail_input_generation += 1
+        if not input_observed:
+            self._observe_client_mail_input(frame)
         current.rendered = False
         await self._retire_compose_pending(frame.draft_ref)
         result: ToolResult | None
@@ -3221,6 +3379,8 @@ class VoiceSession:
             )
             return
         if outcome.pending is not None and outcome.result.status == "confirmation_required":
+            if outcome.pending.tool_name == "send_reviewed_mail":
+                self._mail_pending_ids.add(outcome.pending.id)
             self._pending_turn_ids[outcome.pending.id] = origin_turn_id
             if outcome.receipt_token:
                 self.pending_receipts[outcome.pending.id] = outcome.receipt_token

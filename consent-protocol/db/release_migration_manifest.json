@@ -254,7 +254,10 @@
     "280_pkm_owner_payouts.sql",
     "281_one_mcp_pending_calls.sql",
     "282_direct_message_actions.sql",
-    "283_gmail_send_grant_generation.sql"
+    "283_gmail_send_grant_generation.sql",
+    "284_direct_message_multiple_reactions.sql",
+    "285_one_wallet_card_auto_provision.sql",
+    "286_one_referral_link_open_notify.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -409,7 +412,9 @@
       "258_one_attention_ledger.sql",
       "260_consent_outcome_delivery.sql",
       "275_scheduled_mail_send.sql",
-      "283_gmail_send_grant_generation.sql"
+      "283_gmail_send_grant_generation.sql",
+      "285_one_wallet_card_auto_provision.sql",
+      "286_one_referral_link_open_notify.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -529,6 +534,9 @@
     "280_pkm_owner_payouts.sql": "rollback/280_pkm_owner_payouts.rollback.sql",
     "281_one_mcp_pending_calls.sql": "rollback/281_one_mcp_pending_calls.rollback.sql",
     "282_direct_message_actions.sql": "rollback/282_direct_message_actions.rollback.sql",
-    "283_gmail_send_grant_generation.sql": "rollback/283_gmail_send_grant_generation.rollback.sql"
+    "283_gmail_send_grant_generation.sql": "rollback/283_gmail_send_grant_generation.rollback.sql",
+    "284_direct_message_multiple_reactions.sql": "rollback/284_direct_message_multiple_reactions.rollback.sql",
+    "285_one_wallet_card_auto_provision.sql": "rollback/285_one_wallet_card_auto_provision.rollback.sql",
+    "286_one_referral_link_open_notify.sql": "rollback/286_one_referral_link_open_notify.rollback.sql"
   }
 }

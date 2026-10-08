@@ -220,7 +220,7 @@ retargeted=true
 for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
   case "${fixed_job}" in
     drive-work-drain-uat) fixed_stage=documents; fixed_cron='*/4 * * * *' ;;
-    drive-work-suggestions-uat) fixed_stage=suggestions; fixed_cron='2-59/4 * * * *' ;;
+    drive-work-suggestions-uat) fixed_stage=suggestions; fixed_cron='* * * * *' ;;
     drive-work-sharing-uat) fixed_stage=sharing; fixed_cron='* * * * *' ;;
   esac
   JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}" \

@@ -3,8 +3,9 @@ import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { isUnresolvedSourceBlock, prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
+import type { BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
 
-export type ConnectorMemorySource = "first_connect_insights" | "drive_read_review";
+export type ConnectorMemorySource = "first_connect_insights" | "drive_read_review" | "business_profile_review";
 type MemorySession = {
   userId: string;
   vaultOwnerToken: string;
@@ -70,6 +71,8 @@ export async function saveConnectorMemoryReview(input: MemorySession & {
   source: ConnectorMemorySource;
   vaultKey: string;
   sharingImpactAcknowledged?: boolean;
+  idempotencyScopes?: readonly string[];
+  businessOrigin?: BusinessMemoryOrigin;
 }): Promise<AgentPkmSaveResult | null> {
   await input.assertCurrent();
   if (!input.cards.length || input.cards.some(card =>
@@ -83,6 +86,8 @@ export async function saveConnectorMemoryReview(input: MemorySession & {
     vaultKey: input.vaultKey,
     vaultOwnerToken: input.vaultOwnerToken,
     source: input.source,
+    idempotencyScopes: input.idempotencyScopes,
+    businessOrigin: input.businessOrigin,
     beforeEffect: input.assertCurrent,
     mayPublish: input.isCurrent,
     confirmation: {

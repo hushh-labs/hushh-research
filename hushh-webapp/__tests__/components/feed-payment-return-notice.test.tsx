@@ -51,4 +51,12 @@ describe("Feed payment return", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("We're checking this request"));
     expect(screen.getByRole("status")).not.toHaveTextContent("Sharing will continue");
   });
+
+  it("explains when the Stripe payment link expired", async () => {
+    window.history.replaceState({}, "", "/one/feed?paymentRequestId=11111111-1111-4111-8111-111111111111&checkout=success");
+    mocks.status.mockResolvedValueOnce({ status: "expired", amountCents: 1000, currency: "usd" });
+    render(<FeedPaymentReturnNotice />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("payment link expired"));
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({ source: "drive_payment_expired" });
+  });
 });

@@ -38,15 +38,16 @@ import {
   STYLE_NOTE_MAX,
   type OwnerStyleSettings,
 } from "@/lib/agent/owner-style-settings";
+import paneStyles from "./communication-preferences-pane.module.css";
 
 const NO_PREFERENCE = "none";
-const CONTROL_WIDTH = "w-full sm:w-60";
+const CONTROL_WIDTH = "w-full min-w-0";
 // The select matches the text field beside it: one height, fill, corner and
 // value type (the pairing e2e/gemini-endpoint-fields.layout.spec.ts guards).
 const SELECT_CLASSNAME = `${CONTROL_WIDTH} data-[size=default]:h-11 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3.5 ui-text-input-value shadow-none dark:bg-[color:var(--app-secondary-surface)] dark:hover:bg-[color:var(--app-secondary-surface)]`;
 // Stacked under its label on a phone: 8 px grid gap plus the trailing's 4 px top
 // padding gives a 12 px step, on the 4 pt scale.
-const ROW_CLASSNAME = "[--settings-row-stack-gap:8px]";
+const ROW_CLASSNAME = "profile-preferences-control-row [--settings-row-stack-gap:8px]";
 
 function ChoiceSelect<T extends string>({
   value,
@@ -73,9 +74,9 @@ function ChoiceSelect<T extends string>({
         <SelectValue placeholder="No preference" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={NO_PREFERENCE}>No preference</SelectItem>
+        <SelectItem className={paneStyles.choiceOption} value={NO_PREFERENCE}>No preference</SelectItem>
         {options.map((option) => (
-          <SelectItem key={option} value={option}>
+          <SelectItem className={paneStyles.choiceOption} key={option} value={option}>
             {labels[option]}
           </SelectItem>
         ))}
@@ -112,7 +113,7 @@ export function CommunicationPreferencesGroup({
   };
   const note = value.owner_style_note ?? "";
   return (
-    <div className="space-y-4" data-testid="style-settings">
+    <div className={`profile-preferences-content space-y-4 ${paneStyles.paneTypography}`} data-testid="style-settings">
       <SettingsGroup
         title="How One writes to you"
         description="One follows these on every reply. They change its writing only, never what it can see, share or do."
