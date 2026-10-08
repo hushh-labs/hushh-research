@@ -1292,7 +1292,7 @@ jobs:
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
       - name: Quarantine failed preview first release
-        if: always() && failure() && env.DEV_TARGET == 'scope-commerce-sandbox'
+        if: always() && env.DEV_TARGET == 'scope-commerce-sandbox' && (failure() || steps.classify-dev-release.outputs.release_failed == 'true')
         id: quarantine-preview
         shell: bash
         run: |

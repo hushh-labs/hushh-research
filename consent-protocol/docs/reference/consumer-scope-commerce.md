@@ -1301,14 +1301,36 @@ requires T through expiry separately. Existing focused PostgreSQL tests cover
 these contracts, but this audit executed no new test or deployed transaction.
 Real calendar and provider acceptance remain required.
 
-The next candidate makes preview IAM admission explicit: Cloud Build preserves
-service IAM, workload-identity probes target tagged revisions with the base
-service URL as audience, both exact application revisions must serve before
-public admission, and the existing anonymous semantic checks and quarantine
-remain mandatory. Focused checks passed (83 application checks, 27 main-owned
-deployment checks); the negative control fails on the original anonymous-probe
-and early-public-grant source. Core, exact-SHA CI and a new release are required
-before this repair establishes deployed readiness. This includes the developer's
-already committed pod-recovery change; unrelated working-tree edits are excluded.
-The official host Stripe connector remains uninstalled on the current host
-readback; enabling Stripe's MCP setting does not establish host OAuth.
+Application `caaa5a82fd9c6e1a620b037fb83e158470c1216e` passed local core
+in 450 seconds and [full CI 37817492719](https://github.com/hushh-labs/hushh-research/actions/runs/37817492719),
+including iOS, Android and all frontend/browser lanes. [PR #7637](https://github.com/hushh-labs/hushh-research/pull/7637)
+landed the private-probe/public-admission definition through the authorized Admin
+queue bypass at `f7894bf05a3c51763cefe25313711c4deb4a8e74`; exact-main
+[smoke 37818459919](https://github.com/hushh-labs/hushh-research/actions/runs/37818459919) passed.
+
+[Preview release 37821541498](https://github.com/hushh-labs/hushh-research/actions/runs/37821541498)
+passed both authenticated candidate probes, exact source/image provenance, schema,
+mounts, traffic promotion, public invocation and anonymous HTTP health. Its semantic
+readiness checks failed, and the terminal release status was `blocked`.
+The verifier required `spec.template.metadata.name`, which the actual Cloud Run
+response omits for generated names. It now requires the single 100%-serving revision
+to match both observed created/ready revisions and any explicit template name.
+Pending, rolled-back and split-traffic templates remain rejected.
+
+A second defect skipped first-release quarantine: continued semantic failures did
+not make GitHub's `failure()` true. The workflow now also checks the classifier's
+`release_failed` output. Rollback had returned traffic to inert bootstrap revisions
+while leaving public invocation enabled. The canonical fixed-target quarantine
+helper restored private, secret-free bootstrap at `2026-10-08T18:29:16Z`; independent
+cloud readback verified both lanes private at `18:31:05Z`. No application access or
+financial activity is claimed for that failed release. Bounded verifier stage and
+HTTP-status diagnostics exclude provider exception text, URLs and credentials.
+
+Focused checks passed (115 application/deployment/database-ceiling checks,
+27 main-owned deployment checks).
+New exact-source core, CI, Admin landing, smoke and preview receipts remain required
+for these corrections. Both reviewer Firebase subjects and custom-token transport
+were independently verified at `18:30:56Z`; this is readiness infrastructure evidence,
+not an unlocked browser session or financial acceptance. The official host Stripe
+connector remains uninstalled on the current host readback; enabling Stripe's MCP
+setting does not establish host OAuth. Paid/provider admission remains disabled.

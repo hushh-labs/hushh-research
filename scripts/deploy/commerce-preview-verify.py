@@ -171,10 +171,13 @@ def validate_serving_template(document: dict) -> None:
     template = (
         document.get("spec", {}).get("template", {}).get("metadata", {}).get("name")
     )
+    # Cloud Run omits metadata.name for server-generated revision names. Its
+    # observed created/ready revisions must still identify this serving template;
+    # a pending or rolled-back template cannot attest the live mounts.
     if (
-        not template
-        or state.revision != template
+        (template is not None and state.revision != template)
         or state.revision != document["status"].get("latestReadyRevisionName")
+        or state.revision != document["status"].get("latestCreatedRevisionName")
     ):
         raise PreviewError("preview_serving_revision_unverified")
 
@@ -183,6 +186,7 @@ class PreviewVerifier:
     def __init__(self, reader: CloudReader | None = None):
         self.reader = reader or CloudReader()
         self.target = TARGET["PreviewTarget"]()
+        self.stage = "resources"
 
     def resources(self, *, mounts: bool, serving: bool = False) -> dict:
         backend = self.reader.service(self.target.backend)
@@ -190,8 +194,10 @@ class PreviewVerifier:
         backend_origin = self.target.service_origin(backend, self.target.backend)
         app_origin = self.target.service_origin(frontend, self.target.frontend)
         if serving:
+            self.stage = "serving_revision"
             validate_serving_template(backend)
             validate_serving_template(frontend)
+        self.stage = "runtime_bindings"
         config = json.loads(self.reader.secret("BACKEND_RUNTIME_CONFIG_JSON"))
         policy_module = run_path(
             str(ROOT / "scripts/ops/scope_commerce_runtime_policy.py")
@@ -321,6 +327,7 @@ class PreviewVerifier:
     def app(self, context: dict) -> None:
         from firebase_admin import auth, credentials, delete_app, initialize_app
 
+        self.stage = "firebase_configuration"
         credentials_json = json.loads(
             self.reader.secret("FIREBASE_ADMIN_CREDENTIALS_JSON")
         )
@@ -333,17 +340,20 @@ class PreviewVerifier:
         try:
             # Prove both subjects exist before either authentication call.
             # Custom-token sign-in would otherwise create a mistyped UID.
+            self.stage = "reviewer_identity"
             for user in context["users"]:
                 if auth.get_user(user, app=firebase).disabled:
                     raise PreviewError("preview_reviewer_unavailable")
             api_key = self.reader.secret("NEXT_PUBLIC_FIREBASE_API_KEY")
             for user in context["users"]:
+                self.stage = "reviewer_authentication"
                 custom_token = auth.create_custom_token(user, app=firebase).decode()
                 login = json_http(
                     "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?"
                     + urlencode({"key": api_key}),
                     body={"token": custom_token, "returnSecureToken": True},
                 )
+                self.stage = "application_readiness"
                 proof = json_http(
                     context["app_origin"]
                     + "/api/scope-commerce/sandbox-readiness?"
@@ -435,13 +445,24 @@ def main() -> int:
             mounts=args.phase in {"mounts", "app"}, serving=args.phase == "app"
         )
         if args.phase == "database":
+            verifier.stage = "database"
             asyncio.run(verifier.database(context))
         if args.phase == "app":
             verifier.app(context)
         report["status"] = "passed"
-    except Exception:
+    except Exception as error:
         # SDK/HTTP exceptions can contain token-bearing URLs and secret values.
         report["classifications"] = ["commerce_preview_unverified"]
+        report["failure_stage"] = verifier.stage
+        from urllib.error import HTTPError
+
+        report["http_status"] = (
+            error.code
+            if isinstance(error, HTTPError)
+            and type(error.code) is int
+            and 100 <= error.code <= 599
+            else None
+        )
     Path(args.report_path).write_text(json.dumps(report, sort_keys=True) + "\n")
     return 0 if report["status"] == "passed" else 1
 

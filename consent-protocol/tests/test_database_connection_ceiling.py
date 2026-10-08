@@ -403,17 +403,26 @@ def test_preview_oauth_returns_to_one_process_without_changing_shared_lanes() ->
             module["validate_oauth_process"](changed)
 
 
-def test_preview_process_proof_rejects_a_candidate_that_is_not_serving() -> None:
+@pytest.mark.parametrize("template_name", [None, "candidate-one"])
+def test_preview_process_proof_rejects_a_candidate_that_is_not_serving(template_name) -> None:
     module = run_path(str(REPO_ROOT / "scripts/deploy/commerce-preview-verify.py"))
     service = {
-        "spec": {"template": {"metadata": {"name": "candidate-one"}}},
+        "spec": {
+            "template": {"metadata": {} if template_name is None else {"name": template_name}}
+        },
         "status": {
             "latestReadyRevisionName": "candidate-one",
+            "latestCreatedRevisionName": "candidate-one",
             "url": "https://preview.run.app",
             "traffic": [{"revisionName": "candidate-one", "percent": 100}],
         },
     }
     module["validate_serving_template"](service)
+    for field in ("latestReadyRevisionName", "latestCreatedRevisionName"):
+        changed = json.loads(json.dumps(service))
+        changed["status"][field] = "pending-other"
+        with pytest.raises(module["PreviewError"], match="preview_serving_revision_unverified"):
+            module["validate_serving_template"](changed)
     for traffic in (
         [
             {"revisionName": "previous-two", "percent": 100},
