@@ -2,6 +2,17 @@
 
 Status: design proposal, 2026-10-07. Implementation, key provisioning, migration application, and deployment are not complete. This describes a future contract; current custom OAuth remains process-local.
 
+## Visual Map
+
+```
+Browser (vault owner) ──start──▶ Worker A ──prepare grant──▶ attempt store (Postgres, temporary)
+                                                                   ▲
+Provider redirect ──callback──▶ Worker B ──validate state/issuer──┘
+                                   │ claim once, then exchange
+                                   ▼
+                          token response ──▶ browser vault (final credentials)
+```
+
 ## Outcome and scope
 
 Allow a custom connector authorization begun on one worker to complete on another worker or after a restart, provided the provider token exchange has not started. Preserve owner authorization, public endpoint admission, SDK OAuth behavior, and browser-vault ownership of final credentials.
