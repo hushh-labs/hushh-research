@@ -148,6 +148,11 @@ export function VaultUnlockDialog({ open, title }: { open: boolean; title?: stri
 }
 
 export const trackEvent = () => undefined;
+// Keep the fixture boundary aligned with the production observability module.
+// Wallet layout tests do not exercise telemetry, but api-service imports these
+// symbols while the fixture bundle is compiled.
+export const toDurationBucket = () => "lt_100ms";
+export const trackApiRequestCompleted = () => undefined;
 export const NativeTestBeacon = () => null;
 
 export class ConsentCenterService {
