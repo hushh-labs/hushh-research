@@ -469,3 +469,20 @@ clocks run independently:
 Every gate in this repo must pay for itself in caught defects. When adding a step to
 any deploy lane, name the defect class it catches; if an existing gate already catches
 it, do not add the step.
+
+
+### Isolated scope-commerce preview schema admission
+
+The fixed `scope-commerce-sandbox` target applies only the canonical release
+migrations and checks `prod_core_schema.json` before and after deployment. A
+missing contract fails admission; it cannot fall back to shared Dev. The
+shared-Dev target retains `dev_minimum_schema.json` and its parked notification
+checkpoint requirements. Application readiness derives its release head from
+the same full release contract in the candidate source.
+
+The 2026-10-08 preview run 37763775324 exposed a mismatch between these lanes.
+The unused `remove_domain_summary_key` requirement also described only historical
+migration 013 and retired storage; it was removed from the authored contracts.
+No legacy or parked SQL was replayed, no migration receipts were fabricated, and
+no runtime or financial authority was added. The corrected full release contract
+passed read-only verification against the isolated database with zero violations.
