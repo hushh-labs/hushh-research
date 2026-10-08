@@ -281,12 +281,15 @@ function launchUiInteractionAudit() {
     "true",
     "-UITestUiFlowRunId",
     uiFlowRunId,
-    "-UITestVaultPassphrase",
-    reviewerVaultPassphrase,
     "-UITestExpectedUserId",
     reviewerUid,
   ];
-  run("xcrun", args);
+  run("xcrun", args, {
+    env: {
+      ...process.env,
+      SIMCTL_CHILD_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: reviewerVaultPassphrase,
+    },
+  });
   auditAppLaunched = true;
 }
 

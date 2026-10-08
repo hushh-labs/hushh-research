@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
+import { ConnectorReadReceipt, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import { VaultContext } from "@/lib/vault/vault-context";
 
@@ -21,6 +21,16 @@ const driveOverview = vi.hoisted(() => vi.fn(async () => ({ connectors: [] as Ar
 vi.mock("@/lib/services/external-connector-service", () => ({ ExternalConnectorService: { overview: driveOverview } }));
 
 describe("Workspace connector setup card", () => {
+  it("keeps the provider mark on a read's connection-required prompt", () => {
+    const onOpenConnections = vi.fn();
+    const { container } = render(<ConnectorReadReceipt experience={{
+      type: "one.connector_read.v1", connector: "drive", status: "connect_required",
+      sourceRefs: [], metadataOnly: true, truncated: false,
+    }} onOpenConnections={onOpenConnections} />);
+    expect(container.querySelector('img[data-connector-brand="drive"]')).toHaveAttribute("src", "/icons/connectors/drive.svg");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Drive" }));
+    expect(onOpenConnections).toHaveBeenCalledWith("drive", expect.any(HTMLButtonElement));
+  });
   it("offers Gmail disconnect only after current status, with app confirmation", async () => {
     gmailState.connected = true;
     gmailState.disconnect.mockClear();

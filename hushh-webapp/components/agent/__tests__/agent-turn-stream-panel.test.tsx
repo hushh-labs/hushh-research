@@ -699,4 +699,23 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getByText("Microsoft Learn").closest("li")?.querySelector("img")).toBeNull();
     expect(screen.getByText("Read")).toBeInTheDocument();
   });
+
+  it("keeps current Drive reads and non-provider actions identifiable without inventing logos", () => {
+    const events = [
+      ["read_selected_drive_search_result", "Selected file"],
+      ["propose_drive_bulk_share", "Review sharing"],
+      ["ask_memory_agent", "Your memory"],
+      ["inspect_private_connectors", "Connectors"],
+    ].map(([toolName, label], index) => agentToolEventToVisibleStreamEvent("result", makeToolEvent({
+      callId: `mark-${index}`, actionId: null, label, execution: "server",
+      raw: { protocol: "ag-ui", toolName },
+    }), index));
+    render(<AgentTurnStreamPanel streamEvents={events} responseText="" isStreaming={false} />);
+    const activity = screen.getByRole("button", { name: /One activity|Activity/ });
+    if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
+    for (const label of ["Selected file", "Review sharing"])
+      expect(screen.getByText(label).closest("li")?.querySelector('[data-connector-brand="drive"]')).not.toBeNull();
+    expect(screen.getByText("Your memory").closest("li")?.querySelector('[data-agent-activity-icon="memory"]')).not.toBeNull();
+    expect(screen.getByText("Connectors").closest("li")?.querySelector('[data-agent-activity-icon="connectors"]')).not.toBeNull();
+  });
 });

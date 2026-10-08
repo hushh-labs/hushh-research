@@ -811,7 +811,7 @@ textarea {
   --page-top-start: 28px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
-  --app-shell-reading: 54rem;
+  --app-shell-reading: 720px;
   --app-shell-agent: 55rem;
   --app-shell-standard: 90rem;
   --app-shell-expanded: 96rem;
@@ -1010,6 +1010,7 @@ textarea {
    * the iOS / vaul sheet curve: fast start, long gentle settle. */
   --motion-sheet-enter-duration: 300ms;
   --motion-sheet-exit-duration: 200ms;
+  --motion-drawer-settle-duration: 150ms;
   --motion-sheet-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --motion-sheet-exit-ease: var(--motion-ease-accelerate);
 
@@ -6800,7 +6801,7 @@ html[data-accent="gold"].dark {
   from {
     opacity: var(--tw-enter-opacity, 1);
     transform: translate3d(
-      var(--tw-enter-translate-x, 0),
+      var(--profile-entry-offset, var(--tw-enter-translate-x, 0)),
       var(--tw-enter-translate-y, 0),
       0
     );

@@ -464,6 +464,7 @@ vi.mock("@/lib/profile/gmail-receipt-memory-pkm", () => ({
 import ProfileReceiptsPage from "@/components/gmail/gmail-receipts-page";
 import {
   clearCachedGmailReceipts,
+  getCachedGmailReceipts,
   primeCachedGmailReceipts,
 } from "@/lib/profile/gmail-receipts-cache";
 import {
@@ -1384,6 +1385,43 @@ describe("ProfileReceiptsPage", () => {
       /Set up or open your private vault to view synced receipts/i,
     );
     await waitFor(() => expect(screen.queryByText("Myntra")).toBeNull());
+  });
+
+  it("retires the scan lease when vault authority rotates without locking", async () => {
+    let finishOld!: (value: Awaited<ReturnType<typeof GmailReceiptsService.scanReceipts>>) => void;
+    let finishCurrent!: (value: Awaited<ReturnType<typeof GmailReceiptsService.scanReceipts>>) => void;
+    const pendingOld = new Promise<Awaited<ReturnType<typeof GmailReceiptsService.scanReceipts>>>((resolve) => { finishOld = resolve; });
+    const pendingCurrent = new Promise<Awaited<ReturnType<typeof GmailReceiptsService.scanReceipts>>>((resolve) => { finishCurrent = resolve; });
+    vi.mocked(GmailReceiptsService.scanReceipts)
+      .mockImplementationOnce(() => pendingOld)
+      .mockImplementationOnce(() => pendingCurrent);
+    const rendered = render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+    await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1));
+    const oldSignal = vi.mocked(GmailReceiptsService.scanReceipts).mock.calls[0][0].signal;
+    mocks.useVault.mockReturnValue({ vaultKey: "test-key", vaultOwnerToken: "rotated-owner-token", isVaultUnlocked: true });
+    rendered.rerender(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    expect(oldSignal?.aborted).toBe(true);
+    await startReceiptSync();
+    await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(2));
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenLastCalledWith(expect.objectContaining({ vaultOwnerToken: "rotated-owner-token" }));
+    await act(async () => {
+      finishOld({ items: [makeReceipt(1, "Retired Shop")], page: 1, per_page: 6,
+        total: 1, has_more: false, coverage: makeLiveCoverage(1) });
+      await pendingOld;
+    });
+    expect(screen.queryByText("Retired Shop")).toBeNull();
+    expect(getCachedGmailReceipts("user-123", "akshat@example.com")).toBeNull();
+    expect(screen.queryByText("Receipts updated.")).toBeNull();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Scanning", exact: true })).toBeDisabled();
+    await act(async () => {
+      finishCurrent({ items: [makeReceipt(2, "Current Shop")], page: 1, per_page: 6,
+        total: 1, has_more: false, coverage: makeLiveCoverage(1) });
+      await pendingCurrent;
+    });
+    expect((await screen.findAllByText("Current Shop")).length).toBeGreaterThan(0);
+    expect(getCachedGmailReceipts("user-123", "akshat@example.com")?.items[0].merchant_name).toBe("Current Shop");
   });
 
   it("does not publish an in-flight response under a replacement Mail account", async () => {
@@ -2436,13 +2474,12 @@ describe("ProfileReceiptsPage", () => {
   });
 
   it("deletes the Gmail receipt cache when disconnecting", async () => {
-    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
-      items: [makeReceipt(1, "Stored Shop")],
-      page: 1,
-      per_page: 20,
-      total: 1,
-      has_more: false,
-    });
+    let finishOlder!: (value: Awaited<ReturnType<typeof GmailReceiptsService.scanReceipts>>) => void;
+    const pendingOlder = new Promise<Awaited<ReturnType<typeof GmailReceiptsService.scanReceipts>>>((resolve) => { finishOlder = resolve; });
+    vi.mocked(GmailReceiptsService.scanReceipts).mockImplementationOnce(async () => ({
+      items: [makeReceipt(1, "Stored Shop")], page: 1, per_page: 6, total: 2, has_more: true,
+      next_cursor: "page-two", coverage: makeLiveCoverage(1),
+    })).mockImplementationOnce(() => pendingOlder);
     gmailView.disconnectGmail.mockResolvedValue({
       configured: true,
       connected: false,
@@ -2461,6 +2498,8 @@ describe("ProfileReceiptsPage", () => {
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,
     );
+    await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(2));
+    expect(getCachedGmailReceipts("user-123", "akshat@example.com")?.items).toHaveLength(1);
     // Disconnect is available through Manage on the Mail overview.
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
@@ -2488,5 +2527,8 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => {
       expect(screen.queryByText("Stored Shop")).toBeNull();
     });
+    await act(async () => { finishOlder({ items: [makeReceipt(2, "Late Shop")], page: 2, per_page: 6, total: 2, has_more: false, coverage: makeLiveCoverage(2) }); await pendingOlder; });
+    expect(getCachedGmailReceipts("user-123", "akshat@example.com")).toBeNull();
+    expect(screen.queryByText("Late Shop")).toBeNull();
   });
 });

@@ -151,13 +151,12 @@ export function RiaClientAccountDetail({
         authState: user ? "authenticated" : "pending",
         dataState: loading
           ? "loading"
-          : accountBranch
-            ? "loaded"
-            : detailError
-              ? "error"
+          : detailError
+            ? "error"
+            : accountBranch
+              ? "loaded"
               : "empty-valid",
         errorCode: detailError ? "ria_client_account_detail" : null,
-        errorMessage: detailError,
       }}
     >
       {loading ? (

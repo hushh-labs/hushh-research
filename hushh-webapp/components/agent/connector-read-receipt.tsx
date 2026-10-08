@@ -9,6 +9,7 @@ import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connect
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { VaultContext } from "@/lib/vault/vault-context";
 import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
+import { ConnectedSystemsAgentIcon } from "@/components/icons";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import type {
   ConnectorReadExperience,
@@ -63,9 +64,12 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
   const drive = experience.connector === "drive";
   return (
     <section aria-label={drive ? "Drive read details" : "Mail read details"} className="min-w-0 space-y-2 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2">
+      <ConnectorBrandMark brand={drive ? "drive" : "gmail"} size="sm" />
       <p role="status">{!drive && experience.status === "ok" && !experience.metadataOnly
         ? "Mail messages read"
         : (drive ? DRIVE_STATUS : STATUS_TEXT)[experience.status]}</p>
+      </div>
       {experience.status === "ok" ? (
         <>
           <p>{drive ? (experience.metadataOnly ? "Drive file matches" : "Drive excerpts") : (experience.metadataOnly ? "Metadata only" : "Message text")} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p>
@@ -154,7 +158,7 @@ function ConnectorCardShell({
     >
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          {brand ? <ConnectorBrandMark brand={brand} /> : null}
+          {brand ? <ConnectorBrandMark brand={brand} /> : <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center"><ConnectedSystemsAgentIcon className="size-5" /></span>}
           <div className="min-w-0 flex-1">
             <p role="status" className="flex min-h-8 items-center font-medium text-foreground">{title}</p>
             {detail ? <p className="text-muted-foreground">{detail}</p> : null}

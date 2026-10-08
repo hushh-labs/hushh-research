@@ -37,6 +37,26 @@ struct HushhNativeNavigationState {
     }
 }
 
+enum HushhNativeNavigationArtwork {
+    static func items(image: (String) -> UIImage? = { UIImage(named: $0) }) -> [UITabBarItem]? {
+        let labels = ["Chat", "One", "Connect", "Feed", "Search"]
+        var items = [UITabBarItem]()
+        for (index, tab) in HushhNativeNavigationState.tabs.enumerated() {
+            // Assets are generated from the shared Phosphor registry descriptor.
+            // A partial catalog must keep the DOM fallback, not show blank tabs.
+            guard let normal = image("HushhNav-\(tab)-default"),
+                  let selected = image("HushhNav-\(tab)-selected") else { return nil }
+            let item = UITabBarItem(title: labels[index],
+                image: normal.withRenderingMode(.alwaysTemplate),
+                selectedImage: selected.withRenderingMode(.alwaysTemplate))
+            item.tag = index
+            item.accessibilityIdentifier = "one-native-tab-\(tab)"
+            items.append(item)
+        }
+        return items
+    }
+}
+
 @objc(HushhNativeNavigationPlugin)
 final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
     let identifier = "HushhNativeNavigationPlugin"
@@ -55,6 +75,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var tapSequence = 0
     private var confirmedSequence = 0
     private var retiredRestartGeneration = -1
+    private lazy var navigationItems = HushhNativeNavigationArtwork.items()
 
     override func load() {
         DispatchQueue.main.async { [weak self] in
@@ -81,7 +102,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": true, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": self.navigationItems != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
             }
@@ -143,21 +164,14 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
 
     @available(iOS 26.0, *)
     private func installIfNeeded() {
-        guard tabBar == nil, let host = bridge?.viewController?.view else { return }
+        guard tabBar == nil, let host = bridge?.viewController?.view, let items = navigationItems else { return }
         let bar = UITabBar()
         bar.accessibilityIdentifier = "one-native-navigation"
         bar.isHidden = true
         bar.delegate = self
         // Keep Apple's standard appearance: no custom blur, material or background image.
-        let labels = ["Chat", "One", "Connect", "Feed", "Search"]
-        // Solid glyphs: full silhouette with the semantic detail cut out as negative space.
-        let symbols = ["bubble.left.and.bubble.right.fill", "square.grid.2x2.fill", "safari.fill", "newspaper.fill", "magnifyingglass.circle.fill"]
         bar.unselectedItemTintColor = .label
-        bar.items = zip(labels, symbols).enumerated().map { index, pair in
-            let item = UITabBarItem(title: pair.0, image: UIImage(systemName: pair.1), tag: index)
-            item.accessibilityIdentifier = "one-native-tab-\(HushhNativeNavigationState.tabs[index])"
-            return item
-        }
+        bar.items = items
         // A shield installed before the bridge call must remain above native controls.
         if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
             host.insertSubview(bar, belowSubview: shield)

@@ -33,7 +33,7 @@ let operationQueue: Promise<unknown> = Promise.resolve();
 let installed = false;
 let nativeBottomInset = 0;
 let interactionEpoch = 0;
-const overlays = new Set<symbol>();
+const overlays = new Map<symbol, string | undefined>();
 const subscribers = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   subscribers.add(listener);
@@ -43,9 +43,11 @@ function publish() { subscribers.forEach((listener) => listener()); }
 function isNativeIOS() { return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios"; }
 // Shared isolation authority for native shell controls. Do not create another
 // overlay registry in individual plugins or feature components.
-export function nativeShellOverlayBlocked() { return overlays.size > 0; }
-export function useNativeShellOverlayBlocked() {
-  return useSyncExternalStore(subscribe, nativeShellOverlayBlocked, () => false);
+export function nativeShellOverlayBlocked(owningLayer?: string) {
+  return [...overlays.values()].some((layer) => !owningLayer || layer !== owningLayer);
+}
+export function useNativeShellOverlayBlocked(owningLayer?: string) {
+  return useSyncExternalStore(subscribe, () => nativeShellOverlayBlocked(owningLayer), () => false);
 }
 function setInstalled(next: boolean) {
   if (installed === next) return;
@@ -71,19 +73,19 @@ export function useNativeNavigationBottomInset() {
   return useSyncExternalStore(subscribe, () => installed ? nativeBottomInset : null, () => null);
 }
 
-export function useNativeNavigationBlocked(active: boolean) {
+export function useNativeNavigationBlocked(active: boolean, owningLayer?: string) {
   const token = useRef(Symbol("native-navigation-blocker"));
   useLayoutEffect(() => {
     if (!active || !isNativeIOS()) return;
     const blocker = token.current;
-    overlays.add(blocker);
+    overlays.set(blocker, owningLayer);
     publish();
     return () => { if (overlays.delete(blocker)) publish(); };
-  }, [active]);
+  }, [active, owningLayer]);
 }
 
 /** Native controls are outside the DOM: authored overlay mounts must isolate them too. */
-export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRef?: Ref<T>, enabled = true) {
+export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRef?: Ref<T>, enabled = true, owningLayer?: string) {
   const token = useRef(Symbol("native-navigation-overlay"));
   const release = useCallback(() => {
     if (overlays.delete(token.current)) publish();
@@ -91,11 +93,11 @@ export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRe
   useLayoutEffect(() => release, [release]);
   return useCallback((node: T | null) => {
     if (isNativeIOS()) {
-      if (node && enabled) { overlays.add(token.current); publish(); } else release();
+      if (node && enabled) { overlays.set(token.current, owningLayer); publish(); } else release();
     }
     if (typeof forwardedRef === "function") forwardedRef(node);
     else if (forwardedRef) forwardedRef.current = node;
-  }, [enabled, forwardedRef, release]);
+  }, [enabled, forwardedRef, release, owningLayer]);
 }
 
 export function useNativeNavigation({ enabled, visible, selected, feedAttention, appearance, accentHex, foregroundHex, onSelect }: NativeControlAppearance & {

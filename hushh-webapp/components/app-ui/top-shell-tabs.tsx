@@ -146,10 +146,6 @@ export function TopShellTabs({
       if (!tab || disabled) return;
       if (focus) tabRefs.current[index]?.focus();
       if (tab.value === selectedValue) return;
-      if (onValueChange) {
-        onValueChange(tab.value);
-        return;
-      }
 
       // Move the shared compositor indicator at pointer/keyboard time. The
       // query-backed route remains the semantic authority, but it must not
@@ -167,6 +163,12 @@ export function TopShellTabs({
         setTopShellTabSwipeState(tabSet.id, index, false);
       }
       requestTopShellTabSelection(tabSet.id, tab.value);
+      if (onValueChange) {
+        // Local workspaces keep route authority, but use the same immediate
+        // pager/indicator handoff as routed taps before publishing selection.
+        onValueChange(tab.value);
+        return;
+      }
       beginRouteTransition(
         tab.href,
         () => {

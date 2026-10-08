@@ -138,6 +138,7 @@ export function KeyboardInsetManager() {
       // keyboard twice: the vault gate's box collapsed to 44 dp and clipped
       // the field, the Unlock button and every link (mobile bug log B54).
       // Only the part of the keyboard still covering the viewport is an inset.
+      const absorbsKeyboard = Capacitor.getPlatform() === "android";
       let keyboardPx = 0;
       let baselineInnerHeight = window.innerHeight;
       const publishInset = () => {
@@ -145,7 +146,13 @@ export function KeyboardInsetManager() {
           setKeyboardHeight(0);
           return;
         }
-        const absorbed = Math.max(0, baselineInnerHeight - window.innerHeight);
+        // iOS keeps the WKWebView frame for the keyboard (resize:"none").
+        // Rotation or scene resizing may shorten that frame independently;
+        // subtracting that change hides a real keyboard. The iPad plugin
+        // supplies a window-adjusted height; preserve its reported value.
+        const absorbed = absorbsKeyboard
+          ? Math.max(0, baselineInnerHeight - window.innerHeight)
+          : 0;
         setKeyboardHeight(Math.max(0, keyboardPx - absorbed), true, absorbed >= KB_ABSORBED_MIN_PX);
       };
       const onWindowResize = () => {

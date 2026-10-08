@@ -162,6 +162,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { isAuthenticated, loading: authLoading, userId } = useAuth();
+  const profileReturnFocus = useRef<{ owner: string | null; target: HTMLElement } | null>(null);
   const [profilePaneResume, setProfilePaneResume] = useState<{
     ownerId: string | null;
     location: ProfilePaneLocation;
@@ -508,6 +509,8 @@ function AppShellFrame({ children }: ProvidersProps) {
         report?.("already_open");
         return;
       }
+      const target = (event as CustomEvent<ProfilePaneOpenDetail>).detail?.returnFocus;
+      profileReturnFocus.current = target?.isConnected ? { owner: userId, target } : null;
       openProfilePane(
         pathname || ROUTES.ONE_HOME,
         searchParams,
@@ -528,6 +531,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     profilePaneResumeLocation,
     profilePaneUrlState.open,
     searchParams,
+    userId,
   ]);
 
   const profilePaneIsOpen = profilePaneUrlState.open;
@@ -672,8 +676,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <AppProfileEdgeGesture enabled={profilePaneEnabled} />
                   <AppBottomShell model={bottomShellModel} />
                   <ProfilePane
+                    owner={userId}
                     open={profilePaneOpen}
                     onOpenChange={handleProfilePaneOpenChange}
+                    returnFocusRef={profileReturnFocus}
                   />
                   {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents

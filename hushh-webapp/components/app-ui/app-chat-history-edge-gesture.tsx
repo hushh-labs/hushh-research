@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { renderedDrawerOffset } from "./drawer-motion";
 
 const EDGE_BACK_LANE = 28;
 const AXIS_LOCK = 8;
@@ -12,7 +13,7 @@ type Gesture = {
   identifier: number; x: number; y: number; time: number;
   axis: "undecided" | "horizontal";
   initialOpen: boolean; surface: HTMLElement;
-  width: number; panel: HTMLElement; scrim: HTMLElement;
+  width: number; distance: number; moved: boolean; panel: HTMLElement; scrim: HTMLElement;
 };
 
 function excludedTarget(target: EventTarget | null, surface: HTMLElement, closing = false) {
@@ -38,9 +39,10 @@ function domBlocked() {
 /** Presentation-only pull. The drawer owner supplies geometry and its authored
  * open action. No global listener, inferred button or route dispatch. React
  * changes only at gesture boundaries, never for a movement frame. */
-export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, drawerRef, scrimRef, onOpen, onClose }: {
+export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationKey, surfaceRef, drawerRef, scrimRef, onOpen, onClose }: {
   enabled: boolean;
   open?: boolean;
+  presentationKey?: string;
   surfaceRef: RefObject<HTMLElement | null>;
   drawerRef: RefObject<HTMLElement | null>;
   scrimRef: RefObject<HTMLElement | null>;
@@ -52,7 +54,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
   const [dragging, setDragging] = useState(false);
   const reconcile = useRef<((open: boolean) => void) | null>(null);
   const wasOpen = useRef(open);
-  useNativeNavigationBlocked(dragging);
+  useNativeNavigationBlocked(dragging, "history-drag");
   useLayoutEffect(() => {
     if (wasOpen.current !== open) reconcile.current?.(open);
     wasOpen.current = open;
@@ -67,6 +69,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
     let settling: Gesture | null = null;
     let settlingOpen = false;
     let timer = 0;
+    let generation = 0;
     let suppressClickUntil = 0;
     // The closed panel already includes its authored shadow clearance.
     const shadowClearance = Math.max(0, -panel.getBoundingClientRect().left - panel.offsetWidth);
@@ -80,18 +83,19 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const motion = phase === "open" ? "enter" : "exit";
       current.panel.style.transition = phase === "drag" || reduced ? "none"
-        : `transform var(--motion-sheet-${motion}-duration) var(--motion-sheet-${motion}-ease)`;
+        : `transform var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
       // Tailwind v4's resting translate is independent of transform. Disable
       // it for the pull, otherwise both offsets add and the panel stays hidden.
       current.panel.style.translate = "none";
       current.scrim.style.transition = phase === "drag" || reduced ? "none"
-        : `opacity var(--motion-sheet-${motion}-duration) var(--motion-sheet-${motion}-ease)`;
+        : `opacity var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
       current.panel.style.transform = `translate3d(${offset}px, 0, 0)`;
       current.scrim.style.opacity = String(1 - Math.abs(offset) / current.width);
       current.scrim.style.visibility = "visible";
     };
     const settle = (current: Gesture, open: boolean, notify = false) => {
       window.clearTimeout(timer);
+      const currentGeneration = ++generation;
       gesture = null;
       settling = current;
       settlingOpen = open;
@@ -105,6 +109,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
         return Number.isFinite(ms) ? Math.max(max, ms) : max;
       }, 0);
       timer = window.setTimeout(() => {
+        if (currentGeneration !== generation) return;
         clear(current); settling = null; setDragging(false);
       }, duration + 30);
     };
@@ -126,14 +131,20 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       if (!touch) return;
       const initialOpen = wasOpen.current;
       const origin = event.currentTarget as HTMLElement;
-      if (settling || (initialOpen ? origin === surface : origin !== surface) ||
+      if ((initialOpen ? origin === surface : origin !== surface) ||
           panel.getAttribute("aria-hidden") !== String(!initialOpen) || touch.clientX <= EDGE_BACK_LANE ||
-          (!initialOpen && nativeShellOverlayBlocked()) || domBlocked() || excludedTarget(event.target, origin, initialOpen)) return;
+          (!initialOpen && nativeShellOverlayBlocked(settling ? "history-drag" : undefined)) || domBlocked() || excludedTarget(event.target, origin, initialOpen)) return;
       // Include the authored closed shadow clearance, not just panel width.
       const width = initialOpen ? panel.offsetWidth + shadowClearance : Math.max(panel.offsetWidth, -panel.getBoundingClientRect().left);
       if (width <= 0) return;
+      const distance = settling ? width + renderedDrawerOffset(panel) : initialOpen ? width : 0;
+      const interrupted = settling !== null;
+      window.clearTimeout(timer);
+      generation += 1;
+      settling = null;
       gesture = { identifier: touch.identifier, x: touch.clientX, y: touch.clientY,
-        time: event.timeStamp, axis: "undecided", initialOpen, surface: origin, width, panel, scrim };
+        time: event.timeStamp, axis: interrupted ? "horizontal" : "undecided", initialOpen, surface: origin, width, distance, moved: false, panel, scrim };
+      if (interrupted) place(gesture, distance, "drag");
     };
     const move = (event: TouchEvent) => {
       if (!gesture) return;
@@ -143,6 +154,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
           domBlocked()) { cancel(); return; }
       const dx = touch.clientX - gesture.x;
       const dy = touch.clientY - gesture.y;
+      if (Math.abs(dx) >= AXIS_LOCK) gesture.moved = true;
       if (gesture.axis === "undecided") {
         if (Math.max(Math.abs(dx), Math.abs(dy)) < AXIS_LOCK) return;
         const directed = gesture.initialOpen ? -dx : dx;
@@ -154,13 +166,14 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       }
       suppressClickUntil = performance.now() + 500;
       event.stopPropagation(); // Keep owned moves local; Profile already yields to the open drawer.
-      place(gesture, (gesture.initialOpen ? gesture.width : 0) + dx, "drag");
+      place(gesture, gesture.distance + dx, "drag");
     };
     const end = (event: TouchEvent) => {
       if (!gesture) return;
       const touch = Array.from(event.changedTouches).find(point => point.identifier === gesture?.identifier);
       if (!touch) { cancel(); return; }
       if (gesture.axis !== "horizontal") { gesture = null; return; }
+      if (!gesture.moved) { settle(gesture, wasOpen.current); return; }
       const dx = touch.clientX - gesture.x;
       const dy = touch.clientY - gesture.y;
       event.stopPropagation();
@@ -179,6 +192,17 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       event.stopPropagation();
     };
     const visibility = () => { if (document.visibilityState === "hidden") cancel(); };
+    let panelWidth = panel.offsetWidth;
+    const resized = () => {
+      if (panel.offsetWidth === panelWidth) return;
+      panelWidth = panel.offsetWidth;
+      // Old horizontal geometry cannot commit a navigation after rotation.
+      window.clearTimeout(timer);
+      generation += 1;
+      if (gesture) clear(gesture);
+      if (settling) clear(settling);
+      gesture = null; settling = null; setDragging(false);
+    };
     const options = { passive: true } as const;
     const surfaces = [surface, panel, scrim];
     for (const node of surfaces) {
@@ -189,8 +213,11 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
       node.addEventListener("click", click, true);
     }
     document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("resize", resized);
+    window.addEventListener("blur", cancel);
     return () => {
       window.clearTimeout(timer);
+      generation += 1;
       if (gesture) clear(gesture);
       if (settling) clear(settling);
       reconcile.current = null;
@@ -203,7 +230,9 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, surfaceRef, d
         node.removeEventListener("click", click, true);
       }
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("resize", resized);
+      window.removeEventListener("blur", cancel);
     };
-  }, [enabled, surfaceRef, drawerRef, scrimRef]);
+  }, [enabled, presentationKey, surfaceRef, drawerRef, scrimRef]);
   return null;
 }

@@ -61,7 +61,6 @@ import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
-import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
 import { prefersReducedMotion } from "@/lib/morphy-ux/gsap";
@@ -209,7 +208,23 @@ export function WalletWorkspace() {
     };
   }, [renderedOwnerId]);
   const { vaultKey, getVaultOwnerToken } = useVault();
-  const [demoProfile, setDemoProfile] = useState<WalletDemoProfile | null>(null);
+  const profileToken = vaultKey ? getVaultOwnerToken() : null;
+  const profileVisit = useMemo(
+    () => ({ ownerId: renderedOwnerId, authorized: Boolean(vaultKey && profileToken) }),
+    [renderedOwnerId, vaultKey, profileToken],
+  );
+  const profileVisitRef = useRef(profileVisit);
+  profileVisitRef.current = profileVisit;
+  const [loadedProfile, setLoadedProfile] = useState<{
+    visit: typeof profileVisit;
+    profile: WalletDemoProfile;
+  } | null>(null);
+  const fallbackName = user?.displayName?.trim() || null;
+  // Fence rendering as well as settlement: an A → B → A visit or a lock
+  // must not expose the old profile while the next read is still pending.
+  const demoProfile = profileVisit.authorized && loadedProfile?.visit === profileVisit
+    ? loadedProfile.profile
+    : { displayName: fallbackName, shareUrl: null, cardPayload: null };
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -220,28 +235,47 @@ export function WalletWorkspace() {
   const [view, dispatch] = useReducer(walletViewReducer, INITIAL_WALLET_VIEW);
   const [tab, setTab] = useState<WalletTab>("cards");
   const [introduction, setIntroduction] = useState<{ ownerId: string; seen: boolean } | null>(null);
-  const [introductionSaving, setIntroductionSaving] = useState(false);
+  const introductionWriteRef = useRef<{ ownerId: string } | null>(null);
+  const [introductionWrite, setIntroductionWrite] = useState<{ ownerId: string } | null>(null);
+  const introductionSaving = introductionWrite?.ownerId === renderedOwnerId;
   const introductionLoading = !renderedOwnerId || introduction?.ownerId !== renderedOwnerId;
   const introductionOpen = introductionLoading || !introduction?.seen;
-  const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
   const [formRevision, setFormRevision] = useState(0);
   const [removingCardId, setRemovingCardId] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
+    introductionWriteRef.current = null;
+    setIntroductionWrite(null);
     if (renderedOwnerId) {
       void OnboardingLocalService.hasSeenWalletIntroduction(renderedOwnerId).then((seen) => {
         if (!cancelled) setIntroduction({ ownerId: renderedOwnerId, seen });
       });
     }
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      introductionWriteRef.current = null;
+    };
   }, [renderedOwnerId]);
   const completeIntroduction = async () => {
-    if (!renderedOwnerId || introductionSaving) return;
+    if (!renderedOwnerId || introductionWriteRef.current) return;
     const ownerId = renderedOwnerId;
-    setIntroductionSaving(true);
-    await OnboardingLocalService.markWalletIntroductionSeen(ownerId);
-    if (activeOwnerIdRef.current === ownerId) setIntroduction({ ownerId, seen: true });
-    setIntroductionSaving(false);
+    // Object identity fences this visit, including an A → B → A owner change.
+    const write = { ownerId };
+    introductionWriteRef.current = write;
+    setIntroductionWrite(write);
+    const isCurrent = () =>
+      introductionWriteRef.current === write && activeOwnerIdRef.current === ownerId;
+    try {
+      await OnboardingLocalService.markWalletIntroductionSeen(ownerId);
+      if (isCurrent()) setIntroduction({ ownerId, seen: true });
+    } catch {
+      if (isCurrent()) morphyToast.error("Couldn’t open Wallet. Try again.");
+    } finally {
+      if (isCurrent()) {
+        introductionWriteRef.current = null;
+        setIntroductionWrite(null);
+      }
+    }
   };
   const [selectedDeckCardId, setSelectedDeckCardId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
@@ -267,32 +301,12 @@ export function WalletWorkspace() {
     }
   }, [ready, view.kind]);
 
-  useEffect(() => {
-    if (!ready || activeTab !== "cards") return;
-    let second = 0;
-    const first = window.requestAnimationFrame(() => {
-      second = window.requestAnimationFrame(() => {
-        document.querySelector<HTMLElement>("[data-app-scroll-root='true']")?.scrollTo({ top: 0, behavior: "instant" });
-      });
-    });
-    return () => { window.cancelAnimationFrame(first); if (second) window.cancelAnimationFrame(second); };
-  }, [activeTab, ready]);
-
   const selectTab = (value: string) => {
     if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
     // Drop revealed values and reject an in-flight reveal when leaving Cards.
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
     setTab(value as WalletTab);
-    if (value === "cards") {
-      // Add and Sharing can be much taller than the deck. Restore the card
-      // surface to its start when returning so the first card is the entry
-      // point instead of inheriting the previous pane's scroll position.
-      window.requestAnimationFrame(() => {
-        const root = document.querySelector<HTMLElement>("[data-app-scroll-root='true']");
-        root?.scrollTo({ top: 0, behavior: "instant" });
-      });
-    }
   };
   // Metadata search stays in q; presentation selection stays in memory.
   const routeQuery = searchParams?.get("q") || "";
@@ -323,26 +337,45 @@ export function WalletWorkspace() {
     return { userId: user.uid, vaultKey, vaultOwnerToken: token };
   }, [user?.uid, vaultKey]);
   useEffect(() => {
-    if (!user?.uid) { setDemoProfile(null); return; }
+    const ownerId = profileVisit.ownerId;
+    if (!ownerId || !profileVisit.authorized) {
+      setLoadedProfile(null);
+      return;
+    }
     let cancelled = false;
+    let requestSequence = 0;
     const load = async () => {
-      const fallbackName = user.displayName?.trim() || null;
+      const sequence = ++requestSequence;
       const token = getVaultOwnerTokenRef.current();
       if (!token) {
-        if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null, cardPayload: null });
+        if (!cancelled && profileVisitRef.current === profileVisit) setLoadedProfile(null);
         return;
       }
+      const isCurrent = () =>
+        !cancelled && sequence === requestSequence &&
+        profileVisitRef.current === profileVisit &&
+        activeOwnerIdRef.current === ownerId &&
+        getVaultOwnerTokenRef.current() === token;
       try {
-        const state = await WalletCardService.getCard({ userId: user.uid, vaultOwnerToken: token });
-        if (cancelled) return;
+        const state = await WalletCardService.getCard({ userId: ownerId, vaultOwnerToken: token });
+        if (!isCurrent()) return;
         const payloadName = state.card?.cardPayload.full_name?.trim() || null;
-        setDemoProfile({ displayName: payloadName || state.card?.displayName?.trim() || user.displayName?.trim() || null, shareUrl: state.shareUrl, cardPayload: state.card?.cardPayload ?? null });
-      } catch { if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null, cardPayload: null }); }
+        setLoadedProfile({
+          visit: profileVisit,
+          profile: {
+            displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
+            shareUrl: state.shareUrl,
+            cardPayload: state.card?.cardPayload ?? null,
+          },
+        });
+      } catch {
+        if (isCurrent()) setLoadedProfile({ visit: profileVisit, profile: { displayName: fallbackName, shareUrl: null, cardPayload: null } });
+      }
     };
     void load();
     const timer = window.setInterval(load, 15000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [user?.uid, user?.displayName, vaultKey]);
+  }, [profileVisit, fallbackName]);
   // Decryption is asynchronous; whether the vault is still open is re-read
   // from the latest render when it settles, never from the tap that began it.
   const vaultContextRef = useRef(vaultContext);
@@ -593,7 +626,7 @@ export function WalletWorkspace() {
       fitContent
       className="relative isolate [--app-page-content-bottom-gap:0px]"
     >
-      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
+      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-clip">
         <div
           className={WALLET_COLUMN}
           data-wallet-hub
@@ -626,7 +659,7 @@ export function WalletWorkspace() {
               authLoading ? "pending" : user ? "authenticated" : "anonymous"
             }
             dataState={
-              view.kind === "loading"
+              view.kind === "loading" || introductionLoading
                 ? "loading"
                 : view.kind === "error"
                   ? "error"
@@ -727,14 +760,13 @@ export function WalletWorkspace() {
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
             <WalletCardBrowser demoProfile={demoProfile} ownerId={renderedOwnerId || undefined}
-              key={`${renderedOwnerId || "wallet"}-${activeTab}`}
+              key={renderedOwnerId}
               cards={cards}
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}
               onOverview={() => dispatch({ type: "unfocus" })}
               onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
               details={cardDetails}
-              dockHost={cardDockHost}
               active={activeTab === "cards"}
               onRemove={setRemoveTarget}
               busyCardId={removingCardId}
@@ -797,7 +829,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready && activeTab === "sharing" ? <WalletSharing key={renderedOwnerId} /> : null}
+            {ready && activeTab === "sharing" ? <WalletSharing key={renderedOwnerId} profile={demoProfile} /> : null}
           </div>
           </SwipeViews>
           </div>
@@ -842,7 +874,6 @@ export function WalletWorkspace() {
           />
         ) : null}
       </AppPageContentRegion>
-      <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto h-0 w-full max-w-[820px] overflow-hidden bg-transparent p-0")} data-testid="wallet-card-dock-host" />
     </AppPageShell>
   );
 }

@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { renderNavigationArtwork } from "../../components/icons/native-navigation-artwork.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(SCRIPT_DIR, "../..");
@@ -414,6 +415,29 @@ for (const size of [48, 72, 96, 128, 192, 256, 512]) {
 }
 
 // iOS and Wallet require opaque, square sources without pre-rounded corners.
+// Native tabs project the same registry descriptor as web/Android. Alpha carries
+// Phosphor's duotone; UIKit owns the accent, foreground and selection material.
+const navigationIcons = JSON.parse(await readFile(
+  resolve(WEB_ROOT, "components/icons/bottom-navigation-icons.json"), "utf8",
+));
+for (const [tab, definition] of Object.entries(navigationIcons)) {
+  for (const selected of [false, true]) {
+    const variant = selected ? "selected" : "default";
+    const directory = `ios/App/App/Assets.xcassets/HushhNav-${tab}-${variant}.imageset`;
+    const svg = Buffer.from(renderNavigationArtwork(definition, selected));
+    const images = [];
+    for (const scale of [1, 2, 3]) {
+      const filename = `icon@${scale}x.png`;
+      await emit(`${directory}/${filename}`, await sharp(svg).resize(24 * scale, 24 * scale).png().toBuffer());
+      images.push({ filename, idiom: "universal", scale: `${scale}x` });
+    }
+    await emit(`${directory}/Contents.json`, Buffer.from(JSON.stringify({
+      images, info: { author: "xcode", version: 1 },
+      properties: { "template-rendering-intent": "template" },
+    }, null, 2) + "\n"));
+  }
+}
+
 const iosAppIcon = await opaqueIcon(1024, 1024, 560, 586);
 await emit(
   "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",

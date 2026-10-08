@@ -164,7 +164,7 @@ Core CI and deploy surfaces are sealed separately from blanket owner-review poli
   - `deploy/**`
   - `config/ci-governance.json`
 - Enforcement happens inside the blocking governance lane through [scripts/ci/verify-protected-pipeline-edits.py](../../../scripts/ci/verify-protected-pipeline-edits.py).
-- This does not change the repo-wide `0`-approval policy on `main`; it only seals core pipeline and CI authority to the sanctioned maintainer cohort.
+- This does not waive the required independent approval of the latest push on `main`; the separately governed review-bypass cohort remains explicit. It seals core pipeline and CI authority to the sanctioned maintainer cohort.
 
 ### PKM rollout blocker
 
@@ -459,7 +459,7 @@ See [Branch Governance](./branch-governance.md).
 
 | Tool | CI Version | Local requirement |
 |------|------------|-------------------|
-| Node.js | 20 | 20+ (run `./bin/hushh ci`) |
+| Node.js | 24 for web/Node lanes | Local preflight accepts 20+; use 24 to reproduce CI |
 | Python | 3.13 | 3.13 (CI asserts exactly 3.13) |
 | npm | latest | Use latest (script upgrades before run) |
 | uv | pinned by workflow | install `uv` locally and use `uv sync --frozen --group dev` |
@@ -606,7 +606,7 @@ Minimum checks for streaming changes:
 This script, which also powers `./bin/hushh codex pre-pr`:
 
 1. Validates required files (e.g. `package-lock.json`, `next.config.ts`, `pyproject.toml`, `uv.lock`, generated runtime artifacts, test files).
-2. Checks Node (24+) and Python (3.13) and uses `uv` as the canonical backend toolchain.
+2. Checks Node (20+ minimum; use 24 for CI parity) and Python (3.13) and uses `uv` as the canonical backend toolchain.
 3. Runs **frontend** checks: install, `tsc`, lint, Next build, audit-budget gate, curated test suite.
 4. Runs **backend** checks: shared parity verification, install, Ruff, mypy, Bandit, curated test suite.
 5. Runs **integration**: route/runtime contract verification.

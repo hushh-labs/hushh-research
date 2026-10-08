@@ -259,7 +259,7 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).not.toContain("WorkspaceTopTabs");
     expect(source).toContain('aria-label="Open Profile"');
-    expect(source).toContain('requestProfilePaneOpen("tap")');
+    expect(source).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
     // The avatar opens the shared right-side pane. The dedicated Profile route
     // remains available for deep links and nested settings, but shell entry is
     // an in-place presentation so the owner can return with the same gesture.

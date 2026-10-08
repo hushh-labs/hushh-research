@@ -6,6 +6,7 @@ import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
 import { cn } from "@/lib/utils"
+import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
 function DropdownMenu({
   modal = false,
@@ -34,13 +35,16 @@ function DropdownMenuTrigger({
 }
 
 function DropdownMenuContent({
+  ref,
   className,
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  const overlayRef = useNativeNavigationOverlayRef<HTMLDivElement>(ref)
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
+        ref={overlayRef}
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(

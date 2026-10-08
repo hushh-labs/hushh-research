@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,11 +21,34 @@ function mountScrollRoot(attribute: string) {
 
 describe("ProfileStackNavigator", () => {
   afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     document
       .querySelectorAll(
         '[data-profile-pane-scroll-root="true"], [data-app-scroll-root="true"]',
       )
       .forEach((root) => root.remove());
+  });
+
+  it("cannot prune a reopened panel from an older pop or activate a superseded entry frame", () => {
+    vi.useFakeTimers();
+    const frames = new Map<number, FrameRequestCallback>();
+    let sequence = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { frames.set(++sequence, callback); return sequence; });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
+    const entry = { key: "security", title: "Security", content: <div>Method controls</div> };
+    const view = render(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[entry]} />);
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[]} />);
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[entry]} />);
+    act(() => vi.advanceTimersByTime(200));
+    expect(screen.getByText("Method controls").closest("[data-profile-stack-screen]")).toHaveAttribute("data-profile-stack-active", "true");
+    const detail = { key: "detail", title: "Method", content: <div>Details</div> };
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[entry, detail]} />);
+    view.rerender(<ProfileStackNavigator rootContent={<div>Root</div>} entries={[entry]} />);
+    act(() => { [...frames.values()].forEach((callback) => callback(0)); frames.clear(); });
+    act(() => vi.advanceTimersByTime(200));
+    expect(screen.queryByText("Details")).toBeNull();
+    expect(screen.getByText("Method controls").closest("[data-profile-stack-screen]")).toHaveAttribute("data-profile-stack-active", "true");
   });
 
   it("keeps shared stack screens live when their content updates", () => {

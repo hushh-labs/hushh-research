@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -25,15 +26,12 @@ import {
   DeleteRowIcon,
   DeveloperToolsProfileIcon,
   DevicesProfileIcon,
-  DisconnectRowIcon,
   DiscoverableRowIcon,
   FingerprintProfileIcon,
   GmailAgentIcon,
   InboxRowIcon,
   LocationAgentIcon,
   MarketplaceAgentIcon,
-  MemoryAgentIcon,
-  PassphraseRowIcon,
   PhoneRowIcon,
   PreferencesProfileIcon,
   InviteFriendsProfileIcon,
@@ -47,6 +45,8 @@ import {
   WalletAgentIcon,
 } from "@/components/icons/agents";
 import { toast } from "sonner";
+import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
+import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
 
 import {
   SettingsGroup,
@@ -76,6 +76,7 @@ import { CommunicationPreferencesSection } from "@/components/profile/communicat
 import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
+import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
 import {
@@ -84,6 +85,8 @@ import {
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ThemeToggleLean } from "@/components/theme-toggle";
+import { NativeAccentChoice } from "@/components/app-ui/native-accent-choice";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -240,7 +243,7 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
-import { useAccent, writeAccent, type AppAccent } from "@/lib/theme/accent";
+import { useAccent } from "@/lib/theme/accent";
 
 type FinancialContextCategory =
   "general" | "portfolio" | "risk" | "kyc" | "tax" | "documents";
@@ -490,40 +493,11 @@ function readableMethod(method: VaultMethod | null): string {
   return "Unknown";
 }
 
-function readableQuickMethod(method: VaultMethod | null): string {
-  if (method === "generated_default_native_biometric")
-    return "device biometric";
-  if (method === "generated_default_native_passkey_prf") return "passkey";
-  if (method === "generated_default_web_prf") return "passkey";
-  return "quick unlock";
-}
-
 function isPasskeyVaultMethod(method: VaultMethod | null): boolean {
   return (
     method === "generated_default_web_prf" ||
     method === "generated_default_native_passkey_prf"
   );
-}
-
-const VAULT_INLINE_CONTROL_CLASS =
-  "inline-flex min-h-11 min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
-const VAULT_INLINE_BADGE_CLASS =
-  "inline-flex min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium";
-const VAULT_INLINE_ACTIONS_CLASS =
-  "flex min-w-0 flex-wrap items-center gap-2 sm:justify-end";
-
-function vaultWrapperKey(
-  wrapper: Pick<VaultWrapper, "method" | "wrapperId">,
-): string {
-  return `${wrapper.method}:${wrapper.wrapperId ?? "default"}`;
-}
-
-function formatPasskeyIdentifier(wrapper: VaultWrapper): string {
-  const raw = wrapper.passkeyCredentialId || wrapper.wrapperId || "";
-  if (!raw) return "Identifier unavailable";
-  const compact = raw.replace(/\s+/g, "");
-  if (compact.length <= 10) return `Identifier ${compact}`;
-  return `Identifier ending ${compact.slice(-6)}`;
 }
 
 function formatPasskeyLabel(wrapper: VaultWrapper): string {
@@ -534,8 +508,7 @@ function formatPasskeyLabel(wrapper: VaultWrapper): string {
 }
 
 function describePasskeyWrapper(wrapper: VaultWrapper): string {
-  const parts = [formatPasskeyLabel(wrapper), formatPasskeyIdentifier(wrapper)];
-  return parts.join(" / ");
+  return formatPasskeyLabel(wrapper);
 }
 
 
@@ -569,10 +542,12 @@ export type ProfilePagePresentation = "route" | "pane";
 function ProfilePageContent({
   presentation = "route",
   paneLocation,
+  nativeControlsEligible = true,
 }: {
   presentation?: ProfilePagePresentation;
   /** Pane only: the location to show, when the host holds it (see ProfilePane). */
   paneLocation?: ProfilePaneLocation;
+  nativeControlsEligible?: boolean;
 }) {
   const isPanePresentation = presentation === "pane";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
@@ -677,15 +652,40 @@ function ProfilePageContent({
   const [primaryVaultWrapperId, setPrimaryVaultWrapperId] = useState<
     string | null
   >(null);
-  const [availableQuickMethod, setAvailableQuickMethod] =
-    useState<VaultMethod | null>(null);
-  const [availableQuickWrapperId, setAvailableQuickWrapperId] = useState<
-    string | null
-  >(null);
   const [effectiveVaultMethod, setEffectiveVaultMethod] =
     useState<VaultMethod | null>(null);
   const [loadingVaultMethod, setLoadingVaultMethod] = useState(false);
+  const [vaultMethodsNeedRefresh, setVaultMethodsNeedRefresh] = useState(false);
+  const [vaultMethodsOwner, setVaultMethodsOwner] = useState<string | null>(null);
+  const [localBiometricWrapperId, setLocalBiometricWrapperId] = useState<string | null>(null);
+  const vaultMethodRequestRef = useRef(0);
+  const vaultMethodMutationRef = useRef<{ epoch: number; toastId: string | number; controller: AbortController; committed: boolean } | null>(null);
+  const vaultMethodOwnerRef = useRef(user?.uid);
+  const vaultMethodSessionRef = useRef({ key: vaultKey, epoch: 0 });
+  useLayoutEffect(() => {
+    if (vaultMethodOwnerRef.current !== user?.uid || vaultMethodSessionRef.current.key !== vaultKey) {
+      vaultMethodRequestRef.current += 1;
+      vaultMethodSessionRef.current = { key: vaultKey, epoch: vaultMethodSessionRef.current.epoch + 1 };
+    }
+    vaultMethodOwnerRef.current = user?.uid;
+  }, [user?.uid, vaultKey]);
   const [switchingVaultMethod, setSwitchingVaultMethod] = useState(false);
+  useEffect(() => () => {
+    vaultMethodSessionRef.current.epoch += 1;
+    vaultMethodMutationRef.current?.controller.abort();
+  }, []);
+  useLayoutEffect(() => {
+    const pending = vaultMethodMutationRef.current;
+    if (pending && pending.epoch !== vaultMethodSessionRef.current.epoch) {
+      pending.controller.abort();
+      if (!pending.committed) toast.dismiss(pending.toastId);
+      vaultMethodMutationRef.current = null;
+      setSwitchingVaultMethod(false);
+    }
+    return () => {
+      if (vaultMethodMutationRef.current && !vaultMethodMutationRef.current.committed) toast.dismiss(vaultMethodMutationRef.current.toastId);
+    };
+  }, [user?.uid, vaultKey]);
   const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false);
   const [passkeyRemovalTarget, setPasskeyRemovalTarget] =
     useState<VaultWrapper | null>(null);
@@ -742,6 +742,11 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const preferenceChrome = {
+    owner: user?.uid ?? null,
+    context: JSON.stringify([pathname, isPanePresentation, activePanel, activeDetail, snapshotVaultSessionEpoch()]),
+    eligible: nativeControlsEligible && !!user && !authLoading && activePanel === "preferences" && !activeDetail && (!isPanePresentation || isVaultUnlocked),
+  };
   const supportComposeKind =
     activePanel === "support" && activeDetail?.startsWith("support-compose:")
       ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
@@ -1106,20 +1111,24 @@ function ProfilePageContent({
   }, [authLoading, user?.uid]);
 
   async function refreshVaultMethodState(targetUserId: string) {
+    const request = ++vaultMethodRequestRef.current;
+    const isCurrent = () => request === vaultMethodRequestRef.current && vaultMethodOwnerRef.current === targetUserId;
     try {
       setLoadingVaultMethod(true);
-      const [capability, currentMethod, vaultState] = await Promise.all([
+      const [capability, vaultState, localWrapperId] = await Promise.all([
         VaultMethodService.getCapabilityMatrix(),
-        VaultMethodService.getCurrentMethod(targetUserId),
         VaultService.getVaultState(targetUserId),
+        VaultBootstrapService.getDeviceBiometricWrapperId(targetUserId),
       ]);
+      if (!isCurrent()) return false;
       const nextRecommendedMethod =
         capability.recommendedMethod !== "passphrase"
           ? capability.recommendedMethod
           : null;
       const quickWrapper =
         nextRecommendedMethod !== null
-          ? VaultService.getWrapperByMethod(vaultState, nextRecommendedMethod)
+          ? VaultService.getWrapperByMethod(vaultState, nextRecommendedMethod,
+              nextRecommendedMethod === "generated_default_native_biometric" ? { wrapperId: localWrapperId } : undefined)
           : null;
       const primaryPrefersQuickMethod =
         vaultState.primaryMethod === "generated_default_native_biometric" ||
@@ -1134,39 +1143,45 @@ function ProfilePageContent({
             : primaryWrapper.method;
 
       setCapabilityMatrix(capability);
-      setVaultMethod(currentMethod);
+      setVaultMethodsOwner(targetUserId);
+      setVaultMethod(vaultState.primaryMethod);
+      setLocalBiometricWrapperId(localWrapperId);
       setEnrolledVaultWrappers(vaultState.wrappers);
       setPrimaryVaultWrapperId(vaultState.primaryWrapperId ?? "default");
-      setAvailableQuickMethod(quickWrapper?.method ?? null);
-      setAvailableQuickWrapperId(quickWrapper?.wrapperId ?? null);
       setEffectiveVaultMethod(nextEffectiveMethod);
-    } catch (error) {
-      console.warn("[ProfilePage] Failed to resolve vault method:", error);
-      setVaultMethod(null);
-      setEnrolledVaultWrappers([]);
-      setPrimaryVaultWrapperId(null);
-      setAvailableQuickMethod(null);
-      setAvailableQuickWrapperId(null);
-      setEffectiveVaultMethod(null);
+      setVaultMethodsNeedRefresh(false);
+      return true;
+    } catch {
+      if (!isCurrent()) return false;
+      console.warn("VAULT_METHOD_REFRESH_FAILED");
+      // A failed read is not an empty vault and cannot undo a confirmed write.
+      setVaultMethodsNeedRefresh(true);
+      return false;
     } finally {
-      setLoadingVaultMethod(false);
+      if (isCurrent()) setLoadingVaultMethod(false);
     }
   }
 
   useEffect(() => {
     if (authLoading || !user?.uid) return;
     if (hasVault !== true) {
+      vaultMethodRequestRef.current += 1;
       setVaultMethod(null);
       setEnrolledVaultWrappers([]);
       setPrimaryVaultWrapperId(null);
-      setAvailableQuickMethod(null);
-      setAvailableQuickWrapperId(null);
       setEffectiveVaultMethod(null);
       return;
     }
 
     void refreshVaultMethodState(user.uid);
+    return () => { vaultMethodRequestRef.current += 1; };
   }, [authLoading, hasVault, user?.uid]);
+
+  useEffect(() => {
+    setPasskeyRemovalTarget(null);
+    setPassphraseDialogOpen(false);
+    setNewPassphrase(""); setConfirmPassphrase("");
+  }, [user?.uid, vaultAccess.canMutateSecureData]);
 
   useEffect(() => {
     if (!user) {
@@ -1942,30 +1957,17 @@ function ProfilePageContent({
       return;
     }
 
-    setSwitchingVaultMethod(true);
-    try {
+    await runVaultMethodChange(async (isCurrent, signal) => {
       const result = await VaultMethodService.switchMethod({
         userId: user.uid,
         currentVaultKey: vaultKey,
         displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
+        signal,
       });
 
-      setVaultMethod(result.method);
-      toast.success(
-        `Vault method updated to ${readableMethod(result.method)}.`,
-      );
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to switch vault method:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your unlock preference.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
+      if (isCurrent()) { setVaultMethod(result.method); setPrimaryVaultWrapperId(null); }
+    }, "Unlock method added.", "We couldn't add this unlock method. Your existing methods still work.");
   }
 
   async function setQuickMethodAsDefault(
@@ -1980,64 +1982,20 @@ function ProfilePageContent({
       return;
     }
 
-    setSwitchingVaultMethod(true);
-    try {
+    await runVaultMethodChange(async (isCurrent) => {
       await VaultService.setPrimaryVaultMethod(
         user.uid,
         targetMethod,
         wrapperId ?? "default",
         vaultOwnerToken ?? undefined,
       );
-      setVaultMethod(targetMethod);
-      toast.success(
-        `Primary unlock updated to ${readableMethod(targetMethod)}.`,
-      );
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error(
-        "[ProfilePage] Failed to set quick unlock as default:",
-        error,
-      );
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your preferred unlock method.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
-  }
-
-  async function preferPassphraseUnlock() {
-    if (!user?.uid) return;
-
-    if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock your vault to change security method.");
-      requestVaultUnlock("profile_data");
-      return;
-    }
-
-    setSwitchingVaultMethod(true);
-    try {
-      await VaultService.setPrimaryVaultMethod(
-        user.uid,
-        "passphrase",
-        "default",
-        vaultOwnerToken ?? undefined,
-      );
-      setVaultMethod("passphrase");
-      toast.success("Primary unlock updated to passphrase.");
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to prefer passphrase unlock:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your preferred unlock method.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
+      if (isCurrent()) {
+        setVaultMethod(targetMethod);
+        setPrimaryVaultWrapperId(wrapperId ?? "default");
+        setEffectiveVaultMethod(targetMethod === "generated_default_native_biometric" &&
+          (wrapperId ?? "default") !== localBiometricWrapperId ? "passphrase" : targetMethod);
+      }
+    }, "Default unlock updated.", "We couldn't change your default unlock.");
   }
 
   async function removePasskeyWrapper(wrapper: VaultWrapper) {
@@ -2054,8 +2012,7 @@ function ProfilePageContent({
       return;
     }
 
-    setSwitchingVaultMethod(true);
-    try {
+    await runVaultMethodChange(async (isCurrent) => {
       const result = await VaultMethodService.removeMethod({
         userId: user.uid,
         currentVaultKey: vaultKey,
@@ -2065,20 +2022,15 @@ function ProfilePageContent({
         fallbackPrimaryMethod: "passphrase",
         fallbackPrimaryWrapperId: "default",
       });
-      setVaultMethod(result.primaryMethod);
-      toast.success("Passkey removed. Passphrase unlock is still available.");
-      setPasskeyRemovalTarget(null);
-      await refreshVaultMethodState(user.uid);
-    } catch (error) {
-      console.error("[ProfilePage] Failed to remove passkey wrapper:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not remove this passkey.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
-    }
+      if (isCurrent()) {
+        setVaultMethod(result.primaryMethod);
+        const removedPrimary = vaultMethod === wrapper.method && (primaryVaultWrapperId ?? "default") === (wrapper.wrapperId ?? "default");
+        if (removedPrimary) { setPrimaryVaultWrapperId("default"); setEffectiveVaultMethod("passphrase"); }
+        setEnrolledVaultWrappers((current) => current.filter((candidate) => candidate.method !== wrapper.method ||
+          (candidate.wrapperId ?? "default") !== (wrapper.wrapperId ?? "default")));
+        setPasskeyRemovalTarget(null);
+      }
+    }, "Passkey removed. Passphrase is still available.", "We couldn't remove this passkey.");
   }
 
   async function changePassphrase() {
@@ -2090,29 +2042,61 @@ function ProfilePageContent({
       return;
     }
 
-    setSwitchingVaultMethod(true);
-    try {
-      const result = await VaultMethodService.changePassphrase({
+    await runVaultMethodChange(async (isCurrent, signal, acknowledgeCommit) => {
+      await VaultMethodService.changePassphrase({
         userId: user.uid,
         currentVaultKey: vaultKey,
         newPassphrase,
         keepPrimaryMethod: true,
+        signal,
+        onCommitted: (result) => {
+          if (!isCurrent()) return;
+          setVaultMethod(result.primaryMethod);
+          setPassphraseDialogOpen(false);
+          setNewPassphrase(""); setConfirmPassphrase("");
+          // The service acknowledges before its intentional vault-rekey lock.
+          acknowledgeCommit();
+        },
       });
-      setVaultMethod(result.primaryMethod);
-      toast.success("Passphrase updated successfully.");
-      await refreshVaultMethodState(user.uid);
-      setPassphraseDialogOpen(false);
-      setNewPassphrase("");
-      setConfirmPassphrase("");
-    } catch (error) {
-      console.error("[ProfilePage] Failed to update passphrase:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We could not update your passphrase.",
-      );
-    } finally {
-      setSwitchingVaultMethod(false);
+    }, "Passphrase updated.", "We couldn't change your passphrase.");
+  }
+
+  async function runVaultMethodChange(operation: (isCurrent: () => boolean, signal: AbortSignal, acknowledgeCommit: () => void) => Promise<void>, success: string, failure: string) {
+    if (!user?.uid || vaultMethodMutationRef.current || vaultMethodsNeedRefresh) return;
+    if (!vaultAccess.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
+      toast.info("Unlock your vault to change methods.");
+      requestVaultUnlock("profile_data"); return;
+    }
+    const owner = user.uid;
+    const epoch = vaultMethodSessionRef.current.epoch;
+    const isCurrent = () => vaultMethodOwnerRef.current === owner && vaultMethodSessionRef.current.epoch === epoch;
+    const operationId = { epoch, toastId: toast.loading("Updating unlock methods…"), controller: new AbortController(), committed: false };
+    const acknowledgeCommit = () => {
+      if (!isCurrent() || operationId.committed) return;
+      operationId.committed = true;
+      toast.success(success, { id: operationId.toastId });
+    };
+    vaultMethodMutationRef.current = operationId;
+    setSwitchingVaultMethod(true);
+    try {
+      vaultMethodRequestRef.current += 1;
+      await operation(isCurrent, operationId.controller.signal, acknowledgeCommit);
+      if (operationId.committed) return;
+      if (!isCurrent()) return;
+      setVaultMethodsNeedRefresh(true);
+      const refreshed = await refreshVaultMethodState(owner);
+      if (isCurrent()) toast.success(refreshed ? success : `${success} Refresh methods to check the latest state.`, { id: operationId.toastId });
+    } catch {
+      if (operationId.committed) { console.warn("VAULT_METHOD_POST_COMMIT_FAILED"); return; }
+      console.warn("VAULT_METHOD_CHANGE_FAILED");
+      if (isCurrent()) toast.error(failure, { id: operationId.toastId });
+    }
+    finally {
+      if (vaultMethodMutationRef.current === operationId) {
+        vaultMethodMutationRef.current = null;
+        setSwitchingVaultMethod(false);
+      }
+      if (!isCurrent() && !operationId.committed) toast.dismiss(operationId.toastId);
     }
   }
 
@@ -2164,27 +2148,8 @@ function ProfilePageContent({
     capabilityMatrix.recommendedMethod !== "passphrase"
       ? capabilityMatrix.recommendedMethod
       : null;
-  const quickMethodReadyOnCurrentDevice =
-    vaultMethod === "passphrase" && availableQuickMethod
-      ? availableQuickMethod
-      : null;
   const enrolledPasskeyWrappers = enrolledVaultWrappers.filter((wrapper) =>
     isPasskeyVaultMethod(wrapper.method),
-  );
-  const passphraseWrapper = enrolledVaultWrappers.find(
-    (wrapper) => wrapper.method === "passphrase",
-  );
-  const activePrimaryWrapperId = primaryVaultWrapperId ?? "default";
-  const canSwitchDefaultToPassphrase = Boolean(
-    vaultAccess.canMutateSecureData &&
-    vaultMethod &&
-    vaultMethod !== "passphrase" &&
-    passphraseWrapper,
-  );
-  const canSwitchDefaultToQuick = Boolean(
-    vaultAccess.canMutateSecureData &&
-    vaultMethod === "passphrase" &&
-    quickMethodReadyOnCurrentDevice,
   );
   const canEditKaiPreferences = Boolean(
     user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData,
@@ -3521,6 +3486,7 @@ function ProfilePageContent({
             <ThemeToggleLean
               size="expanded"
               className="w-full sm:w-60 min-w-0"
+              nativeContext={preferenceChrome}
             />
           }
           stackTrailingOnMobile
@@ -3531,41 +3497,7 @@ function ProfilePageContent({
           title="Accent"
           description="Choose the app accent."
           trailing={
-            <Select
-              value={appAccent}
-              onValueChange={(value) => {
-                writeAccent(value as AppAccent);
-              }}
-            >
-              <SelectTrigger
-                className="w-full sm:w-60 min-w-[11rem]"
-                aria-label="App accent color"
-              >
-                <SelectValue placeholder="iOS Blue" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="blue">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent-preview-blue)" }}
-                    />
-                    iOS Blue
-                  </span>
-                </SelectItem>
-                <SelectItem value="gold">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent-preview-gold)" }}
-                    />
-                    Molten Gold
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <NativeAccentChoice value={appAccent} {...preferenceChrome} />
           }
           stackTrailingOnMobile
         />
@@ -3853,57 +3785,6 @@ function ProfilePageContent({
 
         {vaultAccess.hasVault && !loadingVaultMethod ? (
           <>
-            {vaultMethod ? (
-              <SettingsRow
-                icon={VaultRowIcon}
-                iconTone="capability"
-                title="Default unlock"
-                trailing={
-                  <div
-                    className={VAULT_INLINE_ACTIONS_CLASS}
-                    data-testid="vault-default-unlock-actions"
-                  >
-                    <Badge
-                      variant="secondary"
-                      className={VAULT_INLINE_BADGE_CLASS}
-                    >
-                      {readableMethod(vaultMethod)}
-                    </Badge>
-                    {canSwitchDefaultToPassphrase ? (
-                      <Button
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        className={VAULT_INLINE_CONTROL_CLASS}
-                        disabled={switchingVaultMethod}
-                        onClick={() => void preferPassphraseUnlock()}
-                      >
-                        Passphrase
-                      </Button>
-                    ) : null}
-                    {canSwitchDefaultToQuick &&
-                    quickMethodReadyOnCurrentDevice ? (
-                      <Button
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        className={VAULT_INLINE_CONTROL_CLASS}
-                        disabled={switchingVaultMethod}
-                        onClick={() =>
-                          void setQuickMethodAsDefault(
-                            quickMethodReadyOnCurrentDevice,
-                            availableQuickWrapperId,
-                          )
-                        }
-                      >
-                        {readableQuickMethod(quickMethodReadyOnCurrentDevice)}
-                      </Button>
-                    ) : null}
-                  </div>
-                }
-                stackTrailingOnMobile
-              />
-            ) : null}
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
                 icon={VaultRowIcon}
@@ -3915,99 +3796,17 @@ function ProfilePageContent({
               />
             ) : null}
 
-            {vaultAccess.canMutateSecureData && recommendedQuickMethod ? (
-              <SettingsRow
-                icon={FingerprintProfileIcon}
-                iconTone="capability"
-                title={
-                  enrolledPasskeyWrappers.length > 0
-                    ? `Add another ${readableQuickMethod(recommendedQuickMethod)}`
-                    : `Add ${readableQuickMethod(recommendedQuickMethod)}`
-                }
-                disabled={switchingVaultMethod}
-                chevron
-                onClick={() => void switchToQuickMethod(recommendedQuickMethod)}
-              />
-            ) : null}
-
-            {enrolledPasskeyWrappers.map((wrapper, index) => {
-              const wrapperId = wrapper.wrapperId ?? "default";
-              const isPrimary =
-                vaultMethod === wrapper.method &&
-                activePrimaryWrapperId === wrapperId;
-              return (
-                <SettingsRow
-                  key={vaultWrapperKey(wrapper)}
-                  icon={FingerprintProfileIcon}
-                  iconTone="capability"
-                  title={
-                    enrolledPasskeyWrappers.length > 1
-                      ? `Passkey ${index + 1}`
-                      : "Passkey"
-                  }
-                  description={describePasskeyWrapper(wrapper)}
-                  trailing={
-                    vaultAccess.canMutateSecureData ? (
-                      <div className={VAULT_INLINE_ACTIONS_CLASS}>
-                        {isPrimary ? (
-                          <Badge
-                            variant="secondary"
-                            className={VAULT_INLINE_BADGE_CLASS}
-                          >
-                            Default
-                          </Badge>
-                        ) : (
-                          <Button
-                            variant="none"
-                            effect="fade"
-                            size="sm"
-                            className={VAULT_INLINE_CONTROL_CLASS}
-                            disabled={switchingVaultMethod}
-                            onClick={() =>
-                              void setQuickMethodAsDefault(
-                                wrapper.method,
-                                wrapperId,
-                              )
-                            }
-                          >
-                            Set default
-                          </Button>
-                        )}
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          className={`${VAULT_INLINE_CONTROL_CLASS} text-destructive hover:text-destructive`}
-                          disabled={switchingVaultMethod}
-                          onClick={() => setPasskeyRemovalTarget(wrapper)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    ) : (
-                      <Badge
-                        variant="secondary"
-                        className={VAULT_INLINE_BADGE_CLASS}
-                      >
-                        {isPrimary ? "Default" : "Saved"}
-                      </Badge>
-                    )
-                  }
-                  stackTrailingOnMobile
-                />
-              );
-            })}
-
-            {vaultMethod ? (
-              <SettingsRow
-                icon={PassphraseRowIcon}
-                iconTone="capability"
-                title="Change passphrase"
-                disabled={switchingVaultMethod}
-                chevron
-                onClick={() => setPassphraseDialogOpen(true)}
-              />
-            ) : null}
+            <VaultMethodsPanel key={user?.uid}
+              wrappers={vaultMethodsOwner === user?.uid ? enrolledVaultWrappers : []}
+              primaryMethod={vaultMethodsOwner === user?.uid ? vaultMethod : null} primaryWrapperId={primaryVaultWrapperId}
+              biometricLabel={capabilityMatrix?.biometricLabel} localBiometricId={localBiometricWrapperId}
+              mutable={vaultAccess.canMutateSecureData} busy={switchingVaultMethod} needsRefresh={vaultMethodsNeedRefresh}
+              onSelect={(wrapper) => void setQuickMethodAsDefault(wrapper.method, wrapper.wrapperId)}
+              onRemove={setPasskeyRemovalTarget}
+              onAdd={vaultAccess.canMutateSecureData && recommendedQuickMethod ? () => void switchToQuickMethod(recommendedQuickMethod) : undefined}
+              addLabel={recommendedQuickMethod === "generated_default_native_biometric"
+                ? `Add ${capabilityMatrix?.biometricLabel || "biometrics"}` : enrolledPasskeyWrappers.length ? "Add another passkey" : "Add passkey"}
+              onChangePassphrase={() => setPassphraseDialogOpen(true)} onRefresh={() => { if (user?.uid) void refreshVaultMethodState(user.uid); }} />
 
           </>
         ) : null}
@@ -4062,65 +3861,17 @@ function ProfilePageContent({
   );
 
   const gmailActionsContent = (
-    <SettingsGroup title="Actions">
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={SyncRowIcon}
-          iconTone="capability"
-          title="Sync now"
-          description="Fetch new receipt mail messages and refresh extracted records."
-          disabled={gmailActionsBusy || !gmailPresentation.isConnected}
-          chevron
-          onClick={() => void handleSyncGmailNow()}
-        />
-      ) : (
-        <SettingsRow
-          icon={GmailAgentIcon}
-          iconTone="capability"
-          title={
-            gmailPresentation.state === "needs_reauthentication"
-              ? "Reconnect Mail"
-              : "Connect Mail"
-          }
-          description="Review Mail data use, then authorize read-only receipt sync."
-          disabled={gmailActionsBusy || gmail.status?.configured === false}
-          chevron
-          onClick={() => router.push(ROUTES.GMAIL)}
-        />
-      )}
-
-      <SettingsRow
-        icon={SyncRowIcon}
-        iconTone="capability"
-        title="Refresh status"
-        description="Re-check your Mail connection, sync status, and inbox details."
-        disabled={gmailActionsBusy}
-        chevron
-        onClick={() => void gmail.refreshStatus({ force: true })}
-      />
-
-      <SettingsRow
-        icon={MemoryAgentIcon}
-        iconTone="capability"
-        title="Open receipts"
-        description="Review synced receipts, merchants, and extracted totals."
-        chevron
-        onClick={() => router.push(ROUTES.GMAIL)}
-      />
-
-      {gmailPresentation.isConnected ? (
-        <SettingsRow
-          icon={DisconnectRowIcon}
-          iconTone="capability"
-          title="Disconnect Mail"
-          description="Revoke Mail, stop future syncs, and delete Mail receipt data."
-          tone="destructive"
-          disabled={gmailActionsBusy}
-          chevron
-          onClick={() => void handleDisconnectGmail()}
-        />
-      ) : null}
-    </SettingsGroup>
+    <MailActionsGroup
+      connected={gmailPresentation.isConnected}
+      needsReauthentication={gmailPresentation.state === "needs_reauthentication"}
+      configured={gmail.status?.configured !== false}
+      busy={gmailActionsBusy}
+      onSync={() => void handleSyncGmailNow()}
+      onConnect={() => router.push(ROUTES.GMAIL)}
+      onRefresh={() => void gmail.refreshStatus({ force: true })}
+      onOpenReceipts={() => router.push(ROUTES.GMAIL)}
+      onDisconnect={() => void handleDisconnectGmail()}
+    />
   );
 
   const financialContextControls = (
@@ -4509,7 +4260,7 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="profile-home-content">
-            <SettingsGroup title="Your settings" separatorInset>
+            <SettingsGroup title="Your settings" separatorInset rowSizing="uniform">
               <SettingsRow
                 icon={AccountProfileIcon}
                 iconTone="capability"
@@ -4548,7 +4299,6 @@ function ProfilePageContent({
                 icon={ConnectedSystemsAgentIcon}
                 iconTone="capability"
                 title="Connectors"
-                description="Google Workspace and finance connections"
                 chevron
                 onClick={() => openVaultBackedPanel("connectors")}
               />
@@ -4589,7 +4339,7 @@ function ProfilePageContent({
               ) : null}
             </SettingsGroup>
 
-            <SettingsGroup title="Legal" separatorInset>
+            <SettingsGroup title="Legal" separatorInset rowSizing="uniform">
               {/* Read in place: Profile never leaves the pane for /terms. */}
               <ProfileLegalRows
                 onOpen={(document) =>
@@ -4888,15 +4638,18 @@ function ProfilePageContent({
 export function ProfilePage({
   presentation = "route",
   paneLocation,
+  nativeControlsEligible = true,
 }: {
   presentation?: ProfilePagePresentation;
   paneLocation?: ProfilePaneLocation;
+  nativeControlsEligible?: boolean;
 }) {
   return (
     <Suspense fallback={null}>
       <ProfilePageContent
         presentation={presentation}
         paneLocation={paneLocation}
+        nativeControlsEligible={nativeControlsEligible}
       />
     </Suspense>
   );
