@@ -1,15 +1,16 @@
 {
   "displayName": "[Managed] DB Pool Wait P95 High",
   "documentation": {
-    "content": "P95 backend request pool wait exceeds 100 ms for 10 minutes.",
+    "content": "P95 backend request pool wait exceeds 100 ms for 10 minutes.\n\nDiagnostic only: early queue wait is investigated with acquisition timeout and short-read incidents.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
-  "enabled": true,
+  "enabled": false,
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "capacity"
+    "scope": "capacity",
+    "incident_purpose": "diagnostic"
   },
   "conditions": [
     {
@@ -31,5 +32,12 @@
         }
       }
     }
-  ]
+  ],
+  "severity": "WARNING",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
 }

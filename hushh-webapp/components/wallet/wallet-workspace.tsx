@@ -60,6 +60,7 @@ import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handof
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
+import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
@@ -208,7 +209,7 @@ export function WalletWorkspace() {
     };
   }, [renderedOwnerId]);
   const { vaultKey, getVaultOwnerToken } = useVault();
-  const [demoProfile, setDemoProfile] = useState<{ displayName: string | null; shareUrl: string | null } | null>(null);
+  const [demoProfile, setDemoProfile] = useState<WalletDemoProfile | null>(null);
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -328,15 +329,15 @@ export function WalletWorkspace() {
       const fallbackName = user.displayName?.trim() || null;
       const token = getVaultOwnerTokenRef.current();
       if (!token) {
-        if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null });
+        if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null, cardPayload: null });
         return;
       }
       try {
         const state = await WalletCardService.getCard({ userId: user.uid, vaultOwnerToken: token });
         if (cancelled) return;
         const payloadName = state.card?.cardPayload.full_name?.trim() || null;
-        setDemoProfile({ displayName: payloadName || state.card?.displayName?.trim() || user.displayName?.trim() || null, shareUrl: state.shareUrl });
-      } catch { if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null }); }
+        setDemoProfile({ displayName: payloadName || state.card?.displayName?.trim() || user.displayName?.trim() || null, shareUrl: state.shareUrl, cardPayload: state.card?.cardPayload ?? null });
+      } catch { if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null, cardPayload: null }); }
     };
     void load();
     const timer = window.setInterval(load, 15000);
@@ -726,7 +727,7 @@ export function WalletWorkspace() {
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
             <WalletCardBrowser demoProfile={demoProfile} ownerId={renderedOwnerId || undefined}
-              key={renderedOwnerId}
+              key={`${renderedOwnerId || "wallet"}-${activeTab}`}
               cards={cards}
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}

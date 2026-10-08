@@ -26,15 +26,19 @@ SURFACES = {
 # request/review/plan/receipt envelope participates in search or classification.
 _PROJECTION = """
 WITH participants AS (
-  SELECT request_id,revision,created_at,'share' AS source,
-    CASE WHEN recipient_user_id=:user THEN 'outgoing' ELSE 'incoming' END AS direction,
+  SELECT drive_share_requests.request_id,drive_share_requests.revision,
+    drive_share_requests.created_at,'share' AS source,
+    CASE WHEN drive_share_requests.recipient_user_id=:user THEN 'outgoing' ELSE 'incoming' END AS direction,
     {counterpart_label} AS counterpart_label,
-    CASE WHEN status IN ('pending','preparing','review_ready') AND expires_at<=now()
+    CASE WHEN drive_share_requests.status IN ('pending','preparing','review_ready')
+      AND drive_share_requests.expires_at<=now()
       THEN 'expired'
-      WHEN recipient_user_id=:user AND status IN ('preparing','review_ready') THEN 'pending'
-      WHEN recipient_user_id=:user AND status='no_match' THEN 'no_files_shared'
-      ELSE status END AS state,
-    preparation_error_code,
+      WHEN drive_share_requests.recipient_user_id=:user
+        AND drive_share_requests.status IN ('preparing','review_ready') THEN 'pending'
+      WHEN drive_share_requests.recipient_user_id=:user
+        AND drive_share_requests.status='no_match' THEN 'no_files_shared'
+      ELSE drive_share_requests.status END AS state,
+    drive_share_requests.preparation_error_code,
     {owner_search_state} AS owner_search_state,
     {trusted_authority_ready} AS trusted_authority_ready,
     {trusted_batch_seen} AS trusted_batch_seen,

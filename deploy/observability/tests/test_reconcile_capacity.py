@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -22,6 +23,70 @@ spec.loader.exec_module(module)
 
 
 class CapacityObservabilityTest(unittest.TestCase):
+    def test_policy_delivery_drift_and_repeat_reconciliation(self) -> None:
+        args = module.cli([
+            "--project", "hushh-uat-123", "--sql-instance", "hushh-vault-db", "--apply"
+        ])
+        channels = [{"name": f"projects/{args.project}/notificationChannels/{i}",
+                     "type": "email", "labels": {"email_address": email}}
+                    for i, email in enumerate(args.email)]
+        metrics = [module.render(ROOT / "log-metrics" / f"{name}.json", args)
+                   for name in module.METRICS]
+        dashboard = module.render(ROOT / "dashboard-observability.json.in", args)
+        dashboard["gridLayout"]["columns"] = str(dashboard["gridLayout"]["columns"])
+        policies = []
+        for i, slug in enumerate(module.POLICIES):
+            policy = module.render(ROOT / "alerts" / f"{slug}.json.in", args)
+            policy["name"] = f"projects/{args.project}/alertPolicies/{i}"
+            policy["notificationChannels"] = [c["name"] for c in channels]
+            policy["enabled"] = True
+            policy.pop("severity")
+            policy.pop("alertStrategy")
+            policies.append(policy)
+        writes = []
+
+        def fake_run(*command, **kwargs):
+            if command[1:3] == ("logging", "metrics"):
+                return copy.deepcopy(metrics)
+            if command[1:4] == ("beta", "monitoring", "channels"):
+                return copy.deepcopy(channels)
+            if command[1:3] == ("monitoring", "policies"):
+                return copy.deepcopy(policies)
+            return copy.deepcopy(dashboard)
+
+        def fake_write(config, action):
+            self.assertIn("update", action)
+            writes.append(copy.deepcopy(config))
+            index = next(i for i, p in enumerate(policies) if p["name"] == config["name"])
+            policies[index] = copy.deepcopy(config)
+            if not policies[index]["notificationChannels"]:
+                policies[index].pop("notificationChannels")
+            for condition in policies[index]["conditions"]:
+                threshold = condition.get("conditionThreshold", {})
+                if threshold.get("thresholdValue") == 0:
+                    threshold.pop("thresholdValue")
+            policies[index]["conditions"][0]["name"] = config["name"] + "/conditions/1"
+
+        with patch.object(module, "run", side_effect=fake_run), \
+             patch.object(module, "write_config", side_effect=fake_write), \
+             contextlib.redirect_stdout(io.StringIO()):
+            module.reconcile(args)
+            self.assertEqual(len(writes), len(module.POLICIES))
+            for p in policies:
+                actionable = p["userLabels"]["incident_purpose"] == "actionable"
+                self.assertEqual(p["enabled"], actionable)
+                self.assertEqual(p["severity"], "ERROR" if actionable else "WARNING")
+                self.assertEqual(p.get("notificationChannels", []),
+                                 [c["name"] for c in channels] if actionable else [])
+                self.assertEqual(p["alertStrategy"], {"notificationPrompts": ["OPENED", "CLOSED"]})
+            module.reconcile(args)
+            self.assertEqual(len(writes), len(module.POLICIES))
+            # Severity-only and delivery-only drift must each be repaired.
+            policies[0]["severity"] = "WARNING"
+            policies[1]["alertStrategy"] = {"notificationPrompts": ["OPENED"]}
+            module.reconcile(args)
+            self.assertEqual(len(writes), len(module.POLICIES) + 2)
+
     def test_sql_connections_sum_database_series_for_one_instance(self) -> None:
         args = module.cli(
             ["--project", "hushh-uat-123", "--sql-instance", "hushh-vault-db"]

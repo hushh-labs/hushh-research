@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] Backend P95 Latency High",
   "documentation": {
-    "content": "P95 duration for bounded short-read GET routes crossed 2 seconds; streaming requests are excluded.",
+    "content": "P95 duration for bounded short-read GET routes crossed 2 seconds; streaming requests are excluded.\n\nInspect sustained short-read latency and database acquisition/query traces.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
@@ -9,7 +9,8 @@
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "ops"
+    "scope": "ops",
+    "incident_purpose": "actionable"
   },
   "conditions": [
     {
@@ -31,5 +32,12 @@
         }
       }
     }
-  ]
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
 }

@@ -157,58 +157,6 @@ ensure_email_channel() {
     --format='value(name)'
 }
 
-upsert_alert_policy() {
-  local template_path="$1"
-  local channels_json="$2"
-
-  local rendered="${TMP_DIR}/$(basename "${template_path}" .in).json"
-  local rendered_with_channels="${rendered}.channels.json"
-  render_template "${template_path}" "${rendered}"
-
-  jq --argjson channels "${channels_json}" '.notificationChannels = $channels' "${rendered}" > "${rendered_with_channels}"
-
-  local display_name
-  display_name="$(jq -r '.displayName' "${rendered_with_channels}")"
-
-  local existing_names
-  existing_names="$(gcloud monitoring policies list \
-    --project "${PROJECT_ID}" \
-    --format=json | jq -r --arg name "${display_name}" '.[] | select(.displayName == $name) | .name' | head -n1)"
-  local existing
-  existing="$(printf '%s\n' "${existing_names}" | head -n1)"
-
-  local duplicate_names
-  duplicate_names="$(gcloud monitoring policies list \
-    --project "${PROJECT_ID}" \
-    --format=json | jq -r --arg name "${display_name}" '.[] | select(.displayName == $name) | .name' | tail -n +2)"
-  if [[ -n "${duplicate_names}" ]]; then
-    while IFS= read -r policy_name; do
-      if [[ -z "${policy_name}" ]]; then
-        continue
-      fi
-      log "Deleting duplicate alert policy: ${policy_name}"
-      gcloud monitoring policies delete "${policy_name}" --project "${PROJECT_ID}" --quiet >/dev/null
-    done <<< "${duplicate_names}"
-  fi
-
-  if [[ -z "${existing}" ]]; then
-    log "Creating alert policy: ${display_name}"
-    gcloud monitoring policies create \
-      --project "${PROJECT_ID}" \
-      --policy-from-file="${rendered_with_channels}" >/dev/null
-    return
-  fi
-
-  local update_config="${rendered_with_channels}.update.json"
-
-  jq --arg name "${existing}" '.name = $name' "${rendered_with_channels}" > "${update_config}"
-
-  log "Updating alert policy: ${display_name}"
-  gcloud monitoring policies update "${existing}" \
-    --project "${PROJECT_ID}" \
-    --policy-from-file="${update_config}" >/dev/null
-}
-
 ensure_scheduler_sa() {
   if gcloud iam service-accounts describe "${OBS_SCHEDULER_SA_EMAIL}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
     log "Scheduler invoker service account already exists: ${OBS_SCHEDULER_SA_EMAIL}"
