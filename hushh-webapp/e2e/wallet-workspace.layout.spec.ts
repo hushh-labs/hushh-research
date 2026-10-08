@@ -406,6 +406,45 @@ async function awaitWalletCardsSettled(page: Page) {
   )).toBe(0);
 }
 
+async function recordWalletLayout(page: Page, stage: "profile-before-wheel" | "profile-after-wheel" | "sharing-after-tap" | "sharing-after-alignment") {
+  // This document is the synthetic fixture only. Export geometry and authored
+  // state, never Profile/card/recipient text, class strings or provider output.
+  const geometry = await page.evaluate(() => {
+    const bounded = (value: number) => Number.isFinite(value) && Math.abs(value) <= 100000 ? Math.round(value * 100) / 100 : null;
+    const box = (element: Element | null) => {
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return { x: bounded(rect.x), y: bounded(rect.y), w: bounded(rect.width), h: bounded(rect.height) };
+    };
+    const root = document.querySelector<HTMLElement>('[data-app-scroll-root="true"]');
+    const pager = document.querySelector<HTMLElement>('[data-swipe-views-root="true"]');
+    const track = pager?.firstElementChild;
+    const transform = track && getComputedStyle(track).transform;
+    const matrix = transform && transform !== "none" ? new DOMMatrixReadOnly(transform) : null;
+    const panels = ["cards", "add", "sharing"].map(value => {
+      const panel = document.querySelector<HTMLElement>(`#top-shell-wallet-panel-${value}`);
+      const tab = document.querySelector(`#top-shell-wallet-tab-${value}`);
+      return { box: box(panel), height: panel ? bounded(panel.scrollHeight) : null,
+        selected: tab?.getAttribute("aria-selected") === "true", inactive: panel?.inert ?? null };
+    });
+    const scrollLeft: (number | null)[] = [];
+    for (let ancestor: HTMLElement | null = pager ?? null; ancestor && scrollLeft.length < 12; ancestor = ancestor.parentElement) {
+      scrollLeft.push(bounded(ancestor.scrollLeft));
+    }
+    const details = document.querySelector('[data-testid="wallet-demo-details"]');
+    const hit = document.elementFromPoint(innerWidth / 2, 400);
+    return { root: box(root), top: root ? bounded(root.scrollTop) : null,
+      range: root ? bounded(root.scrollHeight - root.clientHeight) : null,
+      pager: box(pager), panels, scrollLeft,
+      translation: matrix ? bounded(matrix.m41) : 0,
+      animations: details?.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length ?? 0,
+      finalValue: box(Array.from(details?.querySelectorAll("dd") ?? []).at(-1) ?? null),
+      chrome: box(document.querySelector('[data-bottom-chrome]')),
+      wheelHitsIframe: hit?.tagName === "IFRAME", wheelHitsCards: !!hit?.closest('[data-testid="wallet-card-browser"]') };
+  });
+  console.log(`WALLET_LAYOUT ${stage} ${JSON.stringify(geometry)}`);
+}
+
 for (const width of [320, 390, 1024]) {
   test(`Wallet Profile details remain readable and scroll-reachable at ${width}px`, async ({ page }) => {
     const profile = {
@@ -435,9 +474,14 @@ for (const width of [320, 390, 1024]) {
       return true;
     }))).toBe(true);
     const finalValue = details.locator("dd").last();
+    await recordWalletLayout(page, "profile-before-wheel");
     await page.mouse.move(width / 2, 400);
     await page.mouse.wheel(0, 5000);
-    await expect(finalValue).toBeInViewport({ ratio: 1 });
+    try {
+      await expect(finalValue).toBeInViewport({ ratio: 1 });
+    } finally {
+      await recordWalletLayout(page, "profile-after-wheel");
+    }
     await expect.poll(() => finalValue.evaluate((element) =>
       element.getBoundingClientRect().bottom - document.querySelector("[data-bottom-chrome]")!.getBoundingClientRect().top,
     )).toBeLessThanOrEqual(1);
@@ -619,10 +663,15 @@ for (const width of [320, 390, 1440]) {
     await mount(page);
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
-    await expect.poll(() => page.evaluate(() => Math.abs(
-      document.querySelector("#top-shell-wallet-panel-sharing")!.getBoundingClientRect().x -
-      document.querySelector('[data-swipe-views-root="true"]')!.getBoundingClientRect().x
-    ))).toBeLessThan(2);
+    await recordWalletLayout(page, "sharing-after-tap");
+    try {
+      await expect.poll(() => page.evaluate(() => Math.abs(
+        document.querySelector("#top-shell-wallet-panel-sharing")!.getBoundingClientRect().x -
+        document.querySelector('[data-swipe-views-root="true"]')!.getBoundingClientRect().x
+      ))).toBeLessThan(2);
+    } finally {
+      await recordWalletLayout(page, "sharing-after-alignment");
+    }
     const sharing = page.getByTestId("wallet-sharing-content");
     await expect(sharing.getByText("Sample requester")).toHaveCount(0);
     await expect(sharing.getByText("Sample recipient")).toBeVisible();

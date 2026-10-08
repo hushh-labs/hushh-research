@@ -604,6 +604,12 @@ final class AppUITests: XCTestCase {
         print("VOICE_SPEECH_READY")
         let inputDeadline = Date().addingTimeInterval(25)
         while inputMatches.count <= inputCount && Date() < inputDeadline { Thread.sleep(forTimeInterval: 0.25) }
+        // Diagnose AX projection without exporting a transcript or accepting
+        // recognition that is not attributable to the synthetic question.
+        let anyInputMatches = webView.descendants(matching: .any).matching(NSPredicate(
+            format: "label BEGINSWITH[c] %@ AND label CONTAINS[c] %@", "You", "ready for testing"
+        ))
+        print("VOICE_TRANSCRIPT_PROBE static=\(min(inputMatches.count, 2)) any=\(min(anyInputMatches.count, 2)) listening=\(listening.exists)")
         XCTAssertGreaterThan(inputMatches.count, inputCount, "VOICE_NO_RECOGNIZED_INPUT")
         let outputDeadline = Date().addingTimeInterval(45)
         while outputMatches.count <= outputCount && Date() < outputDeadline { Thread.sleep(forTimeInterval: 0.25) }
@@ -1687,6 +1693,16 @@ final class AppUITests: XCTestCase {
             wallet.tap()
             let back = app.buttons["top-shell-back"].firstMatch
             XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable, "THEME_NATIVE_BACK_UNAVAILABLE")
+            let status = app.buttons["native-test-status"].firstMatch
+            let walletReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard status.exists else { return false }
+                let state = self.parseStatus((status.value as? String) ?? status.label)
+                return state["route"] == "/one/wallet" && state["auth"] == "authenticated" &&
+                    ["loaded", "empty-valid"].contains(state["data"] ?? "")
+            }, object: status)
+            let ready = XCTWaiter.wait(for: [walletReady], timeout: 15) == .completed
+            print("NATIVE_THEME_WALLET_READY ready=\(ready)")
+            guard ready else { XCTFail("THEME_WALLET_NOT_READY"); return }
             XCTAssertEqual(back.frame.width, 44, accuracy: 1)
             XCTAssertEqual(back.frame.height, 44, accuracy: 1)
             assertStatusCanvasMatchesHeader(expectedDark: theme == "Dark")
@@ -1715,9 +1731,12 @@ final class AppUITests: XCTestCase {
                     ("add_encryption", "Encrypted on this device. Never enters chat."),
                     ("sharing_control", "You choose who can access your Wallet information."),
                     ("sharing_caption", "Illustrative card · Your saved details stay private"),
+                    ("artwork_caption", "Agent One — Profile · Referral · NWS"),
+                    ("artwork_title", "Agent One Cards"),
+                    ("cards_heading", "Your cards"),
                 ]
                 for (candidate, copy) in publicCopy {
-                    let matches = web.staticTexts.matching(NSPredicate(format: "label == %@", copy))
+                    let matches = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", copy))
                     let count = matches.count
                     let labelMatches = element.label == copy
                     print("NATIVE_AUDIT_PUBLIC_COPY candidate=\(candidate) count=\(min(count, 2)) issue_matches=\(labelMatches)")
@@ -1733,6 +1752,23 @@ final class AppUITests: XCTestCase {
                         abs(frame.width - issueFrame.width) <= 1 &&
                         abs(frame.height - issueFrame.height) <= 1
                     print("NATIVE_AUDIT_PUBLIC_COPY_FRAME candidate=\(candidate) frame_matches=\(frameMatches) hittable=\(match.isHittable) x=\(Int(frame.minX)) y=\(Int(frame.minY)) width=\(Int(frame.width)) height=\(Int(frame.height))")
+                }
+                let publicCandidates: [(String, XCUIElementQuery)] = [
+                    ("native_status", app.descendants(matching: .any).matching(identifier: "native-test-status")),
+                    ("native_layout", app.descendants(matching: .any).matching(identifier: "native-vault-layout")),
+                    ("page_loading", web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Page loading"))),
+                    ("page_loaded", web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Page loaded."))),
+                    ("notifications", web.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Notifications", "Notifications alt+T"]))),
+                ]
+                for (candidate, matches) in publicCandidates {
+                    let count = matches.count
+                    print("NATIVE_AUDIT_CANDIDATE candidate=\(candidate) count=\(min(count, 2))")
+                    guard count == 1 else { continue }
+                    let match = matches.firstMatch, frame = match.frame, issueFrame = element.frame
+                    guard [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite && abs($0) <= 100000 }) else { continue }
+                    let frameMatches = abs(frame.minX - issueFrame.minX) <= 1 && abs(frame.minY - issueFrame.minY) <= 1 &&
+                        abs(frame.width - issueFrame.width) <= 1 && abs(frame.height - issueFrame.height) <= 1
+                    print("NATIVE_AUDIT_CANDIDATE_MATCH candidate=\(candidate) label_matches=\(match.label == element.label) type_matches=\(match.elementType == element.elementType) frame_matches=\(frameMatches)")
                 }
                 return !element.identifier.isEmpty && element.identifier != "top-shell-back" &&
                     !element.frame.intersects(back.frame)

@@ -1479,3 +1479,37 @@ single page-start owner, inert artwork and owner/vault/request projection.
 The corrected merge passes 32 nearest Wallet tests and 24 Chromium/WebKit
 layout cases, including Add-draft continuity and long details. These results
 do not supersede exact-head core, CI or installed-device acceptance.
+
+### Physical passphrase rehearsal and diagnostic boundaries
+
+The existing Debug `-UITestMode` preference can force the normal passphrase
+form even when biometric unlock is the account default. Explicitly pair it
+with `-UITestResetAppState false` and `-UITestAutoReviewerLogin false`, with
+no injected initial route or credential at app launch. This does not change
+the account's primary method or bypass vault cryptography. The configured
+memory-only reviewer helper supplies the whole value once through the normal
+secure field; secrets never enter launch arguments, artifacts or this document.
+Cold preparation is separate from subsequent attach-only warm journeys.
+
+At `3d9974107`, the physical iPhone passes normal passphrase unlock, all eight
+warm route cases and Voice Bar body cancellation. The route batch covers Mail
+with an onscreen keyboard, Memory Saved/Add/Sharing, native Chat controls and
+edge presses, preferences, the nested Profile stack/photo preview, and
+Connect/Finance/Consent/Wallet selection with the same host/session/draft.
+These results do not qualify Release frame pacing, iPad or whole-app visuals.
+
+Exact-head Linux CI still fails four WebKit Wallet scroll/alignment cases despite
+focused macOS passes. The existing synthetic tests now report bounded geometry
+without changing viewport requirements or budgets. Physical light status-canvas
+checks pass, but an unidentified outside-Back accessibility issue remains after
+Wallet readiness is proven; no issue is waived by coordinates or passive copy.
+The existing audit reports fixed source-owned candidate comparisons only, never
+an unknown label or protected hierarchy. Live speech does not observe the
+synthetic input transcript, so completion/echo-loop acceptance remains open;
+capture is stopped and the original appearance/session restored after failures.
+
+An attach-only run uses installed destination artifacts. Rebuilding a runner
+does not install it: verify its strict signature and install only the updated
+XCTest runner before assessing changed test diagnostics. Do not replace or
+restart One to update that runner, and do not present the rebuilt App binary
+on disk as the installed product without separate installation evidence.
