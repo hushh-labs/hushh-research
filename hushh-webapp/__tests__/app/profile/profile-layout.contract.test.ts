@@ -180,21 +180,25 @@ describe("Profile canonical page layout", () => {
       join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
     );
+    const identity = readFileSync(
+      join(process.cwd(), "components/profile/provider-identity.tsx"),
+      "utf8",
+    );
     const socialIcons = readFileSync(
       join(process.cwd(), "lib/morphy-ux/social-icons.tsx"),
       "utf8",
     );
     const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
 
-    expect(source).toContain(
+    expect(identity).toContain(
       'import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";',
     );
-    expect(source).toContain("BriefcaseBusiness,");
-    expect(source).toContain("shouldUseGoogleBrandMark(providerId, email)");
-    expect(source).toContain(
+    expect(identity).toContain("BriefcaseBusiness,");
+    expect(identity).toContain("shouldUseGoogleBrandMark(providerId, email)");
+    expect(identity).toContain(
       'return <GoogleIcon className="shrink-0" size={17} />;',
     );
-    expect(source).toContain(
+    expect(identity).toContain(
       '<Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />',
     );
     expect(source).toContain(

@@ -524,10 +524,28 @@ jobs:
             "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
               --phase database --report-path /tmp/dev-preview-predeploy-database.json
           fi
-          (
-            cd consent-protocol
-            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
-          )
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            MIGRATOR_DB_USER="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}MIGRATOR_DB_USER" --project="${{ env.GCP_PROJECT_ID }}")"
+            MIGRATOR_DB_PASSWORD="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}MIGRATOR_DB_PASSWORD" --project="${{ env.GCP_PROJECT_ID }}")"
+            echo "::add-mask::${MIGRATOR_DB_USER}"
+            echo "::add-mask::${MIGRATOR_DB_PASSWORD}"
+            if [[ "${MIGRATOR_DB_USER}" != "scope_commerce_sandbox_migrator" || "${DB_USER}" != "scope_commerce_sandbox" ]]; then
+              echo "Preview migration identity is not pinned." >&2; exit 1
+            fi
+            (
+              export DB_USER="${MIGRATOR_DB_USER}" DB_PASSWORD="${MIGRATOR_DB_PASSWORD}"
+              cd consent-protocol
+              "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
+            )
+            unset MIGRATOR_DB_USER MIGRATOR_DB_PASSWORD
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase database --report-path /tmp/dev-preview-postmigration-database.json
+          else
+            (
+              cd consent-protocol
+              "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
+            )
+          fi
           # Skew guard (same class as the secret-sync probes): the dev
           # contract file may not exist on older train SHAs. Fall back to the
           # UAT contract, which dev replicates by design.

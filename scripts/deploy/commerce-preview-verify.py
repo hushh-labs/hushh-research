@@ -63,20 +63,77 @@ class CloudReader:
         return value
 
 
+def secret_binding(document: dict, reference: str) -> str:
+    aliases = {}
+    template = document["spec"]["template"]
+    for metadata in (document.get("metadata", {}), template.get("metadata", {})):
+        value = metadata.get("annotations", {}).get("run.googleapis.com/secrets", "")
+        for item in value.split(",") if value else ():
+            alias, separator, resource = item.partition(":")
+            if (
+                not separator
+                or not alias
+                or not resource
+                or (alias in aliases and aliases[alias] != resource)
+            ):
+                raise PreviewError("preview_secret_alias_unverified")
+            aliases[alias] = resource
+    resource = aliases.get(reference, reference)
+    if "/" in resource:
+        parts = resource.split("/")
+        projects = {PROJECT, document.get("metadata", {}).get("namespace")}
+        if (
+            len(parts) != 4
+            or parts[0] != "projects"
+            or parts[2] != "secrets"
+            or parts[1] not in projects
+        ):
+            raise PreviewError("preview_secret_project_mismatch")
+        resource = parts[3]
+    if not resource.startswith(PREFIX):
+        raise PreviewError("preview_shared_secret_binding")
+    if resource.removeprefix(PREFIX) in TARGET["MIGRATION_SECRETS"]:
+        raise PreviewError("preview_migration_credential_mounted")
+    return resource
+
+
 def validate_mounts(document: dict, expected: dict[str, str]) -> None:
     containers = document["spec"]["template"]["spec"]["containers"]
     if len(containers) != 1:
         raise PreviewError("preview_container_unverified")
     mounted = {}
     for row in containers[0].get("env", []):
+        if row.get("name") in TARGET["MIGRATION_SECRETS"]:
+            raise PreviewError("preview_migration_credential_mounted")
         ref = row.get("valueFrom", {}).get("secretKeyRef")
         if ref:
-            name = ref["name"].rsplit("/", 1)[-1]
-            if not name.startswith(PREFIX):
-                raise PreviewError("preview_shared_secret_binding")
-            mounted[row["name"]] = name
+            mounted[row["name"]] = secret_binding(document, ref["name"])
+    for volume in document["spec"]["template"]["spec"].get("volumes", []):
+        secret = volume.get("secret", {}).get("secretName")
+        if secret:
+            secret_binding(document, secret)
     if any(mounted.get(key) != PREFIX + value for key, value in expected.items()):
         raise PreviewError("preview_required_mount_missing")
+
+
+def validate_runtime_database_role(role: dict | None) -> None:
+    if (
+        not role
+        or role.get("rolname") != TARGET["DATABASE"]
+        or any(
+            role.get(field) is not False
+            for field in (
+                "rolsuper",
+                "rolcreaterole",
+                "rolcreatedb",
+                "rolreplication",
+                "rolbypassrls",
+                "elevated_membership",
+                "other_database_ownership",
+            )
+        )
+    ):
+        raise PreviewError("preview_runtime_database_privileged")
 
 
 def validate_oauth_process(document: dict) -> None:
@@ -85,9 +142,21 @@ def validate_oauth_process(document: dict) -> None:
     containers = template["spec"]["containers"]
     if len(containers) != 1:
         raise PreviewError("preview_oauth_process_unverified")
-    workers = [row.get("value") for row in containers[0].get("env", []) if row.get("name") == "WEB_CONCURRENCY"]
-    service_max = document.get("metadata", {}).get("annotations", {}).get("run.googleapis.com/maxScale")
-    revision_max = template.get("metadata", {}).get("annotations", {}).get("autoscaling.knative.dev/maxScale")
+    workers = [
+        row.get("value")
+        for row in containers[0].get("env", [])
+        if row.get("name") == "WEB_CONCURRENCY"
+    ]
+    service_max = (
+        document.get("metadata", {})
+        .get("annotations", {})
+        .get("run.googleapis.com/maxScale")
+    )
+    revision_max = (
+        template.get("metadata", {})
+        .get("annotations", {})
+        .get("autoscaling.knative.dev/maxScale")
+    )
     if workers != ["1"] or str(service_max) != "1" or str(revision_max) != "1":
         raise PreviewError("preview_oauth_process_unverified")
 
@@ -99,8 +168,14 @@ def validate_serving_template(document: dict) -> None:
         state = resolver["resolve_serving_state"](document)
     except ValueError:
         raise PreviewError("preview_serving_revision_unverified") from None
-    template = document.get("spec", {}).get("template", {}).get("metadata", {}).get("name")
-    if not template or state.revision != template or state.revision != document["status"].get("latestReadyRevisionName"):
+    template = (
+        document.get("spec", {}).get("template", {}).get("metadata", {}).get("name")
+    )
+    if (
+        not template
+        or state.revision != template
+        or state.revision != document["status"].get("latestReadyRevisionName")
+    ):
         raise PreviewError("preview_serving_revision_unverified")
 
 
@@ -133,12 +208,20 @@ class PreviewVerifier:
             self.reader.secret("APP_FRONTEND_ORIGIN") != app_origin
             or self.reader.secret("BACKEND_URL") != backend_origin
             or self.reader.secret("DB_USER") != self.target.database
-            or self.reader.secret("NEXT_PUBLIC_IOS_BUNDLE_ID") != "com.hushh.app.scopecommerce.sandbox"
-            or self.reader.secret("NEXT_PUBLIC_ANDROID_APP_ID") != "com.hussh.app.scopecommerce.sandbox"
+            or self.reader.secret("NEXT_PUBLIC_IOS_BUNDLE_ID")
+            != "com.hushh.app.scopecommerce.sandbox"
+            or self.reader.secret("NEXT_PUBLIC_ANDROID_APP_ID")
+            != "com.hussh.app.scopecommerce.sandbox"
         ):
             raise PreviewError("preview_shared_runtime_binding")
         for name in set(TARGET["PRIVATE_SECRETS"] + TARGET["WEB_SECRETS"]):
             self.reader.secret(name)
+        if self.reader.secret("MIGRATOR_DB_USER") != TARGET[
+            "MIGRATOR_USER"
+        ] or self.reader.secret("MIGRATOR_DB_PASSWORD") == self.reader.secret(
+            "DB_PASSWORD"
+        ):
+            raise PreviewError("preview_migration_credential_unverified")
         stripe_key = self.reader.secret("SCOPE_COMMERCE_STRIPE_SECRET_KEY")
         if not stripe_key.startswith(("sk_test_", "rk_test_")):
             raise PreviewError("preview_stripe_test_key_required")
@@ -196,6 +279,28 @@ class PreviewVerifier:
                     != self.target.database
                 ):
                     raise PreviewError("preview_database_mismatch")
+                role = await connection.fetchrow(
+                    """SELECT r.rolname, r.rolsuper,
+                    r.rolcreaterole, r.rolcreatedb, r.rolreplication, r.rolbypassrls,
+                    EXISTS(SELECT 1 FROM pg_roles a WHERE (
+                        a.rolsuper OR a.rolcreaterole OR a.rolcreatedb OR a.rolreplication
+                        OR a.rolbypassrls OR a.rolname IN ('cloudsqlsuperuser',
+                        'pg_read_all_data', 'pg_write_all_data', 'pg_read_server_files',
+                        'pg_write_server_files', 'pg_execute_server_program'))
+                        AND pg_has_role(r.oid, a.oid, 'MEMBER')) AS elevated_membership,
+                    EXISTS(SELECT 1 FROM pg_database d WHERE d.datname <> $1
+                        AND pg_has_role(r.oid, d.datdba, 'MEMBER')) AS other_database_ownership
+                    FROM pg_roles r WHERE r.rolname=current_user""",
+                    self.target.database,
+                )
+                validate_runtime_database_role(dict(role) if role else None)
+                unowned = await connection.fetchval("""SELECT count(*) FROM pg_class c
+                    JOIN pg_namespace n ON n.oid=c.relnamespace
+                    WHERE n.nspname='public' AND c.relkind IN ('r','p')
+                    AND c.relname <> 'schema_migrations'
+                    AND c.relowner <> (SELECT oid FROM pg_roles WHERE rolname=current_user)""")
+                if unowned:
+                    raise PreviewError("preview_runtime_table_ownership_unverified")
                 pin = await connection.fetchrow(
                     "SELECT * FROM scope_commerce_environment WHERE singleton"
                 )
@@ -252,7 +357,13 @@ class PreviewVerifier:
 
 def json_http(url: str, *, token: str | None = None, body: dict | None = None) -> dict:
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
         raise PreviewError("preview_https_required")
     headers = {"Content-Type": "application/json"}
     if token:
@@ -320,7 +431,9 @@ def main() -> int:
     }
     try:
         verifier = PreviewVerifier()
-        context = verifier.resources(mounts=args.phase in {"mounts", "app"}, serving=args.phase == "app")
+        context = verifier.resources(
+            mounts=args.phase in {"mounts", "app"}, serving=args.phase == "app"
+        )
         if args.phase == "database":
             asyncio.run(verifier.database(context))
         if args.phase == "app":
