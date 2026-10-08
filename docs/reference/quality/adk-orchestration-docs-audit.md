@@ -8,8 +8,8 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 ## Decision — 2026-10-07
 
-**The economical BYOC candidate is assembled locally. Dev 9 remains the last
-verified serving release; no owner upgrade is implied by these source changes.**
+**The economical BYOC candidate is integrated on the infrastructure branch.
+Dev 9 remains the last verified serving release; no owner upgrade is implied.**
 New-owner defaults are 1 vCPU, 2 GiB, minimum zero, maximum one and one worker.
 Existing hosting selections remain authoritative. Computer Use stays disabled.
 
@@ -27,7 +27,9 @@ Existing hosting selections remain authoritative. Computer Use stays disabled.
   idle. The relay retains its ten-minute grace and existing owner configuration.
 - Frozen ADK `31932bb01ae9` includes main `5774656cba82`; concurrent commerce
   `18c3db9ab3b03` is preserved. Gmail keeps migration 283; commerce moves to 284,
-  subject to a live ledger check before deployment. Generated owners are rerun.
+  subject to a live ledger check before deployment. Main `8a0d8a9f8` then supplied
+  the runtime-prompt packaging and privacy-fixture corrections required by hosted
+  freshness; 25 nearest checks passed. The ADK snapshot remains frozen.
 - Integrated checks: 198 backend boundary cases, 44 frontend cases and TypeScript
   compilation passed. These establish local behavior, not cloud acceptance.
 
@@ -94,6 +96,18 @@ The isolated database lane passed all 645 cases across its initial and resumed
 files after using the required local test identity. MCP and 380 integration
 checks passed, alongside web-core, secrets and governance. Collection admits
 23,417 tests. Hosted validation and the new deployment remain separate receipts.
+The prior hosted iOS failure was main-actor starvation in observer registration;
+`2f47a849a` preserves the existing concurrent async-test correction. Hosted run
+[37733843501](https://github.com/hushh-labs/hushh-research/actions/runs/37733843501)
+then refused stale main and the imported five-line privacy-fixture ratchet delta.
+The four main commits and that independently reviewed baseline slot are reconciled;
+no test or structural budget was removed.
+
+The disposable GCP predecessor passed real project/billing setup, encrypted key
+recovery, signed app admission, a durable idle handoff and same-image restart with
+the same pod key. An admitted synthetic configuration write also passed. Chat
+returned a provider 403, with no text; this is not chat, model or latency acceptance.
+These synthetic-authority receipts do not replace normal-owner Settings approval.
 
 Gmail now queues identifiers into its durable application consumer and settles
 only processed deliveries. The frozen migration-956 Scheduler URL reaches the

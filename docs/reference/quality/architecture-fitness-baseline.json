@@ -20084,7 +20084,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_relay_mail_send.py",
       "symbol": null,
-      "value": 536
+      "value": 541
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20199,6 +20199,15 @@
   "integration_review": {
     "commerce_parent": "18c3db9ab3b03e07d070eeba70e0031ff74f3059",
     "frozen_adk": "31932bb01ae9059ac3b7996785f2bf3ed458f078",
+    "main_privacy_fixture_review": {
+      "after": 541,
+      "before": 536,
+      "integrated_revision": "e99adea8edfc2f11cd26e8076e9825257c27a09f",
+      "key": "module_size|consent-protocol/tests/one_voice/test_relay_mail_send.py||module exceeds the advisory operon budget",
+      "rationale": "Reviewed imported main fix replaces collision-prone two-letter assertion with the distinctive submitted mail body. Privacy negative control retained; no runtime change; affected functions remain below 80 lines. Existing module budget 500 and all other ratchet slots unchanged. Independent security/quality source review and 25 nearest packaging/mail tests passed.",
+      "reviewed_at": "2026-10-08T05:50:37.226292+00:00",
+      "source_commit": "5ea156c1e2e02d95290fab7d40e851cae4b05691"
+    },
     "pilot": "Gmail history checkpoint port; Azure custody plan, replacement configuration and Files provisioning adapters. Existing public facades retained.",
     "reviewed_at": "2026-10-08T05:03:48.565368+00:00",
     "route_inventory_review": {
