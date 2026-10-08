@@ -8,7 +8,7 @@
     { "action_id": "setup.skip_email", "label": "Skip KYC setup", "meaning": "Returns to the setup hub without recording KYC as complete.", "aliases": ["skip kyc setup", "skip email setup"], "search_keywords": ["skip", "kyc", "email"], "reachability": { "routes": ["/one/setup/email"], "screens": ["one_setup_email"], "hidden_navigable": false, "navigation_prerequisites": [] }, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.skip_email" }, "control_ids": ["one-setup-email-terminal"], "state_exposure": ["active setup capability"] }
   ],
   "search": {
-    "source_revision": "0f54f6515274768c7775cfadc3233be7a4566661bbf2d863ab7a06bbbe6006aa",
+    "source_revision": "27fa6e040e17dedd7b1fb8a01cebef5f6e6a8a886d5c2537895a1663070c64c9",
     "source_module_count": 1510
   }
 }
