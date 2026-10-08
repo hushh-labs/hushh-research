@@ -63,11 +63,14 @@ def test_local_cli_credentials_are_explicit_refreshable_and_never_hosted(monkeyp
 
     monkeypatch.setattr(local_credentials.subprocess, "run", run)
     credentials = local_credentials.local_cli_credentials()
+
     def request(**kwargs):
         assert "synthetic-token" not in kwargs["url"]
         assert kwargs["method"] == "POST"
         assert kwargs["timeout"] == 10
-        return SimpleNamespace(status=200, data=b'{"email":"reviewer@example.test","expires_in":900}')
+        return SimpleNamespace(
+            status=200, data=b'{"email":"reviewer@example.test","expires_in":900}'
+        )
 
     credentials.refresh(request)
     assert credentials.token == "synthetic-token"
@@ -75,8 +78,11 @@ def test_local_cli_credentials_are_explicit_refreshable_and_never_hosted(monkeyp
     assert "--account=reviewer@example.test" in calls[0][0]
     assert calls[0][1]["timeout"] == 15
     assert "synthetic-token" not in str(calls)
-    for data in (b'{"email":"wrong@example.test","expires_in":900}',
-                 b'{"email":"reviewer@example.test","expires_in":100}', b'not-json'):
+    for data in (
+        b'{"email":"wrong@example.test","expires_in":900}',
+        b'{"email":"reviewer@example.test","expires_in":100}',
+        b"not-json",
+    ):
         with pytest.raises(RefreshError, match="reauthentication"):
             credentials.refresh(lambda data=data, **kwargs: SimpleNamespace(status=200, data=data))
     monkeypatch.setenv("K_SERVICE", "hosted")
@@ -98,14 +104,20 @@ def test_managed_clients_keep_local_identity_across_regional_failover(monkeypatc
     marker = object()
     monkeypatch.setattr(factory, "local_cli_credentials", lambda: marker)
     calls = []
-    monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs) or SimpleNamespace())
-    binding = ManagedGeminiRuntimeBinding(project="synthetic-project", locations=("global", "us"), auth_mode="vertex_adc")
+    monkeypatch.setattr(
+        "google.genai.Client", lambda **kwargs: calls.append(kwargs) or SimpleNamespace()
+    )
+    binding = ManagedGeminiRuntimeBinding(
+        project="synthetic-project", locations=("global", "us"), auth_mode="vertex_adc"
+    )
     client = binding.build_direct_client()
     client._client_for("us")
     assert [call["credentials"] for call in calls] == [marker, marker]
     monkeypatch.setattr("google.adk.models.Gemini", lambda **kwargs: SimpleNamespace(**kwargs))
     assert binding.build_adk_model(GEMINI_MODEL).client_kwargs["credentials"] is marker
-    monkeypatch.setattr(factory, "_regional_gemini_type", lambda: lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(
+        factory, "_regional_gemini_type", lambda: lambda **kwargs: SimpleNamespace(**kwargs)
+    )
     monkeypatch.setattr(factory, "_REGIONAL_ADK_CLIENTS", {})
     regional = binding.build_regional_adk_model(GEMINI_MODEL)
     regional.regional_client._client_for("global")

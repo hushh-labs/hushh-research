@@ -1,0 +1,167 @@
+name: Capacity Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: UAT or production project to inspect or clean
+        required: true
+        type: choice
+        options:
+          - uat
+          - production
+      healthy_release_run_id:
+        description: Successful deploy run whose release artifact matches live traffic
+        required: true
+        type: string
+      apply:
+        description: Remove old tags and revisions after a dry run
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Verify and retire old Cloud Run revisions
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: ${{ inputs.environment }}
+    env:
+      GCP_PROJECT_ID: ${{ inputs.environment == 'uat' && 'hushh-pda-uat' || 'hushh-pda' }}
+      GCP_REGION: us-central1
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout current release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Require main and governed actor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = main
+          python3 scripts/ci/assert-governed-actor.py --surface "${{ inputs.environment }}" --actor "${GITHUB_ACTOR}"
+
+      - name: Require a successful healthy release artifact
+        id: release
+        shell: bash
+        env:
+          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          RELEASE_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid release run ID" >&2; exit 1; }
+          expected_workflow="Deploy to UAT"
+          artifact_name="uat-release-${RELEASE_RUN_ID}"
+          status_file="uat-release-status.json"
+          if [ "$RELEASE_ENV" = production ]; then
+            expected_workflow="Deploy to Production"
+            artifact_name="prod-release-${RELEASE_RUN_ID}"
+            status_file="prod-release-status.json"
+          fi
+          gh run view "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion,workflowName \
+            | jq -e --arg workflow "$expected_workflow" \
+              '.conclusion == "success" and .workflowName == $workflow' >/dev/null
+          mkdir -p "$RUNNER_TEMP/capacity-release"
+          gh run download "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "$artifact_name" --dir "$RUNNER_TEMP/capacity-release"
+          python3 - "$RUNNER_TEMP/capacity-release/$status_file" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if payload.get("status") != "healthy":
+              raise SystemExit("Release artifact is not healthy")
+          final = payload.get("final") or {}
+          predeploy = payload.get("predeploy") or {}
+          for key in ("backend_revision", "frontend_revision"):
+              if not final.get(key):
+                  raise SystemExit(f"Healthy artifact lacks {key}")
+          with Path(sys.argv[2]).open("a", encoding="utf-8") as output:
+              for label, value in (
+                  ("backend_revision", final["backend_revision"]),
+                  ("frontend_revision", final["frontend_revision"]),
+                  ("backend_rollback", predeploy.get("backend_revision") or ""),
+                  ("frontend_rollback", predeploy.get("frontend_revision") or ""),
+              ):
+                  print(f"{label}={value}", file=output)
+          PY
+
+      - name: Authenticate to the selected Google Cloud environment
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set selected project context
+        run: gcloud config set project "$GCP_PROJECT_ID"
+
+      - name: Verify live service identity and traffic
+        shell: bash
+        env:
+          BACKEND_EXPECTED: ${{ steps.release.outputs.backend_revision }}
+          FRONTEND_EXPECTED: ${{ steps.release.outputs.frontend_revision }}
+          RELEASE_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          test "$(gcloud config get-value project 2>/dev/null)" = "$GCP_PROJECT_ID"
+          for service in consent-protocol hushh-webapp; do
+            expected="$BACKEND_EXPECTED"
+            if [ "$service" = hushh-webapp ]; then expected="$FRONTEND_EXPECTED"; fi
+            gcloud run services describe "$service" --project "$GCP_PROJECT_ID" \
+              --region "$GCP_REGION" --format=json \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); expected=sys.argv[1]; ready=any(c.get("type")=="Ready" and c.get("status")=="True" for c in d.get("status",{}).get("conditions",[])); serving=[t.get("revisionName") for t in d.get("status",{}).get("traffic",[]) if int(t.get("percent") or 0)>0]; assert ready and serving==[expected], f"Unhealthy or changed serving state: {serving}"' "$expected"
+          done
+          if [ "$RELEASE_ENV" = uat ]; then
+            gcloud run services describe consent-protocol-drive-worker \
+              --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --format=json \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); ready=any(c.get("type")=="Ready" and c.get("status")=="True" for c in d.get("status",{}).get("conditions",[])); serving=[t for t in d.get("status",{}).get("traffic",[]) if int(t.get("percent") or 0)>0]; assert ready and len(serving)==1 and int(serving[0]["percent"])==100, "Worker serving state ambiguous"'
+          fi
+
+      - name: Inspect or apply bounded revision cleanup
+        shell: bash
+        env:
+          APPLY: ${{ inputs.apply }}
+          RELEASE_ENV: ${{ inputs.environment }}
+          BACKEND_CURRENT: ${{ steps.release.outputs.backend_revision }}
+          FRONTEND_CURRENT: ${{ steps.release.outputs.frontend_revision }}
+          BACKEND_ROLLBACK: ${{ steps.release.outputs.backend_rollback }}
+          FRONTEND_ROLLBACK: ${{ steps.release.outputs.frontend_rollback }}
+        run: |
+          set -euo pipefail
+          cleanup_flags=()
+          if [ "$APPLY" = true ]; then cleanup_flags=(--apply --healthy); fi
+          if [ "$RELEASE_ENV" = uat ]; then
+            # Retire the large set of old worker tags before the backend's
+            # one-hour request drain begins.
+            bash scripts/ci/cloudrun-retention.sh consent-protocol-drive-worker "$GCP_REGION" 2 \
+              "${cleanup_flags[@]}"
+          fi
+          bash scripts/ci/cloudrun-retention.sh consent-protocol "$GCP_REGION" 2 \
+            "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
+            --last-known-good-revision "$BACKEND_CURRENT" "${cleanup_flags[@]}"
+          bash scripts/ci/cloudrun-retention.sh hushh-webapp "$GCP_REGION" 10 \
+            "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
+            --last-known-good-revision "$FRONTEND_CURRENT" "${cleanup_flags[@]}"
+
+      - name: Report post-cleanup connection budget
+        if: inputs.apply
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment "${{ inputs.environment }}"

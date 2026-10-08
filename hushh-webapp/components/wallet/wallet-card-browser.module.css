@@ -62,6 +62,7 @@
 
 /* Compact reference strip: retain touch targets without a tall surrounding shelf. */
 .dock { gap:6px; padding:0; min-height:44px; }
+.dock { position:relative; top:-44px; }
 .thumbnails { gap:6px; padding:0 2px; }
 .thumbnailButton { flex-basis:54px; min-height:44px; display:flex; align-items:center; padding:2px; }
 .thumbnail { width:100%; }

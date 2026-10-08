@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { MobileDocumentDateRange } from "@/components/consent/mobile-document-date-range";
 
@@ -39,4 +45,26 @@ it("requires two deliberate taps and prevents an end before the start", () => {
   fireEvent.click(screen.getByRole("button", { name: "Friday, October 2, 2026" }));
   expect(screen.getByRole("button", { name: "Start date: Oct 2, 2026" })).toBeVisible();
   expect(screen.getByRole("button", { name: "End date: Choose date" })).toBeVisible();
+});
+
+it("keeps the year picker responsive while the calendar catches up", async () => {
+  render(<RequestDates />);
+  fireEvent.click(screen.getByRole("button", { name: "Start date: Choose date" }));
+
+  const year = screen.getByRole("combobox", { name: "Year" });
+  // Mobile select controls can emit several changes during one reverse scroll.
+  // The final selection must win and the day grid must settle on that month.
+  fireEvent.change(year, { target: { value: "2020" } });
+  fireEvent.change(year, { target: { value: "2010" } });
+  fireEvent.change(year, { target: { value: "2000" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Month" }), {
+    target: { value: "0" },
+  });
+
+  await waitFor(() => {
+    expect(year).toHaveValue("2000");
+    expect(
+      screen.getByRole("button", { name: "Saturday, January 1, 2000" }),
+    ).toBeVisible();
+  });
 });

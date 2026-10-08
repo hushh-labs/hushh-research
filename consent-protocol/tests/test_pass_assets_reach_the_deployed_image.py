@@ -20,7 +20,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pathspec
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +36,29 @@ IGNORE_FILES = (
     BACKEND_ROOT / ".gcloudignore",
     BACKEND_ROOT / ".dockerignore",
 )
+
+
+@pytest.mark.parametrize("ignore_file", IGNORE_FILES, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_manifest_prompts_survive_each_build_context_filter(ignore_file: Path) -> None:
+    """The October 7 image failed because upload stripped prompts before Docker."""
+    patterns = ignore_file.read_text(encoding="utf-8").splitlines()
+    spec = pathspec.GitIgnoreSpec.from_lines(patterns)
+    agents = BACKEND_ROOT / "hushh_mcp" / "agents"
+    prompts = set()
+    for manifest in agents.rglob("agent.yaml"):
+        reference = yaml.safe_load(manifest.read_text(encoding="utf-8")).get("prompt_reference")
+        if reference:
+            prompt = (manifest.parent / reference).resolve()
+            assert prompt.is_relative_to(agents)
+            assert prompt.is_file()
+            prompts.add(prompt)
+    assert prompts, "The fixture must exercise actual authored prompt references"
+    for prompt in prompts:
+        relative = prompt.relative_to(ignore_file.parent).as_posix()
+        assert not spec.match_file(relative), f"{ignore_file} removes runtime prompt {relative}"
+    # Negative control: the historical broad exclusion removes those same files.
+    broken = pathspec.GitIgnoreSpec.from_lines(["*.md"])
+    assert all(broken.match_file(p.relative_to(ignore_file.parent).as_posix()) for p in prompts)
 
 
 def _ignored_directory_names(ignore_file: Path) -> set[str]:

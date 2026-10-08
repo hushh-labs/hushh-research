@@ -1,7 +1,7 @@
 {
-  "displayName": "[Managed] Data Health Anomaly",
+  "displayName": "[Managed] DB Pool Acquire Timeout",
   "documentation": {
-    "content": "Cloud SQL data-health check reported one or more anomalies.\n\nInspect the information-health job evidence and repair the failed integrity check.",
+    "content": "At least one backend database pool acquire timed out.\n\nInspect acquisition, connection establishment and release timing against the capacity budget.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
@@ -9,17 +9,17 @@
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "data",
+    "scope": "capacity",
     "incident_purpose": "actionable"
   },
   "conditions": [
     {
-      "displayName": "obs_data_health_anomaly_count delta > 0",
+      "displayName": "Any pool acquire timeout",
       "conditionThreshold": {
-        "filter": "resource.type=\"cloud_run_job\" AND metric.type=\"logging.googleapis.com/user/obs_data_health_anomaly_count\"",
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_db_pool_acquire_timeout_count\"",
         "aggregations": [
           {
-            "alignmentPeriod": "900s",
+            "alignmentPeriod": "60s",
             "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM"
           }
