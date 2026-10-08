@@ -155,7 +155,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
         {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} collection />}
       </div>
       {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} failed={referralError} onRetry={onRetryReferral} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
-        {selected.cardId === "agent-one-nws" ? <p className="text-sm text-muted-foreground">Your net worth score is not available yet. This card shares your Wallet Profile and its scan totals.</p> : null}
+        {selected.cardId === "agent-one-nws" ? <p className="text-sm text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}
         <WalletCardWorkspace embedded active={active} passVariant={selected.cardId === "agent-one-nws" ? "nws" : "profile"} />
       </div> : details}
     </div>}

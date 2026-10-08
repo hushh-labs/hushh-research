@@ -55,6 +55,62 @@ describe("Wallet Add collection", () => {
     expect(screen.queryByRole("button", { name: /View all/ })).toBeNull();
   });
 
+  it.each(["shell", "nested"])("unfolds from native %s scrolling before the available range ends", (owner) => {
+    vi.useFakeTimers();
+    const renderDeck = (selectedCardId: string | null = null) => <div data-testid="scroll-owner" data-app-scroll-root={owner === "shell" ? "" : undefined} style={{ overflowY: "auto" }}>
+      <WalletAddCollection {...props} cards={cards.slice(0, 3)} selectedCardId={selectedCardId} scrollReveal showDetailsLink onOpen={vi.fn()} />
+    </div>;
+    const view = render(renderDeck());
+    const root = screen.getByTestId("scroll-owner");
+    const stack = screen.getByTestId("wallet-add-stack");
+    Object.defineProperties(root, { scrollHeight: { configurable: true, value: 600 }, clientHeight: { configurable: true, value: 500 } });
+    Object.defineProperty(stack, "clientWidth", { configurable: true, value: 420 });
+    act(() => vi.advanceTimersByTime(20));
+    const last = screen.getByTestId("wallet-add-layer-1002");
+    const folded = last.style.transform;
+    expect(stack).toHaveAttribute("data-unfolded", "false");
+    // Pointer focus and wheel events without actual movement leave the deck alone.
+    fireEvent.focus(screen.getByRole("button", { name: /Card 0, Visa ending/ }));
+    expect(fireEvent.wheel(stack, { deltaY: 100 })).toBe(true);
+    act(() => vi.advanceTimersByTime(20));
+    expect(last.style.transform).toBe(folded);
+    root.scrollTop = 40;
+    fireEvent.scroll(root);
+    act(() => vi.advanceTimersByTime(20));
+    expect(last.style.transform).not.toBe(folded);
+    expect(stack).toHaveAttribute("data-unfolded", "false");
+    const halfway = last.style.transform;
+    view.rerender(renderDeck("card-2"));
+    expect(last.style.transform).toBe(halfway);
+    expect(last).toHaveAttribute("data-reveal-rank", "2");
+    root.scrollTop = 80;
+    fireEvent.scroll(root);
+    act(() => vi.advanceTimersByTime(20));
+    expect(stack).toHaveAttribute("data-unfolded", "true");
+    expect(last.querySelector<HTMLElement>("[data-stack-details]")!.style.visibility).toBe("");
+    // Scrolling back restores the compact deck without changing card order.
+    root.scrollTop = 0;
+    fireEvent.scroll(root);
+    act(() => vi.advanceTimersByTime(20));
+    expect(last.style.transform).toBe(folded);
+    fireEvent.keyDown(screen.getByRole("button", { name: /Card 0, Visa ending/ }), { key: "Tab" });
+    expect(stack).toHaveAttribute("data-unfolded", "true");
+    view.unmount();
+    vi.useRealTimers();
+  });
+
+  it("shows every card when a tall viewport has no native scroll range", () => {
+    vi.useFakeTimers();
+    const view = render(<WalletAddCollection {...props} cards={cards.slice(0, 3)} scrollReveal showDetailsLink />);
+    const stack = screen.getByTestId("wallet-add-stack");
+    Object.defineProperty(stack, "clientWidth", { configurable: true, value: 420 });
+    act(() => vi.advanceTimersByTime(20));
+    expect(stack).toHaveAttribute("data-unfolded", "true");
+    expect(screen.getAllByRole("button", { name: /^View details for/ })).toHaveLength(3);
+    view.unmount();
+    vi.useRealTimers();
+  });
+
   it("accepts intentional vertical swipes but ignores short and horizontal movement", () => {
     render(<WalletAddCollection {...props} cards={cards.slice(0, 3)} />);
     const stack = screen.getByTestId("wallet-add-stack");
