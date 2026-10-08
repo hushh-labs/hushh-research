@@ -1,22 +1,22 @@
 {
-  "version": "2026.10-dev.9",
+  "version": "2026.10-dev.10",
   "channel": "dev",
-  "summary": "Private connectors and gated browser tasks in your own cloud.",
+  "summary": "Private Files across both clouds, with more economical on-demand operation.",
   "notes": {
     "improvements": [
-      "Google connections use owner-approved authorization in your own cloud.",
-      "Direct mail notifications queue bounded work without starting a model turn.",
-      "Release notes distinguish app changes from verified private-agent updates.",
-      "Browser tasks remain unavailable until their cloud isolation checks pass."
+      "Azure Files adds encrypted storage and background organization to the dev preview.",
+      "Opening One wakes your agent; background status checks do not extend its active time.",
+      "Files keeps its own explorer, with resumable transfers and reversible organization."
     ],
     "fixes": [
-      "Pending connector reviews retain their exact approval and conversation binding.",
-      "Software updates wait for browser task cleanup before reporting an idle handoff.",
-      "Native Google sign-in configuration matches the governed dev runtime profile."
+      "Mail notification progress survives retries without skipping unprocessed changes.",
+      "Software updates retain recovery authority when a cloud operation has an uncertain result.",
+      "Existing hosting choices remain unchanged when new setup defaults evolve."
     ],
     "security": [
-      "Shared services refuse private-owner connector content.",
-      "Remembered website sign-ins require explicit consent and encrypted owner storage."
+      "Files analysis remains opt-in and uses the approved provider boundary.",
+      "Existing pods require a qualified image transition and exact owner approval before installation.",
+      "Computer Use remains disabled until its cloud isolation gates pass."
     ]
   },
   "supportedUpgradeDigests": []
