@@ -705,7 +705,7 @@ export function WalletWorkspace() {
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
             <WalletCardBrowser identity={identity} ownerId={renderedOwnerId || undefined}
-              key={renderedOwnerId}
+              key={`${renderedOwnerId || "wallet"}-${activeTab}`}
               cards={cards}
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}

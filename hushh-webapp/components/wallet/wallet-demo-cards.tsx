@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
-import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
-import { formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
 import styles from "./wallet-demo-cards.module.css";
 import { useRouter } from "next/navigation";
 
@@ -79,6 +77,7 @@ function useArtworkIdentity(
             validThru,
             profileUrl: card === "profile" ? url : null,
             profileStatus,
+            cardPayload: null,
             referralUrl: card === "referral" ? url : null,
           })
         : null,
@@ -158,14 +157,23 @@ export function WalletDemoCardDetails({ cardId, identity }: { cardId: string; id
   const demo = demoFor(cardId);
   const summary = WALLET_DEMO_CARDS.find((card) => card.cardId === cardId);
   if (!demo || !summary) return null;
+  const payload = identity?.cardPayload;
   const fields = [
-    ["Card number", formatCardNumber(summary.brand, demo.number)],
-    ["Cardholder", identity?.name || "—"],
-    ["Network", cardNetworkLabel(summary.brand)],
-    ["Valid until", identity?.validThru || "—"],
-  ];
+    ["Name", identity?.name || null],
+    ["Member since", identity?.memberSince || null],
+    ["Valid through", identity?.validThru || null],
+    ["Headline", payload?.headline || null],
+    ["Organisation", payload?.organisation || null],
+    ["Location", payload?.location_label || null],
+    ["Summary", payload?.summary || null],
+    ["Email", payload?.email || null],
+    ["Phone", payload?.phone || null],
+    ["Website", payload?.website || null],
+    ["LinkedIn", payload?.linkedin || null],
+    ["Portfolio", payload?.portfolio || null],
+  ].filter((field): field is [string, string] => Boolean(field[1]));
   return (
-    <section aria-label="Example card details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">
+    <section aria-label="Wallet Profile details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">
       <div key={cardId} className="motion-step-enter space-y-4">
         <div className="space-y-1">
           <p className={TYPOGRAPHY_CLASSNAMES.helperText}>{demo.tier}</p>
@@ -179,12 +187,8 @@ export function WalletDemoCardDetails({ cardId, identity }: { cardId: string; id
             </div>
           ))}
         </dl>
-        <p className={TYPOGRAPHY_CLASSNAMES.helperText}>These example details cannot be used for payments.</p>
+        {!fields.length ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>No saved Wallet Profile information is available.</p> : null}
       </div>
     </section>
   );
 }
-
-
-
-

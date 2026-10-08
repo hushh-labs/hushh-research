@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] Cloud SQL Connections Critical",
   "documentation": {
-    "content": "Cloud SQL PostgreSQL connections across database labels exceed 850; halt scaling or deployment until headroom returns.",
+    "content": "Cloud SQL PostgreSQL connections across database labels exceed 850; halt scaling or deployment until headroom returns.\n\nInspect all service and job connection budgets before changing concurrency or pool sizes.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
@@ -9,7 +9,8 @@
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "capacity"
+    "scope": "capacity",
+    "incident_purpose": "actionable"
   },
   "conditions": [
     {
@@ -31,5 +32,12 @@
         }
       }
     }
-  ]
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
 }

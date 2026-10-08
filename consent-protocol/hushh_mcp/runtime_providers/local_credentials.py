@@ -36,7 +36,10 @@ def local_cli_credentials() -> Credentials | None:
         try:
             result = subprocess.run(  # noqa: S603 - resolved executable, validated account, no shell
                 [executable, "auth", "print-access-token", f"--account={account}", "--quiet"],
-                capture_output=True, text=True, timeout=15, check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=True,
             )
             token = result.stdout.strip()
             if not token or any(char.isspace() for char in token):
@@ -44,16 +47,27 @@ def local_cli_credentials() -> Credentials | None:
             # gcloud may return a cached token. Use its real remaining lifetime,
             # and verify the selected identity without putting credentials in URLs.
             response = request(
-                url="https://oauth2.googleapis.com/tokeninfo", method="POST",
+                url="https://oauth2.googleapis.com/tokeninfo",
+                method="POST",
                 body=urlencode({"access_token": token}).encode(),
-                headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=10,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
             )
             metadata = json.loads(response.data)
             remaining = int(metadata.get("expires_in", 0))
             if response.status != 200 or metadata.get("email") != account or remaining <= 300:
                 raise ValueError("Invalid token identity or lifetime")
-            expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=remaining - 30)
-        except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError, TransportError):
+            expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+                seconds=remaining - 30
+            )
+        except (
+            OSError,
+            subprocess.SubprocessError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            TransportError,
+        ):
             # Provider output can contain credentials. Never attach it to errors/logs.
             raise RefreshError("Local workspace authentication needs reauthentication") from None
         return token, expiry

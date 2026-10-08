@@ -90,6 +90,7 @@ describe("useWalletCardIdentity", () => {
       validThru: null,
       profileUrl: null,
       profileStatus: "unknown",
+      cardPayload: null,
       referralUrl: null,
     });
 

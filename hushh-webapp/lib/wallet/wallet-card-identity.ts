@@ -8,6 +8,7 @@
  */
 
 import { encodeQrCode } from "@/components/wallet-card/qr-code";
+import type { WalletCardPayload } from "@/lib/services/wallet-card-service";
 
 export type WalletIdentityCard = "profile" | "referral";
 
@@ -137,6 +138,8 @@ export interface WalletCardIdentity {
   /** Profile -> Apple Wallet share link, `null` until the owner has one on this device. */
   profileUrl: string | null;
   profileStatus: WalletProfileStatus;
+  /** The saved Wallet Profile fields, for the View details panel; `null` until one exists. */
+  cardPayload: WalletCardPayload | null;
   /** The owner's Invite friends link, `null` until the server returns it. */
   referralUrl: string | null;
 }
@@ -148,6 +151,7 @@ export const EMPTY_WALLET_CARD_IDENTITY: WalletCardIdentity = {
   validThru: null,
   profileUrl: null,
   profileStatus: "unknown",
+  cardPayload: null,
   referralUrl: null,
 };
 

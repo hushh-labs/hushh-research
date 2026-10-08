@@ -1,15 +1,16 @@
 {
   "displayName": "[Managed] Cloud SQL Connections Warning",
   "documentation": {
-    "content": "Cloud SQL PostgreSQL connections across database labels exceed 700; inspect deployment overlap and pool use.",
+    "content": "Cloud SQL PostgreSQL connections across database labels exceed 700; inspect deployment overlap and pool use.\n\nDiagnostic only: early capacity warning is investigated with the critical SQL capacity incident.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
-  "enabled": true,
+  "enabled": false,
   "notificationChannels": [],
   "userLabels": {
     "managed_by": "repo_observability",
-    "scope": "capacity"
+    "scope": "capacity",
+    "incident_purpose": "diagnostic"
   },
   "conditions": [
     {
@@ -31,5 +32,12 @@
         }
       }
     }
-  ]
+  ],
+  "severity": "WARNING",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
 }

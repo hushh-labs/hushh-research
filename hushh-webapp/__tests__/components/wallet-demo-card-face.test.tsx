@@ -19,6 +19,7 @@ const identity: WalletCardIdentity = {
   validThru: "12/28",
   profileUrl: "https://one.hushh.ai/c/profile-token",
   profileStatus: "ready",
+  cardPayload: { full_name: "Ada Lovelace", headline: "Mathematician" },
   referralUrl: "https://one.hushh.ai/r/ada-ref",
 };
 
@@ -146,14 +147,16 @@ describe("View details and swipe controls", () => {
     const { container } = render(<WalletDemoCardDetails cardId={cardId} identity={identity} />);
     const text = container.textContent ?? "";
     expect(text).toContain("Ada Lovelace");
+    expect(text).toContain("2026");
     expect(text).toContain("12/28");
+    expect(text).toContain("Mathematician"); // the saved Wallet Profile fields stay
     expect(text).not.toMatch(/Alex Morgan|2030/);
   });
 
-  it("shows an empty dash, never a sample, before the owner's details are known", () => {
+  it("shows no sample values before the owner's details are known", () => {
     const { container } = render(<WalletDemoCardDetails cardId="demo-0" identity={EMPTY_WALLET_CARD_IDENTITY} />);
-    expect(container.textContent).not.toMatch(/Alex Morgan|2030|12\/30/);
-    expect(container.textContent).toContain("—");
+    expect(container.textContent).not.toMatch(/Alex Morgan|2030|12\/30|2026|12\/28/);
+    expect(container.textContent).toContain("No saved Wallet Profile information is available.");
   });
 
   it("uses the same real valid-through on the card controls revealed by swiping", () => {

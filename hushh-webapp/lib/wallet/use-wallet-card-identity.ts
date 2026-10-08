@@ -6,7 +6,11 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ReferralService } from "@/lib/services/referral-service";
-import { WALLET_CARD_CHANGED_EVENT, WalletCardService } from "@/lib/services/wallet-card-service";
+import {
+  WALLET_CARD_CHANGED_EVENT,
+  WalletCardService,
+  type WalletCardPayload,
+} from "@/lib/services/wallet-card-service";
 import {
   EMPTY_WALLET_CARD_IDENTITY,
   deriveWalletCardDates,
@@ -22,6 +26,7 @@ interface LoadedProfile {
   status: WalletProfileStatus;
   cardName: string | null;
   profileUrl: string | null;
+  cardPayload: WalletCardPayload | null;
 }
 
 interface LoadedReferral {
@@ -121,6 +126,8 @@ export function useWalletCardIdentity(): WalletCardIdentity {
             ? state.card?.cardPayload.full_name?.trim() || state.card?.displayName?.trim() || null
             : null,
         profileUrl: status === "ready" ? state.shareUrl?.trim() || null : null,
+        cardPayload:
+          status === "ready" || status === "link-missing" ? (state.card?.cardPayload ?? null) : null,
       });
     };
 
@@ -232,6 +239,7 @@ export function useWalletCardIdentity(): WalletCardIdentity {
     validThru: dates?.validThru ?? null,
     profileUrl: ownProfile?.profileUrl ?? null,
     profileStatus: ownProfile?.status ?? "unknown",
+    cardPayload: ownProfile?.cardPayload ?? null,
     referralUrl: ownReferral?.url ?? null,
   };
 }

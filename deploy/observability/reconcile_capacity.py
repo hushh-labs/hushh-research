@@ -116,7 +116,13 @@ def write_config(config: dict[str, Any], action: list[str]) -> None:
 def same_config(
     current: dict[str, Any], desired: dict[str, Any], fields: tuple[str, ...]
 ) -> bool:
-    return all(current.get(field) == desired.get(field) for field in fields)
+    # Protobuf JSON omits empty repeated fields; an empty channel list is still
+    # an explicit no-delivery policy, not drift to repair on every run.
+    return all(
+        current.get(field, [] if field == "notificationChannels" else None)
+        == desired.get(field, [] if field == "notificationChannels" else None)
+        for field in fields
+    )
 
 
 def reconcile(args: argparse.Namespace) -> None:
@@ -224,7 +230,13 @@ def reconcile(args: argparse.Namespace) -> None:
             raise RuntimeError(
                 f"Duplicate policies named {desired['displayName']}; resolve before applying"
             )
-        desired["notificationChannels"] = channel_names
+        purpose = desired.get("userLabels", {}).get("incident_purpose")
+        if purpose not in {"actionable", "diagnostic"}:
+            raise ValueError(f"Missing incident purpose: {desired['displayName']}")
+        if desired.get("enabled") is not (purpose == "actionable"):
+            raise ValueError(f"Incident purpose disagrees with enabled: {desired['displayName']}")
+        # Diagnostic metrics remain available, but cannot open incidents or send mail.
+        desired["notificationChannels"] = channel_names if purpose == "actionable" else []
         current = current_matches[0] if current_matches else None
         fields = (
             "documentation",
@@ -233,6 +245,8 @@ def reconcile(args: argparse.Namespace) -> None:
             "notificationChannels",
             "userLabels",
             "conditions",
+            "severity",
+            "alertStrategy",
         )
         # Monitoring assigns condition resource names; compare their authored content.
         if current:
@@ -240,6 +254,12 @@ def reconcile(args: argparse.Namespace) -> None:
                 {key: value for key, value in condition.items() if key != "name"}
                 for condition in current.get("conditions", [])
             ]
+            for condition in current_conditions:
+                # Monitoring omits the default double value (0) on readback.
+                if "conditionThreshold" in condition:
+                    condition["conditionThreshold"] = {
+                        "thresholdValue": 0, **condition["conditionThreshold"]
+                    }
             if same_config(
                 {**current, "conditions": current_conditions}, desired, fields
             ):
@@ -288,6 +308,10 @@ def reconcile(args: argparse.Namespace) -> None:
         allow_missing=True,
     )
     dashboard_fields = ("displayName", "labels", "gridLayout")
+    # gridLayout.columns is an int64: API JSON returns its decimal string.
+    desired_dashboard["gridLayout"]["columns"] = str(
+        desired_dashboard["gridLayout"]["columns"]
+    )
     if current_dashboard and same_config(
         current_dashboard, desired_dashboard, dashboard_fields
     ):

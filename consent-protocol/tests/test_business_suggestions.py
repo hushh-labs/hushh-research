@@ -72,30 +72,47 @@ async def test_setup_read_failure_is_unavailable_not_no_match(fixture_identity, 
 
 
 @pytest.mark.asyncio
-async def test_local_rehearsal_is_peer_reviewer_and_uat_resource_bound(fixture_identity, monkeypatch):
+async def test_local_rehearsal_is_peer_reviewer_and_uat_resource_bound(
+    fixture_identity, monkeypatch
+):
     _, calls = fixture_identity
     configured = {
-        "ENVIRONMENT": "development", "APP_RUNTIME_PROFILE": "local", "APP_REVIEW_MODE": "true",
-        "ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED": "true", "REVIEWER_UID": "owner",
-        "GOOGLE_CLOUD_PROJECT": "hushh-pda-uat", "DB_HOST": "127.0.0.1",
+        "ENVIRONMENT": "development",
+        "APP_RUNTIME_PROFILE": "local",
+        "APP_REVIEW_MODE": "true",
+        "ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED": "true",
+        "REVIEWER_UID": "owner",
+        "GOOGLE_CLOUD_PROJECT": "hushh-pda-uat",
+        "DB_HOST": "127.0.0.1",
         "CLOUDSQL_INSTANCE_CONNECTION_NAME": "hushh-pda-uat:us-central1:hushh-uat-pg",
     }
     monkeypatch.delenv("K_SERVICE", raising=False)
     for key, value in configured.items():
         monkeypatch.setenv(key, value)
-    assert (await service.get_business_suggestion("owner", local_loopback=True))["status"] == "suggestion_available"
+    assert (await service.get_business_suggestion("owner", local_loopback=True))[
+        "status"
+    ] == "suggestion_available"
     calls.clear()
     assert (await service.get_business_suggestion("owner"))["status"] == "disabled"
-    assert (await service.get_business_suggestion("other", local_loopback=True))["status"] == "disabled"
+    assert (await service.get_business_suggestion("other", local_loopback=True))[
+        "status"
+    ] == "disabled"
     for key, wrong in {
-        "ENVIRONMENT": "production", "APP_RUNTIME_PROFILE": "uat", "APP_REVIEW_MODE": "false",
-        "ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED": "false", "REVIEWER_UID": "other",
-        "GOOGLE_CLOUD_PROJECT": "hushh-pda", "DB_HOST": "remote.example.test",
+        "ENVIRONMENT": "production",
+        "APP_RUNTIME_PROFILE": "uat",
+        "APP_REVIEW_MODE": "false",
+        "ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED": "false",
+        "REVIEWER_UID": "other",
+        "GOOGLE_CLOUD_PROJECT": "hushh-pda",
+        "DB_HOST": "remote.example.test",
         "CLOUDSQL_INSTANCE_CONNECTION_NAME": "hushh-pda:us-central1:production",
-        "K_SERVICE": "hosted", "HUSHH_DEPLOY_ENV": "uat",
+        "K_SERVICE": "hosted",
+        "HUSHH_DEPLOY_ENV": "uat",
     }.items():
         monkeypatch.setenv(key, wrong)
-        assert (await service.get_business_suggestion("owner", local_loopback=True))["status"] == "disabled"
+        assert (await service.get_business_suggestion("owner", local_loopback=True))[
+            "status"
+        ] == "disabled"
         if key in configured:
             monkeypatch.setenv(key, configured[key])
         else:
@@ -297,18 +314,36 @@ def test_real_projection_preserves_branches_and_refuses_false_match_evidence():
         DirectoryUnavailable,
         project_directory_response,
     )
-    rows = [{"vertical": "hotel", "canonical_table": "hotels", "native_identity": {"id": key},
-             "name": "Example branch", "ownership_verified": False,
-             "draft": {"website": "https://example.test", "phone": "202-555-0123"},
-             "evidence": {"exact_phone_match": True, "exact_website_domain_match": True}}
-            for key in ["1", "2"]]
-    payload = {"contract_version": "b2b-onboarding.v1", "scope": "b2b", "status": "needs_selection",
-               "ownership_verified": False, "claim_created": False, "warnings": [],
-               "truncated": False, "candidates": rows}
+
+    rows = [
+        {
+            "vertical": "hotel",
+            "canonical_table": "hotels",
+            "native_identity": {"id": key},
+            "name": "Example branch",
+            "ownership_verified": False,
+            "draft": {"website": "https://example.test", "phone": "202-555-0123"},
+            "evidence": {"exact_phone_match": True, "exact_website_domain_match": True},
+        }
+        for key in ["1", "2"]
+    ]
+    payload = {
+        "contract_version": "b2b-onboarding.v1",
+        "scope": "b2b",
+        "status": "needs_selection",
+        "ownership_verified": False,
+        "claim_created": False,
+        "warnings": [],
+        "truncated": False,
+        "candidates": rows,
+    }
     args = {"email": "person@example.test", "phone": "+12025550123"}
     result = project_directory_response(payload, **args)
     assert len({row["business_uid"] for row in result["candidates"]}) == 2
-    assert all(row["synthetic"] is False and row["ownership_verified"] is False for row in result["candidates"])
+    assert all(
+        row["synthetic"] is False and row["ownership_verified"] is False
+        for row in result["candidates"]
+    )
     payload["truncated"] = True
     assert project_directory_response(payload, **args)["coverage_incomplete"] is True
     rows[0]["draft"]["website"] = "https://unrelated.test"
@@ -319,6 +354,7 @@ def test_real_projection_preserves_branches_and_refuses_false_match_evidence():
 @pytest.mark.asyncio
 async def test_real_outage_never_becomes_no_match_or_fixture(fixture_identity, monkeypatch):
     from hushh_mcp.services.business_directory_suggestions import DirectoryUnavailable
+
     record, _ = fixture_identity
     record.phone_number = "+12025550123"
     monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "true")
@@ -332,8 +368,11 @@ async def test_real_outage_never_becomes_no_match_or_fixture(fixture_identity, m
 
 
 @pytest.mark.asyncio
-async def test_real_phone_uses_only_owner_bound_verified_account_claim(fixture_identity, monkeypatch):
+async def test_real_phone_uses_only_owner_bound_verified_account_claim(
+    fixture_identity, monkeypatch
+):
     from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
     record, _ = fixture_identity
     record.email_verified = False
     monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "true")
@@ -342,8 +381,10 @@ async def test_real_phone_uses_only_owner_bound_verified_account_claim(fixture_i
 
     async def identities(ids):
         assert ids == ["owner"]
-        return {"owner": {"phone_verified": verified, "phone_number": "+12025550123"},
-                "another-owner": {"phone_verified": True, "phone_number": "+12025550456"}}
+        return {
+            "owner": {"phone_verified": verified, "phone_number": "+12025550123"},
+            "another-owner": {"phone_verified": True, "phone_number": "+12025550456"},
+        }
 
     async def lookup(email, phone, *, local):
         calls.append((email, phone))
@@ -351,7 +392,9 @@ async def test_real_phone_uses_only_owner_bound_verified_account_claim(fixture_i
 
     monkeypatch.setattr(ActorIdentityService, "get_many", lambda self, ids: identities(ids))
     monkeypatch.setattr(service, "lookup_directory", lookup)
-    assert (await service.get_business_suggestion("owner"))["contract_version"] == "b2b-profile-suggestion.v2"
+    assert (await service.get_business_suggestion("owner"))[
+        "contract_version"
+    ] == "b2b-profile-suggestion.v2"
     assert calls == [(None, "+12025550123")]
     verified = False
     assert (await service.get_business_suggestion("owner"))["status"] == "insufficient_signals"
@@ -363,6 +406,7 @@ async def test_directory_transport_is_pinned_and_unsupported_contact_is_not_no_m
     import httpx
 
     from hushh_mcp.services import business_directory_suggestions as adapter
+
     original_client = httpx.AsyncClient
     requests = []
 
@@ -371,8 +415,11 @@ async def test_directory_transport_is_pinned_and_unsupported_contact_is_not_no_m
         return httpx.Response(422, json={"detail": "unsupported optional contact"})
 
     monkeypatch.setattr(adapter, "_invocation_token", lambda **kwargs: "test-invocation-token")
-    monkeypatch.setattr(adapter.httpx, "AsyncClient", lambda **kwargs: original_client(
-        **kwargs, transport=httpx.MockTransport(transport)))
+    monkeypatch.setattr(
+        adapter.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(**kwargs, transport=httpx.MockTransport(transport)),
+    )
     result = await adapter.lookup_directory("person@example.test", None, local=False)
     assert result["status"] == "insufficient_signals"
     assert result["coverage_incomplete"] is True
