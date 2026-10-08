@@ -414,9 +414,19 @@ bindings, full schema and provider-attested account pin first. Do not clone UAT
 records. Both configured Firebase subjects must already exist and be active;
 readiness verification cannot create an account. For controlled initialization of
 the fresh dedicated database, supply the dedicated migration login through `DB_*`
-in process memory and use the canonical runner from `consent-protocol`:
+in process memory. First attest that the dedicated database has no owner, vault,
+consent or commercial records. The historical foundation is required before the
+numbered release migrations; `--init` alone fails at migration 039 on a fresh
+database. Follow the existing [baseline procedure](../../../docs/reference/one/agent-chat-migration-baseline.md)
+and [controlled-bootstrap policy](../../../docs/reference/operations/migration-governance.md).
+From `consent-protocol`, apply the exact selected revision's
+[legacy foundation](../../db/legacy/init_legacy_schema.sql) transactionally, then
+use the canonical runner:
 
 ```bash
+PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" PGHOST="$DB_HOST" \
+  PGPORT="$DB_PORT" PGDATABASE="$DB_NAME" PGSSLMODE=disable \
+  psql --single-transaction --set=ON_ERROR_STOP=1 --file=db/legacy/init_legacy_schema.sql
 DEV_TARGET=scope-commerce-sandbox GCP_PROJECT_ID=hushh-pda-dev \
   DB_NAME=scope_commerce_sandbox .venv/bin/python db/migrate.py --init
 ```
@@ -424,8 +434,11 @@ DEV_TARGET=scope-commerce-sandbox GCP_PROJECT_ID=hushh-pda-dev \
 The existing migration authority validates the fixed target/project/database
 before connecting. It applies the canonical release lane and excludes the parked
 pod tail for this target; explicit `--dev-extra` is rejected. Shared Dev keeps its
-existing parked lane. This initialization command has not been executed against
-the preview database. Migration 201 installs the canonical deletion-guard event
+existing parked lane. The `psql` example assumes an owned local Cloud SQL proxy;
+it is not permission to disable transport protection on a remote connection.
+Never apply the legacy foundation to a populated or shared database, skip numbered
+migrations, or change their checksums. The dated preparation receipt below records
+execution against the fresh preview database. Migration 201 installs the canonical deletion-guard event
 trigger and requires Cloud SQL's operator-controlled `cloudsqlsuperuser`
 authority. Replay repeats that requirement on each deployment. Keep this
 capability on the fixed `scope_commerce_sandbox_migrator` login, stored only in
@@ -881,3 +894,89 @@ frontend shards supplied those regression findings and was superseded; exact-hea
 hosted CI remains required. The independent mount review found no remaining
 bypass in its inspected boundary. These are source checks, not cloud-role,
 provider-payment or physical-device acceptance.
+
+### Dedicated database and hosted verification readback — 2026-10-08 UTC
+
+The following dated readback supersedes earlier statements that dedicated database
+roles, initialization and baseline authorization remained unperformed. It does
+not establish application deployment or financial acceptance.
+
+Using the verified approved ADC principal, preparation created distinct dedicated
+runtime and migration credentials in the prefixed Secret Manager namespace.
+The runtime identity has Cloud SQL client access and access to its two runtime
+database secrets; migration credentials are not runtime mounts. The runtime
+database role has no elevated role flags or privileged role membership and owns
+the dedicated database and its 256 application tables. The migration ledger is
+operator-owned and runtime-readable. Canonical elevated deletion guards retain
+their migration-operator authority.
+
+The isolated database was initialized from source
+`0fc173151d9b67449278315295a46fd8121aff70` using the exact legacy foundation
+and canonical release replay through 283. It contains no owner, vault or financial
+journal records; 29 canonical reference rows are schema initialization output.
+No UAT records were copied. A version-matched PostgreSQL 15 logical backup was
+restored into a task-owned rehearsal clone and passed the unchanged exact
+preservation comparison, including row digests, catalog and foreign-key checks.
+PostgreSQL dump deparsing initially changed eight CHECK expressions and one partial
+index expression. Only those clone objects were reconstructed from original
+migration expressions; no source rows, numbered migration checksums or comparison
+rules were changed. Verified restore evidence authorized the canonical
+`baseline:283` marker. The rehearsal clone was then removed. The sanitized baseline
+receipt is dated `2026-10-08T05:55:59Z`; private backup/evidence artifacts remain
+under the ignored candidate workspace for retained verification and cleanup.
+
+At `2026-10-08T05:59:31Z`, the application SDK adapter verified
+`acct_1UNyyyLsJU9ZDBZX`, `livemode=false`, US/USD and manual platform payout
+scheduling. The canonical service bound that account and environment to the
+dedicated database with new paid admission disabled. Runtime ownership, privileges
+and baseline 283 were independently read back with the runtime login. This is a
+configuration write with zero financial mutations. Test-mode identity alone does
+not establish general-Sandbox isolation: the operator's selected dedicated Sandbox
+still needs the prescribed dated `dashboard_general_sandbox` preflight evidence.
+
+The four-path main-owned deployment definition at
+`97f2b89169b9790d30105849ec54fe8e2f431ebd` passed its focused contracts, local
+core bundle and [hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/37730570000).
+[PR #7613](https://github.com/hushh-labs/hushh-research/pull/7613) remains open
+with independent review required. Auto-merge is enabled; it has no merge-queue
+entry. No preview service, exact HTTPS callback, application release, webhook or
+scheduler has been provisioned. The main-owned workflow must land before dispatch.
+
+[Hosted source CI at `0fc173`](https://github.com/hushh-labs/hushh-research/actions/runs/37730644356)
+passed protocol, full frontend shards, web-core/browser contracts, MCP, integration,
+Android, governance and secret checks. Its iOS lane failed one keyboard observer
+fixture because a synchronous main-actor wait prevented asynchronous registration.
+Commit `2f47a849af133c96df827e9a345083b32b4ee21f` changes only that test to an
+asynchronous wait, preserving the timeout and assertions. The focused test passed
+on an owned iPhone simulator running iOS 26.2. Exact-head hosted CI remains a release
+gate; a later canceled run supplied no native acceptance. Older iOS execution,
+VoiceOver, physical iPhone/iPad journeys and financial returns remain unverified.
+The isolated negative control logged the expected failing assertion after removing
+the production dismissal guard, but its Xcode runner timed out after the test.
+The guard was restored byte-for-byte in `finally`; a fresh focused run then passed
+with Xcode exit zero. This establishes regression sensitivity while retaining the
+negative-control runner timeout as a verification limitation. The owned simulator
+is disposable; it contains non-authorizing CI fixtures and no reviewer vault.
+
+The subsequent [shared-branch CI run](https://github.com/hushh-labs/hushh-research/actions/runs/37734694027)
+at `48721ce9c246bc3f1a40bbf2c14997c565d6da63` was still running at readback
+and had two failed full-Vitest shards. Other concurrent branch changes are outside
+the frozen source's successful local core evidence; no exact-head green release
+claim is made. The final workspace documentation check passed its operational
+path/contract checks and failed shareable-link checks in unrelated ignored operator
+drafts and preservation copies. Those artifacts and their gates were preserved.
+
+Fresh authenticated read-only Hussh Consent discovery and Founder Wiki reads
+succeeded without changing either connection or publishing content. Official host
+Stripe discovery still reports the connector uninstalled; SDK identity checks do
+not establish host OAuth or One's authenticated account/balance verification.
+One's callback remains `<preview HTTPS origin>/one/profile/connectors/oauth/return`
+until the workflow discovers the real service origin.
+
+No funding, purchase, onboarding, capital, transfer, payout or financial webhook
+mutation has occurred. Both reviewer receipt sets, explicit human financial
+confirmations, physical iOS acceptance, One's authenticated reads and aggregate
+Cloud Monitoring readback remain required. Preserve
+[#7587 Consumer-controlled paid scope access and Stripe sandbox acceptance](https://github.com/hushh-labs/hushh-research/issues/7587)
+as In Progress. Keep live payments disabled, retain reconciliation and access
+enforcement, and preserve the original development branch and unrelated work.
