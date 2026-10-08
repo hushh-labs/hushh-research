@@ -55,7 +55,9 @@ class PodAdkSessionProjection:
         self._checkpoint_generation = ABSENT
         self._checkpoint_seq = 0
 
-    async def snapshot(self) -> tuple[int, dict[tuple[str, str], dict]]:
+    async def snapshot(
+        self, *, force_save: bool = False
+    ) -> tuple[int, dict[tuple[str, str], dict]]:
         async with self._lock:
             from hushh_mcp.one_adk.pod_adk_projection import SessionFold
 
@@ -71,7 +73,7 @@ class PodAdkSessionProjection:
             fold = SessionFold(owner=self.owner_id, hushh_id=self.hushh_id, baseline=baseline)
             cursor = await self.log.fold_since(anchor, fold.visit)
             entries = fold.finish()
-            if cursor and cursor.seq - checkpoint_seq >= checkpoint.INTERVAL:
+            if cursor and (force_save or cursor.seq - checkpoint_seq >= checkpoint.INTERVAL):
                 saved = await checkpoint.save(
                     self.log,
                     owner=self.owner_id,

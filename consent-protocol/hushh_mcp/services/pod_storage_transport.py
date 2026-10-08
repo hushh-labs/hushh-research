@@ -43,5 +43,8 @@ class PodStorageTransport:
     def post(self, url: str, **kwargs: Any) -> Any:
         return self._request("POST", url, **kwargs)
 
+    def put(self, url: str, **kwargs: Any) -> Any:
+        return self._request("PUT", url, **kwargs)
+
     def delete(self, url: str, **kwargs: Any) -> Any:
         return self._request("DELETE", url, **kwargs)

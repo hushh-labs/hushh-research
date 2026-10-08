@@ -419,6 +419,19 @@ async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked
     assert restored.state["fixture"] == "synthetic private text"
     assert len(restored.events) == 1
     assert "synthetic private text" not in repr(restarted_repo._projection._entries)
+    # Turn completion checkpoints even a short tail below the periodic interval.
+    with monkeypatch.context() as patch:
+        patch.setattr(pod_adk_checkpoint, "INTERVAL", 10000)
+        await log.append("unrelated", {"synthetic": True})
+        await restarted_repo._projection.snapshot(force_save=True)
+        assert restarted_repo._projection._checkpoint_seq == restarted_repo._projection._cursor.seq
+    # A lost optimization write cannot erase the authoritative conversation.
+    with monkeypatch.context() as patch:
+        from unittest.mock import AsyncMock
+
+        patch.setattr(log._store, "put_if_generation", AsyncMock(side_effect=OSError("synthetic")))
+        seq, entries = await restarted_repo._projection.snapshot(force_save=True)
+        assert seq and entries and not restarted_repo._projection._loaded
     # Once checkpointed, cold recovery reads no historic record objects.
     with monkeypatch.context() as patch:
 
@@ -484,6 +497,7 @@ async def test_pod_chat_recovers_across_more_than_ten_thousand_unrelated_commits
     store = SimpleNamespace(
         get=AsyncMock(side_effect=lambda key: objects.get(key)),
         get_with_generation=AsyncMock(side_effect=lambda key: (objects.get(key), "1")),
+        get_bounded_with_generation=AsyncMock(side_effect=lambda key, **_: (objects.get(key), "1")),
         put_if_generation=AsyncMock(return_value="2"),
     )
     log = PodCommitLog(store, b"k" * 32, owner_id="HA1fixture")

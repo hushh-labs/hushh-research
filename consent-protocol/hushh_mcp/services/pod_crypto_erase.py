@@ -22,17 +22,18 @@ ORDER, AND WHY
    a provider outage does not block erasure of the person's local information.
 2. The **wrapped data key goes first**. From that moment every sealed object is
    ciphertext nobody can open. Then the identity key, the incarnation fence, the
-   session projection and the chained records.
+   chained records. Derived projection slots become public closed markers.
 3. **The fences stay closed.** A live process still holds the data key in memory,
    and Hussh cannot stop the container, so the two objects that refuse its writes are
    never deleted. The log head stays the sealed erasure fence (ciphertext under the
-   destroyed key), and memory bookkeeping becomes a closed stub that names no owner.
+   destroyed key), and memory bookkeeping and projection slots become closed stubs
+   that name no owner.
    The last step checks that no head a live process could extend exists.
 4. **Deletes are idempotent**: an object already gone counts as absent. A refused
    delete raises, so the hub never revokes on an unconfirmed erase.
 
 NOT ENUMERATED: orphan records from lost append races (never chained) and Files
-objects (Files is off for owner Azure agents). Both are sealed under the destroyed
+objects. Both are sealed under the destroyed
 key; the person's receipt names the storage account that still holds them.
 Browser object deletion also requires drained/fenced writers; a cloud delete
 acknowledgement does not prove physical removal under retention policies.
@@ -57,6 +58,7 @@ _MAX_TOMBSTONE_BYTES = 8 * 1024 * 1024
 #: Memory bookkeeping after erasure: still "erasure" (every reader refuses it, and
 #: its shape matches no lifecycle phase), and no owner identifier in plaintext.
 ERASED_MEMORY_RECORD = b'{"erasure":{"phase":"crypto_erased","version":1}}'
+ERASED_PROJECTION = b'{"state":"erased","version":1}'
 #: Written only if the head is missing: its sequence is not an integer, which is
 #: exactly what makes every log reader refuse it, as it does the sealed fence.
 _ERASED_HEAD = b'{"seq":"erased","state":"erased","version":2}'
@@ -69,15 +71,18 @@ class PodCryptoEraseRefused(RuntimeError):
 def owned_objects(wrapped_key_object: str) -> tuple[str, ...]:
     """The fixed objects a pod deletes under its prefix, the wrapped key first.
 
-    Not the log head or memory bookkeeping: those hold the erasure fences
+    Not the log head, memory bookkeeping or projections: those hold erasure fences
     (``crypto_erase`` closes them instead of deleting them).
     """
-    from hushh_mcp.one_adk.pod_adk_checkpoint import KEY as SESSION_PROJECTION  # noqa: PLC0415
     from hushh_mcp.services.pod_authority_store import INCARNATION_OBJECT  # noqa: PLC0415
     from hushh_mcp.services.pod_identity_store import IDENTITY_KEY_OBJECT  # noqa: PLC0415
     from hushh_mcp.services.pod_role import ROLE_OBJECT  # noqa: PLC0415
 
-    owned = (wrapped_key_object, IDENTITY_KEY_OBJECT, INCARNATION_OBJECT, SESSION_PROJECTION)
+    owned = (
+        wrapped_key_object,
+        IDENTITY_KEY_OBJECT,
+        INCARNATION_OBJECT,
+    )
     return (*owned, ROLE_OBJECT)  # a standby erases exactly like a primary (E10)
 
 
@@ -282,9 +287,15 @@ async def _replace(store: ObjectStore, key: str, data: bytes) -> None:
 
 async def _close_fences(store: ObjectStore) -> None:
     """Keep memory admission and the log closed for any process still running."""
+    from hushh_mcp.one_adk.pod_adk_checkpoint import KEY as SESSION_PROJECTION
     from hushh_mcp.services.pod_memory_bank import MEMORY_BANK_RECORD_KEY  # noqa: PLC0415
+    from hushh_mcp.services.pod_recovery_projection import KEY as OWNER_PROJECTION
 
     await _replace(store, MEMORY_BANK_RECORD_KEY, ERASED_MEMORY_RECORD)
+    # Retain closed slots: deleting them would let a delayed ABSENT write restore
+    # sealed records after erasure. Older writers lose their CAS against this marker.
+    for key in (SESSION_PROJECTION, OWNER_PROJECTION):
+        await _replace(store, key, ERASED_PROJECTION)
     head = await store.get(PodCommitLog.HEAD)
     if head is None:
         await store.put_if_generation(PodCommitLog.HEAD, _ERASED_HEAD, ABSENT)

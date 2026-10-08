@@ -8,6 +8,7 @@ case where deleting would act on the wrong attempt or on an unfenced agent.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 
@@ -23,6 +24,7 @@ from hushh_mcp.services.pod_commit_log import (
 )
 from hushh_mcp.services.pod_crypto_erase import (
     ERASED_MEMORY_RECORD,
+    ERASED_PROJECTION,
     ERASURE_TOMBSTONE_OBJECT,
     PodCryptoEraseRefused,
     crypto_erase,
@@ -86,6 +88,9 @@ async def _never() -> PodCommitLog:  # pragma: no cover - a retry must not need 
 
 async def test_the_key_goes_first_and_every_chained_object_follows(store):
     log = await _agent(store)
+    from hushh_mcp.services.pod_recovery_projection import KEY as OWNER_PROJECTION
+
+    await store.put_if_generation(OWNER_PROJECTION, b"sealed-projection-fixture", ABSENT)
     recorded = _Recording(store)
     counts = await crypto_erase(
         store=recorded, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
@@ -95,6 +100,8 @@ async def test_the_key_goes_first_and_every_chained_object_follows(store):
     records = [key for key in recorded.deleted if key.startswith("records/")]
     assert len(records) == 3 and counts["records"] == 3
     assert counts["deleted"] == 5  # key, identity, three records
+    assert OWNER_PROJECTION not in recorded.deleted
+    assert await store.get(OWNER_PROJECTION) == ERASED_PROJECTION
     assert counts["deleted"] + counts["alreadyAbsent"] == len(recorded.deleted)
     for key in recorded.deleted:
         assert await store.get(key) is None
@@ -148,7 +155,43 @@ async def test_a_live_process_cannot_write_after_the_erase(store):
             store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
             open_fenced_log=_never,
         )  # fmt: skip
-        assert again == {**counts, "deleted": 0, "alreadyAbsent": 5 + counts["records"]}
+        assert again == {**counts, "deleted": 0, "alreadyAbsent": 4 + counts["records"]}
+
+
+@pytest.mark.parametrize("existing", [False, True])
+async def test_erasure_fences_delayed_projection_writes(store, monkeypatch, existing):
+    from hushh_mcp.services.pod_recovery_projection import KEY as PROJECTION
+    from hushh_mcp.services.pod_recovery_projection import OwnerRecoveryProjection
+
+    log = await _agent(store)
+    projection = OwnerRecoveryProjection(owner=OWNER)
+    if existing:
+        await projection.replay(log)
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = store.put_if_generation
+
+    async def delayed(key, data, generation):
+        if key == PROJECTION and data != ERASED_PROJECTION:
+            entered.set()
+            await release.wait()
+        return await original(key, data, generation)
+
+    monkeypatch.setattr(store, "put_if_generation", delayed)
+    writer = asyncio.create_task(projection.recover(log, force_save=True))
+    await asyncio.wait_for(entered.wait(), 2)
+    try:
+        await crypto_erase(
+            store=store,
+            owner_id=OWNER,
+            attempt_id=ATTEMPT,
+            wrapped_key_object=WRAPPED,
+            open_fenced_log=_fencer(log),
+        )
+    finally:
+        release.set()
+    with pytest.raises(PodLogFenced):
+        await writer
+    assert await store.get(PROJECTION) == ERASED_PROJECTION
 
 
 async def _surviving_records(store) -> list[str]:

@@ -19,7 +19,7 @@ class BoundedObjectReader(Protocol):
 
 def read_bounded_response(response, *, max_bytes: int) -> bytes | None:
     """Consume an uncompressed streamed response; never access response.content."""
-    if not 1 <= max_bytes <= 8 * 1024 * 1024:
+    if not 1 <= max_bytes <= 33 * 1024 * 1024:
         raise ValueError("invalid bounded read limit")
     try:
         if response.status_code == 404:
@@ -49,7 +49,7 @@ def read_bounded_response(response, *, max_bytes: int) -> bytes | None:
 
 
 def read_local_bounded(path: Path, *, max_bytes: int) -> bytes | None:
-    if not 1 <= max_bytes <= 8 * 1024 * 1024:
+    if not 1 <= max_bytes <= 33 * 1024 * 1024:
         raise ValueError("invalid bounded read limit")
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -86,3 +86,52 @@ def read_gcs_bounded(session, authorized: Callable, url: str, max_bytes: int) ->
         )
     )
     return read_bounded_response(response, max_bytes=max_bytes)
+
+
+def read_gcs_bounded_version(session, authorized, url, max_bytes, stated_generation):
+    """The bounded body and its CAS version must describe the same snapshot."""
+    from hushh_mcp.services.pod_object_version import ABSENT, decimal_version
+
+    def fetch(params):
+        return authorized(
+            lambda headers: session.get(
+                url,
+                params=params,
+                headers={**headers, "Accept-Encoding": "identity"},
+                timeout=60,
+                allow_redirects=False,
+                stream=True,
+            )
+        )
+
+    response = fetch({"alt": "media"})
+    try:
+        if response.status_code == 404:
+            return None, ABSENT
+        if response.status_code != 200:
+            raise RuntimeError("OBJECT_READ_UNAVAILABLE")
+        version = stated_generation(response)
+        if version is not None:
+            return read_bounded_response(response, max_bytes=max_bytes), decimal_version(version)
+    finally:
+        response.close()
+    # Some egress paths strip the media header. Pin the next read to metadata.
+    metadata = fetch({"fields": "generation"})
+    try:
+        body = read_bounded_response(metadata, max_bytes=1024)
+        if body is None:
+            return None, ABSENT
+        import json
+
+        from hushh_mcp.services.pod_object_version import decimal_generation
+
+        version = str(json.loads(body)["generation"])
+        decimal_generation(version)
+    finally:
+        metadata.close()
+    body = read_bounded_response(
+        fetch({"alt": "media", "generation": version}), max_bytes=max_bytes
+    )
+    if body is None:
+        raise RuntimeError("OBJECT_SNAPSHOT_UNAVAILABLE")
+    return body, version

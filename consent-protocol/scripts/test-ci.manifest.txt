@@ -819,6 +819,7 @@ tests/test_pod_agent_evolution_simulation.py
 tests/test_pod_architecture_is_authoritative.py
 tests/test_pod_architecture_merge_guard.py
 tests/test_pod_authority_store.py
+tests/test_pod_recovery_projection.py
 tests/test_pod_capability_wiring_is_closed_loop.py
 tests/test_pod_cold_resume_state.py
 tests/test_pod_commit_log.py

@@ -152,7 +152,9 @@ class PodUpgradeAdmission:
         if log is None:
             return
         try:
-            records = await log.replay()
+            from hushh_mcp.services.pod_recovery_projection import replay_owner_records
+
+            records = await replay_owner_records(log)
         except Exception as exc:  # noqa: BLE001 - refusing is safer than guessing idle
             state.hydrated = False
             raise PodUpgradeAdmissionRefused(

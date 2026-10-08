@@ -96,7 +96,8 @@ async def build_memory_hooks(
     if _memory_replay is None or _memory_replay[0] is not context.authority:
         _memory_replay = (
             context.authority,
-            PodMemoryReplay(owner=context.hushh_id, incarnation=context.authority.epoch),
+            getattr(context.authority, "recovery_projection", None)
+            or PodMemoryReplay(owner=context.hushh_id, incarnation=context.authority.epoch),
         )
     service = await asyncio.to_thread(
         _resolve_pod_memory_service, replay_projection=_memory_replay[1]

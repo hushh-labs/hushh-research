@@ -110,6 +110,10 @@ class ObjectStore(Protocol):
 
     async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]: ...
 
+    async def get_bounded_with_generation(
+        self, key: str, *, max_bytes: int
+    ) -> tuple[Optional[bytes], ObjectVersion]: ...
+
     async def put(self, key: str, data: bytes) -> None:
         """Write-once: refuses to overwrite an existing object."""
         ...
@@ -289,7 +293,7 @@ class LocalObjectStore:
             temporary_path.unlink(missing_ok=True)
 
     @staticmethod
-    def _read_pair(path: Path) -> tuple[Optional[bytes], int]:
+    def _read_pair(path: Path, max_bytes: int | None = None) -> tuple[Optional[bytes], int]:
         generation_path = path.with_suffix(path.suffix + ".gen")
         if not path.exists():
             if generation_path.exists():
@@ -301,6 +305,10 @@ class LocalObjectStore:
             raise PodLogTampered("object generation is unreadable") from None
         if generation < 1:
             raise PodLogTampered("object generation is invalid")
+        if max_bytes is not None:
+            from hushh_mcp.services.pod_bounded_object import read_local_bounded
+
+            return read_local_bounded(path, max_bytes=max_bytes), generation
         return path.read_bytes(), generation
 
     def _recover_pending_write(self) -> None:
@@ -369,6 +377,13 @@ class LocalObjectStore:
     async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         with self._lock():
             data, generation = self._read_pair(self._path(key))
+        return data, decimal_version(generation)
+
+    async def get_bounded_with_generation(
+        self, key: str, *, max_bytes: int
+    ) -> tuple[Optional[bytes], ObjectVersion]:
+        with self._lock():
+            data, generation = self._read_pair(self._path(key), max_bytes)
         return data, decimal_version(generation)
 
     def _commit_pair(self, key: str, data: bytes, current: Optional[bytes], generation: int) -> int:
@@ -625,6 +640,21 @@ class GcsObjectStore:
     async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         data, generation = await asyncio.to_thread(self._get_with_generation, key)
         return data, decimal_version(generation)
+
+    async def get_bounded_with_generation(
+        self, key: str, *, max_bytes: int
+    ) -> tuple[Optional[bytes], ObjectVersion]:
+        from hushh_mcp.services.pod_bounded_object import read_gcs_bounded_version
+
+        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{urllib.parse.quote(self._key(key), safe='')}"
+        return await asyncio.to_thread(
+            read_gcs_bounded_version,
+            self._session,
+            self._authorized,
+            url,
+            max_bytes,
+            self._stated_generation,
+        )
 
     async def get_bounded(self, key: str, *, max_bytes: int) -> bytes | None:
         from hushh_mcp.services.pod_bounded_object import read_gcs_bounded

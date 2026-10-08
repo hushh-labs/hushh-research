@@ -340,6 +340,7 @@ class PodSessionAuthority:
         self._clock = clock
         self._ttl = int(session_ttl_seconds)
         self._challenges: dict[str, _Challenge] = {}
+        self.recovery_projection: Any = None
 
     # -- properties -----------------------------------------------------------------
 
@@ -788,10 +789,13 @@ async def build_pod_session_authority(
     )
     store = PodAuthorityStore(log, hushh_id=hushh_id)
     records = None
+    projection = None
     if recover_owner_state:
+        from hushh_mcp.services.pod_recovery_projection import OwnerRecoveryProjection
         from hushh_mcp.services.pod_startup_recovery import load_owner_state, startup_records
 
-        records = await startup_records(log)
+        projection = OwnerRecoveryProjection(owner=hushh_id)
+        records = await startup_records(log, projection=projection)
         await load_owner_state(log, records=records)
     await store.load(records=records)
     keypair = pod_keypair()
@@ -802,6 +806,7 @@ async def build_pod_session_authority(
         pod_key_id=keypair.key_id,
         pod_public_key=keypair.public_key_b64,
     )
+    authority.recovery_projection = projection
     # A replacement can win while recovery is reading. Never publish that lease.
     await authority.require_held()
     set_active_authority_store(store)

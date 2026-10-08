@@ -4,17 +4,25 @@ The commit log remains authoritative. A checkpoint binds a verified cursor and
 owner; replay must still join that cursor to the current unfenced log head.
 """
 
+import logging
 from dataclasses import asdict
 
+from hushh_mcp.services.pod_bounded_object import ObjectReadTooLarge
 from hushh_mcp.services.pod_commit_log import PodLogCursor, PodLogTampered
 
 KEY = "projections/adk-sessions-v1.bin"
 INTERVAL = 128
+logger = logging.getLogger(__name__)
 
 
 async def load(log, *, owner: str, hushh_id: str):
     await log.require_open()
-    blob, generation = await log._store.get_with_generation(KEY)
+    try:
+        blob, generation = await log._store.get_bounded_with_generation(
+            KEY, max_bytes=33 * 1024 * 1024
+        )
+    except ObjectReadTooLarge:
+        raise PodLogTampered("Pod chat checkpoint exceeds its bound.") from None
     if blob is None:
         return None, [], generation
     if len(blob) > 33 * 1024 * 1024:
@@ -51,6 +59,15 @@ async def save(log, *, owner: str, hushh_id: str, cursor, entries, generation: s
     )
     # A stale process never replaces a newer projection. Losing this cache CAS
     # cannot discard a log record; the next fresh process reads the winner.
-    result = await log._store.put_if_generation(KEY, blob, generation)
+    if len(blob) > 33 * 1024 * 1024:
+        await log.require_open()
+        return None  # The original log remains the recovery source at capacity.
+    try:
+        result = await log._store.put_if_generation(KEY, blob, generation)
+    except Exception:
+        # A cache write cannot undo an already committed conversation. Reload the
+        # winning snapshot next time; retain the final fence check on every path.
+        result = None
+        logger.warning("pod.chat_checkpoint_write_unconfirmed")
     await log.require_open()
     return result

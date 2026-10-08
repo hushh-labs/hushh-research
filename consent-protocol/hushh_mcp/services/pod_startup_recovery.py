@@ -1,13 +1,12 @@
 """One verified startup scan for the existing owner-state reducers.
 
 Only startup record families are retained, in original log order. This is an
-ephemeral optimization, not a second recovery store. Large histories fall back
+encrypted derived optimization, not a second authority. Large histories fall back
 to the existing loaders rather than truncating authority or consent records.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -16,47 +15,15 @@ MAX_RECORDS = 10_000
 MAX_BYTES = 8 * 1024 * 1024
 
 
-class _ProjectionBudgetExceeded(Exception):
-    pass
+async def startup_records(log: Any, *, projection: Any = None) -> list[dict[str, Any]] | None:
+    from hushh_mcp.services.pod_recovery_projection import OwnerRecoveryProjection
 
-
-async def startup_records(log: Any) -> list[dict[str, Any]] | None:
-    from hushh_mcp.services.pod_ai_selection import POD_AI_SELECTION_RECORD_KIND
-    from hushh_mcp.services.pod_authority_store import (
-        AUTHORITY_TOMBSTONE_KIND,
-        AUTHORITY_TRUST_KIND,
+    projection = projection or OwnerRecoveryProjection(
+        owner=log._owner_id, max_records=MAX_RECORDS, max_bytes=MAX_BYTES
     )
-    from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND
-    from hushh_mcp.services.pod_connector_credentials import CLEARED_KIND, RECORD_KIND
-
-    kinds = {
-        POD_CONFIG_RECORD_KIND,
-        POD_AI_SELECTION_RECORD_KIND,
-        RECORD_KIND,
-        CLEARED_KIND,
-        AUTHORITY_TRUST_KIND,
-        AUTHORITY_TOMBSTONE_KIND,
-    }
-    records: list[dict[str, Any]] = []
-    size = 0
-
-    def visit(record: dict[str, Any]) -> None:
-        nonlocal size
-        # Authority normalizes whitespace; retain original records for reducers.
-        if str(record.get("kind") or "").strip() not in kinds:
-            return
-        size += len(json.dumps(record, ensure_ascii=False).encode("utf-8"))
-        if len(records) >= MAX_RECORDS or size > MAX_BYTES:
-            raise _ProjectionBudgetExceeded
-        records.append(record)
-
-    try:
-        # The visitor is provisional until chain ancestry AND final erasure pass.
-        await log.fold_since(None, visit)
-    except _ProjectionBudgetExceeded:
+    records = await projection.recover(log)
+    if records is None:
         logger.info("pod.startup_projection_uncached reason=budget")
-        return None
-    records.reverse()
     return records
 
 

@@ -132,9 +132,9 @@ class AzureBlobObjectStore:
         self._location = parse_blob_container_url(container_url)
         self._prefix_segments = tuple(s for s in self._location.prefix.split("/") if s)
         if session is None:
-            import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+            from hushh_mcp.services.pod_storage_transport import PodStorageTransport
 
-            session = requests
+            session = PodStorageTransport()
         self._session = session
         # The pod's own identity, minted over the same egress session as the data.
         self._token_provider = token_provider or (
@@ -243,6 +243,27 @@ class AzureBlobObjectStore:
 
     async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         return await asyncio.to_thread(self.get_with_generation_blocking, key)
+
+    async def get_bounded_with_generation(
+        self, key: str, *, max_bytes: int
+    ) -> tuple[Optional[bytes], ObjectVersion]:
+        from hushh_mcp.services.pod_bounded_object import read_bounded_response
+
+        def read():
+            response = self._send(
+                "get", self._url(key), {"Accept-Encoding": "identity"}, stream=True
+            )
+            try:
+                if response.status_code == 404 and _error_code(response) == "BlobNotFound":
+                    return None, ABSENT
+                if response.status_code != 200:
+                    raise PodBlobStorageError("pod storage content unavailable")
+                version = _etag(response)
+                return read_bounded_response(response, max_bytes=max_bytes), version
+            finally:
+                response.close()
+
+        return await asyncio.to_thread(read)
 
     async def get_bounded(self, key: str, *, max_bytes: int) -> bytes | None:
         from hushh_mcp.services.pod_bounded_object import read_bounded_response

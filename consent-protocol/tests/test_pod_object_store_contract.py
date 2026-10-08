@@ -61,6 +61,46 @@ async def test_absence_is_the_absent_version(store):
     assert await store.get("head.json") is None
 
 
+async def test_bounded_snapshot_keeps_version_and_refuses_oversize(store):
+    from hushh_mcp.services.pod_bounded_object import ObjectReadTooLarge
+
+    assert await store.get_bounded_with_generation("projection", max_bytes=4) == (None, ABSENT)
+    first = await store.put_if_generation("projection", b"four", ABSENT)
+    body, version = await store.get_bounded_with_generation("projection", max_bytes=4)
+    assert (body, version) == (b"four", first)
+    with pytest.raises(ObjectReadTooLarge):
+        await store.get_bounded_with_generation("projection", max_bytes=3)
+    second = await store.put_if_generation("projection", b"next", version)
+    assert second and await store.put_if_generation("projection", b"stale", version) is None
+
+
+async def test_bounded_blob_never_materializes_response_content():
+    from hushh_mcp.services.pod_bounded_object import ObjectReadTooLarge
+
+    class Stream:
+        status_code = 200
+        headers = {"ETag": '"bounded"'}
+        closed = False
+
+        @property
+        def content(self):
+            raise AssertionError("Unbounded body read")
+
+        def iter_content(self, chunk_size):
+            yield b"small"
+            yield b"overflow"
+            raise AssertionError("Read beyond bound")
+
+        def close(self):
+            self.closed = True
+
+    service, response = FakeBlobService(), Stream()
+    service.scripted.append(("get", response))
+    with pytest.raises(ObjectReadTooLarge):
+        await _azure(service)[0].get_bounded_with_generation("projection", max_bytes=5)
+    assert response.closed
+
+
 async def test_create_only_wins_once_then_reports_a_lost_race(store):
     first = await store.put_if_generation("keys/identity.bin", b"winner", ABSENT)
     assert isinstance(first, str) and first
@@ -120,6 +160,52 @@ async def test_gcs_generations_are_their_decimal_text():
 
 
 # -- Azure Blob, as measured ---------------------------------------------------------
+
+
+def test_blob_reuses_worker_connections_without_reusing_authority(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    import requests
+
+    blob, tokens, pools = FakeBlobService(), _Tokens(), []
+    session_type = requests.Session
+
+    class Session(session_type):
+        def __init__(self):
+            super().__init__()
+            pools.append(self)
+
+        def request(self, method, url, **kwargs):
+            return getattr(blob, method.lower())(url, **kwargs)
+
+    monkeypatch.setattr(requests, "Session", Session)
+    monkeypatch.setattr(requests.sessions, "Session", Session)
+    store = AzureBlobObjectStore(CONTAINER_URL, token_provider=tokens, forget_token=tokens.forget)
+    version = store.put_if_generation_blocking("head.json", b"sealed", ABSENT)
+    assert store.get_with_generation_blocking("head.json") == (b"sealed", version)
+    assert len(pools) == 1
+    assert [row[2]["Authorization"] for row in blob.requests] == [
+        "Bearer bearer-1",
+        "Bearer bearer-2",
+    ]
+    assert "Authorization" not in pools[0].headers
+    assert not pools[0].cookies.get_policy().set_ok(None, None)
+    assert not pools[0].cookies.get_policy().return_ok(None, None)
+
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        assert worker.submit(store.get_with_generation_blocking, "head.json").result() == (
+            b"sealed",
+            version,
+        )
+    assert len(pools) == 2  # mutable Sessions never cross workers
+    other = AzureBlobObjectStore(CONTAINER_URL, token_provider=_Tokens())
+    assert other.get_with_generation_blocking("head.json") == (b"sealed", version)
+    assert len(pools) == 3  # another store has no ambient credentials or pool
+    blob.scripted += [("get", _error(403, "AuthorizationPermissionMismatch"))] * 2
+    with pytest.raises(PodBlobStorageForbidden):
+        store.get_with_generation_blocking("head.json")
+    assert tokens.forgotten == ["https://storage.azure.com"]
+    assert len(pools) == 3  # fresh auth/refusal checks still use the same connection pool
 
 
 async def test_blob_create_only_sends_if_none_match_and_maps_409_to_a_lost_race():

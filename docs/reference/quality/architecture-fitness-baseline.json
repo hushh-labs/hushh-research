@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2244,
+  "finding_count": 2245,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1040,7 +1040,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_session_authority.py",
       "symbol": "PodSessionAuthority",
-      "value": 357
+      "value": 358
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1256,7 +1256,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_commit_log.py",
       "symbol": "GcsObjectStore",
-      "value": 304
+      "value": 314
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1382,7 +1382,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_upgrade_admission.py",
       "symbol": "PodUpgradeAdmission",
-      "value": 272
+      "value": 274
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -7520,7 +7520,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
       "symbol": "test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked_access",
-      "value": 106
+      "value": 119
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14648,7 +14648,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_commit_log.py",
       "symbol": null,
-      "value": 1044
+      "value": 1069
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15719,7 +15719,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_session_authority.py",
       "symbol": null,
-      "value": 848
+      "value": 853
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16781,7 +16781,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
       "symbol": null,
-      "value": 706
+      "value": 720
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20202,6 +20202,15 @@
       "path": "consent-protocol/tests/test_pod_gmail_doorbell.py",
       "symbol": null,
       "value": 502
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_pod_crypto_erase.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_pod_crypto_erase.py",
+      "symbol": null,
+      "value": 532
     }
   ],
   "inspected_files": 6149,
@@ -21515,6 +21524,54 @@
     ],
     "adk_revision": "1b08a07ebe9314a4e67e3fac1a082a102c8a3d40",
     "azure_model_eval_harness": "Reviewed 2026-10-05: the on-demand Azure model evaluation harness (consent-protocol/scripts/azure_model_eval/, run inside the person's own Azure to choose the default model) entered from its measurement branch; analyze.py is 511 lines with two report functions at 86 and 82. Measurement tooling, not product code; split it if it grows further.",
+    "bounded_recovery_2026_10_08": {
+      "date": "2026-10-08",
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "reason": "Existing recovery composition, bounded generation reads and nearest interrupted-write/erasure regressions. Substantive checkpoint/fallback logic lives in bounded leaf modules. No unrelated finding, budget or exclusion changed.",
+      "reviewed_values": {
+        "class_size|consent-protocol/hushh_mcp/services/pod_commit_log.py|GcsObjectStore|class exceeds the advisory operon budget": {
+          "previous": 304,
+          "reviewed": 314
+        },
+        "class_size|consent-protocol/hushh_mcp/services/pod_session_authority.py|PodSessionAuthority|class exceeds the advisory operon budget": {
+          "previous": 357,
+          "reviewed": 358
+        },
+        "class_size|consent-protocol/hushh_mcp/services/pod_upgrade_admission.py|PodUpgradeAdmission|class exceeds the advisory operon budget": {
+          "previous": 272,
+          "reviewed": 274
+        },
+        "function_size|consent-protocol/tests/test_encrypted_adk_session_service.py|test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked_access|function exceeds the advisory gene budget": {
+          "previous": 106,
+          "reviewed": 119
+        },
+        "module_size|consent-protocol/hushh_mcp/services/pod_commit_log.py||module exceeds the advisory operon budget": {
+          "previous": 1044,
+          "reviewed": 1069
+        },
+        "module_size|consent-protocol/hushh_mcp/services/pod_session_authority.py||module exceeds the advisory operon budget": {
+          "previous": 848,
+          "reviewed": 853
+        },
+        "module_size|consent-protocol/tests/test_encrypted_adk_session_service.py||module exceeds the advisory operon budget": {
+          "previous": 706,
+          "reviewed": 720
+        },
+        "module_size|consent-protocol/tests/test_pod_crypto_erase.py||module exceeds the advisory operon budget": {
+          "previous": null,
+          "reviewed": 532
+        }
+      },
+      "reviewer": "byoc_authority_readiness read-only architecture/security review",
+      "source_revision": "9ab8233a44c652881aa4555b1cb91e7fe7bc8c6a",
+      "source_sha256": {
+        "consent-protocol/hushh_mcp/services/pod_commit_log.py": "f07c4357234fe367761d89693820fa24b5913eb110d3a49ad4992369de9a40ee",
+        "consent-protocol/hushh_mcp/services/pod_session_authority.py": "2146208b462dabe28d5270466317db6ca5b7455021e5d3d4fd1cbb9e54795203",
+        "consent-protocol/hushh_mcp/services/pod_upgrade_admission.py": "fb6950937f54b650d5e1ddcf7d63352dc4fa3b26b8e78bf1774560e327d42ff6",
+        "consent-protocol/tests/test_encrypted_adk_session_service.py": "62073f580cf16d825b1f6cb2e79a3cab947f6e7ad7a3dad6ba457d5fcd35427f",
+        "consent-protocol/tests/test_pod_crypto_erase.py": "4bd5546e1951d698b7ad72898aa6ec0ba8e07bccebee5200fefe3a0a82a54fed"
+      }
+    },
     "date": "2026-10-01",
     "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
     "generated_catalog_compatibility": {

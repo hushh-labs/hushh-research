@@ -19,6 +19,16 @@ _projection: PodAdkSessionProjection | None = None
 
 
 class PodChatContext:
+    async def _finish_turn(self, memory: Any, input: Any) -> None:
+        if memory is not None:
+            await memory.commit(input)
+        await self.require_access()
+        await self.projection.snapshot(force_save=True)
+        projection = getattr(self.authority, "recovery_projection", None)
+        if projection is not None:
+            await projection.recover(self.log, force_save=True)
+        await self.require_access()
+
     def __init__(
         self, authorization: str | None, *, needs_key: bool = True, browser_runtime: Any = None
     ) -> None:
@@ -47,6 +57,7 @@ class PodChatContext:
             )
         if _projection.owner_id != self.owner or _projection.hushh_id != self.hushh_id:
             raise HTTPException(403, detail={"code": "POD_CHAT_OWNER_MISMATCH"})
+        self.projection = _projection
         self.sessions = EncryptedAdkSessionService(
             repository=PodAdkSessionRepository(
                 projection=_projection, require_access=self._require_session_access
@@ -247,7 +258,7 @@ class PodChatContext:
             require_access=self.require_access,
             runtime_scope=self.runtime_scope,
             before_run=prepare,
-            after_run=memory.commit if memory is not None else None,
+            after_run=lambda input: self._finish_turn(memory, input),
             mcp_owner_admission=self._mcp_owner_admission,
         )
         return agent
