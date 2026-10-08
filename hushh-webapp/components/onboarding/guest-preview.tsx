@@ -632,7 +632,9 @@ export function GuestPreview({
                 Sign in
               </Button>
             ) : (
-              <div className={styles.backSlot} aria-hidden="true" />
+              <Button variant="link" size="compact" onClick={() => moveTo(3)}>
+                Skip
+              </Button>
             )}
           </header>
 
@@ -721,6 +723,7 @@ export function GuestPreview({
                   <span />
                 </button>
               ))}
+              <span className={styles.progressText}>{step + 1} of 4</span>
             </nav>
             <Button
               variant="blue"

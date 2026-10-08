@@ -587,6 +587,13 @@
 .progress [aria-current="step"] span {
   background: var(--app-accent);
 }
+.progressText {
+  align-self: center;
+  margin-left: .25rem;
+  color: var(--app-secondary-label);
+  font-size: .75rem;
+  font-weight: 600;
+}
 .publicLinks {
   display: none;
 }
