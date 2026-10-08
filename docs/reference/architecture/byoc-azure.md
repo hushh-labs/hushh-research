@@ -534,12 +534,18 @@ and nothing here is run by the hub or an agent.
    dedicated repository first (see *Known gaps*). The hub does not check what
    the reader is granted.
 
-### The agent's model (measured inside Azure, 2026-10-04)
+### The agent's model
 
-The setup plan deploys **gpt-5.6-luna** (`2026-07-09`, Global Standard, capacity
-250K tokens/min) in the person's own Azure OpenAI account, reached over the
+The setup plan defaults to **gpt-6-luna** (`2026-09-22`, owner decision
+2026-10-07, Global Standard, capacity 250) in the person's own Azure OpenAI account,
+reached over the
 **Responses API** (`openai_responses_transport`, stateless `store: false`): GPT-6
-and GPT-5.6 refuse tools with reasoning on Chat Completions. Measured inside the
+and GPT-5.6 refuse tools with reasoning on Chat Completions. Existing deployments
+retain their selected model; this source default does not upgrade them.
+Capacity allocates model-specific rate quota. Read the deployment's actual TPM/RPM
+limits after provisioning; it is not a monthly requests bundle or a compute fee.
+
+**Historical qualification, 2026-10-04:** measured inside the
 person's Azure on the pod's managed identity, repo harnesses, 60 first-tool cases
 and 22 full Nav turns, two runs each:
 

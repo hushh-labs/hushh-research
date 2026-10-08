@@ -326,6 +326,14 @@ async def test_cleanup_outage_retries_exact_sealed_request_without_new_authoriza
 ):
     log, google = pod
     operations = []
+    from hushh_mcp.services import pod_gmail_doorbell
+
+    armed = []
+
+    async def arm_watch():
+        armed.append(pod_connector_credentials.active_connector_credential("gmail").credential_id)
+
+    monkeypatch.setattr(pod_gmail_doorbell, "arm_watch_after_connect", arm_watch)
 
     def post(_client, _path, *, json):
         operations.append(json["operation"])
@@ -349,9 +357,11 @@ async def test_cleanup_outage_retries_exact_sealed_request_without_new_authoriza
         "status": "connected",
         "legacyCleanup": "unconfirmed",
     }
+    assert armed == [], "unconfirmed legacy custody must not start direct notifications"
     retried = _client().put(PATH, json=sealed, headers=OWNER_SESSION)
     assert retried.json() == {"connectorId": "gmail", "status": "connected"}
     assert operations == ["admit", "complete", "complete"]
+    assert len(armed) == 1
     assert len(google.calls) == 1 and len(await _records(log)) == 1
 
 

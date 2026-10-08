@@ -2,7 +2,7 @@
 
 ## Status and evidence
 
-**2026-10-06 — disabled pilot; not a usable owner browser capability.**
+**2026-10-07 — disabled pilot; not a usable owner browser capability.**
 The committed information/session foundation is `f407f849b`. The resumed working
 candidate composes authenticated owner task routes, exact reviews, ephemeral
 preview, takeover and remembered-session controls with an isolated native ADK
@@ -219,7 +219,12 @@ SandboxGroups requests succeed; the subscription has no groups. The legacy
 
 The 2026-10-06 bounded probe created a native group, qualified data-plane read
 access and created a synthetic sandbox. Exact egress-policy readback was refused
-before execution; sandbox and group deletion were confirmed. Sandboxed Chromium,
+before execution; sandbox and group deletion were confirmed. On October 7, the
+`2026-09-01-preview` API accepted a bounded Deny/Full/Enforced policy readback.
+The requested non-root security context was normalized; its actual execution
+identity was not qualified. A later created sandbox returned 403 on read despite
+bounded GET retries. Exact sandbox, temporary role and resource-group deletion
+were confirmed; no owner information was supplied. Sandboxed Chromium,
 deny-by-default egress with **Full** inspection, a private task-only broker bridge
 and browser lifecycle remain unqualified. No alternate executor or unsandboxed
 fallback is permitted. A synthetic probe cannot authorize real owner information
