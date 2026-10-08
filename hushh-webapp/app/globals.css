@@ -2192,6 +2192,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --profile-pane-surface: rgba(255, 255, 255, 0.48);
   --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
+  --profile-pane-card-surface: rgba(255, 255, 255, 0.78);
+  --profile-pane-card-border: rgba(255, 255, 255, 0.38);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.82);
   --profile-pane-hair: rgba(36, 43, 52, 0.12);
   --profile-pane-shadow:
     0 36px 90px rgba(35, 42, 51, 0.22),
@@ -2257,6 +2260,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   --profile-pane-surface: rgba(22, 24, 29, 0.73);
   --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
+  --profile-pane-card-surface: rgba(39, 42, 49, 0.78);
+  --profile-pane-card-border: rgba(255, 255, 255, 0.08);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.12);
   --profile-pane-hair: rgba(237, 234, 228, 0.14);
   --profile-pane-shadow:
     0 42px 110px rgba(0, 0, 0, 0.58),
@@ -2291,6 +2297,47 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   font-family: var(--font-app-body) !important;
   font-size: 12px !important;
   line-height: 1.4 !important;
+}
+
+/* Inner views use the reference's balanced Back / title / Close header. */
+.profile-pane-header--inner {
+  display: grid !important;
+  align-items: center;
+  min-height: 79px;
+  padding: 16px !important;
+}
+
+.profile-pane-header--inner > div:first-child {
+  display: grid !important;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-pane-header--inner > div:first-child > button {
+  width: 44px !important;
+  height: 44px !important;
+  margin-left: 0 !important;
+}
+
+.profile-pane-header--inner [data-slot="sheet-title"] {
+  text-align: center;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  text-wrap: balance;
+}
+
+.profile-pane-header--inner ~ .profile-pane-close {
+  top: 17px !important;
+  width: 44px !important;
+  height: 44px !important;
+}
+
+.profile-pane-header--inner :is(button, [data-slot="sheet-title"]) svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
 }
 
 .profile-pane-close {
@@ -2542,6 +2589,100 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 .profile-pane-scroll-root .profile-home-content [data-tone="destructive"] [data-slot="settings-row-icon"] {
   color: var(--app-destructive) !important;
+}
+
+/* The reference's inner views share one card, row, icon, and type rhythm.
+   Keep these selectors inside the pane stack: route-level Profile remains on
+   the app's ordinary settings presentation. */
+.profile-pane-scroll-root .profile-pane-page--inner {
+  padding-inline: 28px !important;
+  padding-bottom: 28px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] {
+  gap: 0 !important;
+  padding-top: 22px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"] {
+  border: 1px solid var(--profile-pane-card-border) !important;
+  border-radius: 17px !important;
+  background: var(--profile-pane-card-surface) !important;
+  box-shadow:
+    inset 0 1px 0 var(--profile-pane-card-highlight),
+    0 8px 24px rgba(35, 42, 51, 0.05) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] {
+  --settings-row-px: 14px;
+  --settings-row-py: 9px;
+  --settings-row-gap: 9px;
+  min-height: 58px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] > :is(button, [data-slot="settings-row-content"]) {
+  min-height: 58px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"]::after {
+  left: 0 !important;
+  right: 0 !important;
+  background: var(--profile-pane-hair) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] {
+  width: 24px !important;
+  height: 24px !important;
+  color: var(--ios-account-label) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"] svg {
+  width: 24px !important;
+  height: 24px !important;
+  stroke-width: 1.8 !important;
+}
+
+.profile-pane-scroll-root .profile-pane-icon {
+  color: var(--ios-account-label) !important;
+}
+
+.profile-pane-scroll-root :is(.profile-pane-icon-accent, .profile-account-icon-accent) {
+  stroke: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root :is(.profile-pane-icon-accent-fill, .profile-account-icon-accent-fill) {
+  fill: var(--ios-account-accent) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-chevron"] {
+  width: 14px !important;
+  height: 14px !important;
+  color: var(--ios-account-secondary-label) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-tone="destructive"]
+  :is([data-slot="settings-row-icon"], .profile-pane-icon) {
+  color: var(--app-destructive) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-tone="destructive"]
+  :is(.profile-pane-icon-accent, .profile-account-icon-accent) {
+  stroke: var(--app-destructive) !important;
+}
+
+@media (max-width: 440px) {
+  .profile-pane-scroll-root .profile-pane-page--inner {
+    padding-inline: 12px !important;
+  }
+
+  .profile-pane-scroll-root [data-profile-stack-content="true"] {
+    padding-top: 17px !important;
+  }
+
+  .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] {
+    --settings-row-px: 10px;
+    --settings-row-gap: 7px;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -8581,5 +8722,48 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     color: var(--ios-account-secondary-label) !important;
     font-size: 9px !important;
     line-height: 1.2 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-group-heading"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+    line-height: 14px !important;
+    text-transform: none !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-row-title"] {
+    color: var(--ios-account-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.22 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-tone="destructive"] [data-slot="settings-row-title"] {
+    color: var(--app-destructive) !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    [data-slot="settings-row-description"] {
+    color: var(--ios-account-secondary-label) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.3 !important;
+  }
+
+  .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
+    :is([data-slot="settings-row-trailing"], .profile-account-row-value, .profile-account-inline-action) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
   }
 }
