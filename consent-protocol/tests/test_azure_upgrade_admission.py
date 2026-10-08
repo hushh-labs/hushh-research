@@ -251,7 +251,9 @@ async def test_adopt_orphan_copies_the_recorded_identity_and_digest_into_its_spe
         "status": "needs_reinit",
         "backend_metadata": {"runtime_principal_id": POD_PRINCIPAL, "image_digest": _OLD},
     }
-    cloud = SimpleNamespace(is_user_owned=True, deployment_target="user_azure")
+    cloud = SimpleNamespace(
+        is_user_owned=True, deployment_target="user_azure", files_library_enabled=False
+    )
     seen: list[PodSpec] = []
 
     class _Registry:

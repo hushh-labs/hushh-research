@@ -321,7 +321,8 @@ async def test_a_transient_arm_error_mid_revocation_resumes_without_the_pod(
     assert deletes[-3:] == _hussh_grants(snapshot)  # Hussh's own access, last
     (receipt,) = registry.retained
     assert receipt["agentErased"] == registry.checkpoints[0]["agentErased"]
-    assert len(receipt["agentAccessRevoked"]) == 5
+    assert len(set(receipt["agentAccessRevoked"])) == 7
+    assert sum("/queues/files-organization/" in path for path in receipt["agentAccessRevoked"]) == 1
     assert receipt["husshAccessRevoked"] == _hussh_grants(snapshot)
     assert remaining == [OWNER, OWNER, OWNER]  # still refused: the resource group remains
 

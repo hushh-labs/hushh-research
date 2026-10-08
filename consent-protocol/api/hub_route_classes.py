@@ -173,6 +173,7 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
+GET /api/one/business/suggestion
 GET /api/one/credits
 POST /api/one/credits/subscribe
 POST /api/one/credits/cancel

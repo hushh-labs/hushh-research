@@ -81,6 +81,7 @@ def _cloud():
     return SimpleNamespace(
         deployment_target="user_gcp",
         model_credential_mode="user_adc",
+        files_library_enabled=False,
         is_user_owned=True,
         project="acme-user-proj",
         region="us-central1",

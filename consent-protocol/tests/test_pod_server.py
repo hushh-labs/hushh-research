@@ -92,6 +92,7 @@ def test_pod_surface_stays_within_reviewed_routes():
             "/api/one/pod/files/worker",
             "/api/one/pod/gmail/push",
             "/api/one/pod/live",
+            "/api/one/pod/maintenance/tick",
             "/api/one/pod/upgrade/prepare",
             "/api/one/pod/upgrade/release",
             "/api/one/pod/upgrade/status",
@@ -214,7 +215,14 @@ def test_machine_routes_answer_404_without_a_hub_identity(walled):
     from fastapi.testclient import TestClient
 
     client = TestClient(pod_server.app, raise_server_exceptions=False)
-    for path in ("/pod/info", "/pod/public-key", "/docs", "/openapi.json", "/pod/tick"):
+    for path in (
+        "/pod/info",
+        "/pod/public-key",
+        "/docs",
+        "/openapi.json",
+        "/pod/tick",
+        "/api/one/pod/maintenance/tick",
+    ):
         response = client.get(path)
         assert response.status_code == 404, path
         assert response.json() == {"detail": "not found"}
