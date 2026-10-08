@@ -77,6 +77,15 @@ type EmailDraftCardProps = {
    * source-bound reply.
    */
   onDeliveryPrepared?: (actionId: string, attemptId: string | null) => void;
+  /** Voice and tap share this already reviewed service action. */
+  reviewedSend?: {
+    actionId: string; expiresAt: string; senderToken: string; senderLabel: string;
+    draftRef: string; revision: number;
+  } | null;
+  sendUnavailable?: boolean;
+  /** Explicit local edit; called synchronously before old Send can be used. */
+  onDraftEdit?: (draft: EmailDraft) => void;
+  canSendReviewed?: () => boolean;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -156,6 +165,10 @@ export function EmailDraftCard({
   onDraftChange,
   onOpenConnections,
   onDeliveryPrepared,
+  reviewedSend = null,
+  sendUnavailable = false,
+  onDraftEdit,
+  canSendReviewed,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
@@ -188,6 +201,7 @@ export function EmailDraftCard({
   const attachmentIdempotencyKeyRef = useRef<string | null>(null);
   const autoDraftStartedRef = useRef(false);
   const sendStartedRef = useRef(false);
+  const reviewChangedRef = useRef(false);
 
   useEffect(() => {
     onDraftChange?.(draft);
@@ -225,13 +239,16 @@ export function EmailDraftCard({
   const updateDraft = (field: keyof EmailDraft, value: string) => {
     const isBody = field === "body";
     const isHtml = isBody && value.trim().startsWith("<") && value.includes(">");
-    setDraft((current) => ({
-      ...current,
+    const next = {
+      ...draft,
       [field]: isBody ? (isHtml ? value : normalizeRichEmailText(value)) : value,
       ...(isBody
         ? { htmlBody: isHtml ? value : richEmailHtmlFromMarkdown(normalizeRichEmailText(value)) }
         : {}),
-    }));
+    };
+    reviewChangedRef.current = true;
+    onDraftEdit?.(next);
+    setDraft(next);
     setMissingDetails([]);
     setError(null);
     setAttachmentReview(null);
@@ -346,7 +363,7 @@ export function EmailDraftCard({
     setError(null);
     try {
       const next = await EmailDeliveryService.draft({ ...auth, instruction });
-      setDraft({
+      const nextDraft = {
         to: next.to,
         cc: next.cc,
         bcc: next.bcc,
@@ -354,7 +371,10 @@ export function EmailDraftCard({
         body: normalizeRichEmailText(next.body),
         htmlBody: richEmailHtmlFromMarkdown(normalizeRichEmailText(next.body)),
         driveFileId: draft.driveFileId,
-      });
+      };
+      reviewChangedRef.current = true;
+      onDraftEdit?.(nextDraft);
+      setDraft(nextDraft);
       if (next.cc || next.bcc) {
         setShowCcBcc(true);
       }
@@ -371,7 +391,7 @@ export function EmailDraftCard({
     } finally {
       setBusy(null);
     }
-  }, [autoDraft, draft.body, draft.driveFileId, initialInstruction, withAuth]);
+  }, [autoDraft, draft.body, draft.driveFileId, initialInstruction, onDraftEdit, withAuth]);
 
   useEffect(() => {
     if (!autoDraft || autoDraftStartedRef.current) return;
@@ -415,6 +435,8 @@ export function EmailDraftCard({
   };
 
   const send = () => {
+    if (sendUnavailable || (reviewedSend && (reviewChangedRef.current ||
+        Date.parse(reviewedSend.expiresAt) <= Date.now()))) return;
     if (draft.driveFileId && !sourceBoundReply && !attachmentReview) {
       void prepareAttachmentReview();
       return;
@@ -449,7 +471,7 @@ export function EmailDraftCard({
               });
             })()
           : await (async () => {
-              const prepared = attachmentReview?.prepared ?? await EmailDeliveryService.prepare({
+              const prepared = reviewedSend ?? attachmentReview?.prepared ?? await EmailDeliveryService.prepare({
                 ...auth,
                 draft: reviewedDraft,
                 idempotencyKey,
@@ -461,12 +483,17 @@ export function EmailDraftCard({
                 );
               }
               onDeliveryPrepared?.(prepared.actionId, attemptId);
+              if (reviewedSend && canSendReviewed && !canSendReviewed()) {
+                throw new EmailDeliveryError("Review this draft again before sending.", 409, "DRAFT_CHANGED");
+              }
               sendRequestStarted = true;
               return EmailDeliveryService.send({
                 ...auth,
                 actionId: prepared.actionId,
-                draft: reviewedDraft,
-                attachmentToken: prepared.attachmentToken,
+                draft: reviewedSend ? { ...reviewedDraft, htmlBody: undefined } : reviewedDraft,
+                attachmentToken: "attachmentToken" in prepared ? prepared.attachmentToken : undefined,
+                senderToken: prepared.senderToken,
+                ...(reviewedSend ? { draftRef: reviewedSend.draftRef, revision: reviewedSend.revision } : {}),
               });
             })();
         if (outcome.outcomeUnknown) {
@@ -580,6 +607,11 @@ export function EmailDraftCard({
         </div>
       ) : (
         <div className="space-y-3 px-4 py-4 sm:px-5">
+          {reviewedSend ? (
+            <p className="break-words text-sm" data-testid="one-email-reviewed-sender">
+              <span className="font-medium">From </span>{reviewedSend.senderLabel}
+            </p>
+          ) : null}
           {sourceBoundReply ? (
             <>
               <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
@@ -729,6 +761,9 @@ export function EmailDraftCard({
                     Reconnect Mail
                   </Link>
                 ) : null}
+                {error.needsGmailSendingEnabled ? (
+                  <Link className="font-medium underline" href="/one/gmail">Enable sending</Link>
+                ) : null}
                 {error.needsGmailConnect ? (
                   onOpenConnections ? (
                     <button
@@ -793,7 +828,7 @@ export function EmailDraftCard({
           size="sm"
           className="gap-2 rounded-xl px-4 sm:min-w-32"
           onClick={() => void send()}
-          disabled={disabled || needsGeneratedDraft}
+          disabled={disabled || needsGeneratedDraft || sendUnavailable || Boolean(reviewedSend && reviewChangedRef.current)}
           data-testid="one-email-draft-send"
         >
           <Send className="h-3.5 w-3.5" />

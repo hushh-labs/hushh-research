@@ -635,6 +635,15 @@ class MailAccessResult(ToolResult):
     connected: bool = False
     state: str = "not_connected"
     can_read: bool = False
+    can_send: bool = False
+    compose_ready: bool = False
+    new_message_send_mode: Literal["unavailable", "reviewed_tap", "reviewed_voice"] = "unavailable"
+    native_draft_send_ready: bool = False
+    schedule_send_ready: bool = False
+    recipient_modes_supported: list[str] = Field(default_factory=lambda: ["connection"])
+    send_blocked_reason: str | None = None
+    send_recovery_action: str | None = None
+    checked_at: str = ""
 
     def model_public(self) -> dict[str, Any]:
         """Capability facts, which is exactly what the question was about."""
@@ -643,6 +652,15 @@ class MailAccessResult(ToolResult):
             "connected": self.connected,
             "state": self.state,
             "can_read": self.can_read,
+            "can_send": self.can_send,
+            "compose_ready": self.compose_ready,
+            "new_message_send_mode": self.new_message_send_mode,
+            "native_draft_send_ready": self.native_draft_send_ready,
+            "schedule_send_ready": self.schedule_send_ready,
+            "recipient_modes_supported": list(self.recipient_modes_supported),
+            "send_blocked_reason": self.send_blocked_reason,
+            "send_recovery_action": self.send_recovery_action,
+            "checked_at": self.checked_at,
             "spoken_facts": list(self.spoken_facts),
         }
 
@@ -695,10 +713,58 @@ async def _get_mail_access(ctx: ToolContext, args: MailAccessInput) -> ToolResul
         # would send the person to fix something that is not broken.
         spoken = "Your Gmail is connected, but mail reading is switched off for me right now."
 
+    # The Gmail owner checks connection, sending grant and the user's Send
+    # switch without opening the inbox or acquiring/refreshing a token. A read
+    # capability and a send capability must never stand in for one another.
+    can_send = False
+    send_reason: str | None = None
+    send_recovery: str | None = None
+    try:
+        await gmail.assert_send_ready(user_id=ctx.user_id)
+        can_send = state == "connected"
+        if not can_send:
+            send_reason, send_recovery = "mail_connection_changed", "retry"
+    except GmailApiError as exc:
+        send_reason, send_recovery = {
+            "GMAIL_NOT_CONNECTED": ("mail_connect_required", "connect_gmail"),
+            "GMAIL_SEND_PERMISSION_REQUIRED": ("mail_send_permission_required", "reconnect_gmail"),
+            "GMAIL_SEND_DISABLED": ("mail_send_disabled", "enable_sending"),
+        }.get(str(exc.code), ("mail_send_status_unavailable", "retry"))
+    except Exception:
+        send_reason, send_recovery = "mail_send_status_unavailable", "retry"
+    compose = ctx.services.get("mail_compose")
+    review_supported = compose is not None and getattr(compose, "review_supported", False) is True
+    compose_ready = state == "connected" and status.get("compose_permission_granted") is True
     return MailAccessResult(
         connected=connected,
         state=state,
         can_read=can_read,
+        can_send=can_send,
+        compose_ready=compose_ready,
+        new_message_send_mode=(
+            "reviewed_voice"
+            if review_supported and can_send
+            else "reviewed_tap"
+            if can_send
+            else "unavailable"
+        ),
+        native_draft_send_ready=(
+            can_send and compose_ready and can_read and admission.mail_drafts_enabled()
+        ),
+        schedule_send_ready=(
+            can_send
+            and can_read
+            and admission.mail_schedule_send_enabled()
+            and admission.mail_scheduled_drain_enabled()
+        ),
+        recipient_modes_supported=(
+            ["connection", "explicit_address", "self", "people_list"]
+            if review_supported
+            else ["connection"]
+        ),
+        send_blocked_reason=send_reason,
+        send_recovery_action=send_recovery,
+        checked_at=datetime.now(timezone.utc).isoformat(),
         spoken_facts=[spoken],
     )
 
@@ -1993,14 +2059,10 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=MailAccessInput,
         output_model=MailAccessResult,
         description=(
-            "Answer whether you can see the person's mail at all: whether their "
-            "Gmail is connected, needs reconnecting, or is switched off for you. "
-            "Use this for a question about access or capability -- 'can you see my "
-            "email', 'is my Gmail connected', 'do you have access to my inbox'. "
-            "Does not open the mailbox and returns no messages. The person's Hushh "
-            "profile email is a different fact and never answers this: get_profile "
-            "reports the address on their account, not whether a mailbox is "
-            "connected. Use read_mail only when they want what their mail says."
+            "Check Gmail read/send readiness without reading messages. Read access does not "
+            "prove sending is enabled. Report the returned mode, blocked reason and recovery; "
+            "capability is not send approval. get_profile's email proves neither. "
+            "Use read_mail only for mailbox contents."
         ),
         handler=_get_mail_access,
     ),

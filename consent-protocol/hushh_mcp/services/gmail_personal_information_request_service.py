@@ -1745,6 +1745,7 @@ class PersonalGmailInformationRequestService:
         action_id: str,
         body: str,
         html_body: str | None,
+        sender_token: str | None = None,
     ) -> dict[str, Any]:
         draft, reply_context = await self.resolve_reply_delivery(
             user_id=user_id,
@@ -1752,6 +1753,8 @@ class PersonalGmailInformationRequestService:
             body=body,
             html_body=html_body,
         )
+        if sender_token is not None:
+            draft["sender_token"] = sender_token
         result = await self.delivery_service.execute(
             user_id=user_id,
             action_id=action_id,

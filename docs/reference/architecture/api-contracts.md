@@ -761,6 +761,172 @@ server-side, then bind both actions to that source.
 
 The maintained architecture reference is [Personal Gmail Information Requests](./personal-gmail-information-requests.md).
 
+### B2B profile suggestion — directory discovery, review and confirmation
+
+Real mode is independently default-off: `ONE_BUSINESS_DIRECTORY_ENABLED=true`
+(runtime JSON key `one_business_directory_enabled`). It takes precedence over
+the fixture and never falls back to synthetic information. It returns
+`b2b-profile-suggestion.v2`; v1 remains the synthetic UAT contract below.
+Fresh primary Firebase email control and Firebase/account-OTP verified phone
+control supply independent lookup signals, never caller query parameters or
+unverified profile fields. Consumer email domains and non-US phones are omitted,
+not coerced. A failed canonical phone read is unavailable, not missing.
+
+The server invokes the protected directory at its pinned Cloud Run origin using
+workload OIDC; browsers receive no invocation credential. Local rehearsal uses
+the explicit Workspace gcloud account only under the existing peer/reviewer/
+UAT-resource gate, without changing CLI defaults or ADC. HTTP redirects are
+refused, response size is capped at 512 KB, token acquisition is off the event
+loop, and request I/O has a 40-second total budget. Contact lookup does not scan
+or write PKM or directory tables. Contacts and returned records are not logged.
+
+The adapter validates `b2b-onboarding.v1`, native table/identity shapes and
+unverified-ownership posture; claimed phone/domain evidence must match the
+returned public fields. Directory UIDs are
+`urn:hushh:business:directory:{vertical}:{sha256(canonical_native_identity_json)}`.
+Native identity JSON is sorted, compact and UTF-8. IDs are scoped to hotel,
+healthcare, RIA, insurance or business, not claimant IDs or inferred company
+ownership. Distinct branches remain distinct even with shared contacts.
+
+v2 statuses add `insufficient_signals` and `unavailable`. No usable verified
+signal (or an older deployed service rejecting independent contacts) is not
+`no_match`. `coverage_incomplete` accompanies partial failures/truncation;
+available records may still be reviewed individually but never auto-selected
+or auto-saved. Up to 100 candidates are supported, each with a separate review,
+decision and encrypted recovery key. Editing invalidates prepared proposals;
+explicit Save is still required, with exact-card idempotency and sharing checks.
+Real immutable provenance uses `synthetic:false` inside encrypted memory only.
+
+Verified 2026-10-07: the private directory deployment
+`hushh-directory-api-00006-5dd` serves independent email/phone contacts and the
+indexed registry query order at 100% traffic. All three absent-contact variants
+returned HTTP 200 with no unavailable warnings; a stored real hotel returned one
+candidate with ownership/claim flags false. Anonymous access remains 403.
+Explicitly approved service-specific invocation access was added for
+`consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com`, preserving
+existing Workspace access. This proves directory transport, not effective
+invocation from that hosted workload or a real owner's encrypted save.
+The research app changes remain local, behind main, and not deployed to UAT.
+Core release verification is blocked by the existing One prompt budget;
+the local frontend dependency lock was repaired and localhost restored.
+Vault-unlocked real-owner selection, save/readback and cold-session recovery
+still need acceptance after governed app rollout.
+
+Read-only database diagnosis also confirmed that healthcare and insurance have
+no website column or normalized-phone index. Healthcare's phone query timed out
+with SQLSTATE 57014 after five seconds; ZIP-filtered reads still succeeded for
+both databases. Domain-only matching cannot cover records with no website.
+The approved concurrent phone indexes were applied after successful backup
+`1791367253653` and storage/load checks; both are valid/ready. Ordering registry
+lookups by normalized phone before native identity prevents the planner from
+walking the primary key instead. A checked healthcare plan used the new index
+and finished in 0.235 ms; deployed lookups completed without warnings in about
+2–4 seconds. No directory rows or matching timeouts were changed. Healthcare
+and insurance still lack websites, and no insurance agency with a valid
+ten-digit phone was found in the bounded source-coverage check. Indexes cannot
+invent missing contact evidence; large-scale load acceptance remains separate.
+
+For a localhost-only rehearsal, `ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED=true`
+is a process-only maintainer override. It additionally requires review mode,
+the exact canonical `REVIEWER_UID`, an actual loopback request peer (not a
+forwarded header), the `development`/`local` runtime, no hosted-runtime markers,
+and the exact UAT Cloud SQL instance with a loopback database host. It never
+relaxes the verified primary `hushh.ai` email or completed-vault checks. A
+reviewer outside that domain receives no fixture; do not alter that identity
+or waive the domain check to manufacture a passing rehearsal. Shared reviewer
+PKM writes still require explicit operator approval. This does not enable the
+fixture in production or implement real directory matching.
+
+`GET /api/one/business/suggestion` requires the existing `VAULT_OWNER`
+capability. The owner is derived from its validated token; query/body email,
+phone and user IDs cannot select a claimant. Responses, including auth errors,
+are private/no-store. Requests are bounded to 10/minute per existing limiter
+key (process-local unless a shared limiter backend is configured).
+
+`b2b-profile-suggestion.v1` returns `scope: "b2b"`, `status` (`disabled`,
+`no_match`, or `suggestion_available`), `candidates` (zero or one), and
+`pkm_written: false`. A provider outage is `503 BUSINESS_IDENTITY_UNAVAILABLE`,
+not `no_match`. A fresh Firebase primary email must be verified and its exact
+domain must be `hushh.ai`; a cached identity, alias or client assertion cannot
+establish eligibility. Disabled or mismatched Firebase identities fail closed.
+The canonical `vault_keys` row must also have `setup_completed=true` and an
+active vault; this read neither creates a placeholder nor updates login state.
+Failed setup reads are unavailable, not an empty candidate list.
+
+The default-off server switch `ONE_BUSINESS_UAT_FIXTURE_ENABLED=true` maps from
+`one_business_uat_fixture_enabled` in `BACKEND_RUNTIME_CONFIG_JSON`. Admission
+also requires explicit `ENVIRONMENT=uat`; any supplied `HUSHH_DEPLOY_ENV` or
+`APP_RUNTIME_PROFILE` must be `uat`. Missing runtime identity, production,
+hosted dev and conflicting labels return `disabled` before provider access,
+even if the switch is on. This change does not enable or deploy the switch.
+
+The sole candidate is `Hushh — UAT Test Business`, explicitly `synthetic`,
+with website `https://hushh.ai`, source `uat_fixture`, source key `hushh.ai:v1`,
+and stable `business_uid: urn:hushh:business:uat:hushh.ai:v1`. This test business
+UID is not the user UID and is not a production directory identity. There are
+no fabricated phone/address facts. Domain evidence grants no ownership:
+`ownership_verified` and `claim_created` remain false, and business authority
+still requires verification.
+
+The typed `BusinessSuggestionService` uses `apiJson` with no-store and caller
+owner authority, through the existing One Next proxy on web and `ApiService`
+Capacitor HTTP on native. No new screen or native plugin is introduced in this
+slice; physical-device acceptance is not claimed. The service rejects unknown
+versions and inconsistent candidate/status shapes. Consumers must call after
+setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory.
+
+The main chat workspace mounts `BusinessProfileSuggestion` after current auth
+and unlocked-vault admission, requiring known, unexpired owner authority.
+It opens a labelled synthetic suggestion with Review, Later and Not my business.
+Editing a name/HTTPS website invalidates prior proposals. Review uses the existing
+private-agent memory preparation and exact-card selection; it does not save.
+Save requires an explicit second action, plus separate acknowledgment when the
+selected memory affects active sharing. It rechecks fresh candidate eligibility
+before using `business_profile_review`, a governed memory-agent writer, through
+the existing client-encrypted PKM coordinator. No new profile store or router.
+
+Immutable `business_uid`, source identity, synthetic and unverified-ownership
+labels are attached as `_business_origin` to the semantic agent's single
+selected entity. Inconsistent destinations and non-entity proposals fail closed.
+This internal ciphertext-only provenance is excluded from manifests, model
+context and exported knowledge paths; it never replaces the user or entity ID.
+
+Owner/business-scoped, vault-encrypted `business_profile_review:uat:v1:{businessUid}` device recovery
+holds only control state and the exact approved cards/scopes. It is not profile
+authority. Later defers 24 hours; Not my business and saved suppress this device's
+offer. These decisions are not cross-device. Checkpoints have a 30-day freshness
+bound; expired, unreadable or unavailable recovery fails closed rather than
+silently starting another job. Existing account-cache deletion remains applicable.
+Before cloud writes, an explicit Save durably checkpoints its reviewed revision.
+Retries reuse stable owner/business/revision/card scopes and query owner-bound
+commit receipts before replay. Decisions and saves share the existing owner Web
+Lock (in-process fallback where unavailable); a stale Later preserves a pending
+job and cannot overwrite saved. Only acknowledged numeric revisions count as saved.
+Lock, account/session change and expired authority fence every effect and hide
+old content. Recovering a pending save requires another explicit Save action.
+
+This is not a business ownership claim system. Business-authority verification,
+cross-device lifecycle and deployment acceptance remain separate gates. Source/unit tests do not certify
+live model quality or physical-device behavior. Receiving a suggestion never
+authorizes a save.
+
+Production matching must support one person selecting multiple independent
+businesses, never one business per owner. Decisions, reviewed drafts and retry
+identities must be keyed by owner **and** immutable business UID. Email and phone
+are independent signals, not an obligatory exact pair: a domain-only match,
+phone-only match or missing contact may suggest candidates but cannot establish
+business authority. Conflicting signals must not silently choose either result.
+Shared switchboards, franchise domains, multiple branches, consultants using
+client email, employee accounts, recycled phones, changed domains and stale
+directory rows require explicit disambiguation and provenance. Generic personal
+email providers are not business domains. No-match must remain distinct from
+provider failure; never fabricate a candidate to fill a coverage gap.
+The v1 UAT response deliberately admits only the single synthetic fixture;
+v2 handles real directory candidates without widening that fixture contract.
+At the encrypted writer, an existing semantic entity can only be updated by the
+same business UID. A different or unidentified origin fails closed rather than
+merging two businesses merely because their names or contact details overlap.
+
 ### One Google Calendar
 
 Calendar is a live Google provider integration. Connection lifecycle uses

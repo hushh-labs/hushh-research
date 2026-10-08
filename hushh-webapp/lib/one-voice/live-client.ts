@@ -24,6 +24,7 @@ import {
   parseServerFrame,
   type AppContextFrame,
   type ClientFrame,
+  type MailDraftChange,
   type PerfFrame,
   type ServerFrame,
 } from "@/lib/one-voice/protocol";
@@ -373,6 +374,7 @@ export class OneLiveClient {
             platform: auth.client,
             protocol_version: ONE_VOICE_PROTOCOL_VERSION,
             input_mime_type: INPUT_MIME,
+            features: ["mail_draft_review"],
           },
           // Relative dates ("today", "this week") are the owner's, and only the
           // browser knows their zone. A hint: the server validates it and falls
@@ -642,6 +644,10 @@ export class OneLiveClient {
       delivery_ref: deliveryRef,
       action_id: actionId,
     });
+  }
+
+  mailDraftChanged(change: MailDraftChange): boolean {
+    return this.sendControl({ type: "mail_draft.changed", ...change });
   }
 
   /** Submit a typed name for an open create_circle card (relay feature `name_edit`). */

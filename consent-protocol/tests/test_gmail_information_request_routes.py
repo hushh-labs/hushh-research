@@ -203,7 +203,11 @@ def test_reply_routes_bind_only_a_source_derived_envelope_to_the_owner():
         )
         sent = client.post(
             "/api/one/email/information-requests/workflow-1/send-reply",
-            json={"body": "Approved details", "action_id": "prepared-action"},
+            json={
+                "body": "Approved details",
+                "action_id": "prepared-action",
+                "sender_token": "s" * 48,
+            },
         )
         rejected = client.post(
             "/api/one/email/information-requests/workflow-1/prepare-reply",
@@ -228,6 +232,7 @@ def test_reply_routes_bind_only_a_source_derived_envelope_to_the_owner():
         "user_id": "owner",
         "workflow_id": "workflow-1",
         "action_id": "prepared-action",
+        "sender_token": "s" * 48,
         "body": "Approved details",
         "html_body": None,
     }

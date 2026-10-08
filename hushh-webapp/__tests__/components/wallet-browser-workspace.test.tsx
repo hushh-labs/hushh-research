@@ -1,5 +1,7 @@
 vi.mock("@/lib/services/onboarding-local-service", () => ({
   OnboardingLocalService: {
+    hasSeenWalletSwipeHint: vi.fn().mockResolvedValue(true),
+    markWalletSwipeHintSeen: vi.fn().mockResolvedValue(undefined),
     hasSeenWalletIntroduction: vi.fn().mockResolvedValue(false),
     markWalletIntroductionSeen: vi.fn().mockResolvedValue(undefined),
   },

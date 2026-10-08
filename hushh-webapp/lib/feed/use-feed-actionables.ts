@@ -52,7 +52,11 @@ import {
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { projectFeedDriveProgress, type FeedDriveProgress } from "@/lib/feed/drive-request-progress";
-import { projectFeedDrivePayments } from "@/lib/feed/drive-request-payment";
+import {
+  describeFeedDrivePayment,
+  projectFeedDrivePayments,
+} from "@/lib/feed/drive-request-payment";
+import { useFeedPaymentClock } from "@/lib/feed/use-feed-payment-clock";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
 import { driveSharingSelectionId, isDriveSharingEntry } from "@/lib/consent/drive-query-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
@@ -688,6 +692,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
     () => projectFeedDrivePayments(sentProgressItems ?? []),
     [sentProgressItems],
   );
+  const hasLivePaymentDeadline = sentPayments.some(
+    (payment) =>
+      payment.status === "ready" &&
+      payment.expiresAt !== null &&
+      payment.expiresAt > Date.now(),
+  );
+  const paymentClockNow = useFeedPaymentClock(hasLivePaymentDeadline);
   const activeProgress = useMemo(
     () => projectFeedDriveProgress(activeProgressItems ?? []),
     [activeProgressItems],
@@ -823,28 +834,36 @@ export function useFeedActionables(): UseFeedActionablesResult {
     const items: FeedActionable[] = [];
 
     for (const payment of sentPayments) {
+      const displayPayment = describeFeedDrivePayment(payment, paymentClockNow);
+      const paymentIsExpired = displayPayment.status === "expired";
+      const paymentAction = paymentIsExpired
+        ? []
+        : [
+            {
+              key: displayPayment.status === "link_expired" ? "renew" : "pay",
+              label: displayPayment.status === "link_expired" ? "Create new link" : "Pay $10",
+              tone: "primary" as const,
+              run: async () => {
+                try {
+                  const idToken = await user?.getIdToken();
+                  if (!idToken) throw new Error("Sign in to continue");
+                  const checkoutUrl = await DriveRequestPaymentService.checkout(idToken, payment.requestId);
+                  window.location.assign(checkoutUrl);
+                } catch {
+                  toast.error("Checkout couldn't open. Try again.");
+                }
+              },
+            },
+          ];
       items.push({
         id: `drive-payment:${payment.requestId}`,
         icon: ConsentAgentIcon,
         iconTone: "capability",
-        title: payment.title,
-        description: payment.description,
-        chevron: false,
-        actions: [{
-          key: "pay",
-          label: "Pay $10",
-          tone: "primary",
-          run: async () => {
-            try {
-              const idToken = await user?.getIdToken();
-              if (!idToken) throw new Error("Sign in to continue");
-              const checkoutUrl = await DriveRequestPaymentService.checkout(idToken, payment.requestId);
-              window.location.assign(checkoutUrl);
-            } catch {
-              toast.error("Checkout couldn't open. Try again.");
-            }
-          },
-        }],
+        title: displayPayment.title,
+        description: displayPayment.description,
+        href: paymentIsExpired ? payment.href : undefined,
+        chevron: paymentIsExpired,
+        actions: paymentAction,
         sortAt: payment.requestedAt ?? firstSeenAt(`drive-payment:${payment.requestId}`),
         displayTimestamp: payment.requestedAt,
       });
@@ -1429,6 +1448,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     locationRefresh,
     openAnalysis,
     pendingConsentCount,
+    paymentClockNow,
     router,
     user,
     userId,

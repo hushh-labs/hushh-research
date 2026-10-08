@@ -3210,7 +3210,15 @@ export function ConsentCenterPage() {
     tab === "connections"
       ? centerResource.refreshing
       : listResource!.refreshing;
-  const consentLoadError = activeListError || summaryResource.error;
+  // The summary is a secondary count projection used for badges and mutation
+  // reconciliation. It is fetched in parallel with the visible surface and
+  // can fail independently (for example while the backend is rebuilding its
+  // aggregate after a new Drive request). Treating that failure as a list
+  // outage made a healthy Requests tab show the blocking "Consent service is
+  // unavailable" banner while its rows were still loading or already usable.
+  // Only the active surface determines whether the Consent Center itself is
+  // unavailable; the header refresh still retries both resources.
+  const consentLoadError = activeListError;
   const isAuthLoadError = isAuthConsentLoadError(consentLoadError);
   const hasVisibleConsentListData =
     items.length > 0 ||
@@ -3509,6 +3517,13 @@ export function ConsentCenterPage() {
         next.delete("view");
       }
       const query = next.toString();
+      // A direction button can be pressed while it is already selected (for
+      // example after returning from the detail sheet). Replacing the route
+      // with the same URL still asks the App Router to reconcile the page;
+      // that re-runs the mounted SwipeViews/resources and makes the list rows
+      // visibly shiver while nothing has changed. Treat same-state writes as
+      // no-ops so navigation remains the only source of visual movement.
+      if (query === searchParams.toString()) return;
       router.replace(query ? `${pathname}?${query}` : pathname, {
         scroll: false,
       });

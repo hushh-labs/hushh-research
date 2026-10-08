@@ -77,6 +77,7 @@ export type GmailInformationRequestSourcePreview = {
 export type GmailPreparedInformationRequestReply = {
   actionId: string;
   expiresAt: string | null;
+  senderToken?: string;
   preview: {
     to: string[];
     cc: string[];
@@ -325,6 +326,7 @@ export class GmailInformationRequestsService {
     return apiJson<{
       action_id: string;
       expires_at: string | null;
+      sender_token?: string;
       preview: {
         to: string[];
         cc: string[];
@@ -347,6 +349,7 @@ export class GmailInformationRequestsService {
     ).then((response) => ({
       actionId: response.action_id,
       expiresAt: response.expires_at,
+      senderToken: response.sender_token,
       preview: {
         to: response.preview.to,
         cc: response.preview.cc,
@@ -396,24 +399,26 @@ export class GmailInformationRequestsService {
     vaultOwnerToken: string;
     workflowId: string;
     actionId: string;
+    senderToken?: string;
     body: string;
     htmlBody?: string | null;
   }): Promise<GmailSentInformationRequestReply> {
-    return apiJson<{ state: string; outcome_unknown?: boolean }>(
+    return apiJson<{ action_id?: string; state?: string; outcome_unknown?: boolean }>(
       "/api/one/email/send",
       {
         method: "POST",
         headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
         body: JSON.stringify({
           action_id: input.actionId,
+          sender_token: input.senderToken,
           body: input.body,
           html_body: input.htmlBody ?? null,
           source_workflow_id: input.workflowId,
         }),
       },
-    ).then((response) => ({
-      state: response.state,
-      outcomeUnknown: response.outcome_unknown === true,
-    }));
+    ).then((response) => {
+      const verified = response?.action_id === input.actionId && response?.state === "sent" && response?.outcome_unknown !== true;
+      return { state: verified ? "sent" : "outcome_unknown", outcomeUnknown: !verified };
+    });
   }
 }

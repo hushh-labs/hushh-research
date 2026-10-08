@@ -194,7 +194,11 @@ def test_send_persists_a_reply_only_after_the_target_is_checked_in_the_same_conv
     service = _service(cipher)
     reply_id = "33333333-3333-4333-8333-333333333333"
     reply_row = {**_action_message(sender_user_id="bob"), "id": reply_id}
-    sent_row = {**_action_message(), "id": "44444444-4444-4444-8444-444444444444"}
+    sent_row = {
+        **_action_message(),
+        "id": "44444444-4444-4444-8444-444444444444",
+        "reply_to_message_id": reply_id,
+    }
     calls: list[tuple[str, dict]] = []
 
     monkeypatch.setattr(service, "_require_active_connection", lambda *_args: "connection-id")
@@ -231,6 +235,71 @@ def test_send_persists_a_reply_only_after_the_target_is_checked_in_the_same_conv
     assert result["message"]["replyTo"] == {
         "id": reply_id,
         "content": "decrypted text",
+        "senderIsViewer": False,
+        "deletedForEveryoneAt": None,
+    }
+
+
+def test_send_reply_returns_a_projection_when_insert_row_lacks_joined_reply_envelope(
+    monkeypatch,
+):
+    """A reply acknowledgement must not decrypt fields INSERT RETURNING lacks."""
+    monkeypatch.setenv(
+        "DIRECT_MESSAGE_ENCRYPTION_KEY_V1",
+        base64.urlsafe_b64encode(b"r" * 32).decode("ascii"),
+    )
+    cipher = DirectMessageCipher()
+    service = _service(cipher)
+    reply_id = "33333333-3333-4333-8333-333333333333"
+    sent_id = "44444444-4444-4444-8444-444444444444"
+    reply_row = {
+        **_action_message(sender_user_id="bob"),
+        "id": reply_id,
+        **cipher.seal(
+            "Original message",
+            conversation_id=_CONVERSATION_ID,
+            message_id=reply_id,
+            sender_user_id="bob",
+        ),
+    }
+    sent_row = {
+        **_action_message(),
+        "id": sent_id,
+        "reply_to_message_id": reply_id,
+        **cipher.seal(
+            "I agree",
+            conversation_id=_CONVERSATION_ID,
+            message_id=sent_id,
+            sender_user_id="alice",
+        ),
+    }
+
+    monkeypatch.setattr(service, "_require_active_connection", lambda *_args: "connection-id")
+    monkeypatch.setattr(service, "_conversation_by_pair", lambda *_args: _conversation())
+    monkeypatch.setattr(service, "_message_for_participant", lambda *_args: reply_row)
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda sql, *_args, **_kwargs: (
+            {"id": _CONVERSATION_ID}
+            if "SELECT id\n                    FROM conversations" in sql
+            else sent_row
+            if "INSERT INTO messages" in sql
+            else None
+        ),
+    )
+
+    result = service.send_message(
+        "alice",
+        recipient_user_id="bob",
+        content="I agree",
+        reply_to_message_id=reply_id,
+    )
+
+    assert result["message"]["content"] == "I agree"
+    assert result["message"]["replyTo"] == {
+        "id": reply_id,
+        "content": "Original message",
         "senderIsViewer": False,
         "deletedForEveryoneAt": None,
     }

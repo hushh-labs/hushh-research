@@ -7745,6 +7745,11 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
     expect(screen.queryByText(/9911|8012|4455/)).toBeNull();
+    expect(toast.success).toHaveBeenCalledWith(
+      "1 contact connected",
+      expect.objectContaining({ description: "7 contacts can be invited." }),
+    );
+    expect(vi.mocked(toast.success).mock.calls.at(-1)?.[1]?.action).toBeUndefined();
     // The People directory stays calm after sync: matched people may move into
     // the list, but the contact-source badge and long permanent sync subtitle
     // do not crowd the main hub.

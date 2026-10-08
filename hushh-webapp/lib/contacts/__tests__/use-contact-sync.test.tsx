@@ -171,7 +171,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it("retains invite rows outside sync results and makes old invite toasts inert after dismissal", async () => {
+it("keeps invite rows outside sync results and clears them on dismissal without a toast action", async () => {
   const referral = vi
     .spyOn(ReferralService, "getSummary")
     .mockRejectedValue(new Error("unavailable"));
@@ -206,15 +206,11 @@ it("retains invite rows outside sync results and makes old invite toasts inert a
   expect(JSON.stringify(mocks.trackEvent.mock.calls)).not.toContain(
     "+14155550101",
   );
-  const toastAction = mocks.toastInfo.mock.calls.find(
-    (call) => call[1]?.action?.label === "Invite them",
-  )?.[1].action.onClick;
-  expect(toastAction).toBeTypeOf("function");
+  expect(mocks.toastInfo).toHaveBeenCalled();
+  expect(mocks.toastInfo.mock.calls.at(-1)?.[1]?.action).toBeUndefined();
+  expect(result.current.resultsSheetProps.onInvite).toBeTypeOf("function");
   act(() => result.current.setResultsOpen(false));
   expect(result.current.resultsSheetProps.invitations?.candidates).toEqual([]);
-  await act(async () => {
-    toastAction();
-  });
   expect(result.current.resultsOpen).toBe(false);
   expect(result.current.resultsSheetProps.invitations?.active).toBe(false);
   expect(referral).not.toHaveBeenCalled();
@@ -549,6 +545,7 @@ describe("useContactSync — what it tells the surface", () => {
         },
       }),
     );
+    expect(mocks.toastSuccess.mock.calls.at(-1)?.[1]?.action).toBeUndefined();
   });
 
   it("refreshes on every completed resync, including all-already-connected results", async () => {

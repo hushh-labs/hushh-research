@@ -1,5 +1,20 @@
 import type { AgentProfileIconStyle } from "./agent-theme-registry";
 
+/** Opaque app artwork keeps its identity and white glyph contrast in both themes. */
+export const AGENT_APP_ICON_PALETTE = {
+  finance: { top: "#43CF73", bottom: "#159447" },
+  wallet: { top: "#FFB75B", bottom: "#E87916" },
+  location: { top: "#49ADFF", bottom: "#0878EA" },
+  ria: { top: "#9A83FF", bottom: "#6550DB" },
+  gmail: { top: "#FF7784", bottom: "#EC384D" },
+  calendar: { top: "#43C6DC", bottom: "#088CA9" },
+  email: { top: "#D88AEB", bottom: "#AC47CE" },
+  pkm: { top: "#98A1B3", bottom: "#596579" },
+  consent: { top: "#5C95FF", bottom: "#3460D8" },
+  marketplace: { top: "#49C7A4", bottom: "#128D72" },
+  "connected-systems": { top: "#43C5D2", bottom: "#188B9D" },
+} as const;
+
 /** The home launcher palette, shared by home icons and Connect circle ideas. */
 export const DASHBOARD_AGENT_ICON_STYLE_BY_ID = {
   finance: {

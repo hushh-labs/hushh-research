@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WalletAddCollection } from "./wallet-add-collection";
 import { WalletCardFace } from "./wallet-card-face";
-import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails } from "./wallet-demo-cards";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails, type WalletDemoProfile } from "./wallet-demo-cards";
 import { cardNetworkLabel } from "./card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import styles from "./wallet-card-browser.module.css";
@@ -40,7 +40,7 @@ function DemoActivity({ cardId, onPreview }: { cardId: string; onPreview: (actio
   </div>;
 }
 
-export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, active = true }: {
+export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, ownerId, active = true, demoProfile }: {
   cards: WalletCardSummary[];
   selectedCardId: string | null;
   onSelect: (id: string) => void;
@@ -51,7 +51,9 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   disabled?: boolean;
   details: ReactNode;
   dockHost: HTMLElement | null;
+  ownerId?: string;
   active?: boolean;
+  demoProfile?: WalletDemoProfile | null;
 }) {
   const demo = cards.length === 0;
   const collection = demo ? WALLET_DEMO_CARDS : cards;
@@ -61,36 +63,57 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   }, [demo, selectedCardId]);
   const [demoId, setDemoId] = useState("demo-0");
   const [previewAction, setPreviewAction] = useState<PreviewAction | null>(null);
+  useEffect(() => {
+    if (active && demo) {
+      setMode("all");
+      setPreviewAction(null);
+    }
+  }, [active, demo]);
   const content = useRef<HTMLDivElement>(null);
+  const automaticScrollUntil = useRef(0);
   const gesture = useRef<{ x: number; y: number } | null>(null);
-  const scrollDestination = useRef<number | null>(null);
-  const [scrollingDown, setScrollingDown] = useState(false);
+  useEffect(() => {
+    const element = content.current;
+    const root = element?.closest<HTMLElement>("[data-app-scroll-root]");
+    if (!active || !element || !root) return;
+    // The Cards pane always starts at its deck; never inherit the taller Add
+    // or Sharing pane's scroll offset during the resize/transition.
+    const observer = new ResizeObserver(() => {
+      automaticScrollUntil.current = performance.now() + 350;
+      root.scrollTo({ top: 0, behavior: "instant" });
+      observer.disconnect();
+    });
+    observer.observe(root.firstElementChild ?? element);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [active]);
   useEffect(() => {
     const root = content.current?.closest<HTMLElement>("[data-app-scroll-root]");
-    if (!active || !root) return;
-    let previousTop = Math.max(0, root.scrollTop);
+    if (!active || !root || !dockHost) return;
+    let previous = root.scrollTop;
     const onScroll = () => {
-      const top = Math.max(0, Math.min(root.scrollTop, root.scrollHeight - root.clientHeight));
-      const delta = top - previousTop;
-      if (scrollDestination.current !== null) {
-        const destination = scrollDestination.current;
-        scrollDestination.current = null;
-        if (Math.abs(top - destination) < 2) {
-          previousTop = top;
-          setScrollingDown(false);
-          return;
-        }
+      const top = Math.max(0, root.scrollTop);
+      const delta = top - previous;
+      if (performance.now() < automaticScrollUntil.current) {
+        previous = top;
+        dockHost.setAttribute("data-scrolling-down", "false");
+        return;
       }
-      if (top <= 0) setScrollingDown(false);
-      else if (Math.abs(delta) >= 2) setScrollingDown(delta > 0);
-      if (Math.abs(delta) >= 2 || top <= 0) previousTop = top;
+      if (Math.abs(delta) < 3 && top > 0) return;
+      dockHost.setAttribute("data-scrolling-down", String(top > 0 && delta > 0));
+      previous = top;
     };
-    root.addEventListener("scroll", onScroll, { passive: true });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab") dockHost.setAttribute("data-scrolling-down", "false");
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    root.addEventListener("scroll", onScroll, { passive:true });
     return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
       root.removeEventListener("scroll", onScroll);
-      setScrollingDown(false);
+      dockHost.removeAttribute("data-scrolling-down");
     };
-  }, [active]);
+  }, [active, dockHost]);
   const selected = collection.find((card) => card.cardId === (demo ? demoId : selectedCardId)) ?? collection[0];
   if (!selected) return null;
   const index = collection.indexOf(selected);
@@ -101,9 +124,9 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     if (!element || !root) return;
     const top = Math.max(0, Math.min(root.scrollHeight - root.clientHeight,
       root.scrollTop + element.getBoundingClientRect().top - root.getBoundingClientRect().top - 12));
-    scrollDestination.current = Math.abs(root.scrollTop - top) >= 1 ? top : null;
-    setScrollingDown(false);
+    automaticScrollUntil.current = performance.now() + 350;
     root.scrollTo({ top, behavior: "instant" });
+    if (dockHost) dockHost.setAttribute("data-scrolling-down", "false");
   };
   const choose = (id: string) => {
     if (isBusy) return;
@@ -131,7 +154,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     const next = collection[index + (dx < 0 ? 1 : -1)];
     if (next) choose(next.cardId);
   };
-  const dock = <nav aria-label="Wallet card switcher" className={styles.dock} data-scrolling-down={scrollingDown} data-testid="wallet-card-switcher">
+  const dock = <nav aria-label="Wallet card switcher" className={`${styles.dock} sr-only`} data-testid="wallet-card-switcher">
     <Button variant="ghost" size="compact" aria-pressed={mode === "all"} disabled={isBusy} onClick={showAll} className={styles.allButton}>All <span>({collection.length})</span></Button>
     <div className={styles.thumbnails} data-swipe-views-horizontal-scroll>
       {collection.map((card, cardIndex) => <button key={card.cardId} type="button" disabled={isBusy} aria-label={`Open ${card.nickname || cardNetworkLabel(card.brand)}, ending ${card.last4}`} aria-pressed={mode === "card" && selected.cardId === card.cardId} onClick={() => choose(card.cardId)} className={styles.thumbnailButton}>
@@ -141,9 +164,9 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     <Button variant="secondary" size="compact" disabled={isBusy} aria-label="Add a card" onClick={onAdd} className={styles.plus}><Plus aria-hidden="true" className="size-5" /></Button>
   </nav>;
   return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
-    <h2 className={`${styles.title} ui-text-section-title`}>Your cards</h2>
+    <h2 className="sr-only">Your cards</h2>
     {mode === "all" ? <>
-      <WalletAddCollection cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} scrollStack showActions={false} showDetailsLink />
+      <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} preview={demo} demoProfile={demoProfile} scrollReveal showActions={false} showDetailsLink />
       <div className={styles.quickActions}>
         <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" />{demo ? "Add your first card" : "Add another card"}</Button>
         {demo ? <><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Statement")}>Statements <ArrowRight aria-hidden="true" className="size-4" /></Button><Button variant="ghost" size="compact" onClick={() => setPreviewAction("Autopay")}>Autopay <ArrowRight aria-hidden="true" className="size-4" /></Button></> : null}
@@ -152,9 +175,9 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" onClick={showAll} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />All cards</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>
       {demo ? <div className={styles.paymentHeader}><Button variant="secondary" size="compact" onClick={() => setPreviewAction("Payment")}>Payment</Button></div> : null}
       <div data-swipe-views-horizontal-scroll onTouchStart={(event) => { const point = event.touches[0]; gesture.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null; }} onTouchEnd={finishSwipe} onTouchCancel={() => { gesture.current = null; }} className={styles.selectedFace}>
-        {demo ? <WalletDemoCardFace summary={selected} /> : <WalletCardFace summary={selected} collection />}
+        {demo ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} collection />}
       </div>
-      {demo ? <><DemoActivity cardId={selected.cardId} onPreview={setPreviewAction} /><WalletDemoCardDetails cardId={selected.cardId} /></> : details}
+      {demo ? <><DemoActivity cardId={selected.cardId} onPreview={setPreviewAction} /><WalletDemoCardDetails cardId={selected.cardId} profile={demoProfile} /></> : details}
     </div>}
     {active && dockHost ? createPortal(dock, dockHost) : null}
     <Dialog modal open={active && Boolean(previewAction)} onOpenChange={(open) => { if (!open) setPreviewAction(null); }}>

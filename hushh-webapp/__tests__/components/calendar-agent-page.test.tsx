@@ -101,7 +101,7 @@ describe("CalendarAgentPage", () => {
     render(<CalendarAgentPage />);
 
     const connect = await screen.findByRole("button", {
-      name: "Connect Calendar",
+      name: "Connect your calendar",
     });
     fireEvent.click(connect);
 
@@ -135,7 +135,7 @@ describe("CalendarAgentPage", () => {
     expect(chat.querySelector("svg")).toBeNull();
     expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
 
-    expect(screen.queryByRole("button", { name: "Reconnect Calendar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
 
     fireEvent.click(chat);
@@ -179,9 +179,47 @@ describe("CalendarAgentPage", () => {
 
     render(<CalendarAgentPage journeyVariant="onboarding" />);
 
-    expect(await screen.findByText("Connect Google Calendar")).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", {
+        name: "Bring your schedule into One.",
+      }),
+    ).toBeTruthy();
     expect(screen.queryByText("Try asking One")).toBeNull();
     expect(screen.queryByText(/Summarize my calendar for this week/)).toBeNull();
+  });
+
+  it("offers one Connect your calendar action when Google authorization has lapsed", async () => {
+    mocks.status.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "needs_reauth",
+      scope_csv: "",
+    });
+    mocks.startConnect.mockRejectedValue(new Error("stop after request"));
+
+    render(<CalendarAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Bring your schedule into One.",
+      }),
+    ).toBeTruthy();
+    // The lapse is announced to assistive tech without changing the layout.
+    expect(
+      screen.getByText("Google authorization needs to be refreshed.").className,
+    ).toContain("sr-only");
+    expect(screen.queryByRole("button", { name: /Reconnect/i })).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Connect your calendar" }),
+    );
+    await waitFor(() =>
+      expect(mocks.startConnect).toHaveBeenCalledWith({
+        idToken: "firebase-token",
+        userId: "calendar-user",
+        accessLevel: "read",
+      }),
+    );
   });
 
   it("keeps a verified popup success authoritative without a second status read", async () => {
@@ -192,7 +230,7 @@ describe("CalendarAgentPage", () => {
       authorize_url: "https://accounts.google.test",
     });
     render(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect your calendar" }));
     await waitForConsentWindow();
     const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
     act(() => {
@@ -207,7 +245,7 @@ describe("CalendarAgentPage", () => {
     });
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "Connect Calendar" }),
+        screen.queryByRole("button", { name: "Connect your calendar" }),
       ).toBeNull(),
     );
     expect(mocks.trackEvent).not.toHaveBeenCalledWith(
@@ -224,7 +262,7 @@ describe("CalendarAgentPage", () => {
       authorize_url: "https://accounts.google.test",
     });
     render(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect your calendar" }));
     await waitForConsentWindow();
     // Google's opener policy makes a live consent window read as closed.
     Object.defineProperty(mocks.popup as object, "closed", {
@@ -253,7 +291,7 @@ describe("CalendarAgentPage", () => {
 
     const view = render(<CalendarAgentPage />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Connect Calendar" }),
+      await screen.findByRole("button", { name: "Connect your calendar" }),
     );
     await waitForConsentWindow();
     mocks.ownerId = "other-owner";
@@ -285,7 +323,7 @@ describe("CalendarAgentPage", () => {
 
       render(<CalendarAgentPage />);
       fireEvent.click(
-        await screen.findByRole("button", { name: "Connect Calendar" }),
+        await screen.findByRole("button", { name: "Connect your calendar" }),
       );
       await waitForConsentWindow();
       await act(async () => {
@@ -320,7 +358,7 @@ describe("CalendarAgentPage", () => {
       Object.assign(new Error("cancelled"), { code: "USER_CANCELLED" }),
     );
     render(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect your calendar" }));
     await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith(
       "one_calendar_action",
       { route_id: "one_calendar", action: "connected", result: "expected_error" },
@@ -376,7 +414,7 @@ describe("CalendarAgentPage", () => {
 
     const view = render(<CalendarAgentPage />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Connect Calendar" }),
+      await screen.findByRole("button", { name: "Connect your calendar" }),
     );
     await waitFor(() => expect(mocks.completeNativeConnect).toHaveBeenCalled());
     mocks.ownerId = "other-owner";

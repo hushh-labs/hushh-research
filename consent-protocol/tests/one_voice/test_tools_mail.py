@@ -1316,3 +1316,80 @@ async def test_the_state_is_the_owning_services_verdict_not_a_second_opinion(mon
 
     assert result.model_public()["state"] == "needs_reauth"
     assert result.model_public()["can_read"] is False, "needs_reauth is not readable"
+
+
+@pytest.mark.parametrize(
+    ("code", "reason", "recovery"),
+    [
+        ("GMAIL_SEND_DISABLED", "mail_send_disabled", "enable_sending"),
+        ("GMAIL_SEND_PERMISSION_REQUIRED", "mail_send_permission_required", "reconnect_gmail"),
+        ("GMAIL_NOT_CONNECTED", "mail_connect_required", "connect_gmail"),
+        ("UNRECOGNIZED", "mail_send_status_unavailable", "retry"),
+    ],
+)
+async def test_read_access_does_not_hide_the_exact_send_prerequisite(
+    monkeypatch, code, reason, recovery
+):
+    class SendingStatus(GmailStatusDouble):
+        async def assert_send_ready(self, *, user_id):
+            assert user_id == USER
+            raise mail.GmailApiError("private provider detail", code=code, status_code=409)
+
+    gmail = SendingStatus({"connected": True, "connection_state": "connected"})
+    result = await _access(monkeypatch, gmail)
+    visible = result.model_public()
+    assert visible["can_read"] is True
+    assert visible["can_send"] is False
+    assert visible["send_blocked_reason"] == reason
+    assert visible["send_recovery_action"] == recovery
+    assert visible["new_message_send_mode"] == "unavailable"
+    assert "private provider detail" not in json.dumps(visible)
+    assert gmail.asked == 1
+
+
+@pytest.mark.parametrize("review_supported", [False, True])
+async def test_voice_send_capability_requires_the_negotiated_review_surface(
+    monkeypatch, review_supported
+):
+    from types import SimpleNamespace
+
+    class SendingStatus(GmailStatusDouble):
+        async def assert_send_ready(self, *, user_id):
+            assert user_id == USER
+
+    class AllAdmission(AdmissionDouble):
+        def mail_drafts_enabled(self):
+            return True
+
+        def mail_schedule_send_enabled(self):
+            return True
+
+        def mail_scheduled_drain_enabled(self):
+            return True
+
+    monkeypatch.setattr(mail, "connector_feature_enabled", lambda *_a, **_k: True)
+    gmail = SendingStatus(
+        {
+            "connected": True,
+            "connection_state": "connected",
+            "compose_permission_granted": True,
+            "google_email": "private-owner@example.com",
+            "scope_csv": "private-scopes",
+        }
+    )
+    ctx = _ctx(gmail=gmail, mail_compose=SimpleNamespace(review_supported=review_supported))
+    ctx.services[mail.MAIL_ADMISSION_SERVICE] = AllAdmission(True)
+    result = await _access_spec().handler(ctx, mail.MailAccessInput())
+    visible = result.model_public()
+    assert visible["can_send"] is True
+    assert visible["new_message_send_mode"] == (
+        "reviewed_voice" if review_supported else "reviewed_tap"
+    )
+    assert visible["compose_ready"] is True
+    assert visible["native_draft_send_ready"] is True
+    assert visible["schedule_send_ready"] is True
+    assert ("explicit_address" in visible["recipient_modes_supported"]) is review_supported
+    assert "all_connections" not in visible["recipient_modes_supported"]
+    assert visible["send_blocked_reason"] is None
+    assert "private-owner@example.com" not in repr(result)
+    assert "private-scopes" not in repr(result)

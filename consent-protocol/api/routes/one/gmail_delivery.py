@@ -75,6 +75,8 @@ class EmailEnvelope(BaseModel):
     # This optional representation is independently sanitized by the Gmail
     # owner delivery service before it becomes part of the reviewed envelope.
     html_body: str | None = Field(default=None, max_length=50_000)
+    draft_ref: str | None = Field(default=None, min_length=1, max_length=128)
+    revision: int | None = Field(default=None, ge=1)
 
 
 class DriveAttachmentRef(BaseModel):
@@ -118,6 +120,7 @@ class EmailSendRequest(EmailEnvelope):
 
     action_id: str = Field(min_length=1, max_length=128)
     attachment_token: str | None = Field(default=None, min_length=32, max_length=2048)
+    sender_token: str | None = Field(default=None, min_length=32, max_length=32768)
     source_workflow_id: str | None = Field(
         default=None,
         min_length=1,
@@ -287,6 +290,8 @@ async def gmail_email_prepare(
             source_workflow_id=payload.source_workflow_id,
             source_mail_ref=payload.source_mail_ref,
         )
+        if payload.draft_ref is not None or payload.revision is not None:
+            draft_payload.update(draft_ref=payload.draft_ref, revision=payload.revision)
         with mail_latency("deliver_prep", logger):
             prepared = cast(
                 dict[str, Any],
@@ -376,6 +381,10 @@ async def gmail_email_send(
             source_workflow_id=payload.source_workflow_id,
             source_mail_ref=payload.source_mail_ref,
         )
+        if payload.sender_token is not None:
+            draft_payload["sender_token"] = payload.sender_token
+        if payload.draft_ref is not None or payload.revision is not None:
+            draft_payload.update(draft_ref=payload.draft_ref, revision=payload.revision)
         with mail_latency("deliver", logger) as span:
             result = cast(
                 dict[str, Any],

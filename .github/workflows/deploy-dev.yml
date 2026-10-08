@@ -7,6 +7,14 @@ name: Deploy to Dev
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: "Existing shared dev, or the preprovisioned isolated commerce sandbox"
+        required: true
+        default: "shared-dev"
+        type: choice
+        options:
+          - shared-dev
+          - scope-commerce-sandbox
       scope:
         description: "Auto-detect deploy lane, or force backend/frontend/all"
         required: true
@@ -55,10 +63,13 @@ env:
   DEV_ONE_EMAIL_WEBHOOK_AUDIENCE: https://consent-protocol-621416509462.us-central1.run.app/api/one/email/webhook
   BACKEND_REVISION_RETENTION: "3"
   FRONTEND_REVISION_RETENTION: "10"
+  DEV_TARGET: shared-dev
+  DEV_DB_NAME: postgres
+  DEPLOY_SECRET_PREFIX: ""
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
-  group: deploy-dev
+  group: deploy-dev${{ inputs.target == 'scope-commerce-sandbox' && '-scope-commerce-sandbox' || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -90,6 +101,18 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface dev --actor "${GITHUB_ACTOR}"
+
+      - name: Resolve fixed deployment target
+        shell: bash
+        env:
+          REQUESTED_TARGET: ${{ inputs.target || 'shared-dev' }}
+          BUILD_POD_IMAGE: ${{ inputs.build_pod_image && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [[ "${REQUESTED_TARGET}" == "scope-commerce-sandbox" && "${BUILD_POD_IMAGE}" == "true" ]]; then
+            echo "Commerce preview does not publish or install pod images." >&2; exit 1
+          fi
+          python3 scripts/deploy/commerce-preview-target.py --target "$REQUESTED_TARGET" --github-env "$GITHUB_ENV"
 
       - name: Capture deployment timing start
         id: timing-start
@@ -173,6 +196,40 @@ jobs:
           python-version: "3.13"
           protocol-dir: ./consent-protocol
 
+      - name: Build fixed preview bootstrap image
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: bootstrap-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="bootstrap-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          gcloud builds submit --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/backend-image.cloudbuild.yaml \
+            "--substitutions=_IMAGE_TAG=${image_tag},_BUILD_TARGET=commerce-preview-bootstrap"
+          repository="gcr.io/${{ env.GCP_PROJECT_ID }}/scope-commerce-bootstrap"
+          digest="$(gcloud container images describe "${repository}:${image_tag}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --format='value(image_summary.digest)')"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect --raw "${repository}@${digest}" \
+            > /tmp/dev-bootstrap-image-manifest.json
+          image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "${repository}@${digest}" \
+            --manifest-json /tmp/dev-bootstrap-image-manifest.json \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" --json-output /tmp/dev-bootstrap-image.json)"
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+
+      - name: Bootstrap fixed private preview services
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: preview-bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/deploy/commerce-preview-bootstrap.py --phase ensure \
+            --image "${{ steps.bootstrap-image.outputs.image_reference }}" \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --report-path /tmp/dev-preview-bootstrap.json
+
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
         shell: bash
@@ -213,6 +270,11 @@ jobs:
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
           echo "frontend_sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            python3 scripts/deploy/commerce-preview-target.py --target scope-commerce-sandbox \
+              --backend-json /tmp/dev-predeploy-state-backend.json --frontend-json /tmp/dev-predeploy-state-frontend.json \
+              --github-env "$GITHUB_ENV"
+          fi
 
       - name: Resolve deployment scope
         id: scope
@@ -220,7 +282,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/resolve-deploy-scope.py \
-            --requested-scope "${{ github.event.inputs.scope }}" \
+            --requested-scope "${{ inputs.target == 'scope-commerce-sandbox' && 'all' || github.event.inputs.scope }}" \
             --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
             --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
@@ -254,6 +316,11 @@ jobs:
               result = subprocess.run(command, capture_output=True, text=True, timeout=30)
               if result.returncode or any(option not in result.stdout for option in required):
                   raise SystemExit(f"Candidate deployment interface is incompatible: {command[1]}")
+          if os.environ.get("DEV_TARGET") == "scope-commerce-sandbox":
+              for filename in ("backend", "frontend", "frontend-image"):
+                  path = Path(f"deploy/{filename}.cloudbuild.yaml")
+                  if "_SECRET_PREFIX" not in (yaml.safe_load(path.read_text()).get("substitutions") or {}):
+                      raise SystemExit("Candidate does not support isolated commerce bindings")
           config = yaml.safe_load(Path("deploy/backend.cloudbuild.yaml").read_text())
           substitutions = config.get("substitutions") or {}
           if os.environ["DEPLOY_BACKEND"] == "true":
@@ -271,6 +338,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            # Operator-owned prefixed settings are mandatory. Never mirror UAT
+            # credentials or rewrite shared dev configuration during preview.
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase resources --report-path /tmp/dev-runtime-secret-sync.json
+            exit 0
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
@@ -325,6 +399,9 @@ jobs:
           # The single definition of every value compiled into the web image.
           # The deploy step reuses it, so the build and deploy cannot disagree.
           build_substitutions="_APP_ENV=dev,_DEPLOY_ENV=dev,_IMAGE_TAG=${image_tag}"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            build_substitutions="$(printf '%s' "$build_substitutions" | "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-substitutions.py --kind frontend-image)"
+          fi
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "build_substitutions=${build_substitutions}" >> "$GITHUB_OUTPUT"
           # Skew guard: this workflow runs from main, but a train SHA may predate
@@ -399,8 +476,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
-          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_USER="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}DB_USER" --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}DB_PASSWORD" --project="${{ env.GCP_PROJECT_ID }}")"
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
 
@@ -439,19 +516,44 @@ jobs:
           export DB_UNIX_SOCKET=""
           export DB_HOST=127.0.0.1
           export DB_PORT=6543
-          export DB_NAME=postgres
+          export DB_NAME="${DEV_DB_NAME}"
           export DB_USER
           export DB_PASSWORD
 
-          (
-            cd consent-protocol
-            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
-          )
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase database --report-path /tmp/dev-preview-predeploy-database.json
+          fi
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            MIGRATOR_DB_USER="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}MIGRATOR_DB_USER" --project="${{ env.GCP_PROJECT_ID }}")"
+            MIGRATOR_DB_PASSWORD="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}MIGRATOR_DB_PASSWORD" --project="${{ env.GCP_PROJECT_ID }}")"
+            echo "::add-mask::${MIGRATOR_DB_USER}"
+            echo "::add-mask::${MIGRATOR_DB_PASSWORD}"
+            if [[ "${MIGRATOR_DB_USER}" != "scope_commerce_sandbox_migrator" || "${DB_USER}" != "scope_commerce_sandbox" ]]; then
+              echo "Preview migration identity is not pinned." >&2; exit 1
+            fi
+            (
+              export DB_USER="${MIGRATOR_DB_USER}" DB_PASSWORD="${MIGRATOR_DB_PASSWORD}"
+              cd consent-protocol
+              "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
+            )
+            unset MIGRATOR_DB_USER MIGRATOR_DB_PASSWORD
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase database --report-path /tmp/dev-preview-postmigration-database.json
+          else
+            (
+              cd consent-protocol
+              "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
+            )
+          fi
           # Skew guard (same class as the secret-sync probes): the dev
           # contract file may not exist on older train SHAs. Fall back to the
           # UAT contract, which dev replicates by design.
           CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
           if [ ! -f "$CONTRACT_FILE" ]; then
+            if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+              echo "Preview requires its canonical full release contract." >&2; exit 1
+            fi
             CONTRACT_FILE="consent-protocol/db/contracts/uat_integrated_schema.json"
             echo "dev contract missing on this SHA; falling back to $CONTRACT_FILE"
           fi
@@ -490,6 +592,9 @@ jobs:
             fi
           done < <(printf '%s' "${SUBSTITUTIONS//##/$'\n'}" | awk 'NF')
           SUBSTITUTIONS="$FILTERED"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            SUBSTITUTIONS="$(printf '%s' "$SUBSTITUTIONS" | "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-substitutions.py --kind backend)"
+          fi
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
@@ -542,6 +647,9 @@ jobs:
             exit 1
           fi
           SUBSTITUTIONS="${SUBSTITUTIONS},${FRONTEND_BUILD_SUBSTITUTIONS}"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            SUBSTITUTIONS="$(printf '%s' "$SUBSTITUTIONS" | "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-substitutions.py --kind frontend)"
+          fi
           source_arg="."
           case "${FRONTEND_PREBUILT}" in
             true)
@@ -630,6 +738,14 @@ jobs:
               "${{ steps.resolve-sha.outputs.sha }}" "${{ github.run_id }}" "$CANDIDATE_TAG" /login
           fi
 
+      - name: Verify isolated preview bindings before traffic promotion
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+            --phase mounts --report-path /tmp/dev-preview-candidate-bindings.json
+
       - name: Promote deployed revisions to dev traffic
         shell: bash
         run: |
@@ -711,6 +827,11 @@ jobs:
         id: verify-parity-1
         continue-on-error: true
         run: |
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase mounts --report-path /tmp/dev-runtime-parity-attempt-1.json
+            exit $?
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --region "${{ env.GCP_REGION }}" \
@@ -732,6 +853,11 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase mounts --report-path /tmp/dev-runtime-parity-attempt-2.json
+            exit $?
+          fi
           set -euo pipefail
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
@@ -757,8 +883,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
-          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_USER="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}DB_USER" --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret="${DEPLOY_SECRET_PREFIX}DB_PASSWORD" --project="${{ env.GCP_PROJECT_ID }}")"
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
 
@@ -797,7 +923,7 @@ jobs:
           export DB_UNIX_SOCKET=""
           export DB_HOST=127.0.0.1
           export DB_PORT=6543
-          export DB_NAME=postgres
+          export DB_NAME="${DEV_DB_NAME}"
           export DB_USER
           export DB_PASSWORD
 
@@ -806,6 +932,9 @@ jobs:
           # UAT contract, which dev replicates by design.
           CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
           if [ ! -f "$CONTRACT_FILE" ]; then
+            if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+              echo "Preview requires its canonical full release contract." >&2; exit 1
+            fi
             CONTRACT_FILE="consent-protocol/db/contracts/uat_integrated_schema.json"
             echo "dev contract missing on this SHA; falling back to $CONTRACT_FILE"
           fi
@@ -814,6 +943,7 @@ jobs:
             --report-path /tmp/dev-db-migration-guard-postdeploy.json
 
       - name: Bootstrap dev runtime files for semantic verification
+        if: env.DEV_TARGET != 'scope-commerce-sandbox'
         shell: bash
         run: |
           set -euo pipefail
@@ -821,6 +951,7 @@ jobs:
           bash scripts/env/use_profile.sh dev
 
       - name: Load maintainer smoke overlay
+        if: env.DEV_TARGET != 'scope-commerce-sandbox'
         shell: bash
         run: |
           set -euo pipefail
@@ -846,6 +977,11 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase app --report-path /tmp/dev-release-verify-attempt-1.json
+            exit $?
+          fi
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
@@ -860,6 +996,11 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
+              --phase app --report-path /tmp/dev-release-verify-attempt-2.json
+            exit $?
+          fi
           set -euo pipefail
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
@@ -1005,6 +1146,13 @@ jobs:
               append_unique(blocking, ["db_contract_drift"])
               backend_failure = True
 
+          # An isolated preview attestation failure covers both candidate lanes.
+          # An empty generic report must never turn a failed probe healthy.
+          if os.environ.get("DEV_TARGET") == "scope-commerce-sandbox" and (not parity_success or not semantic_success):
+              append_unique(blocking, ["commerce_preview_unverified"])
+              backend_failure = os.environ.get("DEPLOY_BACKEND") == "true"
+              frontend_failure = os.environ.get("DEPLOY_FRONTEND") == "true"
+
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)
 
@@ -1087,6 +1235,17 @@ jobs:
           set -euo pipefail
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
+      - name: Quarantine failed preview first release
+        if: always() && failure() && env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: quarantine-preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f /tmp/dev-preview-bootstrap.json ]]; then
+            python3 scripts/deploy/commerce-preview-bootstrap.py --phase quarantine \
+              --report-path /tmp/dev-preview-bootstrap.json
+          fi
+
       - name: Resolve final Cloud Run state
         if: always()
         id: final-state
@@ -1144,6 +1303,25 @@ jobs:
             fi
           fi
 
+          # A quarantined or incomplete first release cannot be healthy or an
+          # application rollback. Later application baselines keep normal rollback.
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            STATUS="$(python3 - "$STATUS" <<'PYBOOTSTRAP'
+          import json
+          import sys
+          from pathlib import Path
+          path = Path('/tmp/dev-preview-bootstrap.json')
+          if not path.exists():
+              print('blocked')
+          else:
+              report = json.loads(path.read_text())
+              status = sys.argv[1] if '${{ steps.classify-dev-release.outputs.release_failed }}' in ('true', 'false') else 'blocked'
+              first = any(lane.get('kind') == 'bootstrap' for lane in report.get('lanes', {}).values())
+              print('quarantined' if first and report.get('status') == 'quarantined' else
+                    'blocked' if report.get('status') != 'ready_for_configuration' or (first and status != 'healthy') else status)
+          PYBOOTSTRAP
+            )"
+          fi
           export STATUS
           python3 - <<'PY'
           import json
@@ -1238,6 +1416,8 @@ jobs:
             /tmp/dev-backend-provenance.json
             /tmp/dev-candidate-*.json
             /tmp/dev-backend-image.json
+            /tmp/dev-bootstrap-image.json
+            /tmp/dev-preview-bootstrap.json
             /tmp/dev-frontend-image.json
             /tmp/dev-frontend-prebuilt-image.json
             /tmp/dev-frontend-prebuilt-image-manifest.json

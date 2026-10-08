@@ -121,3 +121,40 @@ def test_migration_header_states_the_model_boundary_truthfully() -> None:
     assert "neither reaches a model" not in header
     assert "subject and payload_sealed never reach the Live model" in header
     assert "payload_sealed and subject are cleared" in header
+
+
+def test_sender_review_migration_is_in_every_release_lane_and_admission_contract() -> None:
+    name = "283_gmail_send_grant_generation.sql"
+    manifest = _manifest()
+    assert name in manifest["ordered_migrations"]
+    assert name in manifest["groups"]["iam"]
+    rollback_path = manifest["rollback_migrations"][name]
+    assert rollback_path == "rollback/283_gmail_send_grant_generation.rollback.sql"
+    sql = (ROOT / "db/migrations" / name).read_text()
+    rollback = (ROOT / "db/migrations" / rollback_path).read_text()
+    assert "ADD COLUMN IF NOT EXISTS send_grant_generation BIGINT NOT NULL DEFAULT 0" in sql
+    assert (
+        "CREATE TRIGGER gmail_send_grant_generation BEFORE UPDATE ON kai_gmail_connections" in sql
+    )
+    assert "DROP COLUMN IF EXISTS send_grant_generation" in rollback
+    # Never revive a pre-rollback confirmation when generation zero is recreated.
+    assert rollback.index("UPDATE gmail_owner_send_actions") < rollback.index("DROP COLUMN")
+    assert "WHERE state = 'prepared' AND send_at IS NULL" in rollback
+    for environment in ("dev_minimum_schema", "prod_core_schema", "uat_integrated_schema"):
+        contract = json.loads((ROOT / f"db/contracts/{environment}.json").read_text())
+        assert contract["expected_migration_version"] >= 283
+        assert "bump_gmail_send_grant_generation" in contract["required_functions"]
+        assert {
+            "google_sub",
+            "google_email",
+            "scope_csv",
+            "status",
+            "revoked",
+            "send_enabled",
+            "send_grant_generation",
+        } <= set(contract["required_tables"]["kai_gmail_connections"])
+        # New immediate cancellation and legacy schedule separation read this
+        # column, and must be admitted together with the connection generation.
+        assert {"state", "send_at", "envelope_hmac", "expires_at"} <= set(
+            contract["required_tables"][TABLE]
+        )

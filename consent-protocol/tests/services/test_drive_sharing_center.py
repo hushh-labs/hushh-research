@@ -291,6 +291,25 @@ async def test_zero_match_history_uses_neutral_recipient_state(sharing):
 
 @pytest.mark.asyncio
 async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeypatch):
+    # Production has this cache; its timestamps overlap the request projection.
+    # Exercise the joined path, including both participants and a nonparticipant.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""
+            CREATE TABLE actor_identity_cache (
+              user_id TEXT PRIMARY KEY, display_name TEXT,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        )
+        connection.execute(
+            text("""
+            INSERT INTO actor_identity_cache (user_id, display_name)
+            VALUES ('owner', 'Document owner'), ('recipient', 'Requester'),
+              ('stranger', 'Unrelated person')
+        """)
+        )
     for _ in range(61):
         await request(sharing)
     projection = DriveSharingCenterContributor(db=sharing.db)
@@ -299,10 +318,12 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
     monkeypatch.setenv("DRIVE_DOCUMENT_SHARING", "false")
     snapshot = await projection.preview("owner")
     assert snapshot["counts"]["incoming_requests"] == 61
+    assert snapshot["buckets"]["incoming_requests"][0]["counterpart_label"] == "Requester"
     assert len(snapshot["buckets"]["incoming_requests"]) == 50
     assert (await projection.counts("recipient"))["incoming_requests"] == 0
     assert (await projection.counts("recipient"))["outgoing_requests"] == 61
     assert (await projection.counts("stranger"))["incoming_requests"] == 0
+    assert (await projection.page("stranger", bucket="incoming_requests", limit=20))["total"] == 0
     page = await projection.page("owner", bucket="incoming_requests", limit=20, offset=60)
     assert page["total"] == 61 and len(page["items"]) == 1
     assert (await projection.page("owner", bucket="incoming_requests", limit=20, offset=9999))[
