@@ -814,3 +814,26 @@ and One's authenticated reads pass. The existing dedicated database, identities
 and SDK secret remain preparation resources. Cleanup must disable new paid admission
 first and preserve reconciliation, access enforcement and financial history until
 all obligations resolve; remove only task-owned resources afterward.
+
+Hosted full-scope CI for source `18c3db9ab3b03e07d070eeba70e0031ff74f3059`
+stopped at its pinned Gitleaks 8.24.2 scanner before browser execution. An
+isolated public-schema reproduction confirmed that its only reported value
+was the numeric JSON Schema bound `maxLength=32`. The scanner now exempts only
+anchored numeric length bounds, matching the existing Pydantic-bound policy.
+A focused negative control requires real credentials in the same input, and
+values with a numeric-bound prefix, to remain detectable. No file or credential
+rule was excluded. Exact-source hosted CI remains a deployment prerequisite.
+
+The main-owned preview definition is isolated from the existing unrelated draft
+PR. Its four-path candidate passed the repository core bundle in 268 seconds.
+Ordinary review and landing are still required before preview bootstrap can be
+dispatched. SDK authorization does not establish host connector OAuth, One's
+provider receipt verification, or either reviewer's payment acceptance.
+
+The final local core rerun passed in 355 seconds using CI's pinned Gitleaks
+8.24.2, including the public-bound negative controls and historical source scan.
+The main-owned definition is proposed in [PR #7613](https://github.com/hushh-labs/hushh-research/pull/7613),
+head `dc14752d1a2cea4a857948f63d3d50534426cd39`. Ordinary independent review
+is required; the existing draft PR remains unchanged. The approved ADC principal
+can read the dedicated database, but its dedicated login role is not yet present.
+No role, schema or financial mutation is implied by that inventory read.
