@@ -653,6 +653,25 @@ export function GuestPreview({
                     ? "One checks your calendar and everything else you have connected, then gives you a direct answer."
                     : "Talk or type. Let One help you."}
               </BodyText>
+              {step === 1 && (
+                <div className={styles.referenceActions}>
+                  <Button
+                    variant="blue"
+                    effect="fill"
+                    size="prominent"
+                    onClick={() => moveTo(2)}
+                  >
+                    Meet your agents
+                    <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
+                  </Button>
+                  <div className={styles.referenceProgress} aria-label="Step 2 of 4">
+                    {[0, 1, 2, 3].map((index) => (
+                      <span key={index} className={index === 1 ? styles.active : undefined} />
+                    ))}
+                    <small>2 of 4</small>
+                  </div>
+                </div>
+              )}
             </div>
 
             <section
@@ -709,7 +728,7 @@ export function GuestPreview({
             </section>
           </div>
 
-          <footer className={styles.footer}>
+          <footer className={`${styles.footer} ${step === 1 ? styles.hiddenReferenceFooter : ""}`}>
             <nav className={styles.progress} aria-label="Preview screens">
               {["Welcome", "Agents", "Chat", "Get started"].map((label, index) => (
                 <button

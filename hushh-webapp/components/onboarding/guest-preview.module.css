@@ -268,6 +268,37 @@
   .content[data-step="1"] .agentIcon { width: 2.375rem; height: 2.375rem; }
   .content[data-step="1"] .agentName { font-size: 1.0625rem; }
 }
+.stepBadge {
+  display: inline-flex;
+  padding: .45rem .8rem;
+  border-radius: 999px;
+  background: #e5edfc;
+  color: #1f4fb0 !important;
+  font-size: .625rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.referenceActions { display: flex; align-items: center; gap: 1rem; margin-top: 1.75rem; }
+.referenceActions > button { min-height: 2.75rem; padding-inline: 1.35rem; border-radius: 999px; font-size: .75rem; white-space: nowrap; }
+.referenceProgress { display: flex; align-items: center; gap: .45rem; }
+.referenceProgress span { width: 1.25rem; height: .25rem; border-radius: 999px; background: #cfccdc; }
+.referenceProgress span.active { background: #2f6be0; }
+.referenceProgress small { margin-left: .2rem; color: #4a4a58; font-size: .625rem; font-weight: 600; }
+.hiddenReferenceFooter { display: none; }
+@media (min-width: 640px) and (max-width: 800px) {
+  .content[data-step="1"] { gap: 1.5rem; }
+  .content[data-step="1"] .title { max-width: 14ch; font-size: 2.25rem; }
+  .content[data-step="1"] .agentItem { grid-template-columns: 2rem 4rem minmax(0, 1fr); gap: .625rem; min-height: 2.45rem; padding: .35rem .75rem; }
+  .content[data-step="1"] .agentIcon { width: 2rem; height: 2rem; }
+  .content[data-step="1"] .agentIcon svg { width: 1rem; height: 1rem; }
+  .content[data-step="1"] .agentName { font-size: .75rem; }
+  .content[data-step="1"] .stage { min-width: 0; }
+  .content[data-step="1"] .agentDesc { overflow: hidden; font-size: .625rem; white-space: nowrap; text-overflow: ellipsis; }
+  .referenceActions { gap: .75rem; margin-top: 1.25rem; }
+  .referenceActions > button { min-height: 2.25rem; padding-inline: 1rem; }
+}
 .agents {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -587,6 +618,7 @@
 .progress [aria-current="step"] span {
   background: var(--app-accent);
 }
+.footer.hiddenReferenceFooter { display: none; }
 .progressText {
   align-self: center;
   margin-left: .25rem;
@@ -881,3 +913,4 @@
     }
   }
 }
+
