@@ -59,7 +59,7 @@
     }
   ],
   "search": {
-    "source_revision": "c7cbc57bfd130ffcdd749b59f7e67ecb1ae7e71a5e0c451df616affe3580badf",
+    "source_revision": "0f54f6515274768c7775cfadc3233be7a4566661bbf2d863ab7a06bbbe6006aa",
     "source_module_count": 1510,
     "legacy_control_exemptions": {
       "add_holding": "Existing control outside the current Search action catalog; retained as explicit legacy coverage debt.",
