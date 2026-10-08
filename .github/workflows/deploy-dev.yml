@@ -550,6 +550,9 @@ jobs:
           # contract file may not exist on older train SHAs. Fall back to the
           # UAT contract, which dev replicates by design.
           CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            CONTRACT_FILE="consent-protocol/db/contracts/prod_core_schema.json"
+          fi
           if [ ! -f "$CONTRACT_FILE" ]; then
             if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
               echo "Preview requires its canonical full release contract." >&2; exit 1
@@ -931,6 +934,9 @@ jobs:
           # contract file may not exist on older train SHAs. Fall back to the
           # UAT contract, which dev replicates by design.
           CONTRACT_FILE="consent-protocol/db/contracts/dev_minimum_schema.json"
+          if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
+            CONTRACT_FILE="consent-protocol/db/contracts/prod_core_schema.json"
+          fi
           if [ ! -f "$CONTRACT_FILE" ]; then
             if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
               echo "Preview requires its canonical full release contract." >&2; exit 1

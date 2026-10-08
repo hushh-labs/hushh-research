@@ -384,7 +384,7 @@ def json_http(url: str, *, token: str | None = None, body: dict | None = None) -
 
 def validate_app_proof(proof: dict, context: dict) -> None:
     contract = json.loads(
-        (ROOT / "consent-protocol/db/contracts/dev_minimum_schema.json").read_text()
+        (ROOT / "consent-protocol/db/contracts/prod_core_schema.json").read_text()
     )
     head = contract.get("expected_migration_version")
     if head is None:

@@ -1116,3 +1116,52 @@ Auth service-account key and secret access only when they are no longer needed.
 Never alter shared identity registrations, environments or existing Stripe
 integrations during cleanup. Keep #7587 In Progress until both reviewers'
 financial receipts, physical iOS journeys and One's authenticated reads pass.
+
+### Preview provisioning and release-contract correction — 2026-10-08 UTC
+
+This readback supersedes the earlier missing-origin and pending candidate-check
+statements. Exact application source `2ce5159da9aca7edea4c6ad40c349ea92f7315a0`
+passed the local core bundle and
+[full hosted CI](https://github.com/hushh-labs/hushh-research/actions/runs/37760192984),
+including native and browser gates. The first corrected-bootstrap
+[release run](https://github.com/hushh-labs/hushh-research/actions/runs/37763016855)
+provisioned both IAM-private services and quarantined them after the expected
+missing-environment check. Cloud Run returned these exact origins:
+
+- Backend: `https://consent-protocol-commerce-sandbox-aqahj4iyha-uc.a.run.app`
+- Frontend: `https://hushh-webapp-commerce-sandbox-aqahj4iyha-uc.a.run.app`
+- Owner OAuth callback: `https://hushh-webapp-commerce-sandbox-aqahj4iyha-uc.a.run.app/one/profile/connectors/oauth/return`
+
+Dedicated secrets, public native identities, reviewer cohort, account/test-mode
+pin and signed platform/Connect webhook endpoints were subsequently configured.
+The canonical resource verifier passed at `2026-10-08T10:28:13Z`. The exact
+frontend hostname was added to Firebase authorized domains while preserving all
+existing domains. Both paid-admission switches remain false; unknown costs are
+not treated as zero. The scheduler has not been activated and runtime monitoring
+observations remain unverified.
+
+The subsequent
+[application release](https://github.com/hushh-labs/hushh-research/actions/runs/37763775324)
+failed before application promotion at the database gate. That workflow checked
+the shared-Dev contract against a deliberately release-only preview. The two
+notification-checkpoint functions belong exclusively to parked migration 956;
+shared Dev continues to require them, while this preview must use the full
+`prod_core_schema.json` contract at both gates and for application readiness.
+An additional required name, `remove_domain_summary_key`, exists only in
+historical migration 013, targets retired `world_model_index_v2`, and has no
+current caller. Its stale requirement was removed from the three authored
+contracts, without introducing unused mutation authority or replaying legacy or
+parked SQL. The corrected full release contract passed a read-only check against
+the actual isolated database with zero violations and zero writes. Exact release
+head, baseline, runtime privileges, current PKM functions and provider pin remain
+required. Focused tests execute both workflow contract selectors and reject a
+missing preview contract rather than falling back to shared Dev.
+
+Native web export, Capacitor sync and an unsigned iOS product compile succeeded
+for the exact preview identities/origins. The signed build failed because Xcode
+has no authenticated Apple account and the available wildcard provisioning
+profile lacks Associated Domains. This is not installed-device acceptance.
+Physical transport, device automation, both owner OAuth grants, reviewer
+financial journeys and One's authenticated account/balance reads remain pending.
+Do not use SDK identity readback as an OAuth receipt or persist reviewer vault
+passphrases to enable hosted test authentication. Keep issue #7587 In Progress.
