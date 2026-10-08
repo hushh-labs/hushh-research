@@ -224,7 +224,7 @@ export function WalletWorkspace() {
   // must not expose the old profile while the next read is still pending.
   const demoProfile = profileVisit.authorized && loadedProfile?.visit === profileVisit
     ? loadedProfile.profile
-    : { displayName: fallbackName, shareUrl: null };
+    : { displayName: fallbackName, shareUrl: null, cardPayload: null };
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
   const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
@@ -365,10 +365,11 @@ export function WalletWorkspace() {
           profile: {
             displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
             shareUrl: state.shareUrl,
+            cardPayload: state.card?.cardPayload ?? null,
           },
         });
       } catch {
-        if (isCurrent()) setLoadedProfile({ visit: profileVisit, profile: { displayName: fallbackName, shareUrl: null } });
+        if (isCurrent()) setLoadedProfile({ visit: profileVisit, profile: { displayName: fallbackName, shareUrl: null, cardPayload: null } });
       }
     };
     void load();

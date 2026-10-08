@@ -106,17 +106,20 @@ describe("WalletWorkspace at scale", () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValue(true);
     serviceMock.listCardSummaries.mockResolvedValue([]);
     authMock.user = { uid: "user_1", displayName: "Public owner A" };
-    const completions: Array<(value: { card: { cardPayload: { full_name: string } }; shareUrl: string | null }) => void> = [];
+    const completions: Array<(value: { card: { cardPayload: { full_name: string; email?: string } }; shareUrl: string | null }) => void> = [];
     profileMock.getCard.mockImplementation(() => new Promise((resolve) => { completions.push(resolve); }));
     const workspace = render(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
-    await act(async () => { completions[0]!({ card: { cardPayload: { full_name: "Saved owner A" } }, shareUrl: null }); });
+    await act(async () => { completions[0]!({ card: { cardPayload: { full_name: "Saved owner A", email: "owner-a@example.test" } }, shareUrl: null }); });
     expect(await screen.findAllByText("Saved owner A")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "Everyday", exact: true }));
+    expect(screen.getByTestId("wallet-demo-details")).toHaveTextContent("owner-a@example.test");
 
     authMock.user = { uid: "owner_b", displayName: "Public owner B" };
     workspace.rerender(<WalletWorkspace />);
     await screen.findByRole("tab", { name: "Cards", exact: true });
     expect(screen.queryByText("Saved owner A")).toBeNull();
+    expect(screen.queryByText("owner-a@example.test")).toBeNull();
     expect(screen.getAllByText("Public owner B")).toHaveLength(3);
 
     authMock.user = { uid: "user_1", displayName: "Public owner A" };
