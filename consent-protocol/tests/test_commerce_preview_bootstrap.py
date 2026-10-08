@@ -295,3 +295,103 @@ def test_bootstrap_responder_remains_inert_and_unavailable():
         server.shutdown()
         server.server_close()
         worker.join(timeout=2)
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "bootstrap", "revision", "source", "anonymous", "unhealthy", "denied"]
+)
+def test_public_admission_requires_both_promoted_authenticated_applications(failure):
+    module = _preview_module("commerce-preview-public-admission.py")
+    bootstrap = module["BOOTSTRAP"]
+    services, revisions, candidates, policies, writes = {}, {}, {}, {}, []
+    for identifier in (bootstrap["BACKEND"], bootstrap["FRONTEND"]):
+        service, revision, _ = _bootstrap_fixture(bootstrap, identifier, bootstrap=False)
+        services[service["name"]] = service
+        revisions[revision["name"]] = revision
+        policies[service["name"]] = {
+            "bindings": [
+                {
+                    "role": "roles/run.invoker",
+                    "members": ["serviceAccount:existing@example.invalid"],
+                }
+            ]
+        }
+        candidates[identifier] = {
+            "ok": True,
+            "service": identifier,
+            "project": bootstrap["PROJECT"],
+            "region": bootstrap["REGION"],
+            "expected": {"HUSHH_DEPLOY_SHA": "d" * 40, "HUSHH_DEPLOY_RUN_ID": "99"},
+            "http_health": {"status_code": "200", "authentication": "workload_identity"},
+            "checked_revisions": [{"ok": True, "revision": revision["name"].rsplit("/", 1)[-1]}],
+        }
+    # Mutate the second lane: a valid first lane never permits premature IAM.
+    name = bootstrap["PARENT"] + "/services/" + bootstrap["FRONTEND"]
+    candidate = candidates[bootstrap["FRONTEND"]]
+    if failure == "bootstrap":
+        service, revision, _ = _bootstrap_fixture(bootstrap, bootstrap["FRONTEND"])
+        services[name] = service
+        revisions[revision["name"]] = revision
+    elif failure == "revision":
+        candidate["checked_revisions"][0]["revision"] += "-other"
+    elif failure == "source":
+        candidate["expected"]["HUSHH_DEPLOY_SHA"] = "e" * 40
+    elif failure == "anonymous":
+        candidate["http_health"]["authentication"] = "anonymous"
+    elif failure == "unhealthy":
+        candidate["http_health"]["status_code"] = "403"
+
+    class FakeApi:
+        def request(self, path, *, method="GET", body=None):
+            if path.endswith(":setIamPolicy"):
+                writes.append(path)
+                if failure == "denied":
+                    raise bootstrap["BootstrapError"](
+                        "bootstrap_cloud_request_failed", stage="service_policy", http_status=403
+                    )
+                policies[path.removesuffix(":setIamPolicy")] = json.loads(
+                    json.dumps(body["policy"])
+                )
+                return {}
+            if path.endswith(":getIamPolicy"):
+                return json.loads(json.dumps(policies.get(path.removesuffix(":getIamPolicy"), {})))
+            if path == f"projects/{bootstrap['PROJECT']}":
+                return {"projectId": bootstrap["PROJECT"]}
+            return services[path] if path in services else revisions[path]
+
+    if failure:
+        with pytest.raises(bootstrap["BootstrapError"]):
+            module["admit"](FakeApi(), "d" * 40, "99", candidates)
+        assert len(writes) == (1 if failure == "denied" else 0)
+    else:
+        result = module["admit"](FakeApi(), "d" * 40, "99", candidates)
+        assert result["public_invoker_verified"] is True
+        assert len(writes) == 2
+        assert all("existing@example.invalid" in json.dumps(policy) for policy in policies.values())
+        module["admit"](FakeApi(), "d" * 40, "99", candidates)
+        assert len(writes) == 2, "Verified admission is idempotent"
+
+
+@pytest.mark.parametrize("status", ["200", "302", "403"])
+def test_public_preview_health_requires_anonymous_exact_200(monkeypatch, status):
+    module = _preview_module("commerce-preview-public-admission.py")
+    calls = []
+
+    def curl(args, **kwargs):
+        calls.append(args)
+        assert "--location" not in args and "-L" not in args
+        assert not any("Authorization" in arg for arg in args)
+        return subprocess.CompletedProcess(args, 0, status, "")
+
+    monkeypatch.setattr(module["subprocess"], "run", curl)
+    monkeypatch.setattr(module["time"], "sleep", lambda _: None)
+    if status == "200":
+        assert (
+            module["public_health"]("https://fixed-preview.run.app", "/health")["authentication"]
+            == "anonymous"
+        )
+        assert len(calls) == 1
+    else:
+        with pytest.raises(module["BootstrapError"], match="preview_public_http_health_unverified"):
+            module["public_health"]("https://fixed-preview.run.app", "/health")
+        assert len(calls) == 5

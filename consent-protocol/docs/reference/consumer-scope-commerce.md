@@ -1216,3 +1216,99 @@ cases moved into one focused file and remain included in `verify:analytics`.
 The architecture baseline is unchanged; inherited-main growth is repaired in
 source rather than reclassified as accepted debt. These analytics checks are
 local contract proof, not a claim of new deployed GA4 or BigQuery observations.
+
+
+### Exact-candidate deployment verification — 2026-10-08
+
+Application `9ab8233a44c652881aa4555b1cb91e7fe7bc8c6a` passed
+[full CI 37773844930](https://github.com/hushh-labs/hushh-research/actions/runs/37773844930),
+including iOS, Android, all frontend shards and browser contracts. Its exact-source
+local core passed in 910 seconds: 16,580 parallel protocol tests, 396 serialized
+DB tests, web production build, MCP packaging and 380 integration tests.
+The unchanged architecture ratchet reported no new or worsened findings.
+The redundant agent-created CI run 37774237256 was cancelled; the successful
+original supplies candidate authority. Existing selection skips remain recorded.
+
+The workflow definition remains main-owned and separate from application source.
+Main `8cf525dec25664ef45c3a71f77f5cc5c8aa40b52` passed
+[smoke 37783442538](https://github.com/hushh-labs/hushh-research/actions/runs/37783442538).
+The independently running shared-Dev deployment 37787105038 was initially
+misattributed; its Cloud Build target readback corrected that claim. It is
+preserved and supplies no Sandbox release evidence.
+
+Explicit preview run
+[37788500868](https://github.com/hushh-labs/hushh-research/actions/runs/37788500868)
+selected `scope-commerce-sandbox`, scope `all`, pod publication disabled and the
+pinned application. Both images, migrations, predeploy schema and runtime identity
+passed. Cloud Run rejected service name plus candidate tag exceeding 46 characters,
+so the tagged health probe could not run. The release ended `quarantined`, with no
+application traffic promoted. Independent readback at `2026-10-08T16:01:07Z`
+confirmed both services remain IAM-private inert bootstrap, with no public invoker.
+
+Repair [PR #7633](https://github.com/hushh-labs/hushh-research/pull/7633) uses one
+13-character hash of run and attempt for probes and cleanup. All 16 focused tests
+passed; the new regression rejects the original workflow. Independent source
+review found no blocking issue. Original repair `cfa0f183a` passed local core in
+269 seconds. Main then advanced with Wallet migrations 285/286; the same repair
+branch was normally merged forward to `7c5712930ed826da9379a4c6b67bdda1b57e6ec7`.
+Its focused tests and full local core passed again, in 184 seconds. Separate frozen
+environments preserve each source's dependency locks.
+[PR CI 37808103502](https://github.com/hushh-labs/hushh-research/actions/runs/37808103502)
+passed at the refreshed exact head; frontend/native path skips were intentional
+for this workflow-only repair. Cancellation, followed by force-cancellation,
+was requested for superseded run 37806072224; its terminal `cancelled` state is verified.
+Live branch protection, maintainer authority, clear review threads, mergeability,
+freshness and exact head were revalidated. PR #7633 landed through the authorized
+Admin queue bypass at `32d87888ab5d597575bea5f03515334051aa2e7a`; no merge-queue
+validation is claimed. [Post-merge smoke 37809862688](https://github.com/hushh-labs/hushh-research/actions/runs/37809862688)
+passed at that exact main SHA. Explicit preview retry
+[37810672905](https://github.com/hushh-labs/hushh-research/actions/runs/37810672905)
+used that main-owned definition, pinned application `9ab8233a4`, scope `all` and
+pod publication disabled. It failed the exact backend candidate HTTP probe with
+403 and finished quarantined. Both Cloud Build application deploys reported
+failed public-IAM grants as warnings. Tag, image, source and runtime checks passed;
+no application traffic was promoted.
+
+The dedicated DB preparation at `eff9466572b9d2b150566b1471ef1a5dfdec097f` and
+application `9ab8233a4` have identical release manifests and migration SQL. Their
+base-manifest fingerprint is
+`cddd4c2b36f5580c6d213801f3c3df000c04bc9aaef4965ee23d31a41114acd8`.
+Main at `8cf525d` differs at migrations 240, 249 and 284, with fingerprint
+`2bfea2294d7524a879073b61c20143538cf144cd701d71f9ae0ef6be07d9b00c`;
+main subsequently added 285/286. Dev Fast Lane permits the exact CI-green branch
+against its matching isolated DB. Do not replay main against it or relabel its
+baseline. Future main integration requires full-history reconciliation,
+preservation proof and rehearsal; renumbering only 284 is insufficient. Replay
+mode does not validate the baseline fingerprint, so matching preparation remains
+explicit operator evidence.
+
+Exact-source native static export, Capacitor sync and unsigned compilation passed
+at `2026-10-08T13:54:32Z`; Sandbox bundle ID and both preview origins match the
+built product. The signing recheck reports Xcode `No Accounts`; iPhone transport
+remains disconnected and iPad unavailable. Signing, installation, physical journeys,
+both OAuth receipts, reviewer financial actions and payouts remain unverified.
+The existing cost-policy evidence/decision and exact human financial confirmations
+remain required. Both paid/provider admission switches remain disabled; free
+consent and reconciliation retain their independent authority.
+
+An independent source audit of the armed-but-pre-T cancellation path confirmed
+full-principal return, inverse journal entry, reservation restoration/release and
+fee-basis restoration to the original funding lots. Disputed lots restore to
+frozen balance; seller pending earnings and armed debt reverse. At/after T the
+calendar-refund rule retains allocated processing costs. Database time, locks and
+idempotent journal keys bound replay and stage/revoke races; information admission
+requires T through expiry separately. Existing focused PostgreSQL tests cover
+these contracts, but this audit executed no new test or deployed transaction.
+Real calendar and provider acceptance remain required.
+
+The next candidate makes preview IAM admission explicit: Cloud Build preserves
+service IAM, workload-identity probes target tagged revisions with the base
+service URL as audience, both exact application revisions must serve before
+public admission, and the existing anonymous semantic checks and quarantine
+remain mandatory. Focused checks passed (83 application checks, 27 main-owned
+deployment checks); the negative control fails on the original anonymous-probe
+and early-public-grant source. Core, exact-SHA CI and a new release are required
+before this repair establishes deployed readiness. This includes the developer's
+already committed pod-recovery change; unrelated working-tree edits are excluded.
+The official host Stripe connector remains uninstalled on the current host
+readback; enabling Stripe's MCP setting does not establish host OAuth.

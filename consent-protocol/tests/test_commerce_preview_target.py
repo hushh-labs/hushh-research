@@ -446,3 +446,39 @@ def test_preview_resolves_provider_aliases_before_secret_admission(volume):
     annotations["run.googleapis.com/secrets"] = f"{alias}:projects/other-project/secrets/{alias}"
     with pytest.raises(module["PreviewError"], match="preview_secret_project_mismatch"):
         module["validate_mounts"](document, expected)
+
+
+@pytest.mark.parametrize("prefix", ["", "SCOPE_COMMERCE_SANDBOX_"])
+def test_preview_cloudbuild_preserves_iam_until_workflow_admission(prefix):
+    import re
+
+    backend = (ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    backend = backend[
+        backend.index("cmd=(\n") : backend.index("# Preserve the dev-only liveness rehearsal.")
+    ]
+    frontend = yaml.safe_load((ROOT / "deploy/frontend.cloudbuild.yaml").read_text())
+    frontend = next(step for step in frontend["steps"] if step.get("id") == "deploy-frontend")[
+        "args"
+    ][-1]
+    frontend = frontend[
+        frontend.index("cmd=(\n") : frontend.index(
+            'if [[ -n "${_VPC_CONNECTOR}" ]]; then', frontend.index("cmd=(\n")
+        )
+    ]
+    for section in (backend, frontend):
+        variables = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)", section))
+        env = {
+            **os.environ,
+            **{variable: "fixture" for variable in variables},
+            "commerce_preview_prefix": prefix,
+            "_SECRET_PREFIX": prefix,
+        }
+        result = subprocess.run(  # noqa: S603 - actual deploy command construction, no cloud execution.
+            ["bash", "-eu", "-c", section + '\nprintf "%s\\n" "${cmd[@]}"'],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        assert ("--allow-unauthenticated" in result.stdout.splitlines()) is (not prefix)
+        assert "--no-allow-unauthenticated" not in result.stdout

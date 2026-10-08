@@ -321,3 +321,74 @@ def test_preview_database_gates_use_release_contract_without_shared_dev_fallback
         )
         assert rejected.returncode != 0
         release.write_text("{}")
+
+
+@pytest.mark.parametrize("token,expected", [("synthetic-identity", 0), ("", 1)])
+def test_private_preview_probe_requires_identity_without_recording_it(tmp_path, token, expected):
+    calls = tmp_path / "calls"
+    for name, body in {
+        "gcloud": 'echo "$*" >> "$CALLS"\n',
+        "curl": """echo "$*" >> "$CALLS"
+body=$(cat)
+[ "$body" = 'header = "X-Serverless-Authorization: Bearer synthetic-identity"' ] && printf 200 || printf 403
+""",
+        "sleep": "exit 0\n",
+        "python-gate": 'if [ "$1" = "-c" ]; then echo https://candidate.run.app; fi\n',
+    }.items():
+        path = tmp_path / name
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+    result = subprocess.run(  # noqa: S603 - fixed gate with synthetic executables and identity.
+        [
+            "bash",
+            str(ROOT / "scripts/ci/verify-dev-candidate.sh"),
+            "hushh-pda-dev",
+            "us-central1",
+            "consent-protocol-commerce-sandbox",
+            "revision",
+            "registry/image@sha256:" + "a" * 64,
+            "a" * 40,
+            "99",
+            "c123",
+            "/health",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": str(tmp_path) + ":" + os.environ["PATH"],
+            "PROTOCOL_PYTHON": str(tmp_path / "python-gate"),
+            "CALLS": str(calls),
+            "DEV_TARGET": "scope-commerce-sandbox",
+            "CANDIDATE_ID_TOKEN": token,
+        },
+    )
+    assert result.returncode == expected, result.stderr
+    assert "synthetic-identity" not in result.stdout + result.stderr + calls.read_text()
+    if not token:
+        assert "https://candidate.run.app/health" not in calls.read_text()
+
+
+def test_preview_public_admission_follows_authenticated_health_and_application_promotion():
+    steps = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())["jobs"][
+        "deploy"
+    ]["steps"]
+    names = [step["name"] for step in steps]
+    assert names.index("Verify selected candidates before traffic promotion") < names.index(
+        "Promote deployed revisions to dev traffic"
+    )
+    assert names.index("Promote deployed revisions to dev traffic") < names.index(
+        "Admit verified preview application invocation"
+    )
+    for lane, audience in (
+        ("backend", "PREVIEW_BACKEND_ORIGIN"),
+        ("frontend", "APP_FRONTEND_ORIGIN"),
+    ):
+        auth = next(step for step in steps if step.get("id") == f"preview-{lane}-probe-auth")
+        assert auth["if"] == "env.DEV_TARGET == 'scope-commerce-sandbox'"
+        assert auth["with"]["id_token_audience"] == "${{ env." + audience + " }}"
+        assert auth["with"]["create_credentials_file"] is False
+        assert auth["with"]["export_environment_variables"] is False
+    quarantine = next(step for step in steps if step.get("id") == "quarantine-preview")
+    assert "always() && failure()" in quarantine["if"]

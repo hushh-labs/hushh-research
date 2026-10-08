@@ -408,7 +408,6 @@ steps:
           "--image=${image_reference}"
           "--region=${_REGION}"
           "--platform=managed"
-          "--allow-unauthenticated"
           "--port=8080"
           "--memory=${_CLOUD_RUN_MEMORY}"
           "--cpu=1"
@@ -423,6 +422,11 @@ steps:
           "--set-secrets=${secrets}"
         )
 
+        # Preview admission is verified by the workflow after application
+        # promotion. Preserve private bootstrap and existing application IAM.
+        if [[ -z "${_SECRET_PREFIX}" ]]; then
+          cmd+=("--allow-unauthenticated")
+        fi
         if [[ -n "${_VPC_CONNECTOR}" ]]; then
           cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
         fi

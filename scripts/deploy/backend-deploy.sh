@@ -889,7 +889,6 @@ cmd=(
   "--region=${_REGION}"
   "--platform=managed"
   "--service-account=${_RUNTIME_SERVICE_ACCOUNT}"
-  "--allow-unauthenticated"
   "--port=8080"
   "--memory=${_CLOUD_RUN_MEMORY}"
   "--cpu=${_CLOUD_RUN_CPU}"
@@ -924,6 +923,12 @@ cmd=(
   "--set-env-vars=^|^${env_var_string}"
   "--set-secrets=${secrets}"
 )
+
+# Preview IAM admission belongs to the workflow after authenticated candidate
+# health and application traffic promotion. Leave existing service IAM unchanged.
+if [[ -z "${commerce_preview_prefix:-}" ]]; then
+  cmd+=("--allow-unauthenticated")
+fi
 
 # Preserve the dev-only liveness rehearsal. Owner pods retain their independently
 # selected CPU/scaling policy; this script deploys the shared backend only.
