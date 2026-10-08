@@ -24,12 +24,14 @@
 set -euo pipefail
 
 # Image selection travels together to remain within Cloud Build's env-entry cap.
-IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
+IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _SECRET_PREFIX _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
 if [[ "${_SKIP_IMAGE_BUILD}" != "true" && "${_SKIP_IMAGE_BUILD}" != "false" ]] ||
   [[ "${_BUILD_POD_IMAGE}" != "true" && "${_BUILD_POD_IMAGE}" != "false" ]] ||
   [[ -n "${_image_extra}" ]]; then
   echo "Invalid image settings." >&2; exit 1
 fi
+
+source scripts/deploy/commerce-preview-bindings.sh
 
 # The Cloud Run capacity knobs arrive packed in one env entry (Cloud Build caps a
 # step at 100 env entries; see deploy/backend.cloudbuild.yaml). Unpack them into
@@ -183,32 +185,20 @@ done
 genai_project_id="${_GENAI_PROJECT_ID}"
 if [[ -z "${genai_project_id}" ]]; then
   genai_project_id="$PROJECT_ID"
-  if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
     genai_project_id="hushh-vertex-personal54"
   fi
 fi
-append_optional_secret() {
-  local secret_name="$1"
-  local env_name="$2"
-  if [[ -z "${secret_name}" ]]; then
-    return
-  fi
-  if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
-    secrets="${secrets},${env_name}=${secret_name}:latest"
-  else
-    echo "Skipping optional secret ${secret_name}; not found in project ${PROJECT_ID}."
-  fi
-}
 
-secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}:latest,APP_FRONTEND_ORIGIN=${_APP_FRONTEND_ORIGIN_SECRET}:latest,BACKEND_RUNTIME_CONFIG_JSON=${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
+secrets="APP_SIGNING_KEY=$(commerce_secret_name "${_APP_SIGNING_KEY_SECRET}"):latest,VAULT_DATA_KEY=$(commerce_secret_name "${_VAULT_DATA_KEY_SECRET}"):latest,FIREBASE_ADMIN_CREDENTIALS_JSON=$(commerce_secret_name "${_FIREBASE_ADMIN_CREDENTIALS_SECRET}"):latest,APP_FRONTEND_ORIGIN=$(commerce_secret_name "${_APP_FRONTEND_ORIGIN_SECRET}"):latest,BACKEND_RUNTIME_CONFIG_JSON=$(commerce_secret_name "${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}"):latest,DB_USER=$(commerce_secret_name DB_USER):latest,DB_PASSWORD=$(commerce_secret_name DB_PASSWORD):latest"
 if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
-  secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
+  secrets="${secrets},PLAID_CLIENT_ID=$(commerce_secret_name "${_PLAID_CLIENT_ID_SECRET}"):latest"
 fi
 if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
-  secrets="${secrets},PLAID_SECRET=${_PLAID_SECRET_SECRET}:latest"
+  secrets="${secrets},PLAID_SECRET=$(commerce_secret_name "${_PLAID_SECRET_SECRET}"):latest"
 fi
 if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
-  secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
+  secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=$(commerce_secret_name "${_PLAID_ACCESS_TOKEN_KEY_SECRET}"):latest"
 fi
 append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
 append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
@@ -245,8 +235,8 @@ if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then
     fi
   done
 fi
-append_optional_secret "${_STRIPE_SECRET_KEY_SECRET}" "STRIPE_SECRET_KEY"
-append_optional_secret "${_STRIPE_WEBHOOK_SECRET_SECRET}" "STRIPE_WEBHOOK_SECRET"
+source "$(dirname "${BASH_SOURCE[0]}")/scope-commerce-secrets.sh"
+append_payment_provider_secrets
 append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
 append_optional_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
 # Literal secret names, not substitutions -- these two are named identically in
@@ -318,7 +308,7 @@ fi
 # effect once it lands there; this script ships from the deployed SHA, so it is what
 # makes a BRANCH deploy report `dev` in the meantime. Keeping both means the two can
 # never disagree, and removing this one would silently re-skew branch deploys.
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   runtime_environment="dev"
 fi
 
@@ -354,6 +344,10 @@ if [[ "${_CLOUD_RUN_MAX_INSTANCES}" -lt "${_CLOUD_RUN_MIN_INSTANCES}" ]]; then
   exit 1
 fi
 
+if [[ -n "${commerce_preview_prefix}" ]]; then
+  runtime_environment="uat"
+fi
+
 env_vars=(
   "ENVIRONMENT=${runtime_environment}"
   "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
@@ -375,13 +369,7 @@ env_vars=(
   "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
   "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
 )
-worker_count="2"
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-  # One worker per dev hub instance matches its declared connection budget.
-  # The direct owner-pod relay has its own single-worker contract. UAT/production
-  # retain the existing two-worker default.
-  worker_count="1"
-fi
+configure_backend_process_bounds
 env_vars+=("WEB_CONCURRENCY=${worker_count}")
 append_optional_env() {
   local env_name="$1"
@@ -442,7 +430,7 @@ append_optional_env "HUSSH_ONE_POD_RELEASE_B64" "${pod_release_b64}"
 # roles: without it Cloud Run would run each pod as the default compute account,
 # which carries project Editor. Empty outside dev, so append_optional_env skips it.
 pod_sa=""
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   pod_sa="hussh-one-pod@${PROJECT_ID}.iam.gserviceaccount.com"
 fi
 append_optional_env "HUSSH_ONE_POD_SERVICE_ACCOUNT" "${pod_sa}"
@@ -465,7 +453,7 @@ append_optional_env "HUSSH_ONE_POD_SERVICE_ACCOUNT" "${pod_sa}"
 hub_url=""
 pod_identity_auth=""
 pod_allowed_sa=""
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   # Ask Cloud Run for the hub's OWN url rather than reconstructing it. A
   # service's url is stable across revisions, so reading it before this
   # deploy yields the same address the new revision will serve on.
@@ -559,7 +547,7 @@ pod_data_door=""
 consent_audit_chain=""
 trusted_device_enabled=""
 pod_files_enabled=""
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   # The owner-pilot enrollment screen is a dev-only capability. Keep the
   # trusted-device gate explicit here; it is unrelated to Puppy inference
   # eligibility, which remains owner/device-consent scoped at request time.
@@ -852,7 +840,7 @@ append_optional_env "OWNER_FEED_SIGNING_ALG" "${owner_feed_signing_alg}"
 append_optional_env "OWNER_FEED_ED25519_KID" "${owner_feed_ed25519_kid}"
 append_optional_secret "${dev_owner_feed_private_secret}" "OWNER_FEED_ED25519_PRIVATE_KEY"
 append_optional_secret "${dev_owner_feed_public_keys_secret}" "OWNER_FEED_ED25519_PUBLIC_KEYS"
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   for connector_pin in GOOGLE_IOS_CONNECTOR_CLIENT_ID GOOGLE_ANDROID_CONNECTOR_CLIENT_ID \
     GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED GOOGLE_CONNECTOR_OAUTH_PROJECT; do
     append_optional_secret "${connector_pin}" "${connector_pin}"
@@ -879,7 +867,7 @@ deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-
 # consent-protocol/tests/test_database_connection_ceiling.py.
 # Only legacy template defaults change; explicit overrides stay authoritative.
 # BEGIN DEV HUB CAPACITY DEFAULTS
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   [[ "${_CLOUD_RUN_MEMORY}" != "1Gi" ]] || _CLOUD_RUN_MEMORY="4Gi"
   [[ "${_CLOUD_RUN_CPU}" != "1" ]] || _CLOUD_RUN_CPU="2"
   [[ "${_CLOUD_RUN_CONCURRENCY}" != "80" ]] || _CLOUD_RUN_CONCURRENCY="20"
@@ -939,7 +927,7 @@ cmd=(
 
 # Preserve the dev-only liveness rehearsal. Owner pods retain their independently
 # selected CPU/scaling policy; this script deploys the shared backend only.
-if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   cmd+=("--liveness-probe=httpGet.path=/health,periodSeconds=30,failureThreshold=3,timeoutSeconds=5,initialDelaySeconds=60")
 fi
 

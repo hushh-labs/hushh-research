@@ -12,13 +12,12 @@ from hushh_mcp.services.account_service import (
     TRANSACTIONAL_ACCOUNT_ERASURE_TABLES,
     AccountService,
 )
+from tests.helpers.account_commerce_erasure import (
+    commercial_erasure_port as commercial_erasure_port,
+)
+from tests.helpers.account_commerce_erasure import recording_connection as _db
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-
-
-@contextmanager
-def _db(conn):
-    yield conn
 
 
 def test_delete_user_rows_if_table_exists_supports_pkm_data(monkeypatch):

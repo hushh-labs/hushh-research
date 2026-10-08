@@ -87,7 +87,7 @@ another navigation stack, WebView, session, or information store.
   and finite-selection adapters are implemented but have no eligible production
   consumer in this candidate. They are not claimed as adopted; complex/rich
   menus also retain their DOM path.
-- Profile Appearance and Accent are explicit Debug iPhone candidates with
+- Supported iOS 26+ wrappers advertise Profile Appearance and Accent with
   independent `profile-appearance` and `profile-accent` IDs. Appearance uses an
   icon segmented SwiftUI Picker for Light/Dark/System; System remains the selected
   preference even when its resolved canvas is light or dark. Accent uses the
@@ -95,8 +95,10 @@ another navigation stack, WebView, session, or information store.
   `setTheme`/`writeAccent`; no native preference store is introduced. The owning
   Profile pane must be open and stationary. Scroll, ancestor animation/transition,
   clipped geometry, inactive retained panes and nested overlays retire admission;
-  native restoration waits for settlement and acknowledged layout. Release/iPad
-  enablement and physical acceptance remain separate gates.
+  native restoration waits for settlement and acknowledged layout. Accent's
+  selected value and menu opener share one stable 172-by-44-point control.
+  Unsupported wrappers retain the authored controls. Physical visual,
+  accessibility and Release-performance acceptance remain separate gates.
 
   Other bounded public candidates include Location link duration, RIA tier
   filter and rows-per-page. Location's activity-range control is currently
@@ -235,10 +237,13 @@ native controls, visual appearance or session continuity after installation.
 
 The route inventory remains the generated [frontend/native surface map](../../docs/reference/architecture/frontend-native-surface-map.md)
 and its [parity audit](../../docs/reference/mobile/capacitor-parity-audit-report.md);
-this family inventory joins it without becoming another route authority. All new
-families below are iPhone iOS 26 Debug-only, explicitly rehearsed with
-`--hushh-native-chat-chrome`. Release, older iOS, Android, web and unqualified
-iPad retain existing controls. Do not remove a fallback based on compilation.
+this family inventory joins it without becoming another route authority. Chat,
+Back and presenter pilot families remain iPhone iOS 26 Debug candidates,
+explicitly rehearsed with `--hushh-native-chat-chrome`. Appearance and Accent are
+public preference capabilities on supported iOS 17+ iPhone and iPad wrappers; React retains
+operation authority and all owner, document, privacy and geometry fences.
+Older or unsupported wrappers, Android and web retain authored controls.
+Compilation does not establish physical-device acceptance.
 
 Physical iPhone evidence at `91b4d6187` (2026-10-06): attach-only navigation,
 Search, native Back/overlay retirement/background-resume, Profile photo preview
@@ -346,7 +351,7 @@ Earlier core/device results do not certify this newly combined candidate.
 | Profile Back | Existing URL-backed `popProfilePaneLocation` | Independent named-layer lease throughout the nested Profile stack; no second router | Focused stale-choice/overlay regression passes and fails when the separate identity is removed. The new Debug iPhone candidate passed account/preferences/security/vault/support Back and return with one accessible 44-point control and one identified host. Visual/accessibility/performance promotion remains open. Disable `profile-back` capability; same DOM action remains. |
 | More / public short menus | Explicit `ActionMenu` callbacks | SwiftUI trigger and owned UIKit action-sheet adapter; no eligible product consumer yet. Scrolling People's Add, rich labels, desktop dropdown and unauthored menus retain React. | Compiled adapter, not adoption; popup privacy/dismissal device proof outstanding. Capabilities remain Debug-only. |
 | Cloud/Puppy | Chat's existing agent-surface handler | Existing finite segmented Picker, ordered current-value updates | Native choice and value-return checks passed on that candidate, with 44-by-49-point accessibility frames; full visual/accessibility/performance qualification remains open. Disable `agent-surface` capability. |
-| Appearance / Accent | Existing `setTheme` / `writeAccent` | Public icon Picker / owned short menu, independent IDs; scroll and animation retirement | Focused public-value and lifecycle contracts pass. Current candidate requires iPhone proof; Release/iPad stay DOM. Disable the two capabilities to retain web operations. |
+| Appearance / Accent | Existing `setTheme` / `writeAccent` | Public icon Picker / owned short menu on supported iOS 17+ iPhone and iPad wrappers, independent IDs; one Accent value/opener control; scroll and animation retirement | Focused public-value, geometry and lifecycle contracts plus simulator UIKit tests pass. System styling before iOS 26; glass where supported. Physical visual/accessibility and Release-performance qualification remain open. Unsupported wrappers retain the authored fallback. Disable the two capabilities to retain authored operations. |
 | Finite/date wheel sheets | Caller validates and commits value | Bounded adapter with transient draft, Done/Cancel; no production consumer yet. Duration rails, forms and complex multiselect remain React. | Native compile and ordered-choice contracts, not adoption proof. Capabilities stay Debug-only; no product operation depends on them. |
 | Drawer/pager motion | Existing Profile, History, `SwipeViews` owners | Finger-driven panels/scrims; cancellation, re-grab, single resize reconciliation; inactive panes inert | Focused cancellation/reopen/resize contracts with a resize negative control. Revert bounded shared-owner commits; no route or persistence migration. |
 | Vault methods | Existing owner-authorized `VaultService` operations | Compact method rows + details/default selector. No credential suffixes; acknowledged change remains successful if refresh fails. | Profile contracts and owner/request fences; controlled server/device mutation acceptance outstanding. Revert presentation/mutation-handling commit; no store/schema migration. |
@@ -623,7 +628,7 @@ than acquire separate native implementations.
 
 | Component family and source owner | Current presentation | Native fit / recommendation |
 | --- | --- | --- |
-| Bottom navigation — [Navbar](../components/navbar.tsx), [native plugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift) | UIKit on supported iOS; DOM fallback | Implemented. Keep standard appearance and React selection authority. |
+| Bottom navigation — [Navbar](../components/navbar.tsx), [native plugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift) | UIKit on supported iOS; DOM fallback | Uses the validated shared shell column and a 64-point content height, adding UIKit's safe area once. Visibility and tap admission revalidate geometry after resizing. React retains selection authority; unsupported wrappers retain DOM navigation. |
 | Top bar, back, Profile — [TopAppBar](../components/app-ui/top-app-bar.tsx), [ShellActionSurface](../components/app-ui/shell-action-surface.tsx) | SwiftUI Back Debug pilot; otherwise DOM | Back interaction verified on iPhone; visual/accessibility promotion remains incomplete. Close/More/utility buttons follow only after full Back acceptance. Retain Profile photos and rich labels. No whole native bar. |
 | Shell option menus — [TopShellDropdown](../components/app-ui/top-shell-dropdown.tsx) | DOM anchored menu/popover | Unused candidate, not shipped reuse: the dropdown has no production caller, and the popover's AgentSectionDropdown caller is itself unreferenced. Do not add a native family solely for this abstraction. |
 | Section action menus — [ActionMenu](../components/app-ui/action-menu.tsx) | Mobile Sheet; desktop dropdown | Retain scrolling People's Add actions in LocationRedesignHub. A future stationary public trigger needs serializable item IDs/labels, disabled/busy state and separate destructive confirmation. Rich labels stay DOM. The named-circle-flows instance is not current adoption evidence because its enclosing CirclesSection has no production caller. |
@@ -996,9 +1001,13 @@ the existing Profile state and authored Back actions; it does not reset the app.
 Raw diagnostics and temporary admission tracing were removed. That earlier iPad
 run stopped at CoreDevice 4016; the subsequent recovery and protected-session gap
 are recorded under Route Coverage and Device Admission. Simulator results do not qualify it.
-Appearance/Accent remain explicitly opt-in Debug iPhone families; full accessibility,
-visual and Release performance admission remain outstanding. No merge, deployment
-or distribution is implied.
+That rehearsal used opt-in Debug iPhone Appearance/Accent families. The current
+source supports these two public preference capabilities on iOS 17+ iPhone and iPad
+wrappers in Debug and Release, using system styling before iOS 26 and glass where supported.
+Older or unsupported wrappers retain the authored fallback.
+It does not promote that historical rehearsal to physical visual,
+accessibility or Release-performance acceptance. No merge, deployment or
+distribution is implied.
 
 ### Native continuity RCA and bounded row coverage — 2026-10-06
 

@@ -14,10 +14,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class MarketplaceReadOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["published", "publishable", "earnings"] = "published"
+    operation: Literal[
+        "published", "publishable", "earnings", "commerce_summary", "commerce_activity"
+    ] = "published"
     topic: str | None = Field(default=None, max_length=160)
     power: str = Field(default="affluent", max_length=40)
     mood: str = Field(default="affinity", max_length=40)
+    view: Literal["purchases", "sales", "transactions"] = "sales"
+    cursor: str | None = Field(default=None, max_length=2048)
 
 
 class _Metadata(BaseModel):
@@ -86,6 +90,10 @@ class _Earnings(_Metadata):
 
 
 def project_marketplace_read(raw: Any, options: MarketplaceReadOptions) -> dict[str, Any]:
+    if options.operation.startswith("commerce_"):
+        from hushh_mcp.services.pod_commerce_read import project_commerce_metadata
+
+        return project_commerce_metadata(raw, options.operation)
     if options.operation == "earnings":
         return {"result": _Earnings.model_validate(raw).model_dump()}
     if not isinstance(raw, list) or len(raw) > 100:
@@ -97,6 +105,10 @@ def project_marketplace_read(raw: Any, options: MarketplaceReadOptions) -> dict[
 async def read_marketplace_metadata(
     owner_id: str, options: MarketplaceReadOptions, *, service: Any = None
 ) -> dict[str, Any]:
+    if options.operation.startswith("commerce_"):
+        from hushh_mcp.services.pod_commerce_read import read_commerce_metadata
+
+        return await asyncio.wait_for(read_commerce_metadata(owner_id, options), timeout=15)
     if service is None:
         from hushh_mcp.services.marketplace_information_service import MarketplaceInformationService
 

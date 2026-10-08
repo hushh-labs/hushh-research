@@ -333,7 +333,12 @@ def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
 
     rules = (REPO_ROOT / ".gcloudignore").read_text().splitlines()
     upload = GitIgnoreSpec.from_lines(rules)
-    for script in ("scripts/deploy/backend-deploy.sh", "scripts/deploy/pod-release-env.sh"):
+    for script in (
+        "scripts/deploy/backend-deploy.sh",
+        "scripts/deploy/pod-release-env.sh",
+        "scripts/deploy/commerce-preview-bindings.sh",
+        "scripts/deploy/scope-commerce-secrets.sh",
+    ):
         assert (REPO_ROOT / script).is_file()
         assert not upload.match_file(script), f"Cloud Build would omit {script}"
     assert GitIgnoreSpec.from_lines([*rules, "*.sh"]).match_file(

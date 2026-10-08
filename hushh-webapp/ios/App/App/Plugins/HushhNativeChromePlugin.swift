@@ -148,7 +148,7 @@ private struct NativeChromeButton: View {
 
 /// Transient presentation intent, never a route or operation. The plugin
 /// acknowledges assistive focus from UIKit's actual focused-element event.
-private final class ChromeFocusRequest: ObservableObject {
+final class ChromeFocusRequest: ObservableObject {
     @Published var sequence = 0
 }
 
@@ -173,29 +173,6 @@ struct NativeAgentSurfaceSelector: View {
         .controlSize(.large)
         .tint(Color(uiColor: theme.accent))
         .accessibilityIdentifier("chat-agent-surface")
-        .frame(width: width, height: 44)
-        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
-    }
-}
-
-/// Public app preference only. System is a preference, not resolved darkness.
-@available(iOS 26.0, *)
-struct NativeAppearanceSelector: View {
-    let selected: String
-    let width: CGFloat
-    let theme: HushhNativeControlAppearance
-    let action: (String) -> Void
-    let layout: (CGSize) -> Void
-    var body: some View {
-        Picker("Appearance", selection: Binding(get: { selected }, set: action)) {
-            Image(systemName: "sun.max").tag("light").accessibilityLabel("Light")
-            Image(systemName: "moon").tag("dark").accessibilityLabel("Dark")
-            Image(systemName: "desktopcomputer").tag("system").accessibilityLabel("System")
-        }
-        .pickerStyle(.segmented)
-        .controlSize(.large)
-        .tint(Color(uiColor: theme.accent))
-        .accessibilityIdentifier("profile-appearance")
         .frame(width: width, height: 44)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
     }
@@ -386,10 +363,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            var families = [String]()
+            var families = HushhNativePreferencePresentation.families
             if self?.backAdmitted == true {
                 families.append("back")
-                if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "profile-back", "more", "selection", "date", "appearance", "accent"] }
+                if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "profile-back", "more", "selection", "date"] }
             }
             call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
                           "families": families, "canvasAppearance": true, "independentControls": true,
@@ -435,16 +412,40 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// Preferences use the same renderer for preparation and in-place updates.
+    /// Navigation and chat keep their existing admission and availability gates.
+    private func controlRoot(kind: String, controlId: String, label: String, width: CGFloat,
+                             presentation: ChromePresentation, focus: ChromeFocusRequest,
+                             layout: @escaping (CGSize) -> Void) -> AnyView? {
+        let theme = presentation.theme
+        if let preference = HushhNativePreferencePresentation.control(
+            kind: kind, value: presentation.value, width: width, theme: theme, focus: focus,
+            select: { [weak self] value in self?.requestChoice(controlId, value: value) },
+            open: { [weak self] in self?.activateControl(controlId) }, layout: layout
+        ) { return AnyView(preference.disabled(!presentation.enabled)) }
+        guard #available(iOS 26.0, *) else { return nil }
+        if kind == "agent-surface" {
+            return AnyView(NativeAgentSurfaceSelector(selected: presentation.value ?? "one", width: width,
+                theme: theme, action: { [weak self] value in self?.requestChoice(controlId, value: value) },
+                layout: layout).disabled(!presentation.enabled))
+        }
+        return AnyView(NativeChromeButton(
+            label: kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : label,
+            controlId: controlId,
+            value: kind == "accent" ? (presentation.value == "gold" ? "Molten Gold" : "iOS Blue") : nil,
+            symbol: symbol(kind, expanded: presentation.expanded), theme: theme,
+            action: { [weak self] in self?.activateControl(controlId) }, layout: layout,
+            focus: focus).disabled(!presentation.enabled))
+    }
+
     @objc func prepare(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
-                  let parent = self.bridge?.viewController, let identity = self.identity(call),
+            guard let parent = self.bridge?.viewController, let identity = self.identity(call),
                   let kind = call.getString("kind"), self.admits(kind, controlId: identity.controlId),
                   call.getBool("enabled") == true,
                   let label = call.getString("label"), !label.isEmpty, label.count <= 80,
-                  let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"),
-                    accentHex: call.getString("accentHex"), foregroundHex: call.getString("foregroundHex")),
+                  let presentation = ChromePresentation(call),
                   let frame = self.frame(call, kind: kind), let bounds = self.viewport(call),
                   self.canPresent,
                   kind != "agent-surface" || ["one", "puppy"].contains(call.getString("value") ?? "") else {
@@ -466,34 +467,26 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             guard slot.presenter == nil, let configuration = self.readOptions(call, kind: kind) else {
                 call.reject("NATIVE_CHROME_OPTIONS_INVALID"); return
             }
-            guard slot.configuration.prepare(identity, parsed: configuration, state: &slot.state) else { call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return }
-            self.removeHosting(slot)
-            slot.kind = kind
-            slot.label = label
-            slot.presentation = ChromePresentation(call)
-            slot.focus = ChromeFocusRequest()
-            slot.viewport = parent.view.bounds.size
+            let focus = ChromeFocusRequest()
             var swiftUILayout = false
             let layout: (CGSize) -> Void = { [weak slot] size in
                 swiftUILayout = size == frame.size
                 slot?.hosting?.view.setNeedsLayout()
             }
-            let root: AnyView
-            if kind == "agent-surface" {
-                root = AnyView(NativeAgentSurfaceSelector(selected: call.getString("value") ?? "one", width: frame.width,
-                    theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout))
-            } else if kind == "appearance" {
-                root = AnyView(NativeAppearanceSelector(selected: call.getString("value") ?? "system", width: frame.width,
-                    theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout))
-            } else {
-                root = AnyView(NativeChromeButton(label: kind == "history" ? (call.getBool("expanded") == true ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
-                    value: kind == "accent" ? (call.getString("value") == "gold" ? "Molten Gold" : "iOS Blue") : nil,
-                    symbol: self.symbol(kind, expanded: call.getBool("expanded") == true), theme: theme,
-                    action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout, focus: slot.focus))
+            guard let root = self.controlRoot(kind: kind, controlId: identity.controlId, label: label,
+                width: frame.width, presentation: presentation, focus: focus, layout: layout),
+                slot.configuration.prepare(identity, parsed: configuration, state: &slot.state) else {
+                call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return
             }
+            self.removeHosting(slot)
+            slot.kind = kind
+            slot.label = label
+            slot.presentation = presentation
+            slot.focus = focus
+            slot.viewport = parent.view.bounds.size
             let controller = ChromeHostingController(rootView: root)
             slot.hosting = controller
-            controller.overrideUserInterfaceStyle = theme.style
+            controller.overrideUserInterfaceStyle = presentation.theme.style
             controller.view.backgroundColor = .clear
             controller.view.isHidden = true
             controller.view.isUserInteractionEnabled = false
@@ -627,27 +620,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 ack["updateSequence"] = sequence
                 call.resolve(ack); return
             }
+            guard let root = self.controlRoot(kind: slot.kind, controlId: identity.controlId, label: slot.label,
+                width: hosting.view.frame.width, presentation: presentation, focus: slot.focus, layout: { _ in }) else {
+                call.reject("NATIVE_CHROME_UPDATE_REFUSED"); return
+            }
             guard slot.state.update(identity, sequence: sequence) else {
                 call.reject("NATIVE_CHROME_UPDATE_STALE"); return
             }
             slot.presenter?.update(theme: presentation.theme, value: presentation.value, enabled: presentation.enabled, sequence: sequence)
-            let root: AnyView
-            if #available(iOS 26.0, *) {
-                if slot.kind == "agent-surface" {
-                    root = AnyView(NativeAgentSurfaceSelector(selected: presentation.value ?? "one", width: hosting.view.frame.width,
-                        theme: presentation.theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) },
-                        layout: { _ in }).disabled(!presentation.enabled))
-                } else if slot.kind == "appearance" {
-                    root = AnyView(NativeAppearanceSelector(selected: presentation.value ?? "system", width: hosting.view.frame.width,
-                        theme: presentation.theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) },
-                        layout: { _ in }).disabled(!presentation.enabled))
-                } else {
-                    root = AnyView(NativeChromeButton(label: slot.kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : slot.label, controlId: identity.controlId,
-                        value: slot.kind == "accent" ? (presentation.value == "gold" ? "Molten Gold" : "iOS Blue") : nil,
-                        symbol: self.symbol(slot.kind, expanded: presentation.expanded), theme: presentation.theme,
-                        action: { [weak self] in self?.activateControl(identity.controlId) }, layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
-                }
-            } else { call.reject("NATIVE_CHROME_UPDATE_REFUSED"); return }
             slot.presentation = presentation
             slot.choiceValue = nil
             hosting.overrideUserInterfaceStyle = presentation.theme.style
@@ -747,12 +727,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func admits(_ kind: String, controlId: String) -> Bool {
         if kind == "back" { return backAdmitted && controlId == "top-shell-back" }
+        if HushhNativePreferencePresentation.families.contains(kind) {
+            return (kind == "appearance" && controlId == "profile-appearance") || (kind == "accent" && controlId == "profile-accent")
+        }
         return chatControlsAdmitted && ((kind == "history" && controlId == "chat-history-toggle") ||
             (kind == "agent-surface" && controlId == "chat-agent-surface") ||
             (kind == "more" && controlId == "stationary-more") || (kind == "selection" && controlId == "bounded-selection") ||
             (kind == "date" && controlId == "bounded-date") || (kind == "close" && controlId == "profile-close") ||
-            (kind == "profile-back" && controlId == "profile-back") ||
-            (kind == "appearance" && controlId == "profile-appearance") || (kind == "accent" && controlId == "profile-accent"))
+            (kind == "profile-back" && controlId == "profile-back"))
     }
     private func slot(_ id: String) -> ChromeSlot {
         if let slot = slots[id] { return slot }
@@ -884,7 +866,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         guard let value = call.getObject("frame"), let x = value["x"] as? Double, let y = value["y"] as? Double,
               let width = value["width"] as? Double, let height = value["height"] as? Double,
               let viewport = viewport(call), [x, y, width, height].allSatisfy({ $0.isFinite }),
-              (kind == "appearance" ? width >= 132 && width <= 320 : kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44),
+              (kind == "appearance" || kind == "accent" ? HushhNativePreferencePresentation.admitsWidth(width, kind: kind) : kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44),
               height == 44, x >= 0, y >= 0,
               x + width <= viewport.width, y + height <= viewport.height else { return nil }
         return CGRect(x: x, y: y, width: width, height: height)

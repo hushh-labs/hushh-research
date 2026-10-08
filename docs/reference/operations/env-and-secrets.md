@@ -704,7 +704,33 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` (`api/routes/account.py`) |
 **Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GENAI_GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
 
-**Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, `PASSKEY_ALLOWED_RP_IDS`, and the non-secret `HUSSH_TECH_*` policy keys. Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
+**Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, `PASSKEY_ALLOWED_RP_IDS`, the non-secret `HUSSH_TECH_*` policy keys, and nonsecret `SCOPE_COMMERCE_*` policy keys (the two Stripe secrets stay direct mounts). Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
+
+### Consumer scope commerce configuration
+
+The [consumer scope commerce reference](../../../consent-protocol/docs/reference/consumer-scope-commerce.md)
+owns the payment, consent, encrypted export, reconciliation and rollout contract.
+This lane has its own Stripe account/key/webhook bindings; Drive payment credentials
+are never aliases. No Stripe connection or sandbox/live rollout is established by
+these source changes.
+
+| Configuration | Hosted source | Contract |
+| --- | --- | --- |
+| `SCOPE_COMMERCE_ENABLED`, `SCOPE_COMMERCE_PROVIDER_ENABLED`, `SCOPE_COMMERCE_STRIPE_LIVEMODE` | Lowercase keys in `BACKEND_RUNTIME_CONFIG_JSON` | Admission defaults off; production requires approved live provider configuration. |
+| `SCOPE_COMMERCE_STRIPE_ACCOUNT_ID`, `SCOPE_COMMERCE_FRONTEND_ORIGIN`, `SCOPE_COMMERCE_RETURN_PATH` | Structured runtime policy | Exact account, HTTPS origin and `/one/profile/account` return; query contains only the opaque attempt identifier and arrival marker. |
+| `SCOPE_COMMERCE_COUNTRY_POLICIES_JSON` | Structured JSON object in runtime policy | Country currency, payout minimum, retention, attributable cost and residual-resolution policy; hydration renders JSON, never Python dictionary text. |
+| `SCOPE_COMMERCE_FEE_CONFIGURATION_REF`, `SCOPE_COMMERCE_*_APPROVAL_REF`, `SCOPE_COMMERCE_STRIPE_ACCEPTANCE_REF`, `SCOPE_COMMERCE_ACCOUNT_CONFIGURATION_REF` | Structured runtime policy | Nonsecret references to reviewed provider/account/country/retention/tax/fee evidence. |
+| `SCOPE_COMMERCE_DRAIN_AUDIENCE`, `SCOPE_COMMERCE_DRAIN_SCHEDULER_SERVICE_ACCOUNTS` | Structured runtime policy | Exact OIDC audience and dedicated scheduler email allowlist. The drain remains available during admission rollback. |
+| `SCOPE_COMMERCE_STRIPE_SECRET_KEY`, `SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET` | Separate literal Secret Manager mounts | Isolated SDK credential and webhook signature key, bound independently of new-purchase flags. Never place in runtime JSON, frontend environment, policy files or logs. |
+
+`scripts/ops/sync_backend_runtime_secrets.py` retains existing `scope_commerce_*`
+policy when deployment supplies no overlay. An explicitly reviewed nonsecret
+`--scope-commerce-policy-file <path>` can override allowlisted lowercase keys;
+omitted fields retain financial reconciliation settings. Unknown keys, secret
+keys, malformed policy, and unverifiable existing configuration fail before
+secret writes. Use JSON booleans, an object for country policy and a string array
+for scheduler identities. The deploy script mounts the two literal commerce
+secrets whenever configured, including flag-off rollback.
 
 **Strict parity:** `DATABASE_URL` is not used anywhere. Migrations (`db/migrate.py`) use **DB_*** only, via `db.connection.get_database_url()`. Do **not** create or keep `DATABASE_URL` in Secret Manager; delete it if present.
 

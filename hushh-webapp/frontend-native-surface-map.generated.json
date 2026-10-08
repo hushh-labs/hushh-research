@@ -256,6 +256,10 @@
       "file": "app/api/ria/[...path]/route.ts"
     },
     {
+      "template": "/api/scope-commerce/{path*}",
+      "file": "app/api/scope-commerce/[...path]/route.ts"
+    },
+    {
       "template": "/api/tickers/all",
       "file": "app/api/tickers/all/route.ts"
     },
@@ -2803,9 +2807,31 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "scopeRequest",
+            "quote",
+            "purchase",
+            "cancelPurchase",
+            "revokePurchase",
+            "approveInactive",
+            "getPurchase",
+            "preparePurchase",
+            "stagePurchase"
+          ],
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "commerce_authority": "Explicit human quote confirmation reserves funds; owner-device v2 encryption stages the exact scope and recipient for server-fixed activation and expiry. Provider returns confer no authority."
+      }
     },
     {
       "route": "/one/email",
@@ -4655,9 +4681,25 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/one-marketplace/service.ts",
+          "service_methods": [
+            "listAvailable",
+            "requestListing",
+            "listRequests",
+            "getDelivery"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/marketplace/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; buyer connector custody reuses OneKycClientZkService and encrypted PKM"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "paid_delivery": "Canonical v2 X25519 export only; legacy P-256 envelopes are free compatibility. Owner vault key remains memory-only; connector recovery is encrypted in the existing PKM domain."
+      }
     },
     {
       "route": "/one/messages",
@@ -5284,9 +5326,35 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "account",
+            "activity",
+            "checkout",
+            "onboarding",
+            "withdrawalPreview",
+            "withdraw",
+            "refundPreview",
+            "refund"
+          ],
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority"
+        }
+      ],
+      "native_plugin_dependencies": [
+        {
+          "js_name": "Browser",
+          "reason": "Stripe Checkout and Connect use the system browser; trusted App Links trigger server status refresh only."
+        }
+      ],
+      "thread_and_consent_contract": {
+        "commerce_authority": "Explicit human quote confirmation reserves funds; owner-device v2 encryption stages the exact scope and recipient for server-fixed activation and expiry. Provider returns confer no authority."
+      }
     },
     {
       "route": "/one/profile/account/phone",
@@ -6072,9 +6140,24 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "tariff",
+            "saveTariff"
+          ],
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "commerce_authority": "Explicit human quote confirmation reserves funds; owner-device v2 encryption stages the exact scope and recipient for server-fixed activation and expiry. Provider returns confer no authority."
+      }
     },
     {
       "route": "/one/profile/my-data/domain",
@@ -6138,9 +6221,24 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/scope-commerce-service.ts",
+          "service_methods": [
+            "readiness",
+            "tariff",
+            "saveTariff"
+          ],
+          "nextjs_api_route": "/api/scope-commerce/{path*}",
+          "nextjs_proxy_file": "app/api/scope-commerce/[...path]/route.ts",
+          "backend_endpoint_family": "/api/scope-commerce/*",
+          "native_transport": "CapacitorHttp direct backend through ApiService.apiFetch; finance uses Firebase, export preparation uses vault-owner authority"
+        }
+      ],
       "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "thread_and_consent_contract": {
+        "commerce_authority": "Explicit human quote confirmation reserves funds; owner-device v2 encryption stages the exact scope and recipient for server-fixed activation and expiry. Provider returns confer no authority."
+      }
     },
     {
       "route": "/one/profile/pkm",
@@ -10142,5 +10240,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "934dd2a49c17976dbb946134848d08d43ec6b58fe8e09b1d6f794284517c6dd8"
+  "content_sha256": "11be49f796f709c55267e649652dd8d20ec21d67e229d2439e2f56478568ed32"
 }

@@ -689,7 +689,7 @@ def _reviewed_native_tool(authorize=None):
 
     return _GovernedMcpTool(
         toolset=SimpleNamespace(
-            binding=SimpleNamespace(connector_id="synthetic_connector"),
+            binding=SimpleNamespace(connector_id="synthetic", endpoint="https://example.com/mcp"),
             _mcp_session_manager=object(),
             _current_headers=AsyncMock(),
             authorize_call=authorize or review_or_resume_call,

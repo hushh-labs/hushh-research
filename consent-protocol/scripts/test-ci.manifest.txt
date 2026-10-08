@@ -98,6 +98,25 @@ tests/test_mcp_log_redaction.py
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_developer_commerce_contracts.py
+# Consumer-paid scope admission and accounting: real isolated PostgreSQL,
+# signed provider receipts, and OIDC-only reconciliation through rollback.
+tests/services/test_scope_commerce_store_postgres.py
+tests/services/test_scope_commerce_core_money_postgres.py
+tests/services/test_scope_commerce_treasury_postgres.py
+tests/services/test_scope_commerce_core_workflow_postgres.py
+tests/services/test_scope_commerce_core_erasure_postgres.py
+tests/services/test_scope_commerce_provider_integration_postgres.py
+tests/services/test_scope_commerce_provider_receipts_postgres.py
+tests/test_scope_commerce_provider.py
+tests/test_scope_commerce_sandbox.py
+tests/test_scope_commerce_contracts_postgres.py
+tests/test_scope_commerce_delivery_contracts_postgres.py
+tests/test_scope_commerce_lineage_contracts_postgres.py
+tests/test_scope_commerce_receipt_contracts_postgres.py
+tests/test_scope_commerce_work.py
+tests/test_marketplace_consent_delivery.py
+tests/test_marketplace_earnings_accrual.py
 tests/test_encrypted_blob_bounds.py
 tests/test_gmail_receipt_cache_cutover.py
 tests/services/test_gmail_receipt_live_service.py
@@ -119,7 +138,9 @@ tests/test_mcp_encrypted_scoped_export_tool.py
 tests/test_request_consent_local_keypair.py
 tests/test_mcp_remote_endpoint.py
 tests/test_mcp_public_contract_v030.py
+tests/test_mcp_flat_profile.py
 tests/test_mcp_public_tools_v030.py
+tests/test_mcp_commerce_projection.py
 tests/test_mcp_protocol_negotiation_v030.py
 tests/test_campaign_context_tool.py
 tests/quality/test_kai_route_auth_compliance.py
@@ -576,6 +597,9 @@ tests/test_pod_upgrade_rollback_guard.py
 tests/test_pod_update_detection.py
 tests/test_pod_image_upgrade_path.py
 tests/test_governed_mcp_toolset.py
+tests/test_stripe_mcp_admission.py
+tests/test_stripe_mcp_reads.py
+tests/test_external_crm_mcp_transport.py
 tests/test_registered_mcp_toolset.py
 tests/test_mcp_review_service.py
 tests/test_mcp_resume_receipt.py
@@ -585,6 +609,8 @@ tests/test_workspace_mcp_tools.py
 tests/test_drive_result_privacy.py
 tests/test_cloudrun_revision_provenance.py
 tests/test_dev_candidate_gate.py
+tests/test_commerce_preview_bootstrap.py
+tests/test_commerce_preview_target.py
 
 # Profile discovery authority, claims, and optional isolated bridge rehearsal.
 tests/services/test_profile_claim_receipts.py

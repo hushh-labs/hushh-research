@@ -92,6 +92,8 @@ assets/
 # Re-inclusion has to come AFTER the `*.sh` that excludes it -- gitignore semantics are
 # last-match-wins -- so do not move this above that line.
 !scripts/deploy/backend-deploy.sh
+!scripts/deploy/commerce-preview-bindings.sh
+!scripts/deploy/scope-commerce-secrets.sh
 !scripts/deploy/pod-release-env.sh
 
 # GitHub Actions authentication files are never source or image inputs.

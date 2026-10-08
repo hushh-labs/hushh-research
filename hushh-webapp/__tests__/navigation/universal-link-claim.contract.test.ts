@@ -9,6 +9,7 @@ const native = vi.hoisted(() => ({
   addListener: vi.fn(),
   getLaunchUrl: vi.fn(),
   remove: vi.fn(),
+  closeBrowser: vi.fn(),
   router: { replace: vi.fn() },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => native.router }));
@@ -17,8 +18,16 @@ vi.mock("@capacitor/core", async (importOriginal) => ({
   Capacitor: { isNativePlatform: native.isNativePlatform },
 }));
 vi.mock("@capacitor/app", () => ({ App: native }));
+vi.mock("@capacitor/browser", () => ({ Browser: { close: native.closeBrowser } }));
+vi.mock("@/lib/config", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/config")>(),
+  APP_FRONTEND_ORIGIN: "https://scope-commerce-preview-123.us-central1.run.app",
+}));
 
-import { UNIVERSAL_LINK_PATHS } from "@/app/.well-known/apple-app-site-association/route";
+import { GET as getAppleAssociation, UNIVERSAL_LINK_PATHS } from "@/app/.well-known/apple-app-site-association/route";
+import { GET as getAndroidAssociation } from "@/app/.well-known/assetlinks.json/route";
+import { sandboxAssociationDocuments } from "../../scripts/native/scope-commerce-sandbox-artifacts.mjs";
+import { commerceReturnAction, commerceReturnAttempt, COMMERCE_RETURN_EVENT } from "@/lib/services/scope-commerce-browser";
 import {
   resolveDeepLinkPath,
   resolveNativeConnectorReturn,
@@ -45,6 +54,50 @@ function read(relative: string): string {
 }
 
 describe("Universal Link / App Link claim", () => {
+  it("serves only exact sandbox claims and fails closed on incomplete sandbox identity", async () => {
+    const origin = "https://scope-commerce-preview-123.us-central1.run.app";
+    const fingerprint = Array(32).fill("AB").join(":");
+    try {
+      vi.stubEnv("APP_FRONTEND_ORIGIN", origin);
+      vi.stubEnv("NEXT_PUBLIC_IOS_BUNDLE_ID", "com.hushh.app.scopecommerce.sandbox");
+      vi.stubEnv("NEXT_PUBLIC_ANDROID_APP_ID", "com.hussh.app.scopecommerce.sandbox");
+      vi.stubEnv("APPLE_TEAM_ID", "WVDK9JW99C");
+      vi.stubEnv("ANDROID_SHA256_CERT_FINGERPRINTS", fingerprint);
+      const expected = sandboxAssociationDocuments({ host: new URL(origin).hostname, teamId: "WVDK9JW99C", fingerprints: [fingerprint] });
+      expect(await (await getAppleAssociation()).json()).toEqual(expected.aasa);
+      expect(await (await getAndroidAssociation()).json()).toEqual(expected.assetlinks);
+      for (const [key, value] of [["NEXT_PUBLIC_ANDROID_APP_ID", "com.hussh.app"], ["APP_FRONTEND_ORIGIN", "https://one.hushh.ai"], ["ANDROID_SHA256_CERT_FINGERPRINTS", "invalid"]]) {
+        vi.stubEnv(key, value);
+        expect((await getAppleAssociation()).status).toBe(503);
+        expect((await getAndroidAssociation()).status).toBe(503);
+        vi.stubEnv(key, key === "NEXT_PUBLIC_ANDROID_APP_ID" ? "com.hussh.app.scopecommerce.sandbox" : key === "APP_FRONTEND_ORIGIN" ? origin : fingerprint);
+      }
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("accepts only the build-pinned sandbox origin alongside the existing host list", () => {
+    const path = "/one/profile/account?commerceReturn=1&commerceAttemptId=opaque_attempt_1234";
+    expect(resolveDeepLinkPath(`https://scope-commerce-preview-123.us-central1.run.app${path}`)).toBe(path);
+    expect(resolveDeepLinkPath(`https://other-preview-123.us-central1.run.app${path}`)).toBeNull();
+    expect(resolveDeepLinkPath(`https://scope-commerce-preview-123.us-central1.run.app.evil.invalid${path}`)).toBeNull();
+    expect(resolveDeepLinkPath(`https://scope-commerce-preview-123.us-central1.run.app:444${path}`)).toBeNull();
+    for (const host of ORIGINS) expect(resolveDeepLinkPath(`https://${host}${path}`)).toBe(path);
+  });
+  it("accepts only the exact commerce return pair and optional onboarding refresh", () => {
+    const base = "/one/profile/account?commerceReturn=1&commerceAttemptId=opaque_attempt_1234";
+    expect(commerceReturnAttempt(base)).toBe("opaque_attempt_1234");
+    expect(commerceReturnAction(base)).toBeNull();
+    expect(commerceReturnAction(`${base}&commerceAction=onboarding_refresh`)).toBe("onboarding_refresh");
+    for (const value of [
+      `${base}&commerceAction=paid`, `${base}&commerceAction=`,
+      `${base}&commerceAction=onboarding_refresh&commerceAction=onboarding_refresh`,
+      `${base}&commerceAction=onboarding_refresh&status=active`, `${base}#paid`,
+      `https://foreign.invalid${base}`, `/\\foreign.invalid${base}`,
+      `${base}&commerceReturn=1`, `${base}&commerceAttemptId=opaque_attempt_5678`,
+    ]) {
+      expect(commerceReturnAttempt(value)).toBeNull();
+      expect(commerceReturnAction(value)).toBeNull();
+    }
+  });
   it("claims at least every OAuth return path", () => {
     // If a new provider flow is added, its return path belongs here. A return
     // path that is not claimed is a person stranded in a browser.
@@ -265,6 +318,25 @@ describe("native invitation arrivals", () => {
     });
   });
   afterEach(cleanup);
+
+  it("announces a trusted refresh without making an untrusted return actionable", async () => {
+    const arrivals: unknown[] = [];
+    const listener = (event: Event) => arrivals.push((event as CustomEvent).detail);
+    window.addEventListener(COMMERCE_RETURN_EVENT, listener);
+    try {
+      renderHook(useDeepLinkReturn);
+      await waitFor(() => expect(native.getLaunchUrl).toHaveBeenCalled());
+      const base = "https://one.hushh.ai/one/profile/account?commerceReturn=1&commerceAttemptId=opaque_attempt_1234";
+      act(() => open({ url: `${base}&commerceAction=onboarding_refresh&status=active` }));
+      act(() => open({ url: `${base}&commerceAction=onboarding_refresh` }));
+      await waitFor(() => expect(native.closeBrowser).toHaveBeenCalledOnce());
+      expect(arrivals).toEqual([{ attemptId: "opaque_attempt_1234", action: "onboarding_refresh" }]);
+      act(() => open({ url: base }));
+      expect(arrivals[1]).toEqual({ attemptId: "opaque_attempt_1234" });
+    } finally {
+      window.removeEventListener(COMMERCE_RETURN_EVENT, listener);
+    }
+  });
 
   it("subscribes before reading the cold URL and routes a real token to the static landing", async () => {
     native.getLaunchUrl.mockImplementation(async () => {

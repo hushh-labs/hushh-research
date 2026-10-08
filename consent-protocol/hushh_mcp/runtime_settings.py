@@ -11,16 +11,16 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-_DOTENV_PATH = _REPO_ROOT / ".env"
-load_dotenv(_DOTENV_PATH, override=False)
+from hushh_mcp import runtime_environment
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 # Local-only maintainer overlay. Developers keep the reviewer fixture
 # (REVIEWER_UID / REVIEWER_VAULT_PASSPHRASE, hydrated from Secret Manager by
 # bootstrap) and local toggles like APP_REVIEW_MODE in .env.local so agents can
 # review app changes on localhost. This file is absent in deployed environments,
 # so this is a no-op there; override=False keeps the canonical .env authoritative
 # for any shared key.
-load_dotenv(_REPO_ROOT / ".env.local", override=False)
+load_dotenv(Path(__file__).resolve().parents[1] / ".env.local", override=False)
 
 APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"
@@ -77,6 +77,7 @@ _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
+    **runtime_environment.SCOPE_COMMERCE_ENV_MAP,
     "environment": "ENVIRONMENT",
     "hushh_genai_auth_mode": "HUSHH_GENAI_AUTH_MODE",
     "google_genai_use_vertexai": "GOOGLE_GENAI_USE_VERTEXAI",
@@ -243,14 +244,6 @@ def _json_object_from_env(name: str) -> dict[str, Any]:
     return parsed
 
 
-def _render_env_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, list):
-        return ",".join(str(item).strip() for item in value if str(item).strip())
-    return str(value).strip()
-
-
 def _normalize_origin(raw: str) -> str:
     value = str(raw or "").strip().rstrip("/")
     if not value:
@@ -267,7 +260,7 @@ def hydrate_runtime_environment() -> None:
         value = config.get(key)
         if value is None:
             continue
-        rendered = _render_env_value(value)
+        rendered = runtime_environment.render_env_value(value)
         if rendered:
             os.environ.setdefault(env_name, rendered)
 

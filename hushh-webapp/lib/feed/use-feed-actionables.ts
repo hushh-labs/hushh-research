@@ -1,5 +1,6 @@
 "use client";
 
+import { consentSummary } from "@/lib/feed/feed-consent-summary";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ComponentType } from "react";
@@ -66,10 +67,6 @@ import {
   useOwnerConsentDecision,
   type OwnerConsentUnlockPrompt,
 } from "@/lib/consent/use-owner-consent-decision";
-import {
-  isLocationConsent,
-  locationConsentSummary,
-} from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { isAndroid } from "@/lib/capacitor/platform";
@@ -279,20 +276,6 @@ function toDisplayTimestamp(value?: string | number | null): number | null {
   if (value == null) return null;
   const ts = toTimestamp(value);
   return ts > 0 ? ts : null;
-}
-
-function consentSummary(entry: ConsentCenterEntry): string {
-  if (entry.kind === "invite") return "Invitation waiting for your approval.";
-  if (isLocationConsent(entry.metadata, entry.scope)) {
-    return locationConsentSummary(entry.metadata);
-  }
-  return (
-    entry.additional_access_summary ||
-    entry.scope_description ||
-    entry.reason ||
-    entry.scope ||
-    "A new consent request needs your review."
-  );
 }
 
 /**

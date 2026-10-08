@@ -35,6 +35,8 @@ from referencing.exceptions import Unresolvable
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.consent.audit_logger import get_audit_logger
+from hushh_mcp.one_adk.mcp_curated_credentials import current_curated_credential
+from hushh_mcp.one_adk.mcp_registered_credentials import registered_credential_headers
 from hushh_mcp.one_adk.mcp_result_projection import (
     _credential_values as _credential_values,
 )
@@ -50,12 +52,9 @@ from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityE
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.curated_connector_manifest import get_manifest
 from hushh_mcp.services.external_connector_credentials_service import (
-    ExternalConnectorCredentialError,
     get_external_connector_credentials_service,
 )
 from hushh_mcp.services.external_connector_curated_oauth import (
-    CuratedConnectorOAuthError,
-    CuratedNotConnectedError,
     curated_free_read_tools,
     curated_policy_hash,
     is_curated_oauth_connector,
@@ -73,6 +72,17 @@ from hushh_mcp.services.external_mcp_client import (
     schema_is_valid,
 )
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
+from hushh_mcp.services.stripe_mcp_policy import (
+    official_stripe_endpoint,
+    require_stripe_oauth,
+    require_stripe_tool,
+    stripe_catalog,
+    stripe_readiness,
+)
+from hushh_mcp.services.stripe_mcp_reads import (
+    ACCOUNT_TOOLS,
+    closed_stripe_reads,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +217,7 @@ class ResolvedMcpConnection:
     # Opaque ids of tools the application has reviewed as reads that may skip the
     # review card under "reviewed_writes". Empty for every other policy.
     free_read_tool_ids: frozenset[str] = field(default=frozenset(), repr=False, compare=False)
+    authentication_kind: Literal["oauth", "api_key", "none"] | None = None
 
 
 # Founder decision 2026-09-25: this project is not enrolled in Google's hosted
@@ -284,79 +295,9 @@ def _curated_tool_allowlist(connector: Any) -> CatalogPolicy | None:
     return admitted
 
 
-def _consume_outcome(task: "asyncio.Future[Any]") -> None:
-    """Retrieve a detached task's result so a late failure is never an unhandled one."""
-    if not task.cancelled():
-        task.exception()
-
-
 async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcpConnection:
-    """Bind an operator-registered OAuth connector (refreshing if near expiry).
-
-    Requires a verified connection whose policy hash still matches the live
-    registry row. A provider with reviewed read tools (see
-    curated_free_read_tools) gets "reviewed_writes"; every other call keeps the
-    default exact-call review.
-    """
-    from hushh_mcp.services.external_connector_oauth_service import (
-        get_external_connector_oauth_service,
-    )
-
-    adapter = get_external_connector_oauth_service().curated()
-    # A token refresh can rotate a single-use refresh token at the provider. If the
-    # caller's budget lapsed (or the turn was cancelled) between the provider answering
-    # and the new token being stored, the person would have to sign in again. Run it as
-    # its own task so cancelling the caller never abandons it half-done; it is bounded
-    # by its own provider timeout, and its outcome is always consumed.
-    refresh = asyncio.ensure_future(
-        adapter.current_credential(
-            connector_id=connector.connector_id, user_id=owner, connector=connector
-        )
-    )
-    try:
-        row, secret = await asyncio.shield(refresh)
-    except asyncio.CancelledError:
-        refresh.add_done_callback(_consume_outcome)
-        raise
-    except CuratedNotConnectedError:
-        raise ExternalMcpError("Connect this service first.", code="MCP_NOT_CONNECTED") from None
-    except CuratedConnectorOAuthError as error:
-        # The adapter's own code is the only place the real cause survives (secret not
-        # mounted, registry drift, provider down); the chat error below stays generic.
-        logger.warning(
-            "mcp_curated_resolve connector=%s cause=%s status=%s",
-            connector.connector_id,
-            str(error).replace("_", "."),
-            error.status_code,
-        )
-        if error.status_code == 401:
-            # reconnect_required / grant_rejected: sign in again.
-            raise ExternalMcpError(
-                "Reconnect this service.", code="MCP_CREDENTIAL_EXPIRED"
-            ) from None
-        if str(error) == "connection_changed":
-            raise ExternalMcpError(
-                "Reconnect this service.", code="MCP_CONNECTION_CHANGED"
-            ) from None
-        # The provider is down or slow, or the operator side is misconfigured (registry
-        # drift, missing client): the person's connection is fine, so never ask them to
-        # reconnect for it.
-        raise ExternalMcpError(
-            "Connector temporarily unavailable.", code="MCP_CONNECTOR_UNAVAILABLE"
-        ) from None
-    except ExternalConnectorCredentialError:
-        raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID") from None
-    if row.get("status") != "connected" or row.get("verified_policy_hash") != curated_policy_hash(
-        connector
-    ):
-        raise ExternalMcpError("Reconnect this service.", code="MCP_CONNECTION_CHANGED")
-    token = secret.get("accessToken")
-    if (
-        not isinstance(token, str)
-        or not token.strip()
-        or any(ord(c) < 32 or ord(c) == 127 for c in token)
-    ):
-        raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID")
+    """Bind the live owner grant and reviewed policy; refresh custody is a port."""
+    row, token = await current_curated_credential(owner, connector, logger=logger)
     # A token refresh bumps credential_version but is not a change of authority,
     # so it must not invalidate an open review card or an in-flight call: bind on
     # the connection generation (moves on connect, reconnect and disconnect) and
@@ -387,6 +328,7 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
         free_read_tool_ids=frozenset(
             mcp_tool_name(connector.connector_id, name) for name in free_reads
         ),
+        authentication_kind="oauth",
     )
 
 
@@ -459,26 +401,15 @@ async def resolve_registered_connection(
     secret = get_external_connector_credentials_service().open_credential(
         user_id=owner, connector_id=connector_id, row=row
     )
-    if connector.auth_style == "api_key":
-        header = connector.api_key_header_name or "Authorization"
-        if header.lower() not in {"authorization", "x-api-key", "api-key"}:
-            raise ExternalMcpError("Unsupported credential header.", code="MCP_CREDENTIAL_INVALID")
-        credential = secret.get("apiKey")
-    elif connector.auth_style == "oauth":
-        header = "Authorization"
-        token = secret.get("accessToken")
-        credential = f"Bearer {token}" if isinstance(token, str) and token else None
-    else:
-        raise ExternalMcpError("Unsupported credential type.", code="MCP_CREDENTIAL_INVALID")
-    if (
-        not isinstance(credential, str)
-        or not credential.strip()
-        or any(ord(c) < 32 or ord(c) == 127 for c in credential)
-    ):
-        raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID")
+    headers, authentication_kind = registered_credential_headers(connector, secret)
     # Only the owner's own private registration reaches here; curated rows
     # returned above keep the default "always".
-    return ResolvedMcpConnection(binding, {header: credential}, review_policy="credentialed")
+    return ResolvedMcpConnection(
+        binding,
+        headers,
+        review_policy="credentialed",
+        authentication_kind=authentication_kind,
+    )
 
 
 ResolveConnection = Callable[[Any], Awaitable[ResolvedMcpConnection]]
@@ -646,6 +577,14 @@ class GovernedMcpToolset(McpToolset):
         self.catalog_epoch = 0
         self._catalog_digest: str | None = None
         self._discovery_sequence = 0
+        # A test account pin is deployment-owned, never a caller argument.
+        self.stripe_account_id = (
+            os.getenv("SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "")
+            if os.getenv("SCOPE_COMMERCE_STRIPE_LIVEMODE", "").lower() == "false"
+            else ""
+        )
+        self.stripe_reads: dict[str, dict[str, Any]] = {}
+        self.stripe_proof: dict[str, Any] | None = None
         super().__init__(
             connection_params=StreamableHTTPConnectionParams(
                 url=binding.endpoint,
@@ -663,6 +602,7 @@ class GovernedMcpToolset(McpToolset):
 
     def refresh(self) -> None:
         self.catalog_epoch += 1
+        self.stripe_proof = None
 
     def review_outcome(self, tool_id: str, descriptor: object) -> McpReviewOutcome:
         return mcp_review_outcome(
@@ -683,6 +623,17 @@ class GovernedMcpToolset(McpToolset):
         if context is None or context.user_id != self.binding.owner_id:
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         current = await self.resolve_connection(context)
+        require_stripe_oauth(self.binding.endpoint, current.authentication_kind, current.headers)
+        if (
+            official_stripe_endpoint(self.binding.endpoint)
+            and self.stripe_account_id
+            and (
+                os.getenv("SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "") != self.stripe_account_id
+                or os.getenv("SCOPE_COMMERCE_STRIPE_LIVEMODE", "").lower() != "false"
+            )
+        ):
+            self.stripe_proof = None
+            raise ExternalMcpError("Stripe environment changed.", code="MCP_CONNECTION_CHANGED")
         if (
             current.binding != self.binding
             or current.review_policy != self.review_policy
@@ -697,6 +648,7 @@ class GovernedMcpToolset(McpToolset):
         sequence = self._discovery_sequence
         epoch = self.catalog_epoch
         manager = self._mcp_session_manager
+        stripe_reads: dict[str, dict[str, Any]] = {}
         try:
             async with asyncio.timeout(self.timeout_seconds):
                 headers = await self._current_headers(readonly_context)
@@ -717,6 +669,9 @@ class GovernedMcpToolset(McpToolset):
                             item.pop("annotations", None)
                             if "annotations" in original:
                                 item["annotations"] = deepcopy(original["annotations"])
+                    if official_stripe_endpoint(self.binding.endpoint):
+                        stripe_reads = closed_stripe_reads(catalog, self.stripe_account_id)
+                    catalog = stripe_catalog(self.binding.endpoint, catalog, stripe_reads)
                 finally:
                     manager._end_session_use(headers)
                 await self._current_headers(readonly_context)
@@ -742,6 +697,7 @@ class GovernedMcpToolset(McpToolset):
         if self._catalog_digest is not None and self._catalog_digest != revision:
             self.refresh()
         self._catalog_digest = revision
+        self.stripe_reads = stripe_reads
         epoch = self.catalog_epoch
         return [
             _GovernedMcpTool(
@@ -792,7 +748,21 @@ class _GovernedMcpTool(McpTool):
             result = {"error": "MCP_CALL_UNAVAILABLE", "outcome": "unknown", "retryable": False}
         # The opaque connector id lets the owner's app label this step with the
         # name the owner chose. It is not a credential and grants nothing.
-        return {**result, "connectorId": self.toolset.binding.connector_id}
+        return {
+            **result,
+            "connectorId": self.toolset.binding.connector_id,
+            **(
+                {
+                    "stripeReadiness": stripe_readiness(
+                        tooling_connected=result.get("status") == "ok",
+                        proof=self.toolset.stripe_proof if result.get("status") == "ok" else None,
+                        reason_code=result.get("error"),
+                    )
+                }
+                if official_stripe_endpoint(self.toolset.binding.endpoint)
+                else {}
+            ),
+        }
 
     async def _run_governed(self, *, args, tool_context):
         # A denial needs neither private argument recovery nor provider access.
@@ -803,6 +773,7 @@ class _GovernedMcpTool(McpTool):
         owner = self.toolset
         dispatched = False
         try:
+            require_stripe_tool(owner.binding.endpoint, self.descriptor, owner.stripe_reads)
             await owner.get_tools(tool_context)
             if self.epoch != owner.catalog_epoch:
                 raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
@@ -833,6 +804,19 @@ class _GovernedMcpTool(McpTool):
             await owner.get_tools(tool_context)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED"}
+            if (
+                official_stripe_endpoint(owner.binding.endpoint)
+                and self.descriptor["name"] in ACCOUNT_TOOLS
+            ):
+                from hushh_mcp.one_adk.stripe_mcp_verification import run_verified_stripe_result
+
+                return await run_verified_stripe_result(
+                    self,
+                    tool_context,
+                    reviewed=reviewed,
+                    outcome=outcome,
+                    arguments=deepcopy(arguments),
+                )
             # Call the native implementation exactly once. Bypass its optional
             # graceful-error wrapper, which can log raw provider exceptions.
             if not reviewed:
@@ -846,18 +830,7 @@ class _GovernedMcpTool(McpTool):
             headers = await owner._current_headers(tool_context)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED", "outcome": "unknown", "retryable": False}
-            normalized = project_mcp_result(
-                result, headers, self.descriptor["name"], owner.result_policy
-            )
-            if normalized.is_error:
-                return {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}
-            return {
-                "status": "ok",
-                "isError": normalized.is_error,
-                "result": normalized.payload,
-                "truncated": normalized.truncated,
-                "review": "approved" if reviewed else outcome,
-            }
+            return self._project_receipt(result, headers, reviewed=reviewed, outcome=outcome)
         except ActionDirectiveAuthorityError:
             return {"status": "blocked", "error": "MCP_APPROVAL_INVALID", "retryable": False}
         except ExternalMcpError as error:
@@ -868,3 +841,25 @@ class _GovernedMcpTool(McpTool):
             # A transport failure does not prove an external mutation failed.
             # No automatic retry, exception text, arguments or result logging.
             return {"error": "MCP_CALL_UNAVAILABLE", "outcome": "unknown", "retryable": False}
+
+    def _project_receipt(self, result, headers, *, reviewed: bool, outcome: McpReviewOutcome):
+        """Project the post-admission receipt without provider credentials or diagnostics."""
+        normalized = project_mcp_result(
+            result, headers, self.descriptor["name"], self.toolset.result_policy
+        )
+        if normalized.is_error:
+            return {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}
+        return {
+            "status": "ok",
+            "isError": normalized.is_error,
+            "result": normalized.payload,
+            "truncated": normalized.truncated,
+            "review": "approved" if reviewed else outcome,
+        }
+
+    async def run_verification_read(self, *, args, tool_context, approved_read=None):
+        from hushh_mcp.one_adk.stripe_mcp_verification import run_verification_read
+
+        return await run_verification_read(
+            self, args=args, tool_context=tool_context, approved_read=approved_read
+        )

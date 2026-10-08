@@ -166,10 +166,14 @@ async def serve_owner_feed(
 async def owner_feed_route(
     request: Request,
     kind: str = Path(..., min_length=1, max_length=32),
-    operation: Optional[Literal["published", "publishable", "earnings"]] = Query(None),
+    operation: Optional[
+        Literal["published", "publishable", "earnings", "commerce_summary", "commerce_activity"]
+    ] = Query(None),
     topic: Optional[str] = Query(None, max_length=160),
     power: Optional[str] = Query(None, max_length=40),
     mood: Optional[str] = Query(None, max_length=40),
+    view: Optional[Literal["purchases", "sales", "transactions"]] = Query(None),
+    cursor: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(default=None),
 ) -> dict:
     if kind not in _SNAPSHOT_KINDS:
@@ -181,6 +185,8 @@ async def owner_feed_route(
             ("topic", topic),
             ("power", power),
             ("mood", mood),
+            ("view", view),
+            ("cursor", cursor),
         )
         if value is not None
     }

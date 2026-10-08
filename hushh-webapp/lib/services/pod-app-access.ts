@@ -47,7 +47,7 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
   /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/,
   // Settings' tool refresh and connector login, for owner-registered connectors only.
-  /^agent-chat\/connectors\/custom_[0-9a-f]{32}\/mcp\/(catalog|oauth\/(begin|complete|cancel))$/,
+  /^agent-chat\/connectors\/custom_[0-9a-f]{32}\/mcp\/(catalog|verify|oauth\/(begin|complete|cancel))$/,
   // Messages typed while a reply runs, and stop.
   /^agent-chat\/runs\/[A-Za-z0-9_-]{1,256}\/(queue|stop)$/,
   /^agent-chat\/runs\/[A-Za-z0-9_-]{1,256}\/queue\/[A-Za-z0-9_-]{8,64}$/,

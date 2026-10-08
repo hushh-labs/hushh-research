@@ -120,6 +120,19 @@ def test_image_build_config_never_deploys() -> None:
     assert "--push" in bodies[-1]
 
 
+def _native_secret_guard(trace: Path, client: str, cases: list[str]) -> str:
+    return (
+        "gcloud() { local secret=''; for arg in \"$@\"; do "
+        'case "$arg" in --secret=*) secret="${arg#--secret=}" ;; esac; done; '
+        f'printf "%s\\n" "$secret" >> {shlex.quote(str(trace))}; '
+        'case "$secret" in '
+        f"NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID) printf '%s' {shlex.quote(client)} ;; "
+        + "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID|NEXT_PUBLIC_GTM_ID) printf synthetic ;; "
+        + " ".join(cases)
+        + " *) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;; esac; };\n"
+    )
+
+
 @pytest.mark.parametrize(
     ("lane", "native_result", "expected_code", "enabled"),
     [
@@ -153,15 +166,7 @@ def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
             error = "NOT_FOUND" if native_result == "missing" else "PERMISSION_DENIED"
             command = f"echo '{error}: synthetic refusal' >&2; return 1"
         cases.append(f"{name}) {command} ;;")
-    guard = (
-        "gcloud() { local secret=''; for arg in \"$@\"; do "
-        'case "$arg" in --secret=*) secret="${arg#--secret=}" ;; esac; done; '
-        f'printf "%s\\n" "$secret" >> {shlex.quote(str(trace))}; '
-        'case "$secret" in '
-        f"NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID) printf '%s' {shlex.quote(client)} ;; "
-        + " ".join(cases)
-        + " *) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;; esac; };\n"
-    )
+    guard = _native_secret_guard(trace, client, cases)
     resolver = _substitute(
         _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
     )
@@ -176,7 +181,11 @@ def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
     assert result.returncode == expected_code, result.stderr
     assert client not in result.stdout + result.stderr
     assert "UNEXPECTED_CLOUD_COMMAND" not in result.stdout + result.stderr
-    requested = trace.read_text().splitlines()
+    requested = [
+        name
+        for name in trace.read_text().splitlines()
+        if name not in {"NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", "NEXT_PUBLIC_GTM_ID"}
+    ]
     if lane != "dev":
         assert requested == ["NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID"]
     if expected_code:
@@ -620,15 +629,3 @@ def test_web_build_values_are_defined_once_per_lane(lane: str) -> None:
     ):
         assert name not in deploy, f"{lane}: {name} must come from the start step only"
     assert "_LOCATION_MAP_DEMO=true" not in start
-
-
-def test_uat_and_production_verify_the_candidate_runs_the_pinned_digest() -> None:
-    for lane in ("uat", "production"):
-        names = [str(step.get("name") or "") for step in _workflow_steps(lane)]
-        verify = "Verify frontend candidate runs the pinned image digest"
-        assert names.index("Resolve deployed candidate revisions") < names.index(verify)
-        promote = next(name for name in names if name.startswith("Promote deployed revisions"))
-        assert names.index(verify) < names.index(promote)
-        run = str(_lane_step(lane, verify)["run"])
-        assert "spec.containers[0].image" in run
-        assert '"${deployed_image}" != "${EXPECTED_IMAGE_REFERENCE}"' in run

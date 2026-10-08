@@ -25,6 +25,7 @@ cascade fails here instead of quietly surviving in production.
 from __future__ import annotations
 
 from typing import Any, Optional
+from unittest.mock import patch
 
 from hushh_mcp.services.account_service import AccountService
 
@@ -102,7 +103,13 @@ class _RecordingConn:
 
 def _run_reset_cascade() -> _RecordingConn:
     conn = _RecordingConn()
-    AccountService()._clear_user_data_tables(conn, "firebase-uid-reset-me", {})
+    # This SQL inventory double has no journal. The financial transaction port
+    # has independent real PostgreSQL reset/rollback acceptance.
+    with patch(
+        "hushh_mcp.services.scope_commerce.sync_bridge.erase_account_in_transaction"
+    ) as commerce:
+        AccountService()._clear_user_data_tables(conn, "firebase-uid-reset-me", {})
+    commerce.assert_called_once_with(conn, user_id="firebase-uid-reset-me", permanent=False)
     return conn
 
 

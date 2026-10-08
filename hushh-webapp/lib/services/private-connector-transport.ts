@@ -13,6 +13,7 @@ import { ownerContentIsPrivate } from "./private-agent-specialist-chat";
 
 export type ConnectorSettingsOperation =
   | "mcp/catalog"
+  | "mcp/verify"
   | "mcp/oauth/begin"
   | "mcp/oauth/complete"
   | "mcp/oauth/cancel";

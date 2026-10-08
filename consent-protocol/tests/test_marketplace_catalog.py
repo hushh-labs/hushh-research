@@ -17,6 +17,16 @@ from hushh_mcp.services.marketplace_catalog_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def unset_tariff_is_free(monkeypatch):
+    from hushh_mcp.services.scope_commerce.service import ScopeCommerceService
+
+    async def unset(self, **kwargs):
+        return None
+
+    monkeypatch.setattr(ScopeCommerceService, "get_tariff", unset)
+
+
 class _FakeResult:
     def __init__(self, data):
         self.data = data
@@ -144,7 +154,8 @@ async def test_list_excludes_viewer_and_shows_seller_name():
     assert listing["listingId"] == "7"
     assert listing["label"] == "Insurance renewal"
     assert listing["preview"]["title"] == "Insurance renewal"
-    assert listing["suggestedPriceCents"] > 0
+    assert listing["suggestedPriceCents"] == 0
+    assert listing["priceConfigured"] is False
 
 
 async def test_buyer_preview_never_leaks_raw_values():
@@ -269,7 +280,8 @@ async def test_resolve_listing_returns_internal_owner_and_price():
     assert resolved["sliceLabel"] == "Insurance renewal"
     assert resolved["domain"] == "personal_data"
     assert resolved["scopeHandle"] == "h-ins"
-    assert resolved["priceCents"] > 0
+    assert resolved["priceCents"] == 0
+    assert resolved["priceConfigured"] is False
 
 
 async def test_resolve_listing_missing_returns_none():
@@ -374,3 +386,28 @@ async def test_request_endpoint_404_when_listing_missing(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await mod.request_available_listing(listing_id="404", token_data={"user_id": "buyer-B"})
     assert exc.value.status_code == 404
+
+
+async def test_catalog_price_is_exact_owner_tariff_and_keeps_base_duration(monkeypatch):
+    from hushh_mcp.services.scope_commerce.service import ScopeCommerceService
+
+    calls = []
+
+    async def configured(self, **kwargs):
+        calls.append(kwargs)
+        return {"priceCents": 99, "baseDurationSeconds": 10800, "tariffRevision": 4}
+
+    monkeypatch.setattr(ScopeCommerceService, "get_tariff", configured)
+    svc, _ = _service_with([_row()])
+    listing = (await svc.list_available_listings(viewer_user_id="buyer"))[0]
+    assert listing["priceCents"] == 99
+    assert listing["baseDurationSeconds"] == 10800
+    assert listing["tariffRevision"] == 4
+    assert listing["priceConfigured"] is True
+    assert calls == [
+        {
+            "owner_user_id": "owner-A",
+            "scope_handle": "h-ins",
+            "machine_scope": "attr.personal_data.insurance.*",
+        }
+    ]

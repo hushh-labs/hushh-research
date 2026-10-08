@@ -4,6 +4,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import type { NativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 
 export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
@@ -16,10 +17,11 @@ type NavigationState = NativeControlAppearance & {
   visible: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
+  column: NativeNavigationColumn;
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; columnLayout?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
@@ -104,11 +106,12 @@ export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRe
   }, [enabled, forwardedRef, release, owningLayer]);
 }
 
-export function useNativeNavigation({ enabled, visible, selected, feedAttention, appearance, accentHex, foregroundHex, onSelect }: NativeControlAppearance & {
+export function useNativeNavigation({ enabled, visible, selected, feedAttention, appearance, accentHex, foregroundHex, column, onSelect }: NativeControlAppearance & {
   enabled: boolean;
   visible: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
+  column: NativeNavigationColumn | null;
   onSelect: (tab: NativeNavigationTab) => void;
 }) {
   const [supported, setSupported] = useState(false);
@@ -134,7 +137,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
     void (async () => {
       try {
         const capability = await nativeNavigation().getCapabilities();
-        if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || cancelled) return;
+        if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || capability.columnLayout !== true || cancelled) return;
         documentId ??= nativeDocumentId();
         await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
         await retain(nativeNavigation().addListener("selectionRequested", (event) => {
@@ -177,12 +180,13 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
   }, [enabled]);
 
   useLayoutEffect(() => {
-    if (!supported || !documentId) return;
-    const nextVisible = visible && !overlayBlocked;
+    const retainedColumn = column ?? current.current?.column;
+    if (!supported || !documentId || !retainedColumn) return;
+    const nextVisible = visible && !overlayBlocked && column !== null;
     if (!current.current || current.current.visible !== nextVisible) interactionEpoch += 1;
     const state: NavigationState = {
       documentId, revision: ++revision, interactionEpoch, visible: nextVisible,
-      selected, feedAttention, appearance, accentHex, foregroundHex,
+      selected, feedAttention, appearance, accentHex, foregroundHex, column: retainedColumn,
     };
     current.current = state;
     let cancelled = false;
@@ -199,7 +203,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, visible, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex]);
+  }, [supported, visible, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, column]);
 
   return { ready, height };
 }

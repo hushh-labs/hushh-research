@@ -40,6 +40,7 @@ BACKEND_OUTPUT = ROOT / "contracts" / "agents" / "pod-specialist-capability-matr
 OUTPUTS = (OUTPUT, BACKEND_OUTPUT)
 
 RUNTIME_PATH = ROOT / "hushh_mcp" / "services" / "pod_specialist_runtime.py"
+MARKETPLACE_PORT_PATH = ROOT / "hushh_mcp" / "services" / "pod_marketplace_ports.py"
 DISPATCH_INIT_PATH = ROOT / "hushh_mcp" / "adk_bridge" / "__init__.py"
 DOOR_SPECIALIST_PATH = ROOT / "hushh_mcp" / "one_adk" / "pod_data_door_specialist.py"
 POD_RELAY_PATH = ROOT / "api" / "routes" / "one" / "pod_relay.py"
@@ -49,9 +50,21 @@ DELEGATION_PATH = ROOT / "hushh_mcp" / "adk_bridge" / "delegation.py"
 LEDGER_PATH = REPO_ROOT / "config" / "pod-completion-ledger.yaml"
 LEDGER_ITEM_ID = "specialists-run-in-pod"
 
+DERIVED_SOURCE_PATHS = (
+    RUNTIME_PATH,
+    MARKETPLACE_PORT_PATH,
+    DISPATCH_INIT_PATH,
+    DOOR_SPECIALIST_PATH,
+    POD_RELAY_PATH,
+    POD_SPECIALIST_ROUTE_PATH,
+    TEXT_RUNTIME_PATH,
+    DELEGATION_PATH,
+)
+
 sys.path.insert(0, str(ROOT))
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader  # noqa: E402
+from scripts.pod_specialist_matrix_ports import read_port_classes  # noqa: E402
 from scripts.pod_specialist_matrix_rules import (  # noqa: E402
     CONFIRMATION_OWNERS,
     INFORMATION_SOURCES,
@@ -183,11 +196,9 @@ def service_for_accepts() -> list[str]:
 
 
 def pod_port_hub_reads() -> dict[str, dict[str, Any]]:
-    """Per pod port class: whether it reads through the hub, and which doors."""
+    """Per wired pod port class: whether it reads through the hub, and which doors."""
     ports: dict[str, dict[str, Any]] = {}
-    for node in _module(RUNTIME_PATH).body:
-        if not isinstance(node, ast.ClassDef) or not node.name.endswith("ReadPort"):
-            continue
+    for node in read_port_classes(RUNTIME_PATH, MARKETPLACE_PORT_PATH):
         doors: set[str] = set()
         reads_hub = False
         for inner in ast.walk(node):
@@ -426,16 +437,7 @@ def build_matrix(declarations: dict[str, dict[str, Any]] | None = None) -> dict[
                 "::POD_SPECIALIST_EXECUTION"
             ),
             "derived_from": sorted(
-                p.relative_to(REPO_ROOT).as_posix()
-                for p in (
-                    RUNTIME_PATH,
-                    DISPATCH_INIT_PATH,
-                    DOOR_SPECIALIST_PATH,
-                    POD_RELAY_PATH,
-                    POD_SPECIALIST_ROUTE_PATH,
-                    TEXT_RUNTIME_PATH,
-                    DELEGATION_PATH,
-                )
+                p.relative_to(REPO_ROOT).as_posix() for p in DERIVED_SOURCE_PATHS
             ),
         },
         "vocabulary": {

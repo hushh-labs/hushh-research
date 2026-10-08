@@ -6,17 +6,15 @@ are worth. This service is the single, truthful read source for those questions.
 
 Consent safety: it reads ONLY the owner's own scope-registry metadata (labels,
 sensitivity tier, attribute count, visibility posture) and the safe summary
-projection. It never returns raw PKM values or another user's data. Pricing is
+projection. It never returns raw PKM values or another user's information. Pricing is
 computed by the pure, deterministic backend engine (hushh_mcp.pricing), so the
 agent cannot fabricate a number.
 
-Honesty about "earnings": there is NO payment rail yet, so nothing is ever
-accrued or settled (accrued_cents is always 0, payouts_enabled is always False).
-What IS real is buyer *demand* — durable access requests (migration 076) that
-buyers file against published slices. The summary reports that real demand
-(pending/approved counts) alongside a *potential* monthly price tag, and says
-payments are "coming soon" — so the agent surfaces genuine interest without ever
-implying money has changed hands.
+The legacy earnings summary reports hypothetical research prices and durable
+buyer interest (migration 076). Its zero accrued values and false payout flag
+are estimator compatibility fields, not payment availability or ledger facts.
+Recorded money and payment readiness come from the canonical commerce read port
+and Account. No estimator result proves a collected payment or bank payout.
 """
 
 from __future__ import annotations
@@ -33,6 +31,7 @@ from hushh_mcp.services.marketplace_request_service import MarketplaceRequestSer
 from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelService,
 )
+from hushh_mcp.services.pod_commerce_read import CommercialMetadataReads
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +51,7 @@ def _plural(n: int, singular: str, plural: str) -> str:
 
 
 def _earnings_note(demand: dict[str, Any]) -> str:
-    """Honest one-liner for the summary: report real buyer demand but never imply
-    money — payouts are not enabled yet ("payments coming soon")."""
+    """Describe buyer interest separately from canonical recorded money."""
     approved = demand.get("approvedBuyerCount", 0)
     pending = demand.get("pendingRequestCount", 0)
     if approved or pending:
@@ -64,12 +62,12 @@ def _earnings_note(demand: dict[str, Any]) -> str:
             parts.append(f"{pending} {_plural(pending, 'request is', 'requests are')} waiting")
         lead = " and ".join(parts)
         return (
-            f"{lead}. Payments are coming soon — no payout has been made yet, so "
-            "nothing is accrued or settled."
+            f"{lead}. Research prices are hypothetical; review Account for "
+            "recorded earnings, payment readiness and bank payout status."
         )
     return (
-        "Potential only. No buyer has requested access yet and payments are coming "
-        "soon (no payment rail), so nothing is accrued or settled."
+        "Potential only. No buyer has requested access yet. Research prices are "
+        "hypothetical; review Account for recorded earnings and payment readiness."
     )
 
 
@@ -151,7 +149,7 @@ def _matches_topic(topic: str, label: str, domain_title: str) -> bool:
     return any(tok and tok in hay for tok in [t, *t.split()])
 
 
-class MarketplaceInformationService:
+class MarketplaceInformationService(CommercialMetadataReads):
     """Read-only view over the owner's published marketplace slices + pricing."""
 
     def __init__(
@@ -162,7 +160,7 @@ class MarketplaceInformationService:
         strict_reads: bool = False,
     ) -> None:
         self._strict_reads = strict_reads
-        self._pkm = pkm_service or PersonalKnowledgeModelService(strict_reads=strict_reads)
+        self._pkm = pkm_service or PersonalKnowledgeModelService()
         self._requests = request_service or MarketplaceRequestService()
 
     async def _demand_snapshot(self, *, user_id: str) -> dict[str, Any]:
@@ -320,9 +318,9 @@ class MarketplaceInformationService:
         power: str = "affluent",
         mood: str = "affinity",
     ) -> dict[str, Any]:
-        """Real buyer demand + potential (never accrued) monthly price across the
-        owner's published slices. `accruedCents` is always 0 and `payoutsEnabled`
-        is always False — there is no payment rail yet ("payments coming soon").
+        """Hypothetical research prices and buyer interest for published slices.
+        Zero `accruedCents` and false `payoutsEnabled` are estimator compatibility
+        fields; the canonical commerce port owns readiness and recorded money.
         """
         slices = await self.list_published_slices(user_id=user_id)
         demand = await self._demand_snapshot(user_id=user_id)

@@ -1,0 +1,122 @@
+{
+  "displayName": "[Managed] Scope Commerce Attention (__BACKEND_SERVICE__)",
+  "documentation": {
+    "content": "Financial aggregates require IAM access. Check attributed backing and liabilities before admitting payouts. Retry age over 15 minutes, any receipt failure, unbalanced journal, failed provider verification or absent 1-minute worker telemetry requires operator investigation. Provider balance is an observation, not attributable commerce capital. Keep reconciliation running when admission is paused.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "scope_commerce"
+  },
+  "conditions": [
+    {
+      "displayName": "unbalanced journals",
+      "conditionThreshold": {
+        "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/unbalanced_journals\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "backing shortfall micro usd",
+      "conditionThreshold": {
+        "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/backing_shortfall_micro_usd\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "receipt failures",
+      "conditionThreshold": {
+        "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/receipt_failures\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "oldest due work seconds",
+      "conditionThreshold": {
+        "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/oldest_due_work_seconds\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 900,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "provider observation verified",
+      "conditionThreshold": {
+        "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/provider_observation_verified\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_LT",
+        "thresholdValue": 1,
+        "duration": "120s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "worker telemetry absent for 5 minutes",
+      "conditionAbsent": {
+        "filter": "resource.type=\"global\" AND metric.type=\"custom.googleapis.com/hussh/scope_commerce/worker_completed_timestamp\" AND metric.labels.service_name=\"__BACKEND_SERVICE__\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ]
+}

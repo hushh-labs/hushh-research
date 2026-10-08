@@ -51,7 +51,7 @@ const VARIANTS: Variant[] = [
   },
   { name: "command bar working", html: { command: "working" } },
   { name: "location route", html: { path: "/one/location" } },
-  { name: "native ios", html: {}, htmlClass: "native-ios" },
+  { name: "native ios DOM fallback", html: {}, htmlClass: "native-ios" },
   {
     // The native shell keeps the chrome while the keyboard is up (it simply
     // covers it); the mobile-web fade is a separate, opacity-only rule.
@@ -187,6 +187,28 @@ async function open(page: Page, width: number, dark: boolean, variant: Variant, 
   await page.locator(".kai-bottom-nav-pill").waitFor();
   if (variant.html.voice === "expanded")
     await page.locator("[data-testid='one-voice-panel']").waitFor();
+}
+
+for (const width of [320, 393, 768]) {
+  test(`color value and dropdown share one bounded control at ${width}px`, async ({ page }) => {
+    const errors: string[] = [];
+    await open(page, width, false, { name: "public preferences fallback", html: { preferences: "true" } }, errors);
+    const trigger = page.getByRole("combobox", { name: "App accent color" });
+    await expect(trigger).toHaveText("iOS Blue");
+    const before = await trigger.boundingBox();
+    expect(before!.height).toBeGreaterThanOrEqual(44);
+    await trigger.click();
+    await page.getByRole("option", { name: "Molten Gold" }).click();
+    await expect(trigger).toHaveText("Molten Gold");
+    const frame = await trigger.boundingBox();
+    const label = await trigger.getByText("Molten Gold").boundingBox();
+    expect(label!.x).toBeGreaterThanOrEqual(frame!.x);
+    expect(label!.x + label!.width).toBeLessThanOrEqual(frame!.x + frame!.width + 0.5);
+    expect(frame!.x).toBeGreaterThanOrEqual(0);
+    expect(frame!.x + frame!.width).toBeLessThanOrEqual(width);
+    expect(frame!.width).toBe(before!.width);
+    expect(errors).toEqual([]);
+  });
 }
 
 test("shared dock retains material and input identity with aligned edges and keyboard clearance", async ({ page }) => {

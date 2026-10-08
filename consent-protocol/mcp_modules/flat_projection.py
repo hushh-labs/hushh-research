@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from mcp_modules.commercial_projection import commercial_fields, discovery_result
+
 
 def _text(value: object) -> str:
     return str(value or "")
@@ -48,23 +50,15 @@ def _offer_fields(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _commercial_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return commercial_fields(payload, number=_epoch)
+
+
 def project_flat_result(name: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Convert a successful standard handler payload to its flat equivalent."""
 
     if name == "search_user_scopes":
-        scopes = payload.get("scopes")
-        if not isinstance(scopes, list):
-            raise ValueError("scope result is missing a scope list")
-        return {
-            "status": _text(payload.get("status")),
-            "scope_values": [
-                _text(item.get("scope"))
-                for item in scopes
-                if isinstance(item, dict) and _text(item.get("scope"))
-            ],
-            "next_cursor": _text(payload.get("next_cursor")),
-            "has_more": bool(payload.get("has_more")),
-        }
+        return discovery_result(payload, text=_text, number=_epoch)
     if name == "request_consent":
         return {
             "status": _text(payload.get("status")),
@@ -76,6 +70,7 @@ def project_flat_result(name: str, payload: dict[str, Any]) -> dict[str, Any]:
             "approval_timeout_at": _epoch(payload.get("approval_timeout_at")),
             "coverage_kind": _text(payload.get("coverage_kind")),
             **_offer_fields(payload),
+            **_commercial_fields(payload),
         }
     if name == "prepare_campaign_context":
         return {
@@ -84,13 +79,15 @@ def project_flat_result(name: str, payload: dict[str, Any]) -> dict[str, Any]:
             "selected_scope_label": _text(payload.get("selected_scope_label"))[:120],
             "request_ref": _text(payload.get("request_ref")),
             "grant_ref": _text(payload.get("grant_ref")),
-            "approval_required": _text(payload.get("status")) == "pending",
+            "approval_required": _text(payload.get("status")) == "pending"
+            and payload.get("consent_state") != "approved",
             "poll_after_seconds": _epoch(payload.get("poll_after_seconds")),
             "expires_at": _epoch(payload.get("expires_at")),
             "approval_timeout_at": _epoch(payload.get("approval_timeout_at")),
             "export_metadata_ready": bool(payload.get("export_metadata_ready")),
             "export_revision": _epoch(payload.get("export_revision")),
             **_offer_fields(payload),
+            **_commercial_fields(payload),
         }
     if name == "check_consent_status":
         return {
@@ -99,6 +96,7 @@ def project_flat_result(name: str, payload: dict[str, Any]) -> dict[str, Any]:
             "expires_at": _epoch(payload.get("expires_at")),
             "poll_after_seconds": _epoch(payload.get("poll_after_seconds")),
             "approval_timeout_at": _epoch(payload.get("approval_timeout_at")),
+            **_commercial_fields(payload),
         }
     if name == "get_encrypted_scoped_export":
         if payload.get("delivery") == "decrypted_local":

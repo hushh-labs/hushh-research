@@ -12,10 +12,8 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   WarningIcon as AlertTriangle,
-  BriefcaseIcon as BriefcaseBusiness,
   SpinnerGapIcon as Loader2,
   ArrowsClockwiseIcon as RefreshCw,
-  UserCircleIcon as User,
 } from "@/components/icons";
 import {
   AccentRowIcon,
@@ -50,6 +48,7 @@ import { toast } from "sonner";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
+import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
 
 import {
   SettingsGroup,
@@ -165,8 +164,7 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
-import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
-import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
+import { getProvider, ProviderIcon } from "@/components/profile/provider-identity";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
@@ -444,46 +442,6 @@ function _formatProfileAccessBadge(params: {
     return params.loading ? "Loading" : "Checking";
   }
   return `${params.activeGrantCount} active`;
-}
-
-function getProvider(user: ReturnType<typeof useAuth>["user"]) {
-  if (!user?.providerData || user.providerData.length === 0) {
-    return { name: "Unknown", id: "unknown" };
-  }
-
-  const providerId = user.providerData[0]?.providerId;
-  switch (providerId) {
-    case "google.com":
-      return { name: "Google", id: "google" };
-    case "apple.com":
-      return { name: "Apple", id: "apple" };
-    case "password":
-      return { name: "Mail/Password", id: "password" };
-    default:
-      return { name: providerId || "Unknown", id: providerId || "unknown" };
-  }
-}
-
-function ProviderIcon({
-  providerId,
-  email,
-}: {
-  providerId: string;
-  email: string | null | undefined;
-}) {
-  if (providerId === "google") {
-    if (shouldUseGoogleBrandMark(providerId, email)) {
-      return <GoogleIcon className="shrink-0" size={17} />;
-    }
-
-    return <Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />;
-  }
-
-  if (providerId === "apple") {
-    return <AppleIcon className="shrink-0" size={17} />;
-  }
-
-  return <Icon icon={User} size="xs" className="shrink-0" />;
 }
 
 function readableMethod(method: VaultMethod | null): string {
@@ -3475,6 +3433,7 @@ function ProfilePageContent({
           />
         ) : null}
       </SettingsGroup>
+      <ScopeCommerceAccountPanel key={user.uid} />
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={ResetRowIcon}

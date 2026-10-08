@@ -10,93 +10,17 @@ import {
 import { ONE_CHAT_KEY_HEADER } from "@/lib/vault/one-chat-key";
 import { observeServerDate, serverNow } from "@/lib/agent/server-clock";
 
-export type ExternalConnectorAuthStyle = "api_key" | "oauth";
-
-export type ExternalConnectorStatus =
-  | "not_connected"
-  | "connected"
-  | "verifying"
-  | "needs_reauth"
-  | "revoked"
-  | "error";
-
-export type ExternalConnectorSummary = {
-  connectorId: string;
-  displayName: string;
-  description: string;
-  authStyle: ExternalConnectorAuthStyle;
-  status: ExternalConnectorStatus;
-  accountLabel?: string | null;
-  connectedAt?: string | null;
-  validationState?: string;
-  profile?: "selected" | "live" | null;
-  revocationOutcome?: string;
-  lastErrorCode?: string | null;
-  available?: boolean;
-  /** Server-derived: an operator-registered OAuth provider with a reviewed manifest. */
-  curatedOAuth?: boolean;
-  /** Server-declared built-in card; presentation only and never an OAuth grant. */
-  catalogCard?: boolean;
-  /** Why a server-declared catalog card cannot yet start a connection. */
-  catalogState?: "setup_pending" | "discovery_pending" | "unavailable" | null;
-};
-
-export type ConnectorFeatures = Partial<
-  Record<
-    | "connections_panel_v2"
-    | "google_drive_connection"
-    | "google_drive_live"
-    | "google_drive_picker"
-    | "drive_document_indexing"
-    | "drive_document_sharing"
-    | "gmail_chat_reads"
-    | "google_drive_chat_reads"
-    | "curated_mcp_connectors",
-    boolean
-  >
->;
-export type ConnectorOverview = {
-  connectors: ExternalConnectorSummary[];
-  features: ConnectorFeatures;
-};
-export type DriveDocument = {
-  documentId: string;
-  name: string;
-  mimeType: string;
-  status: string;
-  backgroundProcessing?: boolean;
-};
-
-export type NativeDriveOAuthOutcome = "ready" | "cancelled" | "failed";
-
-export type NativeDriveOAuthReturn = {
-  attemptId: string;
-  outcome: NativeDriveOAuthOutcome;
-};
-
-export type PendingNativeDriveAttempt = {
-  attemptId: string;
-  expiresAt: string;
-};
-
-/**
- * Metadata returned only after the native Picker browser flow has settled at
- * the server.  These are candidates, not selected One documents: the owner
- * must still explicitly confirm them through the owner-protected endpoint.
- */
-export type NativeDrivePickerCandidate = {
-  documentId: string;
-  name: string;
-  mimeType: string;
-};
-
-export type PendingNativeDrivePicker = {
-  attemptId: string;
-  expiresAt: string;
-  files: NativeDrivePickerCandidate[];
-};
-
-export type ConnectorEffectGuard = () => boolean;
+import type {
+  ConnectorEffectGuard, ConnectorFeatures, ConnectorOverview, DriveDocument, ExternalConnectorSummary,
+  PendingNativeDriveAttempt, PendingNativeDrivePicker,
+  StripeConnectorReadiness,
+} from "@/lib/services/external-connector-contracts";
+export type {
+  ExternalConnectorAuthStyle, ExternalConnectorStatus, StripeConnectorReadiness,
+  ExternalConnectorSummary, ConnectorFeatures, ConnectorOverview, DriveDocument,
+  NativeDriveOAuthOutcome, NativeDriveOAuthReturn, PendingNativeDriveAttempt,
+  NativeDrivePickerCandidate, PendingNativeDrivePicker, ConnectorEffectGuard,
+} from "@/lib/services/external-connector-contracts";
 
 /** A provider credential failed during catalog discovery; never expose its response. */
 export class McpCatalogAuthenticationError extends Error {
@@ -298,7 +222,7 @@ export class ExternalConnectorService {
         ? payload.detail : null;
       const code = detail && typeof detail === "object" && "code" in detail
         ? detail.code : null;
-      if (code === "EXTERNAL_MCP_AUTH_FAILED" || code === "MCP_CREDENTIAL_EXPIRED")
+      if (code === "EXTERNAL_MCP_AUTH_FAILED" || code === "MCP_CREDENTIAL_EXPIRED" || code === "MCP_STRIPE_OAUTH_REQUIRED")
         throw new McpCatalogAuthenticationError();
       throw new Error("Could not refresh tools. Check the connection and try again.");
     }
@@ -323,6 +247,48 @@ export class ExternalConnectorService {
         // An older server omits `access`; treat every tool as one that may change.
         access: tool.access === "read" ? "read" : "write" };
     });
+  }
+
+  /** Explicit Settings read, using the same owner/private placement as OAuth. */
+  static async verifyStripeAccount(input: {
+    vaultOwnerToken: string; configuration: CustomConnectorConfiguration;
+    signal: AbortSignal; isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<StripeConnectorReadiness> {
+    const current = () => !input.signal.aborted && input.isEffectCurrent();
+    const configuration = projectCustomConnectorTurnConfigurations([input.configuration])[0];
+    if (!configuration || !current()) throw new Error("Your connection changed.");
+    const response = await connectorSettingsRequest(configuration.connectorId, "mcp/verify", {
+      method: "POST", cache: "no-store", signal: input.signal, isEffectCurrent: current,
+      headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ connectorConfiguration: configuration }),
+    });
+    if (!response.ok || !current()) throw new Error("Stripe account could not be verified.");
+    const value = await response.json();
+    const readiness = value?.stripeReadiness;
+    const verified = readiness?.verificationState === "verified";
+    if (!current() || value?.connectorId !== configuration.connectorId ||
+      value?.configurationRevision !== configuration.revision || !readiness ||
+      typeof readiness.toolingConnected !== "boolean" || (verified && !readiness.toolingConnected) ||
+      readiness.accountVerified !== verified || readiness.environmentVerified !== verified ||
+      readiness.accountToolsAvailable !== verified ||
+      readiness.capability !== (verified ? "account_balance_readonly" : "documentation_only") ||
+      !["unverified", "verified", "unsupported", "mismatch", "expired"].includes(readiness.verificationState) ||
+      (verified && (readiness.configurationRevision !== configuration.revision ||
+        typeof readiness.catalogFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(readiness.catalogFingerprint) ||
+        typeof readiness.verifiedAt !== "string" || !Number.isFinite(Date.parse(readiness.verifiedAt))))) {
+      throw new Error("Stripe connection changed. Check again.");
+    }
+    // No account records, balances or raw provider payload enters UI state here.
+    return {
+      toolingConnected: readiness.toolingConnected === true,
+      accountVerified: verified, environmentVerified: verified, accountToolsAvailable: verified,
+      capability: verified ? "account_balance_readonly" : "documentation_only",
+      nextStep: verified ? "ready" : "authenticated_account_contract_required",
+      managementPath: "/one/profile/connectors", verificationState: readiness.verificationState,
+      verifiedAt: verified ? readiness.verifiedAt : null,
+      configurationRevision: verified ? readiness.configurationRevision : null,
+      catalogFingerprint: verified ? readiness.catalogFingerprint : null,
+    };
   }
 
   /** Fetch exact arguments into the active review only; never cache or log them. */

@@ -288,6 +288,18 @@ class ConsentAuditChainService:
         """
         await self.ensure_table()
         meta = dict(metadata or {})
+        event = {
+            "subject_id": subject_id,
+            "ledger": ledger,
+            "event_type": event_type,
+            "agent_id": agent_id,
+            "scope": scope,
+            "request_id": request_id,
+            "token_id": token_id,
+            "audit_event_id": audit_event_id,
+            "issued_at_ms": issued_at_ms,
+            "metadata": meta,
+        }
         pool = await get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -295,6 +307,10 @@ class ConsentAuditChainService:
                     "SELECT pg_advisory_xact_lock(hashtext($1))",
                     f"consent_audit_receipts:{ledger}:{subject_id}",
                 )
+                if audit_event_id is not None:
+                    existing = await self._existing_event_receipt(conn, event)
+                    if existing:
+                        return existing
                 prev = await conn.fetchrow(
                     "SELECT seq, hash FROM consent_audit_receipts "
                     "WHERE subject_id = $1 AND ledger = $2 ORDER BY seq DESC LIMIT 1",
@@ -304,57 +320,34 @@ class ConsentAuditChainService:
                 seq = (int(prev["seq"]) + 1) if prev is not None else 1
                 prev_hash = str(prev["hash"]) if prev is not None else GENESIS_HASH
 
-                payload = _canonical_payload(
-                    subject_id=subject_id,
-                    ledger=ledger,
-                    seq=seq,
-                    event_type=event_type,
-                    agent_id=agent_id,
-                    scope=scope,
-                    request_id=request_id,
-                    token_id=token_id,
-                    audit_event_id=audit_event_id,
-                    issued_at_ms=issued_at_ms,
-                    metadata=meta,
-                )
-                hash_hex = _chain_hash(prev_hash, payload)
-                signature = _sign(hash_hex)
+                row = await self._insert_locked_receipt(conn, event, seq, prev_hash)
+        return self._append_result(
+            {**dict(row), "event_type": event_type}, ledger, already_present=False
+        )
 
-                row = await conn.fetchrow(
-                    """
-                    INSERT INTO consent_audit_receipts (
-                        subject_id, ledger, seq, event_type, agent_id, scope,
-                        request_id, token_id, audit_event_id, issued_at_ms,
-                        metadata, prev_hash, hash, signature
-                    )
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14)
-                    RETURNING id, seq, prev_hash, hash, signature
-                    """,
-                    subject_id,
-                    ledger,
-                    seq,
-                    event_type,
-                    agent_id,
-                    scope,
-                    request_id,
-                    token_id,
-                    audit_event_id,
-                    issued_at_ms,
-                    json.dumps(meta, separators=(",", ":")),
-                    prev_hash,
-                    hash_hex,
-                    signature,
-                )
-        return {
-            "id": int(row["id"]),
-            "ledger": ledger,
-            "seq": int(row["seq"]),
-            "event_type": event_type,
-            "prev_hash": row["prev_hash"],
-            "hash": row["hash"],
-            "signature": row["signature"],
-            "signed": True,  # _sign refuses rather than writing an unsigned receipt
-        }
+    @staticmethod
+    async def _insert_locked_receipt(
+        conn: Any, event: dict[str, Any], seq: int, prev_hash: str
+    ) -> Any:
+        from hushh_mcp.services.consent_audit_receipt_adapter import insert_locked_receipt
+
+        return await insert_locked_receipt(conn, event, seq, prev_hash)
+
+    async def _existing_event_receipt(self, conn: Any, event: dict[str, Any]) -> dict | None:
+        from hushh_mcp.services.consent_audit_receipt_adapter import existing_event_receipt
+
+        return await existing_event_receipt(self, conn, event)
+
+    @staticmethod
+    def _append_result(row: Any, ledger: str, *, already_present: bool) -> dict[str, Any]:
+        from hushh_mcp.services.consent_audit_receipt_adapter import append_result
+
+        return append_result(row, ledger, already_present=already_present)
+
+    async def reconcile_committed_paid_events(self, *, limit: int = 100) -> dict[str, Any]:
+        from hushh_mcp.services.consent_audit_receipt_adapter import reconcile_committed_paid_events
+
+        return await reconcile_committed_paid_events(self, limit=limit)
 
     async def list_receipts(
         self, subject_id: str, *, limit: int = 1000, ledger: str = LEDGER_CONSENT

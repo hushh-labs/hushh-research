@@ -18,6 +18,9 @@ from hushh_mcp.adk_bridge.dispatch import SpecialistRuntime
 from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.services.pod_agent_chat_store import PodAgentChatStore
 from hushh_mcp.services.pod_consent_client import require_owner_scope
+from hushh_mcp.services.pod_marketplace_ports import (
+    PodMarketplaceReadPort as PodMarketplaceReadPort,
+)
 
 
 class PodSpecialistCapabilityUnsupported(PuppyCapabilityUnsupported):
@@ -402,38 +405,6 @@ class PodConsentCenterReadPort:
         if not isinstance(page, dict) or not isinstance(page.get("items"), list):
             raise PodSpecialistInformationUnavailable("nav")
         return {**page, "items": page["items"][: max(1, min(top, 10))]}
-
-
-class PodMarketplaceReadPort:
-    """Owner publication metadata only; no marketplace mutation authority."""
-
-    def __init__(self, owner_user_id: str, scope_token: str) -> None:
-        self._owner = owner_user_id
-        self._scope_token = scope_token
-
-    async def _read(self, user_id: str, **options: Any) -> dict:
-        if user_id != self._owner:
-            raise PermissionError("Marketplace owner mismatch")
-        from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
-
-        validated = MarketplaceReadOptions.model_validate(options)
-        return await asyncio.to_thread(
-            _hub_read,
-            "marketplace",
-            self._scope_token,
-            marketplace_read=validated.model_dump(),
-        )
-
-    async def list_published_slices(self, *, user_id: str) -> list[dict]:
-        return (await self._read(user_id, operation="published"))["items"]
-
-    async def list_publishable_slices(
-        self, *, user_id: str, topic: str | None = None
-    ) -> list[dict]:
-        return (await self._read(user_id, operation="publishable", topic=topic))["items"]
-
-    async def earnings_summary(self, *, user_id: str, power: str, mood: str) -> dict:
-        return (await self._read(user_id, operation="earnings", power=power, mood=mood))["result"]
 
 
 class PodEmailReadPort:

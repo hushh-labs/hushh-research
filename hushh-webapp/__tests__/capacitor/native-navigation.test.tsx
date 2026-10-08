@@ -2,6 +2,7 @@ import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigationBottomInset, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { measureNativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
 
 const bridge = vi.hoisted(() => ({
   platform: "web", supported: true,
@@ -22,6 +23,7 @@ vi.mock("@capacitor/core", () => ({
   }),
 }));
 const options = { enabled: true, visible: true, selected: "chat" as const, feedAttention: false,
+  column: { x: 16, width: 361, contentHeight: 64, viewportWidth: 393 },
   appearance: "light" as const, accentHex: "#112233", foregroundHex: "#223344" };
 function Overlay() { return <div ref={useNativeNavigationOverlayRef<HTMLDivElement>()} />; }
 function PersistentHistory({ open }: { open: boolean }) { useNativeNavigationBlocked(open); return <div />; }
@@ -34,12 +36,24 @@ describe("native navigation presentation boundary", () => {
   beforeEach(() => {
     bridge.platform = "ios";
     bridge.callbacks.clear();
-    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, supported: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, columnLayout: true, supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.setState.mockReset().mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.confirmSelection.mockReset().mockResolvedValue({ valid: true });
     bridge.sequence = 0;
   });
   afterEach(async () => { await act(async () => { await Promise.resolve(); }); });
+
+  it("measures only bounded canonical slot geometry", () => {
+    const element = document.createElement("div");
+    const rectangle = { x: 16, width: 361, height: 64 };
+    const measure = vi.spyOn(element, "getBoundingClientRect").mockImplementation(() => rectangle as DOMRect);
+    expect(measureNativeNavigationColumn(element)).toEqual({ x: 16, width: 361, contentHeight: 64, viewportWidth: window.innerWidth });
+    for (const invalid of [{ x: -1 }, { width: 180 }, { height: 160 }, { x: window.innerWidth }, { width: Number.NaN }]) {
+      measure.mockReturnValue({ ...rectangle, ...invalid } as DOMRect);
+      expect(measureNativeNavigationColumn(element)).toBeNull();
+    }
+    expect(measureNativeNavigationColumn(null)).toBeNull();
+  });
 
   it.each(["web", "android"])("does not replace or call the native bar on %s", async (platform) => {
     bridge.platform = platform;
@@ -57,6 +71,28 @@ describe("native navigation presentation boundary", () => {
     await waitFor(() => expect(bridge.getCapabilities).toHaveBeenCalled());
     expect(view.result.current.ready).toBe(false);
     expect(bridge.setState).not.toHaveBeenCalled();
+    view.unmount();
+  });
+  it("keeps the shared DOM column when an older wrapper cannot accept its geometry", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true, contentHeight: 49, bottomInset: 34 });
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
+    await waitFor(() => expect(bridge.getCapabilities).toHaveBeenCalled());
+    expect(view.result.current.ready).toBe(false);
+    expect(bridge.setState).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("projects the canonical column and hides native controls if the slot becomes invalid", async () => {
+    const view = renderHook(({ column }) => useNativeNavigation({ ...options, column, onSelect: vi.fn() }), {
+      initialProps: { column: options.column as typeof options.column | null },
+    });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    expect(lastState().column).toEqual(options.column);
+    view.rerender({ column: { x: 47, width: 768, contentHeight: 64, viewportWidth: 862 } });
+    await waitFor(() => expect(lastState().column.width).toBe(768));
+    view.rerender({ column: null });
+    await waitFor(() => expect(lastState().visible).toBe(false));
+    expect(lastState().column.width).toBe(768);
     view.unmount();
   });
   it("retains the web bar when a wrapper cannot acknowledge the themed contract", async () => {

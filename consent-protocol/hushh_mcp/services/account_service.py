@@ -19,6 +19,12 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     release_provider_grants_after_erasure,
     snapshot_provider_credentials_in_transaction,
 )
+from hushh_mcp.services.account_external_connector_erasure import (
+    ACCOUNT_ERASURE_RETAINED_TABLES as ACCOUNT_ERASURE_RETAINED_TABLES,
+)
+from hushh_mcp.services.account_external_connector_erasure import (
+    clear_external_connector_data,
+)
 from hushh_mcp.services.byoc_setup_intent import is_untouched_intent
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
@@ -55,24 +61,6 @@ def _is_release_fence_refusal(exc: BaseException) -> bool:
 
 class PersonalAgentDeprovisioningRequiredError(RuntimeError):
     """Account deletion cannot safely orphan external personal-agent resources."""
-
-
-# Live-catalog UID-bearing state that is not represented by the release migration
-# chain yet. Keep this list next to the erasure implementation so a contract test
-# can compare the governed catalog with the executable delete predicates.
-# User-keyed tables deliberately retained by the existing deletion contract.
-# The inventory check requires a reason; it does not prove that extensible metadata
-# is content-free or that every live table has been inventoried.
-ACCOUNT_ERASURE_RETAINED_TABLES: dict[str, str] = {
-    "fabric_receipts": (
-        "retained by the existing settlement accountability contract; purpose, fields "
-        "and metadata still require content and retention review before erasure is certified"
-    ),
-    "personal_agent_deletion_tombstones": (
-        "existing external-resource cleanup marker; retains opaque agent coordinates "
-        "and status for recovery auditing, not proof of completed provider erasure"
-    ),
-}
 
 
 TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
@@ -1006,8 +994,7 @@ class AccountService:
                 conn.execute(
                     text(
                         """
-                        SELECT to_jsonb(job) AS job
-                        FROM byoc_setup_jobs AS job
+                        SELECT to_jsonb(job) AS job FROM byoc_setup_jobs AS job
                         WHERE job.user_id = :user_id
                         FOR UPDATE
                         """
@@ -1524,12 +1511,13 @@ class AccountService:
 
     @staticmethod
     def _clear_external_connector_data(conn, user_id, results, *, permanent):
-        from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
-
-        lock_connection_graph_users(conn, user_ids=[user_id])
-        erase_drive_account_in_transaction(conn, user_id=user_id, permanent=permanent)
-        results["external_connectors"] = True
-        results["drive_private_data"] = True
+        clear_external_connector_data(
+            conn,
+            user_id,
+            results,
+            permanent=permanent,
+            lock_graph_users=lock_connection_graph_users,
+        )
 
     def _clear_user_data_tables(self, conn, user_id: str, results: dict[str, bool]) -> None:
         """Clear all per-user data tables EXCEPT the account spine.

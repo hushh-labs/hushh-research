@@ -63,6 +63,21 @@ def test_every_manifest_is_declared_and_nothing_disagrees(matrix: dict) -> None:
     assert matrix["disagreements"] == []
 
 
+def test_hub_reader_follows_only_ports_reexported_by_runtime(monkeypatch, tmp_path) -> None:
+    port = generator.pod_port_hub_reads()["PodMarketplaceReadPort"]
+    assert port == {"reads_hub": True, "doors": ["marketplace"]}
+
+    # An unwired class in the adapter file must not establish runtime capability.
+    runtime = tmp_path / "runtime.py"
+    monkeypatch.setattr(generator, "RUNTIME_PATH", runtime)
+    for source in (
+        "# No read port is wired into this runtime.\n",
+        "from .hushh_mcp.services.pod_marketplace_ports import PodMarketplaceReadPort\n",
+    ):
+        runtime.write_text(source, encoding="utf-8")
+        assert generator.pod_port_hub_reads() == {}
+
+
 def test_unavailable_declaration_cannot_hide_registered_execution(matrix: dict) -> None:
     row = next(row for row in matrix["agents"] if row["id"] == "agent_computer_use")
     assert row["declared"]["information_source"] == "unavailable"

@@ -1,4 +1,5 @@
 "use client";
+import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
@@ -971,19 +972,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                       );
                       return (
                         <div key={bundleId} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold">{title}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{requestPurpose}</p>
-                            {createdAt ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt))}
-                              </p>
-                            ) : null}
-                          </div>
+                          <PersonRequestHistoryHeading title={title} requestPurpose={requestPurpose} createdAt={createdAt} />
                           <div className="flex shrink-0 flex-wrap items-center gap-2">
                             <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
                               {statusLabel}
                             </StatusPill>
+                            {statusItems.filter(item => /^[A-Za-z0-9_-]{1,128}$/.test(item.requestId)).map(item => (
+                              <Button key={item.requestId} asChild type="button" variant="none" effect="fade"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(item.requestId)}`}>Review request</Link></Button>
+                            ))}
                             {!details ? (
                               <Button
                                 type="button"

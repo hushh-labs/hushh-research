@@ -6,7 +6,9 @@
 
 ## Token Hierarchy
 
-All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
+Protected information access is gated by consent tokens. Firebase verifies
+identity for vault-owner bootstrap and explicitly declared account, developer
+portal and financial operations; it does not authorize information release.
 
 Founder-language note:
 
@@ -30,7 +32,7 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 | Token Type         | Purpose                            | Duration | Auth Format                                    |
 | ------------------ | ---------------------------------- | -------- | ---------------------------------------------- |
-| Firebase ID Token  | Identity verification only         | 1 hour   | `Bearer <firebase-id-token>`                   |
+| Firebase ID Token  | Declared identity/account/financial operations; no information authority | 1 hour | `Bearer <firebase-id-token>` |
 | VAULT_OWNER Token  | Consent + identity for all data    | 24 hours | `Bearer <vault-owner-token>`                   |
 | Agent Scoped Token | Delegated MCP agent access         | 7 days   | `Bearer <consent-token>`                       |
 | Developer Token    | External API and remote MCP access | N/A      | `Authorization: Bearer <developer-token>` only |
@@ -45,7 +47,7 @@ clients reach them through the Next.js proxy layer.
 ```mermaid
 flowchart TB
   subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap and developer-portal sign-in only"]
+    fb["Firebase ID Token<br/>bootstrap, declared account and financial operations"]
     vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
     devtok["Developer Token<br/>Authorization Bearer"]
     hct["Consent Token HCT<br/>app-bound scoped grant"]
@@ -68,10 +70,12 @@ flowchart TB
     fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
     ria["ria.py and account.py<br/>/api/ria and /api/account"]
     dev["developer.py<br/>/api/v1 and /api/developer"]
+    commerce["scope_commerce.py<br/>/api/scope-commerce"]
   end
 
   fb --> vo
   fb --> dev
+  fb --> commerce
   anon --> pub
   vo --> svc
   svc --> proxy
@@ -82,6 +86,7 @@ flowchart TB
   proxy --> one
   proxy --> fabric
   proxy --> ria
+  proxy --> commerce
   devtok --> dev
   devtok --> fabric
   con --> hct
@@ -90,6 +95,30 @@ flowchart TB
 ```
 
 ---
+
+## Consumer scope commerce
+
+`/api/scope-commerce` uses Firebase identity for account, tariff, quote, human
+purchase confirmation, funding, payouts and buyer cancellation. Inactive owner
+approval, export context/preparation/staging and owner revocation require
+vault-owner authority. Financial confirmation alone never releases information:
+access additionally requires canonical consent and a staged v2 export at the
+server-fixed activation time. The reconciliation worker uses dedicated Google
+OIDC, independently of purchase admission.
+
+Authenticated `GET /api/scope-commerce/readiness` and the additive `account.readiness`
+projection distinguish free-sharing controls, locally configured/persisted
+platform readiness, seller eligibility and action capabilities. These reads
+perform no wallet bootstrap or provider I/O. An unset or explicitly free tariff
+keeps the existing consent flow without Stripe; owners can reset an exact tariff
+to free while paid admission is unavailable. Positive tariffs fail closed and
+never become free because setup is missing. Accepted quotes retain their terms.
+Existing financial obligations and access enforcement survive an admission pause.
+
+The package-local [consumer scope commerce reference](../../../consent-protocol/docs/reference/consumer-scope-commerce.md)
+owns the wire families, exact scope binding, hosted return, configuration,
+financial lifecycle and verification limits. The Next proxy preserves the same
+snake-case contract; native transport uses the existing direct backend service.
 
 ## Direct Puppy turn cancellation
 

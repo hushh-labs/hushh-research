@@ -254,7 +254,8 @@
     "279_pkm_credits.sql",
     "280_pkm_owner_payouts.sql",
     "281_one_mcp_pending_calls.sql",
-    "282_direct_message_actions.sql"
+    "282_direct_message_actions.sql",
+    "283_consumer_scope_commerce.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -528,6 +529,7 @@
     "279_pkm_credits.sql": "rollback/279_pkm_credits.rollback.sql",
     "280_pkm_owner_payouts.sql": "rollback/280_pkm_owner_payouts.rollback.sql",
     "281_one_mcp_pending_calls.sql": "rollback/281_one_mcp_pending_calls.rollback.sql",
-    "282_direct_message_actions.sql": "rollback/282_direct_message_actions.rollback.sql"
+    "282_direct_message_actions.sql": "rollback/282_direct_message_actions.rollback.sql",
+    "283_consumer_scope_commerce.sql": "rollback/283_consumer_scope_commerce.rollback.sql"
   }
 }

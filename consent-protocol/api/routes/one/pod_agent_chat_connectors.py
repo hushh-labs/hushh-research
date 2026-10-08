@@ -60,6 +60,35 @@ async def refresh_private_mcp_catalog(
     )
 
 
+@router.post("/{connector_id}/mcp/verify")
+async def verify_private_mcp_account(
+    connector_id: str,
+    body: McpConfigurationRequest,
+    owner: PodChatContext = Depends(owner_context),
+):
+    from hushh_mcp.one_adk.mcp_review_service import verify_account
+    from hushh_mcp.one_adk.mcp_turn_scope import validate_mcp_turn_configurations
+    from hushh_mcp.one_adk.pod_custody_mcp import merge_turn_configurations
+    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+
+    await owner.require_access()
+    if body.connectorConfiguration is None:
+        raise HTTPException(400, detail="Unlock and provide the current connector settings.")
+    records = validate_mcp_turn_configurations([body.connectorConfiguration])
+    if owner_cloud_agent() and not merge_turn_configurations(list(records.values()), []):
+        raise HTTPException(409, detail="Connector unavailable.")
+    result = await _mcp_review_response(
+        verify_account,
+        token={"user_id": owner.owner, "token": owner.authority.local_token(owner.claims)},
+        connector_id=connector_id,
+        configuration=body.connectorConfiguration,
+        owner_admission=owner._mcp_owner_admission,
+        vault_only=True,
+    )
+    await owner.require_access()
+    return result
+
+
 @router.post("/{connector_id}/mcp/oauth/begin")
 async def begin_private_mcp_oauth(
     connector_id: str, body: McpOAuthBeginRequest, owner: PodChatContext = Depends(owner_context)

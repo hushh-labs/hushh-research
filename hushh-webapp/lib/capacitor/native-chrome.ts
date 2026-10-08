@@ -97,8 +97,10 @@ export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamil
   const frame = slot.getBoundingClientRect();
   const viewport = { width: window.innerWidth, height: window.innerHeight };
   const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
-  const widthAdmitted = kind === "agent-surface" || kind === "appearance"
-    ? frame.width >= minimumWidth && frame.width <= 320 : frame.width === 44;
+  const widthAdmitted = kind === "accent"
+    ? frame.width === 44 || frame.width >= 132 && frame.width <= 320
+    : kind === "agent-surface" || kind === "appearance"
+      ? frame.width >= minimumWidth && frame.width <= 320 : frame.width === 44;
   if (!widthAdmitted || frame.height !== 44 ||
       ![frame.x, frame.y, viewport.width, viewport.height].every(Number.isFinite) ||
       frame.left < 0 || frame.top < 0 || frame.right > viewport.width || frame.bottom > viewport.height) return null;

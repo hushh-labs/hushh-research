@@ -11,8 +11,12 @@ the hub's general-purpose key. Key separation is asserted in
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import copy
+import json
 import os
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -286,3 +290,140 @@ async def test_a_growing_chain_still_verifies_against_an_older_pin():
     )
     assert out["ok"] is True
     assert out["head_seq"] == 6
+
+
+class _ReceiptPool:
+    """A shared locked store exercises the actual append/sign admission logic."""
+
+    def __init__(self):
+        self.receipts = []
+        self.events = []
+        self.lock = asyncio.Lock()
+
+    @asynccontextmanager
+    async def acquire(self):
+        yield self
+
+    @asynccontextmanager
+    async def transaction(self):
+        async with self.lock:
+            prior = copy.deepcopy(self.receipts)
+            try:
+                yield self
+            except Exception:
+                self.receipts = prior
+                raise
+
+    async def execute(self, *_args):
+        pass
+
+    async def fetchrow(self, sql, *args):
+        if "audit_event_id=$3" in sql:
+            return next(
+                (
+                    row
+                    for row in self.receipts
+                    if (row["subject_id"], row["ledger"], row["audit_event_id"]) == args
+                ),
+                None,
+            )
+        if "SELECT seq, hash" in sql:
+            rows = [row for row in self.receipts if (row["subject_id"], row["ledger"]) == args]
+            return rows[-1] if rows else None
+        assert "INSERT INTO consent_audit_receipts" in sql
+        keys = (
+            "subject_id",
+            "ledger",
+            "seq",
+            "event_type",
+            "agent_id",
+            "scope",
+            "request_id",
+            "token_id",
+            "audit_event_id",
+            "issued_at_ms",
+            "metadata",
+            "prev_hash",
+            "hash",
+            "signature",
+        )
+        row = dict(zip(keys, args, strict=True))
+        row["id"] = len(self.receipts) + 1
+        row["metadata"] = json.loads(row["metadata"])
+        self.receipts.append(row)
+        return row
+
+    async def fetch(self, sql, *args):
+        assert "JOIN scope_commerce_purchases" in sql
+        assert "commercial_required'='true'" in sql
+        return self.events[: args[0]]
+
+
+async def test_audit_event_id_replay_and_concurrent_drain_cannot_fork_or_change_signed_payload(
+    monkeypatch,
+):
+    store = _ReceiptPool()
+
+    async def pool():
+        return store
+
+    monkeypatch.setattr(cac, "get_pool", pool)
+    params = {
+        "subject_id": _SUBJECT,
+        "event_type": "CONSENT_GRANTED",
+        "issued_at_ms": 1000,
+        "agent_id": "app",
+        "scope": "attr.travel.preferences.*",
+        "request_id": "request",
+        "audit_event_id": 42,
+        "metadata": {"purpose": "révision"},
+    }
+    first, second = await asyncio.gather(
+        ConsentAuditChainService().append(**params),
+        ConsentAuditChainService().append(**params),
+    )
+    assert {first["already_present"], second["already_present"]} == {True, False}
+    assert len(store.receipts) == 1
+    assert (await ConsentAuditChainService().append(**params))["already_present"] is True
+    with pytest.raises(ValueError, match="audit_event_identity_conflict"):
+        await ConsentAuditChainService().append(**{**params, "scope": "attr.travel.*"})
+    assert len(store.receipts) == 1
+    receipts = [ConsentAuditChainService._row_to_receipt(row) for row in store.receipts]
+    assert ConsentAuditChainService.verify_receipts(_SUBJECT, receipts)["ok"] is True
+
+
+async def test_paid_receipt_reconcile_preserves_flag_and_explicit_missing_key_failure(monkeypatch):
+    store = _ReceiptPool()
+    store.events = [
+        {
+            "id": 42,
+            "user_id": _SUBJECT,
+            "agent_id": "app",
+            "scope": "attr.travel.preferences.*",
+            "action": "CONSENT_PAID_APPROVED",
+            "request_id": "request",
+            "token_id": "event-id",
+            "issued_at": 1000,
+            "metadata": {"commercial_required": True, "commerce_purchase_id": "purchase"},
+        }
+    ]
+    reads = []
+
+    async def pool():
+        reads.append(True)
+        return store
+
+    monkeypatch.setattr(cac, "get_pool", pool)
+    monkeypatch.delenv("CONSENT_AUDIT_CHAIN_ENABLED", raising=False)
+    disabled = await ConsentAuditChainService().reconcile_committed_paid_events()
+    assert disabled["enabled"] is False
+    assert reads == []
+    monkeypatch.setenv("CONSENT_AUDIT_CHAIN_ENABLED", "1")
+    monkeypatch.delenv(cac.CONSENT_AUDIT.private_key_env)
+    token_signing.reset_caches()
+    result = await ConsentAuditChainService().reconcile_committed_paid_events()
+    assert result["scanned"] == result["failed"] == 1
+    assert result["signing_key_missing"] is True
+    assert result["appended"] == 0
+    assert store.receipts == []
+    assert _SUBJECT not in json.dumps(result)

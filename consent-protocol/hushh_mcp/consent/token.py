@@ -420,79 +420,9 @@ async def validate_token_with_db(
     if not valid:
         return valid, reason, token_obj
 
-    agent_id = str(token_obj.agent_id) if token_obj is not None else ""
-    is_device_bound_token = token_obj is not None and agent_id.startswith("device:")
+    from hushh_mcp.consent.token_admission import validate_database_admission
 
-    # Additional DB check for revocation status
-    # This catches tokens revoked on other Cloud Run instances
-    try:
-        if token_obj:
-            from hushh_mcp.services.consent_db import ConsentDBService
-
-            service = ConsentDBService()
-            # CRITICAL FIX: Use scope_str (actual scope) for DB lookup, not enum value!
-            scope_for_lookup = token_obj.scope_str if token_obj.scope_str else token_obj.scope.value
-            is_active = await service.is_token_active(
-                str(token_obj.user_id),
-                scope_for_lookup,
-                str(token_obj.agent_id),
-                token_id=token_str,
-            )
-            if not is_active:
-                # Add to in-memory set for future fast checks
-                _revoked_tokens.add(token_str)
-                logger.warning(
-                    "Token revoked in DB but not in memory (fingerprint=%s)",
-                    _token_fingerprint(token_str),
-                )
-                return False, "Token has been revoked (DB check)", None
-            if is_device_bound_token:
-                device_id = agent_id.removeprefix("device:")
-                if not device_id or not await service.is_trusted_device_active(
-                    str(token_obj.user_id), device_id
-                ):
-                    _revoked_tokens.add(token_str)
-                    logger.warning(
-                        "Device-bound owner token rejected because device is inactive "
-                        "(fingerprint=%s)",
-                        _token_fingerprint(token_str),
-                    )
-                    return False, "TRUSTED_DEVICE_REVOKED", None
-    except Exception as e:
-        # DB is unreachable — apply fail-closed policy based on token scope.
-        # VAULT_OWNER tokens get a short grace period to avoid locking users
-        # out of their own vault during brief DB hiccups.
-        # All other scoped tokens fail closed immediately — when revocation
-        # status cannot be confirmed, access to third-party data is denied.
-        is_vault_owner = token_obj is not None and (
-            token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
-        )
-        if is_device_bound_token:
-            logger.error(
-                "Device-bound owner revocation status could not be confirmed; failing closed: %s",
-                e,
-            )
-            return (
-                False,
-                "TRUSTED_DEVICE_STATUS_UNCONFIRMED",
-                None,
-            )
-        if is_vault_owner:
-            logger.warning(
-                "DB revocation check failed for VAULT_OWNER token, "
-                "applying grace period fallback: %s",
-                e,
-            )
-            return valid, reason, token_obj
-
-        logger.error(
-            "DB revocation check failed for scoped token, "
-            "failing closed to protect consent integrity: %s",
-            e,
-        )
-        return False, "Token revocation status could not be confirmed (DB unavailable)", None
-
-    return valid, reason, token_obj
+    return await validate_database_admission(token_str, (valid, reason, token_obj), _revoked_tokens)
 
 
 # ========== Token Revoker ==========

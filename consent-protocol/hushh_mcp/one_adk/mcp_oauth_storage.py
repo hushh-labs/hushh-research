@@ -22,12 +22,17 @@ import httpx
 from mcp.client.auth.oauth2 import OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
 
+from hushh_mcp.one_adk.mcp_oauth_admission import admitted_authorization_metadata
 from hushh_mcp.one_adk.request_secrets import (
     consume_request_secret,
     resolve_request_secret,
     store_request_secret,
 )
 from hushh_mcp.services.mcp_public_http import create_public_mcp_http_client, validate_mcp_endpoint
+from hushh_mcp.services.stripe_mcp_oauth import (
+    require_stripe_metadata,
+    require_stripe_registered_client,
+)
 
 
 class _SafeOAuthDiagnostic(logging.Filter):
@@ -254,6 +259,15 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
         ):
             raise McpOAuthConnectError()
         validate_mcp_endpoint(issuer)
+        try:
+            require_stripe_registered_client(
+                self.context.server_url,
+                issuer=issuer,
+                auth_method=method,
+                client_secret=client_info.client_secret,
+            )
+        except ValueError:
+            raise McpOAuthConnectError() from None
         await storage.set_client_info(client_info)
         self._registered_issuer = issuer
 
@@ -321,6 +335,10 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
         payload = response.json()
         if not isinstance(payload, dict):
             raise McpOAuthConnectError()
+        try:
+            require_stripe_metadata(self.context.server_url, str(outgoing.url), payload)
+        except ValueError:
+            raise McpOAuthConnectError() from None
         if "authorization_servers" in payload:
             servers = payload["authorization_servers"]
             if not isinstance(servers, list) or not servers or not isinstance(servers[0], str):
@@ -334,36 +352,17 @@ class ConnectOnlyMcpOAuthProvider(OAuthClientProvider):
             self._admitted_endpoints = {}
             self._admitted_metadata = None
         elif "issuer" in payload:
-            issuer = getattr(self, "_advertised_issuer", None)
-            if issuer is None or payload["issuer"] != issuer:
-                raise McpOAuthConnectError()
-            if getattr(self, "_registered_issuer", None) is not None:
-                # A resource server cannot impersonate the registered issuer
-                # merely by putting its name in a metadata JSON response.
-                source = urlsplit(str(outgoing.url))
-                authority = urlsplit(issuer)
-                if (source.scheme, source.netloc) != (authority.scheme, authority.netloc):
-                    raise McpOAuthConnectError()
-            if "S256" not in (payload.get("code_challenge_methods_supported") or []):
-                raise McpOAuthConnectError()
-            # Validate the complete SDK contract before admitting any endpoint.
-            # Otherwise a malformed optional field can make the SDK fall back
-            # while our raw JSON whitelist still appears to authorize it.
-            metadata = OAuthMetadata.model_validate(payload)
-            endpoints = {}
-            for key in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
-                value = payload.get(key)
-                if value is None and key == "registration_endpoint":
-                    continue
-                if not isinstance(value, str):
-                    raise McpOAuthConnectError()
-                validate_mcp_endpoint(value)
-                endpoints[key] = value
+            try:
+                metadata, endpoints, requires_issuer = admitted_authorization_metadata(
+                    payload,
+                    advertised_issuer=getattr(self, "_advertised_issuer", None),
+                    registered_issuer=getattr(self, "_registered_issuer", None),
+                    source_url=str(outgoing.url),
+                )
+            except ValueError:
+                raise McpOAuthConnectError() from None
             self._admitted_endpoints = endpoints
             self._admitted_metadata = metadata
-            requires_issuer = payload.get("authorization_response_iss_parameter_supported", False)
-            if not isinstance(requires_issuer, bool):
-                raise McpOAuthConnectError()
             self._require_callback_issuer = requires_issuer
 
     async def _perform_authorization_code_grant(self):

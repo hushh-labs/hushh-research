@@ -13,7 +13,7 @@
   "tools": [
     {
       "name": "search-user-scopes",
-      "description": "Finds consent scopes available for one registered user. Use this before request-consent to choose the narrowest scope. Returns only scope strings and pagination state.",
+      "description": "Finds consent scopes available for one registered user. Use this before request-consent to choose the narrowest scope. Returns scope strings, exact-scope tariff metadata and pagination state, never the information itself.",
       "inputSchema": {
         "type": "object",
         "description": "A flat, capability-safe field set.",
@@ -355,7 +355,7 @@
     },
     {
       "name": "get-encrypted-scoped-export",
-      "description": "Secure connector delivery only: retrieves an approved export after check-consent-status returns status granted and a grant_ref. Local stdio decrypts in its trusted process; hosted connectors use the documented envelope-v2 method with their securely retained private key. Never display, remember, interpret, or decrypt key material or ciphertext in an LLM. Reuse the same connector key for authorized realtime export revisions until rotation or revocation.",
+      "description": "Secure connector delivery only: retrieves an approved export after check-consent-status returns status granted and a grant_ref. Paid exports always remain encrypted for trusted connector decryption outside model context. Legacy free local stdio exports may be decrypted in the trusted process. Use the documented envelope-v2 method with the securely retained recipient private key. Never display, remember, interpret, or decrypt key material or ciphertext in an LLM. Reuse the same connector key for authorized realtime export revisions until rotation or revocation.",
       "inputSchema": {
         "type": "object",
         "description": "A flat, capability-safe field set.",

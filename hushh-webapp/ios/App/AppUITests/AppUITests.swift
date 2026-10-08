@@ -1283,6 +1283,8 @@ final class AppUITests: XCTestCase {
         let accent = app.buttons["profile-accent"].firstMatch
         let accentSheet = app.sheets.containing(.button, identifier: "iOS Blue")
             .containing(.button, identifier: "Molten Gold").firstMatch
+        let accentPopover = app.popovers.containing(.button, identifier: "iOS Blue")
+            .containing(.button, identifier: "Molten Gold").firstMatch
         func controlsReady() -> Bool {
             picker.exists && accent.exists && accent.isHittable &&
                 ["Light", "Dark", "System"].allSatisfy { picker.buttons[$0].exists && picker.buttons[$0].isHittable }
@@ -1329,15 +1331,28 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_ACCENT_NOT_ACKNOWLEDGED")
         }
         func cancelAccentMenu() -> Bool {
-            let sheet = accentSheet
-            guard sheet.waitForExistence(timeout: 5),
+            let presented = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                accentSheet.exists || accentPopover.exists
+            }, object: app)
+            guard XCTWaiter.wait(for: [presented], timeout: 5) == .completed else {
+                XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return false
+            }
+            let sheet = accentSheet.exists ? accentSheet : accentPopover
+            guard sheet.exists,
                   sheet.buttons["iOS Blue"].firstMatch.isHittable,
                   sheet.buttons["Molten Gold"].firstMatch.isHittable else {
                 XCTFail("NATIVE_ACCENT_MENU_UNAVAILABLE"); return false
             }
-            // iOS 26 anchors action sheets at their source and removes the
-            // Cancel button. An outside tap invokes the same cancel handler.
-            // Prove dismissal, not a legacy button or an arbitrary delay.
+            // Older iPhones expose Cancel; anchored iPad and iOS 26 menus
+            // dismiss through an outside tap. Both must retire the same lease.
+            let cancel = sheet.buttons["Cancel"].firstMatch
+            if cancel.exists && cancel.isHittable {
+                cancel.tap()
+                let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    !accentSheet.exists && !accentPopover.exists
+                }, object: app)
+                return XCTWaiter.wait(for: [retired], timeout: 5) == .completed
+            }
             let bounds = app.frame, menu = sheet.frame.insetBy(dx: -8, dy: -8)
             let points = [CGPoint(x: bounds.midX, y: bounds.maxY - 90),
                           CGPoint(x: bounds.minX + 24, y: bounds.midY),
@@ -1354,7 +1369,7 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(completed, "NATIVE_ACCENT_CANCEL_NOT_RETIRED")
             return completed
         }
-        if accentSheet.exists {
+        if accentSheet.exists || accentPopover.exists {
             guard cancelAccentMenu() else { return }
         }
         openPreferences()
@@ -1363,7 +1378,7 @@ final class AppUITests: XCTestCase {
             XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return
         }
         addTeardownBlock {
-            if accentSheet.exists { _ = cancelAccentMenu() }
+            if accentSheet.exists || accentPopover.exists { _ = cancelAccentMenu() }
             if !picker.exists { openPreferences() }
             selectTheme(originalTheme); selectAccent(originalAccent)
             app.buttons["Close Profile"].firstMatch.tap()
