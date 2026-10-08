@@ -154,6 +154,7 @@ type ProfilePaneProps = {
  */
 export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const attachPanel = useCallback((node: HTMLDivElement | null) => { panelRef.current = node; }, []);
   const scrimRef = useRef<HTMLDivElement>(null);
   const { isVaultUnlocked } = useVault();
@@ -174,6 +175,36 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
     setHeldLocation(paneState.location);
   }
   const location = paneState.open ? paneState.location : heldLocation;
+
+  const scrollPositionsRef = useRef<Record<string, number>>({});
+  const locKey = profilePaneLocationKey(location);
+  const locKeyRef = useRef(locKey);
+  const isTransitioningRef = useRef(false);
+
+  if (locKey !== locKeyRef.current) {
+    isTransitioningRef.current = true;
+  }
+
+  useEffect(() => {
+    if (!open) return;
+
+    const savedPosition = scrollPositionsRef.current[locKey] ?? 0;
+    let frameId = requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo(0, savedPosition);
+      locKeyRef.current = locKey;
+      setTimeout(() => {
+        isTransitioningRef.current = false;
+      }, 50);
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [locKey, open]);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!isTransitioningRef.current) {
+      scrollPositionsRef.current[locKeyRef.current] = e.currentTarget.scrollTop;
+    }
+  }, []);
+
   const canGoBack = canGoBackProfilePane(location);
   const panelTitle = location.panel
       ? location.panel === "my-data"
@@ -270,7 +301,9 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
           </button>
         </SheetClose>
         <div
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] [overflow-anchor:none]"
           data-profile-pane-scroll-root="true"
         >
           <ProfilePaneBody location={location} />
