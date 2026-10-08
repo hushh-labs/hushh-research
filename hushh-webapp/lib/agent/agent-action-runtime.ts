@@ -8,6 +8,7 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
+import { resolveSearchActionTarget } from "@/lib/voice/search-route-context";
 import {
   parseVoiceCard,
   publishVoiceCard,
@@ -615,13 +616,16 @@ export async function executeAgentGatewayAction(
         reason: "route_needs_entity",
       });
     }
-    input.router.push(action.execution_target.target);
+    const currentHref = typeof window !== "undefined" && window.location.pathname === routeBefore.pathname
+      ? window.location.href : routeBefore.pathname;
+    const target = resolveSearchActionTarget(action.execution_target.target, currentHref, action.surface_id);
+    input.router.push(target);
     return buildResult({
       status: "started",
       actionId: action.action_id,
       label: action.label,
       routeBefore: routeBefore.pathname,
-      routeAfter: action.execution_target.target,
+      routeAfter: target,
       screenBefore: routeBefore.screen,
       // The label alone, deliberately -- no destination named.
       //
@@ -638,7 +642,7 @@ export async function executeAgentGatewayAction(
       // against a completion tick, which is what supplies the past tense.
       resultSummary: `${action.label}.`,
       data: {
-        target: action.execution_target.target,
+        target,
         goal_id: action.goal.goal_id,
       },
     });

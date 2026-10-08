@@ -2726,11 +2726,13 @@
         "voice_playbook": {
           "playbook_id": "route.one.connected.systems.systemid",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-          "screen": "app",
+          "screen": "connected_systems",
           "entry_cue": "",
           "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "primary_action_id": "route.connected_system_list",
+          "happy_path_action_ids": [
+            "route.connected_system_list"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -2754,8 +2756,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.connected_system_list"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2848,11 +2852,13 @@
         "voice_playbook": {
           "playbook_id": "route.one.email",
           "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-          "screen": "app",
+          "screen": "email_agent",
           "entry_cue": "",
           "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "primary_action_id": "route.mail_connections",
+          "happy_path_action_ids": [
+            "route.mail_connections"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -2890,8 +2896,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/email/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.mail_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -4624,11 +4632,13 @@
         "voice_playbook": {
           "playbook_id": "route.one.messages",
           "purpose": "Read and send private one-to-one messages with accepted connections.",
-          "screen": "app",
+          "screen": "one_messages",
           "entry_cue": "",
           "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "primary_action_id": "route.messages_connections",
+          "happy_path_action_ids": [
+            "route.messages_connections"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain that messaging requires an active connection and retain the current conversation.",
@@ -4665,8 +4675,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.messages_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -7204,11 +7216,13 @@
         "voice_playbook": {
           "playbook_id": "route.one.puppy",
           "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-          "screen": "app",
+          "screen": "puppy_one",
           "entry_cue": "",
           "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "primary_action_id": "route.puppy_agents",
+          "happy_path_action_ids": [
+            "route.puppy_agents"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -7236,8 +7250,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/puppy/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.puppy_agents"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -8179,11 +8195,13 @@
         "voice_playbook": {
           "playbook_id": "route.one.wallet.card",
           "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-          "screen": "app",
+          "screen": "one_wallet_card",
           "entry_cue": "",
           "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "primary_action_id": "route.wallet_profile_cards",
+          "happy_path_action_ids": [
+            "route.wallet_profile_cards"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -8220,8 +8238,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.wallet_profile_cards"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -9766,5 +9786,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "042b250c9b612f6c1379acd430c193d1c230ef9570847936dff7863cd456045d"
+  "content_sha256": "58499991a4ebddc4c21a0671090cdaf7c25efd505b306ba4a2500777f21498eb"
 }

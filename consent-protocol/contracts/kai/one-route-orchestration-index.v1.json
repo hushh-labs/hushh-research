@@ -1687,6 +1687,7 @@
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "action_coverage": "inherited",
@@ -1701,17 +1702,19 @@
       "route_pattern": "/one/connected-systems/[systemId]",
       "page_file": "app/one/connected-systems/[systemId]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.connected.systems.systemid",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.connected.systems.systemid",
         "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-        "screen": "app",
+        "screen": "connected_systems",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": null,
-        "happy_path_action_ids": [],
+        "primary_action_id": "route.connected_system_list",
+        "happy_path_action_ids": [
+          "route.connected_system_list"
+        ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -1729,15 +1732,18 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "connected_systems",
+      "voice_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
+      "action_ids": [
+        "route.connected_system_list",
+        "route.profile_connected_systems"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": null
     },
     {
@@ -1795,17 +1801,19 @@
       "route_pattern": "/one/email",
       "page_file": "app/one/email/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.email",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.email",
         "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-        "screen": "app",
+        "screen": "email_agent",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": null,
-        "happy_path_action_ids": [],
+        "primary_action_id": "route.mail_connections",
+        "happy_path_action_ids": [
+          "route.mail_connections"
+        ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -1823,15 +1831,17 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "email_agent",
+      "voice_contract_file": "app/one/email/page.voice-action-contract.json",
+      "action_ids": [
+        "route.mail_connections"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-email-agent"
     },
     {
@@ -3250,17 +3260,19 @@
       "route_pattern": "/one/messages",
       "page_file": "app/one/messages/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.messages",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.messages",
         "purpose": "Read and send private one-to-one messages with accepted connections.",
-        "screen": "app",
+        "screen": "one_messages",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": null,
-        "happy_path_action_ids": [],
+        "primary_action_id": "route.messages_connections",
+        "happy_path_action_ids": [
+          "route.messages_connections"
+        ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain that messaging requires an active connection and retain the current conversation.",
@@ -3278,15 +3290,17 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "one_messages",
+      "voice_contract_file": "app/one/messages/page.voice-action-contract.json",
+      "action_ids": [
+        "route.messages_connections"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-direct-messages"
     },
     {
@@ -3787,6 +3801,7 @@
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "action_coverage": "none",
@@ -5089,17 +5104,19 @@
       "route_pattern": "/one/puppy",
       "page_file": "app/one/puppy/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.puppy",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.puppy",
         "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-        "screen": "app",
+        "screen": "puppy_one",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": null,
-        "happy_path_action_ids": [],
+        "primary_action_id": "route.puppy_agents",
+        "happy_path_action_ids": [
+          "route.puppy_agents"
+        ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -5117,15 +5134,17 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "puppy_one",
+      "voice_contract_file": "app/one/puppy/page.voice-action-contract.json",
+      "action_ids": [
+        "route.puppy_agents"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": null
     },
     {
@@ -5790,17 +5809,19 @@
       "route_pattern": "/one/wallet-card",
       "page_file": "app/one/wallet-card/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.wallet.card",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.wallet.card",
         "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-        "screen": "app",
+        "screen": "one_wallet_card",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": null,
-        "happy_path_action_ids": [],
+        "primary_action_id": "route.wallet_profile_cards",
+        "happy_path_action_ids": [
+          "route.wallet_profile_cards"
+        ],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -5818,15 +5839,17 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "one_wallet_card",
+      "voice_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
+      "action_ids": [
+        "route.wallet_profile_cards"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-one-wallet-card"
     },
     {

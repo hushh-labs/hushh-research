@@ -1,6 +1,20 @@
 import routeIndex from "@/contracts/kai/one-route-orchestration-index.v1.json";
 import gateway from "@/contracts/kai/kai-action-gateway.vnext.json";
 
+/** A partial screen action changes its declared dimensions, preserving only authored public ones. */
+export function resolveSearchActionTarget(target: string, currentHref: string, surfaceId: string): string {
+  const destination = new URL(target, "https://search.invalid");
+  const current = new URL(currentHref, "https://search.invalid");
+  if (!target.startsWith("/") || destination.pathname !== current.pathname || !destination.searchParams.size) return target;
+  const surface = gateway.surfaces.find(value => value.surface_id === surfaceId);
+  const search = surface?.search as { query_defaults?: Record<string, string> } | undefined;
+  for (const key of Object.keys(search?.query_defaults ?? {})) {
+    const value = current.searchParams.get(key);
+    if (value !== null && !destination.searchParams.has(key)) destination.searchParams.set(key, value);
+  }
+  return destination.pathname + destination.search + destination.hash;
+}
+
 /** Resolve public route defaults from authored contracts, without another search catalog. */
 export function searchTargetMatchesCurrentRoute(target: string, currentHref: string): boolean {
   const current = new URL(currentHref, "https://search.invalid");

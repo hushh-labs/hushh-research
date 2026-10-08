@@ -62,6 +62,29 @@ function runtimeState(
 }
 
 describe("executeAgentGatewayAction", () => {
+  it.each([
+    ["ria.picks.open_category_avoid", "/ria/picks?source=my&category=top-picks&search=1&share=private", "avoid", "my"],
+    ["ria.picks.open_source_kai", "/ria/picks?source=my&category=avoid&search=1&share=private", "avoid", "kai"],
+  ])("%s preserves the other public Picks dimension without carrying private query state", async (actionId, href, category, source) => {
+    const previous = window.location.href;
+    window.history.replaceState(null, "", href);
+    try {
+      const router = { push: vi.fn() };
+      const result = await executeAgentGatewayAction({
+        actionId, allowedActionIds: [], userId: "user_1", router,
+        appRuntimeState: runtimeState({
+          route: { pathname: "/ria/picks", screen: "ria_picks" },
+          persona: { active: "ria", primary_nav: "ria", available: ["ria"], ria_switch_available: true, ria_setup_available: false },
+        }),
+        hasPortfolioData: true, busyOperations: {}, setAnalysisParams: vi.fn(),
+      });
+      expect(result.status).toBe("started");
+      const target = new URL(router.push.mock.calls[0][0], window.location.origin);
+      expect(Object.fromEntries(target.searchParams)).toEqual({ category, source });
+      expect(result.routeAfter).toBe(target.pathname + target.search);
+    } finally { window.history.replaceState(null, "", previous); }
+  });
+
   it("never names a surface the action did not open", async () => {
     // Regression: this runtime was Kai-only once, and every route action
     // reported `${label} opened in Finance.` long after it became the shared

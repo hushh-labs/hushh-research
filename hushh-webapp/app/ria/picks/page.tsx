@@ -1672,19 +1672,11 @@ export default function RiaPicksPage() {
   const categoryParam = searchParams?.get("category");
 
   useEffect(() => {
-    if (sourceParam === "kai" || sourceParam === "my") {
-      setSource(sourceParam);
-    }
+    setSource(sourceParam === "my" ? "my" : "kai");
   }, [sourceParam]);
 
   useEffect(() => {
-    if (
-      categoryParam === "top-picks" ||
-      categoryParam === "avoid" ||
-      categoryParam === "screening"
-    ) {
-      setCategory(categoryParam);
-    }
+    setCategory(categoryParam === "avoid" || categoryParam === "screening" ? categoryParam : "top-picks");
   }, [categoryParam]);
 
   const updatePicksRouteState = useCallback(
