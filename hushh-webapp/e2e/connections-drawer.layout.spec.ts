@@ -483,10 +483,14 @@ for (const width of [390, 768, 1440])
     // A tap on the scrim beside the panel closes it.
     await page.mouse.click(beside, height / 2);
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toHaveCount(0);
-    // Closed, the panel and its shadow sit fully off-screen.
+    // The semantic header/frame stays stationary for retained native controls.
+    // Closed, it is hidden/inert and its motion body clears the viewport.
+    await expect(page.locator("[data-stationary-history-frame]")).toHaveAttribute("inert", "");
+    await expect.poll(() => page.locator("[data-stationary-history-frame]")
+      .evaluate(element => getComputedStyle(element).visibility)).toBe("hidden");
     await expect
       .poll(async () => {
-        const closed = await page.locator("[aria-label='Agent chat history'][role='dialog']").boundingBox();
+        const closed = await page.locator("[data-side-panel-body='left']").boundingBox();
         return closed ? closed.x + closed.width : 0;
       })
       .toBeLessThanOrEqual(-24);
@@ -602,7 +606,7 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("button", { name: "Open drawer", exact: true })
       .click();
-    // Opening moves focus to Open Connectors one frame later. `fill` focuses
+    // Opening moves focus to Open Connectors after body entry. `fill` focuses
     // the box and then inserts text in a separate step, so typing before that
     // frame lands sent the text to the button about 1 run in 60 on WebKit and
     // left the search empty. Wait for the drawer's own focus to settle first.
@@ -693,7 +697,10 @@ for (const width of [320, 390, 768, 1440])
     await expect(
       page.getByRole("searchbox", { name: "Search chats" }),
     ).toHaveValue("History filter");
+    // Escape is allowed during entry, before delayed body focus. An old
+    // connector dismissal cannot make this newly opened layer unclosable.
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
     await expect(
       page.getByRole("button", { name: "Open drawer", exact: true }),
     ).toBeFocused();

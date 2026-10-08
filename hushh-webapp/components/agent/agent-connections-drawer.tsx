@@ -91,6 +91,8 @@ export function AgentConnectionsDrawer({
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
   const historyOpen = open && mode === "chats";
+  const historyActive = useRef(historyOpen);
+  useLayoutEffect(() => { historyActive.current = historyOpen; }, [historyOpen]);
   useNativeNavigationBlocked(historyOpen, "chat-history");
   const connectorsOpen = open && mode === "connections";
   const connectorActive = useRef(connectorsOpen);
@@ -141,19 +143,31 @@ export function AgentConnectionsDrawer({
   }, [open, restoreFocus, onRestoreHistoryFocus]);
   useEffect(() => {
     if (!historyOpen || modalActive.current) return;
+    let current = true;
+    const initialFocus = document.activeElement;
     const frame = requestAnimationFrame(() => {
-      if (mode === "chats")
-        drawer.current
-          ?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')
+      const body = historyBody.current;
+      // The semantic header is stationary, but this footer enters with the
+      // body. Focusing it while clipped can be refused (or scroll the panel).
+      // Only finite entry motion owns this wait, never child loading spinners.
+      const entry = body?.getAnimations().filter(animation =>
+        (animation.effect as KeyframeEffect | null)?.target === body &&
+        animation.effect?.getComputedTiming().iterations !== Infinity,
+      ) ?? [];
+      void Promise.allSettled(entry.map(animation => animation.finished)).then(() => {
+        if (!current || body !== historyBody.current || modalActive.current || drawer.current?.closest("[inert]") ||
+            document.activeElement !== initialFocus) return;
+        drawer.current?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')
           ?.focus({ preventScroll: true });
-      else focused()[0]?.focus({ preventScroll: true });
+      });
     });
-    return () => cancelAnimationFrame(frame);
+    return () => { current = false; cancelAnimationFrame(frame); };
   }, [mode, historyOpen]);
   useEffect(() => {
     if (!historyOpen) return;
     const escape = (event: globalThis.KeyboardEvent) => {
-      // Recover only the brief body-focus gap while switching nested views.
+      // Recover only the brief focus gap while entering/switching views. Some
+      // engines retain the authored trigger until the body's entry completes.
       // An Escape originating in a provider/Radix portal must not also close
       // this drawer when that portal disposes itself during the same event.
       if (
@@ -161,13 +175,15 @@ export function AgentConnectionsDrawer({
         !event.defaultPrevented &&
         !modalActive.current &&
         (event.target === document.body ||
-          event.target === document.documentElement)
+          event.target === document.documentElement ||
+          event.target === triggerRef.current ||
+          event.target === returnFocus.current)
       )
         onOpenChange(false);
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
-  }, [historyOpen, onOpenChange]);
+  }, [historyOpen, onOpenChange, triggerRef]);
   const keyDown = (event: KeyboardEvent) => {
     if (externalModalOpen || event.defaultPrevented) return;
     if (event.key === "Escape") {
@@ -201,7 +217,9 @@ export function AgentConnectionsDrawer({
     },
     onCloseAutoFocus: (event: Event) => {
       event.preventDefault();
-      if (connectorActive.current || modalActive.current) return;
+      // Radix may finish closing after History has already reopened. The old
+      // presentation must not steal focus from that newer interaction layer.
+      if (connectorActive.current || historyActive.current || modalActive.current) return;
       restoreFocus();
     },
     onInteractOutside: (event: Event) => {
