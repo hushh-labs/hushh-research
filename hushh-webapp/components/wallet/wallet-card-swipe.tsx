@@ -114,7 +114,7 @@ export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismis
     </div>
     <div ref={slidingCard} className={styles.slidingCard}>
       {children}
-      {hint && !opened ? <div data-wallet-swipe-hint className={styles.hint} aria-hidden="true"><span>Swipe left to see card controls</span><svg viewBox="0 0 64 64" fill="none"><path d="M25 34V13a5 5 0 0 1 10 0v17l3-4a4 4 0 0 1 7 1l2 4a4 4 0 0 1 7 2l2 10c1 6-2 10-7 16H28L14 41c-4-6 2-11 6-7l5 5" fill="white" stroke="#353535" strokeWidth="2" strokeLinejoin="round"/></svg></div> : null}
+      {hint && !opened ? <div data-wallet-swipe-hint className={styles.hint} aria-hidden="true"><span className={styles.hintLabel}>Swipe left to see card controls</span><div className={styles.hintGesture}><span className={styles.hintTrail}>←</span><svg viewBox="0 0 64 64" fill="none"><path d="M25 34V13a5 5 0 0 1 10 0v17l3-4a4 4 0 0 1 7 1l2 4a4 4 0 0 1 7 2l2 10c1 6-2 10-7 16H28L14 41c-4-6 2-11 6-7l5 5" fill="white" stroke="#353535" strokeWidth="2" strokeLinejoin="round"/></svg></div></div> : null}
     </div>
   </div>;
 }

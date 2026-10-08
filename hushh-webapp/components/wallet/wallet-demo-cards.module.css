@@ -9,8 +9,6 @@
 .identityFields > div:first-child { grid-column:1/-1; }
 .identityFields dt { text-transform:uppercase; font-size:1.65cqw; letter-spacing:.1em; opacity:.9; line-height:1.4; }
 .identityFields dd { margin:1.4cqw 0 0; font-size:2.8cqw; line-height:1.25; font-weight:650; overflow-wrap:anywhere; }
-.nws .identityFields { left:9.25%; top:67%; width:70%; grid-template-columns:1.5fr 1fr 1fr; gap:4cqw; }
-.nws .identityFields > div:first-child { grid-column:auto; }
-.nws .identityFields dd { font-size:2.2cqw; }
-.nws .profileQr,.nws .qrPlaceholder { left:75%; top:38%; width:15%; }
 .details { padding:1.25rem; border:1px solid var(--border); border-radius:1.25rem; background:var(--card); color:var(--card-foreground); }
+
+.nwsIdentityFields { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; font-family:"Lexend",system-ui,-apple-system,sans-serif; font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
