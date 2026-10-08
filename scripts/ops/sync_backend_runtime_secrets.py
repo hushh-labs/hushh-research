@@ -297,6 +297,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "one_voice_mail_drafts_enabled": getattr(args, "one_voice_mail_drafts_enabled", "false"),
         "mail_scheduled_drain_enabled": getattr(args, "mail_scheduled_drain_enabled", "false"),
+        "calendar_reminders_enabled": getattr(args, "calendar_reminders_enabled", "false"),
         "hushh_tech_developer_app_id": getattr(args, "hushh_tech_developer_app_id", ""),
         "hushh_tech_allowed_audience": getattr(args, "hushh_tech_allowed_audience", ""),
         "hushh_tech_allowed_redirect_uris": getattr(args, "hushh_tech_allowed_redirect_uris", ""),
@@ -477,6 +478,7 @@ def main() -> int:
         "--mail-scheduled-drain-enabled", default="false", choices=["true", "false"]
     )
     parser.add_argument("--hushh-tech-developer-app-id", default="")
+    parser.add_argument("--calendar-reminders-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--hushh-tech-allowed-audience", default="")
     parser.add_argument("--hushh-tech-allowed-redirect-uris", default="")
     parser.add_argument("--hushh-tech-allowed-consent-scopes", default="")

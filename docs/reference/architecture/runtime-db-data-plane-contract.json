@@ -28,7 +28,9 @@
     "drive_bulk_share_effects",
     "drive_request_payment_webhook_events",
     "circle_chat_messages",
-    "circle_chat_recipients"
+    "circle_chat_recipients",
+    "calendar_reminder_instances",
+    "calendar_reminder_deliveries"
   ],
   "retention_registry": [
     {
@@ -90,6 +92,12 @@
       "owner": "iam-consent-governance",
       "mode": "report_only",
       "job_id": "kyc_retention_report"
+    },
+    {
+      "family_id": "calendar_meeting_reminders",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "calendar_reminder_retention_report"
     }
   ],
   "table_families": [
@@ -1568,6 +1576,23 @@
       "trust_boundary": "Active ordinary Circle members only, with an envelope matching the current membership joined_at generation. The server relays client ciphertext and recipient public keys; it never receives message or image plaintext.",
       "plaintext_posture": "ciphertext_and_membership_delivery_metadata",
       "expected_row_growth": "high_per_message_and_active_member"
+    },
+    {
+      "id": "calendar_meeting_reminders",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "calendar_reminder_preferences",
+        "calendar_reminder_instances",
+        "calendar_reminder_deliveries"
+      ],
+      "primary_access_path": "Owner Firebase preferences; vault-owner live resolve/Join; dedicated OIDC Calendar reminder drain. Google remains the meeting source.",
+      "retention_policy": "One preference row per owner. Worker deletes at most500 instances ending more than24 hours ago per drain; target receipts cascade. Encrypted fixed-window scan checkpoint overwritten after completion.",
+      "deletion_behavior": "Cascade from actor_profiles on account deletion. Disabling suppresses queued sends; live grant/generation fences block disconnected accounts.",
+      "trust_boundary": "No title, attendee, location, description, join URL, vault key or session token persisted. Existing Google key seals event locator and scan cursor with owner/purpose-bound AES-GCM. Title crosses FCM/APNs only under explicit preview preference.",
+      "plaintext_posture": "encrypted_provider_locators_with_keyed_occurrence_and_token_fingerprints",
+      "expected_row_growth": "bounded_24_hour_primary_calendar_window_and_24_hour_terminal_retention"
     }
   ]
 }

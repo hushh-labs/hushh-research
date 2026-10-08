@@ -1,6 +1,9 @@
 import logging
 from typing import Literal, Optional
 
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
 from db.db_client import get_db
 
 logger = logging.getLogger(__name__)
@@ -26,19 +29,30 @@ class PushTokensService:
             RETURNING id
         """
 
-        result = db.execute_raw(
-            sql,
-            {"user_id": user_id, "token": token, "platform": platform},
-        )
-
-        if result.error:
-            logger.error("Push token upsert failed: %s", result.error)
-            raise RuntimeError("Failed to register push token")
-
-        row = result.data[0] if result.data else None
+        params = {"user_id": user_id, "token": token, "platform": platform}
+        try:
+            with db.engine.begin() as connection:
+                if db.engine.dialect.name == "postgresql":
+                    connection.execute(text("SET LOCAL statement_timeout = '5s'"))
+                    connection.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    # Serialize transfers of the same installation, including concurrent owners.
+                    connection.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtextextended(:token, 73921))"),
+                        params,
+                    )
+                connection.execute(
+                    text("DELETE FROM user_push_tokens WHERE token=:token AND user_id<>:user_id"),
+                    params,
+                )
+                row = connection.execute(text(sql), params).mappings().first()
+        except SQLAlchemyError:
+            logger.error("Push token registration storage unavailable")
+            raise RuntimeError("Failed to register push token") from None
         return int(row["id"]) if row and row.get("id") is not None else None
 
-    def delete_user_push_tokens(self, user_id: str, platform: Optional[Platform] = None) -> int:
+    def delete_user_push_tokens(
+        self, user_id: str, platform: Optional[Platform] = None, token: str | None = None
+    ) -> int:
         """Delete push tokens for a user. If platform is given, only that platform's token is removed."""
         db = get_db()
 
@@ -49,6 +63,9 @@ class PushTokensService:
             sql = "DELETE FROM user_push_tokens WHERE user_id = :uid"
             params = {"uid": user_id}
 
+        if token is not None:
+            sql += " AND token = :token"
+            params["token"] = token
         result = db.execute_raw(sql, params)
 
         if result.error:

@@ -213,16 +213,23 @@ const routeOverrides = {
           "startConnect",
           "disconnect",
           "executeProposal",
+          "reminderPreferences",
+          "resolveReminder",
+          "joinMeeting",
         ],
         nextjs_api_route: "/api/one/{path*}",
         nextjs_proxy_file: "app/api/one/[...path]/route.ts",
         backend_endpoint_family:
-          "/api/one/calendar/{status,connect/*,proposals/*}",
+          "/api/one/calendar/{status,connect/*,proposals/*,reminders/*,meetings/join}",
         native_transport:
-          "Web-only Google OAuth; Calendar does not claim native authorization support.",
+          "ApiService direct native HTTP; HushhAuth native Calendar OAuth; FCM/APNs background alerts and HushhOAuthReturn.openExternalUrl for explicit Google Meet joins.",
       },
     ],
-    native_plugin_dependencies: [],
+    native_plugin_dependencies: [
+      { package: "HushhAuth", integration: "Owner-bound native Google Calendar connection." },
+      { package: "@capacitor-firebase/messaging", integration: "Device registration and opaque Calendar reminder tap routing." },
+      { package: "HushhOAuthReturn", integration: "Explicit owner tap opens a freshly verified Google Meet link." },
+    ],
     thread_and_consent_contract: {
       oauth_connection:
         "Google refresh tokens remain server-encrypted; the browser receives only connection status and an authorization URL.",
@@ -239,10 +246,12 @@ const routeOverrides = {
         nextjs_proxy_file: "app/api/one/[...path]/route.ts",
         backend_endpoint_family: "/api/one/calendar/{status,connect/*}",
         native_transport:
-          "Web-only Google OAuth; Calendar setup does not claim native authorization support.",
+          "ApiService direct native HTTP and HushhAuth.connectCalendar for native Google Calendar OAuth.",
       },
     ],
-    native_plugin_dependencies: [],
+    native_plugin_dependencies: [
+      { package: "HushhAuth", integration: "Owner-bound native Google Calendar connection." },
+    ],
     thread_and_consent_contract: {
       oauth_connection:
         "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL.",

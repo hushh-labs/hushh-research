@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import type { User } from "firebase/auth";
@@ -54,7 +54,10 @@ import {
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { ROUTES } from "@/lib/navigation/routes";
-import { openExternalUrl } from "@/lib/utils/browser-navigation";
+import { joinCalendarMeeting } from "@/lib/calendar/join-meeting";
+import { calendarReminderId } from "@/lib/calendar/reminder-target";
+import { useVault } from "@/lib/vault/vault-context";
+import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
@@ -129,11 +132,10 @@ function canJoinGoogleMeet(event: {
   start: { dateTime?: string; date?: string } | null;
   end: { dateTime?: string; date?: string } | null;
   conferenceUrl?: string;
-}): boolean {
+}, now: number): boolean {
   const start = eventInstant(event.start);
   const end = eventInstant(event.end);
-  const now = Date.now();
-  return Boolean(event.conferenceUrl && start && end && now >= start - 15 * 60_000 && now <= end);
+  return Boolean(event.start?.dateTime && event.end?.dateTime && event.conferenceUrl && start && end && now >= start - 15 * 60_000 && now < end);
 }
 
 /**
@@ -338,7 +340,26 @@ function FeedPageSession({
     clearSmsEmergencies,
     consentUnlockPrompt,
   } = useFeedActionables();
-  const { upcomingEvents, pendingKyc, needsReplyCount } = useFeedBriefing();
+  const reminderId = calendarReminderId(useSearchParams().get("calendarReminder"));
+  const { vaultOwnerToken } = useVault();
+  const { upcomingEvents, pendingKyc, needsReplyCount, calendarError, refreshCalendar } = useFeedBriefing(reminderId);
+  const [calendarNow, setCalendarNow] = useState(Date.now);
+  useEffect(() => registerPeriodicTask({ id: "feed-meeting-clock", intervalMs: 15_000, run: () => setCalendarNow(Date.now()) }), []);
+  const joining = useRef(false);
+  const currentVaultToken = useRef(vaultOwnerToken);
+  currentVaultToken.current = vaultOwnerToken;
+  const calendarMounted = useRef(false);
+  useEffect(() => {
+    calendarMounted.current = true;
+    return () => { calendarMounted.current = false; };
+  }, []);
+  const joinMeeting = useCallback(async (eventId: string) => {
+    if (!vaultOwnerToken || joining.current) return;
+    joining.current = true;
+    try { await joinCalendarMeeting(vaultOwnerToken, eventId, () => calendarMounted.current && currentVaultToken.current === vaultOwnerToken); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Meeting could not be opened."); }
+    finally { joining.current = false; }
+  }, [vaultOwnerToken]);
 
   const briefingActionables = useMemo<FeedActionable[]>(() => {
     const items: FeedActionable[] = [];
@@ -398,14 +419,17 @@ function FeedPageSession({
     return items.sort((a, b) => b.sortAt - a.sortAt);
   }, [needsReplyCount, pendingKyc, router]);
 
+  const selectedMeetingEnded = upcomingEvents.some(event => event.reminderSelected && Boolean(event.end?.dateTime) && eventInstant(event.end) <= calendarNow);
+  const calendarNotice = calendarError || (selectedMeetingEnded ? "This meeting has ended." : null);
   const upcomingActionables = useMemo<FeedActionable[]>(() => {
     return [...upcomingEvents]
-      .sort((a, b) => eventInstant(a.start) - eventInstant(b.start))
+      .filter(event => event.status !== "cancelled" && (!event.end?.dateTime || eventInstant(event.end) > calendarNow))
+      .sort((a, b) => Number(Boolean(b.reminderSelected)) - Number(Boolean(a.reminderSelected)) || eventInstant(a.start) - eventInstant(b.start))
       .slice(0, 3)
       .map((event, index) => {
-        const joinable = canJoinGoogleMeet(event);
+        const joinable = Boolean(event.id) && canJoinGoogleMeet(event, calendarNow);
         return {
-          id: `calendar:${event.title}:${event.start?.dateTime ?? event.start?.date ?? index}`,
+          id: `calendar:${event.id ?? index}`,
           icon: CalendarAgentIcon,
           iconTone: "capability",
           title: event.title || "Calendar event",
@@ -418,7 +442,7 @@ function FeedPageSession({
                   key: "join-meet",
                   label: "Join Meet",
                   tone: "primary",
-                  run: () => openExternalUrl(event.conferenceUrl!),
+                  run: () => joinMeeting(event.id!),
                 },
               ]
             : [],
@@ -426,7 +450,7 @@ function FeedPageSession({
           displayTimestamp: null,
         };
       });
-  }, [router, upcomingEvents]);
+  }, [router, upcomingEvents, calendarNow, joinMeeting]);
 
   // Counts only -- never who, and never what any item says. The Feed is a list
   // of other people's names and activity; the only thing voice needs from it is
@@ -776,6 +800,7 @@ function FeedPageSession({
           <AppPageContentRegion>
             <FeedPushPrompt />
             <FeedPaymentReturnNotice />
+            {calendarNotice ? <button type="button" className="text-sm text-muted-foreground text-left" onClick={refreshCalendar}>{calendarNotice} Tap to refresh.</button> : null}
             {user ? <FeedSoundControl userId={user.uid} firstPageItems={data?.items ?? null} /> : null}
             {hasLiveActionables ? (
               <section aria-label="Live">

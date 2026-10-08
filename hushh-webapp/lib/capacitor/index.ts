@@ -876,6 +876,7 @@ export interface HushhNotificationsPlugin {
     userId: string;
     idToken: string; // Firebase ID token
     platform?: "web" | "ios" | "android";
+    token?: string;
     backendUrl?: string;
   }): Promise<{ success: boolean }>;
 }

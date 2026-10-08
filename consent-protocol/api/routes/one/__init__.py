@@ -9,6 +9,7 @@ from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
 from .business_suggestions import router as business_suggestions_router
 from .calendar import router as calendar_router
+from .calendar_reminders import router as calendar_reminders_router
 from .capability_runtime import router as capability_runtime_router
 from .career import router as career_router
 from .circle_chat import router as circle_chat_router
@@ -57,6 +58,7 @@ router.include_router(agent_chat_router)
 router.include_router(connections_router)
 router.include_router(messages_router)
 router.include_router(calendar_router)
+router.include_router(calendar_reminders_router)
 router.include_router(circle_chat_router)
 router.include_router(drive_actions_router)
 router.include_router(capability_runtime_router)

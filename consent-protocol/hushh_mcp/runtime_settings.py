@@ -187,6 +187,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # The Cloud Scheduler drain that delivers scheduled mail. Its own key, so a
     # lane can pause delivery without withdrawing scheduling, and vice versa.
     "mail_scheduled_drain_enabled": "MAIL_SCHEDULED_DRAIN_ENABLED",
+    "calendar_reminders_enabled": "CALENDAR_REMINDERS_ENABLED",
 }
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 CONSENT_NOTIFICATION_CATEGORY = "CONSENT_REQUEST"
@@ -85,10 +86,12 @@ def build_push_message(
     request_url: str,
     notification_tag: str,
     show_alert: bool,
+    expires_at: datetime | None = None,
 ):
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
     is_sms_emergency = _is_one_location_sms_emergency(data)
+    is_calendar = normalized_type == "calendar_meeting_reminder"
     force_feed_only_transport = _is_one_location_feed_only_transport(
         normalized_type,
         data=data,
@@ -132,11 +135,18 @@ def build_push_message(
     if normalized_platform == "android" and show_alert:
         android = messaging.AndroidConfig(
             priority="high",
+            ttl=(
+                timedelta(seconds=max(0, int((expires_at - datetime.now(UTC)).total_seconds())))
+                if expires_at
+                else None
+            ),
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
                 channel_id=(
-                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL if is_sms_emergency else None
+                    ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL
+                    if is_sms_emergency
+                    else ("calendar_reminders_v1" if is_calendar else None)
                 ),
                 tag=notification_tag,
                 ticker="Emergency SMS alert" if is_sms_emergency else None,
@@ -152,6 +162,14 @@ def build_push_message(
             headers={
                 "apns-push-type": "alert",
                 "apns-priority": "10",
+                **(
+                    {
+                        "apns-expiration": str(int(expires_at.timestamp())),
+                        "apns-collapse-id": notification_tag[:64],
+                    }
+                    if expires_at
+                    else {}
+                ),
             },
             payload=messaging.APNSPayload(
                 aps=messaging.Aps(

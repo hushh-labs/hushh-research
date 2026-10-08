@@ -148,6 +148,20 @@ class GoogleConnectionService:
             raise GoogleConnectionError("Unsupported Google service permission", status_code=422)
         return _SERVICE_SCOPES[service][access_level]
 
+    @classmethod
+    def has_service_access(
+        cls, service: GoogleService, access_level: Literal["read", "manage"], scope_csv: str
+    ) -> bool:
+        granted = set(scope_csv.replace(",", " ").split())
+        required = set(cls.scopes(service, access_level))
+        if (
+            service == "calendar"
+            and access_level == "read"
+            and "https://www.googleapis.com/auth/calendar.events" in granted
+        ):
+            granted.add("https://www.googleapis.com/auth/calendar.events.readonly")
+        return required <= granted
+
     def _encrypt(self, value: str, *, aad: str) -> dict[str, str]:
         nonce = secrets.token_bytes(12)
         ciphertext = AESGCM(self._token_key()).encrypt(nonce, value.encode(), aad.encode())
@@ -563,6 +577,27 @@ class GoogleConnectionService:
             {"lock_key": f"google-connection:{user_id}"},
         )
 
+    def seal_calendar_reminder(
+        self, value: str, *, user_id: str, reminder_id: str
+    ) -> dict[str, str]:
+        """Encrypt only Calendar operational locators using the existing provider envelope."""
+        return self._encrypt(value, aad=f"calendar-reminder:v1:{user_id}:{reminder_id}")
+
+    def open_calendar_reminder(
+        self, envelope: dict[str, Any], *, user_id: str, reminder_id: str
+    ) -> str:
+        return self._decrypt(envelope, aad=f"calendar-reminder:v1:{user_id}:{reminder_id}")
+
+    def calendar_occurrence_key(self, *, user_id: str, event_id: str, generation: str) -> str:
+        import hashlib
+        import hmac
+
+        return hmac.new(
+            self._token_key(),
+            f"calendar:primary:{user_id}:{generation}:{event_id}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+
     def _publish_authorization(
         self,
         *,
@@ -783,7 +818,6 @@ class GoogleConnectionService:
     async def access_token(
         self, *, user_id: str, service: GoogleService, access_level: Literal["read", "manage"]
     ) -> str:
-        required_scopes = set(self.scopes(service, access_level))
         service_name = "Google Calendar" if service == "calendar" else "Google service"
         # One statement/snapshot prevents pairing account A's cached bearer
         # with account B's service grant during disconnect/reconnect.
@@ -806,7 +840,7 @@ class GoogleConnectionService:
                 f"Additional {service_name} permission is required", status_code=403
             )
         granted_scopes = set(_clean(row.get("service_scope_csv")).split())
-        if not required_scopes.issubset(granted_scopes):
+        if not self.has_service_access(service, access_level, " ".join(granted_scopes)):
             raise GoogleConnectionError(
                 f"Additional {service_name} permission is required", status_code=403
             )
@@ -923,13 +957,12 @@ class GoogleConnectionService:
             {"user_id": user_id, "service": service},
         )
         row = result.data[0] if result.data else None
-        required = set(self.scopes(service, "read"))
         granted = set(_clean((row or {}).get("scope_csv")).replace(",", " ").split())
         if (
             not row
             or row.get("connection_status") != "connected"
             or row.get("grant_status") != "connected"
-            or not required <= granted
+            or not self.has_service_access(service, "read", " ".join(granted))
             or not row.get("provider_subject")
             or not row.get("connected_at")
             or not row.get("connection_revision")

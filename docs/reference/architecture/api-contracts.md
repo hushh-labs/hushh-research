@@ -2671,3 +2671,17 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+## Calendar meeting reminders
+
+Calendar reminder preferences use authenticated Firebase owner admission; live
+reminder resolution and Join Meet require vault-owner admission. The Calendar
+worker is admitted only by a dedicated, pinned Google OIDC identity and audience.
+See [Calendar meeting reminders](../one/calendar-meeting-reminders.md) for endpoint
+shapes, owner/purpose-bound locator encryption, title-preview consent, fixed
+ten-minute scheduling, retry/expiry/retention, native transport and rollback.
+
+`DELETE /api/notifications/unregister` accepts optional `token` plus `platform`
+for exact owner/platform/token removal. Native and web bridges forward it. Legacy
+explicit broad unregistration remains compatible; normal logout captures this
+device registration and clears the refresh session synchronously before teardown.

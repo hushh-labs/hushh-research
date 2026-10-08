@@ -76,6 +76,7 @@ describe("PostAuthRouteService", () => {
     expect(refreshIdentityMock).not.toHaveBeenCalled();
   });
   it.each([
+    "/one/feed?calendarReminder=11111111-2222-3333-4444-555555555555",
     "/circle/join?code=23456789ABCD",
     "/circle/join?invite=real_token",
     "/one/location/invite/real_token",

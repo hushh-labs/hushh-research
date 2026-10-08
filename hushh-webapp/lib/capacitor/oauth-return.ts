@@ -28,6 +28,8 @@ export function isNativeCustomConnectorReturnUri(value: unknown): value is strin
 }
 
 export interface HushhOAuthReturnPlugin {
+  /** Open a user-selected meeting in the system browser/provider app. */
+  openExternalUrl(options: { url: string }): Promise<void>;
   /** Launch only; backend OAuth completion and vault save remain in the app callback. */
   openAuthorization(options: {
     authorizeUrl: string;

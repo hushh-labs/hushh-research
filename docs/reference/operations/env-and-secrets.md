@@ -812,3 +812,11 @@ Local Android release signing:
 | Local dev | `consent-protocol/.env` (from `.env.example`) | `hushh-webapp/.env.local` |
 | CI | Env in workflow (dummy keys, TESTING=true) | Env in workflow (dummy Firebase, BACKEND_URL) |
 | Production | Secret Manager + Cloud Run env (GOOGLE_GENAI_USE_VERTEXAI, ENVIRONMENT) | Secret Manager → build-args in Dockerfile |
+
+### Calendar reminder rollout
+
+`CALENDAR_REMINDERS_ENABLED` is default off. Its canonical runtime JSON key is
+`calendar_reminders_enabled`; `sync_backend_runtime_secrets.py` accepts
+`--calendar-reminders-enabled true|false`. Enable only after migration285, the
+dedicated OIDC scheduler and matching native clients are ready. The scheduler and
+enable API share this flag. See [setup and rollback](../one/calendar-meeting-reminders.md).

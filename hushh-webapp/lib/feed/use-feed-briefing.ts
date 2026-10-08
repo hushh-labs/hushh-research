@@ -28,6 +28,8 @@ export type UseFeedBriefingResult = {
   upcomingEvents: RedactedCalendarEvent[];
   pendingKyc: FeedKycBriefing | null;
   needsReplyCount: number;
+  calendarError: string | null;
+  refreshCalendar: () => void;
 };
 
 /**
@@ -36,7 +38,7 @@ export type UseFeedBriefingResult = {
  * This hook deliberately does not call an agent: Calendar, Gmail nudges, and
  * KYC workflows are already authoritative deterministic read models.
  */
-export function useFeedBriefing(): UseFeedBriefingResult {
+export function useFeedBriefing(reminderId?: string | null): UseFeedBriefingResult {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
@@ -54,6 +56,7 @@ export function useFeedBriefing(): UseFeedBriefingResult {
     vaultOwnerToken,
     isConnected: calendar.connected,
     windowHours: 24,
+    reminderId,
   });
   const gmail = useGmailConnectorStatus({
     userId,
@@ -115,6 +118,8 @@ export function useFeedBriefing(): UseFeedBriefingResult {
 
   return {
     upcomingEvents: upcoming.events,
+    calendarError: upcoming.error,
+    refreshCalendar: upcoming.refresh,
     pendingKyc,
     needsReplyCount: gmailNudges.nudges.filter(
       (nudge) => nudge.type === "needs_reply",

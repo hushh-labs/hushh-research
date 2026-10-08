@@ -102,6 +102,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let platform = call.getString("platform")
+        let token = call.getString("token")
         let backendUrl = getBackendUrl(call)
         let urlStr = "\(backendUrl)/api/notifications/unregister"
 
@@ -119,6 +120,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         if let platform = platform, !platform.isEmpty {
             body["platform"] = platform
         }
+        if let token = token, !token.isEmpty { body["token"] = token }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         urlSession.dataTask(with: request) { [weak self] data, response, error in

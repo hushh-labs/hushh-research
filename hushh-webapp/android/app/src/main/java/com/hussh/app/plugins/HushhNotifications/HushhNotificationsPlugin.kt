@@ -42,6 +42,7 @@ class HushhNotificationsPlugin : Plugin() {
 
     override fun load() {
         super.load()
+        ensureCalendarChannel(context)
         ensureEmergencySmsChannel(context)
     }
 
@@ -78,6 +79,19 @@ class HushhNotificationsPlugin : Plugin() {
             }
         manager.createNotificationChannel(channel)
         Log.i(TAG, "Emergency SMS notification channel ready")
+    }
+
+    private fun ensureCalendarChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (manager.getNotificationChannel("calendar_reminders_v1") != null) return
+        manager.createNotificationChannel(NotificationChannel(
+            "calendar_reminders_v1", context.getString(R.string.calendar_reminder_channel_name), NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = context.getString(R.string.calendar_reminder_channel_description)
+            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            setBypassDnd(false)
+        })
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -152,6 +166,7 @@ class HushhNotificationsPlugin : Plugin() {
         val userId = call.getString("userId")
         val idToken = call.getString("idToken")
         val platform = call.getString("platform")
+        val token = call.getString("token")
 
         if (userId.isNullOrBlank() || idToken.isNullOrBlank()) {
             call.reject("Missing required parameters: userId, idToken")
@@ -165,6 +180,7 @@ class HushhNotificationsPlugin : Plugin() {
             try {
                 val bodyObj = JSONObject().put("user_id", userId)
                 if (!platform.isNullOrBlank()) bodyObj.put("platform", platform)
+                if (!token.isNullOrBlank()) bodyObj.put("token", token)
 
                 val request = Request.Builder()
                     .url(url)

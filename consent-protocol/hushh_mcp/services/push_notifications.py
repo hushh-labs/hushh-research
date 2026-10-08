@@ -9,13 +9,38 @@ configured, so unit tests and credential-less environments stay clean.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
 from urllib.parse import quote
 
 from hushh_mcp.branding import connection_request_body
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PushAcceptance:
+    accepted: set[str] = field(default_factory=set)
+    retry: bool = True
+
+
+def send_calendar_reminder_push(
+    user_id: str, *, skip_targets: set[str], expires_at: datetime, **kwargs
+) -> PushAcceptance:
+    result = PushAcceptance()
+    send_user_data_push(
+        user_id,
+        **kwargs,
+        platforms=frozenset({"ios", "android"}),
+        include_user_id=False,
+        _skip_targets=skip_targets,
+        _expires_at=expires_at,
+        _acceptance=result,
+    )
+    return result
 
 
 def send_user_data_push(
@@ -31,6 +56,9 @@ def send_user_data_push(
     show_alert: bool = True,
     include_user_id: bool = True,
     platforms: frozenset[str] | None = None,
+    _skip_targets: set[str] | None = None,
+    _expires_at: datetime | None = None,
+    _acceptance: PushAcceptance | None = None,
 ) -> int:
     """Send a metadata push to every device registered for ``user_id``.
 
@@ -86,6 +114,9 @@ def send_user_data_push(
 
         sent = 0
         seen: set[str] = set()
+        if _acceptance is not None:
+            _acceptance.retry = False
+        eligible = False
         for row in rows:
             token = str(row.get("token") or "").strip()
             if not token or token in seen:
@@ -93,6 +124,10 @@ def send_user_data_push(
             seen.add(token)
             platform = str(row.get("platform") or "").strip().lower()
             if platforms is not None and platform not in platforms:
+                continue
+            eligible = True
+            target = hashlib.sha256(token.encode()).hexdigest()
+            if target in (_skip_targets or set()):
                 continue
             message = build_push_message(
                 messaging,
@@ -104,10 +139,13 @@ def send_user_data_push(
                 request_url=deep_link,
                 notification_tag=notification_tag,
                 show_alert=show_alert,
+                **({"expires_at": _expires_at} if _expires_at else {}),
             )
             try:
                 messaging.send(message)
                 sent += 1
+                if _acceptance is not None:
+                    _acceptance.accepted.add(target)
             except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
                 try:
                     get_db().execute_raw(
@@ -121,10 +159,20 @@ def send_user_data_push(
                         cleanup_exc,
                     )
             except Exception as send_exc:  # noqa: BLE001
-                logger.warning("push.send_failed type=%s error=%s", notification_type, send_exc)
+                if _acceptance is not None:
+                    _acceptance.retry = True
+                logger.warning(
+                    "push.send_failed type=%s error=%s", notification_type, type(send_exc).__name__
+                )
+        if _acceptance is not None and not eligible:
+            _acceptance.retry = True
         return sent
     except Exception as exc:  # noqa: BLE001
-        logger.warning("push.notify_skipped type=%s error=%s", notification_type, exc)
+        if _acceptance is not None:
+            _acceptance.retry = True
+        logger.warning(
+            "push.notify_skipped type=%s error=%s", notification_type, type(exc).__name__
+        )
         return 0
 
 

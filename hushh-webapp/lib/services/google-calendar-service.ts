@@ -39,6 +39,7 @@ export type CalendarEventTime = { dateTime?: string; date?: string } | null;
  * job, never this service's. Do not render this type directly.
  */
 export type CalendarEventSummary = {
+  is_declined?: boolean;
   id?: string | null;
   etag?: string | null;
   title: string;
@@ -59,6 +60,14 @@ export type CalendarEventsResponse = {
   time_zone?: string | null;
 };
 
+export type CalendarReminderPreferences = {
+  enabled: boolean;
+  show_title: boolean;
+  time_zone: string;
+  available: boolean;
+  minutes_before: number;
+};
+
 async function errorMessage(
   response: Response,
   fallback: string,
@@ -72,6 +81,85 @@ async function errorMessage(
 
 /** Typed transport for the Calendar API. Components never call fetch directly. */
 export class GoogleCalendarService {
+  static async reminderPreferences(
+    idToken: string,
+    update?: Pick<
+      CalendarReminderPreferences,
+      "enabled" | "show_title" | "time_zone"
+    >,
+  ): Promise<CalendarReminderPreferences> {
+    const response = await ApiService.apiFetch(
+      "/api/one/calendar/reminders/preferences",
+      {
+        method: update ? "PUT" : "GET",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          ...(update ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(update ? { body: JSON.stringify(update) } : {}),
+      },
+    );
+    if (!response.ok)
+      throw new Error(
+        await errorMessage(response, "Unable to update meeting reminders."),
+      );
+    return response.json();
+  }
+
+  static async resolveReminder(
+    vaultOwnerToken: string,
+    reminderId: string,
+  ): Promise<CalendarEventSummary> {
+    const response = await ApiService.apiFetch(
+      `/api/one/calendar/reminders/${encodeURIComponent(reminderId)}`,
+      {
+        headers: { Authorization: `Bearer ${vaultOwnerToken}` },
+      },
+    );
+    if (!response.ok)
+      throw new Error(
+        await errorMessage(
+          response,
+          "This meeting reminder is no longer available.",
+        ),
+      );
+    return response.json();
+  }
+
+  static async joinMeeting(
+    vaultOwnerToken: string,
+    eventId: string,
+  ): Promise<string> {
+    const response = await ApiService.apiFetch(
+      "/api/one/calendar/meetings/join",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${vaultOwnerToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ event_id: eventId }),
+      },
+    );
+    if (!response.ok)
+      throw new Error(
+        await errorMessage(
+          response,
+          "Meeting could not be opened. Refresh Calendar.",
+        ),
+      );
+    const result = (await response.json()) as { url: string };
+    const url = new URL(result.url);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "meet.google.com" ||
+      url.username ||
+      url.password ||
+      url.port
+    )
+      throw new Error("Meeting link is unavailable.");
+    return url.toString();
+  }
   static async status(
     idToken: string,
     userId: string,

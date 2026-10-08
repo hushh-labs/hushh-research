@@ -13,6 +13,7 @@
  */
 
 "use client";
+import { clearFCMSession } from "@/lib/notifications/fcm-service";
 
 import React, {
   createContext,
@@ -905,6 +906,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       let terminalNavigationCommitted = false;
+      clearFCMSession();
       const operation = (async () => {
         // A restore or post-auth settlement that began before sign-out must
         // never repopulate auth state. Keep the sign-out barrier active through

@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   native: false,
   popup: null as Window | null,
   popupAttempt: "",
+  reminderPreferences: vi.fn(),
+  initializeFCM: vi.fn(),
+  users: new Map<string, { uid: string; getIdToken: () => Promise<string> }>(),
 }));
 
 vi.mock("@capacitor/core", async (importOriginal) => {
@@ -34,12 +43,17 @@ vi.mock("@/lib/navigation/agent-navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({
-    user: mocks.ownerId
-      ? { uid: mocks.ownerId, getIdToken: mocks.getIdToken }
-      : null,
-    loading: false,
-  }),
+  useAuth: () => {
+    if (mocks.ownerId && !mocks.users.has(mocks.ownerId))
+      mocks.users.set(mocks.ownerId, {
+        uid: mocks.ownerId,
+        getIdToken: mocks.getIdToken,
+      });
+    return {
+      user: mocks.ownerId ? mocks.users.get(mocks.ownerId) : null,
+      loading: false,
+    };
+  },
 }));
 
 vi.mock("@/lib/services/google-calendar-service", () => ({
@@ -49,12 +63,17 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
     startNativeConnect: mocks.startNativeConnect,
     completeNativeConnect: mocks.completeNativeConnect,
     disconnect: mocks.disconnect,
+    reminderPreferences: mocks.reminderPreferences,
   },
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("@/lib/notifications/fcm-service", () => ({
+  initializeFCM: mocks.initializeFCM,
+}));
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
+import { CalendarReminderSettings } from "@/components/calendar/calendar-reminder-settings";
 
 describe("CalendarAgentPage", () => {
   beforeEach(() => {
@@ -64,9 +83,17 @@ describe("CalendarAgentPage", () => {
     mocks.ownerId = "calendar-user";
     mocks.popupAttempt = "";
     mocks.getIdToken.mockResolvedValue("firebase-token");
+    mocks.reminderPreferences.mockResolvedValue({
+      enabled: false,
+      show_title: true,
+      time_zone: "UTC",
+      available: true,
+      minutes_before: 10,
+    });
+    mocks.initializeFCM.mockResolvedValue({ status: "push_active" });
     vi.spyOn(window, "open").mockImplementation(
       () =>
-        (mocks.popup = ({
+        (mocks.popup = {
           close: vi.fn(),
           document: { title: "" },
           focus: vi.fn(),
@@ -77,17 +104,57 @@ describe("CalendarAgentPage", () => {
             }),
             getItem: vi.fn(() => mocks.popupAttempt || null),
           },
-        }) as unknown as Window),
+        } as unknown as Window),
     );
   });
 
   const waitForConsentWindow = () =>
     waitFor(() =>
       expect(
-        (mocks.popup as unknown as { location: { replace: ReturnType<typeof vi.fn> } })
-          .location.replace,
+        (
+          mocks.popup as unknown as {
+            location: { replace: ReturnType<typeof vi.fn> };
+          }
+        ).location.replace,
       ).toHaveBeenCalled(),
     );
+
+  it("requires native push permission before saving owner reminder preferences", async () => {
+    mocks.native = true;
+    mocks.initializeFCM.mockResolvedValue({ status: "permission_denied" });
+    render(<CalendarReminderSettings />);
+    const toggle = await screen.findByRole("switch", {
+      name: "Meeting reminders",
+    });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalled());
+    expect(mocks.reminderPreferences).toHaveBeenCalledTimes(1);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("does not enable reminders after a deferred permission request completes on an unmounted page", async () => {
+    mocks.native = true;
+    let finishPermission!: (value: { status: string }) => void;
+    mocks.initializeFCM.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishPermission = resolve;
+        }),
+    );
+    const page = render(<CalendarReminderSettings />);
+    const toggle = await screen.findByRole("switch", {
+      name: "Meeting reminders",
+    });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalled());
+    page.unmount();
+    await act(async () => {
+      finishPermission({ status: "push_active" });
+    });
+    expect(mocks.reminderPreferences).toHaveBeenCalledTimes(1);
+  });
 
   it("requests read-only access before an owner enables Calendar scheduling", async () => {
     mocks.status.mockResolvedValue({
@@ -112,7 +179,9 @@ describe("CalendarAgentPage", () => {
         accessLevel: "read",
       }),
     );
-    expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Enable scheduling" }),
+    ).toBeNull();
   });
 
   it("keeps a healthy Calendar connection focused on chat and disconnect", async () => {
@@ -133,10 +202,16 @@ describe("CalendarAgentPage", () => {
     });
     expect(chat).toBeTruthy();
     expect(chat.querySelector("svg")).toBeNull();
-    expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Disconnect Calendar" }),
+    ).toBeTruthy();
 
-    expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Connect your calendar" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Enable scheduling" }),
+    ).toBeNull();
 
     fireEvent.click(chat);
     expect(mocks.navigateToAgentChat).toHaveBeenCalledWith();
@@ -156,11 +231,15 @@ describe("CalendarAgentPage", () => {
 
     await screen.findByText(/View events and availability/);
     expect(screen.queryByRole("button", { name: /Reconnect/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Enable scheduling" }),
+    ).toBeNull();
     expect(
       screen.getByRole("button", { name: "Try Calendar Agent with One" }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Disconnect Calendar" }),
+    ).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Try Calendar Agent with One" }),
@@ -185,7 +264,9 @@ describe("CalendarAgentPage", () => {
       }),
     ).toBeTruthy();
     expect(screen.queryByText("Try asking One")).toBeNull();
-    expect(screen.queryByText(/Summarize my calendar for this week/)).toBeNull();
+    expect(
+      screen.queryByText(/Summarize my calendar for this week/),
+    ).toBeNull();
   });
 
   it("offers one Connect your calendar action when Google authorization has lapsed", async () => {
@@ -224,24 +305,34 @@ describe("CalendarAgentPage", () => {
 
   it("keeps a verified popup success authoritative without a second status read", async () => {
     mocks.status.mockResolvedValue({
-      configured: true, connected: false, status: "disconnected", scope_csv: "",
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
     });
     mocks.startConnect.mockResolvedValue({
       authorize_url: "https://accounts.google.test",
     });
     render(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Connect your calendar" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect your calendar" }),
+    );
     await waitForConsentWindow();
     const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
     act(() => {
-      window.dispatchEvent(new MessageEvent("message", {
-        origin: window.location.origin,
-        source: mocks.popup,
-        data: {
-          schemaVersion: 1, type: "google_oauth_settlement",
-          attemptId: attempt.attemptId, service: "calendar", outcome: "succeeded",
-        },
-      }));
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: window.location.origin,
+          source: mocks.popup,
+          data: {
+            schemaVersion: 1,
+            type: "google_oauth_settlement",
+            attemptId: attempt.attemptId,
+            service: "calendar",
+            outcome: "succeeded",
+          },
+        }),
+      );
     });
     await waitFor(() =>
       expect(
@@ -256,17 +347,24 @@ describe("CalendarAgentPage", () => {
 
   it("never reads popup.closed, so a severed consent window is not an early failure", async () => {
     mocks.status.mockResolvedValue({
-      configured: true, connected: false, status: "disconnected", scope_csv: "",
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
     });
     mocks.startConnect.mockResolvedValue({
       authorize_url: "https://accounts.google.test",
     });
     render(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Connect your calendar" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect your calendar" }),
+    );
     await waitForConsentWindow();
     // Google's opener policy makes a live consent window read as closed.
     Object.defineProperty(mocks.popup as object, "closed", {
-      get: () => { throw new Error("popup.closed must not be read"); },
+      get: () => {
+        throw new Error("popup.closed must not be read");
+      },
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 1_200));
@@ -275,7 +373,9 @@ describe("CalendarAgentPage", () => {
       "one_calendar_action",
       expect.objectContaining({ action: "connected" }),
     );
-    expect(screen.getByRole("button", { name: "Cancel sign-in" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Cancel sign-in" }),
+    ).toBeInTheDocument();
   });
 
   it("suppresses abandoned popup recovery after the owner changes", async () => {
@@ -296,7 +396,9 @@ describe("CalendarAgentPage", () => {
     await waitForConsentWindow();
     mocks.ownerId = "other-owner";
     view.rerender(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel sign-in" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Cancel sign-in" }),
+    );
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -349,20 +451,30 @@ describe("CalendarAgentPage", () => {
   it("counts a native Calendar consent dismissal as expected", async () => {
     mocks.native = true;
     mocks.status.mockResolvedValue({
-      configured: true, connected: false, status: "disconnected", scope_csv: "",
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "",
     });
     mocks.startNativeConnect.mockResolvedValue({
-      server_client_id: "native-client", access_level: "read", state: "state",
+      server_client_id: "native-client",
+      access_level: "read",
+      state: "state",
     });
     mocks.connectCalendar.mockRejectedValue(
       Object.assign(new Error("cancelled"), { code: "USER_CANCELLED" }),
     );
     render(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Connect your calendar" }));
-    await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith(
-      "one_calendar_action",
-      { route_id: "one_calendar", action: "connected", result: "expected_error" },
-    ));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connect your calendar" }),
+    );
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
+        route_id: "one_calendar",
+        action: "connected",
+        result: "expected_error",
+      }),
+    );
     expect(mocks.completeNativeConnect).not.toHaveBeenCalled();
   });
 
@@ -377,7 +489,9 @@ describe("CalendarAgentPage", () => {
     });
     render(<CalendarAgentPage />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Try Calendar Agent with One" }),
+      await screen.findByRole("button", {
+        name: "Try Calendar Agent with One",
+      }),
     );
 
     expect(mocks.navigateToAgentChat).toHaveBeenCalledWith();

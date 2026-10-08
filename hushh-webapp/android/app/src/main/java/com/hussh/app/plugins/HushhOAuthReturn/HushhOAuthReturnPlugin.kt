@@ -21,6 +21,25 @@ class HushhOAuthReturnPlugin : Plugin() {
     private val customReturnPath = "/one/profile/connectors/oauth/return"
 
     @PluginMethod
+    fun openExternalUrl(call: PluginCall) {
+        val raw = call.getString("url")
+        val url = raw?.let(Uri::parse)
+        if (raw == null || raw.length > 2048 || url?.scheme != "https" ||
+            url.host?.lowercase() != "meet.google.com" || url.userInfo != null || url.port != -1) {
+            call.reject("Meeting link is unavailable.", "meeting_link_invalid")
+            return
+        }
+        activity.runOnUiThread {
+            try {
+                activity.startActivity(Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE))
+                call.resolve()
+            } catch (_: Exception) {
+                call.reject("Could not open Google Meet.", "meeting_open_failed")
+            }
+        }
+    }
+
+    @PluginMethod
     fun openAuthorization(call: PluginCall) {
         val rawUrl = call.getString("authorizeUrl")
         val rawReturn = call.getString("redirectUri")

@@ -9,6 +9,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.push_tokens_service import PushTokensService
@@ -40,7 +41,7 @@ async def register_push_token(request: Request):
     token = body.get("token")
     platform = body.get("platform", "web")
 
-    if not user_id or not token:
+    if not isinstance(user_id, str) or not isinstance(token, str) or not 1 <= len(token) <= 4096:
         raise HTTPException(
             status_code=400,
             detail="user_id and token are required",
@@ -58,7 +59,9 @@ async def register_push_token(request: Request):
 
     try:
         service = PushTokensService()
-        token_id = service.upsert_user_push_token(user_id=user_id, token=token, platform=platform)
+        token_id = await run_in_threadpool(
+            service.upsert_user_push_token, user_id=user_id, token=token, platform=platform
+        )
     except Exception as e:
         logger.error("Push token registration failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to register token")
@@ -85,6 +88,14 @@ async def unregister_push_token(request: Request):
 
     user_id = body.get("user_id") or body.get("userId") or firebase_uid
     platform = body.get("platform")
+    token = body.get("token")
+    if token is not None and (
+        not isinstance(token, str)
+        or not 1 <= len(token) <= 4096
+        or not isinstance(platform, str)
+        or platform not in {"web", "ios", "android"}
+    ):
+        raise HTTPException(422, "A scoped push token and platform are required")
 
     if firebase_uid != user_id:
         raise HTTPException(
@@ -94,7 +105,12 @@ async def unregister_push_token(request: Request):
 
     try:
         service = PushTokensService()
-        deleted = service.delete_user_push_tokens(user_id=user_id, platform=platform)
+        deleted = await run_in_threadpool(
+            service.delete_user_push_tokens,
+            user_id=user_id,
+            platform=platform,
+            **({"token": token} if token is not None else {}),
+        )
     except Exception as e:
         logger.error("Push token unregister failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to unregister token(s)")

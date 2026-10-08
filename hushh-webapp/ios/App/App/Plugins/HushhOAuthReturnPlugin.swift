@@ -20,12 +20,31 @@ public class HushhOAuthReturnPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HushhOAuthReturnPlugin"
     public let jsName = "HushhOAuthReturn"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "openAuthorization", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "openAuthorization", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openExternalUrl", returnType: CAPPluginReturnPromise)
     ]
 
     private static let hosts: Set<String> = ["one.hushh.ai", "uat.one.hushh.ai", "dev.one.hushh.ai"]
     private static let returnPathSuffix = "/oauth/return"
     private static let customReturnPath = "/one/profile/connectors/oauth/return"
+
+    @objc func openExternalUrl(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.openExternalUrl(call) }
+            return
+        }
+        guard let raw = call.getString("url"), raw.count <= 2_048,
+              let url = URL(string: raw), url.scheme == "https",
+              url.host?.lowercased() == "meet.google.com", url.user == nil,
+              url.password == nil, url.port == nil else {
+            call.reject("Meeting link is unavailable.", "meeting_link_invalid")
+            return
+        }
+        UIApplication.shared.open(url, options: [:]) { opened in
+            if opened { call.resolve() }
+            else { call.reject("Could not open Google Meet.", "meeting_open_failed") }
+        }
+    }
 
     /// The server owns PKCE, the exact callback, and code exchange. Native
     /// opens only a user-tapped HTTPS authorization in the system browser;

@@ -57,6 +57,16 @@ import {
 } from "@/lib/utils/browser-navigation";
 
 describe("native system-notification routing", () => {
+  it.each(["ios", "android"])("routes %s meeting reminders using only a valid opaque id", async (platform) => {
+    mocks.platform = platform;
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+    const reminder = "11111111-2222-3333-4444-555555555555";
+    onAction?.({ actionId: "tap", notification: { data: { type: "calendar_meeting_reminder", reminder_id: reminder, deep_link: "https://evil.example" } } });
+    expect(mocks.requestInternalAppNavigation).toHaveBeenLastCalledWith({ href: `/one/feed?calendarReminder=${reminder}`, scroll: false });
+    onAction?.({ actionId: "tap", notification: { data: { type: "calendar_meeting_reminder", reminder_id: "../../other" } } });
+    expect(mocks.requestInternalAppNavigation).toHaveBeenLastCalledWith({ href: "/one/feed", scroll: false });
+  });
   it.each(["ios", "android"])("routes %s circle message taps to the validated chat and ignores supplied external URLs", async (platform) => {
     mocks.platform = platform;
     await prepareFCMListeners();

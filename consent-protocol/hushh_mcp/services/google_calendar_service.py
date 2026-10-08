@@ -168,6 +168,11 @@ class GoogleCalendarService:
             "start": event.get("start"),
             "end": event.get("end"),
             "status": event.get("status"),
+            "is_declined": any(
+                item.get("self") and item.get("responseStatus") == "declined"
+                for item in (event.get("attendees") or [])
+                if isinstance(item, dict)
+            ),
             "attendees": [
                 {"email": item.get("email"), "response_status": item.get("responseStatus")}
                 for item in event.get("attendees", [])

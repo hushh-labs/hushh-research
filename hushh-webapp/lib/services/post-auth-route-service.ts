@@ -2,6 +2,7 @@
 
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { isCalendarReminderTarget } from "@/lib/calendar/reminder-target";
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -77,6 +78,7 @@ function isOneLocationInviteRedirect(path: string): boolean {
 }
 
 function inviteRedirectTargetFor(path: string): string | null {
+  if (isCalendarReminderTarget(path)) return path;
   if (isOneLocationInviteRedirect(path)) return path;
   try {
     const url = new URL(path, "https://one.local");
@@ -91,7 +93,7 @@ function inviteRedirectTargetFor(path: string): string | null {
     const returnTo = normalizeInternalRouteHref(
       url.searchParams.get("return_to"),
     );
-    return returnTo && isOneLocationInviteRedirect(returnTo) ? returnTo : null;
+    return returnTo && (isOneLocationInviteRedirect(returnTo) || isCalendarReminderTarget(returnTo)) ? returnTo : null;
   } catch {
     return null;
   }
@@ -256,6 +258,7 @@ export class PostAuthRouteService {
     const invitationNeedsSetup = Boolean(
       invitePathname &&
       (isInvitationPreviewRoute(invitePathname) ||
+        isCalendarReminderTarget(inviteRedirectTarget ?? "") ||
         invitePathname === ROUTES.CONNECT),
     );
     const resolvedNoVaultRoute = inviteRedirectTarget

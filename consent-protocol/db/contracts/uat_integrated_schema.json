@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 284,
+  "expected_migration_version": 285,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2495,6 +2495,47 @@
       "onboarding_journey_updated_at",
       "created_at",
       "updated_at"
+    ],
+    "calendar_reminder_preferences": [
+      "user_id",
+      "enabled",
+      "show_title",
+      "time_zone",
+      "generation",
+      "next_reconcile_at",
+      "reconcile_lease_id",
+      "reconcile_lease_until",
+      "scan_ciphertext",
+      "scan_iv",
+      "scan_tag",
+      "created_at",
+      "updated_at"
+    ],
+    "calendar_reminder_instances": [
+      "reminder_id",
+      "user_id",
+      "occurrence_key",
+      "preference_generation",
+      "locator_ciphertext",
+      "locator_iv",
+      "locator_tag",
+      "start_at",
+      "end_at",
+      "due_at",
+      "revision",
+      "state",
+      "attempts",
+      "lease_id",
+      "lease_until",
+      "next_attempt_at",
+      "error_code",
+      "updated_at"
+    ],
+    "calendar_reminder_deliveries": [
+      "reminder_id",
+      "revision",
+      "target_id",
+      "accepted_at"
     ]
   }
 }

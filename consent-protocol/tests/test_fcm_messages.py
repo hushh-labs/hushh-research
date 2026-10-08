@@ -1,4 +1,29 @@
+from datetime import UTC, datetime, timedelta
+
 from api.utils.fcm_messages import build_push_message
+
+
+def test_calendar_alert_expires_at_start_and_uses_normal_calendar_channel():
+    expires = datetime.now(UTC) + timedelta(minutes=10)
+    target = "synthetic-device"
+    options = dict(
+        token=target,
+        data={"type": "calendar_meeting_reminder"},
+        title="Design review",
+        body="Starts in 10 minutes",
+        request_url="/one/feed",
+        notification_tag="cal:opaque:1",
+        show_alert=True,
+        expires_at=expires,
+    )
+    android = build_push_message(_MessagingStub, platform="android", **options)
+    assert android.notification.title == "Design review"
+    assert android.android.notification.channel_id == "calendar_reminders_v1"
+    assert timedelta(minutes=9) < android.android.ttl <= timedelta(minutes=10)
+    ios = build_push_message(_MessagingStub, platform="ios", **options)
+    assert ios.apns.headers["apns-expiration"] == str(int(expires.timestamp()))
+    assert ios.apns.headers["apns-collapse-id"] == "cal:opaque:1"
+    assert ios.apns.payload.aps.sound == "default"
 
 
 class _MessagingStub:
@@ -92,9 +117,10 @@ class _MessagingStub:
             self.vibrate_timings_millis = vibrate_timings_millis
 
     class AndroidConfig:
-        def __init__(self, priority=None, notification=None):
+        def __init__(self, priority=None, notification=None, ttl=None):
             self.priority = priority
             self.notification = notification
+            self.ttl = ttl
 
     class Message:
         def __init__(

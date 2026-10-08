@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-10-07",
+  "generated_at": "2026-10-08",
   "total_routes": 126,
-  "native_required_routes": 105,
-  "excluded_routes": 21,
+  "native_required_routes": 107,
+  "excluded_routes": 19,
   "routes": [
     {
       "route": "/",
@@ -38,7 +38,10 @@
       "expectedRoute": "/circle/join",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
-      "allowedDataStates": ["loaded", "unavailable-valid"]
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/connected-systems",
@@ -320,8 +323,17 @@
     },
     {
       "route": "/one/calendar",
-      "classification": "excluded-web-only",
-      "reason": "GAP, not a permanent exclusion. Calendar is a first-class One agent and should have a native surface; it does not have one yet. Excluding it hides that. Revisit before the next native release."
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fcalendar",
+      "expectedMarker": "native-route-calendar",
+      "expectedRoute": "/one/calendar",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/career",
@@ -1116,8 +1128,17 @@
     },
     {
       "route": "/one/setup/calendar",
-      "classification": "excluded-web-only",
-      "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcalendar",
+      "expectedMarker": "native-route-calendar",
+      "expectedRoute": "/one/setup/calendar",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/setup/connected-systems",

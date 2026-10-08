@@ -59,10 +59,13 @@ Current policy keeps the full visible app surface in scope, including:
 - `/developers`
 - public/auth content routes
 
-Calendar is intentionally web-only until the app has a native browser/deep-link
-OAuth return handoff. `/one/calendar` and `/one/setup/calendar` must remain
-explicit exclusions rather than presenting a native Google authorization flow
-that cannot complete.
+Calendar uses `HushhAuth.connectCalendar` on native and the existing Google
+OAuth handoff on web. `/one/calendar` and `/one/setup/calendar` are required
+native surfaces. Calendar meeting reminders use background FCM/APNs alerts,
+owner preferences and a dedicated OIDC scheduler; notification taps retain an
+opaque meeting reference through login/unlock, and explicit Join Meet uses
+`HushhOAuthReturn.openExternalUrl`. See the
+[reminder verification and rollout contract](../one/calendar-meeting-reminders.md).
 
 Current inventory policy:
 

@@ -1,5 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="calendar_reminder_channel_name">Meeting reminders</string>
+    <string name="calendar_reminder_channel_description">Upcoming Calendar meetings</string>
     <string name="app_name">Agent One</string>
     <string name="title_activity_main">Agent One</string>
     <string name="package_name">com.hussh.app</string>

@@ -5,7 +5,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
+import type { RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
 import type { FeedRow as RealFeedRow } from "@/components/feed/feed-row";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -48,6 +49,8 @@ const mocks = vi.hoisted(() => {
     toastError: vi.fn(),
     feedRowRender: vi.fn(),
     useRealFeedRow: false,
+    upcomingEvents: [] as RedactedCalendarEvent[],
+    joinMeeting: vi.fn(),
   };
 });
 
@@ -57,6 +60,7 @@ vi.mock("next/navigation", () => ({
   // pathname to scope its route lease. Without this the whole tree throws
   // before any Clear behaviour runs.
   usePathname: () => "/one/feed",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("sonner", () => ({
@@ -66,6 +70,7 @@ vi.mock("sonner", () => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: mocks.user, loading: false }),
 }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: "vault-token" }) }));
 
 vi.mock("@/lib/cache/use-stale-resource", () => ({
   useStaleResource: () => ({
@@ -105,7 +110,7 @@ vi.mock("@/lib/feed/use-feed-live-refresh", () => ({
 
 vi.mock("@/lib/feed/use-feed-briefing", () => ({
   useFeedBriefing: () => ({
-    upcomingEvents: [],
+    upcomingEvents: mocks.upcomingEvents,
     pendingKyc: null,
     needsReplyCount: 0,
   }),
@@ -150,8 +155,9 @@ vi.mock("@/components/feed/feed-push-prompt", () => ({
 }));
 
 vi.mock("@/components/feed/feed-actionable-row", () => ({
-  FeedActionableRow: () => null,
+  FeedActionableRow: ({ item }: { item: { actions?: { key: string; label: string; run: () => void }[] } }) => <>{item.actions?.map(action => <button key={action.key} onClick={action.run}>{action.label}</button>)}</>,
 }));
+vi.mock("@/lib/calendar/join-meeting", () => ({ joinCalendarMeeting: mocks.joinMeeting }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
   AppPageShell: ({ children }: { children: ReactNode }) => (
@@ -191,6 +197,7 @@ vi.mock("@/lib/services/connections-service", () => ({
 describe("Feed connection action ID binding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.upcomingEvents = [];
     mocks.listRequests.mockResolvedValue([
       { id: "req-a", counterpartDisplayName: "Alex" },
       { id: "req-b", counterpartDisplayName: "Alex" },
@@ -198,6 +205,14 @@ describe("Feed connection action ID binding", () => {
     ]);
     mocks.acceptRequest.mockResolvedValue(undefined);
     mocks.rejectRequest.mockResolvedValue(undefined);
+  });
+
+  it("keeps the Join session fence valid through StrictMode effect replay", async () => {
+    mocks.upcomingEvents = [{ id: "live-meeting", title: "Design review", status: "confirmed", start: { dateTime: new Date(Date.now() + 5 * 60_000).toISOString() }, end: { dateTime: new Date(Date.now() + 65 * 60_000).toISOString() }, conferenceUrl: "https://meet.google.com/abc-defg-hij" }];
+    mocks.joinMeeting.mockImplementation(async (_token, _id, isCurrent) => { expect(isCurrent()).toBe(true); });
+    render(<StrictMode><FeedPage /></StrictMode>);
+    fireEvent.click(await screen.findByRole("button", { name: "Join Meet" }));
+    await waitFor(() => expect(mocks.joinMeeting).toHaveBeenCalledWith("vault-token", "live-meeting", expect.any(Function)));
   });
 
   it.each(["accept", "reject"])("binds %s to the selected incoming ID", async (verb) => {

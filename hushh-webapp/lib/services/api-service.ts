@@ -2580,6 +2580,7 @@ export class ApiService {
     idToken: string,
     platform?: "web" | "ios" | "android",
     signal?: AbortSignal,
+    token?: string,
   ): Promise<Response> {
     if (Capacitor.isNativePlatform()) {
       try {
@@ -2588,6 +2589,7 @@ export class ApiService {
           userId,
           idToken,
           ...(platform ? { platform } : {}),
+          ...(token ? { token } : {}),
           backendUrl,
         });
         return new Response(JSON.stringify(result), {
@@ -2612,6 +2614,7 @@ export class ApiService {
       body: JSON.stringify({
         user_id: userId,
         ...(platform ? { platform } : {}),
+        ...(token ? { token } : {}),
       }),
     });
   }

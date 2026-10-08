@@ -14,6 +14,7 @@
 import { Capacitor } from "@capacitor/core";
 import { circleChatNotificationTarget } from "@/lib/circle-chat/routes";
 import { ApiService } from "@/lib/services/api-service";
+import { calendarReminderHref } from "@/lib/calendar/reminder-target";
 import {
   buildDirectMessageRoute,
   ROUTES,
@@ -225,6 +226,7 @@ export function directMessageNotificationTapTarget(
 export function buildNotificationTapTarget(
   data: Record<string, unknown> | undefined,
 ): string {
+  if (data?.type === "calendar_meeting_reminder") return calendarReminderHref(data.reminder_id) ?? ROUTES.ONE_FEED;
   const circleTarget = circleChatNotificationTarget(data);
   if (circleTarget) return circleTarget;
   const directMessageTarget = directMessageNotificationTapTarget(data);
@@ -261,6 +263,7 @@ function resolveNotificationClickTarget(
   value: unknown,
   data: Record<string, unknown> | undefined,
 ): string {
+  if (data?.type === "calendar_meeting_reminder") return calendarReminderHref(data.reminder_id) ?? ROUTES.ONE_FEED;
   const circleTarget = circleChatNotificationTarget(data);
   if (circleTarget) return circleTarget;
   // Older workers send a Feed URL but retain the original typed payload.
@@ -302,7 +305,17 @@ let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;
 let webListenerConfigured = false;
 let webServiceWorkerBridgeConfigured = false;
-let lastKnownSession: { userId: string; idToken: string } | null = null;
+let lastKnownSession: { userId: string; token?: string; platform?: "web" | "ios" | "android" } | null = null;
+let registeredPush: { userId: string; token: string; platform: "web" | "ios" | "android" } | null = null;
+export function clearFCMSession(): void { lastKnownSession = null; }
+
+function calendarNotificationDetail<T>(value: T): T {
+  const source = value as { data?: Record<string, unknown>; notification?: { data?: Record<string, unknown> } };
+  const data = source.data ?? source.notification?.data;
+  if (data?.type !== "calendar_meeting_reminder") return value;
+  // The OS presents the chosen title. App events/logs retain routing metadata only.
+  return { data: { type: data.type, reminder_id: data.reminder_id, message_id: data.message_id }, notification: { title: "Upcoming meeting", body: "Open One to review your meeting." } } as T;
+}
 const FIREBASE_WEB_PUSH_DATABASES = [
   "firebase-messaging-database",
   "firebase-installations-database",
@@ -611,7 +624,7 @@ export async function initializeFCM(
   options: FCMInitOptions = {},
 ): Promise<FCMInitResult> {
   const isNative = Capacitor.isNativePlatform();
-  lastKnownSession = { userId, idToken };
+  if (lastKnownSession?.userId !== userId) lastKnownSession = { userId };
 
   if (isNative) {
     return initializeNativeFCM(userId, idToken, options);
@@ -731,6 +744,7 @@ async function initializeNativeFCM(
   idToken: string,
   options: FCMInitOptions,
 ): Promise<FCMInitResult> {
+  const session = lastKnownSession;
   try {
     if (
       typeof window !== "undefined" &&
@@ -781,12 +795,19 @@ async function initializeNativeFCM(
 
     // Step 3: Register token with backend
     const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
+    if (!session || lastKnownSession !== session) return { status: "push_failed", detail: "session_changed" };
     const response = await ApiService.registerPushToken(
       userId,
       token,
       platform,
       idToken,
     );
+
+    if (lastKnownSession !== session) {
+      if (lastKnownSession?.userId !== userId) await ApiService.unregisterPushToken(userId, idToken, platform, undefined, token);
+      return { status: "push_failed", detail: "session_changed" };
+    }
+    if (response.ok) registeredPush = { userId, token, platform };
 
     if (response.ok) {
       const payload = (await response
@@ -835,6 +856,7 @@ async function initializeWebFCM(
   idToken: string,
   options: FCMInitOptions,
 ): Promise<FCMInitResult> {
+  const session = lastKnownSession;
   try {
     console.log("[FCM] Initializing for web platform...");
 
@@ -1027,12 +1049,19 @@ async function initializeWebFCM(
 
     // Register token with backend
     console.log("[FCM] Registering token with backend...");
+    if (!session || lastKnownSession !== session) return { status: "push_failed", detail: "session_changed" };
     const response = await ApiService.registerPushToken(
       userId,
       token,
       "web",
       idToken,
     );
+
+    if (lastKnownSession !== session) {
+      if (lastKnownSession?.userId !== userId) await ApiService.unregisterPushToken(userId, idToken, "web", undefined, token);
+      return { status: "push_failed", detail: "session_changed" };
+    }
+    if (response.ok) registeredPush = { userId, token, platform: "web" };
 
     if (response.ok) {
       console.log("[FCM] ✅ Token registered with backend");
@@ -1153,7 +1182,7 @@ function setupNativeListeners(): Promise<void> {
           "notificationReceived",
           (notification) => {
             const safeNotification =
-              sanitizeDocumentShareNotificationDetail(notification);
+              calendarNotificationDetail(sanitizeDocumentShareNotificationDetail(notification));
             if (safeNotification !== notification) {
               console.log("[FCM] Document request notification received");
             } else {
@@ -1178,8 +1207,10 @@ function setupNativeListeners(): Promise<void> {
               Record<string, unknown> | undefined;
             const safeDocumentData =
               sanitizeDocumentShareNotificationData(receivedData);
-            const data = safeDocumentData ?? receivedData;
-            if (safeDocumentData) {
+            const data = receivedData?.type === "calendar_meeting_reminder"
+              ? (calendarNotificationDetail({ data: receivedData }) as { data: Record<string, unknown> }).data
+              : safeDocumentData ?? receivedData;
+            if (safeDocumentData || receivedData?.type === "calendar_meeting_reminder") {
               console.log("[FCM] Document request notification tapped");
             } else {
               console.log("[FCM] Notification tapped:", action);
@@ -1248,13 +1279,23 @@ function setupNativeListeners(): Promise<void> {
           console.log("[FCM] Push token refreshed");
           const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
           try {
-            if (lastKnownSession) {
-              await ApiService.registerPushToken(
-                lastKnownSession.userId,
+            const session = lastKnownSession;
+            if (session) {
+              const { AuthService } = await import("@/lib/services/auth-service");
+              const idToken = await AuthService.getIdTokenWithRetry({ expectedUserId: session.userId });
+              if (!idToken || lastKnownSession !== session) return;
+              const response = await ApiService.registerPushToken(
+                session.userId,
                 event.token,
                 platform,
-                lastKnownSession.idToken,
+                idToken,
               );
+              if (!response.ok) throw new Error("Push registration failed");
+              if (lastKnownSession !== session) {
+                if (lastKnownSession?.userId !== session.userId) await ApiService.unregisterPushToken(session.userId, idToken, platform, undefined, event.token);
+                return;
+              }
+              registeredPush = { userId: session.userId, platform, token: event.token };
               console.log("[FCM] Refreshed token re-registered with backend");
             }
           } catch (err) {
@@ -1434,14 +1475,17 @@ export async function deleteFCMToken(
   idToken?: string,
   options?: { signal?: AbortSignal },
 ): Promise<void> {
+  const registered = registeredPush?.userId === userId ? registeredPush : null;
+  registeredPush = null;
+  clearFCMSession();
   const signal = options?.signal;
   if (signal?.aborted) return;
   const isNative = Capacitor.isNativePlatform();
 
   // A stalled backend must not prevent removal of the device's push state.
   // Both operations start within the caller's budget, independently.
-  const unregister = userId && idToken
-    ? ApiService.unregisterPushToken(userId, idToken, undefined, signal)
+  const unregister = userId && idToken && registered
+    ? ApiService.unregisterPushToken(userId, idToken, registered.platform, signal, registered.token)
     : Promise.resolve();
   const clearLocalPushState = async () => {
     if (signal?.aborted) return;

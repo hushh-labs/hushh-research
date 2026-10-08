@@ -8,26 +8,60 @@ const mocks = vi.hoisted(() => ({
   register: vi.fn(),
   getSubscription: vi.fn(),
   unsubscribe: vi.fn(),
+  registerPush: vi.fn(),
+  listeners: new Map<string, (payload: unknown) => Promise<void>>(),
 }));
 
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => mocks.native },
+  Capacitor: { isNativePlatform: () => mocks.native, getPlatform: () => "ios" },
 }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { unregisterPushToken: mocks.unregister },
+  ApiService: { unregisterPushToken: mocks.unregister, registerPushToken: mocks.registerPush },
 }));
 vi.mock("@capacitor-firebase/messaging", () => ({
-  FirebaseMessaging: { deleteToken: mocks.deleteNativeToken },
+  FirebaseMessaging: { deleteToken: mocks.deleteNativeToken,
+    checkPermissions: vi.fn().mockResolvedValue({ receive: "granted" }),
+    getToken: vi.fn().mockResolvedValue({ token: "device-token" }),
+    addListener: vi.fn(async (name: string, callback: (payload: unknown) => Promise<void>) => { mocks.listeners.set(name, callback); return { remove: vi.fn() }; }),
+  },
 }));
 vi.mock("@/lib/firebase/config", () => ({
   app: { options: { appId: "test", apiKey: "test", messagingSenderId: "test" } },
 }));
 
-import { deleteFCMToken } from "@/lib/notifications/fcm-service";
+import { clearFCMSession, deleteFCMToken, initializeFCM } from "@/lib/notifications/fcm-service";
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getIdTokenWithRetry: vi.fn().mockResolvedValue("fresh-token") } }));
 
 describe("sign-out push cleanup", () => {
-  beforeEach(() => {
+  it("does not delete a newer same-owner registration after a stale response", async () => {
+    mocks.native = true;
+    let finish!: (response: Response) => void;
+    mocks.registerPush.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const stale = initializeFCM("owner", "token");
+    await vi.waitFor(() => expect(mocks.registerPush).toHaveBeenCalledTimes(2));
+    clearFCMSession();
+    await initializeFCM("owner", "token");
+    finish(new Response("{}", { status: 200 }));
+    await stale;
+    expect(mocks.unregister).not.toHaveBeenCalled();
+  });
+
+  it("uses fresh owner-bound auth on token refresh and stops refreshing after logout", async () => {
+    mocks.native = true;
+    const refresh = mocks.listeners.get("tokenReceived")!;
+    await refresh({ token: "new-device-token" });
+    expect(mocks.registerPush).toHaveBeenLastCalledWith("owner", "new-device-token", "ios", "fresh-token");
+    await deleteFCMToken("owner", "token");
+    const calls = mocks.registerPush.mock.calls.length;
+    await refresh({ token: "signed-out-token" });
+    expect(mocks.registerPush).toHaveBeenCalledTimes(calls);
+  });
+  beforeEach(async () => {
     vi.clearAllMocks();
+    clearFCMSession();
+    mocks.native = true;
+    mocks.registerPush.mockResolvedValue(new Response("{}", { status: 200 }));
+    await initializeFCM("owner", "token");
     mocks.native = false;
     mocks.unregister.mockResolvedValue(undefined);
     mocks.deleteNativeToken.mockResolvedValue(undefined);
@@ -62,7 +96,7 @@ describe("sign-out push cleanup", () => {
     mocks.unregister.mockReturnValue(new Promise<void>((resolve) => { complete = resolve; }));
     const controller = new AbortController();
     const cleanup = deleteFCMToken("owner", "token", { signal: controller.signal });
-    expect(mocks.unregister).toHaveBeenCalledWith("owner", "token", undefined, controller.signal);
+    expect(mocks.unregister).toHaveBeenCalledWith("owner", "token", "ios", controller.signal, "device-token");
     const localOperation = native ? mocks.deleteNativeToken : mocks.getRegistration;
     await vi.waitFor(() => expect(localOperation).toHaveBeenCalledOnce());
     controller.abort();

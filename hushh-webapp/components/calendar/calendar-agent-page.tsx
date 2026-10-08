@@ -26,6 +26,7 @@ import {
   CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "@/components/calendar/calendar-agent-page-layout";
 import { CalendarConnectHero } from "@/components/calendar/calendar-connect-hero";
+import { CalendarReminderSettings } from "@/components/calendar/calendar-reminder-settings";
 
 import { useAuth } from "@/hooks/use-auth";
 import { HushhAuth } from "@/lib/capacitor";
@@ -494,7 +495,7 @@ export function CalendarAgentPage({
       width="reading"
       className={CALENDAR_SETUP_SHELL_CLASSNAME}
       nativeTest={{
-        routeId: ROUTES.CALENDAR,
+        routeId: journeyVariant === "setup" ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
         marker: "native-route-calendar",
         authState: user ? "authenticated" : loading ? "pending" : "anonymous",
         dataState:
@@ -570,6 +571,7 @@ export function CalendarAgentPage({
                     >
                       Disconnect Calendar
                     </button>
+                    {journeyVariant === "workspace" ? <CalendarReminderSettings /> : null}
                   </div>
                 </div>
               )}
