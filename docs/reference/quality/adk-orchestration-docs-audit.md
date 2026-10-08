@@ -83,7 +83,11 @@ A subsequent local correction removes one redundant pre-snapshot log read while
 retaining fresh owner/lease admission, projection ancestry/erasure checks and final
 read admission. The nearest 16 tests pass; removing the final fence in an isolated
 negative control correctly fails the concurrent-erasure case. This correction is
-not in the serving image; its latency benefit remains unmeasured.
+not in the serving image; its latency benefit remains unmeasured. A further
+source correction loads the hub router only when requested, retaining the public
+`api.routes.one.router` entrypoint. The local import probe fell from 2.797 to
+1.515 seconds; all 104 pod routes and 345 hub routes retained their contracts.
+Local import timing does not establish a cloud cold-start improvement.
 
 ### Reviewed integration debt
 

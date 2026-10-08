@@ -41,6 +41,9 @@ answering in one file that a merge conflict cannot quietly delete half of.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -75,7 +78,7 @@ _MARKERS: list[tuple[str, str, str, bool]] = [
     ),
     (
         "the hub mounts the pod relay",
-        "consent-protocol/api/routes/one/__init__.py",
+        "consent-protocol/api/routes/one/_hub_router.py",
         "pod_relay",
         True,
     ),
@@ -177,3 +180,24 @@ def test_generated_contracts_are_not_hand_merged() -> None:
             "contracts/architecture/runtime-topology-index.v1.json and "
             "contracts/agents/product-agent-registry.v2.json cannot be reconciled at all."
         )
+
+
+def test_cold_pod_import_does_not_initialize_hub_routes():
+    # A fresh process matters: shared-suite collection may already load the hub.
+    # Eager package composition previously loaded its full control plane at wake.
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import pod_server, sys; "
+            "assert 'api.routes.one.pod_session' in sys.modules; "
+            "assert 'api.routes.one.agent_chat' not in sys.modules; "
+            "assert 'api.routes.one.pod_lifecycle' not in sys.modules; "
+            "assert 'api.routes.one._hub_router' not in sys.modules",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "HUSSH_POD_MODE": "1"},
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )

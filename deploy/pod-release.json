@@ -5,7 +5,8 @@
   "notes": {
     "improvements": [
       "Conversation loading avoids a repeated storage read.",
-      "Encrypted checkpoints preserve the existing recovery path."
+      "Encrypted checkpoints preserve the existing recovery path.",
+      "Private-agent startup skips unrelated shared-service route initialization."
     ],
     "fixes": [],
     "security": [

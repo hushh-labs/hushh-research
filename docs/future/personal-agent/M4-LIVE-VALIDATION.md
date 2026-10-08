@@ -117,7 +117,13 @@ already has everything) — the value of testing beyond the happy path:
 **Follow-up (honest):** the slim pod fixes the runtime **surface** (only the agent
 routes are mounted) but still *imports* the full `one` package at startup, because
 `api/routes/one/__init__.py` eagerly imports every sub-router. Physically slimming
-the dependency/import graph (lazy package init) is the tracked next optimization.
+the dependency/import graph (lazy package init) was the tracked next optimization.
+
+**Source update — 2026-10-08:** the package now lazily exposes the existing hub
+router from `api/routes/one/_hub_router.py`. Pod leaf imports no longer compose
+hub routes. Local import and route-parity checks pass; cloud latency qualification
+and owner installation remain separate. The shared image dependency graph has
+not been trimmed by this change.
 
 ## Minimum instance count — the warm floor (min=0 vs min=1), measured
 
