@@ -7,6 +7,7 @@ import {
 } from "@/components/icons";
 import { DevicesProfileIcon } from "@/components/icons/agents";
 import { ProfilePaneDevicesIcon } from "@/components/profile/profile-pane-icons";
+import typographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 
 import {
   AppPageContentRegion,
@@ -34,6 +35,7 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ApiService } from "@/lib/services/api-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
+import { cn } from "@/lib/utils";
 
 interface TrustedDevice {
   device_id: string;
@@ -126,12 +128,24 @@ export default function TrustedDevicesPage({
       <AppPageContentRegion>
         <SettingsPresentationProvider density="compact">
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div
+              className={cn(
+                "flex items-center gap-2 text-sm text-muted-foreground",
+                panePresentation && typographyStyles.status,
+              )}
+            >
               <Loader2 className="size-4 animate-spin" /> Loading devices…
             </div>
           ) : null}
           {visibleError ? (
-            <p className="text-sm text-destructive">{visibleError}</p>
+            <p
+              className={cn(
+                "text-sm text-destructive",
+                panePresentation && typographyStyles.status,
+              )}
+            >
+              {visibleError}
+            </p>
           ) : null}
           {devices.length > 0 ? (
             <SettingsGroup title={panePresentation ? "Connected devices" : undefined} separatorInset>
@@ -164,7 +178,12 @@ export default function TrustedDevicesPage({
             </SettingsGroup>
           ) : null}
           {!loading && devices.length === 0 ? (
-            <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+            <p
+              className={cn(
+                "rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground",
+                panePresentation && typographyStyles.status,
+              )}
+            >
               No trusted devices are connected.
             </p>
           ) : null}
@@ -205,5 +224,14 @@ export default function TrustedDevicesPage({
     </>
   );
 
-  return <div className="profile-inner-devices w-full">{pageContent}</div>;
+  return (
+    <div
+      className={cn(
+        "profile-inner-devices w-full",
+        panePresentation && typographyStyles.paneDevices,
+      )}
+    >
+      {pageContent}
+    </div>
+  );
 }

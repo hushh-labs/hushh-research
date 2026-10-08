@@ -73,6 +73,7 @@ test.beforeAll(async () => {
     build: {
       outDir,
       emptyOutDir: false,
+      copyPublicDir: false,
       lib: {
         entry: path.join(root, "e2e/fixtures/profile-legal-connectors.tsx"),
         name: "Fixture",
@@ -82,6 +83,10 @@ test.beforeAll(async () => {
     },
   });
   script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const componentCss = fs.readdirSync(outDir)
+    .filter((name) => name.endsWith(".css"))
+    .map((name) => fs.readFileSync(path.join(outDir, name), "utf8"))
+    .join("\n");
   const { compile } = await import("tailwindcss");
   const compiler = await compile(
     fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""),
@@ -98,7 +103,7 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  css = stripAppFontFaces(compiler.build([...candidates])) + componentCss + productFontStyle();
 });
 
 async function mount(
@@ -232,6 +237,25 @@ for (const [entry, act, expectedDetail] of [
     expect(errors).toEqual([]);
   });
 }
+
+test("Connector pane text uses the Profile account scale", async ({ page }) => {
+  await mount(page, { at: "/?profile_pane=1&profile_panel=connectors" });
+  const size = (selector: string) =>
+    pane(page).locator(selector).first().evaluate((element) => getComputedStyle(element).fontSize);
+
+  await expect(pane(page).getByTestId("profile-connector-row-calendar")).toBeVisible();
+  expect(await size('[data-testid="profile-connectors-available"] [data-slot="settings-group-heading"]')).toBe("10px");
+  expect(await size('[data-testid="profile-connector-row-calendar"] [data-slot="settings-row-title"]')).toBe("13px");
+  expect(await size('[data-testid="profile-connector-row-calendar"] [data-slot="settings-row-description"]')).toBe("12px");
+
+  await mount(page, {
+    at: "/?profile_pane=1&profile_panel=connectors&profile_detail=connector:calendar",
+  });
+  const detail = pane(page).locator('[data-connector-detail="calendar"]');
+  await expect(detail).toBeVisible();
+  expect(await size('[data-connector-detail="calendar"] h3')).toBe("13px");
+  expect(await size('[data-connector-detail="calendar"] p.text-muted-foreground')).toBe("12px");
+});
 
 test("Back from Connectors opened in chat returns to the chat", async ({ page }) => {
   await mount(page, { at: "/" });
