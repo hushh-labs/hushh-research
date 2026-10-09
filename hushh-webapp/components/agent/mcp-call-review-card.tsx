@@ -9,6 +9,7 @@ import { ExternalConnectorService } from "@/lib/services/external-connector-serv
 import type { AgentChatStreamHandlers } from "@/lib/services/agent-chat-client";
 import type { McpCallPreview } from "@/lib/agent/mcp-call-review";
 import { hasServerClockOffset, serverNow } from "@/lib/agent/server-clock";
+import { escapeReviewText } from "@/lib/agent/mcp-review-display";
 import { ReviewArguments } from "@/components/agent/mcp-call-review-values";
 
 export type McpChatReview = Parameters<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>[0] & {
@@ -243,7 +244,7 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
           </p>
         ) : null}
         {visible ? <>
-          <p className="break-words text-sm font-medium">{visible.connectorLabel} · {visible.toolLabel.replaceAll("_", " ")}</p>
+          <p className="break-words text-sm font-medium">{escapeReviewText(visible.connectorLabel)} · {escapeReviewText(visible.toolLabel.replaceAll("_", " "))}</p>
           <ReviewArguments args={visible.arguments} />
           {Object.keys(visible.arguments).length === 0 ? <p className="text-sm">No additional inputs.</p> : null}
         </> : null}

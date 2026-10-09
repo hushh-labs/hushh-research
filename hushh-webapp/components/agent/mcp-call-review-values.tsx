@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { escapeReviewText, serializeReviewArguments } from "@/lib/agent/mcp-review-display";
 
 /**
  * A readable rendering of the exact arguments of a connector call under review.
@@ -30,14 +31,15 @@ const COMPOUND_WORDS: Record<string, string[]> = {
 
 /** "createRequest" -> "Create request", "lastname" -> "Last name". */
 export function humanizeKey(key: string): string {
-  const words = key
+  const safeKey = escapeReviewText(key);
+  const words = safeKey
     .replace(/[_\-.]+/g, " ")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .split(/\s+/)
     .filter(Boolean)
     .flatMap((word) => COMPOUND_WORDS[word] ?? [word]);
-  if (words.length === 0) return key;
+  if (words.length === 0) return safeKey;
   return words
     .map((word, index) => {
       const acronym = word.length > 1 && word === word.toUpperCase();
@@ -57,16 +59,11 @@ function PrimitiveText({ value }: { value: string | number | boolean | null }) {
   if (typeof value === "string" && value === "") {
     return <span className="text-muted-foreground">Empty</span>;
   }
-  return <span className="whitespace-pre-wrap break-words">{String(value)}</span>;
+  return <span className="whitespace-pre-wrap break-words">{escapeReviewText(String(value))}</span>;
 }
 
 function compact(value: unknown): string {
-  let text: string;
-  try {
-    text = JSON.stringify(value) ?? String(value);
-  } catch {
-    text = String(value);
-  }
+  const text = escapeReviewText(serializeReviewArguments(value) ?? "Details cannot be displayed safely.");
   return text.length > COMPACT_TEXT_LIMIT ? `${text.slice(0, COMPACT_TEXT_LIMIT)}…` : text;
 }
 
@@ -99,7 +96,7 @@ export function ReviewValue({ value, depth = 0 }: { value: unknown; depth?: numb
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="text-muted-foreground">None</span>;
     if (value.every(isPrimitive) && value.length <= 6 && value.every((item) => String(item).length <= 40)) {
-      return <span className="break-words">{value.map((item) => (item === null ? "None" : String(item))).join(", ")}</span>;
+      return <span className="break-words">{value.map((item) => (item === null ? "None" : escapeReviewText(String(item)))).join(", ")}</span>;
     }
     return (
       <ul className="space-y-2">
@@ -126,14 +123,10 @@ export function ReviewArguments({ args }: { args: Record<string, unknown> }) {
   // The raw form is built only when opened, so a closed disclosure adds nothing
   // to the page (no duplicate copy of every value for readers or assistive tech).
   const [open, setOpen] = useState(false);
-  let raw = "";
-  if (open) {
-    try {
-      raw = JSON.stringify(args, null, 2);
-    } catch {
-      raw = "";
-    }
+  if (serializeReviewArguments(args) === null) {
+    return <p>These call details are too complex to review safely. Ask One to prepare a smaller call.</p>;
   }
+  const raw = open ? escapeReviewText(serializeReviewArguments(args, true) ?? "") : "";
   return (
     <>
       <div
