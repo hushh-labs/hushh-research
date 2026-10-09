@@ -17,7 +17,9 @@ another navigation stack, WebView, session, or information store.
 
 This supersedes the foreground overlay-concealment pilot below. Baseline:
 `2f0ce572d6` on `feat/adk-orchestration-runtime`; implementation commit
-`d1504db62f`. New families remain opt-in Debug/iPhone, not Release or iPad.
+`d1504db62f`, followed by ordered-receipt reconciliation, shared selectors and
+owner-fenced draft continuity through candidate `020c50ddac`. New families remain
+opt-in Debug/iPhone, not Release or iPad.
 
 One content-backed native plane sits above the existing WKWebView. The shared
 top/bottom shell owners reserve stationary regions; the central region contains
@@ -38,10 +40,10 @@ the complete application window and conceals the editor immediately.
 | Family | Renderer / operation owner | Candidate evidence | Fallback / rollback |
 |---|---|---|---|
 | Stationary shell Back | Native / authored React Back | Ordered lease/update contracts; physical unqualified | Unsupported wrapper uses React; remove Debug qualification flag |
-| History opener | Native / existing History owner | Reserved slot, stale-choice fence; physical unqualified | Existing React opener on unsupported wrappers |
+| History opener | Native / existing History owner | Ten exact-candidate warm drawer cycles; transition pixels unqualified | Existing React opener on unsupported wrappers |
 | Profile/History moving controls | React / existing drawer and Back owners | No native Close relocation; drag visibility regression test | Existing web renderer retained |
 | Bottom navigation | Standard UITabBar / React navigation | Reserved wrappers retain visible material and revoke actions; older pilot still hides safely | Older iOS/web/Android keep established path |
-| Agent Dock | One native host/editor / existing draft, Send and voice owners | Ordered private contract; overlay-cycle invalidation | Confirm retirement before restoring web composer |
+| Agent Dock | One native host/editor / existing One session draft, Send and voice owners | Ten exact-candidate warm routes retain Unicode/multiline draft; ordered private contract | Confirm retirement before restoring web composer |
 | Stationary More/bounded picker | Native eligible / authored React operation | Capability and region admission only; physical unqualified | Retain React unless slot is eligible |
 | Appearance/Accent in Profile | React trigger / Settings owner | Moving triggers deliberately retained | Existing menus; no delayed renderer swap |
 | Rich/scrolling controls, protected forms, complex multiselects | React / feature owner | Deliberately retained, not native adoption | Unchanged |
@@ -60,15 +62,18 @@ the retained dock/navigation instead of stranding a superseded preparation.
 
 ### Candidate receipts and remaining gates
 
-- Candidate: iPhone Debug 1.4.0 (69), UAT runtime, implementation `d1504db62f`.
-  Executable SHA-256 `a74a4203939786391928a97a023feb6db5be43a615e759af9e9145188aa51f82`;
-  packaged index `68729fa311de1b2608882d44566ecf246d569bb1ad1490b019b36265e636232f`.
+- Candidate: iPhone Debug 1.4.0 (69), UAT runtime, source `020c50ddac`.
+  Executable SHA-256 `dd818bd3d8b008fe945b5f6e38a08d9b788f7d501bf4c08a7d5f441b557a0f5d`;
+  packaged index `4e4b21edd6f21ea6af0554f10f1b6912ac8dae0a37fe09d2391870f90c8ae711`.
   Installation and normal passphrase unlock succeeded separately from warm proof.
-- 141 focused web tests, 49 simulator native support tests, typecheck, static
-  export, device/simulator builds and strict signature verification passed.
-- A pre-freeze Debug candidate passed ten Profile plus ten History cycles:
+- 141 focused web tests, typecheck, native/plugin contracts, static export,
+  device build and strict signature verification passed. The foundation's earlier
+  simulator run passed 49 native support tests; not a latest-candidate visual pass.
+- The exact installed candidate passed ten Profile plus ten History cycles:
   navigation remained visible and covered native interaction/AX was revoked.
-  These metadata receipts do not prove pixels or qualify the installed candidate.
+  Ten warm Chat/One route cycles retained the synthetic Unicode/multiline draft
+  with one WebView and no interactive DOM composer. These interaction/metadata
+  receipts do not prove transition pixels or qualify the material for release.
 - Dock keyboard/draft proof previously failed at keyboard dismissal. Direct
   selector unit coverage did not prove physical key delivery. The current editor
   explicitly prioritizes Command-Return and idle Escape over UIKit text/focus;
@@ -78,9 +83,16 @@ the retained dock/navigation instead of stranding a superseded preparation.
   context were recreated on route remount. The candidate now retains the draft,
   attachment and expansion in the existing memory-only One session authority;
   owner/context guards reject late edits, and vault lock clears the draft even
-  while Chat is unmounted. This source fix still requires exact-candidate proof.
+  while Chat is unmounted. Exact-candidate route proof now passes; pre-vault intro
+  editing remains local and never admits a protected native editor.
+- The subsequent drawer run entered with a visible software keyboard, explaining
+  why its combined initial admission assertion was not material acceptance.
+  The harness now checks that prerequisite through the normal Profile owner;
+  all twenty drawer cycles pass without weakening visibility or isolation checks.
 - A prior core run passed; an overlapping export caused the subsequent core run
-  to fail on Next's build lock. Serialize the frozen-head rerun; do not relax it.
+  to fail on Next's build lock. A later run caught a missing draft-setter callback
+  dependency, corrected in `835d06ae47`. Serialize every frozen-head rerun after
+  export and require the canonical core gate; do not relax it.
 - Outstanding: exact-candidate transition/alignment, IME/attachments/refusal,
   full accessibility/material settings, three physical Release performance runs,
   iPad qualification and exact-head CI. No push or release promotion is implied.
