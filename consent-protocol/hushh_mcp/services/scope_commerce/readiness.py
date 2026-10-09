@@ -109,7 +109,7 @@ class CommerceReadiness:
             if platform["status"] == "ready":
                 platform = await self._persisted_platform(c, config, pin, schema)
             seller_state = _seller_status(seller, config, pin)
-            ready = platform["status"] == "ready"
+            ready = platform["status"] == "ready" and config.allows_actor(viewer_user_id)
             eligible = ready and seller_state["status"] == "eligible"
             return {
                 "schema_version": 1,

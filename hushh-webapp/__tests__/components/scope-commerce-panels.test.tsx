@@ -34,6 +34,7 @@ import { ScopeCommerceOwnerReview } from "@/components/consent/scope-commerce-ow
 import { ScopeCommerceBuyerReview } from "@/components/consent/scope-commerce-buyer-review";
 import { ScopeCommerceActivity } from "@/components/consent/scope-commerce-activity";
 import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
+import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -231,6 +232,27 @@ describe("existing Account payment history", () => {
 
 
 describe("free sharing independent of payment setup", () => {
+  it("projects canonical earnings in Saved and routes payout setup to Account without starting OAuth", async () => {
+    mocks.account.mockResolvedValue({ ...balanceAccount(), earnings: { pending_cents: 450, available_cents: 100 } });
+    render(<MemoryCommerceSummary />);
+    await screen.findByText("450 Hussh coins ($4.50)");
+    expect(screen.getByText("100 Hussh coins ($1.00)")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Set up payouts and view your wallet" })).toHaveAttribute("href", "/one/profile/account");
+    expect(mocks.onboarding).not.toHaveBeenCalled();
+    expect(mocks.hosted).not.toHaveBeenCalled();
+  });
+  it("shows a saved section price before opening review and directs eligible onboarding to Account", async () => {
+    mocks.tariff.mockResolvedValue({ price_cents: 1, base_duration_seconds: 3600 });
+    render(<ScopeTariffEditor scopeHandle="exact_handle" machineScope="attr.food.preferences.*" label="Food preferences" showSavedPrice />);
+    const button = screen.getByRole("button", { name: "Set sharing price for Food preferences" });
+    await waitFor(() => expect(button).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
+    expect(mocks.tariff).toHaveBeenCalledWith("owner-token", "exact_handle", "attr.food.preferences.*");
+    fireEvent.click(button);
+    await screen.findByRole("heading", { name: "Price for Food preferences" });
+    expect(screen.getByRole("link", { name: "Set up payouts with Stripe in Account" })).toHaveAttribute("href", "/one/profile/account");
+    expect(mocks.saveTariff).not.toHaveBeenCalled();
+  });
+
   it("preserves a positive saved price when paid setup is unavailable and allows only an explicitly confirmed free change", async () => {
     mocks.readiness.mockResolvedValue(unavailable());
     mocks.tariff.mockResolvedValue({ price_cents: 450, base_duration_seconds: 604800 });
@@ -241,6 +263,7 @@ describe("free sharing independent of payment setup", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review sharing price" }));
     expect(screen.queryByRole("button", { name: "Save price" })).not.toBeInTheDocument();
     expect(mocks.saveTariff).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Check payment availability in Account" })).toHaveAttribute("href", "/one/profile/account");
     fireEvent.change(input, { target: { value: "0.00" } });
     fireEvent.click(screen.getByRole("button", { name: "Review sharing price" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm free" }));

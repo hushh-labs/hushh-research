@@ -26,6 +26,7 @@ class ScopeTariffs:
 
         prorated_cents(price_cents, base_duration_seconds, base_duration_seconds)
         if price_cents:
+            self._admit_actors(owner_user_id)
             self._admit()
         if not owner_user_id or not scope_handle or not machine_scope or not idempotency_key:
             raise CommerceError("invalid_tariff_binding")

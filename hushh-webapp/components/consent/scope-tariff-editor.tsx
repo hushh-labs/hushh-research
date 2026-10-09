@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, A
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 /** Tariffs belong to the exact authored scope handle, independently of its sharing switch. */
-export function ScopeTariffEditor({ scopeHandle, machineScope, label }: { scopeHandle: string; machineScope: string; label: string }) {
+export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedPrice = false }: { scopeHandle: string; machineScope: string; label: string; showSavedPrice?: boolean }) {
   const { user, capture } = useCommerceSession(`tariff:${scopeHandle}:${machineScope}`);
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState("0.00");
@@ -21,9 +21,10 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label }: { scopeH
   const [message, setMessage] = useState<string | null>(null);
   const [readiness, setReadiness] = useState<CommerceReadiness | undefined>();
   const [ready, setReady] = useState(false);
+  const [savedTariff, setSavedTariff] = useState<{ price: number; hours: number } | null>(null);
   const [review, setReview] = useState<{ amount: number; hours: number; key: string } | null>(null);
   useEffect(() => {
-    if (!open || !user) return;
+    if ((!open && !showSavedPrice) || !user) return;
     let active = true;
     const sessionCurrent = capture();
     const current = () => active && sessionCurrent();
@@ -33,6 +34,7 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label }: { scopeH
       const [tariff, availability] = await Promise.allSettled([ScopeCommerceService.tariff(token, scopeHandle, machineScope), ScopeCommerceService.readiness(token)]);
       if (!current()) return;
       if (tariff.status !== "fulfilled") throw new Error("Sharing price could not be loaded. Refresh before saving.");
+      setSavedTariff({ price: tariff.value?.price_cents ?? 0, hours: (tariff.value?.base_duration_seconds ?? 604800) / 3600 });
       setPrice(((tariff.value?.price_cents ?? 0) / 100).toFixed(2));
       setHours(String((tariff.value?.base_duration_seconds ?? 604800) / 3600));
       if (availability.status !== "fulfilled") throw new Error("Saved terms are shown. Sharing availability could not be checked; refresh before changing them.");
@@ -41,9 +43,9 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label }: { scopeH
     }).catch(error => { if (current()) setMessage(error instanceof Error ? error.message : "Sharing price could not be loaded. Refresh before saving."); })
       .finally(() => { if (active) setBusy(false); });
     return () => { active = false; setReview(null); };
-  }, [open, user, scopeHandle, machineScope, capture]);
-  return <div className="space-y-2">
-    <Button variant="ghost" size="sm" onClick={() => setOpen(value => !value)} aria-label={`Set sharing price for ${label}`}>Sharing price</Button>
+  }, [open, showSavedPrice, user, scopeHandle, machineScope, capture]);
+  return <div className="min-w-0 space-y-2">
+    <Button variant="ghost" size="sm" className="h-auto min-h-11 max-w-full whitespace-normal text-right" onClick={() => setOpen(value => !value)} aria-label={`Set sharing price for ${label}`}>{showSavedPrice ? savedTariff ? savedTariff.price === 0 ? "Free · Set price" : `${formatCommerceMoney(savedTariff.price)} / ${savedTariff.hours}h` : "Check sharing price" : "Sharing price"}</Button>
     <Dialog open={open} onOpenChange={value => { if (!review && !busy) setOpen(value); }}><DialogContent><DialogHeader><DialogTitle>Price for {label}</DialogTitle><DialogDescription>Set the price and base term for this exact sharing section.</DialogDescription></DialogHeader><div className="space-y-3">
       <label className="block space-y-2 text-sm">USD base price<Input inputMode="decimal" value={price} disabled={busy} onChange={event => setPrice(event.target.value)} /></label>
       <label className="block space-y-2 text-sm">Base access term
@@ -51,7 +53,7 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label }: { scopeH
       </label>
       <p className="text-xs text-muted-foreground">100 Hussh coins = $1.00. Enter your base price in USD above. Unset pricing is free and still requires your approval. Paid purchases start at 1 coin ($0.01). The server prorates your base price to the approved access term, up to 100,000 coins ($1,000). Processing costs reduce your earnings.</p>
       <p className="text-xs text-muted-foreground">{commerceReadinessCopy(readiness)}</p>
-      {!readiness?.capabilities.set_paid_tariff ? <Link href="/one/profile/account" className="inline-flex min-h-11 items-center text-sm underline">Review payment availability and payout setup in Account</Link> : null}
+      {!readiness?.capabilities.set_paid_tariff ? <Link href="/one/profile/account" className="inline-flex min-h-11 items-center text-sm underline">{readiness?.capabilities.start_onboarding ? "Set up payouts with Stripe in Account" : "Check payment availability in Account"}</Link> : null}
       {message ? <p role="status" className="text-sm">{message}</p> : null}
       <Button disabled={busy || !ready} onClick={() => {
         try {
@@ -73,7 +75,7 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label }: { scopeH
       void user.getIdToken().then(token => {
         if (!current()) throw new Error("Your account changed. Review again.");
         return ScopeCommerceService.saveTariff(token, { scope_handle: scopeHandle, machine_scope: machineScope, price_cents: review.amount, base_duration_seconds: review.hours * 3600 }, review.key);
-      }).then(() => { if (current()) { setReview(null); setMessage("Sharing terms saved."); } })
+      }).then(() => { if (current()) { setSavedTariff({ price: review.amount, hours: review.hours }); setReview(null); setMessage("Sharing terms saved."); } })
         .catch(error => { if (current()) setMessage(error instanceof Error ? error.message : "Terms could not be saved."); })
         .finally(() => { if (currentView()) setBusy(false); });
     }}>{review?.amount === 0 ? "Confirm free" : "Save price"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>

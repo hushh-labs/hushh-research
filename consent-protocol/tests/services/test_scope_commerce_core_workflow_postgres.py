@@ -14,9 +14,10 @@ import asyncpg
 import pytest
 
 from hushh_mcp.services.scope_commerce import CommerceError, ScopeCommerceService
+from hushh_mcp.services.scope_commerce.provider_sandbox import SandboxPolicy
 
+from .test_scope_commerce_core_support import KEY_FINGERPRINT, fund, purchase, staged
 from .test_scope_commerce_core_support import commerce_db as commerce_db
-from .test_scope_commerce_core_support import fund, purchase, staged
 
 
 async def test_work_lease_starts_retry_clock_only_when_submission_becomes_possible(commerce_db):
@@ -312,3 +313,81 @@ async def test_free_tariff_and_balance_need_no_provider_admission_or_bootstrap(c
         assert await c.fetchval("SELECT count(*) FROM scope_commerce_wallets") == 0
         assert await c.fetchval("SELECT count(*) FROM scope_commerce_sellers") == 0
         assert await c.fetchval("SELECT count(*) FROM scope_commerce_journal") == 0
+
+
+@pytest.mark.parametrize("excluded", ["owner", "payer"])
+async def test_sandbox_actor_admission_bounds_new_paid_work_but_preserves_existing_release(
+    commerce_db, excluded
+):
+    service, pool = commerce_db
+    await fund(service, 50)
+    reserved_quote, reserved = await purchase(service, 1)
+    quote, _ = await purchase(service, 1)
+    await service.reserve_purchase(
+        payer_user_id="payer", quote_id=reserved_quote["quoteId"], idempotency_key="confirmed"
+    )
+    service.provider_config = replace(
+        service.provider_config,
+        sandbox_policy=SandboxPolicy(
+            service.provider_config.platform_account_id, ("owner", "payer")
+        ),
+    )
+    assert (await service.readiness(viewer_user_id="owner"))["capabilities"]["set_paid_tariff"]
+    permitted = ("payer", "other") if excluded == "owner" else ("owner", "other")
+    service.provider_config = replace(
+        service.provider_config,
+        sandbox_policy=SandboxPolicy(service.provider_config.platform_account_id, permitted),
+    )
+    async with pool.acquire() as c:
+        before = await c.fetchrow(
+            "SELECT (SELECT count(*) FROM scope_commerce_quotes) AS quotes, (SELECT count(*) FROM scope_commerce_purchases) AS purchases, (SELECT count(*) FROM scope_commerce_reservations) AS reservations, (SELECT count(*) FROM scope_commerce_journal) AS journals"
+        )
+    terms = dict(
+        owner_user_id="owner",
+        buyer_app_id="app",
+        payer_user_id="payer",
+        scope_handle="scope_abcdefgh",
+        machine_scope="information.test",
+        duration_seconds=60,
+        recipient_key_fingerprint=KEY_FINGERPRINT,
+        idempotency_key=str(uuid4()),
+        purpose="contract test",
+        refresh_policy="snapshot",
+        scope_manifest_revision="1",
+    )
+    for request_id in (quote["requestId"], "req_" + uuid4().hex):
+        with pytest.raises(CommerceError, match="provider_sandbox_reviewer_required"):
+            await service.quote(**terms, request_id=request_id)
+    with pytest.raises(CommerceError, match="provider_sandbox_reviewer_required"):
+        await service.approve_quote(
+            owner_user_id="owner", quote_id=quote["quoteId"], request_id=quote["requestId"]
+        )
+    with pytest.raises(CommerceError, match="provider_sandbox_reviewer_required"):
+        await service.reserve_purchase(
+            payer_user_id="payer", quote_id=quote["quoteId"], idempotency_key="new-confirmation"
+        )
+    if excluded == "owner":
+        with pytest.raises(CommerceError, match="provider_sandbox_reviewer_required"):
+            await service.set_tariff(
+                owner_user_id="owner",
+                scope_handle="scope_abcdefgh",
+                machine_scope="information.test",
+                price_cents=2,
+                base_duration_seconds=60,
+                idempotency_key="changed-price",
+            )
+    async with pool.acquire() as c:
+        after = await c.fetchrow(
+            "SELECT (SELECT count(*) FROM scope_commerce_quotes) AS quotes, (SELECT count(*) FROM scope_commerce_purchases) AS purchases, (SELECT count(*) FROM scope_commerce_reservations) AS reservations, (SELECT count(*) FROM scope_commerce_journal) AS journals"
+        )
+    assert dict(after) == dict(before)
+    await service.set_tariff(
+        owner_user_id="owner",
+        scope_handle="scope_abcdefgh",
+        machine_scope="information.test",
+        price_cents=0,
+        base_duration_seconds=60,
+        idempotency_key="free",
+    )
+    await service.revoke_purchase(owner_user_id="owner", purchase_id=reserved["purchaseId"])
+    assert (await service.balance(payer_user_id="payer"))["balanceCents"] == 50

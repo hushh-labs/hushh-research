@@ -101,6 +101,7 @@ class ConnectOnboarding(ProviderContext):
 
     async def onboarding(self, *, user_id: str, country: str, operation_id: str) -> dict[str, Any]:
         operation_id = _operation_id(operation_id)
+        self._admit_actor(user_id)
         await self._admit()
         if country not in self.config.countries:
             raise CommerceProviderError("seller_country_unavailable")

@@ -40,6 +40,8 @@ class PurchaseReservations:
         )
         if not p:
             raise CommerceError("owner_approval_required")
+        if p["price_cents"]:
+            self._admit_actors(p["owner_user_id"], p["payer_user_id"])
         await self._wallet(c, payer_user_id, p["buyer_app_id"])
         await self._validate_purchase_payer(c, p, payer_user_id)
         old = await self._row(

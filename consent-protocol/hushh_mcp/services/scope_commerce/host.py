@@ -25,6 +25,10 @@ class CommerceRuntime:
             return ScopeCommerceProviderConfig.from_env()
         return self.provider_config
 
+    def _admit_actors(self, *user_ids: str) -> None:
+        if any(not self._config().allows_actor(user_id) for user_id in user_ids):
+            raise CommerceError("provider_sandbox_reviewer_required")
+
     def _admit(self) -> None:
         enabled = (
             self.enabled

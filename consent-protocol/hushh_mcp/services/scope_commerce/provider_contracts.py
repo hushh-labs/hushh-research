@@ -117,6 +117,10 @@ class ProviderContext:
     _derived_id = staticmethod(_derived_id)
     _projection = staticmethod(_projection)
 
+    def _admit_actor(self, user_id: str) -> None:
+        if not self.config.allows_actor(user_id):
+            raise CommerceProviderError("provider_sandbox_reviewer_required")
+
     async def _admit(self, *, new_activity: bool = True) -> None:
         self.config.validate(new_activity=new_activity)
         identity = await self.adapter.platform_identity()

@@ -66,6 +66,7 @@ class FundingCheckout(ProviderContext):
         if type(amount_cents) is not int or not 50 <= amount_cents <= 100_000:
             raise CommerceProviderError("funding_amount_invalid")
         operation_id = _operation_id(operation_id)
+        self._admit_actor(payer_user_id)
         await self._admit()
         parameters = dict(
             payer_user_id=payer_user_id,
