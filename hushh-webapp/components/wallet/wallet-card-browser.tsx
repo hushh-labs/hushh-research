@@ -16,8 +16,9 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./wallet-card-browser.module.css";
 
-export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, ownerId, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral }: {
+export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, ownerId, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral }: {
   cards: WalletCardSummary[];
+  cardholderNames?: Readonly<Record<string, string>>;
   selectedCardId: string | null;
   onSelect: (id: string) => void;
   onOverview: () => void;
@@ -144,7 +145,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
   return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
     <h2 className="sr-only">Your cards</h2>
     {mode === "all" ? <>
-      <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} demoProfile={demoProfile} renderCard={(card) => isAgentWalletCard(card.cardId) ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} collection />} cardControlSummary={(card) => isAgentWalletCard(card.cardId) ? { title: card.nickname || "Agent One", subtitle: "Profile, sharing and scans" } : { title: card.nickname || cardNetworkLabel(card.brand), subtitle: `${cardNetworkLabel(card.brand)} ending ${card.last4}` }} scrollReveal showActions={false} showDetailsLink />
+      <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} demoProfile={demoProfile} renderCard={(card) => isAgentWalletCard(card.cardId) ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} cardholderName={cardholderNames[card.cardId]} collection />} cardControlSummary={(card) => isAgentWalletCard(card.cardId) ? { title: card.nickname || "Agent One", subtitle: "Profile, sharing and scans" } : { title: card.nickname || cardNetworkLabel(card.brand), subtitle: `${cardNetworkLabel(card.brand)} ending ${card.last4}` }} scrollReveal showActions={false} showDetailsLink />
       <div className={styles.quickActions}>
         <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" />{cards.length ? "Add another card" : "Add a payment card"}</Button>
 
@@ -152,7 +153,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     </> : <div key={selected.cardId} className="motion-step-enter space-y-5" data-testid="wallet-selected-card">
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" onClick={showAll} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />All cards</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>
       <div data-swipe-views-horizontal-scroll onTouchStart={(event) => { const point = event.touches[0]; gesture.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null; }} onTouchEnd={finishSwipe} onTouchCancel={() => { gesture.current = null; }} className={styles.selectedFace}>
-        {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} collection />}
+        {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} cardholderName={cardholderNames[selected.cardId]} collection />}
       </div>
       {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} failed={referralError} onRetry={onRetryReferral} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
         {selected.cardId === "agent-one-nws" ? <p className="text-sm text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}

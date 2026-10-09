@@ -1,0 +1,532 @@
+/* Payment-card artwork supplied by the owner. These finishes are the object,
+ * not app chrome: their palette stays stable across the application's themes. */
+.container {
+  container-type: inline-size;
+  width: 100%;
+}
+
+.face {
+  --card-ink: #fff;
+  --card-edge: rgb(255 255 255 / 16%);
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  aspect-ratio: 85.6 / 53.98;
+  overflow: hidden;
+  color: var(--card-ink);
+  background: #15171a;
+  border: 1px solid var(--card-edge);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 16%), inset 0 -1px 0 rgb(0 0 0 / 22%), var(--app-shadow-product);
+  text-align: left;
+}
+
+.face::before,
+.face::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.content {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 7.4%;
+  pointer-events: none;
+}
+
+.top {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 3cqw;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 5cqw;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.network {
+  flex-shrink: 0;
+  color: inherit;
+  font-size: 4cqw;
+  line-height: 1.5;
+}
+
+.chip {
+  position: absolute;
+  top: 34%;
+  left: 7.4%;
+  width: 13.5%;
+  aspect-ratio: 1.28;
+  overflow: hidden;
+  border: 1px solid rgb(30 30 30 / 25%);
+  border-radius: 16%;
+  color: rgb(50 50 40 / 48%);
+  background: linear-gradient(135deg, #f4efe2, #a9a08d 56%, #e7dfcd);
+}
+
+.number {
+  display: flex;
+  flex-wrap: nowrap;
+  column-gap: 2.2cqw;
+  margin-top: auto;
+  font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 4.6cqw;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.035em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bottom {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4cqw;
+  margin-top: 4cqw;
+}
+
+.field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.fieldEnd {
+  flex-shrink: 0;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.caption {
+  margin-bottom: 1.2cqw;
+  color: inherit;
+  font-size: 2.8cqw;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.value {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 3.8cqw;
+  font-weight: 650;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Supplied 20 front-face finishes, kept local and available on first paint. */
+.artA {
+  --card-ink:#17191d;
+  --card-edge:rgba(15,18,23,.12);
+  background:linear-gradient(145deg,#fff 0%,#edf0f3 58%,#dfe3e7);
+}
+
+.artA:before {
+  width:56%;
+  aspect-ratio:1;
+  right:-20%;
+  top:-45%;
+  border:1px solid rgba(0,0,0,.1);
+  border-radius:50%;
+  box-shadow:0 0 0 18px rgba(0,0,0,.025),0 0 0 54px rgba(0,0,0,.018);
+}
+
+.artA:after {
+  inset:auto 0 0;
+  height:2px;
+  background:var(--app-accent);
+}
+
+.artB {
+  background:radial-gradient(circle at 78% 20%,#414853 0%,#1c2026 35%,#090a0c 80%);
+}
+
+.artB:before {
+  inset:0;
+  background:repeating-linear-gradient(115deg,transparent 0 10px,rgba(255,255,255,.018) 11px);
+}
+
+.artB:after {
+  width:45%;
+  height:120%;
+  right:4%;
+  top:-10%;
+  border-left:1px solid rgba(255,255,255,.13);
+  transform:skew(-14deg);
+}
+
+.artC {
+  background:#0759d5;
+}
+
+.artC:before {
+  inset:-25%;
+  background:repeating-radial-gradient(circle at 70% 25%,transparent 0 8%,rgba(255,255,255,.12) 8.4%,transparent 9%);
+}
+
+.artC:after {
+  left:-5%;
+  bottom:-22%;
+  width:60%;
+  aspect-ratio:1;
+  background:var(--app-accent);
+  border-radius:50%;
+  filter:blur(2px);
+}
+
+.artD {
+  background:linear-gradient(135deg,#173d35,#0b2a24 70%,#071d19);
+}
+
+.artD:before {
+  inset:0;
+  background:linear-gradient(90deg,transparent 49.8%,rgba(137,255,210,.15) 50%,transparent 50.3%),linear-gradient(0deg,transparent 49.8%,rgba(137,255,210,.1) 50%,transparent 50.3%);
+  background-size:12% 20%;
+}
+
+.artD:after {
+  inset:8%;
+  border:1px solid rgba(143,255,215,.18);
+  border-radius:2%;
+}
+
+.artE {
+  background:linear-gradient(145deg,#741c33,#3e0b1b);
+}
+
+.artE:before {
+  width:50%;
+  height:100%;
+  right:4%;
+  top:0;
+  background:repeating-linear-gradient(90deg,transparent 0 7%,rgba(255,255,255,.04) 7.5% 8%);
+}
+
+.artE:after {
+  width:32%;
+  aspect-ratio:1;
+  right:9%;
+  top:10%;
+  border:1px solid rgba(255,255,255,.2);
+  border-radius:50%;
+  box-shadow:0 0 0 12px rgba(255,255,255,.025);
+}
+
+.artF {
+  --card-ink:#26231f;
+  --card-edge:rgba(40,35,29,.15);
+  background:#e6ded1;
+}
+
+.artF:before {
+  inset:0;
+  background:repeating-linear-gradient(25deg,transparent 0 20px,rgba(64,56,45,.07) 21px,transparent 22px),repeating-linear-gradient(145deg,transparent 0 32px,rgba(64,56,45,.045) 33px,transparent 34px);
+}
+
+.artF:after {
+  width:44%;
+  aspect-ratio:1;
+  right:-8%;
+  bottom:-40%;
+  border:1px solid rgba(72,60,48,.2);
+  border-radius:50%;
+  box-shadow:0 0 0 18px rgba(72,60,48,.05),0 0 0 38px rgba(72,60,48,.035);
+}
+
+.artG {
+  background:#1a1b1d;
+}
+
+.artG:before {
+  inset:0;
+  background:linear-gradient(122deg,transparent 43%,rgba(255,255,255,.08) 43.2%,transparent 43.5%),linear-gradient(122deg,transparent 61%,rgba(255,255,255,.045) 61.2%,transparent 61.5%);
+}
+
+.artG:after {
+  left:0;
+  top:0;
+  width:5px;
+  height:100%;
+  background:#d9dde3;
+}
+
+.artH {
+  --card-ink:#162331;
+  --card-edge:rgba(30,50,70,.1);
+  background:linear-gradient(125deg,#dcefff,#d9e7f5 42%,#e9dff0 75%,#cde4eb);
+}
+
+.artH:before {
+  width:55%;
+  aspect-ratio:1;
+  right:-10%;
+  top:-50%;
+  border-radius:50%;
+  background:rgba(255,255,255,.7);
+  filter:blur(25px);
+}
+
+.artH:after {
+  inset:0;
+  background:linear-gradient(105deg,transparent 20%,rgba(255,255,255,.6) 40%,transparent 56%);
+}
+
+.artI {
+  background:linear-gradient(145deg,#292d32,#101214);
+}
+
+.artI:before {
+  inset:0;
+  background:repeating-linear-gradient(45deg,rgba(255,255,255,.035) 0 2px,transparent 2px 7px),repeating-linear-gradient(-45deg,rgba(255,255,255,.02) 0 2px,transparent 2px 7px);
+}
+
+.artI:after {
+  inset:6%;
+  border:1px solid rgba(255,255,255,.12);
+  clip-path:polygon(0 0,27% 0,27% 1px,73% 1px,73% 0,100% 0,100% 100%,0 100%);
+}
+
+.artJ {
+  background:linear-gradient(130deg,#c24f39,#8a2d28);
+}
+
+.artJ:before {
+  width:82%;
+  aspect-ratio:1;
+  right:-50%;
+  top:-35%;
+  border:clamp(12px,4cqw,36px) solid rgba(255,218,200,.18);
+  border-radius:50%;
+}
+
+.artJ:after {
+  width:55%;
+  aspect-ratio:1;
+  right:-38%;
+  top:-17%;
+  border:1px solid rgba(255,255,255,.33);
+  border-radius:50%;
+}
+
+.artK {
+  background:linear-gradient(145deg,#066a83,#073c5b);
+}
+
+.artK:before {
+  inset:-30% -10%;
+  background:repeating-radial-gradient(ellipse at 95% 70%,transparent 0 8%,rgba(113,226,255,.12) 8.5% 9.2%,transparent 9.7% 15%);
+}
+
+.artK:after {
+  left:0;
+  bottom:0;
+  width:100%;
+  height:24%;
+  background:linear-gradient(transparent,rgba(0,0,0,.18));
+}
+
+.artL {
+  background:radial-gradient(circle at 80% 24%,#85488d,#43234e 43%,#24122d 85%);
+}
+
+.artL:before {
+  inset:0;
+  background:linear-gradient(115deg,transparent 48%,rgba(255,255,255,.08) 48.4%,transparent 49%),linear-gradient(70deg,transparent 63%,rgba(255,255,255,.06) 63.4%,transparent 64%);
+}
+
+.artL:after {
+  inset:0;
+  box-shadow:inset 0 0 70px rgba(0,0,0,.32);
+}
+
+.artM {
+  --card-ink:#202329;
+  --card-edge:rgba(20,25,31,.14);
+  background:linear-gradient(115deg,#cbd0d5,#f2f4f5 45%,#aab0b8);
+}
+
+.artM:before {
+  inset:0;
+  background:repeating-linear-gradient(90deg,transparent 0 2px,rgba(0,0,0,.025) 3px 4px);
+}
+
+.artM:after {
+  width:40%;
+  height:2px;
+  right:7%;
+  top:22%;
+  background:#353a42;
+  box-shadow:0 5px 0 rgba(53,58,66,.18);
+}
+
+.artN {
+  background:#132b4e;
+}
+
+.artN:before {
+  inset:0;
+  background:linear-gradient(rgba(102,178,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(102,178,255,.08) 1px,transparent 1px);
+  background-size:8% 12%;
+}
+
+.artN:after {
+  width:42%;
+  height:72%;
+  right:-8%;
+  top:14%;
+  border:1px solid rgba(118,190,255,.28);
+  transform:skew(-12deg);
+  box-shadow:-16px 0 rgba(118,190,255,.025);
+}
+
+.artO {
+  background:linear-gradient(135deg,#0c7a69,#06483f);
+}
+
+.artO:before {
+  width:65%;
+  aspect-ratio:1;
+  right:-23%;
+  top:-44%;
+  border-radius:50%;
+  background:radial-gradient(circle,transparent 35%,rgba(120,255,218,.16) 36% 43%,transparent 44% 51%,rgba(120,255,218,.12) 52% 59%,transparent 60%);
+}
+
+.artO:after {
+  left:-5%;
+  bottom:-10%;
+  width:72%;
+  height:36%;
+  background:linear-gradient(18deg,rgba(3,33,28,.45),transparent 70%);
+  transform:skew(-20deg);
+}
+
+.artP {
+  --card-ink:#352126;
+  --card-edge:rgba(62,34,41,.12);
+  background:linear-gradient(138deg,#efd4d8,#c996a0);
+}
+
+.artP:before {
+  inset:0;
+  background:linear-gradient(120deg,transparent 25%,rgba(255,255,255,.36) 40%,transparent 54%);
+}
+
+.artP:after {
+  width:56%;
+  height:155%;
+  right:-22%;
+  top:-25%;
+  border:1px solid rgba(85,41,51,.16);
+  border-radius:50%;
+  transform:rotate(18deg);
+}
+
+.artQ {
+  background:linear-gradient(145deg,#f26455,#ba3636);
+}
+
+.artQ:before {
+  inset:-45% 44% -45% -15%;
+  background:#dd493e;
+  transform:rotate(24deg);
+}
+
+.artQ:after {
+  width:36%;
+  aspect-ratio:1;
+  right:10%;
+  bottom:-20%;
+  border:1px solid rgba(255,255,255,.25);
+  transform:rotate(45deg);
+}
+
+.artR {
+  --card-ink:#14212c;
+  --card-edge:rgba(17,35,48,.12);
+  background:linear-gradient(150deg,#f1f6f8,#c9dce5);
+}
+
+.artR:before {
+  width:90%;
+  height:1px;
+  background:#7d9aaa;
+  right:-20%;
+  top:39%;
+  transform:rotate(-24deg);
+  box-shadow:0 18px rgba(125,154,170,.2),0 -18px rgba(125,154,170,.15);
+}
+
+.artR:after {
+  width:32%;
+  height:100%;
+  right:9%;
+  top:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);
+  transform:skew(-20deg);
+}
+
+.artS {
+  background:linear-gradient(145deg,#5f4b8b,#31264f);
+}
+
+.artS:before {
+  inset:0;
+  background:conic-gradient(from 210deg at 85% 14%,transparent,rgba(255,255,255,.18),transparent 20%);
+}
+
+.artS:after {
+  right:7%;
+  top:8%;
+  width:22%;
+  aspect-ratio:1;
+  border:1px solid rgba(255,255,255,.24);
+  transform:rotate(45deg);
+  box-shadow:12px 12px 0 rgba(255,255,255,.035);
+}
+
+.artT {
+  background:linear-gradient(125deg,#547189,#253b4d);
+}
+
+.artT:before {
+  inset:0;
+  background:repeating-linear-gradient(105deg,transparent 0 16px,rgba(255,255,255,.028) 17px);
+}
+
+.artT:after {
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  border-top:clamp(3px,.9cqw,8px) solid #81a6bf;
+  border-bottom:clamp(3px,.9cqw,8px) solid rgba(8,24,36,.5);
+}
+
+/* Keep small white print legible over the two brightest supplied finishes. */
+.artC .content {
+  background: rgb(0 0 0 / 14%);
+}
+
+.artQ .content {
+  background: rgb(0 0 0 / 26%);
+}

@@ -103,6 +103,26 @@ it does not wait for the card summary request or a server image transform.
 Cold connections can still require an image download. The PNG remains the
 source artwork.
 
+## Adding a payment card
+
+The Add tab accepts manual entry only: card number, name on card, expiry and CVV
+are required. Card provider, PIN and issuing region are optional. A blank provider
+uses number-based network detection, with Other for a valid unrecognized number;
+a supplied provider supports overlapping network ranges. A supplied region is
+validated, while a blank region stays blank. Existing nicknames remain readable;
+new cards use the network label without asking for a nickname.
+
+A confirmed encrypted save inserts the returned card immediately into Cards,
+selects it, and clears the draft. Failed saves retain the draft for retry. The
+20 supplied payment-card finishes are selected deterministically from the saved
+card ID, so reload, renaming and incoming information do not change the artwork.
+The owner-only presentation includes the entered cardholder name. It is read
+from the encrypted secrets branch and never copied into the summary/index or
+chat projection. Default faces show only the last four number digits; full
+number, CVV and PIN remain behind explicit reveal. Locking the vault or changing
+accounts drops the presentation. Reads that fail do not become an empty wallet,
+and writes use the current snapshot revision to preserve concurrent additions.
+
 ## Card browser
 
 The Cards tab uses `WalletCardBrowser` to coordinate an All overview, the existing
@@ -156,21 +176,12 @@ its schema and runtime are deployed; a UAT deployment does not deploy production
 
 The card thumbnail bar hides on downward page scrolling and returns on upward scrolling. Stopping alone does not reveal it; keyboard focus keeps its controls available.
 
-### Add: photo-assisted entry
+### Add: manual entry
 
-The Wallet Add tab keeps all fields on one screen. Scan card uses the native camera
-or browser capture picker; Choose photo uses the device photo picker. Both prefill
-an editable draft, never submit it. Existing manually entered name/expiry values
-are preserved. CVV, PIN, issuing region and nickname remain manual.
-
-Recognition runs locally with Tesseract.js. Worker, WASM and English language
-assets are copied from locked npm dependencies by `hushh-webapp/scripts/prepare-wallet-ocr.mjs`
-from Next config before development/build/export. Generated assets are ignored; no CDN, image
-upload or OCR-result persistence is used. Native capture disables cropping and
-gallery saving. Leaving Add, cancelling, or unmounting aborts the scan; the owned supervisor and nested OCR worker
-are terminated after completion, failure or a 60-second timeout. Unsupported/ambiguous photos fall back to manual
-entry. Existing validation and explicit encrypted WalletService submission remain
-the sole save path. Native camera and bundled worker execution require device QA.
+Wallet Add and the secure chat widget share `SecureCardAddForm`. Neither offers
+Scan card or Choose photo. Previously saved cards and Secrets handoffs continue
+to use the same encrypted WalletService path. The standalone scanner module is
+not reachable from Add.
 
 ### Sharing: review and manage inside Wallet
 

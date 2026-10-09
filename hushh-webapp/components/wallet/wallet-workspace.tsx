@@ -249,7 +249,15 @@ export function WalletWorkspace() {
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
   const ready = view.kind === "list" || view.kind === "add" || view.kind === "reveal";
   const activeTab = view.kind === "add" ? "add" : tab;
-  const [cards, setCards] = useState<WalletCardSummary[]>([]);
+  const cardReadRevision = useRef(0);
+  const [cardSnapshot, setCardSnapshot] = useState<{
+    ownerId: string;
+    cards: WalletCardSummary[];
+    cardholderNames: Record<string, string>;
+  } | null>(null);
+  const ownedSnapshot = vaultKey && cardSnapshot?.ownerId === renderedOwnerId ? cardSnapshot : null;
+  const cards = useMemo(() => ownedSnapshot?.cards ?? [], [ownedSnapshot]);
+  const cardholderNames = ownedSnapshot?.cardholderNames ?? {};
   const [busyCardId, setBusyCardId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<WalletCardSummary | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
@@ -266,6 +274,7 @@ export function WalletWorkspace() {
       setTab("cards");
       setFiling(null);
       setOfferNickname(null);
+      setCardSnapshot(null);
     }
   }, [ready, view.kind]);
 
@@ -408,6 +417,7 @@ export function WalletWorkspace() {
         dispatch({ type: "disabled" });
         return;
       }
+      const readRevision = ++cardReadRevision.current;
       const context = vaultContext();
       if (!context) {
         dispatch({ type: "vault_unavailable" });
@@ -415,18 +425,20 @@ export function WalletWorkspace() {
       }
       if (!options?.quiet) dispatch({ type: "load_started" });
       try {
-        const summaries = await WalletService.listCardSummaries(context);
-        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        setCards(summaries);
+        const presentations = await WalletService.listCardPresentations(context);
+        const summaries = presentations.map((card) => card.summary);
+        if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+        setCardSnapshot({
+          ownerId: context.userId,
+          cards: summaries,
+          cardholderNames: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.cardholderName])),
+        });
         dispatch({ type: "load_succeeded", cardIds: summaries.map((card) => card.cardId) });
-      } catch (error) {
-        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+      } catch {
+        if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         dispatch({
           type: "load_failed",
-          message:
-            error instanceof Error && error.message
-              ? error.message
-              : "Your cards could not be loaded.",
+          message: "Your cards could not be loaded. Please try again.",
         });
       }
     },
@@ -539,6 +551,13 @@ export function WalletWorkspace() {
           ? cards[index + 1]?.cardId ?? cards[index - 1]?.cardId ?? null
           : current);
       }
+      cardReadRevision.current += 1;
+      setCardSnapshot((previous) => {
+        if (previous?.ownerId !== context.userId) return previous;
+        const names = { ...previous.cardholderNames };
+        delete names[cardId];
+        return { ...previous, cards: previous.cards.filter((card) => card.cardId !== cardId), cardholderNames: names };
+      });
       dispatch({ type: "unfocus" });
       await refresh({ quiet: true });
       setRemovingCardId(null);
@@ -783,6 +802,7 @@ export function WalletWorkspace() {
             <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
               key={`${renderedOwnerId || "wallet"}-${activeTab}`}
               cards={cards}
+              cardholderNames={cardholderNames}
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}
               onOverview={() => dispatch({ type: "unfocus" })}
@@ -800,7 +820,6 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] py-4">
               <SecureCardAddForm
-                scanEnabled
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
                 initialNickname={offerNickname ?? undefined}
@@ -817,7 +836,16 @@ export function WalletWorkspace() {
                     });
                     const current = vaultContextRef.current();
                     if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;
-                    setCards((existing) => [...existing.filter((item) => item.cardId !== saved.cardId), saved.summary]);
+                    // A list request begun before this receipt cannot remove the new card.
+                    cardReadRevision.current += 1;
+                    setCardSnapshot((previous) => {
+                      const owned = previous?.ownerId === context.userId ? previous : null;
+                      return {
+                        ownerId: context.userId,
+                        cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
+                        cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
+                      };
+                    });
                     setSelectedDeckCardId(saved.cardId);
                     if (activeOwnerIdRef.current === context.userId) {
                       trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
