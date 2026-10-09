@@ -85,22 +85,26 @@ describe("EmailDeliveryService", () => {
     expect(pendingEmailSendActionIds("owner-1")).toEqual([]);
   });
 
-  it("does not turn partial or uncertain mailbox changes into completed actions", async () => {
-    vi.mocked(ApiService.apiFetch)
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        status: "partially_executed", action: "trash", count: 1, total: 3,
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        status: "outcome_unknown", action: "trash", count: 0, total: 3,
-      }), { status: 200 }));
-    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId: "gmod_1" }))
+  it.each([false, true])("does not turn partial or uncertain mailbox changes into completed actions (private=%s)", async (privateOwner) => {
+    placement.mockResolvedValue(privateOwner);
+    const proposalId = "gmod_abcdefghijklmnop";
+    const transport = vi.mocked(privateOwner ? ApiService.ownerPodRequest : ApiService.apiFetch);
+    for (const result of [
+      { status: "partially_executed", action: "trash", count: 1, total: 3 },
+      { status: "outcome_unknown", action: "trash", count: 0, total: 3 },
+    ]) {
+      transport.mockResolvedValueOnce(new Response(JSON.stringify(privateOwner
+        ? { proposalId, kind: "gmail_mailbox", result } : result), { status: 200 }));
+    }
+    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId }))
       .rejects.toMatchObject({
         code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
         message: "Gmail confirmed 1 of 3 changes. The remaining result is uncertain. Check Gmail before making this change again.",
       });
-    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId: "gmod_1" }))
+    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId }))
       .rejects.toMatchObject({ code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN" });
-    expect(ApiService.apiFetch).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(privateOwner ? ApiService.apiFetch : ApiService.ownerPodRequest).not.toHaveBeenCalled();
   });
 
   it("keeps explicit draft fields and both short-lived auth credentials at the delivery boundary", async () => {

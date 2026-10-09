@@ -180,21 +180,32 @@ async def test_an_id_this_agent_never_minted_is_unknown(agent):
     assert response.status_code == 404
 
 
-async def test_a_reviewed_gmail_change_is_applied_once(agent):
+@pytest.mark.parametrize("outcome", ["executed", "outcome_unknown", "partially_executed"])
+async def test_a_reviewed_gmail_change_is_applied_once(agent, outcome):
     _log, tokens, google = agent
     h.route_inbox(google)
-    google.on("POST", f"{h.GMAIL}/messages/batchModify", {})
+    action = "trash" if outcome == "partially_executed" else "archive"
+    if action == "trash":
+        google.on("POST", f"{h.GMAIL}/messages/m1/trash", {})
+        google.on("POST", f"{h.GMAIL}/messages/m2/trash", {}, status=403)
+    else:
+        google.on(
+            "POST",
+            f"{h.GMAIL}/messages/batchModify",
+            {},
+            status=503 if outcome == "outcome_unknown" else 200,
+        )
     from hushh_mcp.agents.email.mailbox_tools import propose_gmail_mailbox_change
 
     prepared = await propose_gmail_mailbox_change(
-        h.tool_context(), action="archive", query="from:ravi", limit=2
+        h.tool_context(), action=action, query="from:ravi", limit=2
     )
     assert prepared["status"] == "confirmation_required", prepared
     assert {r.url.host for r in google.requests} == {"gmail.googleapis.com"}
     assert google.calls("POST", f"{h.GMAIL}/messages/batchModify") == []
     # The id travels only in the owner's review card; the model never sees it.
     assert "proposal_id" not in prepared
-    from hushh_mcp.services.pod_action_proposals import RECORD_KIND
+    from hushh_mcp.services.pod_action_proposals import RECORD_KIND, SETTLED_KIND
 
     records = [r for r in await agent[0].replay() if r["kind"] == RECORD_KIND]
     directive_id = records[-1]["payload"]["proposalId"]
@@ -205,11 +216,30 @@ async def test_a_reviewed_gmail_change_is_applied_once(agent):
     again = client.post(f"/api/one/pod/actions/{directive_id}/confirm", headers=OWNER_SESSION)
 
     assert first.status_code == 200, first.text
-    assert first.json()["result"] == {"status": "executed", "action": "archive", "count": 2}
+    expected = {
+        "status": outcome,
+        "action": action,
+        "count": 2 if outcome == "executed" else 1 if action == "trash" else 0,
+    }
+    if outcome != "executed":
+        expected["total"] = 2
+    assert first.json()["result"] == expected
     assert again.status_code == 409
-    (modify,) = google.calls("POST", f"{h.GMAIL}/messages/batchModify")
-    assert h.body(modify) == {"ids": ["m1", "m2"], "addLabelIds": [], "removeLabelIds": ["INBOX"]}
-    assert modify.headers["authorization"] == "Bearer ya29.gmail.manage"
+    records = [r for r in await agent[0].replay() if r["kind"] == SETTLED_KIND]
+    assert records[-1]["payload"]["status"] == (
+        "executed" if outcome == "executed" else "executing"
+    )
+    writes = [request for request in google.requests if request.method == "POST"]
+    assert len(writes) == (2 if action == "trash" else 1), (
+        "no replay after uncertain or partial dispatch"
+    )
+    if action == "archive":
+        assert h.body(writes[0]) == {
+            "ids": ["m1", "m2"],
+            "addLabelIds": [],
+            "removeLabelIds": ["INBOX"],
+        }
+    assert all(request.headers["authorization"] == "Bearer ya29.gmail.manage" for request in writes)
 
 
 async def test_owner_email_prepare_keeps_exact_terms_until_one_confirmation(agent):

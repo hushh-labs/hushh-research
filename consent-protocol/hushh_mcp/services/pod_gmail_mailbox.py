@@ -203,14 +203,15 @@ class PodGmailMailboxActions(GmailMailboxActions):
             if proposal["action"] in EMAIL_ACTIONS:
                 result = await self._deliver(token, proposal)
             else:
-                await self._apply(
+                outcome = await self._apply(
                     token, str(proposal["action"]), message_ids, proposal.get("label_id")
                 )
                 result = {
-                    "status": "executed",
                     "action": proposal["action"],
-                    "count": len(message_ids),
+                    **outcome,
                 }
+                if outcome["status"] != "executed":
+                    result["total"] = len(message_ids)
             try:
                 self._credential(bound.credential_id)
             except Exception:
@@ -221,7 +222,8 @@ class PodGmailMailboxActions(GmailMailboxActions):
         except Exception:
             await self._proposals().settle(proposal_id=proposal_id, status="failed")
             raise
-        await self._proposals().settle(proposal_id=proposal_id, status="executed")
+        if proposal["action"] in EMAIL_ACTIONS or result["status"] == "executed":
+            await self._proposals().settle(proposal_id=proposal_id, status="executed")
         return result
 
     async def _deliver(self, token: str, proposal: dict[str, Any]) -> dict[str, Any]:

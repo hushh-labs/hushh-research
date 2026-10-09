@@ -443,18 +443,13 @@ export class EmailDeliveryService {
   static async executeMailboxProposal(
     input: EmailDeliveryAuth & { proposalId: string },
   ): Promise<{ action: string; count: number }> {
-    if (await ownerContentIsPrivate()) {
-      const result = await confirmPrivateGoogleAction(input.proposalId, 'gmail_mailbox');
-      if (result.status !== 'executed' || typeof result.action !== 'string' || !Number.isInteger(result.count) || Number(result.count) < 0) throw new EmailDeliveryError('Check Gmail before trying again.', 502);
-      return { action: result.action, count: Number(result.count) };
-    }
     let payload: Record<string, unknown> | null;
     try {
-      payload = asRecord(
-        await postJson<unknown>("/api/one/email/mailbox/execute", input, {
-          proposal_id: input.proposalId,
-        }),
-      );
+      payload = await ownerContentIsPrivate()
+        ? await confirmPrivateGoogleAction(input.proposalId, 'gmail_mailbox')
+        : asRecord(await postJson<unknown>("/api/one/email/mailbox/execute", input, {
+            proposal_id: input.proposalId,
+          }));
     } catch (error) {
       if (error instanceof EmailDeliveryError && error.code) throw error;
       throw new EmailDeliveryError(

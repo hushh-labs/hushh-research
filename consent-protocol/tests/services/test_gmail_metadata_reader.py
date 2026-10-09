@@ -1119,8 +1119,9 @@ async def test_trash_failure_reports_confirmed_prefix_and_consumes_review(
     result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert result == {"status": expected_status, "action": "trash", "count": 1, "total": 2}
     assert db.rows[proposal["proposal_id"]]["status"] == "executing"
-    with pytest.raises(GmailApiError, match="already used"):
+    with pytest.raises(GmailApiError) as replay_refused:
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert replay_refused.value.code == "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE"
     assert len(writes) == 2
 
 
@@ -1147,8 +1148,9 @@ async def test_batch_modify_503_is_unknown_and_cannot_be_replayed():
     )
     result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert result == {"status": "outcome_unknown", "action": "archive", "count": 0, "total": 2}
-    with pytest.raises(GmailApiError, match="already used"):
+    with pytest.raises(GmailApiError) as replay_refused:
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert replay_refused.value.code == "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE"
     assert len(writes) == 1
 
 
@@ -1181,8 +1183,9 @@ async def test_trash_timeout_is_bounded_and_review_cannot_be_replayed(monkeypatc
     assert result["status"] == "outcome_unknown"
     assert result["count"] == 0
     assert db.rows[proposal["proposal_id"]]["status"] == "executing"
-    with pytest.raises(GmailApiError, match="already used"):
+    with pytest.raises(GmailApiError) as replay_refused:
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert replay_refused.value.code == "GMAIL_MAILBOX_PROPOSAL_UNAVAILABLE"
     assert len(writes) == 2
 
 
@@ -1400,9 +1403,11 @@ async def test_mailbox_never_retries_an_ambiguous_or_completed_write(failure):
             "status"
         ] == "executed"
     else:
-        with pytest.raises(GmailApiError) as caught:
-            await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
-        assert caught.value.code == "GMAIL_MAILBOX_OUTCOME_UNKNOWN"
+        result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+        assert result["status"] == (
+            "outcome_unknown" if failure == "lost_response" else "partially_executed"
+        )
+        assert result["count"] == (0 if failure == "lost_response" else 1)
     count = len(writes)
     assert count > 0
     with pytest.raises(GmailApiError):
