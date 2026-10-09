@@ -213,6 +213,7 @@ export function PhoneMandatePageContent() {
         redirectPath,
         phoneNumber,
         hostname: window.location.hostname,
+        allowNativeRouteAuditBypass: false,
       });
       if (cancelled) return;
       const needsPhone = normalizeStaticExportPathname(

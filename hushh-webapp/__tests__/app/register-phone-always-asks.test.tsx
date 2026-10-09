@@ -123,6 +123,16 @@ describe("PhoneMandatePageContent always asks", () => {
     syncOnboardingJourneyMock.mockResolvedValue(undefined);
   });
 
+  it("explicitly checks the real phone requirement instead of the route-audit shortcut", async () => {
+    resolveAfterLoginMock.mockResolvedValue("/register-phone?redirect=%2Fone%2Fsetup");
+    render(<PhoneMandatePageContent />);
+    await screen.findByRole("button", { name: "Complete phone verification" });
+    expect(resolveAfterLoginMock).toHaveBeenCalledWith(expect.objectContaining({
+      userId: user.uid, allowNativeRouteAuditBypass: false,
+    }));
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("shows the verification flow to an unverified visitor and never redirects away", async () => {
     // jsdom serves this test from localhost — the exact host the deleted
     // bypass used to redirect. The flow must render and stay.

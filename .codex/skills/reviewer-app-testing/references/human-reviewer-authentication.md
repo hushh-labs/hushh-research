@@ -56,5 +56,10 @@ Connections instead of the requested setup entry. `openSession` accepts explicit
 `requireVaultUnlocked:false`. It still requires the exact authenticated owner,
 exact origin and loaded authenticated route marker; it never navigates or records
 completion. Ordinary protected-route arrival remains exact. After admission, use
-same-session Next navigation to Account → Phone number for real verification,
-then the normal encrypted vault, cloud and runtime setup flows.
+same-session Next navigation through the normal setup surfaces. An explicit
+`/register-phone` visit disables only the route-audit phone shortcut and verifies
+the real account requirement; known verified or established owners still leave
+that form. For a new reviewer, choose Shared, verify phone, choose managed AI,
+then Finish setup to create the vault and acknowledge recovery. Account details
+open in the existing profile pane after unlock; a legacy Profile URL redirects
+to the pane on `/one`, and cannot stand in for first-run phone verification.

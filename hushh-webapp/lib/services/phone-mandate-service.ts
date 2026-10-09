@@ -79,6 +79,8 @@ export function shouldRequirePhoneMandate(params: {
   exemptVaultUsers?: boolean;
   hostname?: string | null;
   pathname?: string | null;
+  /** Explicit verification visits must not inherit a route-audit shortcut. */
+  allowNativeRouteAuditBypass?: boolean;
 }): boolean {
   if (params.phoneVerified === true || hasVerifiedPhoneNumber(params.phoneNumber)) {
     return false;
@@ -92,7 +94,7 @@ export function shouldRequirePhoneMandate(params: {
     return false;
   }
 
-  if (shouldBypassPhoneMandateForNativeRouteAudit()) {
+  if (params.allowNativeRouteAuditBypass !== false && shouldBypassPhoneMandateForNativeRouteAudit()) {
     return false;
   }
 

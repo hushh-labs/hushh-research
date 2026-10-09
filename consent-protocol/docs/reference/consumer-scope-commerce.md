@@ -1465,14 +1465,24 @@ unreadable stores, managed readiness with pod provisioning disabled, replay and
 rollback preservation. This correction still requires its own exact-source core,
 CI and deployed first-run evidence.
 
-For reviewer phone preparation, use the normal Account → Phone number → Add
-surface. The canonical operator bridge exempts the initial phone-mandate redirect;
-the separate register-phone page therefore returns an owner without a vault to
-Connections. The Account flow still requires a genuine authenticated server
-challenge and verified response. Its synthetic fixture uses only dedicated
-prefixed secrets and fictional numbers; no Firebase password or setup-marker
-injection substitutes for verification. Credentials and vault material remain in
-process/browser memory, with headless contexts and no protected artifacts.
+First-run reviewer preparation uses the normal setup surfaces: choose Shared,
+verify phone on an explicit `/register-phone?redirect=%2Fone%2Fsetup` visit,
+choose managed AI, then Finish setup to open vault creation and recovery. The
+route-audit bridge can skip an ordinary phone redirect, but explicit verification
+must check the real owner requirement. The verification page disables only that
+audit shortcut; known verified/established owners still leave, and unknown
+identity remains unavailable until refreshed. Both resolver policy checks share
+the current verified claim so a successful refresh can release the form.
+
+Legacy Account Phone URLs redirect to a profile pane on `/one`; unfinished setup
+redirects that underlying route to the hub. Opening the pane above the hub still
+requires an unlocked vault, so it cannot replace first-run phone verification.
+Keep the pane admission fence. After root completion, Account remains the normal
+phone-management surface. Synthetic confirmation uses only dedicated prefixed
+secrets and fictional numbers, with a genuine authenticated challenge and server
+confirmation. No Firebase password, route exemption or setup marker substitutes
+for verification. Vault material remains in process/browser memory, with
+headless contexts and no protected artifacts.
 
 The first-run correction preserves strict provisioning reads and offloads
 placement queries from the event loop. Managed-cloud observation and migration
@@ -1495,3 +1505,20 @@ tests and 56 frontend/service/reviewer tests. The release-only PostgreSQL negati
 control failed on the former strict read as expected. These are source-level
 checks; the next source still needs terminal core/CI/release evidence and normal
 first-run, financial, OAuth and physical-device acceptance.
+
+Follow-up phone admission regression checks passed 117 tests across the host
+policy, actual post-auth resolver, explicit phone page, revalidation continuity
+and route guard. The resolver tests retain ordinary audit behavior, exercise
+missing-identity refresh under explicit verification, release known verified
+claims and reject unresolved claims. Core and deployed evidence for this
+follow-up remain separate from the prior source's successful checks.
+
+The first-run candidate `1ea1d85ea41e986069cafcfa9e55fd0b62735e34` passed
+local core in 1510 seconds. Full CI 37882929237 passed browser, frontend shards,
+iOS and Android checks but failed the scheduled-mail unavailable-placement
+fixture: that fixture dropped the table, which now correctly proves absence.
+It now keeps the table present and removes its owner column to exercise genuine
+unreadability. The unknown-state and sealed-payload retention assertions remain
+unchanged. All 19 scheduled-mail tests passed against disposable PostgreSQL.
+The explicit-phone follow-up passed local core in 1549 seconds; its final
+source still requires terminal full CI and deployed first-run evidence.

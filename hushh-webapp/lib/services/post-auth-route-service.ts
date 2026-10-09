@@ -140,6 +140,7 @@ export class PostAuthRouteService {
     phoneVerified?: boolean | null;
     hostname?: string | null;
     enableFirstRunSetupGate?: boolean;
+    allowNativeRouteAuditBypass?: boolean;
   }): Promise<string> {
     const requestedRoute = normalizeRedirectPath(params.redirectPath);
     const safeExplicitRedirect = normalizeInternalRouteHref(requestedRoute);
@@ -269,14 +270,16 @@ export class PostAuthRouteService {
     // Brand-new Google accounts may not have an identity shadow yet. Resolve
     // that missing claim through the existing identity refresh before deciding;
     // retrying bootstrap alone would keep returning unknown indefinitely.
-    let phoneStatusKnown = remoteState.phoneVerified != null || params.phoneVerified != null;
-    if (!phoneStatusKnown && shouldRequirePhoneMandate({
+    const requiresPhone = () => shouldRequirePhoneMandate({
       phoneNumber: params.phoneNumber,
       phoneVerified,
       hasVault: remoteState.hasVault,
       setupResolved,
       hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
-    })) {
+      allowNativeRouteAuditBypass: params.allowNativeRouteAuditBypass,
+    });
+    let phoneStatusKnown = remoteState.phoneVerified != null || params.phoneVerified != null;
+    if (!phoneStatusKnown && requiresPhone()) {
       const idToken = params.idToken || await AuthService.getIdToken();
       const identity = idToken
         ? await AccountIdentityService.refreshIdentityForSession(params.userId, idToken)
@@ -285,17 +288,7 @@ export class PostAuthRouteService {
       phoneVerified = AccountIdentityService.hasVerifiedPhone(identity);
     }
 
-    if (
-      shouldRequirePhoneMandate({
-        phoneNumber: params.phoneNumber,
-        phoneVerified,
-        hasVault: remoteState.hasVault,
-        setupResolved,
-        hostname:
-          params.hostname ??
-          (typeof window === "undefined" ? null : window.location.hostname),
-      })
-    ) {
+    if (requiresPhone()) {
       if (remoteState.hasVault !== false ||
           !phoneStatusKnown) {
         throw new Error("Unable to verify account onboarding. Please try again.");

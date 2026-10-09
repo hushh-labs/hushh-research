@@ -17,7 +17,19 @@
  * a real number. The exemption grants nothing server-side.
  */
 
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+
+const { bootstrap, refreshIdentity } = vi.hoisted(() => ({ bootstrap: vi.fn(), refreshIdentity: vi.fn() }));
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
+  bootstrapState: bootstrap, isSetupResolved: () => false,
+} }));
+vi.mock("@/lib/services/pre-vault-onboarding-service", () => ({ PreVaultOnboardingService: { load: async () => null } }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getIdToken: async () => "synthetic-token" } }));
+vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityService: {
+  peekCachedIdentity: () => null, refreshIdentityForSession: refreshIdentity,
+  hasVerifiedPhone: (value: { phone_verified?: boolean } | null) => value?.phone_verified === true,
+} }));
 
 import {
   shouldBypassPhoneMandateForLocalhost,
@@ -29,6 +41,32 @@ const UNVERIFIED = {
   phoneVerified: false,
   hasVault: false,
 } as const;
+
+afterEach(() => { delete window.__HUSHH_NATIVE_TEST__; vi.unstubAllEnvs(); });
+
+it("keeps explicit verification reachable under reviewer audit without changing ordinary admission", () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+  window.__HUSHH_NATIVE_TEST__ = { enabled: true, expectedUserId: "synthetic-owner" };
+  const owner = { ...UNVERIFIED, hostname: "preview.example.com" };
+  expect(shouldRequirePhoneMandate(owner)).toBe(false);
+  expect(shouldRequirePhoneMandate({ ...owner, allowNativeRouteAuditBypass: false })).toBe(true);
+  expect(shouldRequirePhoneMandate({ ...owner, allowNativeRouteAuditBypass: false, phoneVerified: true })).toBe(false);
+  expect(shouldRequirePhoneMandate({ ...owner, allowNativeRouteAuditBypass: false, hasVault: true })).toBe(false);
+});
+
+it.each([false, true, null])("rechecks unknown identity during explicit reviewer verification (verified=%s)", async verified => {
+  window.__HUSHH_NATIVE_TEST__ = { enabled: true, expectedUserId: "synthetic-owner" };
+  bootstrap.mockResolvedValue({ hasVault: false, setupCompleted: false, phoneVerified: null });
+  refreshIdentity.mockClear();
+  refreshIdentity.mockResolvedValue(verified === null ? null : { phone_verified: verified });
+  const request = { userId: "synthetic-owner", hostname: "preview.example.com" };
+  await expect(PostAuthRouteService.resolveAfterLogin(request)).resolves.toBe("/one/setup/connections");
+  expect(refreshIdentity).not.toHaveBeenCalled();
+  const explicit = PostAuthRouteService.resolveAfterLogin({ ...request, allowNativeRouteAuditBypass: false });
+  if (verified === null) await expect(explicit).rejects.toThrow("Unable to verify account onboarding");
+  else await expect(explicit).resolves.toBe(verified ? "/one/setup/connections" : "/register-phone?redirect=%2Fone%2Fsetup%2Fconnections");
+  expect(refreshIdentity).toHaveBeenCalledWith("synthetic-owner", "synthetic-token");
+});
 
 describe("the dev deployment is NEVER exempt (the dead-loop regression)", () => {
   it.each(["development", "uat", "production"])(

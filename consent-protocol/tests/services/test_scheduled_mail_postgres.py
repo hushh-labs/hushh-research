@@ -699,7 +699,7 @@ async def test_drain_refuses_an_owner_without_verified_shared_placement(
     await _make_due(ledger, due["action_id"])
     before = await _row(ledger, due["action_id"])
     if placement == "unavailable":
-        await ledger.execute("DROP TABLE personal_agent_registry")
+        await ledger.execute("ALTER TABLE personal_agent_registry DROP COLUMN user_id")
     assert await get_owner_hosting_mode(OTHER) == (
         "unknown" if placement == "unavailable" else "unplaced"
     )
