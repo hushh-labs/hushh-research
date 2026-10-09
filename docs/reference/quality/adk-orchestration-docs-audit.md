@@ -67,6 +67,15 @@ VM comparisons include disk, IP, image custody, hypothetical wake control and AI
 Equal vCPU labels do not prove equal performance. Open sockets and scale-down
 tails extend paid time. Spending thresholds warn without stopping service.
 
+## Reviewed integration debt
+
+At `eb3402499`, 104 exact upstream finding slots and 46 independently reviewed
+merge slots were reconciled against frozen source revisions and file hashes.
+Budgets (500/250/80), scanner, exclusions and future regression enforcement remain
+unchanged. Review found and fixed a Mail account/session race; 43 nearest cases
+pass and the original callbacks fail the behavioral negative control. This is a
+measured structural-debt baseline, not a readiness or live acceptance receipt.
+
 ## Owners and next gate
 
 | Owner | Required receipt |

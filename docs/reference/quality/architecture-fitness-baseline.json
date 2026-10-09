@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2246,
+  "finding_count": 2257,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -59,7 +59,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "GmailReceiptsService",
-      "value": 4659
+      "value": 4665
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -113,7 +113,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "DriveBulkShareStore",
-      "value": 2658
+      "value": 2713
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -203,7 +203,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "DriveSharingStore",
-      "value": 1691
+      "value": 1736
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -239,7 +239,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/direct_messages_service.py",
       "symbol": "DirectMessagesService",
-      "value": 1466
+      "value": 1472
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -437,7 +437,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "DriveOwnerSearchService",
-      "value": 849
+      "value": 861
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -581,7 +581,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": "FeedService",
-      "value": 600
+      "value": 699
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -590,7 +590,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_metadata_reader.py",
       "symbol": "GmailMetadataReader",
-      "value": 589
+      "value": 621
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -644,7 +644,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "GoogleDriveAdapter",
-      "value": 537
+      "value": 588
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -689,7 +689,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_permission_store.py",
       "symbol": "DrivePermissionStore",
-      "value": 512
+      "value": 513
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -842,7 +842,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": "DriveRequestPaymentService",
-      "value": 541
+      "value": 552
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -896,7 +896,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py",
       "symbol": "GoogleDrivePermissionAdapter",
-      "value": 399
+      "value": 411
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -968,7 +968,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_drive_rest_transport.py",
       "symbol": "GoogleDriveRestTransport",
-      "value": 374
+      "value": 384
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1130,7 +1130,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
       "symbol": "DriveSharingProjectionStore",
-      "value": 328
+      "value": 387
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1373,7 +1373,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_wallet_card_service.py",
       "symbol": "OneWalletCardService",
-      "value": 275
+      "value": 402
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1472,7 +1472,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_revocation_store.py",
       "symbol": "DriveRevocationStore",
-      "value": 253
+      "value": 442
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2030,7 +2030,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "create_review",
-      "value": 395
+      "value": 396
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2039,7 +2039,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_retention.py",
       "symbol": "erase_drive_account_in_transaction",
-      "value": 382
+      "value": 406
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2165,7 +2165,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/email_delegated_read.py",
       "symbol": "run_delegated_mail_read",
-      "value": 342
+      "value": 347
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2201,7 +2201,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "operation",
-      "value": 330
+      "value": 331
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2210,7 +2210,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "operation",
-      "value": 175
+      "value": 190
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2219,7 +2219,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "operation",
-      "value": 173
+      "value": 184
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2228,7 +2228,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "operation",
-      "value": 107
+      "value": 108
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3083,7 +3083,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "_page",
-      "value": 208
+      "value": 211
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3236,7 +3236,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/direct_messages_service.py",
       "symbol": "send_message",
-      "value": 205
+      "value": 207
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3371,7 +3371,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
       "symbol": "delivery_snapshot",
-      "value": 193
+      "value": 204
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3515,7 +3515,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 109
+      "value": 114
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3524,7 +3524,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 105
+      "value": 109
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3605,7 +3605,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
       "symbol": "operation",
-      "value": 183
+      "value": 194
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3794,7 +3794,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "claim",
-      "value": 182
+      "value": 191
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3884,7 +3884,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "approve",
-      "value": 186
+      "value": 203
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4406,7 +4406,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "run_one",
-      "value": 156
+      "value": 165
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4532,7 +4532,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "create_request",
-      "value": 154
+      "value": 163
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5621,7 +5621,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": "_get_private",
-      "value": 128
+      "value": 159
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5846,7 +5846,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "_finalize_progressive_request",
-      "value": 125
+      "value": 144
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6386,7 +6386,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "_ensure_access_token",
-      "value": 117
+      "value": 128
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6575,7 +6575,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "retry",
-      "value": 115
+      "value": 116
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7034,7 +7034,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
       "symbol": "_ensure_ready",
-      "value": 111
+      "value": 114
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7223,7 +7223,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": "compile_request_queries",
-      "value": 108
+      "value": 113
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7493,7 +7493,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": "entry",
-      "value": 113
+      "value": 120
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8204,7 +8204,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_worker.py",
       "symbol": "run",
-      "value": 100
+      "value": 104
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11075,7 +11075,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_referral_service.py",
       "symbol": "get_referral_summary",
-      "value": 83
+      "value": 99
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12065,7 +12065,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 10617
+      "value": 10855
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12083,7 +12083,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
       "symbol": null,
-      "value": 9866
+      "value": 9899
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12128,7 +12128,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx",
       "symbol": null,
-      "value": 6807
+      "value": 6824
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12209,7 +12209,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": null,
-      "value": 5019
+      "value": 5025
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12236,7 +12236,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
       "symbol": null,
-      "value": 4830
+      "value": 4842
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12344,7 +12344,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
       "symbol": null,
-      "value": 3562
+      "value": 3571
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12542,7 +12542,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": null,
-      "value": 2790
+      "value": 2845
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12569,7 +12569,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/gmail/gmail-receipts-page.tsx",
       "symbol": null,
-      "value": 2704
+      "value": 2720
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12650,7 +12650,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/agent-chat-client.ts",
       "symbol": null,
-      "value": 2476
+      "value": 2488
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12677,7 +12677,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_receipts_service.py",
       "symbol": null,
-      "value": 2475
+      "value": 2565
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12686,7 +12686,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
       "symbol": null,
-      "value": 2383
+      "value": 2682
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12731,7 +12731,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/vault/vault-flow.tsx",
       "symbol": null,
-      "value": 2327
+      "value": 2351
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12911,7 +12911,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/account.py",
       "symbol": null,
-      "value": 2073
+      "value": 2251
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12929,7 +12929,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/auth-service.ts",
       "symbol": null,
-      "value": 2067
+      "value": 2103
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12956,7 +12956,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/pkm-natural-panel.tsx",
       "symbol": null,
-      "value": 2002
+      "value": 2017
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13073,7 +13073,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/document-share-review.tsx",
       "symbol": null,
-      "value": 1860
+      "value": 1939
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13100,7 +13100,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/drive-sharing-service.ts",
       "symbol": null,
-      "value": 1807
+      "value": 1850
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13127,7 +13127,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-chat-client.test.ts",
       "symbol": null,
-      "value": 1762
+      "value": 1846
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13172,7 +13172,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": null,
-      "value": 1735
+      "value": 1780
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13199,7 +13199,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/direct_messages_service.py",
       "symbol": null,
-      "value": 1704
+      "value": 1710
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13217,7 +13217,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_routes.py",
       "symbol": null,
-      "value": 1680
+      "value": 1926
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13451,7 +13451,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/top-app-bar.tsx",
       "symbol": null,
-      "value": 1504
+      "value": 1505
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13496,7 +13496,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/use-feed-actionables.ts",
       "symbol": null,
-      "value": 1486
+      "value": 1491
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13541,7 +13541,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-share-review.test.tsx",
       "symbol": null,
-      "value": 1473
+      "value": 1509
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13631,7 +13631,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/auth-service.test.ts",
       "symbol": null,
-      "value": 1417
+      "value": 1419
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13640,7 +13640,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/profile/gmail-connector-store.ts",
       "symbol": null,
-      "value": 1415
+      "value": 1431
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13676,7 +13676,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": null,
-      "value": 1385
+      "value": 1403
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13703,7 +13703,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts",
       "symbol": null,
-      "value": 1370
+      "value": 1376
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13712,7 +13712,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/feed-item-renderers.tsx",
       "symbol": null,
-      "value": 1367
+      "value": 1390
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13730,7 +13730,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx",
       "symbol": null,
-      "value": 1365
+      "value": 1379
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13820,7 +13820,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1329
+      "value": 1374
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13838,7 +13838,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_search_unit.py",
       "symbol": null,
-      "value": 1317
+      "value": 1367
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13937,7 +13937,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/gmail-receipts-service.ts",
       "symbol": null,
-      "value": 1296
+      "value": 1316
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13964,7 +13964,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/kai/kai-command-palette.tsx",
       "symbol": null,
-      "value": 1284
+      "value": 1288
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14009,7 +14009,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_wallet_card_service.py",
       "symbol": null,
-      "value": 1272
+      "value": 1430
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14063,7 +14063,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
       "symbol": null,
-      "value": 1253
+      "value": 1369
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14117,7 +14117,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/drive_sharing.py",
       "symbol": null,
-      "value": 1232
+      "value": 1237
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14126,7 +14126,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/direct-messages/direct-messages-page.tsx",
       "symbol": null,
-      "value": 1493
+      "value": 1675
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14171,7 +14171,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_metadata_reader.py",
       "symbol": null,
-      "value": 1209
+      "value": 1415
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14198,7 +14198,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_payment.py",
       "symbol": null,
-      "value": 1343
+      "value": 1556
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14252,7 +14252,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/drive-sharing-service.test.ts",
       "symbol": null,
-      "value": 1173
+      "value": 1188
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14270,7 +14270,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/circle-member-row.layout.spec.ts",
       "symbol": null,
-      "value": 1171
+      "value": 1182
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14324,7 +14324,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs",
       "symbol": null,
-      "value": 1164
+      "value": 1186
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14333,7 +14333,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/wallet-card-service.ts",
       "symbol": null,
-      "value": 1163
+      "value": 1226
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14378,7 +14378,7 @@
       "limit": 500,
       "path": "consent-protocol/api/consent_listener.py",
       "symbol": null,
-      "value": 1137
+      "value": 1141
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14459,7 +14459,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/document-share-review.layout.spec.ts",
       "symbol": null,
-      "value": 1116
+      "value": 1119
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14612,7 +14612,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/__tests__/email-draft-card.test.tsx",
       "symbol": null,
-      "value": 1060
+      "value": 1116
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14621,7 +14621,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/capacitor/native-chrome.test.tsx",
       "symbol": null,
-      "value": 1376
+      "value": 1654
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14711,7 +14711,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/feed/feed-page.tsx",
       "symbol": null,
-      "value": 1024
+      "value": 1049
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14720,7 +14720,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/profile/gmail-connector-store.test.tsx",
       "symbol": null,
-      "value": 1019
+      "value": 1080
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14783,7 +14783,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/gemini-runtime-settings-card.tsx",
       "symbol": null,
-      "value": 1004
+      "value": 1005
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14801,7 +14801,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_wallet_card_routes.py",
       "symbol": null,
-      "value": 999
+      "value": 1064
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14846,7 +14846,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/push_notifications.py",
       "symbol": null,
-      "value": 994
+      "value": 998
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15161,7 +15161,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_email_delegated_read.py",
       "symbol": null,
-      "value": 939
+      "value": 963
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15251,7 +15251,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/location/circles/circle-detail.tsx",
       "symbol": null,
-      "value": 921
+      "value": 922
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15278,7 +15278,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_trusted_auto.py",
       "symbol": null,
-      "value": 918
+      "value": 1073
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15350,7 +15350,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/apple_wallet_pass_service.py",
       "symbol": null,
-      "value": 903
+      "value": 926
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15377,7 +15377,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/providers.tsx",
       "symbol": null,
-      "value": 898
+      "value": 901
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15467,7 +15467,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_wallet_card_service.py",
       "symbol": null,
-      "value": 877
+      "value": 1019
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15755,7 +15755,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": null,
-      "value": 832
+      "value": 941
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15773,7 +15773,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_metadata_reader.py",
       "symbol": null,
-      "value": 829
+      "value": 902
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15845,7 +15845,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/email-draft-card.tsx",
       "symbol": null,
-      "value": 859
+      "value": 887
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15944,7 +15944,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 879
+      "value": 968
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15962,7 +15962,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_drive_rest_transport.py",
       "symbol": null,
-      "value": 801
+      "value": 825
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16115,7 +16115,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-history-sidebar.tsx",
       "symbol": null,
-      "value": 779
+      "value": 786
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16169,7 +16169,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": null,
-      "value": 775
+      "value": 828
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16205,7 +16205,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_owner_search_postgres.py",
       "symbol": null,
-      "value": 776
+      "value": 783
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16268,7 +16268,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
       "symbol": null,
-      "value": 780
+      "value": 815
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16286,7 +16286,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one_wallet_card.py",
       "symbol": null,
-      "value": 758
+      "value": 804
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16394,7 +16394,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/email_delegated_read.py",
       "symbol": null,
-      "value": 744
+      "value": 752
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16538,7 +16538,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/flows/delete-account.test.ts",
       "symbol": null,
-      "value": 729
+      "value": 762
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16718,7 +16718,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/wallet-card-service.test.ts",
       "symbol": null,
-      "value": 709
+      "value": 744
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16736,7 +16736,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet-card/wallet-card-workspace.tsx",
       "symbol": null,
-      "value": 708
+      "value": 816
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16907,7 +16907,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_gmail_delivery_routes.py",
       "symbol": null,
-      "value": 715
+      "value": 751
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17024,7 +17024,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_feed_service.py",
       "symbol": null,
-      "value": 693
+      "value": 733
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17087,7 +17087,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_rest_transport.py",
       "symbol": null,
-      "value": 684
+      "value": 697
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17249,7 +17249,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_sharing_routes.py",
       "symbol": null,
-      "value": 671
+      "value": 699
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17375,7 +17375,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_referral_service.py",
       "symbol": null,
-      "value": 661
+      "value": 677
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18068,7 +18068,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/ui/sheet.tsx",
       "symbol": null,
-      "value": 609
+      "value": 613
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18257,7 +18257,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
       "symbol": null,
-      "value": 592
+      "value": 599
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18284,7 +18284,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/circles/circle-member-actions-menu.tsx",
       "symbol": null,
-      "value": 590
+      "value": 591
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18554,7 +18554,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/referrals-panel.tsx",
       "symbol": null,
-      "value": 570
+      "value": 650
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18716,7 +18716,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_sharing_store.py",
       "symbol": null,
-      "value": 563
+      "value": 618
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18734,7 +18734,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": null,
-      "value": 626
+      "value": 638
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18815,7 +18815,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py",
       "symbol": null,
-      "value": 553
+      "value": 565
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19094,7 +19094,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_permission_store.py",
       "symbol": null,
-      "value": 532
+      "value": 533
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19229,7 +19229,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/app-ui/native-chat-chrome.tsx",
       "symbol": null,
-      "value": 648
+      "value": 695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19328,7 +19328,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_apple_wallet_pass_service.py",
       "symbol": null,
-      "value": 523
+      "value": 539
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19337,7 +19337,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_cache_retention.py",
       "symbol": null,
-      "value": 522
+      "value": 555
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19535,7 +19535,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx",
       "symbol": null,
-      "value": 514
+      "value": 516
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19850,7 +19850,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-voice/__tests__/one-voice-mail-draft-bridge.test.tsx",
       "symbol": null,
-      "value": 792
+      "value": 823
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19895,7 +19895,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 728
+      "value": 885
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -19913,7 +19913,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
       "symbol": "DriveRequestPaymentStore",
-      "value": 267
+      "value": 502
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -19967,7 +19967,7 @@
       "limit": 80,
       "path": "scripts/ci/cloudrun-retention.py",
       "symbol": "main",
-      "value": 106
+      "value": 119
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -20048,7 +20048,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-voice/one-voice-mail-draft-bridge.tsx",
       "symbol": null,
-      "value": 706
+      "value": 879
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20057,7 +20057,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
       "symbol": null,
-      "value": 617
+      "value": 628
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20075,7 +20075,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
       "symbol": null,
-      "value": 546
+      "value": 652
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20093,7 +20093,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/scripts/native-continuity-contract.test.ts",
       "symbol": null,
-      "value": 535
+      "value": 550
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20220,12 +20220,1474 @@
       "path": "hushh-webapp/__tests__/services/owner-pod-endpoint.test.ts",
       "symbol": null,
       "value": 516
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py|test_nontrusted_progressive_payment_starts_only_after_owner_approval|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
+      "symbol": "test_nontrusted_progressive_payment_starts_only_after_owner_approval",
+      "value": 102
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_revocation_store.py|confirm_revocation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_revocation_store.py",
+      "symbol": "confirm_revocation",
+      "value": 97
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|repair_paid_request_authority|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
+      "symbol": "repair_paid_request_authority",
+      "value": 94
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|payment_state|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
+      "symbol": "payment_state",
+      "value": 92
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
+      "symbol": "operation",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
+      "symbol": "operation",
+      "value": 82
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/feed_service.py|_with_drive_payment_status|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/feed_service.py",
+      "symbol": "_with_drive_payment_status",
+      "value": 86
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_work_drain.py|run|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_work_drain.py",
+      "symbol": "run",
+      "value": 84
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/email-delivery-service.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/email-delivery-service.ts",
+      "symbol": null,
+      "value": 585
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
+      "symbol": null,
+      "value": 527
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/flows/delete-account.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/flows/delete-account.ts",
+      "symbol": null,
+      "value": 503
     }
   ],
   "inspected_files": 6149,
   "integration_review": {
     "commerce_parent": "18c3db9ab3b03e07d070eeba70e0031ff74f3059",
     "frozen_adk": "31932bb01ae9059ac3b7996785f2bf3ed458f078",
+    "frozen_source_reconciliation_20261009": {
+      "changes": [
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "class_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|GmailReceiptsService|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 4659,
+          "rationale": "Reviewed root-to-candidate hunks: main incremental send consent, typed provider status/error handling and invalid_grant-only invalidation combined with existing pod custody checks. _ensure_access_token=128 vs main123/root117 is the explicit union of authored provider semantics and existing custody checks. Preserve those checks; exact per-slot baseline review needed.",
+          "reviewed": 4665,
+          "source_sha256": "f089e9dd532b117e263f4127b083b7d60952b77afb6687fb672b9da522974de8"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|DriveBulkShareStore|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2658,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 2713,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1691,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1736,
+          "source_sha256": "04c868e266065e8362cac7e3fc961acbca28ef93d85de61dc75f764c53a3d842"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|DirectMessagesService|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1466,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1472,
+          "source_sha256": "741cf9624e1ff1711e91220f4a1917b4da402a424496c3f7446e92f51235849e"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|DriveOwnerSearchService|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 849,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 861,
+          "source_sha256": "17c02a2eb1a9e86c6b4a0545d26075cf5e92b78f1535fe913145ab98dd1656bb"
+        },
+        {
+          "classification": "upstream_metric_identical_review_merge",
+          "key": "class_size|consent-protocol/hushh_mcp/services/feed_service.py|FeedService|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 600,
+          "rationale": "Reviewed main delta: pod profile_discovery/person_ref metadata and simplifying previously handled photo branch. Imported main _with_drive_payment_status is byte-shaped metric86; class699 equals main; module941 lower than main947.",
+          "reviewed": 699,
+          "source_sha256": "0da7023a5da130c1b619fab2be2b58b6ea1571689cdaaee9e7530161857bbc37"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "class_size|consent-protocol/hushh_mcp/services/gmail_metadata_reader.py|GmailMetadataReader|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 589,
+          "rationale": "Reviewed root-to-candidate hunks: main bounded Gmail403 classification/deadline/single harmlessGET retry combined with existing pod grant fingerprints. Three changed spans (module902,class621) reflect required union; do not drop byte budgets or grant checks to reduce lines.",
+          "reviewed": 621,
+          "source_sha256": "12557ebf19ef5851b3904fdcf7b3ba6def04afbafb51058db6a08d4a33828062"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|GoogleDriveAdapter|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 537,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 588,
+          "source_sha256": "4a0a760ae974f2422ffaee32f2090fd78f1a9f65aad17dea29732ad8adcfa4d6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|DriveRequestPaymentService|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 541,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 552,
+          "source_sha256": "1f03b94dde2c8785c286f9b6d84e3c92594d432bab500f12ab8fc3b63962a5ce"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/drive_permission_store.py|DrivePermissionStore|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 512,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 513,
+          "source_sha256": "fe2f46086a963750cc3b3e63c81e00eca928c086629f9568b6d0112157b348dd"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|DriveRequestPaymentStore|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 267,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 502,
+          "source_sha256": "6c0174997aa2521f1ebe21bd0109e20088d869c43a6df4a2b99708c2f360755d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/drive_revocation_store.py|DriveRevocationStore|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 253,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 442,
+          "source_sha256": "405bca8845bc2cd4a12cb59b5422705fae1a8a285066b302da655a9d38115bf2"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py|GoogleDrivePermissionAdapter|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 399,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 411,
+          "source_sha256": "99250e05ca675f84b0c2431c16ade3e6781ae2c78e6f35ab141a5639065f2850"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/one_wallet_card_service.py|OneWalletCardService|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 275,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 402,
+          "source_sha256": "99dab2696eebb6c1929406c73d6573f22e4acd52c9f06d115397bcd045dce0db"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|DriveSharingProjectionStore|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 328,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 387,
+          "source_sha256": "e7f254e908ccaa4a1f30bd0b055b3cd127b3628879e4fe0e261630ffe9c71c52"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py|GoogleDriveRestTransport|class exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 374,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 384,
+          "source_sha256": "02ed7f7d770a29387c84560f8a349dade3b0c2171caf747c64dd5f11152981fe"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_retention.py|erase_drive_account_in_transaction|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 382,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 406,
+          "source_sha256": "042ea15b7dbab1160c4f655e50dbb0282c52149581a7cab93ec320ab03cb05ff"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|create_review|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 395,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 396,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/email_delegated_read.py|run_delegated_mail_read|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 342,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 347,
+          "source_sha256": "670625cf19074df162c1594975c135a724b6bb875dbc2f31a69ff6bd8cad8660"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 330,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 331,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 1,
+          "previous": 175,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 190,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 2,
+          "previous": 173,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 184,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 3,
+          "previous": 107,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 108,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|_page|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 208,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 211,
+          "source_sha256": "17c02a2eb1a9e86c6b4a0545d26075cf5e92b78f1535fe913145ab98dd1656bb"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/direct_messages_service.py|send_message|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 205,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 207,
+          "source_sha256": "741cf9624e1ff1711e91220f4a1917b4da402a424496c3f7446e92f51235849e"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|delivery_snapshot|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 193,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 204,
+          "source_sha256": "e7f254e908ccaa4a1f30bd0b055b3cd127b3628879e4fe0e261630ffe9c71c52"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|approve|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 186,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 203,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 183,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 194,
+          "source_sha256": "e7f254e908ccaa4a1f30bd0b055b3cd127b3628879e4fe0e261630ffe9c71c52"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 2,
+          "previous": 109,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 114,
+          "source_sha256": "04c868e266065e8362cac7e3fc961acbca28ef93d85de61dc75f764c53a3d842"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 3,
+          "previous": 105,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 109,
+          "source_sha256": "04c868e266065e8362cac7e3fc961acbca28ef93d85de61dc75f764c53a3d842"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|claim|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 182,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 191,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|run_one|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 156,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 165,
+          "source_sha256": "17c02a2eb1a9e86c6b4a0545d26075cf5e92b78f1535fe913145ab98dd1656bb"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_request|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 154,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 163,
+          "source_sha256": "04c868e266065e8362cac7e3fc961acbca28ef93d85de61dc75f764c53a3d842"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py|_get_private|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 128,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 159,
+          "source_sha256": "4a0a760ae974f2422ffaee32f2090fd78f1a9f65aad17dea29732ad8adcfa4d6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|_finalize_progressive_request|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 125,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 144,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "function_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|_ensure_access_token|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 117,
+          "rationale": "Reviewed root-to-candidate hunks: main incremental send consent, typed provider status/error handling and invalid_grant-only invalidation combined with existing pod custody checks. _ensure_access_token=128 vs main123/root117 is the explicit union of authored provider semantics and existing custody checks. Preserve those checks; exact per-slot baseline review needed.",
+          "reviewed": 128,
+          "source_sha256": "f089e9dd532b117e263f4127b083b7d60952b77afb6687fb672b9da522974de8"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py|entry|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 113,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 120,
+          "source_sha256": "e3740e602c851ce8b2619bb88f9bd60ef6a7f143e39edd24d5c3617085db1f28"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|scripts/ci/cloudrun-retention.py|main|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 106,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 119,
+          "source_sha256": "4ce1070062397f8700a34964a38b92f774e1a84cdb4e418fa0b04657ca64f8e0"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|retry|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 115,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 116,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|_ensure_ready|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 111,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 114,
+          "source_sha256": "6c0174997aa2521f1ebe21bd0109e20088d869c43a6df4a2b99708c2f360755d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py|compile_request_queries|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 108,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 113,
+          "source_sha256": "17c02a2eb1a9e86c6b4a0545d26075cf5e92b78f1535fe913145ab98dd1656bb"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_owner_search_worker.py|run|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 100,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 104,
+          "source_sha256": "ea19b51e5796fc8f4d4af481adfb5b97ac8bb6f0d7109149f94d6119ab89878d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py|test_nontrusted_progressive_payment_starts_only_after_owner_approval|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 102,
+          "source_sha256": "caf91ee544357607246b7dbdf49368c21dd97d8dab1fde42f416b7f94d1fcb6d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/one_referral_service.py|get_referral_summary|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": 83,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 99,
+          "source_sha256": "a6d9b31f22d567b01968579c18d1a2e5c7823e842f6328e6466930e63f2cd497"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_revocation_store.py|confirm_revocation|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 97,
+          "source_sha256": "405bca8845bc2cd4a12cb59b5422705fae1a8a285066b302da655a9d38115bf2"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|repair_paid_request_authority|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 94,
+          "source_sha256": "6c0174997aa2521f1ebe21bd0109e20088d869c43a6df4a2b99708c2f360755d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|payment_state|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 92,
+          "source_sha256": "6c0174997aa2521f1ebe21bd0109e20088d869c43a6df4a2b99708c2f360755d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 89,
+          "source_sha256": "6c0174997aa2521f1ebe21bd0109e20088d869c43a6df4a2b99708c2f360755d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|operation|function exceeds the advisory gene budget",
+          "multiset_slot": 1,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 82,
+          "source_sha256": "6c0174997aa2521f1ebe21bd0109e20088d869c43a6df4a2b99708c2f360755d"
+        },
+        {
+          "classification": "upstream_metric_identical_review_merge",
+          "key": "function_size|consent-protocol/hushh_mcp/services/feed_service.py|_with_drive_payment_status|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Reviewed main delta: pod profile_discovery/person_ref metadata and simplifying previously handled photo branch. Imported main _with_drive_payment_status is byte-shaped metric86; class699 equals main; module941 lower than main947.",
+          "reviewed": 86,
+          "source_sha256": "0da7023a5da130c1b619fab2be2b58b6ea1571689cdaaee9e7530161857bbc37"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "function_size|consent-protocol/hushh_mcp/services/drive_work_drain.py|run|function exceeds the advisory gene budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 84,
+          "source_sha256": "c0da84d1a799c334e1303c29890b06e2e5a11beb54176ce3beab30b7895f5f99"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 10617,
+          "rationale": "Integrated ADK native text dock remains canonical One-only, excluding Puppy; root direct transport, Computer Use gate, exact PKM review and queued-delivery fences survive. Main Mail recovery uses existing action ledger. Corrective scope-object/epoch and exact-operation guards now refuse ABA, revocation, stale auth/status settlement, duplicate checks and late prepared/sent/failed callbacks; UID+epoch reset releases stale checking state without erasing same-owner history.",
+          "reviewed": 10855,
+          "source_sha256": "4a245ef28b7996f2c94bc56c58087161d836fac0e083e8bf154d65a9c5ff9c9d"
+        },
+        {
+          "classification": "upstream_bounded_improvement_review_merge",
+          "key": "module_size|hushh-webapp/__tests__/components/one-location-agent-page.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 9866,
+          "rationale": "Bounded below main. Extends existing SMS roster case with bounded reviewer mutation negative control and restores stubbed globals; no duplicate location suite or authority widening.",
+          "reviewed": 9899,
+          "source_sha256": "f485b258ba206e4df2ac9145c32827639903a47bbf6cdf85eb060ee929022262"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 6807,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 6824,
+          "source_sha256": "25facca322a3db34d3016d67df07628c4bd26be1b0049438c309bb7a298ff974"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 5019,
+          "rationale": "Reviewed root-to-candidate hunks: main incremental send consent, typed provider status/error handling and invalid_grant-only invalidation combined with existing pod custody checks. _ensure_access_token=128 vs main123/root117 is the explicit union of authored provider semantics and existing custody checks. Preserve those checks; exact per-slot baseline review needed.",
+          "reviewed": 5025,
+          "source_sha256": "f089e9dd532b117e263f4127b083b7d60952b77afb6687fb672b9da522974de8"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/lib/services/personal-knowledge-model-service.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 4830,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 4842,
+          "source_sha256": "88ffc9cc2b35f8c2d8b83678598c45609d3f26718efbd29b7ec0b9678f3b92c6"
+        },
+        {
+          "classification": "upstream_metric_identical_review_merge",
+          "key": "module_size|hushh-webapp/__tests__/app/connect/page-client.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 3562,
+          "rationale": "Same module metric as main. Main directory/pagination coverage remains; bounded timeout adjustments preserve assertions. No line-count-driven split.",
+          "reviewed": 3571,
+          "source_sha256": "f05b554f4472fe8b2db4497b06a7c85abc6c499e7c79cd7d8d09596822fd22c9"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2790,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 2845,
+          "source_sha256": "cb1c365de5769d86ffb71fb1c8aea7539b112e88bfa8262b004f4e55fcbe4cc6"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/gmail/gmail-receipts-page.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2704,
+          "rationale": "Combines root native private-connector/transition review and disconnect/read generation fences with main cache revision and first-render owner/account concealment. BYOC receipt sync remains explicitly unsupported rather than rerouted to shared storage.",
+          "reviewed": 2720,
+          "source_sha256": "9bee202ab53dbf73b6c61df7f6b0fca71642ed19b7ad8aa4b12167371c19ce5b"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2383,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 2682,
+          "source_sha256": "caf91ee544357607246b7dbdf49368c21dd97d8dab1fde42f416b7f94d1fcb6d"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/services/test_gmail_receipts_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2475,
+          "rationale": "Reviewed main incremental read/send scope contract and provider invalid_grant-only invalidation; preserve existing pod custody-race controls. Distinct provider timeout/malformed/429/503 cases, not a second implementation.",
+          "reviewed": 2565,
+          "source_sha256": "b0a37de354f637ada0d0b05c49452dbb16db1a6b29bcb543c654b03389a492a1"
+        },
+        {
+          "classification": "upstream_bounded_improvement_review_merge",
+          "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2476,
+          "rationale": "Bounded below main/ADK. Main liveness implementation moved to existing leaf; clean EOF, byte-based timeout and exactly-one terminal guards remain. Root wake/direct routing, BYOK refusal and scoped MCP approval resume retained; own-cloud intro stays local.",
+          "reviewed": 2488,
+          "source_sha256": "e8fbe8abb06eb57a5d5fc48c8513b2ee1bb5508efe57c6dc78d36f44c7e81098"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/vault/vault-flow.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2327,
+          "rationale": "Combines root accessible unlock controls with main identity-mark and lazily loaded lost-vault deletion entry. Deletion remains separate authenticated flow; unlock cryptography and recovery ownership unchanged.",
+          "reviewed": 2351,
+          "source_sha256": "d0a1b0395dfcac9fdb8b4ce224250431018781dfa6f1db2b223e00880ffeabc6"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/api/routes/account.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2073,
+          "rationale": "Reviewed root delta: main lost-vault deletion authority/proofs plus existing pod erasure lifecycle. Module-size union is structural debt; authority behavior still requires owning security checks.",
+          "reviewed": 2251,
+          "source_sha256": "93f42042955d76df660b343cad1897c03fba0cd7d984e0bf3d6fc16ba1d6bd1b"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/lib/services/auth-service.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2067,
+          "rationale": "Combines root bounded ID-token refresh/canonical memory-only custom-token seam with main fresh deletion reauthentication and phone proof. Native Apple reauth explicitly refuses rather than substituting sign-in; phone proof does not mutate binding.",
+          "reviewed": 2103,
+          "source_sha256": "fabe6fc7e6120521f7fd3887ba12653ae64bd1c9d08f1c2abfcb43f9a8530f10"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/profile/pkm-natural-panel.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 2002,
+          "rationale": "Main back-layer unwinds existing card/path/domain state without parallel store. Root canonical Memory tab identifiers retained; vault/owner admission still controls panel.",
+          "reviewed": 2017,
+          "source_sha256": "91610c0f390eb7932860394d6e498f03b20089ffad778627e0cad500cc83a620"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/consent/document-share-review.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1860,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1939,
+          "source_sha256": "69e187d4d03908f17733bbd2daeb109c51e0ad7154bb492e2639bcdb96a88a9b"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/test_account_routes.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1680,
+          "rationale": "Reviewed main fresh federated proof and independently matched linked phone proof cases, preserving existing pod erasure checks. Wrong/stale/missing proof refuses deletion before owner service.",
+          "reviewed": 1926,
+          "source_sha256": "aa9f03136c9df07ab6a046f2b645d657ef83c009658993998240da583d101d58"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/lib/services/drive-sharing-service.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1807,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1850,
+          "source_sha256": "4046901890b92552e283ef27bb42744a2c38e1655107358ffcda0ebef24337ef"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1762,
+          "rationale": "Distinct regressions retained: EOF without terminal, late SDK failure after terminal, byte keep-alive versus actual silence, no replay after possible effects, private routing and sanitized pod refusals. Cases extend nearest suite, not duplicate full suite.",
+          "reviewed": 1846,
+          "source_sha256": "006eb9f6f6489711a8b1382e3cf94dce139132ae939df41febc90e079286c210"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1735,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1780,
+          "source_sha256": "04c868e266065e8362cac7e3fc961acbca28ef93d85de61dc75f764c53a3d842"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/direct_messages_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1704,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1710,
+          "source_sha256": "741cf9624e1ff1711e91220f4a1917b4da402a424496c3f7446e92f51235849e"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/direct-messages/direct-messages-page.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1493,
+          "rationale": "Main encrypted route selection/search/gestures and in-flow composer combine with root render-time owner/read scope concealment and operation generations. Ack, send/navigation, pagination, edit/reaction/delete and menu focus all retain current-operation checks; legacy plaintext parsing removed from this component.",
+          "reviewed": 1675,
+          "source_sha256": "101620611d313240bf2bb0dc48334d7498a8f8cb6e5b664070157d63388dd3d0"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/capacitor/native-chrome.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1376,
+          "rationale": "Exact frozen adk source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1654,
+          "source_sha256": "8de5fe329837918888f6e2966e76d5016274e0c629f69f11648435297b4e81e3"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/services/test_drive_request_payment.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1343,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1556,
+          "source_sha256": "13eea49c42f4599a69f68c934efa88caf4e867d7f42a385359812d0cb2409806"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/components/document-share-review.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1473,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1509,
+          "source_sha256": "1de8f032f374fe108cbc484849d0cecb3a98591298ff508e36a88f8b6534a3c9"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/app-ui/top-app-bar.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1504,
+          "rationale": "Only two additions/one removal versus root: navigation haptic and public tab chrome suppression. Private OneAgentPresence still renders on One beside logo; public chrome does not gain pod authority.",
+          "reviewed": 1505,
+          "source_sha256": "32fd948a5e17118d8c6826295aee5f67e429268d004a4398248cd505a0a4cbd9"
+        },
+        {
+          "classification": "upstream_bounded_improvement_review_merge",
+          "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1486,
+          "rationale": "Bounded below main. Current payment context gates immutable feed checkout; root deployment/update cards and durable operation progress use existing owners. No second payment or update ledger.",
+          "reviewed": 1491,
+          "source_sha256": "1f00bff118a7040f37fc78284343a52bfff53b22b8a3887225215d2384c5e6c3"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/lib/profile/gmail-connector-store.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1415,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1431,
+          "source_sha256": "11fd8c48893abd52d69c9fcf85f020fed49703cb1fab47f57eee3688c8a6f5a5"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/one_wallet_card_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1272,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1430,
+          "source_sha256": "99dab2696eebb6c1929406c73d6573f22e4acd52c9f06d115397bcd045dce0db"
+        },
+        {
+          "classification": "upstream_bounded_improvement_review_merge",
+          "key": "module_size|hushh-webapp/__tests__/services/auth-service.test.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1417,
+          "rationale": "Bounded below main. Retains bounded token/native auth cases and phone deletion proof without link/unlink; obsolete persisted reviewer-native session expectation removed to match memory-only canonical seam.",
+          "reviewed": 1419,
+          "source_sha256": "5f4370ea48bb3e3d1906f4e36ab65784dd5745a53c330ea49416d9483763f50f"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/services/test_gmail_metadata_reader.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1209,
+          "rationale": "Reviewed bounded harmless GET retry, deadline/403 classification, partial destructive result and one-dispatch negative controls composed with existing grant fingerprints. No ambiguous-write replay.",
+          "reviewed": 1415,
+          "source_sha256": "0e13cce29ceb92c53061300725259d1b6163ddeee1cff8570fba628b2e52d829"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1385,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1403,
+          "source_sha256": "17c02a2eb1a9e86c6b4a0545d26075cf5e92b78f1535fe913145ab98dd1656bb"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/lib/feed/feed-item-renderers.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1367,
+          "rationale": "Main sealed DM destinations and current payment-status copy combine with root update/commerce presentation. Retained UUID-only legacy DM fallback is existing compatibility routed through owning route; immutable historical payment event does not resurrect checkout authority.",
+          "reviewed": 1390,
+          "source_sha256": "737f1ccecb70adba29f2a919491a9a4c3b6094e85f1c4d514f4d6867a1713837"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1365,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1379,
+          "source_sha256": "b6fda39ee6af85afcce60846394cff72e69cd9bc7fdc330a99795aa1a7813432"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1370,
+          "rationale": "Main validated SOS/settings/circle origins and profile origin preservation combine with root Hosting/Updates/Files route labels. Whitelisted source values and encoded circle identifiers retained; no new routing authority.",
+          "reviewed": 1376,
+          "source_sha256": "ad4905f5d04ae0d681451200773fc9fbe28ab23d30fb6afef9e3d7a65ed6c1e0"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1329,
+          "rationale": "ADK stationary semantic history frame needs distinct pull-body geometry/inert/visibility assertions; root layout/keyboard/focus pack retained. New case guards measured native lease geometry, not a duplicate snapshot.",
+          "reviewed": 1374,
+          "source_sha256": "69e913a88a4e792a132aae1b7a6010d1f0bd8584b86d2fbdc4fb876dac3944e7"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1253,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1369,
+          "source_sha256": "2ffe75e7b6e09800291adecfa04aceff0563997ea39e3187ff3696929f142115"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1317,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1367,
+          "source_sha256": "85be38ee4d9a9d3a253b2b4a0672d958c7ba6004f75377edc6977a0b290dea31"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/lib/services/gmail-receipts-service.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1296,
+          "rationale": "Private status/disconnect and shared-exchange refusals coexist with main disconnect-confirmed cache invalidation/generation fence. Explicit unavailable private receipt APIs prevent content fallback to hub.",
+          "reviewed": 1316,
+          "source_sha256": "bcd6d33122374ed82c73a6f423be3787a2df7b671f875a86cf641ca05853e6de"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/kai/kai-command-palette.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1284,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1288,
+          "source_sha256": "00414f8ac7ffc366eb19bb907dd2f9eda966c3df3619e9ee79abaece3b67620f"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/api/routes/drive_sharing.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1232,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1237,
+          "source_sha256": "8015410a95090c29cd09e85dacaf8409445e0d1ecade078d19be9f10a5b27efc"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/lib/services/wallet-card-service.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1163,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1226,
+          "source_sha256": "79fa661048ca4b666d7faf098fe0930e3f8ac0271d3c47f3f8ddef90e7618adb"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1173,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1188,
+          "source_sha256": "2a306fd81acaf25574e49e83d2ede8e9f75dc63ab767b3a648460af63231b9fe"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1164,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1186,
+          "source_sha256": "e719c2125148e5e50d41ea6d675c0eb49be6e5ac44d3449b8eb674017fec197e"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/e2e/circle-member-row.layout.spec.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1171,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1182,
+          "source_sha256": "c6730e9a99ed07b047e981d23691bbc37799096282dc0869482a22a34eec4cc8"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/api/consent_listener.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1137,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1141,
+          "source_sha256": "ad94719345c917230b5f50a37a04205f314a89db126df70a07687203e507a6f2"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/e2e/document-share-review.layout.spec.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1116,
+          "rationale": "Existing fixture now supplies bounded delivery response and aliases relative private API/auth imports; root browser-error assertion retained. Existing layout/review behavior assertions unchanged; no extra suite.",
+          "reviewed": 1119,
+          "source_sha256": "3b4b32bc4c7eaf4809fa88134d809a9bdceb347c576d0c39ff82b74fe39db656"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/agent/__tests__/email-draft-card.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1060,
+          "rationale": "Main lost-send acknowledgement recovery and confirmed failed-ledger action cases complement root in-flight/uncertain save-state protection. Both assert one provider send, preventing replay; no redundant suite introduced.",
+          "reviewed": 1116,
+          "source_sha256": "bc68837d14c6f3783d15c313b000b437b0c1acf36407c42330022e973d5bd619"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/lib/profile/gmail-connector-store.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1019,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1080,
+          "source_sha256": "0e28f0243a27da075f29926683ec3c43446723e02803a8f6550c13f8e74bc5cc"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/services/test_drive_trusted_auto.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 918,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1073,
+          "source_sha256": "f722673f28473761b42efbd2e4bb1b31c80e86f0d2caf5f70a1183ba622b587f"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/test_one_wallet_card_routes.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 999,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1064,
+          "source_sha256": "89d2e417c176bcf632b7ac9eef5a5751fb91f6b654ef5ddb0ead64c6dc23f6da"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/feed/feed-page.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1024,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1049,
+          "source_sha256": "ab6c2d632ac7693eb92f7617ff62146c721c1b87e712f89fb46886176c36b2fb"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/test_one_wallet_card_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 877,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 1019,
+          "source_sha256": "8544feecde75a28167e2340b15211828e3a2618f3b22910632a6004b3806dcd7"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/connections/gemini-runtime-settings-card.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 1004,
+          "rationale": "Two additions/one removal versus root: main shared preference CSS class. Root owner runtime/provider/BYOK and explicit selection authority retained without duplicate controls.",
+          "reviewed": 1005,
+          "source_sha256": "434eac05d2a714f0530e71b10cbfe4925fb0eb67d03dce4155162185d21df2cb"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/push_notifications.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 994,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 998,
+          "source_sha256": "10372b751c89718692d5a14f3c8bb0e7b13fa4cefa27f79b362d33ffe8ce66e1"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 879,
+          "rationale": "Main SVG identity/referral/QR repair and owner-scoped card presentation combine with root profile visit/token/owner checks after get/ensure, lock concealment and introduction fences. Monotonic card-read revision prevents old post-delete list replacing a confirmed save.",
+          "reviewed": 968,
+          "source_sha256": "3ad41a35ea82a84c36ba8499493aa7f8249f50a6f862b61e0e943eabc357ee4f"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/services/test_email_delegated_read.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 939,
+          "rationale": "Reviewed main safe provider-specific error cases added to existing pod suite; no duplicate task implementation.",
+          "reviewed": 963,
+          "source_sha256": "3a9ff7b03a7daa851ca5329ac924c1c586831729f2d1500b51a10629636b578c"
+        },
+        {
+          "classification": "upstream_bounded_improvement_review_merge",
+          "key": "module_size|consent-protocol/hushh_mcp/services/feed_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 832,
+          "rationale": "Reviewed main delta: pod profile_discovery/person_ref metadata and simplifying previously handled photo branch. Imported main _with_drive_payment_status is byte-shaped metric86; class699 equals main; module941 lower than main947.",
+          "reviewed": 941,
+          "source_sha256": "0da7023a5da130c1b619fab2be2b58b6ea1571689cdaaee9e7530161857bbc37"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/apple_wallet_pass_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 903,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 926,
+          "source_sha256": "61f9a147c7f37b41c7d1fb4929b7aeb5158a5958be51cb719abefae3ee37226a"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/location/circles/circle-detail.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 921,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 922,
+          "source_sha256": "972d62e22e9ef4e4c9172bd85db8887dad6bd83e03a3cc3cfc319903892c5ef6"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/hushh_mcp/services/gmail_metadata_reader.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 829,
+          "rationale": "Reviewed root-to-candidate hunks: main bounded Gmail403 classification/deadline/single harmlessGET retry combined with existing pod grant fingerprints. Three changed spans (module902,class621) reflect required union; do not drop byte budgets or grant checks to reduce lines.",
+          "reviewed": 902,
+          "source_sha256": "12557ebf19ef5851b3904fdcf7b3ba6def04afbafb51058db6a08d4a33828062"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/app/providers.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 898,
+          "rationale": "Root native private Google handoff and unified AgentAppNotifiers coexist with main WalletProfileBootstrap and in-flow DM composer and ADK haptic/profile admission. No duplicate notification owners or bootstrap subscription mounted.",
+          "reviewed": 901,
+          "source_sha256": "ff61903c117bc67690032943602bbcd47a6e8e61bd9e2090e777a3c25d11edb4"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/components/agent/email-draft-card.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 859,
+          "rationale": "Main same-ledger send recovery and prepared/send-start reporting combine with root in-flight/uncertain draft-save lifecycle callback. Source-bound/attachment exact review preserved; no automatic resend on unknown outcome.",
+          "reviewed": 887,
+          "source_sha256": "1e3935c17350dd1ab6cd7c37f87955328e2407828ee880cc15a9797902415b50"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 728,
+          "rationale": "Distinct owner/route/security boundaries survive: late auth versus late response, pending/failed read truth, signout, read concealment, mutation/pagination generation, reply focus. Main gesture/search/ack tests remain; nearest-file extension rather than new duplicate suite.",
+          "reviewed": 885,
+          "source_sha256": "3b0fe80e8f4fe72d88e50ec6498b08fac739804e341042b65eadb5a6159f7231"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/one-voice/one-voice-mail-draft-bridge.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 706,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 879,
+          "source_sha256": "eda4c0ed604af1155a61efbb5ff176268b3310b0c93a703113d60a08207cc7f2"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 775,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 828,
+          "source_sha256": "4a0a760ae974f2422ffaee32f2090fd78f1a9f65aad17dea29732ad8adcfa4d6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/services/test_google_drive_rest_transport.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 801,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 825,
+          "source_sha256": "216cea3995abd5e4626984e971413727bff2c9488c48523b9d2cc7294927df37"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/one-voice/__tests__/one-voice-mail-draft-bridge.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 792,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 823,
+          "source_sha256": "91a4b337f60e592d56880cc8956a75ddf86d36857c551df9b76ce8aa6ef509b2"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/wallet-card/wallet-card-workspace.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 708,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 816,
+          "source_sha256": "3139278125d11499e3dc5a3515c8763ea6ccdf433599d90664dd5e5c0c2f3e66"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/services/test_drive_sharing_center.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 780,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 815,
+          "source_sha256": "ab485d601970de334a1628c895b09a7e625482fe131ed23e7296b3f45417bf60"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/api/routes/one_wallet_card.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 758,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 804,
+          "source_sha256": "e58b324b9044b34aca96e852e72987113f0b4ad758e2ccc78a3830675d3ee16c"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/agent/agent-history-sidebar.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 779,
+          "rationale": "Exact frozen adk source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 786,
+          "source_sha256": "f649d50325e4ddc2f0092234927564d1243c8da6eb85d14272cdbe914d5d97d4"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/services/test_drive_owner_search_postgres.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 776,
+          "rationale": "Reviewed telemetry assertions for opaque correlation tags/stage timings, with negative plaintext/id checks retained.",
+          "reviewed": 783,
+          "source_sha256": "d247f876711ac4ef12a2cc28dd1085ee32dd1d92accbc12b7c75f0102eafa532"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/lib/flows/delete-account.test.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 729,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 762,
+          "source_sha256": "c69a12050715fd2aebc523dd95a6a34b61d058da74eeb144aa7ae1410096b2ee"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/email_delegated_read.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 744,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 752,
+          "source_sha256": "670625cf19074df162c1594975c135a724b6bb875dbc2f31a69ff6bd8cad8660"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/test_one_gmail_delivery_routes.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 715,
+          "rationale": "Reviewed same-owner opaque send-status read, foreign-owner pre-ledger refusal and absent-action no-disclosure. No private Gmail provider metadata returned.",
+          "reviewed": 751,
+          "source_sha256": "194ee9a2b0debd8bd32fbf48e337ee1657b8f35db14eba8634fb64300e7c70b0"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/services/wallet-card-service.test.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 709,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 744,
+          "source_sha256": "08bf502899cfe610dae3e9277fdf681bc2637be198d1a285de206d77520bc0b6"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/services/test_feed_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 693,
+          "rationale": "Reviewed canonical requester-scoped payment status projection and negative controls excluding private file names/provider secrets; existing pod/update projection remains authoritative.",
+          "reviewed": 733,
+          "source_sha256": "0ede9bc4289bea0d49517d429c8bd022b0f2a72adeb29d6aeae7103dc9fa2814"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/test_drive_sharing_routes.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 671,
+          "rationale": "Reviewed exact requester context route and current vault recheck before result release; owner revocation and unavailable request return no private body.",
+          "reviewed": 699,
+          "source_sha256": "cc3b4c4f8c3ae69aff37ec63e61c7dc16cb7e0e20f6c689dc48d552b92b4589d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_rest_transport.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 684,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 697,
+          "source_sha256": "02ed7f7d770a29387c84560f8a349dade3b0c2171caf747c64dd5f11152981fe"
+        },
+        {
+          "classification": "upstream_metric_identical_review_merge",
+          "key": "module_size|hushh-webapp/components/app-ui/native-chat-chrome.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 648,
+          "rationale": "Runtime source is identical to frozen ADK except two corrected comment lines; retained native lease/epoch/geometry gates intact. Equal metric 695 is reviewed inherited debt.",
+          "reviewed": 695,
+          "source_sha256": "ea63cd1aa1f9d74087967093ae7f444a1f4a6ce76f57fb5370e9b51e63b80935"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/one_referral_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 661,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 677,
+          "source_sha256": "a6d9b31f22d567b01968579c18d1a2e5c7823e842f6328e6466930e63f2cd497"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 546,
+          "rationale": "Owner A\u2192B\u2192A/lock and introduction/readiness tests remain against real SVG projection; main QR rotation invalidates old link before recovery. Confirmed-save versus old list response is separate real consistency regression; obsolete demo iframe assertions adapted.",
+          "reviewed": 652,
+          "source_sha256": "3c96b63943a6e971e4842d207b38e1daefba6ace756d6e531f13a5687d21cfca"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/profile/referrals-panel.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 570,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 650,
+          "source_sha256": "3536466c1bb1272c074b5b528e140f009396e1a7b0e222217511c7a00a9fa0a6"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 626,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 638,
+          "source_sha256": "e3740e602c851ce8b2619bb88f9bd60ef6a7f143e39edd24d5c3617085db1f28"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 617,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 628,
+          "source_sha256": "1f03b94dde2c8785c286f9b6d84e3c92594d432bab500f12ab8fc3b63962a5ce"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 563,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 618,
+          "source_sha256": "89a82d479d6b3b7bca09b05b06de1168c5c33d8850549a736b8eab2971a9befa"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/ui/sheet.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 609,
+          "rationale": "Exact frozen adk source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 613,
+          "source_sha256": "2b2dfc1865d2b04075215eee4b127036803e216e4ddd514a28f4deb156dc96d3"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/test_drive_work_drain_scheduler_contract.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 592,
+          "rationale": "Reviewed updated main scheduler cadence and explicit production parity checks alongside existing OIDC route assertions.",
+          "reviewed": 599,
+          "source_sha256": "3f96838f1b9bb753edf39cb8039f2946b052022e8641574d48d1ca00a3c6825a"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/components/one-location/redesign/circles/circle-member-actions-menu.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 590,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 591,
+          "source_sha256": "a510db788a9c9d8f3f069fb29862a79e6088affeb61ced57c7f1dd506a604b0b"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|hushh-webapp/lib/services/email-delivery-service.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Main bounded pending-send action metadata/status reads combine with root direct private Gmail proposal/confirmation. Exact preview/hash, owner checks, expiry and single-use action prevent broadened approval; shared email APIs explicitly refuse own-cloud content.",
+          "reviewed": 585,
+          "source_sha256": "d0170ac3dbb7144d5a8f15a945c338598dea150ed9d6dddc282610b59b03b827"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 553,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 565,
+          "source_sha256": "99250e05ca675f84b0c2431c16ade3e6781ae2c78e6f35ab141a5639065f2850"
+        },
+        {
+          "classification": "growth_beyond_frozen_sources",
+          "key": "module_size|consent-protocol/tests/services/test_gmail_cache_retention.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 522,
+          "rationale": "Reviewed invalid_grant payload fixtures and transient refresh negative control; existing custody-race assertions retained.",
+          "reviewed": 555,
+          "source_sha256": "aa2fa28e2a3280ab7d06d8b5d041cdfe8f8891dfcdb1db4bce76f0963283d4c7"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/scripts/native-continuity-contract.test.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 535,
+          "rationale": "Exact frozen adk source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 550,
+          "source_sha256": "9434615363daf423ecc4bd8bfac2e34f2b44387a40e7a3220d092a71fba8664c"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/tests/test_apple_wallet_pass_service.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 523,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 539,
+          "source_sha256": "0a0821e6a1db686d03b310c6932bc2302f7daa06cca2f6956e2b95ff92a7be4d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/drive_permission_store.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 532,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 533,
+          "source_sha256": "fe2f46086a963750cc3b3e63c81e00eca928c086629f9568b6d0112157b348dd"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 527,
+          "source_sha256": "6c0174997aa2521f1ebe21bd0109e20088d869c43a6df4a2b99708c2f360755d"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": 514,
+          "rationale": "Exact frozen adk source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 516,
+          "source_sha256": "1ffeb5344c2276f9401f35c3df7a8f329445517141001753a459a30dbecb1ab5"
+        },
+        {
+          "classification": "upstream_file_identical",
+          "key": "module_size|hushh-webapp/lib/flows/delete-account.ts||module exceeds the advisory operon budget",
+          "multiset_slot": 0,
+          "previous": null,
+          "rationale": "Exact frozen main source inherited; preserve its authored contract. Pin only this finding multiset slot.",
+          "reviewed": 503,
+          "source_sha256": "e2ca57639e7fbbdd3c1e48a6fd936dc9e1ddd77a7bd8c2dbfc17ebdcfdfa7386"
+        }
+      ],
+      "checks": "Mail 43 focused cases; original callback negative control fails; TypeScript; full core continues after gate reconciliation.",
+      "evidence_revision": "eb3402499826b5d8a6bc23912beff4941ec7db4b",
+      "frozen_sources": {
+        "adk": "64c2739df3015098ed6d74dc0c4460e20fa6fb4a",
+        "main": "3e0cfd05402f0619f25d20a88f829f3ea5f4cd84",
+        "root": "2bcfab273c0591c0db8f8806c833749836907d1b"
+      },
+      "policy": "Only 150 attributed finding slots; retain historical slots, scanner, budgets, exclusions and future ratchet. 104 byte-identical inherited slots and 46 independently reviewed integration slots. Mail scope race fixed before acceptance.",
+      "reviewed_at": "2026-10-09T10:32:22.638411+00:00"
+    },
     "main_privacy_fixture_review": {
       "after": 541,
       "before": 536,
