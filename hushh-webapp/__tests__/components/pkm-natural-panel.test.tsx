@@ -440,7 +440,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     await waitFor(() => expect(price).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
     expect(ScopeCommerceService.tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*");
     expect(screen.getByRole("switch", { name: "Make private Profile" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "View wallet and transactions in Account" })).toHaveAttribute("href", "/one/profile/account");
+    expect(screen.getByRole("link", { name: "View wallet and transactions in Account" })).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=account");
     expect(screen.getByRole("button", { name: "Download Memory" })).toBeTruthy();
     expect(screen.getByText("Readable file. Keep it private.")).toBeTruthy();
     expect(screen.getAllByText("Download Memory")).toHaveLength(1);

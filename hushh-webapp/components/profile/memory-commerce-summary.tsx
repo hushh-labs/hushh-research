@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ProfileAccountLink } from "@/components/profile/profile-account-link";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { useCommerceRead } from "@/components/consent/use-commerce-session";
 import { ScopeCommerceService, commerceReadinessCopy, formatCommerceMoney, type CommerceAccount } from "@/lib/services/scope-commerce-service";
@@ -19,7 +19,7 @@ export function MemoryCommerceSummary() {
         {(data.earnings.debt_cents ?? 0) > 0 ? <div className="col-span-2"><dt className="text-muted-foreground">Unrecovered costs</dt><dd>{formatCommerceMoney(data.earnings.debt_cents!)}</dd></div> : null}
       </dl> : null}
       <p className="text-xs text-muted-foreground" role="status">{error || (loading && !data ? "Checking earnings…" : commerceReadinessCopy(data?.readiness))}</p>
-      <Link href="/one/profile/account" className="inline-flex min-h-11 items-center text-sm underline">{data?.readiness?.capabilities.start_onboarding && !data.seller?.eligible ? "Set up payouts and view your wallet" : "View wallet and transactions in Account"}</Link>
+      <ProfileAccountLink className="inline-flex min-h-11 items-center text-sm underline">{data?.readiness?.capabilities.start_onboarding && !data.seller?.eligible ? "Set up payouts and view your wallet" : "View wallet and transactions in Account"}</ProfileAccountLink>
     </div>
   </SettingsGroup>;
 }

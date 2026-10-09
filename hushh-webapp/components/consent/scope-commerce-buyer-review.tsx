@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ProfileAccountLink } from "@/components/profile/profile-account-link";
 import { Button } from "@/components/ui/button";
 import { formatCommerceMoney as money, type ScopeQuote } from "@/lib/services/scope-commerce-service";
 
@@ -19,6 +19,6 @@ export function ScopeCommerceBuyerReview({ quote, balance, expired, busy, enable
       <p className="text-xs text-muted-foreground">Confirming reserves this amount from your funded balance. An agent cannot spend it for you. Access starts only after the owner prepares the information. Earlier owner revocation refunds unused calendar time; nonuse does not.</p>
       <Button disabled={busy || !enabled || expired || shortfall === null || shortfall > 0} onClick={() => void purchase()}>Confirm {quote.amount_cents === 0 ? "free access" : `${money(quote.amount_cents)} from balance`}</Button>
     </div> : null}
-    <Link className="inline-flex min-h-11 items-center text-sm underline" href="/one/profile/account">Add funds or manage payments in Account</Link>
+    <ProfileAccountLink className="inline-flex min-h-11 items-center text-sm underline">Add funds or manage payments in Account</ProfileAccountLink>
   </div>;
 }

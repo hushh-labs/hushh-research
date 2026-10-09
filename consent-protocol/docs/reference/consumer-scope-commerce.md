@@ -1935,8 +1935,11 @@ completed successfully. Backend `consent-protocol-00152-x5w` and frontend
 Saved/Add, integrated sharing/pricing, Memory earnings, Account activity and the
 Memory/Structure agent boundaries. Payment admission remains disabled; the
 serving SDK secret/account policy is pinned to the approved test account, but
-platform/Connect webhook mounts, the persistent ledger pin, onboarding and
-financial acceptance remain outstanding. Physical native acceptance is deferred
+platform/Connect webhook mounts, onboarding and financial acceptance remain
+outstanding. The persistent ledger pin and dedicated Dev platform/Connect
+endpoints were subsequently configured against the selected Sandbox. Their
+signing secrets are stored separately in Secret Manager; signed delivery is
+not yet verified. Physical native acceptance is deferred
 while the separately authorized device session is active.
 
 The fresh coherent v3 backup restored under PostgreSQL 15.18/pgvector 0.8.1 with
@@ -1948,9 +1951,40 @@ backup, both failed earlier comparisons and the exact clone reconstruction recip
 
 The portable capture candidate `798fc563e272d9c45c04e7af0b971dc23c52d6da` passed
 the full local core bundle. The Saved manifest-read failure/retry candidate
-`a052c14d44446639f7a95bf3e431e5d842842525` also passed core and is undergoing
-full hosted CI; its later changes are not included in the serving release above.
+`a052c14d44446639f7a95bf3e431e5d842842525` also passed core and full hosted
+[CI 38002601072](https://github.com/hushh-labs/hushh-research/actions/runs/38002601072);
+its later changes are not included in the serving release above.
 The reviewer operator harness now accepts the synchronizer's serialized UAT
 compatibility value while minting only the verified serving Dev authentication
 lane. Cross-lane and production admission remain refused; focused authority
 and application auth tests pass, with the previous issuer failing the regression.
+
+
+Headless shared Dev verification passed counterpart authentication, visible cold
+vault challenge, unlock, Saved/Add without a Sharing tab, Memory earnings,
+Account payments over the current Memory route, same-session vault continuity
+and independent cold re-unlock. This reviewer has no synthetic shareable section
+yet, so this receipt does not prove price editing or encrypted paid delivery.
+The Account compatibility URL redirects to the Profile pane. In-app commerce
+links now use the existing pane authority over the current screen and preserve
+Back to the originating review; hosted payment return URLs retain their existing
+contract. The nearest regression passes and the previous link fails its negative
+control. No payment or consent authority was broadened.
+
+The task-owned old preview services, scheduler, webhooks, Firebase registrations,
+database/users, prefixed secrets, dedicated identities and bootstrap artifact
+package were removed after zero-obligation and foreign-consumer checks. Shared
+Dev revisions and unrelated resources were preserved. Audit and preservation
+receipts remain; cleanup does not erase financial or release history.
+
+Shared Dev commerce-only Monitoring descriptors, dashboard and Console alerts
+were provisioned through the existing setup authority. A dedicated exact-audience
+Google OIDC reconciliation scheduler is prepared and paused. Its structured
+runtime policy, Monitoring emission policy and webhook-secret mounts await the
+next governed release. New paid admission and live activity remain disabled.
+The latest root candidate `6cdaea6971ec24da9c6c9e5e10da172b6b9087b0` passed the
+full local core bundle; exact-source hosted CI is running. That source includes
+another authorized session's environment-enrollment migration 295, which is not
+yet deployed. Current Dev's parked migration history still requires genuine
+current-source baseline qualification; restore/suffix receipts alone do not
+establish an authenticated commercial release head.

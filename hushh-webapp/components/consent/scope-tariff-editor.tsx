@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { ProfileAccountLink } from "@/components/profile/profile-account-link";
 import { useCommerceSession } from "@/components/consent/use-commerce-session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +53,7 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
       </label>
       <p className="text-xs text-muted-foreground">100 Hussh coins = $1.00. Enter your base price in USD above. Unset pricing is free and still requires your approval. Paid purchases start at 1 coin ($0.01). The server prorates your base price to the approved access term, up to 100,000 coins ($1,000). Processing costs reduce your earnings.</p>
       <p className="text-xs text-muted-foreground">{commerceReadinessCopy(readiness)}</p>
-      {!readiness?.capabilities.set_paid_tariff ? <Link href="/one/profile/account" className="inline-flex min-h-11 items-center text-sm underline">{readiness?.capabilities.start_onboarding ? "Set up payouts with Stripe in Account" : "Check payment availability in Account"}</Link> : null}
+      {!readiness?.capabilities.set_paid_tariff ? <ProfileAccountLink className="inline-flex min-h-11 items-center text-sm underline">{readiness?.capabilities.start_onboarding ? "Set up payouts with Stripe in Account" : "Check payment availability in Account"}</ProfileAccountLink> : null}
       {message ? <p role="status" className="text-sm">{message}</p> : null}
       <Button disabled={busy || !ready} onClick={() => {
         try {

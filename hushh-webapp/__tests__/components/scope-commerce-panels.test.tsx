@@ -237,7 +237,15 @@ describe("free sharing independent of payment setup", () => {
     render(<MemoryCommerceSummary />);
     await screen.findByText("450 Hussh coins ($4.50)");
     expect(screen.getByText("100 Hussh coins ($1.00)")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Set up payouts and view your wallet" })).toHaveAttribute("href", "/one/profile/account");
+    expect(screen.getByRole("link", { name: "Set up payouts and view your wallet" })).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=account");
+    const originalUrl = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState({}, "", "/one/pkm?tab=saved");
+    fireEvent.click(screen.getByRole("link", { name: "Set up payouts and view your wallet" }));
+    expect(window.location.pathname).toBe("/one/pkm");
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("saved");
+    expect(new URLSearchParams(window.location.search).get("profile_panel")).toBe("account");
+    expect(window.history.state.__hushhProfilePane).toEqual({ depth: 1, returnsToOrigin: true });
+    window.history.replaceState({}, "", originalUrl);
     expect(mocks.onboarding).not.toHaveBeenCalled();
     expect(mocks.hosted).not.toHaveBeenCalled();
   });
@@ -249,7 +257,7 @@ describe("free sharing independent of payment setup", () => {
     expect(mocks.tariff).toHaveBeenCalledWith("owner-token", "exact_handle", "attr.food.preferences.*");
     fireEvent.click(button);
     await screen.findByRole("heading", { name: "Price for Food preferences" });
-    expect(screen.getByRole("link", { name: "Set up payouts with Stripe in Account" })).toHaveAttribute("href", "/one/profile/account");
+    expect(screen.getByRole("link", { name: "Set up payouts with Stripe in Account" })).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=account");
     expect(mocks.saveTariff).not.toHaveBeenCalled();
   });
 
@@ -263,7 +271,7 @@ describe("free sharing independent of payment setup", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review sharing price" }));
     expect(screen.queryByRole("button", { name: "Save price" })).not.toBeInTheDocument();
     expect(mocks.saveTariff).not.toHaveBeenCalled();
-    expect(screen.getByRole("link", { name: "Check payment availability in Account" })).toHaveAttribute("href", "/one/profile/account");
+    expect(screen.getByRole("link", { name: "Check payment availability in Account" })).toHaveAttribute("href", "/one?profile_pane=1&profile_panel=account");
     fireEvent.change(input, { target: { value: "0.00" } });
     fireEvent.click(screen.getByRole("button", { name: "Review sharing price" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm free" }));

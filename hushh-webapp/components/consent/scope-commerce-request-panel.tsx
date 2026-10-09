@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ProfileAccountLink } from "@/components/profile/profile-account-link";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
@@ -43,7 +44,7 @@ export function ScopeCommerceRequestPanel({ requestId }: { requestId: string }) 
         <ScopeCommerceTimeline request={request} />
         <p role="status" className="text-sm">{ended ? "Sharing ended. The server confirmed the change and reconciled the buyer balance." : purchase ? scopeCommerceStatusCopy(purchase.status) : free ? "This request is free. Access follows the owner's consent; check Consent for its current status. No Stripe account or funded balance is needed." : "Waiting for the owner to approve exact sharing terms."}</p>
         {!purchase && request.role === "owner" ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={`/one/consent?requestId=${encodeURIComponent(requestId)}`}>Review this request in Consent</Link> : null}
-        {!free && !enabled ? <div className="space-y-2 text-sm"><p>{commerceReadinessCopy(state.readiness)}</p><Link className="inline-flex min-h-11 items-center underline" href="/one/profile/account">Review payment availability in Account</Link></div> : null}
+        {!free && !enabled ? <div className="space-y-2 text-sm"><p>{commerceReadinessCopy(state.readiness)}</p><ProfileAccountLink className="inline-flex min-h-11 items-center underline">Review payment availability in Account</ProfileAccountLink></div> : null}
         {purchase && ["staged", "armed"].includes(purchase.status) ? <p className="text-sm">Preparation is complete. Access remains unavailable until the scheduled start shown above.</p> : null}
         {request.tariff ? <p className="text-xs text-muted-foreground">Base price {money(request.tariff.price_cents)} for {request.tariff.base_duration_seconds / 3600} hours. The final approved term is prorated by the server.</p> : null}
         {request.role === "owner" && !ended ? <ScopeCommerceOwnerReview key={purchase?.id || requestId} request={request} busy={busy} unlocked={Boolean(vaultKey)} prepare={state.prepare} /> : null}
