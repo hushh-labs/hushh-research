@@ -305,7 +305,7 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         const last = stack.locator("li[data-gesture-card^=card_]").last().getByRole("button").first();
         await last.click();
         await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
-        await expect(page.getByRole("button", { name: "Show card details", exact: true })).toBeVisible();
+        await expect(page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
         expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
         await page.getByRole("button", { name: "All cards", exact: true }).click();
       }
