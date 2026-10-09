@@ -8806,7 +8806,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 
 /* Referral artwork has an approved fixed light identity, independent of the
    account's accent preference. Components consume the canonical token family. */
-.referral-dashboard {
+.referral-dashboard,
+[data-referral-introduction="true"] {
   --app-accent: #007aff;
   --referral-medal-deep: #b8894d;
   --referral-medal-light: #d4a574;
