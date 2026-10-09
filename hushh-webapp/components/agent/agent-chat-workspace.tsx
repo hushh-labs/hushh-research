@@ -8036,6 +8036,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // session-only: they must not enter chat history or the model's context.
   const businessSuggestionEnabled = hasChatAccess && !isPuppySurface && !sessionVerificationRequired;
   const [businessSuggestionVisible, setBusinessSuggestionVisible] = useState(false);
+  const [dismissedBusinessSuggestionIds, setDismissedBusinessSuggestionIds] = useState<Set<string>>(() => new Set());
+  const dismissBusinessSuggestion = useCallback((businessUid: string) => {
+    setDismissedBusinessSuggestionIds(current => {
+      if (current.has(businessUid)) return current;
+      const next = new Set(current);
+      next.add(businessUid);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    setDismissedBusinessSuggestionIds(new Set());
+  }, [user?.uid, conversationId]);
   const [businessTurnAnchor, setBusinessTurnAnchor] = useState<{
     ownerId: string; conversationId: string | null; afterId: string | null;
   } | null>(null);
@@ -8054,6 +8066,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultOwnerToken={vaultOwnerToken ?? null} tokenExpiresAt={tokenExpiresAt ?? null}
         enabled={businessSuggestionEnabled}
         onVisibleChange={setBusinessSuggestionVisible}
+        dismissedBusinessUids={dismissedBusinessSuggestionIds}
+        onSaved={dismissBusinessSuggestion}
         renderMessage={(id, text, card) => <AgentBubble
           message={{ id: `business-suggestion:${id}`, role: "assistant", text,
             timestamp: "", status: "done", ephemeral: true }} businessProfileCard={card} />}

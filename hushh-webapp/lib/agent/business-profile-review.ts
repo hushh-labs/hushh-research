@@ -9,6 +9,24 @@ import { withPkmSaveJobLock } from "@/lib/pkm/pkm-save-job";
 import { businessMemoryEntity } from "@/lib/pkm/business-memory-origin";
 
 export type BusinessCandidate = BusinessSuggestion["candidates"][number];
+
+/**
+ * A stable listing UID does not mean the public fields are unchanged. Keep a
+ * deterministic snapshot so a stale review cannot be written after refresh.
+ */
+function stableCandidateValue(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableCandidateValue).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableCandidateValue(child)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+export function businessCandidateSnapshot(candidate: BusinessCandidate): string {
+  return stableCandidateValue(candidate);
+}
 export class BusinessOriginValidationError extends Error {
   constructor(readonly reason: "path" | "id" | "scope") {
     super("The proposed destination changed. Review the details again.");
@@ -23,6 +41,11 @@ export type BusinessReviewJob = {
   cards: AgentPkmPreviewCard[];
   scopes: string[];
   committed: string[];
+  /** Kept encrypted with the review; never substitute newer discovery fields. */
+  candidate?: BusinessCandidate;
+  candidateSnapshot?: string;
+  reviewedName?: string;
+  reviewedWebsite?: string;
 };
 export type BusinessReviewCheckpoint = {
   version: 1;
@@ -30,12 +53,12 @@ export type BusinessReviewCheckpoint = {
   until?: number;
   job?: BusinessReviewJob;
 };
-const FIXTURE_UID = "urn:hushh:business:uat:hushh.ai:v1";
 const resource = (businessUid: string) => `business_profile_review:uat:v1:${encodeURIComponent(businessUid)}`;
 const TTL = 30 * 24 * 60 * 60 * 1000;
 
 /** Control/recovery information only; the authoritative profile stays in PKM. */
-export async function loadBusinessReview(ownerId: string, vaultKey: string, businessUid = FIXTURE_UID) {
+export async function loadBusinessReview(ownerId: string, vaultKey: string, businessUid?: string) {
+  if (!businessUid?.trim()) throw new Error("Business identity is required.");
   const value = await SecureResourceCacheService.readRequired<BusinessReviewCheckpoint>({
     userId: ownerId, vaultKey, resourceKey: resource(businessUid),
   });
@@ -47,14 +70,31 @@ export async function loadBusinessReview(ownerId: string, vaultKey: string, busi
     !Array.isArray(value.job.cards) || value.job.cards.length > 64 ||
     value.job.cards.length !== value.job.scopes?.length ||
     !Array.isArray(value.job.committed) || typeof value.job.revision !== "string" ||
-    typeof value.job.message !== "string" || !value.job.scopes.every(scope => typeof scope === "string") ||
+    typeof value.job.message !== "string" || !value.job.revision.trim() ||
+    !value.job.scopes.every((scope, index) => scope ===
+      `business-review:${ownerId}:${businessUid}:${value.job!.revision}:${index}`) ||
+    value.job.cards.some(card => !card || typeof card.card_id !== "string" || !card.card_id.trim()) ||
+    new Set(value.job.committed).size !== value.job.committed.length ||
     new Set(value.job.cards.map(card => card.card_id)).size !== value.job.cards.length ||
     !value.job.committed.every(id => value.job!.cards.some(card => card.card_id === id))))
+    throw new Error("The saved review needs to be restarted.");
+  if (value.job?.candidate && (value.job.candidate.businessUid !== businessUid ||
+    value.job.candidateSnapshot !== businessCandidateSnapshot(value.job.candidate) ||
+    typeof value.job.reviewedName !== "string" || typeof value.job.reviewedWebsite !== "string"))
     throw new Error("The saved review needs to be restarted.");
   return value;
 }
 
-export async function persistBusinessReview(ownerId: string, vaultKey: string, value: BusinessReviewCheckpoint, businessUid = FIXTURE_UID) {
+/** Legacy jobs have no listing snapshot and must never authorize new writes. */
+export function assertBusinessReviewFresh(job: BusinessReviewJob, candidate: BusinessCandidate) {
+  if (!job.candidate || !job.candidateSnapshot || job.businessUid !== candidate.businessUid ||
+    job.candidateSnapshot !== businessCandidateSnapshot(job.candidate) ||
+    job.candidateSnapshot !== businessCandidateSnapshot(candidate))
+    throw new Error("The listing changed since this review. Pending details have not been overwritten.");
+}
+
+export async function persistBusinessReview(ownerId: string, vaultKey: string, value: BusinessReviewCheckpoint, businessUid?: string) {
+  if (!businessUid?.trim()) throw new Error("Business identity is required.");
   await SecureResourceCacheService.writeRequired({ userId: ownerId, vaultKey,
     resourceKey: resource(businessUid), value, ttlMs: TTL });
 }
@@ -88,27 +128,15 @@ export function businessDraftMessage(candidate: BusinessCandidate, name: string,
 }
 
 /**
- * The UAT test business is already trusted fixture data. Build its review card
- * locally so localhost testing is not blocked by an unavailable Vertex/PKM
- * model. Ordinary directory candidates still use the model-backed preparation
- * path; only the explicitly labeled UAT test identity uses this shortcut.
+ * Build a local card only for explicitly synthetic unit-test fixtures. Live
+ * directory records never use this shortcut and remain model-backed.
  */
 export function buildSyntheticBusinessPreview(candidate: BusinessCandidate, name: string, website: string): AgentPkmPreviewCard[] {
-  const isFixture = candidate.synthetic && candidate.businessUid === "urn:hushh:business:uat:hushh.ai:v1";
-  let isLiveUatDirectory = false;
-  if (!candidate.synthetic && candidate.sourceIdentity.source === "directory" && candidate.sourceIdentity.vertical === "business") {
-    try {
-      const identity = JSON.parse(candidate.sourceIdentity.sourceKey) as Record<string, unknown>;
-      isLiveUatDirectory = identity.source === "uat_test"
-        && typeof identity.source_key === "string"
-        && identity.source_key.startsWith("hushh-ai-");
-    } catch { /* malformed directory identities remain model-backed */ }
-  }
-  // The richer fixture is the production UAT contract. Keeping the guard
-  // strict also prevents ordinary directory candidates from bypassing preparation.
-  if ((!isFixture && !isLiveUatDirectory) || Object.keys(candidate.draft).length < 3) return [];
-  const entityId = isFixture ? "hushh_uat_test_business"
-    : `hushh_uat_${candidate.sourceIdentity.sourceKey.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`.slice(0, 80);
+  // This helper is retained for isolated synthetic test fixtures only. Live
+  // directory candidates—including operator-seeded UAT rows—always use the
+  // model-backed preparation path in the chat component.
+  if (!candidate.synthetic || candidate.sourceIdentity.source !== "uat_fixture" || Object.keys(candidate.draft).length < 3) return [];
+  const entityId = `hushh_fixture_${candidate.sourceIdentity.sourceKey.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`.slice(0, 80);
   const entity = Object.fromEntries(Object.entries({
     ...candidate.draft, name: name.trim(), website: website.trim(),
   }).filter(([, value]) => typeof value === "string" && value.trim())) as Record<string, string>;
@@ -130,8 +158,7 @@ export function buildSyntheticBusinessPreview(candidate: BusinessCandidate, name
 
 /** Keep immutable origin on the agent-selected entity, never invent its destination. */
 export function attachBusinessOrigin(card: AgentPkmPreviewCard, candidate: BusinessCandidate): AgentPkmPreviewCard {
-  const fixture = candidate.businessUid === FIXTURE_UID && candidate.synthetic === true &&
-    candidate.sourceIdentity.source === "uat_fixture" && candidate.sourceIdentity.sourceKey === "hushh.ai:v1";
+  const fixture = candidate.synthetic === true && candidate.sourceIdentity.source === "uat_fixture";
   const directory = candidate.synthetic === false && candidate.sourceIdentity.source === "directory" &&
     !!candidate.sourceIdentity.sourceKey && /^urn:hushh:business:directory:(hotel|healthcare|ria|insurance|business):[a-f0-9]{64}$/.test(candidate.businessUid) &&
     candidate.businessUid.includes(`:directory:${candidate.sourceIdentity.vertical}:`);
@@ -163,11 +190,15 @@ export function attachBusinessOrigin(card: AgentPkmPreviewCard, candidate: Busin
   return copy;
 }
 
-export function createBusinessReviewJob(ownerId: string, candidate: BusinessCandidate, message: string, cards: AgentPkmPreviewCard[]): BusinessReviewJob {
-  if (!cards.length || cards.length > 64 || new Set(cards.map(card => card.card_id)).size !== cards.length)
+export function createBusinessReviewJob(ownerId: string, candidate: BusinessCandidate, message: string, cards: AgentPkmPreviewCard[],
+  edited = { name: candidate.draft.name, website: candidate.draft.website }): BusinessReviewJob {
+  if (!cards.length || cards.length > 64 || cards.some(card => !card.card_id?.trim()) ||
+    new Set(cards.map(card => card.card_id)).size !== cards.length)
     throw new Error("Select valid details to save.");
   const revision = crypto.randomUUID();
   return { version: 1, ownerId, businessUid: candidate.businessUid, revision, message,
+    candidate: structuredClone(candidate), candidateSnapshot: businessCandidateSnapshot(candidate),
+    reviewedName: edited.name, reviewedWebsite: edited.website,
     cards: cards.map(card => attachBusinessOrigin(card, candidate)),
     scopes: cards.map((_, index) => `business-review:${ownerId}:${candidate.businessUid}:${revision}:${index}`), committed: [] };
 }
@@ -177,6 +208,8 @@ export async function saveBusinessReview(input: {
   job: BusinessReviewJob; vaultKey: string; vaultOwnerToken: string;
   assertCurrent: () => Promise<void>; isCurrent: () => boolean;
   sharingImpactAcknowledged: boolean;
+  /** Recheck the directory only when a new mutation is needed, not for receipts. */
+  assertListingFresh: () => Promise<void>;
 }): Promise<{ saved: number; remaining: number } | null> {
   return withPkmSaveJobLock(`business-review:${input.job.ownerId}`, async () => {
     await input.assertCurrent();
@@ -198,6 +231,12 @@ export async function saveBusinessReview(input: {
       await input.assertCurrent();
       let acknowledged = rows[0]?.exists === true && rows[0].dataVersion !== null;
       if (!acknowledged) {
+        // A legacy checkpoint can reconcile an acknowledged commit, but cannot
+        // write a card whose original public listing was never checkpointed.
+        if (!job.candidate) throw new Error("This pending review has no original listing snapshot. No new details were saved.");
+        assertBusinessReviewFresh(job, job.candidate);
+        await input.assertListingFresh();
+        await input.assertCurrent();
         const result = await saveConnectorMemoryReview({
           ...input, userId: job.ownerId, cards: [card], message: job.message,
           source: "business_profile_review", idempotencyScopes: [job.scopes[index]!],

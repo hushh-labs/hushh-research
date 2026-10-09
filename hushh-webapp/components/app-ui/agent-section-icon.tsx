@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import Image from "next/image";
 
-import { AgentAppIcon, hasAgentAppIcon } from "@/components/icons/agents/app-icons";
+import { AgentAppIcon, hasAgentAppArtwork, hasAgentAppIcon } from "@/components/icons/agents/app-icons";
 
 import {
   ONE_CAPABILITY_ICON_CLASS_BY_TONE,
@@ -161,12 +161,15 @@ export function AgentSectionIcon({
           className,
         )}
         data-testid={`one-agent-icon-${id}`}
-        data-agent-icon-kind="svg"
+        data-agent-icon-kind={hasAgentAppArtwork(id) ? "image" : "svg"}
         aria-hidden="true"
       >
         <AgentAppIcon
           id={id}
-          className="block h-full w-full overflow-visible drop-shadow-[0_2px_3px_rgba(0,0,0,0.12)] dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.28)]"
+          className={cn(
+            "block h-full w-full drop-shadow-[0_2px_3px_rgba(0,0,0,0.12)] dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.28)]",
+            !hasAgentAppArtwork(id) && "overflow-visible",
+          )}
         />
       </span>
     );

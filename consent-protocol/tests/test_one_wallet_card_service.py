@@ -8,9 +8,9 @@ below are asserted rather than reviewed:
   silently dropped, and every value is trimmed, length-capped and shape-checked;
 - links are ``https://`` only — ``javascript:``, ``data:`` and userinfo forms
   are refused;
-- the share token exists in plaintext only in the create and rotate responses.
-  Only its SHA-256 digest is ever written, and rotating invalidates the previous
-  token immediately;
+- plaintext share tokens appear only in create, rotate, and authenticated
+  recovery responses. Storage uses a SHA-256 digest and an optional encrypted
+  envelope; rotating invalidates the previous token immediately;
 - a paused card is indistinguishable from a card that never existed, while
   revoked and expired report honest terminal states;
 - the coarse scan counter is best-effort and can never fail a read;
@@ -99,6 +99,7 @@ class FakeDb:
     def __init__(self) -> None:
         self.statements: list[tuple[str, dict[str, Any]]] = []
         self.rows: dict[str, dict[str, Any]] = {}
+        self.identities: dict[str, dict[str, Any]] = {}
         self.fail_on: str | None = None
 
     # --- helpers -----------------------------------------------------
@@ -151,6 +152,12 @@ class FakeDb:
 
     @staticmethod
     def _apply_params(row: dict[str, Any], params: dict[str, Any]) -> None:
+        if "share_token_envelope" in params:
+            row["share_token_envelope"] = (
+                json.loads(params["share_token_envelope"])
+                if params["share_token_envelope"]
+                else None
+            )
         if "card_payload_json" in params:
             row["card_payload"] = json.loads(str(params["card_payload_json"]))
         for column in ("display_name", "headline", "status", "share_token_hash"):
@@ -172,6 +179,10 @@ class FakeDb:
         compact = " ".join(sql.split())
         returning = "RETURNING" in compact.upper()
 
+        if "FROM actor_identity_cache" in compact:
+            row = self.identities.get(str(values.get("user_id")))
+            return _Result([dict(row)] if row else [])
+
         if compact.upper().startswith("SELECT"):
             row = self._row_for(values, compact)
             return _Result([dict(row)] if row else [])
@@ -185,6 +196,9 @@ class FakeDb:
                 "user_id": user_id,
                 "pass_serial": PASS_SERIAL,
                 "share_token_hash": values.get("share_token_hash"),
+                "share_token_envelope": json.loads(values["share_token_envelope"])
+                if values.get("share_token_envelope")
+                else None,
                 "share_token_version": 1,
                 "status": "active",
                 "card_payload": json.loads(str(values.get("card_payload_json") or "{}")),
@@ -875,3 +889,131 @@ def test_the_url_degrades_to_a_relative_path_with_no_origin_configured(
 ) -> None:
     """Unconfigured must stay honest rather than inventing a host."""
     assert wallet_card_module.public_card_url("tok-abc") == "/c/tok-abc"
+
+
+@pytest.mark.parametrize("status", ["active", "paused", "revoked"])
+def test_ensure_never_replaces_owner_choices_or_reactivates(db, service, status):
+    db.seed(status=status)
+    before = dict(db.rows[OWNER_ID])
+    result = service.ensure_card(user_id=OWNER_ID, card_payload={"full_name": "Replacement"})
+    assert result["card"]["status"] == status
+    assert db.rows[OWNER_ID] == before
+    assert "shareToken" not in result
+
+
+def test_ensure_creates_from_basics_and_recovers_same_qr_across_devices(db, service, monkeypatch):
+    monkeypatch.setenv("EXTERNAL_CONNECTOR_CREDENTIAL_KEY", "A" * 43)
+    db.identities[OWNER_ID] = {"display_name": "Ada Lovelace", "email": "ada@example.com"}
+    first = service.ensure_card(user_id=OWNER_ID)
+    token = first["shareToken"]
+    assert first["card"]["cardPayload"]["full_name"] == "Ada Lovelace"
+    assert first["card"]["cardPayload"]["username"] == "ada.lovelace"
+    assert first["card"]["cardPayload"]["email"] == "ada@example.com"
+    assert token not in json.dumps(db.statements, default=str)
+    before = dict(db.rows[OWNER_ID])
+    second = service.ensure_card(user_id=OWNER_ID, card_payload={"full_name": "Ignored"})
+    assert second["shareToken"] == token
+    assert second["card"]["shareTokenVersion"] == 1
+    assert db.rows[OWNER_ID] == before
+    assert "share_token_envelope" not in json.dumps(service.resolve_public_card(share_token=token))
+
+
+def test_ensure_legacy_token_adoption_checks_digest_and_rotation_invalidates_recovery(
+    db, service, monkeypatch
+):
+    monkeypatch.setenv("EXTERNAL_CONNECTOR_CREDENTIAL_KEY", "A" * 43)
+    token = db.seed()
+    wrong = service.ensure_card(user_id=OWNER_ID, share_token=UNKNOWN_SHARE_TOKEN)
+    assert "shareToken" not in wrong
+    adopted = service.ensure_card(user_id=OWNER_ID, share_token=token)
+    assert adopted["shareToken"] == token
+    assert service.ensure_card(user_id=OWNER_ID)["shareToken"] == token
+    rotated = service.rotate_share_token(user_id=OWNER_ID)["shareToken"]
+    assert rotated != token
+    assert service.ensure_card(user_id=OWNER_ID, share_token=token)["shareToken"] == rotated
+    assert service.resolve_public_card(share_token=token)["status"] == "not_found"
+
+
+def test_encrypted_share_link_cannot_be_replayed_for_another_owner(db, service, monkeypatch):
+    monkeypatch.setenv("EXTERNAL_CONNECTOR_CREDENTIAL_KEY", "A" * 43)
+    first = service.ensure_card(user_id=OWNER_ID)
+    db.rows[OTHER_OWNER_ID] = {**db.rows[OWNER_ID], "user_id": OTHER_OWNER_ID}
+    assert "shareToken" not in service.ensure_card(user_id=OTHER_OWNER_ID)
+    assert first["shareToken"] not in json.dumps(service.get_card(user_id=OWNER_ID))
+
+
+def test_token_envelope_is_bound_to_digest_and_absent_from_projections(db, service, monkeypatch):
+    monkeypatch.setenv("EXTERNAL_CONNECTOR_CREDENTIAL_KEY", "A" * 43)
+    created = service.ensure_card(user_id=OWNER_ID)
+    envelope = db.rows[OWNER_ID]["share_token_envelope"]
+    for result in (
+        service.get_card(user_id=OWNER_ID),
+        service.resolve_public_card(share_token=created["shareToken"]),
+    ):
+        serialized = json.dumps(result)
+        assert "share_token_envelope" not in serialized
+        assert envelope["ciphertext"] not in serialized
+        assert envelope["iv"] not in serialized
+    db.rows[OWNER_ID]["share_token_hash"] = hashlib.sha256(UNKNOWN_SHARE_TOKEN.encode()).hexdigest()
+    assert "shareToken" not in service.ensure_card(user_id=OWNER_ID)
+
+
+def test_ensure_racing_first_write_returns_winner_without_update(db, service, monkeypatch):
+    original = service._execute_one
+
+    def race(sql, params=None):
+        if "INSERT INTO one_wallet_cards" in sql:
+            db.seed(status="paused", card_payload={"full_name": "Winner"})
+        return original(sql, params)
+
+    monkeypatch.setattr(service, "_execute_one", race)
+    result = service.ensure_card(user_id=OWNER_ID, card_payload={"full_name": "Loser"})
+    assert result["card"]["status"] == "paused"
+    assert result["card"]["cardPayload"] == {"full_name": "Winner"}
+    assert not any("UPDATE one_wallet_cards" in sql for sql, _ in db.statements)
+
+
+def test_referral_pass_uses_owner_referral_link_and_independent_serial(service, db, monkeypatch):
+    from hushh_mcp.services import one_referral_service
+
+    token = db.seed()
+    seen = []
+    monkeypatch.setattr(one_referral_service, "get_active_policy", lambda: "active")
+    monkeypatch.setattr(
+        one_referral_service,
+        "get_or_create_referral_code",
+        lambda uid, policy: seen.append((uid, policy)) or {"slug": "ada-referral"},
+    )
+    monkeypatch.setattr(
+        one_referral_service, "referral_base_url", lambda: "https://uat.one.hushh.ai"
+    )
+    material = service.resolve_pass_material(share_token=token, variant="referral")["material"]
+    assert seen == [(OWNER_ID, "active")]
+    assert material["publicCardUrl"] == "https://uat.one.hushh.ai/r/ada-referral"
+    assert material["passSerial"] == f"{PASS_SERIAL}-referral"
+    assert material["cardPayload"] == {"full_name": "Ada Lovelace"}
+    assert OWNER_ID not in json.dumps(material)
+
+
+def test_nws_pass_keeps_profile_qr_without_a_fabricated_score(service, db):
+    token = db.seed()
+    material = service.resolve_pass_material(share_token=token, variant="nws")["material"]
+    assert material["publicCardUrl"].endswith(f"/c/{token}")
+    assert material["passSerial"] == f"{PASS_SERIAL}-nws"
+    assert material["headline"] == "Agent One NWS"
+    assert "score" not in json.dumps(material).lower()
+
+
+def test_paused_referral_pass_never_queries_referral_data(service, db, monkeypatch):
+    from hushh_mcp.services import one_referral_service
+
+    token = db.seed(status="paused")
+    monkeypatch.setattr(
+        one_referral_service,
+        "get_active_policy",
+        lambda: pytest.fail("Paused card must stop before referral lookup"),
+    )
+    assert service.resolve_pass_material(share_token=token, variant="referral") == {
+        "status": "not_found",
+        "material": None,
+    }

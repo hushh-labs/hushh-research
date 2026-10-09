@@ -6,8 +6,57 @@ import {
   navigateTopShellBack,
   resolveTopShellBackAction,
 } from "@/lib/navigation/top-shell-back";
+import { registerBackLayer } from "@/lib/navigation/back-layers";
 
 describe("top shell back action", () => {
+  it("consumes a non-dismissible top overlay before any feature or route parent", () => {
+    const overlay = document.createElement("div");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("data-state", "open");
+    overlay.addEventListener("keydown", event => event.preventDefault());
+    document.body.appendChild(overlay);
+    const feature = vi.fn(() => true);
+    const release = registerBackLayer({ pathname: "/one/pkm", depth: 2, back: feature });
+    const navigate = vi.fn();
+    try {
+      expect(navigateTopShellBack({ pathname: "/one/pkm", navigate })).toBe(true);
+      expect(feature).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+    } finally { overlay.remove(); release(); }
+  });
+
+  it("unwinds the deepest current layer once and ignores other routes and stale query states", () => {
+    const shallow = vi.fn(() => true);
+    const deep = vi.fn(() => true);
+    const stale = vi.fn(() => true);
+    const releases = [
+      registerBackLayer({ pathname: "/one/pkm", depth: 1, back: shallow }),
+      registerBackLayer({ pathname: "/one/pkm", depth: 3, back: deep }),
+      registerBackLayer({ pathname: "/one/location", depth: 100, back: stale }),
+      registerBackLayer({ pathname: "/one/pkm", depth: 100, query: { action: "old" }, back: stale }),
+    ];
+    const navigate = vi.fn();
+    try {
+      navigateTopShellBack({ pathname: "/one/pkm", navigate });
+      expect(deep).toHaveBeenCalledOnce();
+      expect(shallow).not.toHaveBeenCalled();
+      expect(stale).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+    } finally { releases.forEach(release => release()); }
+    navigateTopShellBack({ pathname: "/one/pkm", navigate });
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
+  it("preserves Profile origin through detail, panel, and root", () => {
+    let href = "/one/profile/security/vault?from=%2Fone%2Flocation";
+    const parents: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const url = new URL(href, "https://app.test");
+      href = resolveTopShellBackAction({ pathname: url.pathname, searchParams: url.searchParams, sectionOrigin: null })!.href;
+      parents.push(href);
+    }
+    expect(parents).toEqual(["/one/profile/security?from=%2Fone%2Flocation", "/one/profile?from=%2Fone%2Flocation", "/one/location"]);
+  });
   it("uses the authored route parent instead of browser history", () => {
     expect(resolveTopShellBackAction({ pathname: "/ria/onboarding" })).toEqual({
       href: "/one",

@@ -2,6 +2,7 @@ import type { AgentProfileIconStyle } from "./agent-theme-registry";
 
 /** Opaque app artwork keeps its identity and white glyph contrast in both themes. */
 export const AGENT_APP_ICON_PALETTE = {
+  messages: { top: "#4DA3FF", bottom: "#1677E8" },
   finance: { top: "#43CF73", bottom: "#159447" },
   wallet: { top: "#FFB75B", bottom: "#E87916" },
   location: { top: "#49ADFF", bottom: "#0878EA" },

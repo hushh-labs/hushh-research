@@ -185,5 +185,9 @@
       },
       "speaker_persona": "nav"
     }
-  ]
+  ],
+  "search": {
+    "source_revision": "f3908e8ef4fa92ba3b6e0977036f3de07e9b9ccd6156ef558ae823efa85b8a1b",
+    "source_module_count": 1511
+  }
 }

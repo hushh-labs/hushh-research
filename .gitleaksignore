@@ -13,3 +13,14 @@
 # label hussh-one-chat-v1 (reproducible from the fixture itself); never a credential.
 8585e8b7fa1706adf8a86412fb40eeb037ab6935:hushh-webapp/__tests__/services/location-chat-service.test.ts:generic-api-key:4
 8585e8b7fa1706adf8a86412fb40eeb037ab6935:hushh-webapp/__tests__/services/agent-chat-client.test.ts:generic-api-key:83
+
+# Generated location_workflow_api_contract source digests (SHA-256), not credentials; PR #7644.
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599

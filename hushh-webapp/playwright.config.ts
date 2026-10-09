@@ -184,6 +184,7 @@ export default defineConfig({
         /receipt-pagination\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
         /profile-legal-connectors\.layout\.spec\.ts/,
+        /profile-pane-close\.layout\.spec\.ts/,
         /legal-pages\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,
         // boot-surface: the one cold-start surface continues the iOS splash

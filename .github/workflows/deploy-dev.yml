@@ -113,6 +113,10 @@ jobs:
             echo "Commerce preview does not publish or install pod images." >&2; exit 1
           fi
           python3 scripts/deploy/commerce-preview-target.py --target "$REQUESTED_TARGET" --github-env "$GITHUB_ENV"
+          # Cloud Run limits service name + tag to 46 characters. Bind one
+          # bounded tag to this run/attempt for both probes and cleanup.
+          candidate_digest="$(printf '%s' "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}" | sha256sum)"
+          echo "DEV_CANDIDATE_TAG=c${candidate_digest:0:12}" >> "$GITHUB_ENV"
 
       - name: Capture deployment timing start
         id: timing-start
@@ -317,6 +321,13 @@ jobs:
               if result.returncode or any(option not in result.stdout for option in required):
                   raise SystemExit(f"Candidate deployment interface is incompatible: {command[1]}")
           if os.environ.get("DEV_TARGET") == "scope-commerce-sandbox":
+              for command, required in (
+                  (["bash", "scripts/ci/verify-dev-candidate.sh", "--help"], "CANDIDATE_ID_TOKEN"),
+                  ([sys.executable, "scripts/deploy/commerce-preview-public-admission.py", "--help"], "--run-id"),
+              ):
+                  result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+                  if result.returncode or required not in result.stdout:
+                      raise SystemExit("Candidate lacks private preview admission capabilities")
               for filename in ("backend", "frontend", "frontend-image"):
                   path = Path(f"deploy/{filename}.cloudbuild.yaml")
                   if "_SECRET_PREFIX" not in (yaml.safe_load(path.read_text()).get("substitutions") or {}):
@@ -709,15 +720,45 @@ jobs:
           "${{ steps.candidate-state.outputs.backend_revision }}"
           "${{ env.RUNTIME_SERVICE_ACCOUNT }}"
 
+      - name: Authenticate private preview backend probe
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: preview-backend-probe-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: false
+          export_environment_variables: false
+          token_format: id_token
+          id_token_audience: ${{ env.PREVIEW_BACKEND_ORIGIN }}
+          id_token_include_email: true
+
+      - name: Authenticate private preview frontend probe
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        id: preview-frontend-probe-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: false
+          export_environment_variables: false
+          token_format: id_token
+          id_token_audience: ${{ env.APP_FRONTEND_ORIGIN }}
+          id_token_include_email: true
+
       - name: Verify selected candidates before traffic promotion
         id: verify-candidates
         shell: bash
         env:
-          CANDIDATE_TAG: dev-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          CANDIDATE_TAG: ${{ env.DEV_CANDIDATE_TAG }}
+          BACKEND_PROBE_ID_TOKEN: ${{ steps.preview-backend-probe-auth.outputs.id_token }}
+          FRONTEND_PROBE_ID_TOKEN: ${{ steps.preview-frontend-probe-auth.outputs.id_token }}
         run: |
           set -euo pipefail
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
-            bash scripts/ci/verify-dev-candidate.sh \
+            CANDIDATE_ID_TOKEN="$BACKEND_PROBE_ID_TOKEN" bash scripts/ci/verify-dev-candidate.sh \
               "${{ env.GCP_PROJECT_ID }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_SERVICE }}" \
               "${{ steps.candidate-state.outputs.backend_revision }}" \
               "${{ steps.build-backend-image.outputs.image_reference }}" \
@@ -735,7 +776,7 @@ jobs:
             image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
               --image-reference "$image_reference" --manifest-json /tmp/dev-frontend-manifest.json \
               --sha "${{ steps.resolve-sha.outputs.sha }}" --json-output /tmp/dev-frontend-image.json)"
-            bash scripts/ci/verify-dev-candidate.sh \
+            CANDIDATE_ID_TOKEN="$FRONTEND_PROBE_ID_TOKEN" bash scripts/ci/verify-dev-candidate.sh \
               "${{ env.GCP_PROJECT_ID }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_SERVICE }}" \
               "${{ steps.candidate-state.outputs.frontend_revision }}" "$image_reference" \
               "${{ steps.resolve-sha.outputs.sha }}" "${{ github.run_id }}" "$CANDIDATE_TAG" /login
@@ -767,6 +808,15 @@ jobs:
               --region="${{ env.GCP_REGION }}" \
               --to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"
           fi
+
+      - name: Admit verified preview application invocation
+        if: env.DEV_TARGET == 'scope-commerce-sandbox'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-public-admission.py \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" --run-id "${{ github.run_id }}" \
+            --report-path /tmp/dev-preview-public-admission.json
 
       - name: Resolve current deployed Cloud Run state
         id: current-state
@@ -1242,7 +1292,7 @@ jobs:
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
       - name: Quarantine failed preview first release
-        if: always() && failure() && env.DEV_TARGET == 'scope-commerce-sandbox'
+        if: always() && env.DEV_TARGET == 'scope-commerce-sandbox' && (failure() || steps.classify-dev-release.outputs.release_failed == 'true')
         id: quarantine-preview
         shell: bash
         run: |
@@ -1424,6 +1474,7 @@ jobs:
             /tmp/dev-backend-image.json
             /tmp/dev-bootstrap-image.json
             /tmp/dev-preview-bootstrap.json
+            /tmp/dev-preview-public-admission.json
             /tmp/dev-frontend-image.json
             /tmp/dev-frontend-prebuilt-image.json
             /tmp/dev-frontend-prebuilt-image-manifest.json
@@ -1515,7 +1566,7 @@ jobs:
           for service in "${{ env.BACKEND_SERVICE }}" "${{ env.FRONTEND_SERVICE }}"; do
             gcloud run services update-traffic "$service" \
               --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
-              --remove-tags="dev-candidate-${{ github.run_id }}-${{ github.run_attempt }}" --quiet
+              --remove-tags="${{ env.DEV_CANDIDATE_TAG }}" --quiet
           done
 
       - name: Fail workflow when dev release did not end healthy

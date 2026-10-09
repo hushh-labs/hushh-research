@@ -2,6 +2,7 @@ import { documentShareRequestId, isDocumentShareEntry } from "@/lib/consent/docu
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
+import type { SharingRequestContext } from "@/lib/services/drive-sharing-service";
 
 export type FeedDrivePaymentStatus = "ready" | "link_expired" | "expired";
 
@@ -129,8 +130,9 @@ export function formatPaymentRemaining(remainingMs: number): string {
 
 /** Recompute copy/status from the local clock without waiting for a refetch. */
 export function describeFeedDrivePayment(
-  payment: Pick<FeedDrivePayment, "status" | "ownerLabel" | "expiresAt">,
+  payment: Pick<FeedDrivePayment, "status" | "ownerLabel" | "expiresAt" | "requestedAt">,
   now = Date.now(),
+  context?: SharingRequestContext,
 ): Pick<FeedDrivePayment, "status" | "title" | "description"> {
   const locallyExpired =
     payment.status === "ready" &&
@@ -141,14 +143,63 @@ export function describeFeedDrivePayment(
     status === "ready" && payment.expiresAt !== null
       ? Math.max(0, payment.expiresAt - now)
       : null;
-  return { status, ...paymentCopy(status, payment.ownerLabel, remainingMs) };
+  return { status, ...paymentCopy(status, payment.ownerLabel, remainingMs, payment.requestedAt, context) };
+}
+
+function compactPurpose(context: SharingRequestContext): string {
+  const characters = Array.from(context.purpose.purpose.replace(/\s+/g, " ").trim());
+  return characters.length > 72 ? `${characters.slice(0, 71).join("")}…` : characters.join("");
+}
+
+function requestPeriod(context: SharingRequestContext): string | null {
+  const { periodStart, periodEnd } = context.purpose;
+  if (!periodStart || !periodEnd) return null;
+  const format = (value: string) => new Intl.DateTimeFormat(undefined, {
+    month: "short", day: "numeric", year: "numeric", timeZone: "UTC",
+  }).format(new Date(`${value}T00:00:00Z`));
+  return periodStart === periodEnd ? format(periodStart) : `${format(periodStart)}–${format(periodEnd)}`;
+}
+
+function requestedDate(requestedAt: number | null): string | null {
+  return requestedAt === null || !Number.isFinite(new Date(requestedAt).getTime())
+    ? null : `Requested ${new Intl.DateTimeFormat(undefined, {
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  }).format(new Date(requestedAt))}`;
 }
 
 function paymentCopy(
   status: FeedDrivePaymentStatus,
   owner: string | null,
   remainingMs: number | null = null,
+  requestedAt: number | null = null,
+  context?: SharingRequestContext,
 ): Pick<FeedDrivePayment, "title" | "description"> {
+  const subject = context ? compactPurpose(context) : null;
+  const deadline = remainingMs !== null && remainingMs > 0
+    ? formatPaymentRemaining(remainingMs)
+    : null;
+  if (subject) {
+    return {
+      title: status === "expired" ? "Document request expired"
+        : status === "link_expired" ? "Payment link expired" : `Pay $10 · ${subject}`,
+      description: [
+        status === "ready" ? null : subject,
+        owner ? `From ${owner}` : null,
+        requestPeriod(context!),
+        deadline,
+      ].filter(Boolean).join(" · "),
+    };
+  }
+  const requested = requestedDate(requestedAt);
+  if (requested) {
+    return {
+      title: status === "expired" ? "Document request expired"
+        : status === "link_expired" ? "Payment link expired"
+          : owner ? `Pay $10 for files from ${owner}` : "Pay $10 for your document request",
+      description: [status !== "ready" && owner ? `From ${owner}` : null, requested, deadline]
+        .filter(Boolean).join(" · "),
+    };
+  }
   if (status === "expired") {
     return owner
       ? {
@@ -171,17 +222,14 @@ function paymentCopy(
           description: "The $10 link expired. Create a new link to continue.",
         };
   }
-  const deadline = remainingMs !== null && remainingMs > 0
-    ? `${formatPaymentRemaining(remainingMs)} to pay.`
-    : null;
   return owner
     ? {
         title: `Pay $10 for files from ${owner}`,
-        description: deadline ?? `You requested files from ${owner}. Pay to continue.`,
+        description: deadline ? `${deadline} to pay.` : `You requested files from ${owner}. Pay to continue.`,
       }
     : {
         title: "Pay $10 for your document request",
-        description: deadline ?? "Sharing starts after payment.",
+        description: deadline ? `${deadline} to pay.` : "Sharing starts after payment.",
       };
 }
 
@@ -227,6 +275,7 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
       effectiveStatus,
       ownerLabel,
       effectiveStatus === "ready" && expiresAt !== null ? Math.max(0, expiresAt - now) : null,
+      requestedAt,
     );
     const current = byRequest.get(requestId);
     // A merged/paginated response can duplicate a request. Prefer the newest

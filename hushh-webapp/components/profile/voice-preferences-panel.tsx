@@ -24,10 +24,11 @@ import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationSosVoiceDefaultAction } from "@/lib/one-location/types";
 import { ConnectionsService } from "@/lib/services/connections-service";
+import detailStyles from "./profile-preference-details.module.css";
 
 function VoiceHeader() {
   return (
-    <div className="flex flex-col items-center gap-1.5 px-4 pb-2 pt-1 text-center">
+    <div className={`${detailStyles.voiceHero} flex flex-col items-center gap-1.5 px-4 pb-2 pt-1 text-center`}>
       <h1
         className="bg-clip-text text-[40px] font-bold leading-tight tracking-tight text-transparent"
         style={{
@@ -191,8 +192,8 @@ function LocationAgentDefaultsGroup({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="open">Open the screen</SelectItem>
-              <SelectItem value="trigger">Send the alert</SelectItem>
+              <SelectItem className={detailStyles.voiceOption} value="open">Open the screen</SelectItem>
+              <SelectItem className={detailStyles.voiceOption} value="trigger">Send the alert</SelectItem>
             </SelectContent>
           </Select>
         }
@@ -300,7 +301,7 @@ export function VoicePreferencesPanel({
   };
 
   return (
-    <div className="space-y-4">
+    <div className={`${detailStyles.voiceRoot} space-y-4`}>
       <VoiceHeader />
       <OneVoicePreferencesSection userId={userId} />
       <SettingsGroup title="How commands work">

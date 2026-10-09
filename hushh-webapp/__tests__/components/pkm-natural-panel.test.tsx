@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
 import * as AgentPkmAutoSavePolicy from "@/lib/agent/agent-pkm-auto-save-policy";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
@@ -498,9 +499,20 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(await screen.findByRole("heading", { name: "Accounts" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open memory: Primary Bank" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Financial" }));
+    const navigate = vi.fn();
+    fireEvent.click(screen.getByRole("button", { name: "Open memory: Primary Bank" }));
+    expect(await screen.findByRole("heading", { name: "Primary Bank" })).toBeTruthy();
+    act(() => { navigateTopShellBack({ pathname: "/one/pkm", navigate }); });
+    expect(await screen.findByRole("heading", { name: "Accounts" })).toBeTruthy();
+    act(() => { navigateTopShellBack({ pathname: "/one/pkm", navigate }); });
     expect(await screen.findByRole("heading", { name: "Financial" })).toBeTruthy();
     expect(screen.getByTestId("memory-group-accounts")).toBeTruthy();
+    expect(navigate).not.toHaveBeenCalled();
+    act(() => { navigateTopShellBack({ pathname: "/one/pkm", navigate }); });
+    expect(await screen.findByRole("button", { name: "Open category: Financial" })).toBeTruthy();
+    expect(navigate).not.toHaveBeenCalled();
+    act(() => { navigateTopShellBack({ pathname: "/one/pkm", navigate }); });
+    expect(navigate).toHaveBeenCalledWith({ href: "/one", mode: "push", transitionMode: "full" });
   });
 
   it("shows a readable path on deep search hits and returns to the same results", async () => {
@@ -516,7 +528,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.click(result);
     expect(await screen.findByRole("heading", { name: "Risk Profile" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+    const navigate = vi.fn();
+    act(() => { navigateTopShellBack({ pathname: "/one/pkm", navigate }); });
+    expect(navigate).not.toHaveBeenCalled();
     // The query and its results are still there — search is a shortcut, not a drill.
     expect(screen.getByRole("searchbox", { name: "Search Memory" })).toHaveValue("balanced");
     expect(

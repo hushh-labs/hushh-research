@@ -1,91 +1,120 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowRight, X } from "@/components/icons";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { cardNetworkLabel } from "./card-network-mark";
 import styles from "./wallet-card-gesture.module.css";
 
+export type WalletCardControlSummary = { title: string; subtitle?: string };
+
 /** Card-local gestures only; opening this panel never reveals encrypted details. */
-export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismissHint }: {
+export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismissHint, summary }: {
   card: WalletCardSummary; children: ReactNode; disabled: boolean;
   onOpen: () => void; hint: boolean; dismissHint: () => void;
+  summary?: WalletCardControlSummary;
 }) {
-  const [offset, setOffset] = useState(0);
-  const [dragging, setDragging] = useState(false);
   const [opened, setOpened] = useState(false);
-  const drag = useRef<{ x:number; y:number; base:number; axis:"x"|"y"|null } | null>(null);
+  const drag = useRef<{ x: number; y: number; base: number; axis: "x" | "y" | null } | null>(null);
   const suppressClick = useRef(false);
   const surface = useRef<HTMLDivElement>(null);
+  const slidingCard = useRef<HTMLDivElement>(null);
+  const controls = useRef<HTMLDivElement>(null);
+  const detailsButton = useRef<HTMLButtonElement>(null);
   const liveOffset = useRef(0);
+  const openedRef = useRef(false);
   const dismiss = useRef(dismissHint);
   useEffect(() => { dismiss.current = dismissHint; }, [dismissHint]);
-  const moveCard = (value: number) => {
+  const revealWidth = useCallback(() => controls.current?.offsetWidth || 190, []);
+  // Gesture frames change a local transform, never React or page layout.
+  const moveCard = useCallback((value: number, dragging = false) => {
     liveOffset.current = value;
-    setOffset(value);
-  };
+    if (slidingCard.current) {
+      slidingCard.current.style.transform = `translate3d(${value}px, 0, 0)`;
+      slidingCard.current.dataset.dragging = String(dragging);
+    }
+  }, []);
+  const settle = useCallback((next: boolean, returnFocus = false) => {
+    openedRef.current = next;
+    setOpened(next);
+    moveCard(next ? -revealWidth() : 0);
+    if (returnFocus) slidingCard.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+  }, [moveCard, revealWidth]);
+  useEffect(() => {
+    if (opened) detailsButton.current?.focus({ preventScroll: true });
+  }, [opened]);
   useEffect(() => {
     const node = surface.current;
     if (!node || disabled) return;
-    let settle: ReturnType<typeof setTimeout> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const onWheel = (event: WheelEvent) => {
       if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || !event.deltaX || drag.current) return;
       event.preventDefault();
       event.stopPropagation();
       dismiss.current();
-      setDragging(true);
+      const width = revealWidth();
       const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? node.clientWidth : 1;
-      moveCard(Math.max(-210, Math.min(0, liveOffset.current - event.deltaX * units)));
-      clearTimeout(settle);
-      settle = setTimeout(() => {
-        const next = liveOffset.current < -65;
-        setOpened(next);
-        moveCard(next ? -190 : 0);
-        setDragging(false);
-      }, 120);
+      moveCard(Math.max(-width, Math.min(0, liveOffset.current - event.deltaX * units)), true);
+      clearTimeout(timer);
+      timer = setTimeout(() => settle(liveOffset.current < -width * .3), 120);
     };
+    const observer = new ResizeObserver(() => {
+      if (!drag.current) moveCard(openedRef.current ? -revealWidth() : 0);
+    });
+    observer.observe(node);
     node.addEventListener("wheel", onWheel, { passive: false });
-    return () => { node.removeEventListener("wheel", onWheel); clearTimeout(settle); };
-  }, [disabled]);
+    return () => { observer.disconnect(); node.removeEventListener("wheel", onWheel); clearTimeout(timer); };
+  }, [disabled, moveCard, revealWidth, settle]);
   const finish = (cancelled = false) => {
     if (!drag.current) return;
     const horizontal = drag.current.axis === "x";
     drag.current = null;
-    setDragging(false);
     if (!horizontal) return;
-    const next = cancelled ? opened : liveOffset.current < -65;
-    setOpened(next);
-    moveCard(next ? -190 : 0);
+    settle(cancelled ? openedRef.current : liveOffset.current < -revealWidth() * .3);
     if (!cancelled) dismissHint();
   };
+  const label = summary ?? {
+    title: `${cardNetworkLabel(card.brand)} •••• ${card.last4}`,
+    subtitle: `Expires ${String(card.expiryMonth).padStart(2, "0")}/${String(card.expiryYear).slice(-2)}`,
+  };
   return <div ref={surface} className={styles.swipe} data-swipe-views-horizontal-scroll data-controls-open={opened}
+    onKeyDown={event => {
+      if (disabled) return;
+      if (event.key === "ArrowLeft" && !opened) { event.preventDefault(); event.stopPropagation(); dismissHint(); settle(true); }
+      if ((event.key === "Escape" || event.key === "ArrowRight") && opened) { event.preventDefault(); event.stopPropagation(); settle(false, true); }
+    }}
     onPointerDown={event => {
       if (disabled || !event.isPrimary || event.button !== 0 || (event.target as HTMLElement).closest("[data-card-controls]")) return;
       suppressClick.current = false;
-      drag.current = { x:event.clientX, y:event.clientY, base:opened ? -190 : 0, axis:null };
+      drag.current = { x: event.clientX, y: event.clientY, base: liveOffset.current, axis: null };
     }}
     onPointerMove={event => {
       const start = drag.current;
       if (!start) return;
-      const dx = event.clientX-start.x, dy = event.clientY-start.y;
-      if (!start.axis && Math.max(Math.abs(dx),Math.abs(dy)) > 8) {
-        start.axis = Math.abs(dx) > Math.abs(dy)*1.3 ? "x" : "y";
-        if (start.axis === "x") { event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); suppressClick.current = true; dismissHint(); }
+      const dx = event.clientX - start.x, dy = event.clientY - start.y;
+      if (!start.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 8) {
+        start.axis = Math.abs(dx) > Math.abs(dy) * 1.3 ? "x" : "y";
+        if (start.axis === "x") { event.currentTarget.setPointerCapture(event.pointerId); suppressClick.current = true; dismissHint(); }
       }
-      if (start.axis === "x") moveCard(Math.max(-210,Math.min(0,start.base+dx)));
+      if (start.axis === "x") moveCard(Math.max(-revealWidth(), Math.min(0, start.base + dx)), true);
     }}
     onPointerUp={() => finish()}
     onPointerCancel={() => finish(true)}
-    onClickCapture={event => { if (suppressClick.current && !(event.target as HTMLElement).closest("[data-card-controls]")) { event.preventDefault(); event.stopPropagation(); suppressClick.current=false; } }}>
-    <div className={styles.controls} data-card-controls inert={!opened || undefined} aria-hidden={!opened || undefined}>
-      <p>{cardNetworkLabel(card.brand)} •••• {card.last4}</p>
-      <span>Expires {String(card.expiryMonth).padStart(2,"0")}/{String(card.expiryYear).slice(-2)}</span>
-      <Button size="compact" disabled={disabled} onClick={onOpen}>View card details</Button>
-      <Button size="compact" variant="ghost" onClick={() => { setOpened(false); moveCard(0); }}>Back to card</Button>
+    onClickCapture={event => {
+      if (suppressClick.current && event.detail > 0 && !(event.target as HTMLElement).closest("[data-card-controls]")) {
+        event.preventDefault(); event.stopPropagation(); suppressClick.current = false;
+      }
+    }}>
+    <div ref={controls} className={styles.controls} data-card-controls inert={!opened || undefined} aria-hidden={!opened || undefined}>
+      <div className={styles.controlHeader}><p>{label.title}</p><ShellActionSurface aria-label="Back to card" className="size-11 shrink-0" onClick={() => settle(false, true)}><X aria-hidden="true" className="size-4" /></ShellActionSurface></div>
+      {label.subtitle ? <span>{label.subtitle}</span> : null}
+      <Button ref={detailsButton} size="compact" className="min-h-11 w-full" disabled={disabled} onClick={onOpen}>View details <ArrowRight aria-hidden="true" className="size-4" /></Button>
     </div>
-    <div className={styles.slidingCard} style={{ transform:`translateX(${offset}px) rotateY(${offset/28}deg)`, transition:dragging ? "none" : undefined }}>
+    <div ref={slidingCard} className={styles.slidingCard}>
       {children}
-      {hint && !opened ? <div data-wallet-swipe-hint className={styles.hint} aria-hidden="true"><span>Swipe left to see card controls</span><svg viewBox="0 0 64 64" fill="none"><path d="M25 34V13a5 5 0 0 1 10 0v17l3-4a4 4 0 0 1 7 1l2 4a4 4 0 0 1 7 2l2 10c1 6-2 10-7 16H28L14 41c-4-6 2-11 6-7l5 5" fill="white" stroke="#353535" strokeWidth="2" strokeLinejoin="round"/></svg></div> : null}
+      {hint && !opened ? <div data-wallet-swipe-hint className={styles.hint} aria-hidden="true"><span className={styles.hintLabel}>Swipe left to see card controls</span><div className={styles.hintGesture}><span className={styles.hintTrail}>←</span><svg viewBox="0 0 64 64" fill="none"><path d="M25 34V13a5 5 0 0 1 10 0v17l3-4a4 4 0 0 1 7 1l2 4a4 4 0 0 1 7 2l2 10c1 6-2 10-7 16H28L14 41c-4-6 2-11 6-7l5 5" fill="white" stroke="#353535" strokeWidth="2" strokeLinejoin="round"/></svg></div></div> : null}
     </div>
   </div>;
 }

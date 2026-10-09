@@ -93,6 +93,26 @@ flowchart TB
 
 ## Route Categories
 
+### Wallet Profile lifecycle
+
+The Wallet cards surface and `/one/wallet-card` share the same identity pass
+authority. Owner endpoints under `/api/one/wallet-card` require the existing
+`VAULT_OWNER` token and an exact owner match. `POST /ensure` accepts `userId`,
+optional `cardPayload`, `avatarUrl` and a known `shareToken`; it creates only a
+missing profile from account basics and returns the existing mutation response.
+It preserves edits, pause, removal and the current QR during repeat/concurrent
+requests. An authenticated owner can recover a new token from its encrypted
+envelope or adopt a valid legacy device token; the envelope never leaves the
+service. `GET` remains the status/snapshot read. Existing save, preview,
+pause/resume, rotate, revoke, public resolve and signed pass routes remain the
+same. The `username` payload field is optional and server-validated (3–30
+lowercase letters/digits/single internal dots, reserved/blocked labels rejected).
+
+Public QR resolves count aggregate visits only, without identifying scanners.
+Payment-card secrets remain exclusively in the encrypted `wallet` PKM domain.
+See [Wallet](../one/wallet.md) and the
+[Wallet Profile contract](../../superpowers/specs/2026-08-03-wallet-card-contract.md).
+
 ### Public (No Auth)
 
 | Method | Path                                      | Description                                                                                             |
@@ -892,7 +912,7 @@ This internal ciphertext-only provenance is excluded from manifests, model
 context and exported knowledge paths; it never replaces the user or entity ID.
 
 Owner/business-scoped, vault-encrypted `business_profile_review:uat:v1:{businessUid}` device recovery
-holds only control state and the exact approved cards/scopes. It is not profile
+holds control state, the original listing snapshot, reviewed edits and exact approved cards/scopes. It is not profile
 authority. Later defers 24 hours; Not my business and saved suppress this device's
 offer. These decisions are not cross-device. Checkpoints have a 30-day freshness
 bound; expired, unreadable or unavailable recovery fails closed rather than
@@ -904,6 +924,16 @@ Lock (in-process fallback where unavailable); a stale Later preserves a pending
 job and cannot overwrite saved. Only acknowledged numeric revisions count as saved.
 Lock, account/session change and expired authority fence every effect and hide
 old content. Recovering a pending save requires another explicit Save action.
+Recovery failures expose a retry without starting a replacement job. Pending
+reviews retain their original listing and edits even when discovery returns
+newer fields for the same UID. New writes require a fresh matching snapshot;
+existing commit receipts can be reconciled while the listing is unavailable.
+Legacy jobs without snapshots can reconcile receipts but cannot authorize new
+writes. Scope/card acknowledgements are validated against their owner and revision.
+An unsaved preview can refresh its listing and restart review; pending cards are
+not silently discarded. Within the current PKM domain, the conflict-aware writer
+rejects the same business UID at a different entity destination. This is not a
+cross-domain or cross-user uniqueness guarantee.
 
 This is not a business ownership claim system. Business-authority verification,
 cross-device lifecycle and deployment acceptance remain separate gates. Source/unit tests do not certify
@@ -1490,6 +1520,8 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 | POST   | `/api/account/email-aliases/verification/start`   | Start explicit email alias verification; dev/UAT review mode may echo the code                                                                                                                           |
 | POST   | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake                                                                                                                                          |
 | DELETE | `/api/account/delete`                             | Delete the account, user-owned Vault/profile/application records, and the authenticated Firebase UID. Required append-only or regulated evidence follows its approved retention/redaction policy rather than an incidental cascade. Returns `409 ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING` without deleting anything when parked personal-agent/BYOC state may still own an external resource. |
+| GET | `/api/account/delete-lost-vault/options` | Firebase-authenticated, no-store discovery for a signed-in person with an inaccessible vault. Returns whether a verified linked phone is required, a masked hint, and enrolled Google/Apple provider IDs. It grants no deletion or vault authority. |
+| POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must show a pending cleanup state. |
 
 Every Firebase bearer dependency verifies signature, issuer, audience, and
 expiry, preserves revoked/disabled-token enforcement, and always enforces the

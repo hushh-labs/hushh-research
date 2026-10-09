@@ -9,15 +9,20 @@ from slowapi.errors import RateLimitExceeded
 from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
 from api.routes.one import business_suggestions as routes
-from hushh_mcp import runtime_settings
 from hushh_mcp.services import business_suggestion_service as service
 
 
 @pytest.fixture
 def fixture_identity(monkeypatch):
-    monkeypatch.delenv("ONE_BUSINESS_DIRECTORY_ENABLED", raising=False)
+    from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+    async def no_phone_claim(self, user_ids):
+        return {}
+
+    monkeypatch.setattr(ActorIdentityService, "get_many", no_phone_claim)
+    monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "true")
     monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.setenv("ONE_BUSINESS_UAT_FIXTURE_ENABLED", "true")
+    monkeypatch.delenv("ONE_BUSINESS_UAT_FIXTURE_ENABLED", raising=False)
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
     monkeypatch.setattr(service, "get_firebase_auth_app", lambda: object())
@@ -32,25 +37,48 @@ def fixture_identity(monkeypatch):
         return record
 
     monkeypatch.setattr(firebase_auth, "get_user", get_user)
+
+    async def directory_candidate(*args, **kwargs):
+        return {
+            "status": "suggestion_available",
+            "candidates": [
+                {
+                    "business_uid": "urn:hushh:business:directory:business:owner-row",
+                    "synthetic": False,
+                    "source_identity": {"source": "directory_seed", "source_key": "owner-row"},
+                    "match_evidence": [
+                        {"kind": "verified_email_identity", "email": "person@hushh.ai"}
+                    ],
+                    "draft": {"name": "Owner business", "website": "https://owner.example"},
+                    "ownership_verified": False,
+                    "claim_created": False,
+                    "verification_required": ["business_authority"],
+                }
+            ],
+            "coverage_incomplete": False,
+        }
+
+    monkeypatch.setattr(service, "lookup_directory", directory_candidate)
     return record, calls
 
 
 @pytest.mark.asyncio
-async def test_verified_uat_owner_gets_only_synthetic_candidate(fixture_identity):
+async def test_verified_owner_uses_directory_candidate_not_synthetic_fixture(
+    fixture_identity, monkeypatch
+):
     _, calls = fixture_identity
+    # The candidate is returned by the normal directory adapter contract.
+    # This test's adapter is mocked so it remains independent of Cloud Run.
     result = await service.get_business_suggestion("owner")
     candidate = result["candidates"][0]
     assert calls == ["owner"]
     assert result["status"] == "suggestion_available"
     assert result["pkm_written"] is False
-    assert candidate["synthetic"] is True
+    assert candidate["synthetic"] is False
     assert candidate["ownership_verified"] is False
     assert candidate["claim_created"] is False
     assert candidate["business_uid"] != "owner"
-    assert "person@" not in str(result)
-    assert candidate["draft"]["category"] == "Software company · Private intelligence"
-    assert candidate["draft"]["phone"] == "+1 202-555-0147"
-    assert "UAT fixture" in candidate["draft"]["hours"]
+    assert candidate["source_identity"]["source"] == "directory_seed"
 
 
 @pytest.mark.asyncio
@@ -76,6 +104,7 @@ async def test_local_rehearsal_is_peer_reviewer_and_uat_resource_bound(
     fixture_identity, monkeypatch
 ):
     _, calls = fixture_identity
+    monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "false")
     configured = {
         "ENVIRONMENT": "development",
         "APP_RUNTIME_PROFILE": "local",
@@ -133,7 +162,6 @@ async def test_local_rehearsal_is_peer_reviewer_and_uat_resource_bound(
         ("APP_RUNTIME_PROFILE", "production"),
         ("APP_RUNTIME_PROFILE", "dev"),
         ("APP_RUNTIME_PROFILE", "unknown"),
-        ("ONE_BUSINESS_UAT_FIXTURE_ENABLED", "false"),
     ],
 )
 @pytest.mark.asyncio
@@ -141,6 +169,7 @@ async def test_non_uat_and_conflicting_labels_never_read_identity(
     fixture_identity, monkeypatch, label, value
 ):
     _, calls = fixture_identity
+    monkeypatch.delenv("ONE_BUSINESS_DIRECTORY_ENABLED", raising=False)
     monkeypatch.setenv(label, value)
     assert (await service.get_business_suggestion("owner"))["status"] == "disabled"
     assert calls == []
@@ -152,9 +181,6 @@ async def test_non_uat_and_conflicting_labels_never_read_identity(
         ("person@hushh.ai", False),
         (None, True),
         ("", True),
-        ("person@sub.hushh.ai", True),
-        ("person@hushh.ai.evil.test", True),
-        ("person@not-hushh.ai", True),
         ("@hushh.ai", True),
         ("a@b@hushh.ai", True),
         ("person @hushh.ai", True),
@@ -167,11 +193,27 @@ async def test_ineligible_email_never_builds_candidate(
     record, _ = fixture_identity
     record.email, record.email_verified = email, verified
     monkeypatch.setattr(
-        service, "build_uat_business_candidate", lambda: pytest.fail("ineligible candidate")
+        service, "lookup_directory", lambda *args, **kwargs: pytest.fail("ineligible lookup")
     )
     result = await service.get_business_suggestion("owner")
-    assert result["status"] == "no_match"
+    assert result["status"] == "insufficient_signals"
     assert result["candidates"] == []
+
+
+@pytest.mark.asyncio
+async def test_verified_consumer_email_uses_normal_directory_lookup(fixture_identity, monkeypatch):
+    record, _ = fixture_identity
+    record.email = "owner@gmail.com"
+    received = []
+
+    async def lookup(email, phone, *, local):
+        received.append((email, phone))
+        return {"status": "no_match", "candidates": [], "coverage_incomplete": False}
+
+    monkeypatch.setattr(service, "lookup_directory", lookup)
+    result = await service.get_business_suggestion("owner")
+    assert received == [("owner@gmail.com", None)]
+    assert result["status"] == "no_match"
 
 
 @pytest.mark.asyncio
@@ -218,17 +260,6 @@ def test_route_denied_auth_never_calls_service(monkeypatch):
     response = TestClient(app).get("/api/one/business/suggestion")
     assert response.status_code == 401
     assert response.headers["cache-control"] == "private, no-store"
-
-
-def test_runtime_config_hydrates_default_off_switch(monkeypatch):
-    monkeypatch.delenv("ONE_BUSINESS_UAT_FIXTURE_ENABLED", raising=False)
-    monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
-    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
-    assert runtime_settings.one_business_uat_fixture_enabled() is False
-    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", '{"one_business_uat_fixture_enabled":true}')
-    runtime_settings.hydrate_runtime_environment()
-    assert runtime_settings.one_business_uat_fixture_enabled() is True
 
 
 def test_rate_limit_response_is_private_with_production_handler(fixture_identity, monkeypatch):

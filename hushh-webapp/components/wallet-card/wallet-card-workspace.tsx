@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Lock, Share2, Wallet } from "@/components/icons";
 import { SuccessRowIcon, WalletAgentIcon } from "@/components/icons/agents";
 import { toast } from "sonner";
@@ -12,6 +12,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   normalizePublicWalletCard,
@@ -52,6 +54,7 @@ import {
   WalletCardPayloadError,
   WalletCardService,
   type WalletCardPreferredContact,
+  type WalletPassVariant,
   type WalletCardRecord,
   type WalletCardShareLink,
 } from "@/lib/services/wallet-card-service";
@@ -83,11 +86,32 @@ type VisitorPreviewState =
  * page, and the management surface afterwards. Every network call goes through
  * `WalletCardService` — nothing here talks to the API directly.
  */
-export function WalletCardWorkspace() {
+function WalletProfileShell({ embedded, title, description, children }: {
+  embedded: boolean; title: string; description: string; children: ReactNode;
+}) {
+  return embedded ? <section aria-label={title} className="space-y-4">
+    <div className="space-y-1"><h3 className="ui-text-section-title">{title}</h3><p className="text-sm text-muted-foreground">{description}</p></div>
+    {children}
+  </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>;
+}
+
+type WalletCardWorkspaceProps = { embedded?: boolean; passVariant?: WalletPassVariant; active?: boolean };
+
+export function WalletCardWorkspace(props: WalletCardWorkspaceProps = {}) {
+  const { user } = useAuth();
+  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  // Owner changes and vault locks discard all card, draft, and visitor state
+  // during render. Late requests can only update the unmounted owner's tree.
+  const ownerScope = `${user?.uid ?? "anonymous"}:${isVaultUnlocked && vaultOwnerToken ? "ready" : "locked"}`;
+  return <WalletCardOwnerWorkspace key={ownerScope} {...props} />;
+}
+
+function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", active = true }: WalletCardWorkspaceProps) {
   const { user, loading: authLoading, phoneNumber } = useAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const avatarUrl = useEffectiveAvatarUrl();
   const userId = user?.uid ?? null;
+  const loadGeneration = useRef(0);
 
   const [stage, setStage] = useState<WalletCardStage>("loading");
   const [card, setCard] = useState<WalletCardRecord | null>(null);
@@ -111,6 +135,19 @@ export function WalletCardWorkspace() {
   const [confirm, setConfirm] = useState<ConfirmKind | null>(null);
   const [applePassSupported, setApplePassSupported] = useState(false);
 
+  const localStageOpen = stage === "edit" || stage === "preview" || stage === "success";
+  const closeLocalStage = useCallback(() => {
+    if (!localStageOpen) return false;
+    if (saving || busyAction) return true;
+    setStage(card ? "manage" : "intro");
+    return true;
+  }, [localStageOpen, saving, busyAction, card]);
+  useBackLayer(
+    embedded ? ROUTES.ONE_WALLET : ROUTES.ONE_WALLET_CARD,
+    active && localStageOpen && isVaultUnlocked && vaultOwnerToken && userId ? 2 : 0,
+    closeLocalStage,
+  );
+
   // Platform capability is read after mount: the user agent is not available
   // during server rendering and would otherwise cause a hydration mismatch.
   useEffect(() => {
@@ -130,9 +167,9 @@ export function WalletCardWorkspace() {
   /**
    * Adopt a freshly-loaded card and re-read the device-local share link.
    *
-   * The plaintext token is returned by the backend only at create and rotate,
-   * so this device copy is what lets the QR and the Add-to-Wallet link render
-   * later. `readShareLink` drops it when the stored token version no longer
+   * The device copy lets the QR and Add-to-Wallet link render between owner
+   * reads; authenticated ensure can recover the encrypted token when needed.
+   * `readShareLink` drops it when the stored token version no longer
    * matches the card, which is how a rotation performed on another device
    * stops this one from showing a dead QR.
    */
@@ -148,27 +185,44 @@ export function WalletCardWorkspace() {
 
   const loadCard = useCallback(async () => {
     if (!vaultOwnerToken || !userId) return;
+    const generation = ++loadGeneration.current;
+    const isCurrent = () => generation === loadGeneration.current;
     setStage("loading");
     try {
       const state = await WalletCardService.getCard({
         vaultOwnerToken,
         userId,
       });
+      if (!isCurrent()) return;
       if (!state.enabled) {
         setStage("unavailable");
         return;
       }
-      if (!state.exists || !state.card || state.card.status === "revoked") {
+      if (!state.exists || !state.card) {
+        const result = await WalletCardService.ensureCard({
+          vaultOwnerToken, userId, payload: draftToPayload(smartDefaults), avatarUrl,
+        });
+        if (!isCurrent()) return;
+        adoptCard(result.card);
+        setStage("manage");
+        return;
+      }
+      if (state.card.status === "revoked") {
         adoptCard(null);
         setStage("intro");
         return;
       }
-      adoptCard(state.card);
+      // Ensure also recovers a previously created QR on a new device.
+      if (!WalletCardService.readShareLink(userId, state.card)) {
+        const result = await WalletCardService.ensureCard({ vaultOwnerToken, userId });
+        if (!isCurrent()) return;
+        adoptCard(result.card);
+      } else adoptCard(state.card);
       setStage("manage");
     } catch {
-      setStage("error");
+      if (isCurrent()) setStage("error");
     }
-  }, [adoptCard, userId, vaultOwnerToken]);
+  }, [adoptCard, userId, vaultOwnerToken, smartDefaults, avatarUrl]);
 
   useEffect(() => {
     if (authLoading) {
@@ -180,7 +234,53 @@ export function WalletCardWorkspace() {
       return;
     }
     void loadCard();
+    return () => { loadGeneration.current += 1; };
   }, [authLoading, isVaultUnlocked, vaultOwnerToken, userId, loadCard]);
+
+  // Keep scan totals and other-device edits fresh while preserving an unsaved draft.
+  useEffect(() => {
+    if (!userId || !vaultOwnerToken || stage !== "manage") return;
+    let cancelled = false;
+    let running = false;
+    const recoveryAttempts = new Set<number | null>();
+    const refresh = async () => {
+      if (cancelled || running || document.visibilityState === "hidden") return;
+      running = true;
+      try {
+        const state = await WalletCardService.getCard({ userId, vaultOwnerToken });
+        if (!cancelled && state.card) {
+          adoptCard(state.card.status === "revoked" ? null : state.card);
+          if (state.card.status === "revoked") setStage("intro");
+          else if (!WalletCardService.readShareLink(userId, state.card)) {
+            const version = state.card.shareTokenVersion ?? null;
+            // Legacy rows may have no recoverable envelope. Try each observed
+            // version once, rather than every poll or our own change event.
+            if (!recoveryAttempts.has(version)) {
+              recoveryAttempts.add(version);
+              const recovered = await WalletCardService.ensureCard({ userId, vaultOwnerToken });
+              if (!cancelled) {
+                adoptCard(recovered.card.status === "revoked" ? null : recovered.card);
+                if (recovered.card.status === "revoked") setStage("intro");
+              }
+            }
+          }
+        }
+      } catch { /* Keep the last confirmed state during a transient outage. */ }
+      finally { running = false; }
+    };
+    const unsubscribe = WalletCardService.subscribe(userId, () => void refresh());
+    const visible = () => void refresh();
+    window.addEventListener("focus", visible);
+    document.addEventListener("visibilitychange", visible);
+    const timer = window.setInterval(visible, 15000);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      window.clearInterval(timer);
+      window.removeEventListener("focus", visible);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [adoptCard, stage, userId, vaultOwnerToken]);
 
   const loadVisitorPreview = useCallback(async () => {
     if (!vaultOwnerToken || !userId) return;
@@ -227,10 +327,11 @@ export function WalletCardWorkspace() {
       ...stored,
       // Fall back to what the product already knows rather than showing a blank.
       fullName: stored.fullName || smartDefaults.fullName,
+      username: stored.username || smartDefaults.username,
     });
     setErrors({});
     setStage("edit");
-  }, [card, smartDefaults.fullName]);
+  }, [card, smartDefaults.fullName, smartDefaults.username]);
 
   const onDraftChange = useCallback(
     (key: keyof WalletCardDraft, value: string) => {
@@ -311,7 +412,7 @@ export function WalletCardWorkspace() {
       // so a missing signing certificate surfaces as product copy here instead
       // of a raw error page in Safari.
       const result = await WalletCardService.addToAppleWallet(
-        shareLink.shareToken,
+        shareLink.shareToken, { variant: passVariant },
       );
       if (result.state === "opened") {
         setStage("success");
@@ -323,7 +424,7 @@ export function WalletCardWorkspace() {
     } finally {
       setBusyAction(null);
     }
-  }, [shareLink]);
+  }, [shareLink, passVariant]);
 
   const shareLinkAction = useCallback(async () => {
     if (!shareLink) return;
@@ -469,19 +570,19 @@ export function WalletCardWorkspace() {
             : "empty-valid";
 
   return (
-    <PkmSettingsShell
+    <WalletProfileShell
+      embedded={embedded}
       title={header.title}
       description={header.description}
-      innerClassName="mx-auto max-w-[580px]"
     >
-      <NativeTestBeacon
+      {!embedded ? <NativeTestBeacon
         routeId="/one/wallet-card"
         marker="native-route-one-wallet-card"
         authState={
           authLoading ? "pending" : user ? "authenticated" : "anonymous"
         }
         dataState={dataState}
-      />
+      /> : null}
 
       {stage === "loading" ? (
         <div className="rounded-2xl border p-6 text-center text-sm text-muted-foreground">
@@ -546,7 +647,7 @@ export function WalletCardWorkspace() {
           isEditingExisting={Boolean(card)}
           onChange={onDraftChange}
           onSubmit={() => void submitDraft()}
-          onCancel={() => setStage(card ? "manage" : "intro")}
+          onCancel={closeLocalStage}
         />
       ) : null}
 
@@ -638,7 +739,7 @@ export function WalletCardWorkspace() {
                   size="sm"
                   variant="none"
                   effect="fade"
-                  onClick={() => setStage("manage")}
+                  onClick={closeLocalStage}
                 >
                   Not now
                 </Button>
@@ -649,7 +750,7 @@ export function WalletCardWorkspace() {
                 size="sm"
                 variant="none"
                 effect="fade"
-                onClick={() => setStage("manage")}
+                onClick={closeLocalStage}
               >
                 <ArrowLeft className="mr-2 h-4 w-4" aria-hidden />
                 Back
@@ -673,7 +774,7 @@ export function WalletCardWorkspace() {
               description={WALLET_CARD_OWNER_COPY.updatesAutomatically}
             />
           </SettingsGroup>
-          <Button type="button" size="sm" onClick={() => setStage("manage")}>
+          <Button type="button" size="sm" onClick={closeLocalStage}>
             {WALLET_CARD_COPY.entryAfterSetup.title}
           </Button>
         </div>
@@ -703,6 +804,6 @@ export function WalletCardWorkspace() {
           if (!open) setConfirm(null);
         }}
       />
-    </PkmSettingsShell>
+    </WalletProfileShell>
   );
 }

@@ -49,6 +49,42 @@ def test_manual_ci_secret_range_includes_diverged_candidate_commits(tmp_path):
     assert git("rev-list", *scan_args).splitlines() == [candidate]
 
 
+def test_workflow_candidate_tag_fits_preview_services_and_binds_retry(tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    resolve = next(step for step in steps if step["name"] == "Resolve fixed deployment target")
+    probe = next(step for step in steps if step.get("id") == "verify-candidates")
+    cleanup = next(step for step in steps if step["name"] == "Remove this run's candidate tags")
+    tags = []
+    for attempt in ("1", "99999999999999999999"):
+        env_file = tmp_path / ("env-" + attempt)
+        subprocess.run(  # noqa: S603 - repository-owned workflow in an isolated fixture.
+            ["bash", "-eu", "-o", "pipefail", "-c", resolve["run"]],
+            cwd=ROOT,
+            env={
+                **os.environ,
+                "REQUESTED_TARGET": "scope-commerce-sandbox",
+                "BUILD_POD_IMAGE": "false",
+                "GITHUB_ENV": str(env_file),
+                "GITHUB_RUN_ID": "3778850086800000000000000000",
+                "GITHUB_RUN_ATTEMPT": attempt,
+            },
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        values = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+        tag = values["DEV_CANDIDATE_TAG"]
+        assert len(tag) == 13 and tag.startswith("c")
+        assert all(char in "0123456789abcdef" for char in tag[1:])
+        for service in (values["BACKEND_SERVICE"], values["FRONTEND_SERVICE"]):
+            assert len(service) + len(tag) <= 46
+        tags.append(tag)
+    assert tags[0] != tags[1]
+    assert probe["env"]["CANDIDATE_TAG"] == "${{ env.DEV_CANDIDATE_TAG }}"
+    assert '--remove-tags="${{ env.DEV_CANDIDATE_TAG }}"' in cleanup["run"]
+
+
 @pytest.mark.parametrize("code,expected", [("200", 0), ("302", 1), ("503", 1)])
 def test_candidate_http_gate_does_not_accept_redirects(tmp_path, code, expected):
     commands = tmp_path / "commands"
@@ -321,3 +357,98 @@ def test_preview_database_gates_use_release_contract_without_shared_dev_fallback
         )
         assert rejected.returncode != 0
         release.write_text("{}")
+
+
+@pytest.mark.parametrize("token,expected", [("synthetic-identity", 0), ("", 1)])
+def test_private_preview_probe_requires_identity_without_recording_it(tmp_path, token, expected):
+    calls = tmp_path / "calls"
+    for name, body in {
+        "gcloud": 'echo "$*" >> "$CALLS"\n',
+        "curl": """echo "$*" >> "$CALLS"
+body=$(cat)
+[ "$body" = 'header = "X-Serverless-Authorization: Bearer synthetic-identity"' ] && printf 200 || printf 403
+""",
+        "sleep": "exit 0\n",
+        "python-gate": 'if [ "$1" = "-c" ]; then echo https://candidate.run.app; fi\n',
+    }.items():
+        path = tmp_path / name
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+    result = subprocess.run(  # noqa: S603 - fixed gate with synthetic executables and identity.
+        [
+            "bash",
+            str(ROOT / "scripts/ci/verify-dev-candidate.sh"),
+            "hushh-pda-dev",
+            "us-central1",
+            "consent-protocol-commerce-sandbox",
+            "revision",
+            "registry/image@sha256:" + "a" * 64,
+            "a" * 40,
+            "99",
+            "c123",
+            "/health",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": str(tmp_path) + ":" + os.environ["PATH"],
+            "PROTOCOL_PYTHON": str(tmp_path / "python-gate"),
+            "CALLS": str(calls),
+            "DEV_TARGET": "scope-commerce-sandbox",
+            "CANDIDATE_ID_TOKEN": token,
+        },
+    )
+    assert result.returncode == expected, result.stderr
+    assert "synthetic-identity" not in result.stdout + result.stderr + calls.read_text()
+    if not token:
+        assert "https://candidate.run.app/health" not in calls.read_text()
+
+
+def test_preview_public_admission_follows_authenticated_health_and_application_promotion():
+    steps = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())["jobs"][
+        "deploy"
+    ]["steps"]
+    names = [step["name"] for step in steps]
+    assert names.index("Verify selected candidates before traffic promotion") < names.index(
+        "Promote deployed revisions to dev traffic"
+    )
+    assert names.index("Promote deployed revisions to dev traffic") < names.index(
+        "Admit verified preview application invocation"
+    )
+    for lane, audience in (
+        ("backend", "PREVIEW_BACKEND_ORIGIN"),
+        ("frontend", "APP_FRONTEND_ORIGIN"),
+    ):
+        auth = next(step for step in steps if step.get("id") == f"preview-{lane}-probe-auth")
+        assert auth["if"] == "env.DEV_TARGET == 'scope-commerce-sandbox'"
+        assert auth["with"]["id_token_audience"] == "${{ env." + audience + " }}"
+        assert auth["with"]["create_credentials_file"] is False
+        assert auth["with"]["export_environment_variables"] is False
+    quarantine = next(step for step in steps if step.get("id") == "quarantine-preview")
+    expression = quarantine["if"].replace("&&", "and").replace("||", "or")
+    expression = expression.replace("env.DEV_TARGET", "target").replace(
+        "steps.classify-dev-release.outputs.release_failed", "classified"
+    )
+    for target, failed, classified, expected in (
+        ("scope-commerce-sandbox", False, "true", True),
+        ("scope-commerce-sandbox", True, "", True),
+        ("scope-commerce-sandbox", False, "false", False),
+        ("shared-dev", True, "true", False),
+    ):
+        # Evaluate the authored admission predicate, including the case where a
+        # continued semantic failure leaves the GitHub job status successful.
+        assert (
+            eval(  # noqa: S307 - repository-owned boolean expression, no builtins
+                expression,
+                {"__builtins__": {}},
+                {
+                    "always": lambda: True,
+                    "failure": lambda failed=failed: failed,
+                    "target": target,
+                    "classified": classified,
+                },
+            )
+            is expected
+        )

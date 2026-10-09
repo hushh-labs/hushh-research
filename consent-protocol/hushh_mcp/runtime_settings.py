@@ -162,7 +162,6 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # nearby-presence mode: that flag governs co-presence, and closing
     # co-presence in production must not also close a business directory.
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
-    "one_business_uat_fixture_enabled": "ONE_BUSINESS_UAT_FIXTURE_ENABLED",
     "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
     # Withdraws One Live Voice mail reads and nothing else. Its own key rather
     # than GMAIL_CHAT_READS, which is owner-available by construction and so has
@@ -482,19 +481,6 @@ def one_career_enabled() -> bool:
 def one_business_directory_enabled() -> bool:
     """Real read-only suggestions have an independent default-off rollout gate."""
     return _clean_env("ONE_BUSINESS_DIRECTORY_ENABLED").lower() == "true"
-
-
-def one_business_uat_fixture_enabled() -> bool:
-    """Synthetic business suggestions only in an explicitly consistent UAT lane."""
-    environment = _clean_env("ENVIRONMENT").lower()
-    deploy = _clean_env("HUSHH_DEPLOY_ENV").lower()
-    profile = _clean_env("APP_RUNTIME_PROFILE").lower()
-    return (
-        environment == "uat"
-        and deploy in {"", "uat"}
-        and profile in {"", "uat"}
-        and _clean_env("ONE_BUSINESS_UAT_FIXTURE_ENABLED").lower() == "true"
-    )
 
 
 def one_business_local_rehearsal_enabled(user_id: str, *, loopback: bool) -> bool:

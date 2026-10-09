@@ -897,10 +897,10 @@ function resolveTopShellBreadcrumbInner(
       // People tab instead of back into their SOS.
       if (
         (action === "sms-contacts" || action === "circle-detail") &&
-        smsContactsSource === "sos"
+        (smsContactsSource === "sos" || smsContactsSource === "settings")
       ) {
         return {
-          backHref: `${ROUTES.ONE_LOCATION}?action=sos`,
+          backHref: `${ROUTES.ONE_LOCATION}?action=${resolveSmsContactsBackAction(smsContactsSource)}`,
           width: "profile",
           align: "center",
           items: [
@@ -909,8 +909,8 @@ function resolveTopShellBreadcrumbInner(
               : { label: "One", href: ROUTES.ONE_HOME },
             { label: "Location", href: ROUTES.ONE_LOCATION },
             {
-              label: "Save My Soul",
-              href: `${ROUTES.ONE_LOCATION}?action=sos`,
+              label: smsContactsSource === "sos" ? "Save My Soul" : "Settings",
+              href: `${ROUTES.ONE_LOCATION}?action=${resolveSmsContactsBackAction(smsContactsSource)}`,
             },
             { label: "Emergency contacts" },
           ],
@@ -930,6 +930,12 @@ function resolveTopShellBreadcrumbInner(
       //
       // `?view=now` is the hub's own default tab, so this is the same
       // destination said explicitly rather than by omission.
+      const parentCircleId = searchParams?.get("circleId");
+      const circleParentSource = searchParams?.get("parentSource");
+      const circleParentSourceQuery = circleParentSource === "settings" || circleParentSource === "sos" ? `&source=${circleParentSource}` : "";
+      const circleParentHref = (action === "share" || action === "ask") && smsContactsSource === "circle" && parentCircleId
+        ? `${ROUTES.ONE_LOCATION}?action=circle-detail&circleId=${encodeURIComponent(parentCircleId)}&view=people${circleParentSourceQuery}`
+        : null;
       const hubBackHref =
         action === "sms-contacts"
           ? `${ROUTES.ONE_LOCATION}?action=${resolveSmsContactsBackAction(
@@ -937,7 +943,7 @@ function resolveTopShellBreadcrumbInner(
             )}`
           : `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView || "now")}`;
       return {
-        backHref: returnToNearbyCheckIn
+        backHref: circleParentHref || (returnToNearbyCheckIn
           ? isNearbyPrivateReturnToken(nearbyReturnToken)
             ? buildNearbyCheckInResumeHref(nearbyReturnToken)
             : // Back from a private check-in goes to check-in's own route.
@@ -946,7 +952,7 @@ function resolveTopShellBreadcrumbInner(
               // anyway -- a visible detour on the one control whose whole job
               // is to retrace a step.
               ROUTES.ONE_LOCATION_CHECK_IN
-          : hubBackHref,
+          : hubBackHref),
         width: "profile",
         align: "center",
         items: [
@@ -1259,7 +1265,7 @@ function resolveTopShellBreadcrumbInner(
 
     const detailLabel = profileDetailLabel(detail);
     if (!panel) return null;
-    const panelHref = profilePanelHref(panel);
+    const panelHref = buildProfileRoute({ panel, searchParams: profileOriginSearchParams(searchParams) });
     return {
       backHref: detailLabel ? panelHref : profileRootHref,
       width: "profile",
@@ -1353,10 +1359,10 @@ function resolveTopShellBreadcrumbInner(
     return null;
   }
   const detailLabel = profileDetailLabel(detail);
-  const panelHref = profilePanelHref(panel);
+  const panelHref = buildProfileRoute({ panel, searchParams: profileOriginSearchParams(searchParams) });
 
   return {
-    backHref: detailLabel ? panelHref : ROUTES.PROFILE,
+    backHref: detailLabel ? panelHref : buildProfileRoute({ searchParams: profileOriginSearchParams(searchParams) }),
     width: "profile",
     align: "center",
     items: [

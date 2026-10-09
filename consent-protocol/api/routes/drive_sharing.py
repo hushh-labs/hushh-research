@@ -458,6 +458,11 @@ async def owner_review(request_id: UUID, owner: Owner = Depends(_owner)):
     return review
 
 
+@router.get("/requests/{request_id}/context")
+async def requester_context(request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("requester_context", owner=owner, request_id=str(request_id))
+
+
 def _request_bulk_service():
     from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
 

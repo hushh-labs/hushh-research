@@ -340,13 +340,19 @@ class DriveSharingStore(DriveDocumentStore):
                   SELECT r.request_id FROM drive_share_requests r
                   JOIN drive_owner_search_jobs j ON j.user_id=r.user_id
                     AND j.client_request_id=r.request_id
+                  LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NOT NULL
                     AND r.preparation_error_code IN
                       ('trusted_auto_active','background_preparation_required')
                     AND r.preparation_next_at<=clock_timestamp()
                     AND r.expires_at>clock_timestamp()
                     AND j.status IN ('queued','running','completed')
-                  ORDER BY r.preparation_inspected_at,r.created_at,r.request_id
+                    AND (NOT r.payment_required OR o.request_id IS NULL
+                      OR (o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE))
+                  ORDER BY CASE WHEN r.payment_required AND o.status='paid'
+                    THEN 0 ELSE 1 END,
+                    r.preparation_inspected_at,r.created_at,r.request_id
                   LIMIT :limit FOR UPDATE OF r SKIP LOCKED
                 )
                 UPDATE drive_share_requests r SET preparation_inspected_at=clock_timestamp()
@@ -1553,6 +1559,29 @@ class DriveSharingStore(DriveDocumentStore):
                 {"user": user_id, "client": str(UUID(client_request_id))},
             )
             return self._summary(row, recipient=True) if row else {"status": "draft"}
+
+        return cast(dict, await self._transaction(operation))
+
+    async def requester_context(self, *, user_id: str, request_id: str) -> dict:
+        """The payer's own request text, never owner matches or review contents.
+
+        The caller requires current Vault Owner authority. Keep this separate
+        from the metadata-only status/projection, which can be cached. A paid
+        request was authored by its recipient; owner-initiated shares are free.
+        """
+
+        def operation(connection):
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests
+                   WHERE request_id=:id AND recipient_user_id=:user
+                     AND payment_required=TRUE""",
+                {"id": str(UUID(request_id)), "user": user_id},
+            )
+            if not row:
+                raise DriveSharingError("request_unavailable")
+            purpose = ShareRequestPurpose.model_validate(self._open_request(row)["purpose"])
+            return {"requestId": str(row["request_id"]), "purpose": purpose.model_dump()}
 
         return cast(dict, await self._transaction(operation))
 

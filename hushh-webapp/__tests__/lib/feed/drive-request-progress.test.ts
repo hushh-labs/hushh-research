@@ -88,7 +88,7 @@ describe("projectFeedDriveProgress", () => {
     expect(rows[0]).toMatchObject({
       status: "ready",
       title: "Pay $10 for your document request",
-      description: "Sharing starts after payment.",
+      description: expect.stringContaining("Requested "),
     });
     expect(JSON.stringify(rows)).not.toContain("private.pdf");
     expect(projectFeedDrivePayments([entry({ metadata: payment.metadata })])).toEqual([]);
@@ -120,9 +120,9 @@ describe("projectFeedDriveProgress", () => {
     expect(row).toMatchObject({
       status: "ready",
       expiresAt: now + 299_000,
-      description: "5m left to pay.",
+      description: expect.stringMatching(/Requested .+ · 5m left/),
     });
-    expect(describeFeedDrivePayment(row!, now + 298_500).description).toBe("1s left to pay.");
+    expect(describeFeedDrivePayment(row!, now + 298_500).description).toMatch(/ · 1s left$/);
     expect(formatPaymentRemaining(0)).toBe("0s left");
   });
 
@@ -151,7 +151,7 @@ describe("projectFeedDriveProgress", () => {
     const row = projectFeedDrivePayments([payment])[0];
     expect(row).toMatchObject({
       title: "Pay $10 for files from V",
-      description: "You requested files from V. Pay to continue.",
+      description: expect.stringContaining("Requested "),
     });
     expect(JSON.stringify(row)).not.toContain("private.pdf");
   });
@@ -181,7 +181,7 @@ describe("projectFeedDriveProgress", () => {
     expect(row).toMatchObject({
       status: "expired",
       title: "Document request expired",
-      description: "Your request for files from V expired before payment.",
+      description: expect.stringMatching(/From V · Requested /),
     });
     expect(row?.href).toContain("tab=previous");
   });
@@ -198,7 +198,7 @@ describe("projectFeedDriveProgress", () => {
     expect(projectFeedDrivePayments([payment])[0]).toMatchObject({
       status: "link_expired",
       title: "Payment link expired",
-      description: "The $10 link expired. Create a new link to continue.",
+      description: expect.stringContaining("Requested "),
     });
   });
 
@@ -249,6 +249,37 @@ describe("projectFeedDriveProgress", () => {
       paymentAmountCents: 1000, paymentCurrency: "usd",
     } });
     expect(projectFeedDrivePayments([first, second])).toHaveLength(2);
+  });
+
+  it("distinguishes two same-owner payments with only the requester-authored purpose", () => {
+    const now = Date.parse("2026-09-29T10:00:00Z");
+    const payment = projectFeedDrivePayments([entry({
+      kind: "outgoing_request", counterpart_label: "V", metadata: {
+        ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+        paymentAmountCents: 1000, paymentCurrency: "usd",
+        checkoutExpiresAt: new Date(now + 300_000).toISOString(),
+        purpose: "Untrusted projection text", file_names: ["private.pdf"],
+      },
+    })], now)[0]!;
+    const context = { requestId: payment.requestId, purpose: {
+      purpose: "Standup notes", periodStart: "2026-09-01", periodEnd: "2026-09-08",
+    } };
+    const first = describeFeedDrivePayment(payment, now, context);
+    const second = describeFeedDrivePayment(payment, now, {
+      ...context, purpose: { ...context.purpose, purpose: "Project budget" },
+    });
+    expect(first.title).toBe("Pay $10 · Standup notes");
+    expect(second.title).toBe("Pay $10 · Project budget");
+    expect(first.description).toMatch(/^From V · .+2026.+ · 5m left$/);
+    const expired = describeFeedDrivePayment(payment, now + 300_001, context);
+    expect(expired.title).toBe("Payment link expired");
+    expect(expired.description).toContain("Standup notes · From V");
+    expect(JSON.stringify([first, second, expired])).not.toMatch(/private.pdf|Untrusted projection/);
+    const long = describeFeedDrivePayment(payment, now, {
+      ...context, purpose: { ...context.purpose, purpose: "long ".repeat(80) },
+    });
+    expect(long.title.length).toBeLessThanOrEqual(82);
+    expect(long.title).toMatch(/…$/);
   });
 
   it("does not claim sharing progress during paid payment reconciliation", () => {

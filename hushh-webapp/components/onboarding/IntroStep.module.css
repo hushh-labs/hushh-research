@@ -193,11 +193,15 @@
 }
 
 .subtitle {
-  margin: 4px 0 0;
+  margin: 4px auto 0;
+  max-width: 100%;
   color: inherit;
+  font-family: var(--font-app-body);
   font-size: 13px;
   font-weight: 400;
   line-height: 20px;
+  text-align: center;
+  text-wrap: balance;
 }
 
 .footer {
@@ -213,43 +217,34 @@
 
 .privacy { display: flex; justify-content: center; width: 100%; }
 
-.shell .privacy > div {
-  /* Measure the CTA gap from the text, not the taller decorative icon. */
-  align-items: flex-end;
-  width: auto;
+.shell .privacyText {
+  margin: 0;
   max-width: 100%;
-  gap: 10px;
   color: #626b80;
   font-family: var(--font-app-body);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 20px;
+  text-align: center;
 }
 
-:global(.dark) .shell .privacy > div { color: #bfbfc8; }
+:global(.dark) .shell .privacyText { color: #bfbfc8; }
 
 .ctaLabel { position: relative; }
 
+/* Solid primary button on the shared pill: no page-specific glow or gradient. */
 .shell .welcomeCta {
   min-height: 52px;
-  background: transparent;
+  background: #0071e3;
+  color: #fff;
+  font-family: var(--font-app-body);
   font-size: 17px;
-  font-weight: 510;
-  line-height: 18px;
+  font-weight: 500;
+  line-height: 22px;
 }
 
-.welcomeCta::before {
-  position: absolute;
-  inset: -0.5px;
-  content: "";
-  pointer-events: none;
-  border-radius: inherit;
-  background: url("/onboarding/figma/intro-cta-material.png") center / 100% 100% no-repeat;
-}
-
-:global(.dark) .welcomeCta::before {
-  background-image: url("/onboarding/figma/intro-dark-cta-material.png");
-}
+.shell .welcomeCta:hover:not(:disabled) { background: #0077ed; }
+.shell .welcomeCta:active:not(:disabled) { background: #006acf; }
 
 .link:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 4px; }
 
