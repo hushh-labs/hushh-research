@@ -1520,5 +1520,103 @@ fixture: that fixture dropped the table, which now correctly proves absence.
 It now keeps the table present and removes its owner column to exercise genuine
 unreadability. The unknown-state and sealed-payload retention assertions remain
 unchanged. All 19 scheduled-mail tests passed against disposable PostgreSQL.
-The explicit-phone follow-up passed local core in 1549 seconds; its final
-source still requires terminal full CI and deployed first-run evidence.
+The explicit-phone follow-up passed local core in 1549 seconds. Its exact source
+`d1e369add14698b7c748680042c862bb99cf9ec5` passed all 18 selected jobs in
+[full application CI 37886049379](https://github.com/hushh-labs/hushh-research/actions/runs/37886049379),
+including protocol/PostgreSQL, browser checks, all frontend shards, iOS and Android.
+Deployed first-run and financial acceptance remain separate evidence gates.
+
+### Dedicated preview release and restart recovery, 2026-10-09
+
+[Release 37887669757](https://github.com/hushh-labs/hushh-research/actions/runs/37887669757)
+failed authenticated readiness and rolled back. The physical schema guard passed,
+but preview migration replay had not recorded migration 287 in `schema_migrations`;
+authenticated readiness correctly reported ledger baseline 284. The canonical
+dedicated migrator subsequently applied and recorded pending migration 287 in
+ledger mode from the exact CI-green application source. Its checksum matched,
+and the existing baseline rows were preserved. Do not replay a divergent `main`
+manifest into this pinned preview or relabel a baseline to satisfy readiness.
+
+[Retry 37890131591](https://github.com/hushh-labs/hushh-research/actions/runs/37890131591)
+finished successfully with a healthy release artifact: application source `d1e369add14698b7c748680042c862bb99cf9ec5`,
+workflow definition `6748aa7b40b587426655b768aad90532fb96eb36`. Independent
+2026-10-09 06:54:43 UTC recovery reads confirmed the backend revision
+`consent-protocol-commerce-sandbox-00018-jhd` and frontend revision
+`hushh-webapp-commerce-sandbox-00017-t7s`, each ready at 100% traffic with the exact
+source, dedicated runtime identity and HTTPS origins. The dedicated database
+ledger head is 287. Stripe account/test-mode policy and reviewer identities match;
+new paid and provider admission remain disabled. Reconciliation and access
+enforcement continue independently of admission.
+
+The host restart removed OS-temporary worktrees, processes and local artifacts.
+The pinned candidate and migration-workflow correction were recovered from
+preserved Git commits into ignored workspace `tmp/` directories. Before any
+rehearsal retry, authenticated read-only database inspection established zero
+fundings, purchases, journals, withdrawals and provider-operation records. Primary
+setup had recorded Shared but no verified phone or vault commitment; counterpart
+had an existing Firebase phone but no isolated application vault. No uncertain
+financial action was retried. Reviewer preparation must resume through normal
+setup and browser encryption, without replacing existing account state.
+
+The preview-only workflow correction selects ledger mode after verified baseline
+admission; shared-dev migration replay remains unchanged. Its focused tests and
+independent source review passed, but local core, CI and governed landing still
+need completion. The reviewer transport correction passed the canonical skill
+checks (15 tests), including confirmed termination of a SIGTERM-resistant issuer
+and an owner-bound cold challenge after 88 seconds. Negative controls fail when
+immediate timeout rejection or the old 60-second cold cap is restored. These are
+harness proofs, not transaction receipts.
+
+Physical iOS signing, installation and launch previously passed; XCTest stopped
+before test-body entry at OS automation admission. After restart, the physical
+iPhone is reachable and unlocked and the Sandbox application remains installed.
+That transport readback does not prove automation admission or buyer/seller
+acceptance. Preserve the installed session; do not reinstall or reset to bypass
+OS authorization.
+
+Host plugin discovery still reports the official Stripe connector available but
+not installed. Application SDK credentials do not establish its OAuth connection
+or the separate owner OAuth connection in One. Both authenticated read proofs,
+reviewer financial receipts and physical iOS journeys remain required before
+closing issue #7587. Android physical acceptance remains the agreed follow-up.
+
+### Authenticated managed-provider qualification, 2026-10-09
+
+At 07:11 UTC, normal headless verification had durably completed the primary
+reviewer's phone challenge and confirmation in the isolated application. Shared
+selection remains recorded. No vault creation, root setup completion or financial
+action has occurred. Authenticated `GET /api/one/runtime/managed/readiness`
+subsequently returned `MANAGED_GEMINI_NOT_READY` with safe status
+`permission_denied`; this isolates generation from optional placement-store
+observation. That endpoint's coarse status does not establish a missing IAM grant.
+
+Read-only cloud inspection confirmed the exact serving runtime identity and
+Vertex binding to `hushh-pda-dev`, enabled billing/API and the prediction role.
+The deployment's IAM preflight did not execute the optional generation probe.
+Two bounded, secret-free diagnostic executions composed the repository's
+canonical provider qualification script in the exact deployed image, under the
+same runtime identity and model binding. Only safe classifications were emitted.
+The 07:42:42 UTC observation classified all eight probes as
+`provider_unavailable`, with account enforcement observed and
+`candidate_models_exercised=false`. Successful diagnostic-job execution means the
+diagnostic ran; it does not mean model generation passed. No IAM grant, model
+change, alternate-project fallback or application traffic change was made.
+The settled task-owned diagnostic job was deleted and absence verified at
+07:46:46 UTC. Provider billing/account enforcement must clear before normal
+managed setup can resume; rerun authenticated readiness and ordinary selection
+after that external-state change.
+
+The preview-ledger candidate's first local core run found three existing Drive
+release-test subprocess timeouts at the unchanged 20-second deadline. The other
+9,859 protocol tests passed and 98 were skipped by their existing contracts.
+The nearest complete 15-test file passed at normal priority in 55.44 seconds.
+The full core rerun uses one worker and the worktree's Python directly, preserving
+the same checks and timeouts; its terminal result remains required before push.
+
+First-run Firebase identity capture now observes the normal authenticated vault
+bootstrap request. Exact-origin capture checks prevent foreign requests or
+responses from replacing identity tokens, vault-owner tokens or the observed
+vault state. Canonical reviewer checks passed 15/15, independent source review
+found no material blocker, and the foreign-origin negative control fails when
+those fences are removed. These harness checks do not prove a payment or waive
+owner confirmation, onboarding, vault admission or provider readiness.

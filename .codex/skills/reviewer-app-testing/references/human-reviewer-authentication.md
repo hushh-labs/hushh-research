@@ -54,6 +54,13 @@ The passphrase stays in the operator process until the expected authenticated
 owner's normal challenge is visible, then enters the ordinary browser form.
 Neither the initialization bridge nor Secret Manager stores it.
 
+First-run authenticated reads may capture the Firebase identity token observed
+on the normal `/api/vault/bootstrap-state` request. The memory-only capture
+accepts only the exact application origin and keeps that identity token separate
+from the PKM vault-owner token. Foreign requests and responses cannot replace
+tokens or the observed vault commitment. Captured values remain observations;
+the expected-owner continuity and authoritative server checks still prove access.
+
 Supply secrets through private process input; never place them in CLI arguments,
 files, traces, environment dumps or retained browser state. This mode remains
 subject to the canonical mutation guard and exact human financial confirmation.

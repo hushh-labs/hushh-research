@@ -74,15 +74,17 @@ test("cold operator admission waits for the owner-bound challenge without inject
     const harness = await createReviewerSessionHarness({ repoRoot, appOrigin: APP_ORIGIN, timeoutMs: 180_000,
       reviewerIdentity: { reviewerUid: "synthetic-owner", reviewerVaultPassphrase: "synthetic-private-phrase" },
       reviewerTokenProvider: async () => "synthetic-token" });
+    const events = new Map();
     const page = {
-      setDefaultTimeout() {}, setDefaultNavigationTimeout() {}, on() {}, exposeBinding: async () => {},
+      setDefaultTimeout() {}, setDefaultNavigationTimeout() {}, on: (name, callback) => events.set(name, callback), exposeBinding: async () => {},
       addInitScript: async (_script, args) => assert.equal(args.vaultPassphrase, ""),
-      goto: async () => {}, getByRole: () => ({ isVisible: async () => false }),
-      locator: selector => { assert.equal(selector, "#unlock-passphrase"); return { isVisible: async () => true }; },
+      goto: async () => {}, waitForFunction: async () => {},
+      getByRole: () => ({ isVisible: async () => false, first() { return this; } }),
+      locator: selector => { assert.ok(["#unlock-passphrase", '[data-testid="vault-use-passphrase-instead"]'].includes(selector)); return { isVisible: async () => selector === "#unlock-passphrase" }; },
       evaluate: async (_script, expectedUid) => {
         if (expectedUid === undefined) return { path: "/login", title: "Synthetic admission", bootstrapState: "authenticating" };
         assert.equal(expectedUid, "synthetic-owner");
-        return { matches: now >= 88_000, state: now >= 88_000 ? "authenticated" : "authenticating" };
+        return { matches: now >= 88_000, userMatches: now >= 88_000, state: now >= 88_000 ? "authenticated" : "authenticating" };
       },
       waitForTimeout: async delay => { now += delay; },
     };
@@ -91,6 +93,23 @@ test("cold operator admission waits for the owner-bound challenge without inject
     }) }, "/one");
     assert.equal(now, 88_000);
     assert.equal(closed, true);
+    const session = await harness.openSession({ newContext: async () => ({
+      newPage: async () => page, route: async () => {}, close: async () => {},
+    }) }, "/one/setup", { requireVaultUnlocked: false, allowFirstRunSetupRedirect: true });
+    const request = async (origin, pathname, token) => events.get("request")({
+      url: () => origin + pathname, allHeaders: async () => ({ authorization: "Bearer " + token }),
+    });
+    await request(APP_ORIGIN, "/api/vault/bootstrap-state", "synthetic-identity-token");
+    await request(APP_ORIGIN, "/api/pkm/manifest", "synthetic-owner-token");
+    await request("https://foreign.example", "/api/vault/bootstrap-state", "synthetic-foreign-token");
+    await request("https://foreign.example", "/api/pkm/manifest", "synthetic-foreign-token");
+    assert.equal(await session.capture.identityToken(), "synthetic-identity-token");
+    assert.equal(await session.capture.ownerToken(), "synthetic-owner-token");
+    for (const [origin, commitment] of [[APP_ORIGIN, "synthetic-real-commitment"], ["https://foreign.example", "synthetic-foreign-commitment"]]) {
+      events.get("response")({ url: () => origin + "/api/vault/get", status: () => 200, ok: () => true,
+        json: async () => ({ vaultKeyHash: commitment }) });
+    }
+    assert.equal((await session.capture.vaultState()).vaultKeyHash, "synthetic-real-commitment");
   } finally {
     if (previousMode === undefined) delete process.env.REVIEWER_AUTH_MODE;
     else process.env.REVIEWER_AUTH_MODE = previousMode;

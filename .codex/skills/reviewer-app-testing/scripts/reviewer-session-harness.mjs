@@ -252,6 +252,7 @@ export async function createReviewerSessionHarness({
     const criticalApiFailures = [];
     const responsePromises = new Set();
     page.on("request", async (request) => {
+      if (new URL(request.url()).origin !== normalizedOrigin) return;
       const pathname = endpointPath(request.url());
       const headers = await request.allHeaders().catch(() => ({}));
       const sentChatKey = headers["x-hussh-chat-key"] || "";
@@ -265,6 +266,7 @@ export async function createReviewerSessionHarness({
       if (
         pathname.startsWith("/api/one/connections") ||
         pathname.startsWith("/api/one/people/") ||
+        pathname === "/api/vault/bootstrap-state" ||
         pathname === "/api/one/models/preference" ||
         pathname === "/api/one/personal-agent/endpoint" ||
         pathname === "/api/one/personal-agent/status" ||
@@ -275,6 +277,7 @@ export async function createReviewerSessionHarness({
       }
     });
     page.on("response", (response) => {
+      if (new URL(response.url()).origin !== normalizedOrigin) return;
       const pathname = endpointPath(response.url());
       if (
         response.status() >= 500 &&
