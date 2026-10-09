@@ -407,7 +407,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
       <div ref={bottom} className="h-1" />
     </div>
     <div className="relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4">
-    {!atBottom && messages.length ? <Button variant="ghost" size="sm" className="absolute bottom-full right-3 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm" onClick={() => {
+    {!atBottom && messages.length ? <Button variant="ghost" size="sm" className="absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm" onClick={() => {
       atBottomRef.current = true;
       if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
       window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));

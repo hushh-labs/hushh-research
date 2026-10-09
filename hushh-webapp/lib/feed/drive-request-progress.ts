@@ -17,7 +17,19 @@ function progressTitle(stage: unknown): string {
   return "One is preparing the document request";
 }
 
-/** Only the server's active Trusted Circle projection can create a passive row. */
+/** An owner-allowed request runs the Trusted Circle pipeline; its copy must not claim Trusted Circle. */
+function progressDescription(direction: "incoming" | "outgoing", ownerAllowed: boolean): string {
+  if (ownerAllowed) {
+    return direction === "incoming"
+      ? "Request allowed. One is handling it for you. Sharing is automatic."
+      : "Request allowed. One is handling it. Files appear after access is confirmed.";
+  }
+  return direction === "incoming"
+    ? "One is handling a Trusted Circle request for you. Sharing is automatic."
+    : "One is handling your Trusted Circle request. Files appear after access is confirmed.";
+}
+
+/** Only the server's active automatic projection (Trusted Circle or owner-allowed) can create a passive row. */
 export function projectFeedDriveProgress(
   entries: ConsentCenterEntry[],
 ): FeedDriveProgress[] {
@@ -39,10 +51,7 @@ export function projectFeedDriveProgress(
     byRequest.set(entry.id, {
       id: entry.id,
       title: progressTitle(entry.metadata.automatic_progress_stage),
-      description:
-        direction === "incoming"
-          ? "One is handling a Trusted Circle request for you. Sharing is automatic."
-          : "One is handling your Trusted Circle request. Files appear after access is confirmed.",
+      description: progressDescription(direction, entry.metadata.owner_allowed === true),
       href: buildConsentCenterHref(active ? "active" : "pending", {
         requestId: entry.id,
         requestView: pending && direction === "outgoing" ? "sent" : "received",

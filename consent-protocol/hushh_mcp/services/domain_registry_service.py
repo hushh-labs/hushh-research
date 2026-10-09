@@ -14,6 +14,7 @@ Attach points:
 - DomainRegistryService.delete_domain
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -71,6 +72,18 @@ class DomainRegistryService:
             self._db = get_db()
         return self._db
 
+    async def _execute(self, query):
+        return await asyncio.to_thread(query.execute)
+
+    async def _rpc(self, name: str, params: dict):
+        # Our SQL client executes RPCs eagerly; other adapters return a builder.
+        # Both construction and execution must stay off the event loop.
+        def run():
+            result = self.db.rpc(name, params)
+            return result.execute() if hasattr(result, "execute") else result
+
+        return await asyncio.to_thread(run)
+
     def _is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
         if self._cache_time is None:
@@ -98,10 +111,10 @@ class DomainRegistryService:
     async def _repair_parent_domain_links(self) -> None:
         """Ensure dotted domains consistently link to their top-level parent."""
         try:
-            rows = (
-                self.db.table("domain_registry").select("domain_key,parent_domain").execute().data
-                or []
+            result = await self._execute(
+                self.db.table("domain_registry").select("domain_key,parent_domain")
             )
+            rows = result.data or []
         except Exception as read_error:
             logger.warning("Failed to read domain_registry for parent repair: %s", read_error)
             return
@@ -117,9 +130,11 @@ class DomainRegistryService:
             if current_parent == expected_parent:
                 continue
             try:
-                self.db.table("domain_registry").update({"parent_domain": expected_parent}).eq(
-                    "domain_key", domain_key
-                ).execute()
+                await self._execute(
+                    self.db.table("domain_registry").update({"parent_domain": expected_parent}).eq(
+                        "domain_key", domain_key
+                    )
+                )
             except Exception as update_error:
                 logger.warning(
                     "Failed to update parent_domain for %s -> %s: %s",
@@ -132,13 +147,11 @@ class DomainRegistryService:
         """Collect domain keys currently referenced by any user index."""
         referenced: set[str] = set()
         try:
-            rows = (
+            result = await self._execute(
                 self.db.table("pkm_index")
                 .select("available_domains,domain_summaries")
-                .execute()
-                .data
-                or []
             )
+            rows = result.data or []
         except Exception as read_error:
             logger.warning("Failed to scan pkm_index for domain references: %s", read_error)
             return referenced
@@ -169,9 +182,11 @@ class DomainRegistryService:
                 )
                 continue
             try:
-                self.db.table("domain_registry").delete().eq(
-                    "domain_key", normalized_retired
-                ).execute()
+                await self._execute(
+                    self.db.table("domain_registry").delete().eq(
+                        "domain_key", normalized_retired
+                    )
+                )
             except Exception as delete_error:
                 logger.warning(
                     "Failed to prune retired registry key %s: %s",
@@ -289,7 +304,7 @@ class DomainRegistryService:
 
         try:
             # Use RPC function for atomic upsert when supported by the client.
-            rpc_call = self.db.rpc(
+            result = await self._rpc(
                 "auto_register_domain",
                 {
                     "p_domain_key": domain_key,
@@ -299,19 +314,17 @@ class DomainRegistryService:
                 },
             )
             rpc_payload: dict | None = None
-            if hasattr(rpc_call, "execute"):
-                result = rpc_call.execute()
-                raw_payload = result.data
-                if isinstance(raw_payload, dict):
-                    rpc_payload = raw_payload
-                elif isinstance(raw_payload, list) and raw_payload:
-                    first_row = raw_payload[0]
-                    if isinstance(first_row, dict):
-                        nested = first_row.get("auto_register_domain")
-                        if isinstance(nested, dict):
-                            rpc_payload = nested
-                        else:
-                            rpc_payload = first_row
+            raw_payload = result.data
+            if isinstance(raw_payload, dict):
+                rpc_payload = raw_payload
+            elif isinstance(raw_payload, list) and raw_payload:
+                first_row = raw_payload[0]
+                if isinstance(first_row, dict):
+                    nested = first_row.get("auto_register_domain")
+                    if isinstance(nested, dict):
+                        rpc_payload = nested
+                    else:
+                        rpc_payload = first_row
 
             if rpc_payload:
                 if final_parent_domain is not None or final_description is not None:
@@ -322,9 +335,11 @@ class DomainRegistryService:
                         if final_description is not None:
                             patch_data["description"] = final_description
                         if patch_data:
-                            self.db.table("domain_registry").update(patch_data).eq(
-                                "domain_key", domain_key
-                            ).execute()
+                            await self._execute(
+                                self.db.table("domain_registry").update(patch_data).eq(
+                                    "domain_key", domain_key
+                                )
+                            )
                     except Exception as patch_error:
                         logger.warning(
                             "Failed to patch domain metadata for %s after RPC upsert: %s",
@@ -364,11 +379,13 @@ class DomainRegistryService:
                 "parent_domain": final_parent_domain,
             }
 
-            self.db.table("domain_registry").upsert(data, on_conflict="domain_key").execute()
+            await self._execute(
+                self.db.table("domain_registry").upsert(data, on_conflict="domain_key")
+            )
 
             # Fetch the result
-            result = (
-                self.db.table("domain_registry").select("*").eq("domain_key", domain_key).execute()
+            result = await self._execute(
+                self.db.table("domain_registry").select("*").eq("domain_key", domain_key)
             )
 
             if result.data:
@@ -397,8 +414,8 @@ class DomainRegistryService:
             return self._cache[domain_key]
 
         try:
-            result = (
-                self.db.table("domain_registry").select("*").eq("domain_key", domain_key).execute()
+            result = await self._execute(
+                self.db.table("domain_registry").select("*").eq("domain_key", domain_key)
             )
 
             if not result.data:
@@ -424,7 +441,7 @@ class DomainRegistryService:
             if not include_empty:
                 query = query.gt("attribute_count", 0)
 
-            result = query.execute()
+            result = await self._execute(query)
 
             domains = [self._row_to_domain_info(row) for row in (result.data or [])]
 
@@ -441,12 +458,11 @@ class DomainRegistryService:
     async def get_user_domains(self, user_id: str) -> list[DomainInfo]:
         """Get domains that have data for a specific user from pkm_index."""
         try:
-            result = (
+            result = await self._execute(
                 self.db.table("pkm_index")
                 .select("available_domains", "domain_summaries")
                 .eq("user_id", user_id)
                 .limit(1)
-                .execute()
             )
             if not result.data:
                 return []
@@ -498,7 +514,9 @@ class DomainRegistryService:
             if not data:
                 return True
 
-            self.db.table("domain_registry").update(data).eq("domain_key", domain_key).execute()
+            await self._execute(
+                self.db.table("domain_registry").update(data).eq("domain_key", domain_key)
+            )
 
             # Invalidate cache
             self._invalidate_cache()
@@ -514,7 +532,9 @@ class DomainRegistryService:
         Note: This does NOT delete associated attributes.
         """
         try:
-            self.db.table("domain_registry").delete().eq("domain_key", domain_key).execute()
+            await self._execute(
+                self.db.table("domain_registry").delete().eq("domain_key", domain_key)
+            )
 
             # Invalidate cache
             self._invalidate_cache()

@@ -1,3 +1,4 @@
+import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
@@ -97,7 +98,17 @@ export type SharingReview = {
   recoverablePositions?: number[];
   progressiveAllowed?: boolean;
   aggregateCounts?: DriveBulkShareCounts;
+  /** The owner allowed this request from outside their Trusted circle. */
+  ownerAllowed?: boolean;
+  /** The owner may Allow or Deny now. Nothing searches Drive before Allow. */
+  allowAvailable?: boolean;
+  /** The requester pays before files are shared, so Allow sets a price. */
+  paymentRequired?: boolean;
+  /** The owner's price in cents once allowed; null when there is none. */
+  priceCents?: number | null;
 };
+export type SharingAllowInput = { revision: number; amountCents: number | null };
+export type SharingAllowResult = { requestId: string; status: string; revision: number };
 const SHARING_PREPARATION_ERRORS = [
   "no_relevant_files",
   "no_ready_files",
@@ -703,6 +714,37 @@ function parseBulkCounts(value: unknown, total: number): DriveBulkShareCounts {
   return result;
 }
 
+const SEARCH_PROGRESS_FIELDS = [
+  "batches", "batchCount", "claimedPositions", "recoverablePositions", "aggregateCounts", "progressiveAllowed",
+] as const;
+
+/**
+ * Before a request's Drive search starts, older servers send empty progress beside
+ * `search: null`. It means "no search yet"; any recorded progress is refused.
+ */
+function withoutEmptySearchProgress(value: RecordValue): RecordValue {
+  const empty = (list: unknown) => list === undefined || Array.isArray(list) && list.length === 0;
+  if (!empty(value.batches) || !empty(value.claimedPositions) || !empty(value.recoverablePositions) ||
+    value.batchCount !== undefined && value.batchCount !== 0 ||
+    value.progressiveAllowed !== undefined && typeof value.progressiveAllowed !== "boolean")
+    throw new DriveSharingError("invalid_response");
+  if (value.aggregateCounts !== undefined) parseBulkCounts(value.aggregateCounts, 0);
+  const result = { ...value };
+  for (const field of SEARCH_PROGRESS_FIELDS) delete result[field];
+  return result;
+}
+
+/** Absent on older servers; otherwise strictly a boolean. */
+function optionalFlag(value: unknown): boolean | undefined {
+  if (value === undefined || typeof value === "boolean") return value;
+  throw new DriveSharingError("invalid_response");
+}
+
+function optionalPrice(value: unknown): number | null | undefined {
+  if (value === undefined || value === null || isValidDocumentRequestPriceCents(value)) return value;
+  throw new DriveSharingError("invalid_response");
+}
+
 function parseBulkIssues(value: unknown, total: number): DriveBulkShareIssue[] {
   if (!Array.isArray(value) || value.length > BULK_REASON_CODES.length) throw new DriveSharingError("invalid_response");
   const issues = value.map(item => {
@@ -1039,7 +1081,8 @@ export class DriveSharingService {
     requestId: string,
     guard: SharingSessionGuard,
   ): Promise<SharingReview> {
-    const result = await this.request(token, requestId, guard, "/review");
+    const raw = await this.request(token, requestId, guard, "/review");
+    const result = raw.search === null && raw.bulkShare === null ? withoutEmptySearchProgress(raw) : raw;
     if (id(result.requestId) !== requestId)
       throw new DriveSharingError("invalid_response");
     const purpose = record(result.purpose);
@@ -1121,6 +1164,10 @@ export class DriveSharingService {
       throw new DriveSharingError("invalid_response");
     if (result.trustedAuto !== undefined && typeof result.trustedAuto !== "boolean")
       throw new DriveSharingError("invalid_response");
+    const ownerAllowed = optionalFlag(result.ownerAllowed);
+    const allowAvailable = optionalFlag(result.allowAvailable);
+    const paymentRequired = optionalFlag(result.paymentRequired);
+    const priceCents = optionalPrice(result.priceCents);
     return {
       revision: revision(result.revision),
       status: string(result.status, 80),
@@ -1162,6 +1209,13 @@ export class DriveSharingService {
       ...(recoverablePositions === undefined ? {} : { recoverablePositions }),
       ...(result.progressiveAllowed === true ? { progressiveAllowed: true } : {}),
       ...(aggregateCounts === undefined ? {} : { aggregateCounts }),
+      ...(ownerAllowed === undefined ? {} : { ownerAllowed }),
+      // Only a pending request not yet allowed can be decided.
+      ...(allowAvailable === undefined ? {} : {
+        allowAvailable: allowAvailable && result.status === "pending" && ownerAllowed !== true,
+      }),
+      ...(paymentRequired === undefined ? {} : { paymentRequired }),
+      ...(priceCents === undefined ? {} : { priceCents }),
     };
   }
 
@@ -1453,6 +1507,32 @@ export class DriveSharingService {
     return this.request(token, requestId, guard, `/${action}`, {
       revision: value,
     });
+  }
+  /**
+   * The owner allows a request from outside their Trusted circle. It then runs the
+   * same automatic search, payment and sharing as a Trusted request, at this price.
+   */
+  static async allow(
+    token: string,
+    requestId: string,
+    input: SharingAllowInput,
+    guard: SharingSessionGuard,
+  ): Promise<SharingAllowResult> {
+    if (!Number.isSafeInteger(input.revision) || input.revision < 0 ||
+      input.amountCents !== null && !isValidDocumentRequestPriceCents(input.amountCents))
+      throw new DriveSharingError("invalid_argument");
+    const result = await this.request(token, requestId, guard, "/allow", {
+      revision: input.revision,
+      ...(input.amountCents === null ? {} : { amountCents: input.amountCents }),
+      confirmed: true,
+    });
+    if (id(result.requestId) !== requestId)
+      throw new DriveSharingError("invalid_response");
+    return {
+      requestId,
+      status: string(result.status, 80),
+      revision: revision(result.revision),
+    };
   }
   static async prepareRevocation(
     token: string,

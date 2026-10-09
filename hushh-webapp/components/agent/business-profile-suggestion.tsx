@@ -11,10 +11,13 @@ import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { BusinessSuggestionService } from "@/lib/services/business-suggestion-service";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
-import { connectorMemorySharingImpact, prepareConnectorMemoryReview } from "@/lib/agent/connector-memory-review";
+import { BusinessReviewPreparationError, connectorMemorySharingImpact, prepareConnectorMemoryReview } from "@/lib/agent/connector-memory-review";
 import { attachBusinessOrigin, buildSyntheticBusinessPreview, BusinessOriginValidationError, businessCandidateSnapshot, businessDraftMessage, createBusinessReviewJob, decideBusinessReview, loadBusinessReview, saveBusinessReview, type BusinessCandidate, type BusinessReviewJob } from "@/lib/agent/business-profile-review";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { businessReviewFields, businessReviewItems, initialBusinessFieldSelection, selectBusinessReviewFields, type BusinessFieldSelection, type BusinessReviewItem } from "@/lib/agent/business-profile-fields";
+import { withDeadline } from "@/lib/utils/with-deadline";
+
+const BUSINESS_REVIEW_BUDGET_MS = 90_000;
 
 type Props = {
   ownerId: string | null; vaultKey: string | null; vaultOwnerToken: string | null;
@@ -181,16 +184,20 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
   };
   const prepare = async () => {
     if (!review || busy.current || review.job) return;
-    const guard = session();
-    if (!guard.isCurrent()) return;
+    const lifetime = session();
+    if (!lifetime.isCurrent()) return;
+    const attempt = new AbortController();
+    const guard = createAgentPkmCaptureGuard({ userId: context.ownerId!, signal: attempt.signal,
+      isEnabled: lifetime.isCurrent });
     busy.current = true;
     update({ ...review, error: undefined, phase: "preparing" });
-    let stage: "lookup" | "details" | "preview" | "coverage" | "origin" = "lookup";
+    const preparation: { stage: "lookup" | "details" | "preview" | "coverage" | "origin" } = { stage: "lookup" };
     try {
+      await withDeadline((async () => {
       await freshCandidate(guard);
-      stage = "details";
+      preparation.stage = "details";
       const message = businessDraftMessage(review.candidate, review.name, review.website);
-      stage = "preview";
+      preparation.stage = "preview";
       // Keep older isolated test/module mocks compatible while the real
       // implementation supplies the deterministic UAT card builder.
       const syntheticCards = buildSyntheticBusinessPreview?.(review.candidate, review.name, review.website) ?? [];
@@ -200,7 +207,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
           vaultKey: context.vaultKey!, vaultOwnerToken: context.vaultOwnerToken!, message, source: "business_profile_review",
           businessUid: review.candidate.businessUid });
       await guard.assertCurrent();
-      stage = "coverage";
+      preparation.stage = "coverage";
       if (result.alreadySaved && !result.incomplete && !result.cards.length) {
         // Exact duplicate evidence is not a new save or an ownership claim.
         setSaved(true);
@@ -211,29 +218,40 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       }
       if (result.incomplete || !result.cards.length) throw new Error("The details could not be fully prepared. Please try again.");
       // Ensure source identity can follow the actual semantic entity before offering Save.
-      stage = "origin";
+      preparation.stage = "origin";
       result.cards.forEach(card => attachBusinessOrigin(card, review.candidate));
       update({ ...review, error: undefined, message, cards: result.cards, selected: result.cards.map(card => card.card_id),
         fields: initialBusinessFieldSelection(result.cards), phase: "review" });
+      })(), Date.now() + BUSINESS_REVIEW_BUDGET_MS);
     } catch (error) {
-      if (guard.isCurrent()) {
+      attempt.abort();
+      if (lifetime.isCurrent()) {
+        const stage = preparation.stage;
         // Bounded diagnostics only: never log source details, keys or preview payloads.
-        const originReason = error instanceof BusinessOriginValidationError ? error.reason : stage === "origin" && error instanceof Error
+        const originReason = error instanceof BusinessReviewPreparationError ? error.reason
+          : error instanceof BusinessOriginValidationError ? error.reason : stage === "origin" && error instanceof Error
           ? error.message === "The proposed detail needs a fresh review before saving." ? "entity-shape"
             : error.message === "The proposed destination changed. Review the details again." ? "entity-destination" : "source-identity"
           : "unavailable";
         console.warn(`[BusinessReview] Preparation failed at ${stage}: ${originReason}`);
-        const failure = error instanceof Error && error.name === "PkmBackendContractMismatch"
+        const timedOut = error instanceof Error && error.name === "TimeoutError";
+        const failure = timedOut ? "Taking longer than expected. Try again."
+          : error instanceof Error && error.name === "PkmBackendContractMismatch"
           ? "Review is unavailable until the backend update finishes."
-          : stage === "lookup" ? "Listing changed. Edit details, then refresh."
+          : stage === "lookup" ? "Couldn’t refresh the listing. Try again."
           : stage === "details" ? "Check the name and website."
           : "Details couldn’t be prepared. Try again.";
         update({ ...review, error: failure, phase: "offer" });
-        morphyToast.error(stage === "lookup" ? "Listing changed or unavailable. Edit details, then refresh."
+        morphyToast.error(timedOut ? failure : stage === "lookup" ? "Couldn’t refresh the listing. Try again."
           : stage === "details" ? "Check the name and website in Edit details."
           : "Couldn’t prepare details. Try Review details again.");
       }
-    } finally { if (guard.isCurrent()) busy.current = false; }
+    } finally {
+      // Only this consumer expires; a shared inventory read may still finish.
+      // Its late result cannot publish or start another effect through guard.
+      attempt.abort();
+      if (current.current === context) busy.current = false;
+    }
   };
   const chosen = review?.cards.filter(card => review.selected.includes(card.card_id)).flatMap(card => {
     // Frozen jobs replay exactly what was approved; never change a retry scope.
@@ -256,7 +274,8 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       const job = review.job || createBusinessReviewJob(context.ownerId!, review.candidate, chosen.map(card => card.source_text).join("\n\n"), chosen,
         { name: review.name, website: review.website });
       attemptedJob = job;
-      update({ ...review, job, phase: "saving" });
+      update({ ...review, job, cards: job.cards, selected: job.cards.map(card => card.card_id),
+        fields: initialBusinessFieldSelection(job.cards), phase: "saving" });
       const result = await saveBusinessReview({ ...guard, job, vaultKey: context.vaultKey!,
         vaultOwnerToken: context.vaultOwnerToken!, sharingImpactAcknowledged,
         assertListingFresh: () => freshCandidate(guard) });
@@ -390,7 +409,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
           <HelperText>Website is optional.</HelperText>
         </div>}
         <HelperText>Only selected details are saved privately. This does not verify ownership.</HelperText>
-        {review.job && <HelperText>Resuming your approved selection.</HelperText>}
+        {review.job && review.phase === "review" && <HelperText>Resuming your approved selection.</HelperText>}
         {editing && !review.job && <Button variant="link" size="standard" disabled={pending} onClick={() => void refresh()}>Refresh listing</Button>}
         {review.error && <p role="alert" className="text-sm">{review.error}</p>}
         {pending && <p role="status" className="text-sm">{operation === "refresh" ? "Refreshing listing…" : operation ? "Saving your choice…" : review.phase === "preparing" ? "Preparing details for review…" : "Saving approved details…"}</p>}

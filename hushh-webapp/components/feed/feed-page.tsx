@@ -41,6 +41,7 @@ import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-notice";
 import { FeedSoundControl } from "@/components/feed/feed-sound-control";
 import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
+import { DocumentRequestPriceSheet } from "@/components/consent/document-request-price-sheet";
 import { collapseConsentBundleRows } from "@/lib/feed/feed-consent-grouping";
 import { collapseDriveLifecycleRows } from "@/lib/feed/feed-drive-grouping";
 import {
@@ -49,6 +50,7 @@ import {
 } from "@/components/app-ui/settings-ui";
 import {
   useFeedActionables,
+  type DocumentPricePrompt,
   type FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
@@ -100,6 +102,22 @@ function groupItemsByDay(
   }
   return groups;
 }
+
+/** A closed price step, for an actionables source that has none to offer. */
+const CLOSED_DOCUMENT_PRICE_PROMPT: DocumentPricePrompt = {
+  open: false,
+  requesterLabel: "",
+  paymentRequired: false,
+  purpose: null,
+  recipientEmail: null,
+  periodStart: null,
+  periodEnd: null,
+  detailsPending: true,
+  busy: false,
+  error: null,
+  submit: () => undefined,
+  cancel: () => undefined,
+};
 
 function eventInstant(value: { dateTime?: string; date?: string } | null): number {
   const raw = value?.dateTime ?? value?.date;
@@ -339,6 +357,7 @@ function FeedPageSession({
     hasClearableSmsEmergencies,
     clearSmsEmergencies,
     consentUnlockPrompt,
+    documentPricePrompt = CLOSED_DOCUMENT_PRICE_PROMPT,
   } = useFeedActionables();
   const { upcomingEvents, pendingKyc, needsReplyCount } = useFeedBriefing();
 
@@ -1007,6 +1026,21 @@ function FeedPageSession({
         </SettingsPresentationProvider>
       </div>
       <OwnerConsentUnlockPrompt prompt={consentUnlockPrompt} />
+      {/* One price step for every document request row; Allow only opens it. */}
+      <DocumentRequestPriceSheet
+        open={documentPricePrompt.open}
+        requesterLabel={documentPricePrompt.requesterLabel}
+        purpose={documentPricePrompt.purpose}
+        recipientEmail={documentPricePrompt.recipientEmail}
+        periodStart={documentPricePrompt.periodStart}
+        periodEnd={documentPricePrompt.periodEnd}
+        detailsPending={documentPricePrompt.detailsPending}
+        paymentRequired={documentPricePrompt.paymentRequired}
+        busy={documentPricePrompt.busy}
+        error={documentPricePrompt.error}
+        onSubmit={documentPricePrompt.submit}
+        onCancel={documentPricePrompt.cancel}
+      />
     </AppPageShell>
   );
 }

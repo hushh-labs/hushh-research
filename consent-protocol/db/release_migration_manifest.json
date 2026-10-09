@@ -261,7 +261,8 @@
     "287_drive_request_access_stop.sql",
     "288_drive_request_feed_stream.sql",
     "289_one_referral_program_settings_v2.sql",
-    "290_chat_push_delivery.sql"
+    "290_chat_push_delivery.sql",
+    "291_drive_request_owner_allowed.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -545,6 +546,7 @@
     "286_one_referral_link_open_notify.sql": "rollback/286_one_referral_link_open_notify.rollback.sql",
     "287_drive_request_access_stop.sql": "rollback/287_drive_request_access_stop.rollback.sql",
     "288_drive_request_feed_stream.sql": "rollback/288_drive_request_feed_stream.rollback.sql",
-    "290_chat_push_delivery.sql": "rollback/290_chat_push_delivery.rollback.sql"
+    "290_chat_push_delivery.sql": "rollback/290_chat_push_delivery.rollback.sql",
+    "291_drive_request_owner_allowed.sql": "rollback/291_drive_request_owner_allowed.rollback.sql"
   }
 }

@@ -975,7 +975,7 @@
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One $10 USD Stripe Checkout order is created only after a new eligible Trusted Circle Drive request has a nonempty frozen shareable batch. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
+      "primary_access_path": "One USD Stripe Checkout order is created only after a new eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. The order fixes its amount when it is created: 1000 cents for a Trusted request, or the owner's whole-dollar price from 100 to 50000 cents. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
     },
     {
       "data_class": "reference",
@@ -6022,7 +6022,7 @@
     "action_gateway": "05273c47c17aeaed1c58fbe7aeb66395d49b78a9d5adcaad37d1edd45acb9443",
     "agent_registry": "c4909d23e5661ffa69ea8d68255fff1139934e22c187b19a256bdab362be0c54",
     "cache_manifest": "5eff3c647e67b8c7f2a50fdc079673ef4bb2282806b0d99276857309c0d9db8f",
-    "data_plane": "9f18777224d13211b26d8565cc7675797f4f71784b223af84c9f09ca7fdc3b53",
+    "data_plane": "0876455ccead7d57371aed67914ae878686daa4856fb06409c7e8949ac74ecaf",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
     "route_index": "740c274455698cc75c68a10c465fe3b6ced440c546f3ecac57d2b16cf35d2c80",

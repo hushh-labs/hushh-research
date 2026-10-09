@@ -16,8 +16,9 @@ from hushh_mcp.services.direct_messages_service import DirectMessageCipher
 logger = logging.getLogger(__name__)
 
 
-def dispatch_direct_message_pushes():
+def dispatch_direct_message_pushes() -> int:
     db = get_db()
+    processed = 0
     for _ in range(20):
         with db.engine.begin() as conn:
             conn.execute(
@@ -41,6 +42,7 @@ def dispatch_direct_message_pushes():
             )
         if not row:
             break
+        processed += 1
         with db.engine.begin() as conn:
             source = (
                 conn.execute(
@@ -155,16 +157,22 @@ def dispatch_direct_message_pushes():
                     "attempt": row["attempts"],
                 },
             )
+    return processed
 
 
 async def run_direct_message_push_worker():
     ready = False
+    idle_delay = 1
     while True:
         try:
-            await asyncio.to_thread(dispatch_direct_message_pushes)
+            processed = await asyncio.to_thread(dispatch_direct_message_pushes)
+            delay = 1 if processed else idle_delay
+            idle_delay = 1 if processed else min(5, idle_delay * 2)
             if not ready:
-                logger.info("direct_message.push_worker_ready interval_s=1")
+                logger.info("direct_message.push_worker_ready max_idle_s=5")
                 ready = True
         except Exception as exc:
             logger.warning("direct_message.push_sweep_failed error_type=%s", type(exc).__name__)
-        await asyncio.sleep(1)
+            delay = idle_delay
+            idle_delay = min(5, idle_delay * 2)
+        await asyncio.sleep(delay)

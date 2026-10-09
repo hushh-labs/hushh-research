@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 290,
+  "expected_migration_version": 291,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -833,7 +833,8 @@
       "created_at",
       "updated_at",
       "expires_at",
-      "access_stop_requested_at"
+      "access_stop_requested_at",
+      "owner_allowed_at"
     ],
     "drive_share_reviews": [
       "request_id",

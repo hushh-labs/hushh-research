@@ -382,30 +382,58 @@ function useBottomSheetDragDismiss({
       const velocity = (event.clientY - drag.lastY) / elapsed
       const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150
       surface.style.transition = `transform ${duration}ms cubic-bezier(0.32,0.72,0,1)`
+      const settle = () => {
+        surface.style.transform = "translate3d(0, 0, 0)"
+        window.setTimeout(() => {
+          surface.style.transform = ""
+          surface.style.transition = ""
+          surface.style.willChange = ""
+          // Preserve the settled open state rather than replaying the entry animation.
+          surface.style.animation = "none"
+        }, duration)
+      }
 
       if (distance > 96 || velocity > 0.5) {
         // Keep the direct transform until Radix begins its close lifecycle.
         // Clearing it first lets the completed entry animation flash back in.
         surface.style.transform = "translate3d(0, 100%, 0)"
-        window.setTimeout(() => onOpenChange(false), duration)
+        window.setTimeout(() => {
+          onOpenChange(false)
+          // A controlled sheet may refuse to close, for example while a
+          // decision is in flight. Its open state then never changes, so bring
+          // it back instead of leaving an open, invisible sheet behind the scrim.
+          window.setTimeout(() => {
+            if (
+              surface.isConnected &&
+              surface.getAttribute("data-state") === "open" &&
+              !dragRef.current
+            ) {
+              settle()
+            }
+          }, Math.max(duration, 100))
+        }, duration)
         return
       }
 
-      surface.style.transform = "translate3d(0, 0, 0)"
-      window.setTimeout(() => {
-        surface.style.transform = ""
-        surface.style.transition = ""
-        surface.style.willChange = ""
-        // Preserve the settled open state rather than replaying the entry animation.
-        surface.style.animation = "none"
-      }, duration)
+      settle()
     },
     [enabled, onOpenChange],
   )
 
+  // A nested sheet portals out of this one's DOM, yet React still bubbles its
+  // pointer events up through this sheet's handlers. A drag belongs only to the
+  // sheet whose own DOM it started in, so dragging an inner sheet never moves
+  // or dismisses the sheet underneath it.
+  const ownsPointer = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) =>
+      event.target instanceof Node &&
+      !!sheetContentRef.current?.contains(event.target),
+    [],
+  )
+
   const onHandlePointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!enabled) return
+      if (!enabled || !ownsPointer(event)) return
       dragRef.current = {
         startY: event.clientY,
         lastY: event.clientY,
@@ -413,7 +441,7 @@ function useBottomSheetDragDismiss({
         engaged: false,
       }
     },
-    [enabled],
+    [enabled, ownsPointer],
   )
 
   const onHandlePointerMove = React.useCallback(
@@ -445,7 +473,14 @@ function useBottomSheetDragDismiss({
 
   const onContentPointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!enabled || event.button !== 0 || dragRef.current?.engaged) return
+      if (
+        !enabled ||
+        event.button !== 0 ||
+        dragRef.current?.engaged ||
+        !ownsPointer(event)
+      ) {
+        return
+      }
       dragRef.current = {
         startY: event.clientY,
         lastY: event.clientY,
@@ -454,7 +489,7 @@ function useBottomSheetDragDismiss({
         engaged: false,
       }
     },
-    [enabled],
+    [enabled, ownsPointer],
   )
 
   const onContentPointerMove = React.useCallback(

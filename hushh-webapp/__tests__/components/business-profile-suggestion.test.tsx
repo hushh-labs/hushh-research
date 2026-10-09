@@ -15,6 +15,7 @@ vi.mock("@/lib/agent/business-profile-review", () => ({
   businessDraftMessage: (_candidate: unknown, name: string, website: string) => `${name}\n${website}`,
 }));
 vi.mock("@/lib/agent/connector-memory-review", () => ({ prepareConnectorMemoryReview: mocks.prepare,
+  BusinessReviewPreparationError: class extends Error {},
   connectorMemorySharingImpact: (cards: AgentPkmPreviewCard[]) => Math.max(0, ...cards.map(card => card.sharing_impact?.active_recipient_count || 0)) }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { error: vi.fn(), success: vi.fn(), promise: vi.fn() } }));
 import { BusinessProfileSuggestion } from "@/components/agent/business-profile-suggestion";
@@ -35,6 +36,72 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
 describe("post-onboarding business suggestion", () => {
+  it("keeps the approved field count stable while a partial save is pending", async () => {
+    const pending = deferred<{ saved: number; remaining: number }>();
+    mocks.save.mockReturnValueOnce(pending.promise);
+    render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Save phone", exact: true }));
+    fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("agent-pkm-review-save")).toHaveTextContent("Save 1 detail");
+    expect(screen.getByTestId("agent-pkm-review-save")).toBeDisabled();
+    expect(screen.queryByRole("checkbox", { name: "Save phone", exact: true })).toBeNull();
+    expect(screen.queryByText("Resuming your approved selection.")).toBeNull();
+    await act(async () => pending.resolve({ saved: 1, remaining: 0 }));
+    await waitFor(() => expect(screen.queryByLabelText("Is this your business?")).toBeNull());
+  });
+  it("recovers from a failed preparation and supports repeated reviews without writes", async () => {
+    mocks.syntheticPreview.mockReturnValue([]);
+    mocks.prepare.mockRejectedValueOnce(new Error("temporary failure"));
+    render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    await screen.findByRole("alert");
+    const retry = screen.getByRole("button", { name: "Review details", exact: true });
+    expect(retry).not.toBeDisabled();
+    fireEvent.click(retry);
+    await screen.findByRole("checkbox", { name: "Save phone", exact: true });
+    expect(mocks.prepare).toHaveBeenCalledTimes(2);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("bounds the whole Review and rejects late results while a retry succeeds", async () => {
+    mocks.syntheticPreview.mockReturnValue([]);
+    const pending = deferred<{ cards: AgentPkmPreviewCard[]; incomplete: boolean }>();
+    mocks.prepare.mockReturnValueOnce(pending.promise);
+    render(<BusinessProfileSuggestion {...props} />);
+    const button = await screen.findByRole("button", { name: "Review details", exact: true });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(button);
+      await act(async () => { await vi.advanceTimersByTimeAsync(90_001); });
+      expect(screen.getByRole("alert")).toHaveTextContent("Taking longer");
+      expect(screen.getByRole("button", { name: "Review details", exact: true })).not.toBeDisabled();
+    } finally { vi.useRealTimers(); }
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    await screen.findByRole("checkbox", { name: "Save phone", exact: true });
+    await act(async () => { pending.resolve({ cards: [{ ...cards[0]!, source_text: "Obsolete result" }], incomplete: false }); });
+    expect(screen.queryByText("Obsolete result")).toBeNull();
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("a renewed session drops old preparation and permits a fresh Review", async () => {
+    mocks.syntheticPreview.mockReturnValue([]);
+    const pending = deferred<{ cards: AgentPkmPreviewCard[]; incomplete: boolean }>();
+    mocks.prepare.mockReturnValueOnce(pending.promise);
+    const root = render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    await waitFor(() => expect(mocks.prepare).toHaveBeenCalledOnce());
+    advanceVaultSessionEpoch();
+    root.rerender(<BusinessProfileSuggestion {...props} vaultOwnerToken="renewed-token" tokenExpiresAt={Date.now() + 200000} />);
+    const retry = await screen.findByRole("button", { name: "Review details", exact: true });
+    expect(retry).not.toBeDisabled();
+    fireEvent.click(retry);
+    await screen.findByRole("checkbox", { name: "Save phone", exact: true });
+    await act(async () => pending.resolve({ cards, incomplete: false }));
+    expect(mocks.prepare).toHaveBeenCalledTimes(2);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it("shows pending deferral and refresh, prevents duplicate clicks, and restores controls after failure", async () => {
     const choice = deferred<boolean>();
     mocks.decide.mockReturnValueOnce(choice.promise);

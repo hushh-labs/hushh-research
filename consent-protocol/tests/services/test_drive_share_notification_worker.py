@@ -282,6 +282,8 @@ async def test_payment_ready_push_checks_live_order_before_dispatch():
     store.payment_ready_current.return_value = True
     assert await worker._dispatch(job) == "settled"
     send.assert_called_once()
+    # Prices vary by request and the opaque payload carries none, so the copy names none.
+    assert "$" not in send.call_args.kwargs["title"] + send.call_args.kwargs["body"]
 
 
 @pytest.mark.asyncio

@@ -26,7 +26,7 @@
 .fields { display: flex; flex-direction: column; gap: var(--app-form-section-gap); border: 0; padding: 0; margin: 0; min-width: 0; }
 .field { display: flex; flex-direction: column; min-width: 0; gap: var(--app-form-field-gap); }
 .field label { display: flex; align-items: center; gap: 8px; font-family: var(--font-app-body); font-size: 13px; font-weight: 500; line-height: 20px; }
-.fieldIcon { width: 18px; height: 18px; flex-shrink: 0; color: var(--app-accent); }
+.fieldIcon { width: 18px; height: 18px; flex-shrink: 0; }
 .field input { border-radius: var(--app-input-radius); min-height: 44px; font-family: var(--font-app-body); font-size: 12px; }
 .selectTrigger { width: 100%; min-width: 0; min-height: 44px; font-family: var(--font-app-body); font-size: 12px; }
 .selectMenu { max-height: min(280px, var(--radix-select-content-available-height)); max-width: calc(100vw - 32px); font-family: var(--font-app-body); }

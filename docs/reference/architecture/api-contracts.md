@@ -884,9 +884,13 @@ unverified profile fields. Consumer email domains and non-US phones are omitted,
 not coerced. A failed canonical phone read is unavailable, not missing.
 
 The server invokes the protected directory at its pinned Cloud Run origin using
-workload OIDC; browsers receive no invocation credential. Local rehearsal uses
-the explicit Workspace gcloud account only under the existing peer/reviewer/
-UAT-resource gate, without changing CLI defaults or ADC. HTTP redirects are
+workload OIDC; browsers receive no invocation credential. An explicit approved
+gcloud account can invoke the directory in the local/development runtime,
+including ordinary live discovery without reviewer rehearsal. Deployment
+labels and Cloud Run service markers prohibit this CLI credential path.
+The process must select the credential store containing that account through
+`CLOUDSDK_CONFIG`; a local overlay may otherwise select the scraper's isolated
+store. This does not change shared CLI defaults or ADC. HTTP redirects are
 refused, response size is capped at 512 KB, token acquisition is off the event
 loop, and request I/O has a 40-second total budget. Contact lookup does not scan
 or write PKM or directory tables. Contacts and returned records are not logged.
@@ -1421,6 +1425,19 @@ Repeated failures do not extend the original cache expiry. Internal continuation
 records are not returned to clients or persisted; sanitized stage telemetry marks
 reuse separately from a new model invocation. This is preparation only, never
 write or sharing authorization.
+
+Business Review revalidates the directory and complete owner inventory before
+preparing a proposal. An explicit Review never treats an incomplete or failed
+ambient warm-up as current evidence: it performs a fresh, no-stale-fallback
+read. The whole preparation has a 90-second client deadline; failure returns
+to a retryable offer, and late results cannot publish after retry, owner change,
+or vault-session change. This deadline never authorizes a save. PKM RPCs and
+consent entry/background database reads execute off the API event loop. Upgrade
+status batches manifest reads and preserves unavailable-versus-absent errors.
+The domain registry accepts both eager SQL RPC results and lazy adapters without
+duplicate fallback upserts. Idle message-push sweeps back off to at most five
+seconds; circle dispatch concurrency leaves capacity for foreground requests
+on small pools. Delivery leases, retry bounds and eligibility checks are unchanged.
 
 #### Connected Systems
 
@@ -2458,11 +2475,12 @@ tokens, subjects and endpoints are not returned. Mutations derive owner/generati
 | `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, exactly one of `ownerUserId` or `ownerPersonRef`, and purpose/period. Every recipient file request requires both period dates or returns `422 date_range_required`. Public person references resolve server-side; no internal UID is exposed in the profile. B need not connect Drive. |
 | `GET /requests` | Participant-scoped incoming/outgoing metadata, bounded pagination; never private candidates. |
 | `GET /requests/{id}` | Participant-only generic status and server-derived `direction`. Preparation and private review remain pending to B; a deep link never grants owner review authority. |
-| `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. |
+| `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. Also `ownerAllowed`, `allowAvailable` (a read-only preview of the `/allow` checks below), `paymentRequired` and `priceCents` (A's price once allowed, else null). Before a request-bound search starts, the durable fields are only `search: null` and `bulkShare: null`. |
 | `POST /requests/{id}/prepare` | A-only foreground preparation with a current owner-token callback; empty body. Returns only `{status}`: `review_ready`, `no_ready_files`, `unavailable` or `not_claimed` (worker holds the lease). Bounded to 160 seconds. |
 | `POST /requests/{id}/prepare/stream` | Same authority and preparation as `/prepare`, as `text/event-stream` (`private, no-store, no-cache, no-transform`). Frames: `stage` (`starting`, `searching`, `choosing`, `checking`), then one `complete {status}` after the review commits or `error {code, message}` from the public error map, plus `heartbeat`. No frame carries files, ids, content or coverage. A stream that ends with no terminal frame (owner authority ended mid-run, or the 190 second stream deadline) means: read `GET /requests/{id}`. A process at its stream capacity answers `503 sharing_unavailable` before the stream opens; clients then use `/prepare`. Closing the tab, locking the vault or signing out never stops a started preparation (same as `/prepare`); token expiry or revocation, account deletion, decline and refresh stop it within the 160 second budget. |
 | `POST /requests/{id}/review/refresh` | A's current revision cancels unused review authority and queues preparation again. |
 | `POST /requests/{id}/approve` | A's exact revision, digest, document IDs and strict `confirmed=true`; atomically claims confirmation and records work. HTTP 202 means pending, not shared. |
+| `POST /requests/{id}/allow` | A's revision-bound Allow for a request from outside A's Trusted circle. Body `{revision, amountCents?, confirmed: true}`; `amountCents` is whole US dollars in cents (100–50000, a multiple of 100), required when the request is paid and rejected when it is free (`422 invalid_payment_amount`). Requires A's live Drive, an active A/B connection, both period dates, and a request that is still new: pending, unexpired, not stopped, not Trusted (by its marker or B's current Trusted membership) or already allowed, and with no search started. Re-seals the request with the same automatic marker a Trusted request gets plus A's price, so the Trusted pipeline runs next: background search, first frozen batch, payment order at A's price, then automatic grants. Each step still rechecks the connection, and a disconnect ends the Allow for good: reconnecting never restores it. Keeps the revision, emits no event and makes no provider call. HTTP 202 `{requestId,status,revision,ownerAllowed,amountCents}`. Repeating the same price returns the same result while the Allow stands; a different price or a decided request returns `409 request_already_decided`, and a stale revision `409 review_changed`. |
 | `POST /requests/{id}/decline` | A's revision-bound decision; no provider call. |
 | `POST /requests/{id}/cancel` | B's revision-bound cancellation before approval; no provider call. |
 | `GET /requests/{id}/delivery` | Recorded per-file outcomes. B's current verified Google identity is revalidated; only successfully delivered originals have links. These are not live ACL guarantees. |
