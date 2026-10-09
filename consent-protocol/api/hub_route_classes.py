@@ -150,6 +150,7 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+GET /api/one/email/send/status/{action_id}
 GET /api/one/pod/owner-feed/{kind}
 POST /api/one/pod/owner-feed/command
 POST /api/kai/consent/grant
@@ -292,6 +293,7 @@ POST /api/one/marketplace/requests/{request_id}/deny
 GET /api/one/marketplace/requests/{request_id}/recipient-key
 POST /api/one/marketplace/requests/{request_id}/revoke
 POST /api/one/messages
+POST /api/one/messages/route-token
 DELETE,POST /api/one/messages/blocks
 GET /api/one/messages/conversations
 GET /api/one/messages/conversations/{conversation_id}/messages
@@ -320,6 +322,7 @@ GET /api/one/referrals/events
 POST /api/one/referrals/resolve
 GET /api/one/referrals/summary
 DELETE,GET,POST /api/one/wallet-card
+POST /api/one/wallet-card/ensure
 GET /api/one/wallet-card/pass/{share_token}.pkpass
 POST /api/one/wallet-card/pause
 GET /api/one/wallet-card/preview

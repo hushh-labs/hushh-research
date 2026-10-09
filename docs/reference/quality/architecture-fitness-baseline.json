@@ -19670,7 +19670,7 @@
       "limit": 500,
       "path": "consent-protocol/api/hub_route_classes.py",
       "symbol": null,
-      "value": 509
+      "value": 512
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21708,6 +21708,15 @@
     },
     "pilot": "Gmail history checkpoint port; Azure custody plan, replacement configuration and Files provisioning adapters. Existing public facades retained.",
     "reviewed_at": "2026-10-08T05:03:48.565368+00:00",
+    "reviewed_hub_route_inventory_20261009": {
+      "after": 512,
+      "before": 509,
+      "evidence_revision": "37be260bc0a3a8df469ae6a8190244cbdd839557",
+      "path": "consent-protocol/api/hub_route_classes.py",
+      "review": "Independent backend review: email lifecycle receipt is AUTHORITY; owner-bound DM routing and public wallet-card ensure are NETWORK. Three existing routes only; no handler or content guard changed. All other slots, budgets, scanner and exclusions unchanged.",
+      "source_sha256": "5dfd46ce6598ea818434382380baf2564e8ad2495d46835dea192560f0e29e8a",
+      "verification": "29 nearest custody-classification/account-erasure inventory checks pass. Bulk-removal owner deletion already exists before its FK parent; recipient anonymization preserves another owner authority."
+    },
     "route_inventory_review": {
       "after": 509,
       "before": 508,

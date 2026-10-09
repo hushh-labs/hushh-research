@@ -74,6 +74,7 @@ _CASCADE_PARENT = {
 }
 _DRIVE_SPECIALIZED_TABLES = {
     "drive_request_payment_orders",  # Deleted by the request-owned payment cleanup.
+    "drive_request_bulk_removals",  # Existing owner-only request cleanup before its FK parent.
     "drive_share_requests",
     "drive_share_reviews",
     "drive_share_permission_operations",
