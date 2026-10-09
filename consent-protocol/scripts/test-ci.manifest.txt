@@ -71,6 +71,8 @@ tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
 tests/services/test_drive_request_search_unit.py
+tests/services/test_drive_bounded_search_unit.py
+tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py

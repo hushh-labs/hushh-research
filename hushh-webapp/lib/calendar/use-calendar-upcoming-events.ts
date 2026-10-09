@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   GoogleCalendarService,
@@ -9,6 +9,8 @@ import {
 } from "@/lib/services/google-calendar-service";
 
 export type RedactedCalendarEvent = {
+  /** Provider event identifier, held only in memory to reconcile private task state. */
+  id: string | null;
   title: string;
   start: CalendarEventTime;
   end: CalendarEventTime;
@@ -57,6 +59,7 @@ function googleMeetUrl(value: string | null | undefined): string | undefined {
 function redactEvent(raw: CalendarEventSummary): RedactedCalendarEvent {
   const conferenceUrl = googleMeetUrl(raw.conference_url);
   return {
+    id: raw.id ?? null,
     title: raw.title,
     start: raw.start ?? null,
     end: raw.end ?? null,
@@ -79,17 +82,43 @@ export function useCalendarUpcomingEvents({
   isConnected,
   windowHours = 48,
 }: UseCalendarUpcomingEventsParams): UseCalendarUpcomingEventsResult {
-  const [events, setEvents] = useState<RedactedCalendarEvent[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
+  // A fresh marker is derived from the connection props without retaining a
+  // vault token in state. A render with a new owner cannot display an old
+  // snapshot even before the effect has invalidated its in-flight request.
+  const identity = useMemo(
+    () => Symbol(
+      `calendar-${Boolean(userId)}-${Boolean(vaultOwnerToken)}-${isConnected}`,
+    ),
+    [userId, vaultOwnerToken, isConnected],
+  );
+  const identityRef = useRef(identity);
+  const requestRef = useRef(0);
+  const [snapshot, setSnapshot] = useState<{
+    identity: symbol;
+    events: RedactedCalendarEvent[];
+    loading: boolean;
+    error: string | null;
+    loaded: boolean;
+  }>({ identity, events: [], loading: false, error: null, loaded: false });
   const canLoad = Boolean(isConnected && userId && vaultOwnerToken);
+  const current = canLoad && snapshot.identity === identity;
+
+  useEffect(() => {
+    identityRef.current = identity;
+    requestRef.current += 1;
+  }, [identity]);
 
   const load = useCallback(async () => {
-    if (!userId || !vaultOwnerToken) return;
-    setLoading(true);
-    setError(null);
+    if (
+      !isConnected ||
+      !userId ||
+      !vaultOwnerToken ||
+      identityRef.current !== identity
+    ) return;
+    const request = ++requestRef.current;
+    setSnapshot({
+      identity, events: [], loading: true, error: null, loaded: false,
+    });
     try {
       const now = new Date();
       const rangeEnd = new Date(now.getTime() + windowHours * 60 * 60 * 1000);
@@ -98,24 +127,39 @@ export function useCalendarUpcomingEvents({
         startAt: now.toISOString(),
         endAt: rangeEnd.toISOString(),
       });
-      setEvents((response.events ?? []).map(redactEvent));
+      if (request !== requestRef.current || identityRef.current !== identity) {
+        return;
+      }
+      setSnapshot({
+        identity,
+        events: (response.events ?? []).map(redactEvent),
+        loading: false,
+        error: null,
+        loaded: true,
+      });
     } catch {
-      setError("Calendar details couldn’t load. Refresh to try again.");
-    } finally {
-      setLoaded(true);
-      setLoading(false);
+      if (request !== requestRef.current || identityRef.current !== identity) {
+        return;
+      }
+      setSnapshot({
+        identity,
+        events: [],
+        loading: false,
+        error: "Calendar details couldn’t load. Refresh to try again.",
+        loaded: true,
+      });
     }
-  }, [userId, vaultOwnerToken, windowHours]);
+  }, [identity, isConnected, userId, vaultOwnerToken, windowHours]);
 
   useEffect(() => {
-    if (canLoad && !loaded && !loading) void load();
-  }, [canLoad, loaded, loading, load]);
+    if (canLoad && (!current || (!snapshot.loaded && !snapshot.loading))) void load();
+  }, [canLoad, current, snapshot.loaded, snapshot.loading, load]);
 
   return {
-    events: isConnected ? events : [],
-    loading,
-    error,
-    loaded,
+    events: current ? snapshot.events : [],
+    loading: current && snapshot.loading,
+    error: current ? snapshot.error : null,
+    loaded: current && snapshot.loaded,
     refresh: () => void load(),
   };
 }

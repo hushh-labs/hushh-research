@@ -336,6 +336,7 @@ export class DirectMessagesService {
     content: string;
     recipientPersonRef: string;
     replyToMessageId?: string | null;
+    clientMessageId?: string;
   }): Promise<DirectMessageSendResult> {
     const recipientPersonRef = String(input.recipientPersonRef || "").trim();
     if (!recipientPersonRef) throw new Error("Choose one connected recipient before sending.");
@@ -348,6 +349,7 @@ export class DirectMessagesService {
         ...(input.replyToMessageId?.trim()
           ? { replyToMessageId: input.replyToMessageId.trim() }
           : {}),
+        ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
       }),
     });
     const payload = await jsonOrThrow<{ conversation?: unknown; message?: unknown }>(
@@ -437,20 +439,37 @@ export class DirectMessagesService {
 
   static async markConversationRead(input: {
     idToken: string;
+    ownerUserId: string;
     conversationId: string;
+    throughMessageId?: string;
+    throughCreatedAt?: string;
   }): Promise<DirectMessageReadResult> {
     const conversationId = String(input.conversationId || "").trim();
     if (!conversationId) throw new Error("A conversation is required.");
+    const { activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
+    const keyId = activeNotificationKeyId(input.ownerUserId);
+    const requestedAt = Date.now();
     const response = await ApiService.apiFetch(
-      `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/read`,
+      `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/read${input.throughMessageId ? `?throughMessageId=${encodeURIComponent(input.throughMessageId)}` : ""}`,
       {
         method: "POST",
         headers: authHeaders(input.idToken),
       },
     );
-    const payload = await jsonOrThrow<{ readCount?: unknown; readAt?: unknown }>(
+    const payload = await jsonOrThrow<{ readCount?: unknown; readAt?: unknown; readThroughCreatedAt?: unknown }>(
       response,
     );
+    if (keyId) {
+      const { ChatSystemNotifications } = await import("@/lib/notifications/chat-system-notifications");
+      const cutoff = payload.readThroughCreatedAt ?? input.throughCreatedAt ?? payload.readAt;
+      const before = cutoff ? Date.parse(String(cutoff)) : requestedAt;
+      // FCM timestamps have millisecond precision. A later unread message can
+      // share the boundary's millisecond; clear the exact boundary event and
+      // only strictly earlier milliseconds in the system tray.
+      if (Number.isFinite(before)) await ChatSystemNotifications.clearRead({ threadId: conversationId, keyId,
+        before: input.throughMessageId ? before - 1 : before,
+        ...(input.throughMessageId ? { messageId: `direct-message:${input.throughMessageId}` } : {}) });
+    }
     return {
       readCount: asNonNegativeInt(payload.readCount),
       readAt: asTrimmedString(payload.readAt),

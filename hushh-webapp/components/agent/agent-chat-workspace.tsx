@@ -342,6 +342,7 @@ import {
 } from "@/lib/agent/drive-review-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
+import { runGmailTodoDirective } from "@/lib/agent/gmail-todo-directive-runtime";
 import {
   GMAIL_MAILBOX_ACTION_COPY,
   gmailMailboxAction,
@@ -7348,7 +7349,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const enqueueReviewedDirective = (
     directive: SpecialistDirectiveEvent,
     options: {
-      scope: "calendar" | "gmail-mailbox";
+      scope: "calendar" | "gmail-mailbox" | "gmail-todo";
       pendingText: string;
       doneText: string;
       failedText: string;
@@ -7417,7 +7418,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       pendingText: "Scheduling…",
       doneText: "Calendar updated.",
       failedText: "The Calendar change could not be completed.",
-      run: () => runCalendarDirective(directive.directive, token, userId),
+      run: () => runCalendarDirective(directive.directive, token, userId, vaultKey),
     });
 
   const enqueueGmailMailboxDirective = (
@@ -7434,6 +7435,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       run: () => runGmailMailboxDirective(directive.directive, auth),
     });
   };
+
+  const enqueueGmailTodoDirective = (
+    directive: SpecialistDirectiveEvent,
+    userId: string,
+    vaultKey: string,
+    vaultOwnerToken: string,
+  ) =>
+    enqueueReviewedDirective(directive, {
+      scope: "gmail-todo",
+      pendingText: "Adding to your To-do list…",
+      doneText: "Added to your To-do list.",
+      failedText: "The item couldn’t be added to your To-do list.",
+      run: () =>
+        runGmailTodoDirective(
+          directive.directive,
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+        ),
+    });
 
   // --- Requests this conversation sent: durable waiting and access ended ---
   // Rebuilt from the conversation itself on every load, so a reload, a cold
@@ -8404,6 +8425,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setMessagesBelow(0);
       return;
     }
+    const overlay = isCanonicalChatRoute ? agentDockFrame : composerStackRef.current;
+    const end = messagesEndRef.current;
+    if (end) {
+      const endTargetTop = transcriptRevealScrollTop(
+        measureTranscriptReveal(transcript, end, overlay),
+      );
+      if (endTargetTop <= transcript.scrollTop + 4) {
+        setMessagesBelow(0);
+        return;
+      }
+    }
     const distanceFromBottom =
       transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop;
     if (distanceFromBottom <= 96) {
@@ -8412,7 +8444,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     // The composer floats over the transcript, so "in view" ends at its top.
     const transcriptRect = transcript.getBoundingClientRect();
-    const overlay = isCanonicalChatRoute ? agentDockFrame : composerStackRef.current;
     const overlayRect = overlay?.getBoundingClientRect();
     const visibleBottom = Math.max(transcriptRect.top, Math.min(transcriptRect.bottom,
       overlayRect && overlayRect.height > 0 ? overlayRect.top : transcriptRect.bottom));
@@ -8500,6 +8531,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onOpenConnectors={!isPuppySurface
         ? (trigger) => openConnectorSurface(undefined, trigger)
         : undefined}
+      onOpenTodoList={!isPuppySurface ? () => router.push(ROUTES.ONE_TODOS) : undefined}
       onGetApp={offerGetApp ? openGetApp : undefined}
       getAppOpen={getAppOpen}
       driveActivity={!isPuppySurface
@@ -10074,6 +10106,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         // here, on first use, on top of existing grants, in a
                         // window opened synchronously by this click.
                         runDirectiveConnect("gmail_modify");
+                        return;
+                      }
+                      if (type === "gmail.create_todos") {
+                        const vaultOwnerToken = getVaultOwnerToken();
+                        if (!vaultOwnerToken || !vaultKey || !user?.uid) {
+                          addErrorMessage(
+                            "Vault access expired. Unlock again to continue.",
+                          );
+                          return;
+                        }
+                        enqueueGmailTodoDirective(
+                          directive,
+                          user.uid,
+                          vaultKey,
+                          vaultOwnerToken,
+                        );
                         return;
                       }
                       if (type !== "gmail.execute_mailbox_proposal") {

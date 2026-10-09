@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-07",
-  "total_routes": 127,
-  "native_required_routes": 106,
+  "generated_at": "2026-10-09",
+  "total_routes": 128,
+  "native_required_routes": 107,
   "excluded_routes": 21,
   "routes": [
     {
@@ -642,6 +642,21 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/todos",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Ftodos",
+      "expectedMarker": "native-route-one-todos",
+      "expectedRoute": "/one/todos",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
         "loaded",
         "empty-valid",
         "unavailable-valid"

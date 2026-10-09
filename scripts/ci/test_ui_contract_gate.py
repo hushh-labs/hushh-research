@@ -16,6 +16,10 @@ def job_block(workflow, name):
 
 def validate(workflow):
     ui = job_block(workflow, "ui-contracts")
+    if "fetch-depth: 2" not in ui or "UI_CONTRACT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" not in ui:
+        raise ValueError("UI review inheritance requires the pinned target base and its history")
+    if "fetch-depth: 2" not in job_block(workflow, "web-core-check"):
+        raise ValueError("Web Core must retain the target base for the same UI check")
     if re.search(r"^\s+(if|needs|continue-on-error):", ui, re.M):
         raise ValueError("UI contracts must run independently with failures enforced")
     if not re.search(r"^\s+- run: npm run verify:ui-contracts\s*$", ui, re.M):
@@ -54,6 +58,9 @@ class UiGateTests(unittest.TestCase):
         self.assertNotIn("  search-web-contracts:", self.workflow)
 
     def test_skip_and_failure_suppression_are_rejected(self):
+        for old, new in (("fetch-depth: 2", "fetch-depth: 1"), ("UI_CONTRACT_BASE_SHA:", "UNPINNED_BASE:")):
+            with self.assertRaises(ValueError):
+                validate(self.workflow.replace(old, new))
         for rule in ("if: false", "needs: [paths]", "continue-on-error: true"):
             with self.assertRaises(ValueError):
                 validate(self.workflow.replace("  ui-contracts:\n", f"  ui-contracts:\n    {rule}\n"))

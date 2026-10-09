@@ -680,7 +680,8 @@
         "actor_identity_cache",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens"
+        "user_push_tokens",
+        "user_push_installations"
       ],
       "id": "actor_identity_state",
       "lifecycle_status": "current",
@@ -699,6 +700,17 @@
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
       "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "chat_push_device_deliveries",
+        "direct_message_push_outbox"
+      ],
+      "id": "chat_push_delivery",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Transactional direct-message outbox and shared Circle/direct device delivery workers; source eligibility is rechecked before FCM acceptance."
     },
     {
       "data_class": "personal_encrypted",
@@ -2669,6 +2681,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "calendar.read",
           "consent.chat.turn",
           "location.chat.turn",
           "route.one_agents",
@@ -2721,7 +2734,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "calendar.read"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.calendar"
       }
@@ -5241,6 +5256,30 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "pkm_projection",
+          "calendar_events"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-todos",
+      "page_file": "app/one/todos/page.tsx",
+      "pathname": "/one/todos",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.todos"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "memory-only",
         "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
         "resource_classes": [
@@ -5980,28 +6019,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "63c05d2958bf0a72df8f4c54d5be759e4f35369973b196de58af174b51d7737c",
-    "agent_registry": "c246ad743f2336335041acb2d17e7eaae8639ba157944d0e74a788b2ad5d9459",
-    "cache_manifest": "c6685c4f51f38154a3ef6d475908889438f932090009ecfe4665902acfe71e75",
-    "data_plane": "98d7c02c105e01f9afcfb884057558cc2308417e7f441d1e7673bc472ced329e",
+    "action_gateway": "05273c47c17aeaed1c58fbe7aeb66395d49b78a9d5adcaad37d1edd45acb9443",
+    "agent_registry": "d6e5d060ebc56fdf1f2dbea5c7c6b43ea8b4973aee83385e0407f5ffbe0002c1",
+    "cache_manifest": "5eff3c647e67b8c7f2a50fdc079673ef4bb2282806b0d99276857309c0d9db8f",
+    "data_plane": "9f18777224d13211b26d8565cc7675797f4f71784b223af84c9f09ca7fdc3b53",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "d287b08c9109f963591911627d5559b63e263d102380348a66775c9b810b4545",
-    "route_layout": "a886f092e517a4e250f49c106f7e5ee094839236641610be97538396cc8141d2",
-    "surface_map": "2aba95636010b876338a9ef4d609a6fd48d14fb39055f7a5534dca8fe2b1c52d",
+    "route_index": "b469f6764af815b10a1a67e976a0e1856d1a8c5839f50392f8ad1c096c26f185",
+    "route_layout": "ae791a37abcfdedfeba21f10a859e61c0ef9471e17177d33e1d8f9d75594a290",
+    "surface_map": "a2bb4d530532891e561889aaab483c0593550ce3da054eeec3bb3ac78801b719",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 226,
+    "actions": 227,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 146,
+    "physical_routes": 147,
     "semantic_routes": 14,
-    "table_families": 89
+    "table_families": 90
   }
 }

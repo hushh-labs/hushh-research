@@ -43,6 +43,50 @@ existing live Drive search still runs on the backend with Manish's delegated
 Google access and server-readable encrypted metadata. It should not be described
 as end-to-end or strict cryptographic zero knowledge of the Drive documents.
 
+## Search latency and bounded requests
+
+Both trusted and owner-approved requests use the same metadata search engine.
+New request planning runs concurrently with already queued searches, so a slow
+planner does not consume their worker slice before Google receives a query.
+The existing authority checks, durable checkpoints and retry backoff remain in
+the critical path.
+
+The Documents agent expresses an explicit file count as `result_limit` (1–1,000)
+with recent ordering. A date count such as “last three days” is not a file limit.
+For generic “latest 100 documents,” the engine queries original files with native
+timestamp ordering in the user corpus and each member shared drive. It stops
+older pagination within a corpus only after enough distinct matches and the
+complete boundary timestamp tie. Requested dates still apply to every match.
+This direct-original scope does not expand shortcut aliases or folders; original
+files in nested folders remain searchable through their corpus.
+
+Topic and exact-title requests retain their existing discovery semantics,
+including shortcut resolution and topical folders. Full-text results cannot
+establish newest-N from their first page, so these requests finish their coverage
+before ranking. Incomplete searches, invalid timestamps and scan limits cannot
+produce a finalized bounded selection or payment. Valid out-of-order provider
+pages disable early stopping and fall back to exhaustive collection.
+
+For every bounded request, the store deduplicates candidates and selects the
+newest N globally using the requested timestamp and a deterministic file-ID tie
+break. It freezes final positions atomically. Intermediate candidates cannot be
+reviewed, paid for or shared. Unshareable files within the newest N are not
+silently replaced with older files. Once finalized, the existing trusted or
+owner-approval path continues, followed by one request-bound payment.
+
+Automated synthetic provider tests compare identical selections across 10,000
+originals in two corpora: ordinary and tied latest-100 cases need 5 provider calls
+and 400 scanned rows, versus 101 calls and 10,000 rows for exhaustive discovery.
+The test includes both authority modes and a date-filtered case. These figures
+prove less application work, not Google production latency or superiority to the
+Drive UI. Provider, credential, search-page, commit and handoff timings remain
+separate in correlated runtime telemetry; no end-to-end time guarantee is made.
+
+Google's [files.list contract](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list),
+[search semantics](https://developers.google.com/workspace/drive/api/guides/ref-search-terms),
+and [shared-drive coverage](https://developers.google.com/workspace/drive/api/guides/enable-shareddrives)
+define the native query, pagination and corpus boundaries used here.
+
 ## Authority and state
 
 1. A new eligible request is created with `payment_required=true` only when

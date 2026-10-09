@@ -2,6 +2,7 @@
 
 # ruff: noqa: F401, F811 -- isolated PostgreSQL fixtures imported from their owners
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -1071,3 +1072,121 @@ async def test_payment_wake_resumes_committed_batches_before_slow_search(monkeyp
     result = await DriveOwnerSearchWorker(service, trusted_auto=auto).run()
     assert order[:2] == ["resume_paid_batch", "provider_read"]
     assert result["outcomes"]["queued"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trusted", [True, False])
+async def test_queued_search_does_not_wait_for_unrelated_trusted_planner(monkeypatch, trusted):
+    from hushh_mcp.services import drive_owner_search_worker as module
+
+    provider_started = asyncio.Event()
+    authority = AsyncMock() if trusted else None
+
+    async def plan_other_request(**_kwargs):
+        # A queued owner-approved request and a queued trusted request both
+        # progress while another request's semantic planner is still waiting.
+        await provider_started.wait()
+        return {"started": 0, "deferred": 0}
+
+    async def provider_slice(**kwargs):
+        assert kwargs.get("require_current") is authority
+        if trusted:
+            assert kwargs["after_page"] is auto.after_search_page
+        else:
+            assert "after_page" not in kwargs
+        provider_started.set()
+        return "completed"
+
+    auto = SimpleNamespace(
+        continue_batches=AsyncMock(),
+        start_pending=plan_other_request,
+        search_authority_for_job=AsyncMock(return_value=authority),
+        after_search_page=AsyncMock(),
+        after_search_slice=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        store=SimpleNamespace(
+            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}])
+        ),
+        run_one=provider_slice,
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    async with asyncio.timeout(1):
+        result = await DriveOwnerSearchWorker(service, trusted_auto=auto).run()
+    assert result["outcomes"]["completed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_search_queue_continues_new_trusted_search_in_same_drain(monkeypatch):
+    from hushh_mcp.services import drive_owner_search_worker as module
+
+    planned = asyncio.Event()
+    job = {"user_id": "owner", "job_id": str(uuid4())}
+
+    async def start_request(**_kwargs):
+        planned.set()
+        return {"started": 1, "deferred": 0}
+
+    async def provider_slice(**_kwargs):
+        assert planned.is_set()
+        return "completed"
+
+    auto = SimpleNamespace(
+        continue_batches=AsyncMock(),
+        start_pending=start_request,
+        search_authority_for_job=AsyncMock(return_value=AsyncMock()),
+        after_search_page=AsyncMock(),
+        after_search_slice=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        store=SimpleNamespace(due=AsyncMock(side_effect=[[], [job]])),
+        run_one=AsyncMock(side_effect=provider_slice),
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    result = await DriveOwnerSearchWorker(service, trusted_auto=auto).run()
+    assert result["outcomes"]["completed"] == 1
+    assert result["outcomes"]["queued"] == 1
+    service.run_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_search_drain_cancellation_leaves_no_planner_running(monkeypatch):
+    from hushh_mcp.services import drive_owner_search_worker as module
+
+    planning = asyncio.Event()
+    provider_started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def plan_other_request(**_kwargs):
+        planning.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    async def provider_slice(**_kwargs):
+        await planning.wait()
+        provider_started.set()
+        await asyncio.Event().wait()
+
+    auto = SimpleNamespace(
+        continue_batches=AsyncMock(),
+        start_pending=plan_other_request,
+        search_authority_for_job=AsyncMock(return_value=None),
+    )
+    service = SimpleNamespace(
+        store=SimpleNamespace(
+            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}])
+        ),
+        run_one=provider_slice,
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    worker = asyncio.create_task(DriveOwnerSearchWorker(service, trusted_auto=auto).run())
+    try:
+        async with asyncio.timeout(1):
+            await provider_started.wait()
+    finally:
+        worker.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker
+    assert cancelled.is_set()

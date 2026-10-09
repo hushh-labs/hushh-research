@@ -8,10 +8,12 @@ import threading
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
 from hushh_mcp.services.google_connection_service import (
+    CALENDAR_LIST_READ_SCOPE,
     GoogleConnectionError,
     GoogleConnectionService,
 )
@@ -53,8 +55,25 @@ class _ConnectionStatusDb(_Db):
 
 
 class _Connections:
+    def __init__(self) -> None:
+        self.binding = (
+            "owner",
+            "calendar",
+            "google-sub",
+            "connected-at",
+            "connection-rev",
+            "grant-rev",
+        )
+        self.list_scope = False
+
     async def access_token(self, **_: object) -> str:
         return "access-token"
+
+    async def read_grant_binding(self, **_: object) -> tuple[str, ...]:
+        return self.binding
+
+    async def has_service_scope(self, **_: object) -> bool:
+        return self.list_scope
 
 
 class _ReadOnlyConnections:
@@ -62,6 +81,185 @@ class _ReadOnlyConnections:
         raise GoogleConnectionError(
             "Additional Google Calendar permission is required", status_code=403
         )
+
+
+def _record_calendar_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    response: httpx.Response,
+    *,
+    after_request: object = None,
+) -> list[dict[str, object]]:
+    requests: list[dict[str, object]] = []
+
+    class _Client:
+        async def __aenter__(self):  # noqa: ANN204
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+        async def request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
+            requests.append({"method": method, "url": url, **kwargs})
+            if callable(after_request):
+                after_request()
+            return response
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_calendar_service.httpx.AsyncClient",
+        lambda **_: _Client(),
+    )
+    return requests
+
+
+def _provider_response(status: int, body: dict[str, object]) -> httpx.Response:
+    return httpx.Response(
+        status, json=body, request=httpx.Request("GET", "https://www.googleapis.com")
+    )
+
+
+def test_calendar_read_discards_result_when_owner_grant_changes_after_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connections = _Connections()
+    service = GoogleCalendarService(db=_Db(), connections=connections)
+
+    def revoke() -> None:
+        connections.binding = (
+            "owner",
+            "calendar",
+            "new-google-sub",
+            "connected-at",
+            "new-rev",
+            "new-grant",
+        )
+
+    _record_calendar_provider(
+        monkeypatch,
+        _provider_response(200, {"items": [{"id": "private", "summary": "Private event"}]}),
+        after_request=revoke,
+    )
+    with pytest.raises(GoogleConnectionError, match="connection changed") as exc_info:
+        asyncio.run(
+            service.list_events(
+                user_id="user-1",
+                start_at="2026-08-11T00:00:00Z",
+                end_at="2026-08-12T00:00:00Z",
+            )
+        )
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_status"),
+    [
+        ("rateLimitExceeded", 429),
+        ("userRateLimitExceeded", 429),
+        ("quotaExceeded", 429),
+        ("forbidden", 403),
+    ],
+)
+def test_calendar_provider_403_distinguishes_quota_from_permission(
+    monkeypatch: pytest.MonkeyPatch, reason: str, expected_status: int
+) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    _record_calendar_provider(
+        monkeypatch,
+        _provider_response(403, {"error": {"errors": [{"reason": reason}]}}),
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            service.list_events(
+                user_id="user-1",
+                start_at="2026-08-11T00:00:00Z",
+                end_at="2026-08-12T00:00:00Z",
+            )
+        )
+    assert exc_info.value.status_code == expected_status
+
+
+def test_calendar_freebusy_rejects_embedded_provider_error_in_http_200(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    _record_calendar_provider(
+        monkeypatch,
+        _provider_response(200, {"calendars": {"primary": {"errors": [{"reason": "notFound"}]}}}),
+    )
+    with pytest.raises(GoogleConnectionError, match="could not be checked") as exc_info:
+        asyncio.run(
+            service.freebusy(
+                user_id="user-1",
+                start_at="2026-08-11T00:00:00Z",
+                end_at="2026-08-12T00:00:00Z",
+            )
+        )
+    assert exc_info.value.status_code == 502
+
+
+def test_calendar_list_requires_its_incremental_scope_without_breaking_base_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connections = _Connections()
+    service = GoogleCalendarService(db=_Db(), connections=connections)
+    requests = _record_calendar_provider(
+        monkeypatch,
+        _provider_response(
+            200,
+            {
+                "items": [
+                    {"id": "secondary@example.com", "summary": "Team", "timeZone": "Asia/Kolkata"}
+                ],
+                "nextPageToken": "next-page",
+            },
+        ),
+    )
+
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(service.list_calendars(user_id="user-1"))
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.reason_code == "calendar_list_permission_required"
+    assert requests == []
+
+    connections.list_scope = True
+    result = asyncio.run(service.list_calendars(user_id="user-1", max_results=20))
+    assert result["calendars"] == [
+        {
+            "id": "secondary@example.com",
+            "name": "Team",
+            "primary": False,
+            "access_role": None,
+            "time_zone": "Asia/Kolkata",
+        }
+    ]
+    assert result["truncated"] is True
+    assert result["next_page_token"] == "next-page"
+    assert requests[0]["url"].endswith("/users/me/calendarList")
+    assert requests[0]["params"] == {"maxResults": 20}
+    assert CALENDAR_LIST_READ_SCOPE
+
+
+def test_calendar_event_detail_encodes_selected_calendar_and_event_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+    requests = _record_calendar_provider(
+        monkeypatch,
+        _provider_response(
+            200,
+            {
+                "id": "event/one",
+                "summary": "Planning",
+                "description": "Notes",
+                "start": {"dateTime": "2026-08-11T10:00:00Z"},
+            },
+        ),
+    )
+    result = asyncio.run(
+        service.get_event(user_id="user-1", calendar_id="team@example.com", event_id="event/one")
+    )
+    assert result["calendar_id"] == "team@example.com"
+    assert result["event"]["description"] == "Notes"
+    assert requests[0]["url"].endswith("/calendars/team%40example.com/events/event%2Fone")
 
 
 async def _no_conflicts(**_: object) -> list[dict[str, object]]:
@@ -84,6 +282,70 @@ def test_calendar_manage_scope_keeps_availability_permission() -> None:
 
     assert "https://www.googleapis.com/auth/calendar.events" in scopes
     assert "https://www.googleapis.com/auth/calendar.freebusy" in scopes
+
+
+def test_calendar_web_oauth_requests_incremental_list_scope_without_changing_native(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "_signed_state", lambda _: "test-state")
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_args, **_kwargs: {"ciphertext": "test", "iv": "test", "tag": "aad-gcm-v1"},
+    )
+    web = asyncio.run(
+        service._create_oauth_attempt(
+            user_id="user-1",
+            service="calendar",
+            access_level="read",
+            redirect_uri="https://example.com/callback",
+            transport="web",
+        )
+    )
+    native = asyncio.run(
+        service._create_oauth_attempt(
+            user_id="user-1",
+            service="calendar",
+            access_level="read",
+            redirect_uri="hushh://callback",
+            transport="native",
+        )
+    )
+    assert CALENDAR_LIST_READ_SCOPE in web["scopes"]
+    assert CALENDAR_LIST_READ_SCOPE not in native["scopes"]
+    assert set(GoogleConnectionService.scopes("calendar", "read")) <= set(native["scopes"])
+
+
+def test_calendar_web_oauth_does_not_assume_optional_scope_was_granted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(
+        service,
+        "_userinfo",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result={"sub": "google-sub"}),
+    )
+    monkeypatch.setattr(
+        service, "_connection", lambda *_args, **_kwargs: asyncio.sleep(0, result=None)
+    )
+    with pytest.raises(GoogleConnectionError) as exc_info:
+        asyncio.run(
+            service._store_authorized_connection(
+                user_id="user-1",
+                token={"access_token": "access", "refresh_token": "refresh", "expires_in": 3600},
+                service="calendar",
+                requested_scopes=(
+                    *GoogleConnectionService.scopes("calendar", "read"),
+                    CALENDAR_LIST_READ_SCOPE,
+                ),
+                oauth_started_at=datetime(2026, 1, 1, tzinfo=UTC),
+                attempt_id="synthetic-attempt",
+                expected_generation=connection_generation(None),
+            )
+        )
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.reason_code == "calendar_list_permission_required"
 
 
 def test_google_drive_authorization_is_read_only() -> None:

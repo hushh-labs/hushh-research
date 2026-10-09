@@ -772,6 +772,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Reading your calendar events.",
     activity: "Reading your Calendar",
   },
+  calendar_calendars: {
+    label: "Google Calendar",
+    message: "Finding your calendars.",
+    activity: "Reading your calendars",
+  },
+  calendar_event_detail: {
+    label: "Google Calendar",
+    message: "Reading the event details.",
+    activity: "Reading an event",
+  },
   calendar_availability: {
     label: "Google Calendar",
     message: "Checking your availability.",
@@ -811,6 +821,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Gmail",
     message: "Preparing a mailbox change for your confirmation.",
     activity: "Preparing a mailbox change",
+  },
+  propose_gmail_todo: {
+    label: "Gmail",
+    message: "Preparing email follow-ups for your confirmation.",
+    activity: "Preparing follow-ups",
   },
   propose_drive_share: {
     label: "Google Drive",

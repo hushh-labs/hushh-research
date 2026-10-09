@@ -21,6 +21,9 @@
 	<array>
 		<string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>
 		<string>$(AppIdentifierPrefix)com.hushh.app.imessage</string>
+		<string>$(AppIdentifierPrefix)com.hussh.app.chatnotifications</string>
 	</array>
+	<key>com.apple.developer.usernotifications.communication</key>
+	<true/>
 </dict>
 </plist>

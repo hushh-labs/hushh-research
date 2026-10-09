@@ -74,6 +74,32 @@ Rules:
 4. Do not add route-local radius or spacing values when the shared field and
    form tokens already express the relationship.
 
+## Pattern: Connection and Circle Conversations
+
+Circle chat consumes `components/app-ui/conversation-composer.tsx` and
+`components/app-ui/conversation-message.tsx`; direct chat retains its reply, emoji
+and voice composer. These compose the existing
+input group, shell action surface and One chat bubble; they do not define a
+second control or theme system.
+
+Rules:
+
+1. Keep sender identity, date separators, wrapped text and actual read receipts
+   consistent. Do not infer online status or device delivery from a successful send.
+2. Keep the composer between 44 and 128px, use 16px text and 44px actions, and
+   reserve the shared keyboard/safe-area variables. Circle image captions also
+   fit above the native keyboard. Preserve the normal-flow keyboard reveal;
+   these composers do not opt into `data-keyboard-anchor`.
+3. Mobile Enter adds a newline; desktop Enter sends, Shift+Enter adds a newline,
+   and IME composition never sends. Preserve drafts through navigation and failed
+   sends; retry an unconfirmed send with the original operation identity.
+4. Incoming messages preserve the position of someone reading older history.
+   A successful own send or the explicit latest-messages action returns to the end.
+5. Mark a bounded read only when the current conversation is visible, focused,
+   at the end and unobscured by a blocking interaction layer or modal. Fetching
+   history is not a read. See the durable behavior and verification boundary in
+   [Feed notification model](../one/feed-notification-model.md).
+
 ## Pattern: Shared Segmented Tabs
 
 Use the shared segmented control for app-facing rounded tab groups.

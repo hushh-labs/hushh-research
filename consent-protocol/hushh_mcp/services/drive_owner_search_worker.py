@@ -44,7 +44,8 @@ class DriveOwnerSearchWorker:
                         await self.trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
             except Exception:
                 counts["unavailable"] += 1
-        if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 20:
+
+        async def prepare_pending():
             try:
                 with drive_stage(logger, "worker_prepare"):
                     started = await self.trusted_auto.start_pending(
@@ -54,70 +55,87 @@ class DriveOwnerSearchWorker:
                 counts["unavailable"] += started["deferred"]
             except Exception:
                 counts["unavailable"] += 1
-        with drive_stage(logger, "worker_due"):
-            jobs = await self.service.store.due(limit=max_jobs)
-        for job in jobs:
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining < 1:
-                counts["deadline"] += 1
-                break
-            try:
-                authority = (
-                    await self.trusted_auto.search_authority_for_job(
-                        user_id=job["user_id"], job_id=str(job["job_id"])
+
+        # Planning a different trusted request can take most of a slice. It
+        # must not sit ahead of existing owner-approved or trusted searches.
+        # Structured concurrency keeps cancellation bounded by the drain and
+        # leaves each search's authority check and database lease unchanged.
+        async with asyncio.TaskGroup() as tasks:
+            preparation = (
+                tasks.create_task(prepare_pending())
+                if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 20
+                else None
+            )
+            with drive_stage(logger, "worker_due"):
+                jobs = await self.service.store.due(limit=max_jobs)
+            if not jobs and preparation is not None:
+                # New trusted requests can create their first job during planning.
+                # With no older work, use the rest of this same drain to continue it.
+                await preparation
+                with drive_stage(logger, "worker_due"):
+                    jobs = await self.service.store.due(limit=max_jobs)
+            for job in jobs:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining < 1:
+                    counts["deadline"] += 1
+                    break
+                try:
+                    authority = (
+                        await self.trusted_auto.search_authority_for_job(
+                            user_id=job["user_id"], job_id=str(job["job_id"])
+                        )
+                        if self.trusted_auto
+                        else None
                     )
-                    if self.trusted_auto
-                    else None
-                )
-                outcome = await self.service.run_one(
-                    user_id=job["user_id"],
-                    job_id=str(job["job_id"]),
-                    deadline_seconds=min(90, remaining),
-                    **(
-                        {
-                            "require_current": authority,
-                            "after_page": self.trusted_auto.after_search_page,
+                    outcome = await self.service.run_one(
+                        user_id=job["user_id"],
+                        job_id=str(job["job_id"]),
+                        deadline_seconds=min(90, remaining),
+                        **(
+                            {
+                                "require_current": authority,
+                                "after_page": self.trusted_auto.after_search_page,
+                            }
+                            if authority is not None
+                            else {}
+                        ),
+                    )
+                    if outcome == "queued":
+                        # The slice has released its lease before waking another
+                        # drain. The scheduler remains recovery if this hint fails.
+                        current = await self.service.store.status(
+                            user_id=job["user_id"], job_id=str(job["job_id"])
+                        )
+                        continuation = continuation or current["errorCode"] is None
+                        if self.trusted_auto and current["errorCode"] is None:
+                            await wake_drive_work("suggestions")
+                            woke_early = True
+                    counts[
+                        outcome
+                        if outcome
+                        in {
+                            "queued",
+                            "completed",
+                            "limited",
+                            "failed",
+                            "stopped",
+                            "superseded",
+                            "not_claimed",
                         }
-                        if authority is not None
-                        else {}
-                    ),
-                )
-                if outcome == "queued":
-                    # The slice has released its lease before waking another
-                    # drain. The scheduler remains recovery if this hint fails.
-                    current = await self.service.store.status(
-                        user_id=job["user_id"], job_id=str(job["job_id"])
-                    )
-                    continuation = continuation or current["errorCode"] is None
-                    if self.trusted_auto and current["errorCode"] is None:
-                        await wake_drive_work("suggestions")
-                        woke_early = True
-                counts[
-                    outcome
-                    if outcome
-                    in {
-                        "queued",
-                        "completed",
-                        "limited",
-                        "failed",
-                        "stopped",
-                        "superseded",
-                        "not_claimed",
-                    }
-                    else "unavailable"
-                ] += 1
-                if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
-                    # A completed search must also get a continuation wake
-                    # before batches run, since an outer deadline can cancel
-                    # this worker between freezing and approving a batch.
-                    if outcome == "completed":
-                        await wake_drive_work("suggestions")
-                        woke_early = True
-                    await self.trusted_auto.after_search_slice(
-                        user_id=job["user_id"], job_id=str(job["job_id"])
-                    )
-            except Exception:
-                counts["unavailable"] += 1
+                        else "unavailable"
+                    ] += 1
+                    if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
+                        # A completed search must also get a continuation wake
+                        # before batches run, since an outer deadline can cancel
+                        # this worker between freezing and approving a batch.
+                        if outcome == "completed":
+                            await wake_drive_work("suggestions")
+                            woke_early = True
+                        await self.trusted_auto.after_search_slice(
+                            user_id=job["user_id"], job_id=str(job["job_id"])
+                        )
+                except Exception:
+                    counts["unavailable"] += 1
         if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
             try:
                 await self.trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))

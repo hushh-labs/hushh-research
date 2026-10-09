@@ -1120,6 +1120,27 @@ describe("exact-file document review", () => {
       expect(state.startRequestSearch).toHaveBeenCalledOnce();
     });
 
+    it("lets the owner review finalized latest files without waiting for older Drive pages", async () => {
+      const complete = durableSearch({ status: "completed", matched: 2 });
+      complete.coverage = { ...complete.coverage!, providerPagesExhausted: false,
+        requestedResultLimit: 2, resultOrder: "modifiedTime desc", selectionFinalized: true,
+        candidateCount: 25, candidateCountScope: "retained_pool", candidatePoolPruned: true };
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(partial({ durableAvailable: true, progressiveAllowed: false,
+        search: complete, bulkShare: null }));
+      state.requestSearchFiles.mockResolvedValue({ jobId: searchJobId, revision: 3, matched: 2,
+        files: [searchFile(1), searchFile(2)], nextCursor: null });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByRole("status")).toHaveTextContent("2 files found");
+      await screen.findByText("Standup 1");
+      const reviewFiles = screen.getByRole("button", { name: "Review 2 files" });
+      expect(reviewFiles).toBeEnabled();
+      fireEvent.click(reviewFiles);
+      await waitFor(() => expect(state.prepareRequestBulk).toHaveBeenCalledWith(
+        "owner-a", requestId, complete, [], expect.any(Function),
+      ));
+    });
+
     it("reviews all 525 matches by page, preserves exclusions, then shares the frozen subset", async () => {
       let phase: "running" | "complete" | "bulk" | "queued" = "running";
       const complete = durableSearch({ status: "completed", matched: 525, pagesScanned: 6 });

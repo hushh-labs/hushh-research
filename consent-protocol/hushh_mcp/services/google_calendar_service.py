@@ -14,12 +14,14 @@ import logging
 import secrets
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
 from db.db_client import get_db
 from hushh_mcp.services.google_connection_service import (
+    CALENDAR_LIST_READ_SCOPE,
     GoogleConnectionError,
     GoogleConnectionService,
     get_google_connection_service,
@@ -32,6 +34,7 @@ logger = logging.getLogger(__name__)
 # One page, never an unbounded walk: a caller learns when more exist.
 EVENT_PAGE_MAX = 250
 _EVENT_QUERY_MAX_CHARS = 256
+_RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"})
 # Attendee fields an events.patch may carry back. Read-only fields (id, self,
 # organizer) are recomputed by Google and never echoed.
 _WRITABLE_ATTENDEE_FIELDS = frozenset(
@@ -101,10 +104,39 @@ class GoogleCalendarService:
         params: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        required_scope: str | None = None,
     ) -> dict[str, Any]:
+        # A Calendar result must belong to the same live owner/account/grant at
+        # release time. Token resolution itself may refresh the connection row,
+        # so compare identity and grant across that step, then compare the full
+        # revision around the provider request.
+        before = (
+            await self.connections.read_grant_binding(user_id=user_id, service="calendar")
+            if access == "read"
+            else None
+        )
+        if access == "read" and before is None:
+            raise GoogleConnectionError("Connect Google Calendar first", status_code=403)
         token = await self.connections.access_token(
             user_id=user_id, service="calendar", access_level=access
         )
+        current = (
+            await self.connections.read_grant_binding(user_id=user_id, service="calendar")
+            if access == "read"
+            else None
+        )
+        if access == "read" and (
+            current is None or current[:4] != before[:4] or current[5:] != before[5:]
+        ):
+            raise GoogleConnectionError("Google Calendar connection changed", status_code=409)
+        if required_scope and not await self.connections.has_service_scope(
+            user_id=user_id, service="calendar", scope=required_scope
+        ):
+            raise GoogleConnectionError(
+                "Allow access to your subscribed calendars to use this read",
+                status_code=403,
+                reason_code="calendar_list_permission_required",
+            )
         request_headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         if headers:
             request_headers.update(headers)
@@ -116,6 +148,32 @@ class GoogleCalendarService:
                 json=payload,
                 headers=request_headers,
             )
+        if (
+            access == "read"
+            and await self.connections.read_grant_binding(user_id=user_id, service="calendar")
+            != current
+        ):
+            raise GoogleConnectionError("Google Calendar connection changed", status_code=409)
+        error_reason = ""
+        if response.status_code >= 400:
+            try:
+                problem = response.json()
+                errors = problem.get("error", {}).get("errors", [])
+                if isinstance(errors, list):
+                    error_reason = str(
+                        next(
+                            (
+                                item.get("reason")
+                                for item in errors
+                                if isinstance(item, dict) and item.get("reason")
+                            ),
+                            "",
+                        )
+                    )
+            except (ValueError, AttributeError, TypeError):
+                pass
+        if response.status_code == 429 or error_reason in _RATE_LIMIT_REASONS:
+            raise GoogleConnectionError("Google Calendar is rate limited", status_code=429)
         if response.status_code == 401:
             raise GoogleConnectionError(
                 "Google Calendar connection needs reauthorization", status_code=401
@@ -179,6 +237,45 @@ class GoogleCalendarService:
             "updated": event.get("updated"),
         }
 
+    async def list_calendars(
+        self, *, user_id: str, max_results: int = 50, page_token: str | None = None
+    ) -> dict[str, Any]:
+        """One bounded page of the owner's subscribed calendars."""
+        if page_token is not None and (not page_token or len(page_token) > 2048):
+            raise GoogleConnectionError("Calendar page is invalid", status_code=422)
+        params: dict[str, Any] = {"maxResults": max(1, min(int(max_results), EVENT_PAGE_MAX))}
+        if page_token:
+            params["pageToken"] = page_token
+        response = await self._request(
+            user_id=user_id,
+            method="GET",
+            path="/users/me/calendarList",
+            access="read",
+            params=params,
+            required_scope=CALENDAR_LIST_READ_SCOPE,
+        )
+        items = response.get("items", [])
+        if not isinstance(items, list):
+            raise GoogleConnectionError("Calendar list is unavailable", status_code=502)
+        calendars = [
+            {
+                "id": item.get("id"),
+                "name": item.get("summary") or "Untitled calendar",
+                "primary": item.get("primary") is True,
+                "access_role": item.get("accessRole"),
+                "time_zone": item.get("timeZone"),
+            }
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]
+        ]
+        next_token = response.get("nextPageToken")
+        return {
+            "calendars": calendars,
+            "returned_count": len(calendars),
+            "truncated": bool(next_token),
+            **({"next_page_token": next_token} if isinstance(next_token, str) else {}),
+        }
+
     async def list_events(
         self,
         *,
@@ -187,6 +284,8 @@ class GoogleCalendarService:
         end_at: str,
         max_results: int = 50,
         query: str | None = None,
+        calendar_id: str = "primary",
+        page_token: str | None = None,
     ) -> dict[str, Any]:
         """One bounded page of primary-calendar events, honest about truncation.
 
@@ -197,6 +296,10 @@ class GoogleCalendarService:
         start, end = self._iso(start_at), self._iso(end_at)
         if start >= end:
             raise GoogleConnectionError("Calendar end must be after start", status_code=422)
+        if not calendar_id or len(calendar_id) > 1024:
+            raise GoogleConnectionError("Calendar selection is invalid", status_code=422)
+        if page_token is not None and (not page_token or len(page_token) > 2048):
+            raise GoogleConnectionError("Calendar page is invalid", status_code=422)
         params: dict[str, Any] = {
             "timeMin": start,
             "timeMax": end,
@@ -209,24 +312,32 @@ class GoogleCalendarService:
             raise GoogleConnectionError("Calendar search text is too long", status_code=422)
         if search:
             params["q"] = search
+        if page_token:
+            params["pageToken"] = page_token
         response = await self._request(
             user_id=user_id,
             method="GET",
-            path="/calendars/primary/events",
+            path=f"/calendars/{quote(calendar_id, safe='')}/events",
             access="read",
             params=params,
         )
+        items = response.get("items", [])
+        if not isinstance(items, list):
+            raise GoogleConnectionError("Calendar events are unavailable", status_code=502)
         events = [
-            self._event_summary(item)
-            for item in response.get("items", [])
+            {**self._event_summary(item), "calendar_id": calendar_id}
+            for item in items
             if isinstance(item, dict)
         ]
-        truncated = bool(response.get("nextPageToken"))
+        next_token = response.get("nextPageToken")
+        truncated = bool(next_token)
         return {
             "events": events,
+            "calendar_id": calendar_id,
             "time_zone": response.get("timeZone"),
             "returned_count": len(events),
             "truncated": truncated,
+            **({"next_page_token": next_token} if isinstance(next_token, str) else {}),
             **(
                 {
                     "more_events_exist": (
@@ -237,6 +348,23 @@ class GoogleCalendarService:
                 if truncated
                 else {}
             ),
+        }
+
+    async def get_event(self, *, user_id: str, calendar_id: str, event_id: str) -> dict[str, Any]:
+        """Read an exact event; IDs come from a live list or owner-provided link."""
+        if not calendar_id or len(calendar_id) > 1024 or not event_id or len(event_id) > 2048:
+            raise GoogleConnectionError("Calendar event selection is invalid", status_code=422)
+        response = await self._request(
+            user_id=user_id,
+            method="GET",
+            path=f"/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
+            access="read",
+        )
+        if not response.get("id"):
+            raise GoogleConnectionError("Calendar event is unavailable", status_code=502)
+        return {
+            "calendar_id": calendar_id,
+            "event": {**self._event_summary(response), "calendar_id": calendar_id},
         }
 
     async def freebusy(
@@ -255,10 +383,26 @@ class GoogleCalendarService:
             access="read",
             payload={"timeMin": start, "timeMax": end, "items": [{"id": value} for value in ids]},
         )
+        calendars = response.get("calendars")
+        groups = response.get("groups", {})
+        if (
+            not isinstance(calendars, dict)
+            or not isinstance(groups, dict)
+            or any(
+                not isinstance(item, dict) or bool(item.get("errors"))
+                for item in [*calendars.values(), *groups.values()]
+            )
+            or any(value not in calendars and value not in groups for value in ids)
+        ):
+            # HTTP 200 can still carry per-calendar failures. Treating their
+            # missing busy intervals as free time would invent availability.
+            raise GoogleConnectionError(
+                "Calendar availability could not be checked", status_code=502
+            )
         return {
             "time_min": start,
             "time_max": end,
-            "calendars": response.get("calendars", {}),
+            "calendars": calendars,
             "time_zone": response.get("timeZone"),
         }
 

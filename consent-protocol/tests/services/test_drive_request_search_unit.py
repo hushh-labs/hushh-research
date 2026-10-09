@@ -419,6 +419,68 @@ async def test_explicitly_named_plural_title_is_not_rejected_as_broad_request():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("authority_mode", ["owner", "trusted_auto"])
+@pytest.mark.parametrize(
+    "purpose, terms, count",
+    [
+        ("Latest 100 documents", [], 100),
+        ("Last four documents", [], 4),
+        ("Last 4 standup notes", ["standup"], 4),
+        ("Standup notes from the last 3 days", ["standup"], None),
+    ],
+)
+async def test_request_freezes_agent_count_for_both_consent_flows(
+    authority_mode, purpose, terms, count
+):
+    requested_at = datetime(2026, 10, 9, tzinfo=UTC)
+    context = {
+        "purpose": {
+            "purpose": purpose,
+            "periodStart": "2026-10-01",
+            "periodEnd": "2026-10-09",
+        },
+        "revision": 7,
+        "requestTimeZone": "Asia/Kolkata",
+        "requestCreatedAt": requested_at,
+    }
+    plan = {
+        "mode": "find",
+        "file_kind": "document",
+        "terms": terms,
+        "sort": "recent",
+        "result_limit": count,
+    }
+    planner = AsyncMock(return_value=plan)
+    search = SimpleNamespace(
+        store=SimpleNamespace(
+            takeover_request=AsyncMock(return_value=None),
+            by_client=AsyncMock(return_value=None),
+        ),
+        create_for_request=AsyncMock(return_value={"status": "queued", "jobId": "job"}),
+    )
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(request_bulk_context=AsyncMock(return_value=context)),
+        search=search,
+        planner=planner,
+        require_owner=AsyncMock(),
+    )
+    await service.start_search(
+        user_id="owner", request_id="request-id", authority_mode=authority_mode
+    )
+    planner.assert_awaited_once()
+    prompt = json.loads(planner.await_args.kwargs["prompt"])
+    assert prompt["transaction_search"] is True
+    assert prompt["document_request"] == context["purpose"]
+    frozen = search.create_for_request.await_args.kwargs
+    assert frozen["plan"]["result_limit"] == count
+    assert frozen["plan"]["terms"] == terms
+    assert frozen["plan"]["sort"] == "recent"
+    assert frozen["authority_mode"] == authority_mode
+    assert frozen["request_revision"] == 7
+    assert frozen["requested_at"] == requested_at
+
+
+@pytest.mark.asyncio
 async def test_completed_legacy_request_restarts_search_with_shareability_facts():
     context = {
         "purpose": {

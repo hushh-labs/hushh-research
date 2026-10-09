@@ -107,6 +107,51 @@ def test_encrypted_roundtrip_redacts_tools_but_preserves_answers_and_continuatio
     assert session.state[STATE_EXTERNAL_READ] == "read-turn"
 
 
+def test_mail_offer_restores_only_inside_owner_encrypted_session():
+    key = "hussh:mail_read_offer"
+    offer = {
+        "owner_id": "owner",
+        "conversation_id": "thread",
+        "account": "private-account",
+        "mailbox": "inbox",
+        "message_ids": ["private-provider-id"],
+        "created_at_ms": 1_800_000_000_000,
+        "selected_ordinal": None,
+    }
+    session = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        state={key: offer},
+        events=[
+            _event(
+                [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="call",
+                            name="ask_email_agent",
+                            response={"structured": {"connector": "mail", "status": "ok"}},
+                        )
+                    )
+                ]
+            )
+        ],
+    )
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    encoded = service._encode(session)
+    assert "private-provider-id" not in str(encoded)
+    decoded = service._decode(
+        {f"payload_{key}": value for key, value in encoded.items()},
+        app_name=session.app_name,
+        user_id=session.user_id,
+        session_id=session.id,
+    )
+    assert decoded.state[key] == offer
+    assert "private-provider-id" not in str(
+        decoded.events[0].content.parts[0].function_response.response
+    )
+
+
 @pytest.mark.parametrize(
     "payload", [None, [], {"structured": {"connector": "mail", "extra": "PRIVATE"}}]
 )

@@ -1,6 +1,8 @@
 # One Email Knowledge Graph
 
-Status: current-code evidence graph, audited 2026-10-09. This page describes the personal Gmail surface in this checkout. It is context for people and agents, not a runtime router, permission grant, or claim of live provider acceptance. The [owner-approved delivery contract](./gmail-owner-approved-email.md) remains the delivery authority. Proposed changes live in the [implementation plan](../../superpowers/plans/2026-10-09-one-email-reliability-plan.md).
+Status: current-code evidence graph, audited 2026-10-09 with implementation dispositions below. This page describes the personal Gmail surface in this checkout. It is context for people and agents, not a runtime router, permission grant, or claim of live provider acceptance. The [owner-approved delivery contract](./gmail-owner-approved-email.md) remains the delivery authority. Earlier work lives in the [reliability plan](../../superpowers/plans/2026-10-09-one-email-reliability-plan.md).
+
+The [Email and Calendar read/voice plan](../../superpowers/plans/2026-10-09-one-email-calendar-read-voice-plan.md) records the 2026-10-09 follow-up audit and implementation wave. The fault edges below distinguish code-backed risk from observed incidents.
 
 ## Visual Map
 
@@ -152,6 +154,14 @@ These are code-path findings and current mitigation boundaries, not measured pro
 | F05 | A temporary OAuth token-endpoint failure could mark a usable connection revoked; Gmail 403 reasons were collapsed. | Transient refresh failures now preserve the grant, while invalid_grant requires reconnection. Bounded, structured 403 reasons and one deadline-bound GET retry distinguish quota, policy and permission. OAUTH_SYNC; READER; DELEGATE. |
 | F06 | A partial Trash or ambiguous batchModify result could be described as no change. | Bounded Trash fanout now reports confirmed count and uncertainty; ambiguous proposals stay consumed, and client copy tells the owner to check Gmail. Durable per-message progress and post-reload reconciliation remain open in plan Slice 5. MODIFY; WEB_DELIVERY. |
 | F07 | The Chat read receipt labeled bounded body reads “Metadata only”; the internal capability name remains cap.email.metadata.read. | Visible receipt copy now follows metadata_only. Internal naming and consent wording still need the contract decision in plan Slice 7. DELEGATE; WEB_RECEIPT; MANIFEST. |
+
+| F08 | Typed positional follow-ups can target the wrong message after a new arrival. | Closed in this branch: the Email A2A bridge returns a private owner/conversation/account-bound five-minute exact-ID offer in encrypted ADK state. The semantic planner sees only positions; an invalid or absent offer clarifies instead of fetching newest. BRIDGE; DELEGATE; one_adk/agent_tree.py. |
+| F09 | “Needs reply” can sound definitive without reading message meaning. | Delegated-read copy now says possible replies because the nudge is based on recent inbound metadata. Body-based semantic task classification remains open. READER; consent-protocol/hushh_mcp/services/gmail_nudges.py. |
+| F10 | A valid source reference does not prove a sentence is entailed. | The interpreter is tool-less and source refs are checked, but freeform answer facts are not verified against excerpts. A cited invented amount can pass. DELEGATE:635-676. |
+| F11 | Live Voice exposes overlapping mail send paths. | Negotiated tool declarations now omit legacy send/reply on review-capable clients, and the executor rejects their legacy route. Older clients retain their compatible path. one_voice/tools/registry.py; one_voice/tools/executor.py. |
+| F12 | An immediate claimed send can remain sending after process cancellation. | An owner/vault-authorized status reconciliation settles a stale immediate sending row to non-retryable outcome_unknown after five minutes; it never posts to Gmail. The normal GET stays read-only. SEND; api/routes/one/gmail_delivery.py. |
+| F13 | A two-phrase English draft override bypasses semantic drafting. | The substring override is removed. Draft text now follows the semantic drafting path; negated phrase regression is covered. SEND; tests/test_email_runtime.py. |
+| F14 | Read breadth and speed have unverified limits. | Planner allows one operation; list/body/thread caps are bounded. Plan/fetch/analyze/interpret and Chat/Voice turn timing exist, but no p95 by intent or evidence that a 105-second budget is normal latency. DELEGATE:54-85,97-114,439-459; READER:55-60. |
 
 ## Graph invariants
 

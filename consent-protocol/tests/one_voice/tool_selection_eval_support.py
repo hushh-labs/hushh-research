@@ -447,19 +447,25 @@ def report_path(name: str) -> Path:
     return candidate if ignored else Path(tempfile.gettempdir()) / name
 
 
-def instruction_for(case: Case) -> str:
+def instruction_for(case: Case, *, declarations: list[dict[str, Any]] | None = None) -> str:
     from hushh_mcp.one_voice.instruction import build_instruction
     from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
 
     return build_instruction(
-        tool_declarations=registry.declarations(),
+        tool_declarations=declarations if declarations is not None else registry.declarations(),
         screen_ids=list(OPENABLE_SCREENS),
         screen_id=case.screen,
         display_name=None,
     )
 
 
-def make_live_probe(model_id: str, location: str, responders: ResponderFactory) -> ProbeFn:
+def make_live_probe(
+    model_id: str,
+    location: str,
+    responders: ResponderFactory,
+    *,
+    declarations: list[dict[str, Any]] | None = None,
+) -> ProbeFn:
     """PRIMARY mode: the actual Live head over the production connect path.
 
     History turns are answered with the same responder, so a follow-up turn
@@ -474,7 +480,7 @@ def make_live_probe(model_id: str, location: str, responders: ResponderFactory) 
     from hushh_mcp.runtime_providers.factory import build_managed_live_client
 
     client = build_managed_live_client(model=model_id, location=location)
-    declarations = registry.declarations()
+    chosen_declarations = declarations if declarations is not None else registry.declarations()
 
     async def _drain_turn(
         raw_session: Any,
@@ -511,8 +517,8 @@ def make_live_probe(model_id: str, location: str, responders: ResponderFactory) 
     async def _run(case: Case):
         respond = responders(case)
         config = build_live_config(
-            system_instruction=instruction_for(case),
-            tool_declarations=declarations,
+            system_instruction=instruction_for(case, declarations=chosen_declarations),
+            tool_declarations=chosen_declarations,
             voice_name=voice_name(),
             resumption_handle=None,
         )

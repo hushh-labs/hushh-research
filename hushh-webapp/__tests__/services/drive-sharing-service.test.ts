@@ -247,6 +247,34 @@ describe("private sharing transport", () => {
       .rejects.toMatchObject({ code: "invalid_response" });
   });
 
+  it("reviews a finalized bounded selection without accepting unfinished or unbounded exhaustion bypasses", async () => {
+    const search: DriveSearchStatus = { ...requestSearch(), matched: 100, unshareableCount: 0,
+      coverage: { ...requestSearch().coverage!, providerPagesExhausted: false,
+        requestedResultLimit: 100, resultOrder: "modifiedTime desc", selectionFinalized: true,
+        candidateCount: 125, candidateCountScope: "retained_pool", candidatePoolPruned: true } };
+    for (const invalid of [
+      { ...search, incompleteSearch: true },
+      { ...search, status: "limited" as const },
+      { ...search, matched: 101 },
+      { ...search, coverage: { ...search.coverage!, selectionFinalized: false } },
+      { ...search, coverage: { ...search.coverage!, requestedResultLimit: undefined } },
+      { ...search, coverage: { ...search.coverage!, shareabilityVerified: false } },
+      { ...requestSearch(), coverage: { ...requestSearch().coverage!, providerPagesExhausted: false } },
+    ]) {
+      await expect(DriveSharingService.prepareRequestBulk("vault", requestId, invalid, [], guard))
+        .rejects.toMatchObject({ code: "invalid_selection" });
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockResolvedValueOnce(reply({ ...rawReview(), durableAvailable: true, search, bulkShare: null }));
+    const review = await DriveSharingService.review("vault", requestId, guard);
+    expect(review.search?.coverage).toEqual(search.coverage);
+    fetcher.mockResolvedValueOnce(reply({ ...requestBulk(), fileCount: 100,
+      counts: { ...requestBulk().counts, total: 100, pending: 100 } }));
+    await expect(DriveSharingService.prepareRequestBulk("vault", requestId, review.search!, [], guard))
+      .resolves.toMatchObject({ fileCount: 100 });
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ excludedPositions: [] });
+  });
+
   it("defaults to every shareable file without sending hundreds of IDs", async () => {
     fetcher.mockResolvedValueOnce(reply({ ...requestBulk(), fileCount: 520,
       counts: { ...requestBulk().counts, total: 520, pending: 520 } }));

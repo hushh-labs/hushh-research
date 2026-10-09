@@ -3,6 +3,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
+  isDriveSearchSelectionReady,
   parseDriveSearchResults,
   parseDriveSearchStatus,
   type DriveSearchResults,
@@ -1187,8 +1188,7 @@ export class DriveSharingService {
     token: string, requestId: string, search: DriveSearchStatus,
     excludedPositions: number[], guard: SharingSessionGuard,
   ): Promise<DriveBulkShareView> {
-    if (search.status !== "completed" || search.incompleteSearch ||
-      search.coverage?.providerPagesExhausted === false || search.coverage?.shareabilityVerified !== true ||
+    if (!isDriveSearchSelectionReady(search) ||
       search.matched - (search.unshareableCount ?? 0) <= 0 ||
       excludedPositions.length >= search.matched ||
       new Set(excludedPositions).size !== excludedPositions.length ||

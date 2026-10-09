@@ -32,6 +32,7 @@ from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
+from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
 
 logger = logging.getLogger(__name__)
 
@@ -884,8 +885,8 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
         db = get_db()
         # Sync query via raw SQL (user_push_tokens may not exist yet if migration not run)
         result = db.execute_raw(
-            "SELECT token, platform FROM user_push_tokens WHERE user_id = :uid",
-            {"uid": user_id},
+            PUSH_TOKENS_FOR_USER_SQL,
+            {"user_id": user_id},
         )
         if result.error or not result.data:
             logger.info("FCM skipped: no push tokens for user_id=%s", user_id)
@@ -930,10 +931,7 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
                 # Token is stale/invalid -- remove it
                 logger.warning("FCM stale token for user %s, deleting", user_id)
                 try:
-                    db.execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
+                    remove_stale_push_token(db, user_id, token)
                 except Exception as del_err:
                     logger.warning("Failed to delete stale token: %s", del_err)
             except Exception as e:

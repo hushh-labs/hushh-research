@@ -66,7 +66,10 @@ from hushh_mcp.one_voice.tools.executor import (
 )
 from hushh_mcp.one_voice.tools.mail_compose import ComposeResult, MailComposeRuntime
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
-from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, get_owner_send_action
+from hushh_mcp.services.gmail_delivery_service import (
+    GmailDeliveryError,
+    reconcile_owner_send_action,
+)
 from hushh_mcp.services.gmail_reply_source_service import open_reply_source_ref
 
 logger = logging.getLogger(__name__)
@@ -463,7 +466,7 @@ class VoiceSession:
         # reports with. The report only names a send action; the outcome is
         # always re-read from the ledger through ``_mail_delivery_status``.
         self.mail_deliveries: dict[str, dict[str, Any]] = {}
-        self._mail_delivery_status = mail_delivery_status or get_owner_send_action
+        self._mail_delivery_status = mail_delivery_status or reconcile_owner_send_action
         # A tap arrives on the client pump, while the reviewed send may wait on
         # recipient/Gmail I/O. Keep that execution out of the receive loop so
         # corrections and cancellation can revoke its admission in time.
@@ -934,7 +937,9 @@ class VoiceSession:
     async def _run_live(self) -> None:
         from hushh_mcp.one_voice.instruction import build_instruction
 
-        declarations = registry.declarations()
+        declarations = registry.runtime_declarations(
+            mail_review_supported=self._mail_review_supported
+        )
         # Nothing else observes this list. It is assembled here and handed to the
         # provider; no endpoint returns it and no client frame carries it, so
         # without this line a running deployment cannot be asked which
@@ -3514,9 +3519,18 @@ class VoiceSession:
         visible result is already on screen, and the screen and the speaker are
         separate outcomes.
         """
-        from hushh_mcp.one_voice.config import voice_mail_narration_enabled
+        from hushh_mcp.one_voice.config import (
+            voice_calendar_narration_enabled,
+            voice_mail_narration_enabled,
+        )
+        from hushh_mcp.one_voice.tools.calendar import CalendarReadResult
 
-        if not voice_mail_narration_enabled():
+        enabled = (
+            voice_calendar_narration_enabled()
+            if isinstance(result, CalendarReadResult)
+            else voice_mail_narration_enabled()
+        )
+        if not enabled:
             return False
         digest = ""
         try:

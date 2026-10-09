@@ -103,7 +103,6 @@
   color: var(--muted-foreground);
 }
 
-.inboxHeader h1,
 .threadTitle h2,
 .unauthenticated h1,
 .emptyInbox h2,
@@ -562,8 +561,6 @@ article[data-message-role="user"] .messageActions {
   left: auto;
 }
 
-.messageFeedItem:hover .messageActions,
-.messageFeedItem:focus-within .messageActions,
 article[data-actions-visible="true"] .messageActions {
   opacity: 1;
   pointer-events: auto;
@@ -633,15 +630,11 @@ article[data-actions-visible="true"] .messageActions {
   font-style: italic;
 }
 
-.messageEditForm {
-  display: grid;
-  min-width: min(14rem, 62vw);
-  gap: 0.375rem;
-}
-
 .messageEditInput {
-  min-height: 3.75rem;
-  resize: vertical;
+  min-height: 5rem;
+  max-height: 40dvh;
+  overflow-y: auto;
+  resize: none;
   border: 0;
   border-radius: 0.5rem;
   background: color-mix(in oklab, var(--one-chat-raised) 94%, transparent);
@@ -662,15 +655,21 @@ article[data-actions-visible="true"] .messageActions {
 }
 
 .messageEditActions button {
-  min-height: 1.75rem;
+  min-height: 2.25rem;
   border: 0;
   border-radius: 999px;
-  background: color-mix(in oklab, currentColor 14%, transparent);
-  color: inherit;
+  background: var(--one-chat-raised);
+  color: var(--foreground);
   cursor: pointer;
   padding: 0.25rem 0.625rem;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.messageEditActions button:last-child {
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
+  border: 1px solid currentColor;
 }
 
 .messageEditActions button:disabled {
@@ -976,7 +975,8 @@ article[data-message-role="user"] .messageActionError {
 }
 
 @media (max-width: 767px) {
-  .page {
+  .page,
+  .page[data-chat-open="true"] {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -1068,7 +1068,6 @@ article[data-message-role="user"] .messageActionError {
   box-sizing: border-box;
 }
 .inboxHeader, .threadHeaderContent { padding: 1rem; }
-.inboxHeader h1 { font-size: 2.5rem; line-height: 1.15; font-weight: 700; }
 .inboxHeader p { font-size: 1rem; }
 .threadTitle h2 { font-size: 1.375rem; line-height: 1.3; font-weight: 650; }
 .threadAvatar { width: 2.75rem; height: 2.75rem; }
@@ -1098,7 +1097,6 @@ article[data-message-role="user"] .messageActionError {
   .page:not([data-chat-open="true"]) .thread { display: none; }
   .inboxHeader, .threadHeader, .threadHeaderContent { min-height: 4.5rem; height: 4.5rem; }
   .inboxHeader, .threadHeaderContent { padding: 0.75rem; }
-  .inboxHeader h1 { font-size: 1.875rem; }
   .inboxHeader p { font-size: 0.8125rem; }
   .threadTitle h2 { font-size: 1.0625rem; }
   .threadHeaderContent { gap: 0.375rem; }
@@ -1108,11 +1106,11 @@ article[data-message-role="user"] .messageActionError {
   .composer { width: calc(100% - 1rem); margin-inline: 0.5rem; }
 }
 @layer base {
-  .shell[data-app-shell-width] .page .inboxHeader h1 { font-size: 2.5rem !important; line-height: 1.15 !important; font-weight: 700 !important; }
-  .shell[data-app-shell-width] .page .threadTitle h2 { font-size: 1.375rem !important; line-height: 1.3 !important; font-weight: 650 !important; }
+  .shell[data-app-shell-width] .page .inboxHeading h1,
+  .shell[data-app-shell-width] .page .threadTitle h2 { font-size: 1.375rem !important; line-height: 1.3 !important; font-weight: 650 !important; font-family: inherit !important; letter-spacing: normal !important; }
   @media (max-width: 767px) {
-    .shell[data-app-shell-width] .page .inboxHeader h1 { font-size: 1.875rem !important; }
-    .shell[data-app-shell-width] .page .threadTitle h2 { font-size: 1.0625rem !important; }
+    .shell[data-app-shell-width] .page .inboxHeading h1,
+  .shell[data-app-shell-width] .page .threadTitle h2 { font-size: 1.0625rem !important; }
   }
 }
 
@@ -1150,3 +1148,195 @@ article[data-message-role="user"] .messageActionError {
 :global(html.kb-open:not(.kb-resizes)) .page:not([data-chat-open="true"]) {
   height: calc(100dvh - var(--app-top-content-offset, 6rem) - var(--app-safe-area-top-effective, 0px) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--kb-height, 0px) + 1rem)));
 }
+
+/* Bound the transcript above the shared app chrome and keyboard. */
+.page { --direct-message-keyboard-inset: var(--kb-height, 0px); }
+:global(html.kb-resizes) .page { --direct-message-keyboard-inset: 0px; }
+.page, .page[data-chat-open="true"] { height: max(0px, calc(100dvh - var(--app-top-content-offset, 6rem) - var(--app-safe-area-top-effective, 0px) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px))) - .5rem)); min-height: 0; max-height: none; }
+.thread { position: relative; }
+.inboxHeader, .threadHeaderContent { min-height: 4.25rem; }
+.backButton, .headerAction, .refreshButton, .voiceButton, .sendButton, .threadSearchClear, .messageActionButton, .composerReplyPreview button, .messageEditActions button, .reactionChip { min-width: 44px; min-height: 44px; height: 44px; }
+.composerInput, .messageEditInput, .threadSearchField input, .inboxSearchField input { font-size: 16px; }
+.composerInput { overflow-y: auto; }
+.bottomMarker { flex: 0 0 1px; height: 1px; }
+.latestControl { position: absolute; z-index: 1; bottom: 5rem; right: 1rem; min-height: 44px; padding: .5rem 1rem; border: 1px solid var(--one-chat-divider); border-radius: 2rem; background: var(--one-chat-canvas); color: var(--foreground); box-shadow: var(--app-shadow-soft); }
+.messageFeedItem { margin-top: .25rem; }
+.messageFeedItem[data-group-start="true"] { margin-top: .75rem; }
+@media (max-width: 374px) { .threadHeaderContent { gap: .25rem; padding-inline: .25rem; } .threadAvatar { width: 32px; height: 32px; } .composer { gap: .25rem; padding-inline: .5rem; } }
+
+.composer { flex-shrink: 0; }
+.composerInput { min-height: 44px; max-height: max(44px, min(8rem, calc((100dvh - var(--kb-height, 0px) - var(--app-top-content-offset, 6rem)) * .25))); }
+.messageActions, article[data-message-role="user"] .messageActions { position: static; width: fit-content; max-width: 100%; margin-top: .25rem; transform: none; display: none; }
+article[data-actions-visible="true"] .messageActions { display: flex; }
+.replyPreview { min-width: 0; overflow-wrap: anywhere; }
+.threadHeader { flex-shrink: 0; }
+
+.shell[data-app-shell-width] { padding-block: 0; }
+
+.messageList { padding-block: clamp(.25rem, calc((100dvh - var(--kb-height, 0px) - var(--app-top-content-offset, 6rem)) * .04), 1rem); }
+@media (max-height: 500px) {
+  .threadHeader, .threadHeaderContent { min-height: 44px; height: 44px; }
+  .threadHeaderContent { padding-block: 0; }
+  .composerReplyPreview { padding-block: 0; margin: 0; }
+}
+
+.page { container-type: size; }
+@container (max-height: 15rem) {
+  .threadHeader, .threadHeaderContent { min-height: 44px; height: 44px; }
+  .threadHeaderContent { padding-block: 0; }
+  .messageList { padding-block: .25rem; }
+  .composer { padding-block: .25rem; }
+  .composerInput { max-height: 44px; }
+  .composerReplyPreview { height: 44px; min-height: 44px; padding-block: 0; margin: 0; }
+  .composerActions { padding: 0; }
+}
+
+
+
+/* Reactions and the dropdown are distinct controls, rather than one tray. */
+.messageActions {
+  gap: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.messageMenu { min-width: 13rem; padding: 0.5rem; border-radius: 0.75rem; }
+.messageMenu [role="menuitem"] { min-height: 2.75rem; gap: 0.75rem; font-size: 0.9375rem; }
+
+/* Messages composer measurements; shared navigation retains its own styling. */
+.composer {
+  width: 100%;
+  min-height: 0;
+  height: auto;
+}
+.composerActions { gap: 6px; }
+.composerInput {
+  font-size: 16px;
+  line-height: 24px;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  caret-color: var(--app-accent);
+}
+.composerInput:focus-visible { outline: none; box-shadow: none; }
+.expandedMessageEditor { position: relative; width: 100%; }
+.expandedMessageEditor .messageEditInput {
+  display: block;
+  width: 100%;
+  height: min(160px, max(96px, calc(100dvh - var(--kb-height, 0px) - 160px)));
+  min-height: 0;
+  max-height: none;
+  padding: 12px 12px 60px;
+  font-size: 16px;
+  line-height: 24px;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  caret-color: var(--app-accent);
+}
+.expandedMessageEditor .messageEditInput:focus-visible { box-shadow: none; }
+.expandedMessageEditor .messageEditActions {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  gap: 6px;
+}
+@media (min-width: 768px) {
+  .expandedMessageEditor .messageEditInput { padding: 12px 12px 60px; }
+  .expandedMessageEditor .messageEditActions { right: 16px; bottom: 16px; }
+}
+
+.inboxHeading h1 { margin: 0; color: var(--foreground); font-family: inherit; }
+.inboxHeading { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.expandedMessageEditor {
+  border: 1px solid var(--one-chat-divider);
+  border-radius: 12px;
+  background: var(--one-chat-field, var(--muted));
+  overflow: hidden;
+}
+.expandedMessageEditor .messageEditInput {
+  background: transparent;
+  border-radius: 12px;
+}
+
+.editDialog[data-slot="dialog-content"] {
+  width: min(380px, calc(100vw - 24px));
+  max-width: 380px;
+  padding: 20px;
+  gap: 14px;
+}
+.editDialog [data-slot="dialog-title"] {
+  font-size: 20px;
+  line-height: 26px;
+}
+
+/* Keep the connection notice in the same dock column as the message input. */
+.composer .readOnlyNotice {
+  flex: 0 0 100%;
+  width: 100%;
+  max-width: none;
+  margin: 0 0 6px;
+}
+
+article[data-message-role="user"] .messageBubble {
+  background: #4169e1 !important;
+  color: #fff !important;
+  box-shadow: 0 2px 6px rgb(65 105 225 / 0.2) !important;
+}
+
+/* Hover controls overlay the bubble without changing transcript geometry. */
+.messageActions,
+article[data-message-role="user"] .messageActions {
+  position: absolute;
+  top: 50%;
+  bottom: auto;
+  left: calc(100% + 6px);
+  right: auto;
+  width: max-content;
+  max-width: none;
+  display: flex;
+  margin: 0;
+  transform: translateY(-50%);
+}
+article[data-message-role="user"] .messageActions {
+  left: auto;
+  right: calc(100% + 6px);
+}
+.reactionChip {
+  position: relative;
+  min-width: 28px;
+  min-height: 26px;
+  height: 26px;
+}
+.reactionChip::after { content: ""; position: absolute; inset: -9px 0; }
+@media (max-width: 767px) {
+  .messageActions,
+  article[data-message-role="user"] .messageActions {
+    top: 0;
+    left: auto;
+    right: 0;
+    transform: translateY(-70%);
+  }
+}
+
+.messageActions,
+article[data-message-role="user"] .messageActions {
+  top: 0;
+  left: auto;
+  right: 0;
+  transform: translateY(-70%);
+}
+.voiceButton, .sendButton { min-width: 45px; min-height: 45px; height: 45px; }
+
+/* One active row owns the controls; keep a compact visual within its touch target. */
+.messageActionButton,
+.messageActionButton[data-compact="true"] {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  border: 0;
+  background: radial-gradient(circle, var(--one-chat-raised) 14px, transparent 15px);
+  box-shadow: none;
+}
+.reactionChip::after { inset: -9px -8px; }

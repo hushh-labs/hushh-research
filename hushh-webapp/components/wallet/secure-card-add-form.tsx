@@ -8,12 +8,13 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Eye, EyeOff } from "@/components/icons";
+import { CreditCard, User, Calendar, ShieldCheck, KeyRound, Globe, Landmark, Eye, EyeOff } from "@/components/icons";
 
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import { Button } from "@/components/ui/button";
-import { Input, INPUT_CLASSNAME } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { cn } from "@/lib/utils";
@@ -144,7 +145,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
       <fieldset disabled={submitting || !active} className={styles.fields}>
         <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p>
         <div className={cn(styles.field, styles.number)}>
-          <Label htmlFor={`${id}-number`}>Card number</Label>
+          <Label htmlFor={`${id}-number`}><CreditCard aria-hidden="true" className={styles.fieldIcon} />Card number</Label>
           <Input
             id={`${id}-number`}
             dir="ltr"
@@ -161,7 +162,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
         </div>
         <div className={styles.row}>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-holder`}>Name on card</Label>
+            <Label htmlFor={`${id}-holder`}><User aria-hidden="true" className={styles.fieldIcon} />Name on card</Label>
             <Input
               id={`${id}-holder`}
               value={cardholderName}
@@ -173,26 +174,21 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             />
           </div>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-network`}>Card network (optional)</Label>
-            <div className={styles.select}>
-              <select
-                id={`${id}-network`}
-                className={cn(INPUT_CLASSNAME, "appearance-none pr-10")}
-                value={network}
-                onChange={(event) => setNetwork(event.target.value as CardBrand | "")}
-                data-testid="secure-card-network-select"
-                {...fieldErrors("brand_invalid")}
-              >
-                <option value="">{detectedBrand ? `Auto-detect · ${cardNetworkLabel(detectedBrand)}` : "Auto-detect"}</option>
-                {CARD_BRANDS.map((value) => <option key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</option>)}
-              </select>
-              <ChevronDown aria-hidden="true" className={styles.chevron} />
-            </div>
+            <Label htmlFor={`${id}-network`}><Landmark aria-hidden="true" className={styles.fieldIcon} />Card network (optional)</Label>
+            <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || !active}>
+              <SelectTrigger id={`${id}-network`} className={styles.selectTrigger} data-testid="secure-card-network-select" {...fieldErrors("brand_invalid")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={styles.selectMenu}>
+                <SelectItem value="auto">{detectedBrand ? `Auto-detect · ${cardNetworkLabel(detectedBrand)}` : "Auto-detect"}</SelectItem>
+                {CARD_BRANDS.map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div className={styles.row}>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-expiry`}>Expiry (MM/YY)</Label>
+            <Label htmlFor={`${id}-expiry`}><Calendar aria-hidden="true" className={styles.fieldIcon} />Expiry (MM/YY)</Label>
             <Input
               id={`${id}-expiry`}
               value={expiry}
@@ -206,7 +202,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             />
           </div>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-cvv`}>CVV</Label>
+            <Label htmlFor={`${id}-cvv`}><ShieldCheck aria-hidden="true" className={styles.fieldIcon} />CVV</Label>
             <Input
               id={`${id}-cvv`}
               type={revealSecrets ? "text" : "password"}
@@ -223,7 +219,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
         <div className={styles.row}>
           <div className={styles.field}>
             <div className={styles.secretLabel}>
-              <Label htmlFor={`${id}-pin`}>PIN (optional)</Label>
+              <Label htmlFor={`${id}-pin`}><KeyRound aria-hidden="true" className={styles.fieldIcon} />PIN (optional)</Label>
               <button
                 type="button"
                 className={styles.reveal}
@@ -249,21 +245,16 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             />
           </div>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-region`}>Issuing region (optional)</Label>
-            <div className={styles.select}>
-              <select
-                id={`${id}-region`}
-                className={cn(INPUT_CLASSNAME, "appearance-none pr-10")}
-                value={issuingRegion}
-                onChange={(event) => setIssuingRegion(event.target.value)}
-                data-testid="secure-card-region-select"
-                {...fieldErrors("issuing_region_invalid", "brand_region_mismatch")}
-              >
-                <option value="">Select region…</option>
-                {COUNTRY_PHONE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-              <ChevronDown aria-hidden="true" className={styles.chevron} />
-            </div>
+            <Label htmlFor={`${id}-region`}><Globe aria-hidden="true" className={styles.fieldIcon} />Issuing region (optional)</Label>
+            <Select value={issuingRegion || "none"} onValueChange={(value) => setIssuingRegion(value === "none" ? "" : value)} disabled={submitting || !active}>
+              <SelectTrigger id={`${id}-region`} className={styles.selectTrigger} data-testid="secure-card-region-select" {...fieldErrors("issuing_region_invalid", "brand_region_mismatch")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className={styles.selectMenu}>
+                <SelectItem value="none">Select region…</SelectItem>
+                {COUNTRY_PHONE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </fieldset>

@@ -8,6 +8,8 @@ import { runUiChecks } from '../architecture/verify-ui-contracts.mjs';
 import { execFileSync } from 'node:child_process';
 import { syncReviewReceipt } from '../architecture/ui-review-receipts.mjs';
 
+const fixtureGitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+
 test('source drift includes imported components and dynamic imports, independent of line endings', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'search-contract-'));
   try {
@@ -70,7 +72,7 @@ test('combined UI check runs both owners and fails when either owner fails', asy
 
 test('independent reviewed UI branches merge without stamp conflicts, but combined drift still fails', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-merge-'));
-  const git = (...args) => execFileSync('git', args, {cwd:root, stdio:'pipe'});
+  const git = (...args) => execFileSync('git', args, {cwd:root, env:fixtureGitEnv, stdio:'pipe'});
   const commit = () => { git('add', '.'); git('commit', '-m', 'review fixture'); };
   try {
     await fs.mkdir(path.join(root, 'app'), {recursive:true});
@@ -128,6 +130,79 @@ test('review receipts are immutable, fail closed, and never repair evidence duri
     }
     await assert.rejects(syncReviewReceipt(root,'back','../invalid',{}), /Invalid UI/);
   } finally { await fs.rm(root,{recursive:true,force:true}); }
+});
+
+test('unrelated PRs inherit a merged baseline without receipts; relevant and untracked drift still blocks', async () => {
+  const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-base-'));
+  const root = path.join(repo, 'hushh-webapp');
+  const previousBase = process.env.UI_CONTRACT_BASE_SHA;
+  const previousCi = process.env.CI;
+  const previousEvent = process.env.GITHUB_EVENT_PATH;
+  const git = (...args) => execFileSync('git', args, { cwd: repo, env:fixtureGitEnv, encoding: 'utf8', stdio: 'pipe' });
+  try {
+    await fs.mkdir(path.join(root, 'app'), { recursive: true });
+    await fs.mkdir(path.join(root, 'components'), { recursive: true });
+    await fs.mkdir(path.join(root, 'lib/navigation'), { recursive: true });
+    const inputs = ['app/page.tsx', 'components/config.json'];
+    await fs.writeFile(path.join(root, inputs[0]), 'export default function Page(){return null;}');
+    await fs.writeFile(path.join(root, inputs[1]), '{"query":"all"}');
+    await fs.writeFile(path.join(root, 'lib/navigation/app-route-layout.contract.json'), '[]');
+    git('init', '-b', 'main');
+    git('config', 'user.name', 'UI fixture');
+    git('config', 'user.email', 'ui-fixture@example.test');
+    git('config', 'commit.gpgsign', 'false');
+    git('add', '.'); git('commit', '-m', 'merged baseline with inherited reviews');
+    process.env.UI_CONTRACT_BASE_SHA = git('rev-parse', 'HEAD').trim();
+    const revision = 'c'.repeat(64);
+    const check = kind => syncReviewReceipt(root, kind, revision, {}, true, inputs);
+    await fs.writeFile(path.join(root, 'app/favicon.ico'), 'new branding');
+    for (const kind of ['back', 'search']) await check(kind);
+    const targetBase = process.env.UI_CONTRACT_BASE_SHA;
+    delete process.env.UI_CONTRACT_BASE_SHA;
+    process.env.CI = 'true';
+    process.env.GITHUB_EVENT_PATH = path.join(repo, 'event.json');
+    await fs.writeFile(process.env.GITHUB_EVENT_PATH, JSON.stringify({ pull_request: { base: { sha: targetBase } } }));
+    for (const kind of ['back', 'search']) await check(kind);
+    await fs.writeFile(process.env.GITHUB_EVENT_PATH, JSON.stringify({ merge_group: { base_sha: targetBase } }));
+    for (const kind of ['back', 'search']) await check(kind);
+    await fs.writeFile(process.env.GITHUB_EVENT_PATH, '{}');
+    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    process.env.UI_CONTRACT_BASE_SHA = targetBase;
+    await assert.rejects(fs.access(path.join(root, 'contracts/ui-review')));
+    for (const file of [...inputs, 'lib/navigation/app-route-layout.contract.json']) {
+      const original = await fs.readFile(path.join(root, file), 'utf8');
+      await fs.writeFile(path.join(root, file), original + '\nchanged');
+      for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+      await fs.writeFile(path.join(root, file), original);
+    }
+    await fs.writeFile(path.join(root, 'components/new.tsx'), 'history.back();');
+    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    await fs.unlink(path.join(root, 'components/new.tsx'));
+    await fs.unlink(path.join(root, inputs[1]));
+    // A deleted imported JSON no longer appears in the current import graph.
+    for (const kind of ['back', 'search']) {
+      await assert.rejects(syncReviewReceipt(root, kind, revision, {}, true, [inputs[0]]), /stale/);
+    }
+    git('restore', '.');
+    await fs.unlink(path.join(root, inputs[0]));
+    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    git('restore', '.');
+    process.env.UI_CONTRACT_BASE_SHA = 'f'.repeat(40);
+    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    git('checkout', '--orphan', 'unrelated-history');
+    git('add', '.'); git('commit', '-m', 'not an ancestor');
+    process.env.UI_CONTRACT_BASE_SHA = git('rev-parse', 'HEAD').trim();
+    git('checkout', 'main');
+    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+  } finally {
+    if (previousBase === undefined) delete process.env.UI_CONTRACT_BASE_SHA;
+    else process.env.UI_CONTRACT_BASE_SHA = previousBase;
+    if (previousCi === undefined) delete process.env.CI;
+    else process.env.CI = previousCi;
+    if (previousEvent === undefined) delete process.env.GITHUB_EVENT_PATH;
+    else process.env.GITHUB_EVENT_PATH = previousEvent;
+    await fs.rm(repo, { recursive: true, force: true });
+  }
 });
 
 test('legacy Search stamp migration preserves nested authored metadata', async () => {

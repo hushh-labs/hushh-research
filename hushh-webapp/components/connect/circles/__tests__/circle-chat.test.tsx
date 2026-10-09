@@ -262,3 +262,18 @@ it("refreshes Feed when a receipt doorbell also carries a newer message revision
   await act(async () => waits[2]!({ latestSequence: 2, changed: true, receiptsChanged: true }));
   await waitFor(() => expect(changed).toHaveBeenCalledWith("arrived"));
 });
+
+it("blocks undecodable image bytes until removed, keeping the text draft available", async () => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fixture-preview");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Photo caption" } });
+  fireEvent.change(screen.getByLabelText("Attach image"), { target: { files: [new File(["bad bytes"], "broken.png", { type: "image/png" })] } });
+  fireEvent.error(await screen.findByAltText("Image ready to send"));
+  expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  expect(api.prepare).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Remove attached image" }));
+  expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Photo caption");
+  expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+});

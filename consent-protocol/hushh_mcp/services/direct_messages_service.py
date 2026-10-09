@@ -190,18 +190,11 @@ def _default_push_notifier(
     conversation_id: str,
     message_id: str,
 ) -> None:
-    """Nudge registered devices without including message content or actor IDs."""
+    """Compatibility hook. Migration 289 queues delivery in the INSERT transaction.
 
-    try:
-        from hushh_mcp.services.push_notifications import send_direct_message_push
-
-        send_direct_message_push(
-            recipient_user_id,
-            conversation_id=conversation_id,
-            message_id=message_id,
-        )
-    except Exception as exc:  # noqa: BLE001 - delivery is best effort
-        logger.warning("direct_messages.push_notify_failed error=%s", type(exc).__name__)
+    Network delivery belongs to the durable worker; sending here as well would
+    duplicate alerts and lose retries on process failure after commit.
+    """
 
 
 def _default_feed_notifier(
@@ -950,6 +943,7 @@ class DirectMessagesService:
         recipient_user_id: str | None = None,
         recipient_person_ref: str | None = None,
         reply_to_message_id: str | None = None,
+        client_message_id: str | None = None,
     ) -> dict[str, Any]:
         sender = self._normalize_user_id(sender_user_id, field="senderUserId")
         recipient, _person_ref = self._resolve_recipient(
@@ -969,7 +963,17 @@ class DirectMessagesService:
                     status_code=404,
                 ) from exc
         conversation_id = str(uuid.uuid4())
-        message_id = str(uuid.uuid4())
+        try:
+            message_id = (
+                str(uuid.UUID(client_message_id))
+                if client_message_id is not None
+                else str(uuid.uuid4())
+            )
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_INVALID_ID", "Message could not be verified.", status_code=422
+            ) from exc
+        inserted = False
         message_row: dict[str, Any] | None = None
         conversation_row: dict[str, Any] | None = None
         reply_to: dict[str, Any] | None = None
@@ -993,7 +997,7 @@ class DirectMessagesService:
                       CAST(:conversation_id AS UUID),
                       LEAST(:sender_user_id, :recipient_user_id),
                       GREATEST(:sender_user_id, :recipient_user_id),
-                      NOW(), NULL
+                      clock_timestamp(), NULL
                     )
                     ON CONFLICT (participant_a_user_id, participant_b_user_id)
                     DO NOTHING
@@ -1034,14 +1038,44 @@ class DirectMessagesService:
                             status_code=404,
                         )
                     reply_to = self._message_projection(reply_row, sender)
-                envelope = self._cipher.seal(
-                    normalized_content,
-                    conversation_id=conversation_id,
-                    message_id=message_id,
-                    sender_user_id=sender,
-                )
-                message_row = self._execute_one(
-                    """
+
+                def replay() -> dict[str, Any] | None:
+                    row = self._execute_one(
+                        """SELECT id, conversation_id, sender_user_id, content_ciphertext,
+                                  content_iv, content_algorithm, created_at, read_at, reply_to_message_id,
+                                  edited_at, deleted_for_sender_at, deleted_for_recipient_at,
+                                  deleted_for_everyone_at
+                           FROM messages WHERE id=CAST(:message_id AS UUID)
+                             AND conversation_id=CAST(:conversation_id AS UUID)
+                             AND sender_user_id=:sender_user_id""",
+                        {
+                            "message_id": message_id,
+                            "conversation_id": conversation_id,
+                            "sender_user_id": sender,
+                        },
+                    )
+                    if row and (
+                        self._cipher.open(row) != normalized_content
+                        or str(row.get("reply_to_message_id") or "")
+                        != str(normalized_reply_to_message_id or "")
+                    ):
+                        raise DirectMessagesError(
+                            "DIRECT_MESSAGE_RETRY_CONFLICT",
+                            "This message could not be retried. Send it as a new message.",
+                            status_code=409,
+                        )
+                    return row
+
+                message_row = replay() if client_message_id is not None else None
+                if message_row is None:
+                    envelope = self._cipher.seal(
+                        normalized_content,
+                        conversation_id=conversation_id,
+                        message_id=message_id,
+                        sender_user_id=sender,
+                    )
+                    message_row = self._execute_one(
+                        """
                     INSERT INTO messages (
                       id, conversation_id, sender_user_id, content_ciphertext,
                       content_iv, content_algorithm, created_at, read_at,
@@ -1050,25 +1084,33 @@ class DirectMessagesService:
                     VALUES (
                       CAST(:message_id AS UUID), CAST(:conversation_id AS UUID),
                       :sender_user_id, :content_ciphertext, :content_iv,
-                      :content_algorithm, NOW(), NULL,
+                      :content_algorithm, clock_timestamp(), NULL,
                       CAST(:reply_to_message_id AS UUID)
                     )
+                    ON CONFLICT (id) DO NOTHING
                     RETURNING id, conversation_id, sender_user_id, content_ciphertext,
                               content_iv, content_algorithm, created_at, read_at,
                               edited_at, reply_to_message_id,
                               deleted_for_sender_at, deleted_for_recipient_at,
                               deleted_for_everyone_at
                     """,
-                    {
-                        "message_id": message_id,
-                        "conversation_id": conversation_id,
-                        "sender_user_id": sender,
-                        "reply_to_message_id": normalized_reply_to_message_id,
-                        **envelope,
-                    },
-                )
-                if not message_row:
-                    raise RuntimeError("direct-message insert did not return a message")
+                        {
+                            "message_id": message_id,
+                            "conversation_id": conversation_id,
+                            "sender_user_id": sender,
+                            "reply_to_message_id": normalized_reply_to_message_id,
+                            **envelope,
+                        },
+                    )
+                    inserted = bool(message_row)
+                    if message_row is None:
+                        message_row = replay()
+                        if message_row is None:
+                            raise DirectMessagesError(
+                                "DIRECT_MESSAGE_RETRY_CONFLICT",
+                                "This message could not be retried. Send it as a new message.",
+                                status_code=409,
+                            )
                 conversation_row = self._conversation_by_pair(sender, recipient)
                 if not conversation_row:
                     raise RuntimeError("direct-message conversation disappeared")
@@ -1108,6 +1150,8 @@ class DirectMessagesService:
                 "senderIsViewer": reply_to["senderIsViewer"],
                 "deletedForEveryoneAt": reply_to["deletedForEveryoneAt"],
             }
+        if not inserted:
+            return {"conversation": conversation, "message": message}
         try:
             self._feed_notifier(
                 recipient,
@@ -1325,7 +1369,7 @@ class DirectMessagesService:
                             status_code=404,
                         )
                     updated = self._message_action_row(viewer, conversation_key, message_key)
-                    result = {
+                    result: dict[str, Any] = {
                         "scope": "everyone",
                         "message": self._message_projection(updated, viewer),
                     }
@@ -1669,7 +1713,9 @@ class DirectMessagesService:
             "disconnectedNotice": conversation["disconnectedNotice"],
         }
 
-    def mark_as_read(self, viewer_user_id: str, conversation_id: str) -> dict[str, Any]:
+    def mark_as_read(
+        self, viewer_user_id: str, conversation_id: str, *, through_message_id: str | None = None
+    ) -> dict[str, Any]:
         viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
         conversation_key = self._normalize_conversation_id(conversation_id)
         conversation_row = self._conversation_for_participant(viewer, conversation_key)
@@ -1679,23 +1725,53 @@ class DirectMessagesService:
                 "Conversation was not found.",
                 status_code=404,
             )
+        through = None
         with self._transaction():
+            if through_message_id is not None:
+                try:
+                    through_message_id = str(uuid.UUID(through_message_id))
+                except (ValueError, TypeError, AttributeError) as exc:
+                    raise DirectMessagesError(
+                        "DIRECT_MESSAGE_INVALID_ID",
+                        "Message could not be verified.",
+                        status_code=422,
+                    ) from exc
+                through = self._execute_one(
+                    "SELECT created_at FROM messages WHERE id=CAST(:message_id AS UUID) AND conversation_id=CAST(:conversation_id AS UUID)",
+                    {"message_id": through_message_id, "conversation_id": conversation_key},
+                )
+                if not through:
+                    raise DirectMessagesError(
+                        "DIRECT_MESSAGE_CONVERSATION_NOT_FOUND",
+                        "Message was not found.",
+                        status_code=404,
+                    )
             updated = self._execute_many(
                 """
                 UPDATE messages
-                SET read_at = NOW()
+                SET read_at = clock_timestamp()
                 WHERE conversation_id = CAST(:conversation_id AS UUID)
                   AND sender_user_id <> :viewer_user_id
                   AND read_at IS NULL
                   AND deleted_for_everyone_at IS NULL
                   AND deleted_for_recipient_at IS NULL
+                  AND (CAST(:through_message_id AS UUID) IS NULL OR (created_at, id) <= (
+                    SELECT boundary.created_at, boundary.id FROM messages boundary
+                    WHERE boundary.id=CAST(:through_message_id AS UUID)
+                      AND boundary.conversation_id=CAST(:conversation_id AS UUID)
+                  ))
                 RETURNING id, read_at
                 """,
-                {"conversation_id": conversation_key, "viewer_user_id": viewer},
+                {
+                    "conversation_id": conversation_key,
+                    "viewer_user_id": viewer,
+                    "through_message_id": through_message_id,
+                },
             )
         return {
             "readCount": len(updated),
             "readAt": _iso(updated[0].get("read_at")) if updated else None,
+            **({"readThroughCreatedAt": _iso(through["created_at"])} if through else {}),
         }
 
 

@@ -52,6 +52,22 @@ describe("transcriptRevealScrollTop", () => {
     expect(transcriptRevealScrollTop(geometry({ top: 300, bottom: 360 }))).toBe(1_000);
   });
 
+  it("recognizes the latest end as seen above the composer despite reserved bottom space", () => {
+    const endAboveComposer: TranscriptRevealGeometry = {
+      scrollTop: 2_100,
+      scrollHeight: 3_000,
+      clientHeight: 800,
+      viewportTop: 0,
+      visibleBottom: 640,
+      elementTop: 620,
+      elementBottom: 620,
+    };
+    // Raw distance is larger than the old 96 px cutoff, although the end is visible.
+    expect(endAboveComposer.scrollHeight - endAboveComposer.clientHeight - endAboveComposer.scrollTop)
+      .toBe(100);
+    expect(transcriptRevealScrollTop(endAboveComposer)).toBe(2_100);
+  });
+
   it("shows the start of a row taller than the visible band", () => {
     const top = transcriptRevealScrollTop(geometry({ top: 700, bottom: 1_700 }));
     expect(700 - (top - 1_000)).toBe(16);
@@ -161,5 +177,10 @@ describe("chat workspace send path", () => {
     expect(source).toContain("measureTranscriptReveal(transcript, messagesEnd, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current)");
     expect(source).toContain("const shouldFollowTranscript = transcriptFollowsLatest({");
     expect(source).not.toContain("oneScrollTopRef.current <= 2 || distanceFromBottom <= 48");
+  });
+
+  it("uses the composer-aware transcript end before counting messages below", () => {
+    expect(source).toContain("measureTranscriptReveal(transcript, end, overlay)");
+    expect(source).toContain("if (endTargetTop <= transcript.scrollTop + 4)");
   });
 });

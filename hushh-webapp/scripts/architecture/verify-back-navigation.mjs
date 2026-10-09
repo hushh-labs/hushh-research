@@ -122,7 +122,7 @@ export async function verifyBackNavigation(root, stamp = false, index = createUi
   } else if (entries.some(entry => Object.hasOwn(entry.backVerification || {}, 'sourceRevision'))) {
     throw new Error('Back source review is stale: migrate legacy source stamps with npm run build:ui-contracts.');
   }
-  await syncReviewReceipt(root, 'back', revision, { route_count: entries.length, source_module_count: sources.size }, !stamp);
+  await syncReviewReceipt(root, 'back', revision, { route_count: entries.length, source_module_count: sources.size }, !stamp, [...sources.keys()]);
   console.log(`Back contracts cover ${entries.length} routes, ${cases.length} Location scenarios; new history bypasses rejected.`);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await verifyBackNavigation(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), process.argv.includes('--stamp-reviewed-source'));

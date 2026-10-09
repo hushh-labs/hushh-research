@@ -15,6 +15,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.agents.calendar.read_offer import (
+    STATE_CALENDAR_OFFER,
+    STATE_EVENT_OFFER,
+    current_calendar_read_offer,
+    make_calendar_read_offer,
+)
 from hushh_mcp.services.google_calendar_service import (
     EVENT_PAGE_MAX,
     get_google_calendar_service,
@@ -28,6 +34,7 @@ _CALENDAR_UNAVAILABLE_MESSAGE = "I couldn't reach your calendar just now. Try ag
 _STATE_USER_ID = "hussh:user_id"
 _STATE_TIMEZONE = "hussh:timezone"
 _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+_STATE_CONVERSATION_ID = "hussh:conversation_id"
 
 
 def _user_id(tool_context: ToolContext) -> str:
@@ -52,8 +59,70 @@ def _timezone(tool_context: ToolContext) -> str:
     return value
 
 
+async def _read_binding(service: Any, user_id: str) -> tuple[str, ...] | None:
+    connections = getattr(service, "connections", None)
+    binding_reader = getattr(connections, "read_grant_binding", None)
+    if not callable(binding_reader):
+        return None
+    return await binding_reader(user_id=user_id, service="calendar")
+
+
+def _conversation_id(tool_context: ToolContext) -> str:
+    return str(tool_context.state.get(_STATE_CONVERSATION_ID) or "").strip()
+
+
+async def _selected_calendar_id(
+    *, tool_context: ToolContext, service: Any, user_id: str, ordinal: int
+) -> str:
+    binding = await _read_binding(service, user_id)
+    offer = current_calendar_read_offer(
+        tool_context.state.get(STATE_CALENDAR_OFFER),
+        kind="calendars",
+        owner_id=user_id,
+        conversation_id=_conversation_id(tool_context),
+        grant_binding=binding,
+    )
+    selected = offer.id_at(ordinal) if offer else None
+    if not selected:
+        raise GoogleConnectionError(
+            "Show the subscribed calendars again, then choose one by position",
+            status_code=422,
+            reason_code="calendar_list_offer_required",
+        )
+    return selected
+
+
+def _remember_offer(
+    tool_context: ToolContext,
+    *,
+    key: str,
+    kind: Literal["events", "calendars"],
+    user_id: str,
+    binding: tuple[str, ...] | None,
+    ids: list[str],
+    calendar_id: str = "primary",
+) -> None:
+    tool_context.state[key] = (
+        make_calendar_read_offer(
+            kind=kind,
+            owner_id=user_id,
+            conversation_id=_conversation_id(tool_context),
+            grant_binding=binding or (),
+            ids=ids,
+            calendar_id=calendar_id,
+        )
+        if binding
+        else None
+    )
+
+
+async def _check_stable_binding(service: Any, user_id: str, before: tuple[str, ...] | None) -> None:
+    if before is not None and await _read_binding(service, user_id) != before:
+        raise GoogleConnectionError("Google Calendar connection changed", status_code=409)
+
+
 def _connection_directive(
-    tool_context: ToolContext, *, access_level: str, message: str
+    tool_context: ToolContext, *, access_level: str, message: str, confirm_label: str | None = None
 ) -> dict[str, Any]:
     directive = {
         "kind": "action",
@@ -62,9 +131,8 @@ def _connection_directive(
             "type": "calendar.connect",
             "accessLevel": access_level,
             "summary": message,
-            "confirmLabel": (
-                "Allow Calendar scheduling" if access_level == "manage" else "Connect Calendar"
-            ),
+            "confirmLabel": confirm_label
+            or ("Allow Calendar scheduling" if access_level == "manage" else "Connect Calendar"),
         },
     }
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = directive
@@ -86,6 +154,13 @@ def _handle_connection_error(
 ) -> dict[str, Any] | None:
     if exc.status_code not in {401, 403}:
         return None
+    if exc.reason_code == "calendar_list_permission_required":
+        return _connection_directive(
+            tool_context,
+            access_level="read",
+            message="Allow One to see your subscribed calendars before I can include them.",
+            confirm_label="Allow calendar list access",
+        )
     label = "editing" if access_level == "manage" else "reading"
     return _connection_directive(
         tool_context,
@@ -119,6 +194,36 @@ async def _run_calendar_read(
         if directive is not None:
             return directive
         logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
+        if exc.status_code == 409:
+            return {
+                "status": "connection_changed",
+                "message": "Your Calendar connection changed while I checked. Please ask again.",
+            }
+        if exc.status_code == 429:
+            return {
+                "status": "rate_limited",
+                "message": "Google Calendar is busy right now. Please try again shortly.",
+            }
+        if exc.status_code == 404:
+            return {
+                "status": "not_found",
+                "message": "That Calendar event was not found. Check the event and try again.",
+            }
+        if exc.status_code == 422:
+            if exc.reason_code == "calendar_list_offer_required":
+                return {
+                    "status": "input_required",
+                    "message": "Show the subscribed calendars again, then choose one from that list.",
+                }
+            if exc.reason_code == "calendar_event_offer_required":
+                return {
+                    "status": "input_required",
+                    "message": "Show the events again, then choose one from that list.",
+                }
+            return {
+                "status": "input_required",
+                "message": "I need a valid Calendar date, time, or selection to check that.",
+            }
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
     except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
         logger.exception("one_adk_calendar_call_failed reason=unexpected")
@@ -151,8 +256,20 @@ async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str
     start_at, end_at = _iso_window(tool_context, days)
 
     async def _call(user_id: str) -> dict[str, Any]:
-        result = await get_google_calendar_service().list_events(
+        tool_context.state[STATE_EVENT_OFFER] = None
+        service = get_google_calendar_service()
+        before = await _read_binding(service, user_id)
+        result = await service.list_events(
             user_id=user_id, start_at=start_at, end_at=end_at, max_results=EVENT_PAGE_MAX
+        )
+        await _check_stable_binding(service, user_id, before)
+        _remember_offer(
+            tool_context,
+            key=STATE_EVENT_OFFER,
+            kind="events",
+            user_id=user_id,
+            binding=before,
+            ids=[item.get("id") or "" for item in result.get("events", [])],
         )
         return {"status": "ok", "range_start": start_at, "range_end": end_at, **result}
 
@@ -165,6 +282,9 @@ async def calendar_events(
     end_at: str,
     query: str | None = None,
     limit: int = 100,
+    calendar_id: str = "primary",
+    calendar_ordinal: int | None = None,
+    page_token: str | None = None,
 ) -> dict[str, Any]:
     """List events in an exact ISO-8601, time-zone-qualified interval.
 
@@ -177,15 +297,114 @@ async def calendar_events(
     """
 
     async def _call(user_id: str) -> dict[str, Any]:
+        tool_context.state[STATE_EVENT_OFFER] = None
+        service = get_google_calendar_service()
+        if calendar_ordinal is not None:
+            if calendar_id != "primary":
+                raise GoogleConnectionError(
+                    "Choose a Calendar by position",
+                    status_code=422,
+                    reason_code="calendar_list_offer_required",
+                )
+            selected_id = await _selected_calendar_id(
+                tool_context=tool_context,
+                service=service,
+                user_id=user_id,
+                ordinal=calendar_ordinal,
+            )
+        elif calendar_id == "primary":
+            selected_id = "primary"
+        else:
+            raise GoogleConnectionError(
+                "Show subscribed calendars and choose one by position",
+                status_code=422,
+                reason_code="calendar_list_offer_required",
+            )
+        before = await _read_binding(service, user_id)
+        result = await service.list_events(
+            user_id=user_id,
+            start_at=_calendar_iso(start_at, tool_context),
+            end_at=_calendar_iso(end_at, tool_context),
+            max_results=_bounded_limit(limit),
+            query=query,
+            calendar_id=selected_id,
+            page_token=page_token,
+        )
+        await _check_stable_binding(service, user_id, before)
+        _remember_offer(
+            tool_context,
+            key=STATE_EVENT_OFFER,
+            kind="events",
+            user_id=user_id,
+            binding=before,
+            ids=[item.get("id") or "" for item in result.get("events", [])],
+            calendar_id=selected_id,
+        )
         return {
             "status": "ok",
-            **await get_google_calendar_service().list_events(
-                user_id=user_id,
-                start_at=_calendar_iso(start_at, tool_context),
-                end_at=_calendar_iso(end_at, tool_context),
-                max_results=_bounded_limit(limit),
-                query=query,
-            ),
+            **result,
+        }
+
+    return await _run_calendar_read(tool_context, _call)
+
+
+async def calendar_calendars(
+    tool_context: ToolContext, limit: int = 50, page_token: str | None = None
+) -> dict[str, Any]:
+    """List subscribed calendars before selecting a secondary calendar."""
+
+    async def _call(user_id: str) -> dict[str, Any]:
+        tool_context.state[STATE_CALENDAR_OFFER] = None
+        service = get_google_calendar_service()
+        before = await _read_binding(service, user_id)
+        result = await service.list_calendars(
+            user_id=user_id, max_results=_bounded_limit(limit), page_token=page_token
+        )
+        await _check_stable_binding(service, user_id, before)
+        _remember_offer(
+            tool_context,
+            key=STATE_CALENDAR_OFFER,
+            kind="calendars",
+            user_id=user_id,
+            binding=before,
+            ids=[item.get("id") or "" for item in result.get("calendars", [])],
+        )
+        return {
+            "status": "ok",
+            **result,
+        }
+
+    return await _run_calendar_read(tool_context, _call)
+
+
+async def calendar_event_detail(tool_context: ToolContext, ordinal: int) -> dict[str, Any]:
+    """Read one exact event by its position in the last owner-visible list."""
+
+    async def _call(user_id: str) -> dict[str, Any]:
+        service = get_google_calendar_service()
+        binding = await _read_binding(service, user_id)
+        offer = current_calendar_read_offer(
+            tool_context.state.get(STATE_EVENT_OFFER),
+            kind="events",
+            owner_id=user_id,
+            conversation_id=_conversation_id(tool_context),
+            grant_binding=binding,
+        )
+        event_id = offer.id_at(ordinal) if offer else None
+        if not event_id or offer is None:
+            tool_context.state[STATE_EVENT_OFFER] = None
+            raise GoogleConnectionError(
+                "Show the events again, then choose one by position",
+                status_code=422,
+                reason_code="calendar_event_offer_required",
+            )
+        result = await service.get_event(
+            user_id=user_id, calendar_id=offer.calendar_id, event_id=event_id
+        )
+        await _check_stable_binding(service, user_id, binding)
+        return {
+            "status": "ok",
+            **result,
         }
 
     return await _run_calendar_read(tool_context, _call)

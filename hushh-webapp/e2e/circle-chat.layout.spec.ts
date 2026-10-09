@@ -50,6 +50,7 @@ async function mount(page: Page, dark = false, workspace = false) {
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+  await page.bringToFront();
 }
 
 for (const width of [320, 393, 430, 768, 1440]) {
@@ -89,6 +90,10 @@ test("preserves a timed-out send across collapse and opens images inside the app
   await page.getByRole("button", { name: "Open shared image" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
+  const closeButton = page.getByRole("button", { name: "Close", exact: true });
+  // Measure the final hit area after the dialog's opening scale animation.
+  await expect.poll(async () => (await closeButton.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(44);
+  await expect.poll(async () => (await closeButton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
   expect(await dialog.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(393);
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(dialog).not.toBeVisible();
@@ -157,3 +162,35 @@ for (const width of [320, 393, 1440]) {
     await expect(page.getByRole("dialog", { name: "Circle photo" })).not.toBeVisible();
   });
 }
+
+test("incoming messages preserve reading position and your reply returns to the latest message", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 }); await mount(page);
+  const list = page.getByLabel("Circle messages", { exact: true });
+  await list.evaluate((node) => { node.scrollTop = 0; });
+  await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
+  const before = await list.evaluate((node) => node.scrollTop);
+  await page.evaluate(() => (window as any).chatFixture.incoming());
+  await expect(page.getByText("Incoming while reading history", { exact: true })).toHaveCount(1);
+  expect(Math.abs(await list.evaluate((node) => node.scrollTop) - before)).toBeLessThan(3);
+  await page.getByRole("textbox", { name: "Message" }).fill("My reply from history");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
+  await expect.poll(() => list.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThanOrEqual(8);
+});
+
+test("the native keyboard reveal keeps an image caption and send control above the keyboard", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 }); await mount(page, false, true);
+  await page.locator('input[type="file"]').setInputFiles({ name: "caption.webp", mimeType: "image/webp", buffer: fs.readFileSync(path.join(process.cwd(), "public/one-location/onboarding/orbit-office.webp")) });
+  const editor = page.getByRole("textbox", { name: "Message" });
+  await editor.fill("A multiline image caption\n".repeat(20));
+  await page.evaluate(() => { document.documentElement.classList.add("kb-open", "native-keyboard-inset"); document.documentElement.style.setProperty("--kb-height", "300px"); });
+  // The shared KeyboardInsetManager calls this after publishing its inset.
+  await editor.evaluate((node) => node.scrollIntoView({ block: "nearest" }));
+  const send = page.getByRole("button", { name: "Send message" });
+  await expect.poll(async () => { const box = (await send.boundingBox())!; return box.y + box.height; }).toBeLessThanOrEqual(269);
+  await expect(send).toBeEnabled();
+  await expect(page.getByRole("img", { name: "Image ready to send" })).toHaveCount(1);
+  expect((await page.getByRole("img", { name: "Image ready to send" }).boundingBox())!.y).toBeGreaterThanOrEqual(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(321);
+  await page.screenshot({ path: test.info().outputPath("circle-caption-keyboard.png"), animations: "disabled" });
+});

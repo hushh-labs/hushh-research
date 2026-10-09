@@ -112,7 +112,7 @@ export async function syncSearchContracts(root, check = false, index = createUiS
     }
   }
   if (check && stale) throw new Error(`${stale} search contracts contain stale legacy source stamps; run npm run build:ui-contracts to migrate them.`);
-  await syncReviewReceipt(root, 'search', revision, { source_module_count: sources.size }, check);
+  await syncReviewReceipt(root, 'search', revision, { source_module_count: sources.size }, check, [...sources.keys()]);
   console.log(`Search contracts: ${contracts.length} contracts cover ${pageEntries.length} pages and ${sources.size} source modules${check ? ' (checked)' : ' (refreshed)'}.`);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

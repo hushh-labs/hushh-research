@@ -14,6 +14,7 @@ import uuid
 from urllib.parse import quote
 
 from hushh_mcp.branding import connection_request_body
+from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def send_user_data_push(
         rows = (
             get_db()
             .execute_raw(
-                "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
+                PUSH_TOKENS_FOR_USER_SQL,
                 {"user_id": user_id},
             )
             .data
@@ -110,10 +111,7 @@ def send_user_data_push(
                 sent += 1
             except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
                 try:
-                    get_db().execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
+                    remove_stale_push_token(get_db(), user_id, token)
                 except Exception as cleanup_exc:  # noqa: BLE001
                     logger.warning(
                         "push.token_cleanup_failed type=%s error=%s",

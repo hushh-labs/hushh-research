@@ -130,6 +130,10 @@ export function CalendarAgentPage({
 }: CalendarAgentPageProps) {
   const { user, loading } = useAuth();
   const renderedOwnerId = user?.uid ?? null;
+  const latestUserRef = useRef(user);
+  useEffect(() => {
+    latestUserRef.current = user;
+  }, [user]);
   const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
   activeOwnerIdRef.current = renderedOwnerId;
   useEffect(() => {
@@ -156,16 +160,18 @@ export function CalendarAgentPage({
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!user || connectionPending) return null;
-    const operationOwnerId = user.uid;
+    const currentUser = latestUserRef.current;
+    if (!currentUser || connectionPending) return null;
+    if (currentUser.uid !== renderedOwnerId) return null;
+    const operationOwnerId = currentUser.uid;
     const next = await GoogleCalendarService.status(
-      await user.getIdToken(),
+      await currentUser.getIdToken(),
       operationOwnerId,
     );
     if (activeOwnerIdRef.current !== operationOwnerId) return null;
     setStatus(next);
     return next;
-  }, [connectionPending, user]);
+  }, [connectionPending, renderedOwnerId]);
 
   useEffect(() => {
     void refresh().catch((error) => {
@@ -201,6 +207,9 @@ export function CalendarAgentPage({
       status: "connected",
       access_level: accessLevel ?? current?.access_level ?? null,
       scope_csv: current?.scope_csv ?? "",
+      // The web callback succeeded only after the requested list scope was
+      // verified. An immediate status read can still return the old grant.
+      calendar_list_access: true,
     }));
     morphyToast.success("Google Calendar connected.");
   };
@@ -554,6 +563,16 @@ export function CalendarAgentPage({
 
                   {/* Actions */}
                   <div className="flex flex-col items-center gap-2.5 w-full pt-1">
+                    {connected && status?.calendar_list_access === false && !Capacitor.isNativePlatform() ? (
+                      <button
+                        type="button"
+                        className="min-h-11 text-sm font-medium text-[color:var(--app-tint)] underline-offset-4 hover:underline"
+                        disabled={busy}
+                        onClick={() => void connect("read")}
+                      >
+                        Allow One to find subscribed calendars
+                      </button>
+                    ) : null}
                     <AskOneButton
                       disabled={busy}
                       showIcon={false}

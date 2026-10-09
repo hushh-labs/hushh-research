@@ -45,7 +45,7 @@ import {
   type DriveBulkFileOutcome,
   type DriveBulkShareView,
 } from "@/lib/services/drive-sharing-service";
-import type { DriveSearchResults } from "@/lib/services/drive-search-service";
+import { isDriveSearchSelectionReady, type DriveSearchResults } from "@/lib/services/drive-search-service";
 
 type Snapshot = {
   status: SharingStatus;
@@ -690,8 +690,7 @@ function UnlockedDocumentReview({
   const recoverablePositions = review?.recoverablePositions ?? [];
   const durableReview = isDurableReview(review);
   const legacySearch = search?.status === "completed" && search.coverage?.shareabilityVerified !== true;
-  const searchReady = search?.status === "completed" && !search.incompleteSearch &&
-    search.coverage?.providerPagesExhausted !== false && search.coverage?.shareabilityVerified === true;
+  const searchReady = isDriveSearchSelectionReady(search);
   const searchJobId = search && (!bulkShare || progressive) && !legacySearch ? search.jobId : null;
   const bulkPreviewId = bulkShare?.shareId ?? null;
   const deliveryBulkId = snapshot?.status.direction === "outgoing"

@@ -9,6 +9,7 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
 import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -39,6 +40,14 @@ import java.util.concurrent.TimeUnit
 class HushhNotificationsPlugin : Plugin() {
 
     private val TAG = "HushhNotifications"
+
+    @PluginMethod
+    fun deletePushToken(call: PluginCall) {
+        FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener { task ->
+            if (task.isSuccessful) call.resolve()
+            else call.reject("Push token deletion failed")
+        }
+    }
 
     override fun load() {
         super.load()
@@ -95,6 +104,31 @@ class HushhNotificationsPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun prepareNotificationKey(call: PluginCall) {
+        val userId = call.getString("userId")
+        val deviceId = call.getString("deviceId")
+        if (userId.isNullOrBlank() || deviceId.isNullOrBlank()) { call.reject("Notification identity required"); return }
+        try { call.resolve(ChatPreviewKeys.prepare(context, userId, deviceId)) }
+        catch (_: Exception) { call.reject("Notification keys unavailable") }
+    }
+
+    @PluginMethod
+    fun clearNotificationKey(call: PluginCall) {
+        val user = call.getString("userId") ?: run { call.reject("Notification identity required"); return }
+        try { ChatPreviewKeys.clear(context, user); call.resolve() }
+        catch (_: Exception) { call.reject("Notification cleanup unavailable") }
+    }
+
+    @PluginMethod
+    fun clearChatNotifications(call: PluginCall) {
+        val thread = call.getString("threadId")
+        val key = call.getString("keyId")
+        if (thread.isNullOrBlank() || key.isNullOrBlank()) { call.reject("Notification identity required"); return }
+        ChatMessagingService.clearRead(context, thread, key, call.getDouble("sequence")?.toLong(), call.getDouble("before")?.toLong(), call.getString("messageId"))
+        call.resolve()
+    }
+
+    @PluginMethod
     fun registerPushToken(call: PluginCall) {
         val userId = call.getString("userId")
         val token = call.getString("token")
@@ -115,6 +149,9 @@ class HushhNotificationsPlugin : Plugin() {
                     .put("user_id", userId)
                     .put("token", token)
                     .put("platform", platform)
+                    .put("device_id", call.getString("deviceId"))
+                    .put("preview_key_id", call.getString("previewKeyId"))
+                    .put("preview_public_key", call.getString("previewPublicKey"))
                     .toString()
 
                 val request = Request.Builder()
@@ -164,6 +201,7 @@ class HushhNotificationsPlugin : Plugin() {
         Thread {
             try {
                 val bodyObj = JSONObject().put("user_id", userId)
+                call.getString("deviceId")?.let { bodyObj.put("device_id", it) }
                 if (!platform.isNullOrBlank()) bodyObj.put("platform", platform)
 
                 val request = Request.Builder()

@@ -232,6 +232,7 @@ describe("CalendarAgentPage", () => {
     render(<CalendarAgentPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Connect your calendar" }));
     await waitForConsentWindow();
+    const statusReadsBeforeCallback = mocks.status.mock.calls.length;
     const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
     act(() => {
       window.dispatchEvent(new MessageEvent("message", {
@@ -248,6 +249,8 @@ describe("CalendarAgentPage", () => {
         screen.queryByRole("button", { name: "Connect your calendar" }),
       ).toBeNull(),
     );
+    expect(mocks.status).toHaveBeenCalledTimes(statusReadsBeforeCallback);
+    expect(screen.queryByRole("button", { name: "Allow One to find subscribed calendars" })).toBeNull();
     expect(mocks.trackEvent).not.toHaveBeenCalledWith(
       "one_calendar_action",
       expect.objectContaining({ action: "connected" }),

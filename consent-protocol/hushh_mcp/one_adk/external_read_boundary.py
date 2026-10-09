@@ -47,9 +47,22 @@ _DRIVE_CONNECTION_ANSWERS = {
 MAIL_TOOL = "ask_email_agent"
 READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
+    # Resolves bounded Gmail metadata into an owner-confirmation card. It is
+    # still a connector read, so no later tool in this model turn can act on
+    # the selected email text.
+    "propose_gmail_todo": "gmail_chat_reads",
     "ask_documents_agent": "google_drive_chat_reads",
     "read_selected_drive_search_result": "google_drive_chat_reads",
     "inspect_selected_drive_files": "google_drive_chat_reads",
+    # Calendar event fields are provider-authored text. A Calendar read ends
+    # this invocation's action authority just like a Mail or Drive read, and
+    # its arguments/results must be removed from durable ADK history.
+    "calendar_summary": None,
+    "calendar_calendars": None,
+    "calendar_events": None,
+    "calendar_event_detail": None,
+    "calendar_availability": None,
+    "calendar_free_slots": None,
     # Per-provider admission and owner authority are checked inside the tool.
     # Establish the content barrier before dispatch, regardless of provider.
     "read_workspace_tool": None,

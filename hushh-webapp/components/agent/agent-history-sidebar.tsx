@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState, type ReactNode } from "react";
 import {
   Unplug as PlugIcon,
+  ClipboardCheck,
   CheckIcon as Check,
   Download as DownloadIcon,
   MessageSquareIcon as MessageSquare,
@@ -66,6 +67,8 @@ type AgentHistorySidebarProps = {
   onClose?: () => void;
   onToggleCollapsed?: () => void;
   onOpenConnectors?: (trigger: HTMLButtonElement) => void;
+  /** Opens the owner's daily agenda and to-do items. */
+  onOpenTodoList?: () => void;
   /** Opens the Get the app prompt. Omitted inside the installed app. */
   onGetApp?: (trigger: HTMLButtonElement) => void;
   /** Whether the Get the app prompt is showing, for its control's state. */
@@ -180,6 +183,7 @@ export function AgentHistorySidebar({
   onClose,
   onToggleCollapsed,
   onOpenConnectors,
+  onOpenTodoList,
   onGetApp,
   getAppOpen = false,
   driveActivity,
@@ -701,12 +705,26 @@ export function AgentHistorySidebar({
             </div>
           )}
         </div>
-        {onGetApp || onOpenConnectors ? (
+        {onOpenTodoList || onGetApp || onOpenConnectors ? (
           // Pinned below the list: it scrolls, these never do.
           <div
             data-agent-history-footer
             className="shrink-0 space-y-0.5 border-t border-[color:var(--one-chat-divider)] px-2.5 py-2"
           >
+            {onOpenTodoList ? (
+              <ShellActionSurface
+                variant="pill"
+                type="button"
+                wrapperClassName="w-full"
+                className={footerButtonClassName}
+                onClick={onOpenTodoList}
+                aria-label="Open To-do List"
+                title={railMode ? "To-do List" : undefined}
+              >
+                <ClipboardCheck className="size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
+                {railMode ? null : <span className="truncate">To-do List</span>}
+              </ShellActionSurface>
+            ) : null}
             {onGetApp ? (
               <ShellActionSurface
                 variant="pill"

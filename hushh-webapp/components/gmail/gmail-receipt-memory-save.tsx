@@ -1,102 +1,101 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
+import { toast } from "sonner";
 
-import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { useAuth } from "@/hooks/use-auth";
-import { Button } from "@/lib/morphy-ux/button";
 import { saveReceiptCanonicalIndexToMemory } from "@/lib/profile/gmail-receipt-memory-save";
-import { sanitizeGmailUserMessage } from "@/lib/profile/mail-flow";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { useVault } from "@/lib/vault/vault-context";
 
-type SaveState = "idle" | "saving" | "saved" | "error";
+/** Product default for saving after a finished sync; an owner setting can override it later. */
+export const RECEIPT_MEMORY_AUTO_SAVE_DEFAULT = true;
+
+/** Quiet retries after a failed automatic save, before telling the owner. */
+export const RECEIPT_MEMORY_AUTO_SAVE_RETRY_DELAYS_MS: readonly number[] = [2_000, 6_000];
 
 /**
- * The owner's own control for saving the receipts above into private memory.
+ * Keeps the owner's private memory of their receipts current, with no control.
  *
- * It never saves on its own: no mount effect, no timer, and no reaction to a
- * finished sync. The tap is the confirmation, and it goes through the existing
- * governed writer (`gmail_receipt_memory_save_button`). After a new sync the
- * list changes, the control returns to its starting state, and saving again
- * updates the memory.
+ * After a sync the owner started finishes, the finished list is saved once
+ * through the existing governed writer (`gmail_receipt_memory_save_button`), so
+ * Chat with One can answer from it without sending the owner back to Mail. It
+ * renders nothing: the owner is never asked to save.
+ *
+ * It writes only when `syncCompletion` has moved past `savedCompletionRef`
+ * (never on mount, on a partly loaded list, or for an empty list). The ref is
+ * owned by the page, so a remount saves a finished sync once and never again.
+ * A failed save is retried quietly a bounded number of times, then reported
+ * once; the next finished sync saves again.
  */
 export function GmailReceiptMemorySave({
   receipts,
   accountKey,
+  syncCompletion = 0,
+  savedCompletionRef,
+  autoSave = RECEIPT_MEMORY_AUTO_SAVE_DEFAULT,
 }: {
   receipts: readonly ReceiptListItem[];
   accountKey: string | null | undefined;
-}) {
+  syncCompletion?: number;
+  savedCompletionRef?: MutableRefObject<number>;
+  autoSave?: boolean;
+}): null {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const [state, setState] = useState<SaveState>("idle");
-  const [message, setMessage] = useState<string | null>(null);
-  const savingRef = useRef(false);
-
-  // A different list is a different memory to save; keep an in-flight save as it is.
-  useEffect(() => {
-    if (savingRef.current) return;
-    setState("idle");
-    setMessage(null);
-  }, [receipts]);
-
-  const save = useCallback(async () => {
-    if (savingRef.current || !user?.uid) return;
-    if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
-      setState("error");
-      setMessage("Open your private vault to save these receipts to memory.");
-      return;
-    }
-    savingRef.current = true;
-    setState("saving");
-    setMessage(null);
-    try {
-      await saveReceiptCanonicalIndexToMemory({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-        receipts,
-        accountKey,
-      });
-      setState("saved");
-      setMessage("Saved to your private memory.");
-    } catch (error) {
-      console.error("[GmailReceiptMemorySave] Failed to save receipts:", error);
-      setState("error");
-      setMessage(
-        sanitizeGmailUserMessage(error, {
-          fallback: "We couldn't save your receipts to memory. Please try again.",
-        }),
-      );
-    } finally {
-      savingRef.current = false;
-    }
-  }, [accountKey, isVaultUnlocked, receipts, user?.uid, vaultKey, vaultOwnerToken]);
-
-  const saving = state === "saving";
-  return (
-    <SurfaceInset
-      className="flex flex-col gap-2 px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between"
-      data-testid="receipt-memory-save"
-    >
-      <p aria-live="polite" className="text-muted-foreground">
-        {message ?? "Let your private agent answer questions about these receipts."}
-      </p>
-      <Button
-        variant="none"
-        effect="fade"
-        size="sm"
-        onClick={() => void save()}
-        disabled={saving}
-        className="self-start sm:self-auto"
-      >
-        {saving
-          ? "Saving…"
-          : state === "saved"
-            ? "Update private memory"
-            : "Save to private memory"}
-      </Button>
-    </SurfaceInset>
+  const receiptsRef = useRef(receipts);
+  receiptsRef.current = receipts;
+  const authorityRef = useRef({ userId: user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked });
+  authorityRef.current = { userId: user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked };
+  const accountKeyRef = useRef(accountKey);
+  accountKeyRef.current = accountKey;
+  // A newer finished sync, or leaving the page, ends an older save's retries.
+  const runRef = useRef(0);
+  useEffect(
+    () => () => {
+      runRef.current += 1;
+    },
+    [],
   );
+
+  useEffect(() => {
+    if (!savedCompletionRef || syncCompletion <= savedCompletionRef.current) return;
+    savedCompletionRef.current = syncCompletion;
+    if (!autoSave || receiptsRef.current.length === 0) return;
+
+    const run = (runRef.current += 1);
+    const saveOnce = async (): Promise<"saved" | "failed" | "locked"> => {
+      const { userId, vaultKey: key, vaultOwnerToken: token, isVaultUnlocked: unlocked } =
+        authorityRef.current;
+      if (!userId || !key || !token || !unlocked) return "locked";
+      try {
+        await saveReceiptCanonicalIndexToMemory({
+          userId,
+          vaultKey: key,
+          vaultOwnerToken: token,
+          receipts: receiptsRef.current,
+          accountKey: accountKeyRef.current,
+        });
+        return "saved";
+      } catch (error) {
+        console.error("[GmailReceiptMemorySave] Failed to save receipts:", error);
+        return "failed";
+      }
+    };
+    void (async () => {
+      for (let attempt = 0; ; attempt += 1) {
+        const outcome = await saveOnce();
+        if (outcome !== "failed" || runRef.current !== run) return;
+        const delay = RECEIPT_MEMORY_AUTO_SAVE_RETRY_DELAYS_MS[attempt];
+        if (delay === undefined) {
+          toast("We couldn't update your private receipt memory. It will retry after your next sync.");
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (runRef.current !== run) return;
+      }
+    })();
+  }, [autoSave, savedCompletionRef, syncCompletion]);
+
+  return null;
 }

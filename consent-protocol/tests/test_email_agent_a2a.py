@@ -94,6 +94,29 @@ async def test_person_timezone_reaches_the_mail_read():
     assert svc.calls[0]["timezone"] == "America/New_York"
 
 
+async def test_typed_offer_is_private_handback_and_latest_needs_explicit_plan():
+    svc = _FakeEmailService()
+    original = svc.handle_delegated_turn
+
+    async def read(**kwargs):
+        outcome = await original(**kwargs)
+        outcome["offer"] = {
+            "message_ids": ["private-mail-id"],
+            "account": "private-google-account",
+            "mailbox": "inbox",
+        }
+        return outcome
+
+    svc.handle_delegated_turn = read
+    result = await EmailAgentA2A(service=svc).handle(_task())
+    assert svc.calls[0]["require_explicit_latest"] is True
+    assert result.mail_read_offer["message_ids"] == ["private-mail-id"]
+    assert result.mail_read_offer["owner_id"] == "u"
+    assert result.mail_read_offer["conversation_id"] == "one-thread"
+    assert "private-mail-id" not in result.text
+    assert "private-mail-id" not in result.structured.model_dump_json()
+
+
 @pytest.mark.asyncio
 async def test_read_only_agent_never_emits_directive():
     svc = _FakeEmailService()

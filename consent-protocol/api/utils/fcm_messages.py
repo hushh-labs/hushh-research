@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import time
+from datetime import timedelta
 from typing import Any
 
 CONSENT_NOTIFICATION_CATEGORY = "CONSENT_REQUEST"
@@ -88,6 +91,9 @@ def build_push_message(
 ):
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
+    is_chat = normalized_type in {"direct_message", "location_circle_message"}
+    expiry = int(data.get("chat_expires_at") or (int(time.time()) + 86400)) if is_chat else 0
+    chat_ttl = max(0, min(86400, expiry - int(time.time())))
     is_sms_emergency = _is_one_location_sms_emergency(data)
     force_feed_only_transport = _is_one_location_feed_only_transport(
         normalized_type,
@@ -109,13 +115,23 @@ def build_push_message(
         "notification_presentation": "alert" if show_alert else "silent",
     }
     notification = messaging.Notification(title=title, body=body) if show_alert else None
+    # Android chat is rendered by the native MessagingStyle service; automatic
+    # FCM notification payloads bypass that service while the app is closed.
+    if is_chat and (
+        normalized_platform == "web"
+        or normalized_platform == "android"
+        and data.get("recipient_key_id")
+    ):
+        notification = None
 
     webpush = None
     webpush_link = _webpush_link(request_url)
     if show_alert and normalized_platform == "web":
         webpush = messaging.WebpushConfig(
-            headers={"Urgency": "high"},
-            notification=messaging.WebpushNotification(
+            headers={"Urgency": "high", **({"TTL": str(chat_ttl)} if is_chat else {})},
+            notification=None
+            if is_chat
+            else messaging.WebpushNotification(
                 title=title,
                 body=body,
                 tag=notification_tag,
@@ -125,13 +141,20 @@ def build_push_message(
                 silent=False,
                 vibrate=[240, 120, 240, 120, 520] if is_sms_emergency else None,
             ),
-            fcm_options=(messaging.WebpushFCMOptions(link=webpush_link) if webpush_link else None),
+            fcm_options=(
+                messaging.WebpushFCMOptions(link=webpush_link)
+                if webpush_link and not is_chat
+                else None
+            ),
         )
 
     android = None
+    if normalized_platform == "android" and is_chat and data.get("recipient_key_id"):
+        android = messaging.AndroidConfig(priority="high", ttl=timedelta(seconds=chat_ttl))
     if normalized_platform == "android" and show_alert:
-        android = messaging.AndroidConfig(
+        android = android or messaging.AndroidConfig(
             priority="high",
+            ttl=timedelta(seconds=chat_ttl) if is_chat else None,
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
@@ -152,12 +175,23 @@ def build_push_message(
             headers={
                 "apns-push-type": "alert",
                 "apns-priority": "10",
+                **(
+                    {
+                        "apns-expiration": str(expiry),
+                        "apns-collapse-id": hashlib.sha256(
+                            str(data.get("message_id") or notification_tag).encode()
+                        ).hexdigest(),
+                    }
+                    if is_chat
+                    else {}
+                ),
             },
             payload=messaging.APNSPayload(
                 aps=messaging.Aps(
                     alert=messaging.ApsAlert(title=title, body=body),
                     sound=(ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND if is_sms_emergency else "default"),
-                    badge=1,
+                    badge=None if is_chat else 1,
+                    mutable_content=True if is_chat else None,
                     category=(
                         ONE_LOCATION_SMS_EMERGENCY_CATEGORY
                         if is_sms_emergency
@@ -167,7 +201,11 @@ def build_push_message(
                             else None
                         )
                     ),
-                    thread_id=notification_tag,
+                    thread_id=(
+                        data.get("conversation_id") or data.get("circle_id") or notification_tag
+                    )
+                    if is_chat
+                    else notification_tag,
                 ),
                 **message_data,
             ),

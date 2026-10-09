@@ -232,6 +232,8 @@ class EmailChatService:
         timezone: str = "UTC",
         receipt_memory: object | None = None,
         receipt_cursor: str | None = None,
+        read_offer: dict[str, Any] | None = None,
+        require_explicit_latest: bool = False,
     ) -> dict[str, Any]:
         """Read Mail for One without creating or writing a second conversation.
 
@@ -252,6 +254,8 @@ class EmailChatService:
             receipt_memory=receipt_memory,
             receipt_cursor=receipt_cursor,
             receipt_reads=True,
+            read_offer=read_offer,
+            require_explicit_latest=require_explicit_latest,
         )
 
     async def _run_adk_tool_loop(

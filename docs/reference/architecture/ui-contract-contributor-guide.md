@@ -127,14 +127,19 @@ Freshness evidence lives in immutable, content-addressed JSON receipts under
 `hushh-webapp/contracts/ui-review/{back,search}/<source-revision>.json`, not in
 authored route/action contracts or runtime gateway metadata. Back still hashes
 the full UI source set and authored route cases; Search still hashes the complete
-route import graph. Validation requires the exact receipt for the current sources,
-checks its contents, and never creates or repairs it. Existing history-bypass,
+route import graph. Relevant source changes require the exact receipt for the current
+sources. An unrelated PR may inherit its target branch's evidence when none of the
+owner's sources, authored contracts or validator inputs changed against that base.
+CI pins the PR/merge-group base SHA; local checks use an ancestor `origin/main`.
+Missing history, invalid bases, deleted/new UI modules and changed imported information
+fail closed. Validation never creates or repairs evidence. Existing history-bypass,
 route coverage, action/control coverage and behavior checks remain mandatory.
 
 Independent branches add different receipt files, so source-only reviews no longer
 rewrite a shared stamp across every contract and generated mirror. Preserve both
-branches' receipts during merges. A combined source revision requires a fresh
-review/build receipt even when each parent passed. Historical receipts do not
+branches' receipts during merges. A combined source revision with relevant PR changes
+requires a fresh review/build receipt even when each parent passed. An asset/docs-only
+PR does not need to repair main's combined review receipt. Historical receipts do not
 authorize different sources. Real overlapping authored edits can still conflict;
 reconcile those semantically. Do not use a Git merge driver to silently choose a
 side, auto-stamp during verification, or treat receipts as proof of action meaning.

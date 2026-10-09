@@ -14,7 +14,6 @@ from hushh_mcp.services.drive_permission_executor import recipient_identity_for_
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_service import (
-    LiveSearchPlan,
     interpret_live_search,
     plan_live_search,
 )
@@ -40,7 +39,48 @@ _TOPIC_NEAR_DOCUMENT = re.compile(
     re.I,
 )
 _GENERIC_TOPIC = frozenset(
-    {"all", "any", "my", "the", "some", "these", "those", "recent", "latest"}
+    {
+        "all",
+        "any",
+        "my",
+        "the",
+        "some",
+        "these",
+        "those",
+        "recent",
+        "latest",
+        # Count words next to "documents" are not a topic requirement. The
+        # planner still owns the number; this validator never derives one.
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+        "thirty",
+        "forty",
+        "fifty",
+        "sixty",
+        "seventy",
+        "eighty",
+        "ninety",
+        "hundred",
+        "thousand",
+    }
 )
 
 
@@ -79,13 +119,9 @@ class DriveRequestBulkService:
 
     async def _plan(self, *, user_id, purpose, timezone, requested_at=None):
         query = purpose["purpose"]
-        # A direct recurring standup request is unambiguously topical. The
-        # broad Drive token includes notes under variant meeting titles and
-        # shortcuts; time is checked across title/created/modified metadata.
-        if re.search(r"\bstand[ -]?up\b", query, re.I) and re.search(r"\bnotes?\b", query, re.I):
-            return LiveSearchPlan(terms=["standup"], file_kind="document", mode="find")
         prompt = {
             "document_request": purpose,
+            "transaction_search": True,
             "current_time_utc": (
                 requested_at if isinstance(requested_at, datetime) else datetime.now(UTC)
             )

@@ -108,6 +108,7 @@ export type ToolResultFamily =
   | "sos"
   | "mail"
   | "scheduled_mail"
+  | "calendar"
   | "generic";
 
 const PEOPLE_TOOLS = new Set([
@@ -172,6 +173,7 @@ const MAIL_TOOLS = new Set(["read_mail", "list_drafts"]);
 const DRAFT_LIST_TOOL = "list_drafts";
 /** Scheduled emails that have not sent yet. Read-only rows; cancel is by voice. */
 const SCHEDULED_MAIL_TOOLS = new Set(["list_scheduled_mail"]);
+const CALENDAR_READ_TOOLS = new Set(["read_calendar"]);
 const SOS_TOOLS = new Set<string>([
   SOS_TRIGGER_TOOL,
   SOS_REPORT_TOOL,
@@ -209,6 +211,7 @@ export function toolResultFamily(
   // which every family shares, so a status fallback would mis-family others.
   if (MAIL_TOOLS.has(name)) return "mail";
   if (SCHEDULED_MAIL_TOOLS.has(name)) return "scheduled_mail";
+  if (CALENDAR_READ_TOOLS.has(name)) return "calendar";
   return "generic";
 }
 
@@ -1507,6 +1510,116 @@ function ScheduledMailDetail({ result }: { result: ToolResultPublic }) {
   );
 }
 
+function calendarWhen(value: unknown, timeZone: string | null): string | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Row;
+  const date = text(row.date);
+  if (date) return date;
+  const dateTime = text(row.dateTime);
+  if (!dateTime) return null;
+  const instant = new Date(dateTime);
+  if (!Number.isFinite(instant.getTime())) return dateTime;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      ...(timeZone ? { timeZone } : {}),
+    }).format(instant);
+  } catch {
+    return dateTime;
+  }
+}
+
+/** Google text stays in the owner's screen card, never in operational speech. */
+function CalendarReadDetail({ result }: { result: ToolResultPublic }) {
+  if (result.status !== "ok") return null;
+  const operation = text(result.operation);
+  const timeZone = text(result.time_zone);
+  const event = result.event && typeof result.event === "object"
+    ? result.event as Row
+    : null;
+  const items = operation === "calendars"
+    ? rows(result.calendars)
+    : operation === "event"
+      ? event ? [event] : []
+      : operation === "events"
+        ? rows(result.events)
+        : operation === "freebusy"
+          ? rows(result.busy)
+          : operation === "openings"
+            ? rows(result.openings)
+            : [];
+  if (items.length === 0) {
+    return (
+      <p
+        data-testid="one-voice-calendar-empty"
+        className="mt-2 text-[13px] text-[color:var(--app-secondary-label)]"
+      >
+        No matching {operation === "calendars" ? "calendars" : operation === "openings" ? "openings" : operation === "freebusy" ? "busy periods" : "events"}
+      </p>
+    );
+  }
+  const listLabel = operation === "calendars"
+    ? "Calendars"
+    : operation === "openings"
+      ? "Available openings"
+      : operation === "freebusy"
+        ? "Busy periods"
+        : "Calendar events";
+  return (
+    <div className="mt-2" data-testid="one-voice-calendar-detail">
+      <ul className="flex flex-col gap-0.5" aria-label={listLabel}>
+        {items.map((row, index) => {
+          const title = operation === "calendars"
+            ? text(row.name) ?? "Unnamed calendar"
+            : operation === "freebusy"
+              ? "Busy"
+              : operation === "openings"
+                ? "Available"
+                : text(row.title) ?? "Untitled event";
+          const start = calendarWhen(
+            operation === "openings" ? { dateTime: row.start_at } : row.start,
+            timeZone,
+          );
+          const end = calendarWhen(
+            operation === "openings" ? { dateTime: row.end_at } : row.end,
+            timeZone,
+          );
+          const when = [start, end].filter(Boolean).join(" – ");
+          const location = operation === "event" ? text(row.location) : null;
+          const description = operation === "event" ? text(row.description) : null;
+          return (
+            <li key={index} className="flex min-h-11 flex-col justify-center gap-0.5 py-1">
+              <div className="flex items-baseline gap-2">
+                {operation === "events" || operation === "calendars" ? (
+                  <span className="shrink-0 text-[12px] tabular-nums text-[color:var(--app-secondary-label)]">
+                    {index + 1}.
+                  </span>
+                ) : null}
+                <span className="min-w-0 flex-1 break-words text-[13px] font-medium text-[color:var(--app-label)]">
+                  {title}
+                </span>
+              </div>
+              {when ? <span className="text-[12px] text-[color:var(--app-secondary-label)]">{when}</span> : null}
+              {location ? <span className="text-[12px] text-[color:var(--app-secondary-label)]">{location}</span> : null}
+              {description ? (
+                <p className="whitespace-pre-wrap break-words text-[13px] leading-5 text-[color:var(--app-label)]">
+                  {description}
+                </p>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {result.truncated === true ? (
+        <p className="mt-2 text-[12px] text-[color:var(--app-secondary-label)]">
+          More results exist. Ask for a narrower time or search.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Keeps a mail detail that fails to render from taking the panel with it.
  *
@@ -1592,6 +1705,8 @@ function Detail({
           <ScheduledMailDetail result={result} />
         </MailDetailBoundary>
       );
+    case "calendar":
+      return <CalendarReadDetail result={result} />;
     default:
       return null;
   }
@@ -1648,7 +1763,7 @@ export function ToolResultCard({
   const headline =
     family === "sos"
       ? (sosHeadline(result.status, tone) ?? genericHeadline)
-      : (family === "mail" || family === "scheduled_mail") && tone !== "failure"
+      : (family === "mail" || family === "scheduled_mail" || family === "calendar") && tone !== "failure"
         ? // A read is not a thing that got "Done". The count line is the headline.
           null
         : (dispatchHeadline ?? genericHeadline);

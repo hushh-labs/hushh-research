@@ -1,5 +1,7 @@
 "use client";
 
+import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -7,11 +9,14 @@ import {
   PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 
-import { AgentDockPortal } from "@/components/agent/agent-dock";
+import { AgentDockPortal, useAgentDockFrame } from "@/components/agent/agent-dock";
+import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
+import { useOptionalVoiceSession } from "@/components/one-voice/voice-session-provider";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
@@ -34,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ArrowLeft,
   Check,
@@ -59,6 +65,7 @@ import {
 import {
   DIRECT_MESSAGE_MAX_LENGTH,
   DirectMessagesService,
+  DirectMessagesServiceRequestError,
   type DirectMessage,
   type DirectMessageConversation,
 } from "@/lib/services/direct-messages-service";
@@ -68,6 +75,10 @@ import {
 import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
+
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { chatReadIsBlocked, subscribeChatLayerChanges } from "@/lib/interaction/chat-read-visibility";
+import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 import styles from "./direct-messages-page.module.css";
 
@@ -156,12 +167,15 @@ function isNewMessageDay(
   return currentDate.toDateString() !== previousDate.toDateString();
 }
 
+function compareMessages(left: DirectMessage, right: DirectMessage): number {
+  const fraction = (value: string) => (value.match(/\.(\d+)/)?.[1] ?? "").padEnd(9, "0");
+  return Date.parse(left.createdAt) - Date.parse(right.createdAt)
+    || fraction(left.createdAt).localeCompare(fraction(right.createdAt))
+    || left.id.localeCompare(right.id);
+}
+
 function sortMessages(items: DirectMessage[]): DirectMessage[] {
-  return [...items].sort((left, right) => {
-    const leftTime = Date.parse(left.createdAt);
-    const rightTime = Date.parse(right.createdAt);
-    return leftTime - rightTime || left.id.localeCompare(right.id);
-  });
+  return [...items].sort(compareMessages);
 }
 
 function mergeMessages(
@@ -221,6 +235,9 @@ function threadFromConversation(
 export function DirectMessagesPage({ selection, resolvingSelection = false }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean } = {}) {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const command = useOptionalLocationCommand();
+  const voiceSession = useOptionalVoiceSession();
+  const agentEngaged = Boolean(command?.active || (command && command.view.phase !== "idle") || (voiceSession && (voiceSession.state.phase !== "idle" || voiceSession.state.error !== null)));
   const requestedPersonRef = selection?.kind === "person" ? selection.ref : "";
   const requestedConversationId = selection?.kind === "conversation" ? selection.ref : "";
   const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
@@ -232,6 +249,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   const [loadingThread, setLoadingThread] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [unconfirmedDraft, setUnconfirmedDraft] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -252,26 +270,87 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   const inboxLoadGeneration = useRef(0);
   const loadedRouteKey = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const pageRef = useRef<HTMLElement | null>(null);
+  const dockFrame = useAgentDockFrame();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const editingInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const editDraftGeneration = useRef(0);
   const messageLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const acknowledgedReadConversations = useRef(new Set<string>());
   const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const messageSearchRef = useRef(messageSearchQuery); messageSearchRef.current = messageSearchQuery;
   const activeConversationId = thread.conversation?.id ?? null;
 
-  useEffect(() => {
-    const currentConversationId = activeConversationId || requestedConversationId;
-    for (const conversationId of acknowledgedReadConversations.current) {
-      if (conversationId !== currentConversationId) {
-        acknowledgedReadConversations.current.delete(conversationId);
-      }
-    }
-  }, [activeConversationId, requestedConversationId]);
+  const routeSelection = `${requestedPersonRef ? "person" : "conversation"}:${requestedPersonRef || requestedConversationId}`;
+  const selectionRef = useRef(routeSelection);
+  const ownerRef = useRef(user?.uid);
+  const selectionGeneration = useRef(0);
+  const replyDrafts = useRef(new Map<string, DirectMessage | null>());
+  const drafts = useRef(new Map<string, string>());
+  const sendAttempts = useRef(new Map<string, { id: string; content: string; replyId?: string; unconfirmed?: boolean }>());
+  const sendingSelections = useRef(new Set<string>());
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const visibleBottom = useRef(false);
+  const atBottomRef = useRef(true);
+  const prependPosition = useRef<{ top: number; height: number } | null>(null);
+  const messagesRef = useRef(messages); messagesRef.current = messages;
+  const reading = useRef(false);
+  const readThrough = useRef<string | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const [readRevision, setReadRevision] = useState(0);
+  const blockingLayer = useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions;
+  const foreground = () => document.visibilityState === "visible" && appInteractionCoordinator.getLifecycleSnapshot().state === "active";
+  const bottomIsUncovered = useCallback(() => {
+    const marker = bottomRef.current?.getBoundingClientRect();
+    const transcript = messageListRef.current?.getBoundingClientRect();
+    if (!marker || !transcript) return false;
+    const dock = dockFrame?.getBoundingClientRect();
+    const visibleEnd = dock && dock.height > 0 ? Math.min(transcript.bottom, dock.top) : transcript.bottom;
+    return marker.top >= transcript.top && marker.bottom <= visibleEnd + 1;
+  }, [dockFrame]);
+
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    if (!page || !dockFrame) return;
+    const publish = () => {
+      page.style.setProperty("--direct-message-dock-height", `${Math.ceil(dockFrame.getBoundingClientRect().height)}px`);
+      setReadRevision((value) => value + 1);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(dockFrame);
+    return () => observer.disconnect();
+  }, [dockFrame]);
+
+  const invalidateSelection = useCallback(() => {
+    selectionGeneration.current++;
+    loadGeneration.current++;
+  }, []);
+
+  useLayoutEffect(() => {
+    ownerRef.current = user?.uid; invalidateSelection();
+    selectionRef.current = routeSelection;
+    readThrough.current = null; reading.current = false; visibleBottom.current = false;
+    atBottomRef.current = true; prependPosition.current = null; setAtBottom(true);
+    const previousAttempt = sendAttempts.current.get(routeSelection);
+    setUnconfirmedDraft(previousAttempt?.unconfirmed ? previousAttempt.content : null);
+    setDraft(drafts.current.get(routeSelection) ?? ""); setSending(sendingSelections.current.has(routeSelection));
+    setReplyingTo(replyDrafts.current.get(routeSelection) ?? null); setEditingMessage(null); setEditingContent(""); setDeleteRequest(null);
+    setMessageActionError(null); setComposerError(null); setOpenMessageMenu(null); setActiveMessageActions(null);
+    setLoadingOlder(false); setMessages([]); setThread(EMPTY_THREAD);
+    return invalidateSelection;
+  }, [invalidateSelection, routeSelection, user?.uid]);
+
+  useLayoutEffect(() => {
+    const input = composerRef.current;
+    if (!input) return;
+    input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 144)}px`;
+  }, [draft, thread.canSend]);
 
   useEffect(() => {
     return () => {
       if (messageLongPressTimer.current) clearTimeout(messageLongPressTimer.current);
+      inboxLoadGeneration.current += 1;
     };
   }, []);
 
@@ -295,6 +374,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   }, [editingMessageId]);
 
   const hasRouteSelection = Boolean(resolvingSelection || requestedPersonRef || requestedConversationId);
+  const canCompose = hasRouteSelection && !resolvingSelection && thread.canSend;
 
   const loadInbox = useCallback(
     async (options?: { preserveItems?: boolean }) => {
@@ -304,14 +384,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
       setInboxError(null);
       try {
         const idToken = await user.getIdToken();
+        if (generation !== inboxLoadGeneration.current) return;
         const inbox = await DirectMessagesService.listConversations({ idToken });
         if (generation !== inboxLoadGeneration.current) return;
         setInboxItems(
-          inbox.items.map((conversation) =>
-            acknowledgedReadConversations.current.has(conversation.id)
-              ? { ...conversation, unreadCount: 0 }
-              : conversation,
-          ),
+          inbox.items,
         );
       } catch {
         if (generation !== inboxLoadGeneration.current) return;
@@ -323,38 +400,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
       }
     },
     [user],
-  );
-
-  const acknowledgeConversationRead = useCallback(
-    (idToken: string, conversationId: string) => {
-      const alreadyAcknowledged = acknowledgedReadConversations.current.has(conversationId);
-      acknowledgedReadConversations.current.add(conversationId);
-      setInboxItems((current) =>
-        current.map((conversation) =>
-          conversation.id === conversationId
-            ? { ...conversation, unreadCount: 0 }
-            : conversation,
-        ),
-      );
-      if (alreadyAcknowledged) return;
-      void DirectMessagesService.markConversationRead({
-        idToken,
-        conversationId,
-      })
-        .then((result) => {
-          if (result.readCount < 1) return;
-          dispatchDirectMessagesUpdated({
-            userId: user?.uid || "",
-            conversationId,
-            messageId: null,
-            source: "read",
-          });
-        })
-        .catch(() => {
-          acknowledgedReadConversations.current.delete(conversationId);
-        });
-    },
-    [user?.uid],
   );
 
   const openOneVoiceChat = useCallback(() => {
@@ -384,6 +429,35 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
       setThreadError(null);
       try {
         const idToken = await user.getIdToken();
+        if (generation !== loadGeneration.current) return;
+        const snapshot = options?.preserveMessages ? messagesRef.current : [];
+        const snapshotIds = new Set(snapshot.map((message) => message.id));
+        let refreshedFrom: DirectMessage | undefined;
+        let refreshedToStart = false;
+        const fetchHistory = async (conversationId: string) => {
+          let history = await DirectMessagesService.getConversationMessages({ idToken, conversationId, limit: 60 });
+          const oldest = snapshot.find((message) => message.conversationId === conversationId);
+          let items = history.items;
+          // Reconcile the window the person already loaded, including rows a
+          // different device edited or deleted. Work is bounded by that window.
+          const pageBudget = Math.ceil(snapshot.length / 60) + 1;
+          for (let page = 1; oldest && history.nextBefore && page < pageBudget; page++) {
+            if (generation !== loadGeneration.current || !items.length || compareMessages(items[0]!, oldest) <= 0) break;
+            history = await DirectMessagesService.getConversationMessages({ idToken, conversationId, before: history.nextBefore, limit: 60 });
+            items = mergeMessages(history.items, items);
+          }
+          refreshedFrom = items[0];
+          refreshedToStart = !history.nextBefore;
+          if (oldest) items = items.filter((message) => compareMessages(message, oldest) >= 0);
+          return { ...history, items };
+        };
+        const reconcileHistory = (current: DirectMessage[], incoming: DirectMessage[]) => {
+          if (!options?.preserveMessages) return sortMessages(incoming);
+          const oldest = snapshot[0];
+          return mergeMessages(current.filter((message) => !snapshotIds.has(message.id)
+            || (oldest && compareMessages(message, oldest) < 0)
+            || (!refreshedToStart && refreshedFrom && compareMessages(message, refreshedFrom) < 0)), incoming);
+        };
         if (requestedPersonRef) {
           const peer = await DirectMessagesService.getConversationWithPerson({
             idToken,
@@ -403,13 +477,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
             setMessages([]);
             return;
           }
-          const history = await DirectMessagesService.getConversationMessages({
-            idToken,
-            conversationId: peer.conversation.id,
-            limit: 60,
-          });
+          const history = await fetchHistory(peer.conversation.id);
           if (generation !== loadGeneration.current) return;
-          setThread(
+          setThread((current) =>
             threadFromConversation(history.conversation, {
               peerPersonRef: peer.peerPersonRef ?? history.conversation.peerPersonRef,
               peerDisplayName:
@@ -417,11 +487,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
               peerPhotoUrl: peer.peerPhotoUrl ?? history.conversation.peerPhotoUrl,
               canSend: history.canSend,
               disconnectedNotice: history.disconnectedNotice,
-              nextBefore: history.nextBefore,
+              nextBefore: options?.preserveMessages && current.conversation?.id === history.conversation.id ? current.nextBefore : history.nextBefore,
             }),
           );
-          setMessages(sortMessages(history.items));
-          acknowledgeConversationRead(idToken, history.conversation.id);
+          setMessages((current) => reconcileHistory(current, history.items));
           return;
         }
 
@@ -431,21 +500,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
           setMessages([]);
           return;
         }
-        const history = await DirectMessagesService.getConversationMessages({
-          idToken,
-          conversationId: requestedConversationId,
-          limit: 60,
-        });
+        const history = await fetchHistory(requestedConversationId);
         if (generation !== loadGeneration.current) return;
-        setThread(
+        setThread((current) =>
           threadFromConversation(history.conversation, {
             canSend: history.canSend,
             disconnectedNotice: history.disconnectedNotice,
-            nextBefore: history.nextBefore,
+            nextBefore: options?.preserveMessages && current.conversation?.id === history.conversation.id ? current.nextBefore : history.nextBefore,
           }),
         );
-        setMessages(sortMessages(history.items));
-        acknowledgeConversationRead(idToken, history.conversation.id);
+        setMessages((current) => reconcileHistory(current, history.items));
       } catch (error) {
         if (generation !== loadGeneration.current) return;
         // A short-lived refresh failure must not replace an already readable
@@ -474,7 +538,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
         if (generation === loadGeneration.current) setLoadingThread(false);
       }
     },
-    [acknowledgeConversationRead, requestedConversationId, requestedPersonRef, user],
+    [requestedConversationId, requestedPersonRef, user],
   );
 
   useEffect(() => {
@@ -508,22 +572,23 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     if (!user?.uid) return;
     return subscribeToDirectMessagesUpdated((detail) => {
       if (detail.userId !== user.uid) return;
-      refresh();
+      if (foreground()) refresh();
     });
   }, [refresh, user?.uid]);
 
   useEffect(() => {
     if (!user?.uid) return;
     const refreshVisible = () => {
-      if (document.visibilityState === "visible") refresh();
+      if (foreground()) refresh();
     };
     window.addEventListener("focus", refreshVisible);
     document.addEventListener("visibilitychange", refreshVisible);
+    const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(refreshVisible);
     const interval = window.setInterval(refreshVisible, 30_000);
     return () => {
       window.removeEventListener("focus", refreshVisible);
       document.removeEventListener("visibilitychange", refreshVisible);
-      window.clearInterval(interval);
+      window.clearInterval(interval); removeLifecycle();
     };
   }, [refresh, user?.uid]);
 
@@ -593,11 +658,70 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     };
   }, [user]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = messageListRef.current;
     if (!node) return;
-    node.scrollTop = node.scrollHeight;
-  }, [activeConversationId, messages.length]);
+    if (prependPosition.current) {
+      node.scrollTop = prependPosition.current.top + node.scrollHeight - prependPosition.current.height;
+      prependPosition.current = null;
+    } else if (atBottomRef.current) node.scrollTop = node.scrollHeight;
+  }, [activeConversationId, messages]);
+
+  useEffect(() => {
+    const node = messageListRef.current;
+    const bottom = bottomRef.current;
+    if (!node || !bottom) return;
+    const resize = new ResizeObserver(() => {
+      if (atBottomRef.current) node.scrollTop = node.scrollHeight;
+    });
+    resize.observe(node);
+    for (const child of Array.from(node.children)) resize.observe(child);
+    const observer = new IntersectionObserver(([entry]) => {
+      visibleBottom.current = Boolean(entry?.isIntersecting);
+      if (entry?.isIntersecting) setReadRevision((value) => value + 1);
+    // Safari rounds scrollTop to pixels while these bounds remain fractional.
+    // The 8px scroll-distance guard below owns the exact read boundary.
+    }, { threshold: 0 });
+    observer.observe(bottom);
+    return () => { resize.disconnect(); observer.disconnect(); };
+  }, [hasRouteSelection, routeSelection, loadingThread]);
+
+  useEffect(() => {
+    const markRead = async () => {
+      const last = messages.at(-1);
+      const node = messageListRef.current;
+      if (messageSearchQuery.trim() || !user || !activeConversationId || !last || loadingThread || reading.current || readThrough.current === last.id
+        || !foreground() || !document.hasFocus() || !atBottomRef.current || !visibleBottom.current || !bottomIsUncovered() || !node || chatReadIsBlocked(node) || node.scrollHeight - node.scrollTop - node.clientHeight > 8) return;
+      const generation = selectionGeneration.current;
+      reading.current = true;
+      try {
+        const idToken = await user.getIdToken();
+        if (generation !== selectionGeneration.current || messageSearchRef.current.trim() || !foreground() || !document.hasFocus()
+            || !atBottomRef.current || !visibleBottom.current || !bottomIsUncovered() || !messageListRef.current
+            || chatReadIsBlocked(messageListRef.current)
+            || messageListRef.current.scrollHeight - messageListRef.current.scrollTop - messageListRef.current.clientHeight > 8) return;
+        await DirectMessagesService.markConversationRead({ idToken, ownerUserId: user.uid, conversationId: activeConversationId, throughMessageId: last.id, throughCreatedAt: last.createdAt });
+        if (generation !== selectionGeneration.current) return;
+        readThrough.current = last.id;
+        setInboxItems((current) => current.map((conversation) => conversation.id === activeConversationId && messagesRef.current.at(-1)?.id === last.id ? { ...conversation, unreadCount: 0 } : conversation));
+        setThread((current) => current.conversation?.id === activeConversationId && messagesRef.current.at(-1)?.id === last.id
+          ? { ...current, conversation: { ...current.conversation, unreadCount: 0 } } : current);
+        dispatchDirectMessagesUpdated({ userId: user.uid, conversationId: activeConversationId, messageId: null, source: "read" });
+      } catch { /* Retain unread state so the next foreground/read event can retry. */ }
+      finally {
+        if (generation === selectionGeneration.current) {
+          reading.current = false;
+          if (readThrough.current === last.id && messagesRef.current.at(-1)?.id !== last.id) setReadRevision((value) => value + 1);
+        }
+      }
+    };
+    void markRead();
+    const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => void markRead());
+    const removeLayers = subscribeChatLayerChanges(() => void markRead());
+    const onFocus = () => void markRead();
+    window.addEventListener("focus", onFocus); document.addEventListener("visibilitychange", onFocus);
+    return () => { removeLifecycle(); removeLayers(); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
+  }, [activeConversationId, loadingThread, messages, readRevision, thread.conversation?.unreadCount, user, blockingLayer, messageSearchQuery, bottomIsUncovered]);
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
@@ -629,14 +753,23 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   };
 
   const backToConnections = () => {
+    replaceMessageHistory(null);
     router.replace(ROUTES.ONE_MESSAGES, { scroll: false });
   };
 
   const sendDraft = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
-    if (!user || sending || !thread.canSend) return;
-    const content = draft;
+    if (!user || sending || !canCompose) return;
+    const content = unconfirmedDraft ?? draft;
+    if (!content.trim() || sendingSelections.current.has(routeSelection)) return;
+    const generation = selectionGeneration.current;
+    const isCurrent = () => generation === selectionGeneration.current && ownerRef.current === user.uid && selectionRef.current === routeSelection;
     const reply = replyingTo;
+    const replyId = unconfirmedDraft ? sendAttempts.current.get(routeSelection)?.replyId : reply?.id;
+    let attempt = sendAttempts.current.get(routeSelection);
+    if (!attempt || attempt.content !== content || attempt.replyId !== replyId) {
+      attempt = { id: crypto.randomUUID(), content, replyId }; sendAttempts.current.set(routeSelection, attempt);
+    }
     const recipientPersonRef = thread.peerPersonRef || requestedPersonRef;
     if (!recipientPersonRef) {
       morphyToast.error("This recipient is no longer available for messaging.");
@@ -644,16 +777,25 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     }
     setComposerError(null);
     setSending(true);
+    sendingSelections.current.add(routeSelection);
     try {
       const idToken = await user.getIdToken();
+      if (!isCurrent()) return;
+      attempt.unconfirmed = true;
       const result = await DirectMessagesService.sendMessage({
         idToken,
         content,
         recipientPersonRef,
-        replyToMessageId: reply?.id,
+        replyToMessageId: replyId,
+        clientMessageId: attempt.id,
       });
-      setDraft("");
+      if (!isCurrent()) return;
+      drafts.current.delete(routeSelection); sendAttempts.current.delete(routeSelection);
+      atBottomRef.current = true; setAtBottom(true);
+      replyDrafts.current.delete(routeSelection);
+      setDraft(""); setUnconfirmedDraft(null);
       setReplyingTo(null);
+      loadGeneration.current += 1;
       setMessages((current) => mergeMessages(current, [result.message]));
       setThread((current) =>
         threadFromConversation(result.conversation, {
@@ -662,6 +804,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
             current.peerDisplayName ?? result.conversation.peerDisplayName,
           peerPhotoUrl: current.peerPhotoUrl ?? result.conversation.peerPhotoUrl,
           canSend: true,
+          nextBefore: current.nextBefore,
         }),
       );
       setInboxItems((current) => {
@@ -676,7 +819,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
         messageId: result.message.id,
         source: "send",
       });
-    } catch {
+    } catch (error) {
+      const definiteRefusal = error instanceof DirectMessagesServiceRequestError && [400, 401, 403, 404, 409, 413, 422, 429].includes(error.status);
+      if (definiteRefusal) sendAttempts.current.delete(routeSelection);
+      if (!isCurrent()) return;
+      setUnconfirmedDraft(definiteRefusal ? null : content);
       setDraft(content);
       setComposerError(
         reply
@@ -687,7 +834,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
       // leaving a stale connected composer visible.
       void loadThread({ preserveMessages: true });
     } finally {
-      setSending(false);
+      sendingSelections.current.delete(routeSelection);
+      if (selectionRef.current === routeSelection && ownerRef.current === user.uid) setSending(false);
     }
   };
 
@@ -695,6 +843,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     const conversationId = thread.conversation?.id;
     const before = thread.nextBefore;
     if (!user || !conversationId || !before || loadingOlder) return;
+    const generation = selectionGeneration.current;
     setLoadingOlder(true);
     try {
       const idToken = await user.getIdToken();
@@ -704,6 +853,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
         before,
         limit: 60,
       });
+      if (generation !== selectionGeneration.current) return;
+      const node = messageListRef.current;
+      if (node) prependPosition.current = { top: node.scrollTop, height: node.scrollHeight };
       setMessages((current) => mergeMessages(history.items, current));
       setThread(
         threadFromConversation(history.conversation, {
@@ -713,9 +865,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
         }),
       );
     } catch {
+      if (generation !== selectionGeneration.current) return;
       morphyToast.error("Older messages could not be loaded. Try again.");
     } finally {
-      setLoadingOlder(false);
+      if (generation === selectionGeneration.current) setLoadingOlder(false);
     }
   };
 
@@ -729,11 +882,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     setOpenMessageMenu(null);
     setActiveMessageActions(null);
     setComposerError(null);
+    replyDrafts.current.set(routeSelection, message);
     setReplyingTo(message);
     requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   const startEditing = (message: DirectMessage) => {
+    editDraftGeneration.current += 1;
     setOpenMessageMenu(null);
     setActiveMessageActions(null);
     setMessageActionError(null);
@@ -765,44 +920,57 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   const saveEdit = () => {
     if (!user || !editingMessage || !editingContent.trim()) return;
     const message = editingMessage;
+    const draftGeneration = editDraftGeneration.current;
+    const generation = selectionGeneration.current;
     void (async () => {
       try {
         const idToken = await user.getIdToken();
+        if (generation !== selectionGeneration.current) return;
         const updated = await DirectMessagesService.editMessage({
           idToken,
           conversationId: message.conversationId,
           messageId: message.id,
           content: editingContent,
         });
+        if (generation !== selectionGeneration.current) return;
+        loadGeneration.current += 1;
         replaceMessage(updated);
+        if (draftGeneration !== editDraftGeneration.current) return;
         setMessageActionError(null);
         setActiveMessageActions(null);
         setEditingMessage(null);
         setEditingContent("");
       } catch {
+        if (generation !== selectionGeneration.current || draftGeneration !== editDraftGeneration.current) return;
         setMessageActionError({
           messageId: message.id,
           message: "Couldn’t update this message. Try again.",
         });
+        morphyToast.error("Couldn’t update this message. Try again.");
       }
     })();
   };
 
   const saveReaction = (message: DirectMessage, emoji: string) => {
     if (!user) return;
+    const generation = selectionGeneration.current;
     void (async () => {
       try {
         const idToken = await user.getIdToken();
+        if (generation !== selectionGeneration.current) return;
         const updated = await DirectMessagesService.reactToMessage({
           idToken,
           conversationId: message.conversationId,
           messageId: message.id,
           emoji,
         });
+        if (generation !== selectionGeneration.current) return;
+        loadGeneration.current += 1;
         replaceMessage(updated);
         setMessageActionError(null);
         setActiveMessageActions(null);
       } catch {
+        if (generation !== selectionGeneration.current) return;
         setMessageActionError({
           messageId: message.id,
           message: "Couldn’t add that reaction. Try again.",
@@ -814,21 +982,26 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   const confirmDelete = () => {
     if (!user || !deleteRequest) return;
     const { message, scope } = deleteRequest;
+    const generation = selectionGeneration.current;
     void (async () => {
       try {
         const idToken = await user.getIdToken();
+        if (generation !== selectionGeneration.current) return;
         const result = await DirectMessagesService.deleteMessage({
           idToken,
           conversationId: message.conversationId,
           messageId: message.id,
           scope,
         });
+        if (generation !== selectionGeneration.current) return;
+        loadGeneration.current += 1;
         if (result.message) replaceMessage(result.message);
         else setMessages((current) => current.filter((item) => item.id !== message.id));
         setMessageActionError(null);
         setDeleteRequest(null);
         setActiveMessageActions(null);
       } catch {
+        if (generation !== selectionGeneration.current) return;
         setDeleteRequest(null);
         setMessageActionError({
           messageId: message.id,
@@ -856,6 +1029,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   return (
     <AppPageShell width="expanded" fitContent={false} className={styles.shell}>
       <section
+        ref={pageRef}
         className={styles.page}
         data-one-chat-surface
         data-direct-message-page="true"
@@ -865,9 +1039,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
       >
         <aside className={styles.inbox} aria-label="Conversations">
           <header className={styles.inboxHeader}>
-            <div>
-              <h1>Chats</h1>
-              <p>{inboxItems.length} {inboxItems.length === 1 ? "conversation" : "conversations"}</p>
+            <div className={styles.inboxHeading}>
+              <Link href={ROUTES.HOME} className={styles.refreshButton} aria-label="Back to Home">
+                <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+              </Link>
+              <h1>Chat</h1>
             </div>
             <button
               type="button"
@@ -953,7 +1129,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                     <time dateTime={lastMessageAt || undefined}>
                       {formatConversationTime(lastMessageAt)}
                     </time>
-                    {conversation.unreadCount > 0 && !active ? (
+                    {conversation.unreadCount > 0 ? (
                       <span className={styles.unreadCount} aria-label={`${conversation.unreadCount} unread`}>
                         {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
                       </span>
@@ -979,7 +1155,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                   <button
                     type="button"
                     className={styles.backButton}
-                    aria-label="Back to connections"
+                    aria-label="Back to messages"
                     onClick={backToConnections}
                   >
                     <ArrowLeft className="h-6 w-6" aria-hidden="true" />
@@ -1046,8 +1222,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                       type="button"
                       className={styles.headerAction}
                       aria-label="Start voice call"
-                      title="Open voice chat"
-                      onClick={openOneVoiceChat}
+                      title="Calls are not available yet"
+                      onClick={() => morphyToast.info("Calls are not available yet.")}
                     >
                       <PhoneCall className="h-4 w-4" aria-hidden="true" />
                     </button>
@@ -1059,6 +1235,12 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                 className={styles.messageList}
                 ref={messageListRef}
                 data-testid="direct-message-list"
+                role="log"
+                aria-live={atBottom && foreground() ? "polite" : "off"}
+                onScroll={(event) => {
+                  const node = event.currentTarget; const next = node.scrollHeight - node.scrollTop - node.clientHeight <= 8;
+                  atBottomRef.current = next; setAtBottom(next); if (next) setReadRevision((value) => value + 1);
+                }}
                 aria-label={`${selectedLabel} message feed`}
               >
                 {loadingThread && messages.length === 0 ? (
@@ -1123,11 +1305,20 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                           "flex w-full items-end gap-2",
                           message.senderIsViewer ? "justify-end" : "justify-start",
                         )}
+                        data-chat-message={message.id}
                         data-message-role={message.senderIsViewer ? "user" : "peer"}
                         data-message-sent-at={message.createdAt}
                         data-actions-visible={
                           activeMessageActions === message.id ? "true" : undefined
                         }
+                        onPointerEnter={(event) => {
+                          if (event.pointerType === "mouse" && !openMessageMenu) {
+                            setActiveMessageActions(message.id);
+                          }
+                        }}
+                        onFocusCapture={() => {
+                          if (!openMessageMenu) setActiveMessageActions(message.id);
+                        }}
                         onPointerDown={(event) => handleMessagePointerDown(event, message)}
                         onPointerUp={clearMessageLongPress}
                         onPointerCancel={clearMessageLongPress}
@@ -1161,45 +1352,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                                   !message.senderIsViewer && styles.peerMessageBubble,
                                 )}
                               >
-                                {editingMessage?.id === message.id ? (
-                                  <div className={styles.messageEditForm}>
-                                    <label className="sr-only" htmlFor={`edit-message-${message.id}`}>
-                                      Edit message
-                                    </label>
-                                    <textarea
-                                      id={`edit-message-${message.id}`}
-                                      ref={editingInputRef}
-                                      value={editingContent}
-                                      maxLength={DIRECT_MESSAGE_MAX_LENGTH}
-                                      className={styles.messageEditInput}
-                                      onChange={(event) => setEditingContent(event.target.value)}
-                                      onKeyDown={(event) => {
-                                        if (event.key === "Enter" && !event.shiftKey) {
-                                          event.preventDefault();
-                                          saveEdit();
-                                        }
-                                      }}
-                                    />
-                                    <div className={styles.messageEditActions}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setEditingMessage(null);
-                                          setEditingContent("");
-                                        }}
-                                      >
-                                        Cancel
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={!editingContent.trim()}
-                                        onClick={saveEdit}
-                                      >
-                                        Save
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : message.deletedForEveryoneAt ? (
+                                {message.deletedForEveryoneAt ? (
                                   <p className={styles.deletedMessage}>This message was deleted.</p>
                                 ) : (
                                   <>
@@ -1214,7 +1367,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                                     </p>
                                   </>
                                 )}
-                                {editingMessage?.id !== message.id ? (
                                   <div className={styles.messageBubbleMeta}>
                                     {message.editedAt ? <span>Edited</span> : null}
                                     <span className={styles.messageTimestamp}>
@@ -1239,7 +1391,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                                       </span>
                                     ) : null}
                                   </div>
-                                ) : null}
                               </OneChatBubble>
                               <div className={styles.messageActions} aria-label="Message actions">
                                 {!message.deletedForEveryoneAt ? (
@@ -1340,19 +1491,25 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                     </div>
                   );
                 })}
+                <div ref={bottomRef} className={styles.bottomMarker} />
               </div>
 
-              {!thread.canSend && messages.length > 0 ? (
-                <div className={styles.readOnlyNotice} role="status">
-                  {thread.disconnectedNotice || "You are no longer connected."}
-                </div>
-              ) : null}
-                {thread.canSend ? (
-                  <AgentDockPortal enabled visible>
+                {!atBottom && messages.length > 0 ? <button type="button" className={styles.latestControl} onClick={() => {
+                  atBottomRef.current = true; setAtBottom(true); if (messageListRef.current) messageListRef.current.scrollTop = messageListRef.current.scrollHeight; setReadRevision((value) => value + 1);
+                }}>Go to latest messages</button> : null}
+            </>
+          ) : null}
+                  <AgentDockPortal enabled visible={hasRouteSelection || !agentEngaged}>
                   <form
                     className={styles.composer}
+                    data-direct-message-inbox-composer={!hasRouteSelection || undefined}
                     onSubmit={(event) => void sendDraft(event)}
                   >
+                    {hasRouteSelection && !thread.canSend && messages.length > 0 ? (
+                      <div className={styles.readOnlyNotice} role="status">
+                        {thread.disconnectedNotice || "You are no longer connected."}
+                      </div>
+                    ) : null}
                     {replyingTo ? (
                       <div className={styles.composerReplyPreview}>
                         <div>
@@ -1362,14 +1519,15 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                         <button
                           type="button"
                           aria-label="Cancel reply"
-                          onClick={() => setReplyingTo(null)}
+                          disabled={sending || Boolean(unconfirmedDraft)}
+                          onClick={() => { replyDrafts.current.delete(routeSelection); setReplyingTo(null); }}
                         >
                           ×
                         </button>
                       </div>
                     ) : null}
                     <label className="sr-only" htmlFor="direct-message-draft">
-                      Message {selectedLabel}
+                      {hasRouteSelection ? `Message ${selectedLabel}` : "Message"}
                     </label>
                     <textarea
                       id="direct-message-draft"
@@ -1377,11 +1535,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                       value={draft}
                       onChange={(event) => {
                         setComposerError(null);
+                        drafts.current.set(routeSelection, event.target.value);
                         setDraft(event.target.value);
                       }}
-                      placeholder={`Message ${selectedLabel}`}
+                      placeholder={hasRouteSelection ? `Message ${selectedLabel}` : "Message"}
                       maxLength={DIRECT_MESSAGE_MAX_LENGTH}
-                      disabled={sending}
+                      disabled={!canCompose}
+                      readOnly={sending || Boolean(unconfirmedDraft)}
                       rows={1}
                       className={styles.composerInput}
                       data-direct-message-composer-input="true"
@@ -1395,7 +1555,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                         if (
                           event.key !== "Enter" ||
                           event.shiftKey ||
-                          event.nativeEvent.isComposing
+                          event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || window.matchMedia("(pointer: coarse)").matches
                         ) {
                           return;
                         }
@@ -1404,9 +1564,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                       }}
                     />
                     <DirectMessageEmojiPicker
-                      disabled={sending}
+                      disabled={sending || !canCompose || Boolean(unconfirmedDraft)}
                       onEmojiSelect={(emoji) =>
-                        setDraft((current) => `${current}${emoji}`)
+                        setDraft((current) => { const next = `${current}${emoji}`; drafts.current.set(routeSelection, next); return next; })
                       }
                     />
                     <div className={styles.composerActions}>
@@ -1421,8 +1581,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                       <button
                         type="submit"
                         className={styles.sendButton}
-                        disabled={sending || !draft.trim()}
-                        aria-label="Send message"
+                        disabled={sending || !canCompose || !draft.trim()}
+                        aria-label={unconfirmedDraft ? "Retry" : "Send message"}
                       >
                         {sending ? (
                           <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />
@@ -1441,9 +1601,30 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                     ) : null}
                   </form>
                   </AgentDockPortal>
-                ) : null}
-            </>
-          ) : null}
+              <Dialog modal open={Boolean(editingMessage)} onOpenChange={(open) => {
+                if (!open) { editDraftGeneration.current += 1; setEditingMessage(null); setEditingContent(""); }
+              }}>
+                <DialogContent className={styles.editDialog} srDescription="Update the text of your message.">
+                  <DialogHeader><DialogTitle>Edit message</DialogTitle></DialogHeader>
+                  <label className="sr-only" htmlFor="message-edit-text">Edit message</label>
+                  <div className={styles.expandedMessageEditor}>
+                  <textarea id="message-edit-text" ref={editingInputRef}
+                    value={editingContent} maxLength={DIRECT_MESSAGE_MAX_LENGTH}
+                    className={styles.messageEditInput}
+                    onChange={(event) => { editDraftGeneration.current += 1; setEditingContent(event.target.value); }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && !window.matchMedia("(pointer: coarse)").matches) {
+                        event.preventDefault();
+                        saveEdit();
+                      }
+                    }} />
+                  <div className={styles.messageEditActions}>
+                    <Button onClick={() => { editDraftGeneration.current += 1; setEditingMessage(null); setEditingContent(""); }}>Cancel</Button>
+                    <Button variant="blue-gradient" disabled={!editingContent.trim()} onClick={saveEdit}>Save</Button>
+                  </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
               <AlertDialog
                 open={Boolean(deleteRequest)}
                 onOpenChange={(open) => {

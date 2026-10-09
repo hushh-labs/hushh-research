@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from typing import AsyncGenerator
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -48,6 +49,7 @@ class SendDirectMessageBody(_CamelModel):
         max_length=64,
     )
     content: str = Field(..., min_length=1, max_length=MAX_DIRECT_MESSAGE_LENGTH)
+    client_message_id: UUID | None = Field(default=None, alias="clientMessageId")
     reply_to_message_id: str | None = Field(
         default=None,
         alias="replyToMessageId",
@@ -176,6 +178,11 @@ async def send_direct_message(
             recipient_user_id=payload.recipient_user_id,
             recipient_person_ref=payload.recipient_person_ref,
             reply_to_message_id=payload.reply_to_message_id,
+            **(
+                {"client_message_id": str(payload.client_message_id)}
+                if payload.client_message_id
+                else {}
+            ),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -239,6 +246,7 @@ async def list_conversation_messages(
 @router.post("/conversations/{conversation_id}/read")
 async def mark_conversation_read(
     conversation_id: str = Path(..., min_length=1, max_length=64),
+    through_message_id: UUID | None = Query(default=None, alias="throughMessageId"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -246,6 +254,7 @@ async def mark_conversation_read(
             _service().mark_as_read,
             firebase_uid,
             conversation_id,
+            **({"through_message_id": str(through_message_id)} if through_message_id else {}),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

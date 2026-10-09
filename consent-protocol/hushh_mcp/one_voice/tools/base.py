@@ -292,6 +292,29 @@ class OfferedMail(BaseModel):
     revision: int = 0
 
 
+class OfferedCalendarEvents(BaseModel):
+    """Opaque event positions from the latest Calendar card, bound to its grant.
+
+    Persist no event text: the model sees only a count and cannot invent an id.
+    A reconnect or grant revision change invalidates the list before detail reads.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    event_ids: list[str] = Field(default_factory=list, max_length=10)
+    calendar_id: str = "primary"
+    grant_binding: tuple[str, ...] = ()
+    offered_at: str | None = None
+
+
+class OfferedCalendarList(BaseModel):
+    """Opaque calendar positions from the latest visible Calendar list."""
+
+    model_config = ConfigDict(extra="forbid")
+    calendar_ids: list[str] = Field(default_factory=list, max_length=20)
+    grant_binding: tuple[str, ...] = ()
+    offered_at: str | None = None
+
+
 class OfferedScheduledMail(BaseModel):
     """The scheduled sends One last listed, in the order the person saw them.
 
@@ -409,6 +432,8 @@ class EntityContext(BaseModel):
     # The messages the last mail read showed, so a spoken position resolves to
     # the message it named rather than to whatever a fresh search returns now.
     offered_mail: OfferedMail | None = None
+    offered_calendar_events: OfferedCalendarEvents | None = None
+    offered_calendars: OfferedCalendarList | None = None
     # When that offer is the one message read by its position, the position it
     # had in the list it was read from. Top level, not inside OfferedMail, so a
     # server that predates it drops the key instead of the whole context.
@@ -526,6 +551,10 @@ class EntityContext(BaseModel):
         if self.offered_mail is not None and not self.offered_mail_is_fresh():
             self.offered_mail = None
             self.offered_mail_selected_ordinal = None
+        if self.offered_calendar_events is not None and not self.calendar_offer_is_fresh():
+            self.offered_calendar_events = None
+        if self.offered_calendars is not None and not self.calendar_list_is_fresh():
+            self.offered_calendars = None
         if self.offered_scheduled_mail is not None and not self.offered_scheduled_mail_is_fresh():
             self.offered_scheduled_mail = None
         now = self._now().timestamp()
@@ -536,6 +565,47 @@ class EntityContext(BaseModel):
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
         self.last_person_user_id = person.user_id
+
+    def offer_calendar_events(
+        self, event_ids: list[str], *, calendar_id: str, grant_binding: tuple[str, ...]
+    ) -> None:
+        self.offered_calendar_events = OfferedCalendarEvents(
+            event_ids=list(event_ids)[:10],
+            calendar_id=calendar_id,
+            grant_binding=grant_binding,
+            offered_at=self._now().isoformat(),
+        )
+
+    def calendar_offer_is_fresh(self) -> bool:
+        offer = self.offered_calendar_events
+        if offer is None or not offer.event_ids or not offer.grant_binding or not offer.offered_at:
+            return False
+        return self._calendar_offer_age_is_fresh(offer.offered_at)
+
+    def offer_calendars(self, calendar_ids: list[str], *, grant_binding: tuple[str, ...]) -> None:
+        self.offered_calendars = OfferedCalendarList(
+            calendar_ids=list(calendar_ids)[:20],
+            grant_binding=grant_binding,
+            offered_at=self._now().isoformat(),
+        )
+
+    def calendar_list_is_fresh(self) -> bool:
+        offer = self.offered_calendars
+        if (
+            offer is None
+            or not offer.calendar_ids
+            or not offer.grant_binding
+            or not offer.offered_at
+        ):
+            return False
+        return self._calendar_offer_age_is_fresh(offer.offered_at)
+
+    def _calendar_offer_age_is_fresh(self, offered_at: str) -> bool:
+        try:
+            age = self._now().timestamp() - datetime.fromisoformat(offered_at).timestamp()
+        except (TypeError, ValueError):
+            return False
+        return 0 <= age <= OFFER_TTL_SECONDS
 
     def offer_mail(
         self,

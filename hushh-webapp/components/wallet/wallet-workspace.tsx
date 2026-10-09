@@ -33,7 +33,7 @@ import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { WalletSavedCardDetails } from "./wallet-saved-card-details";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
@@ -494,32 +494,6 @@ export function WalletWorkspace() {
     setSearchOpen(false);
   };
 
-  const revealCard = async (cardId: string) => {
-    const context = vaultContext();
-    if (!context) {
-      dispatch({ type: "vault_unavailable" });
-      return;
-    }
-    dispatch({ type: "focus", cardId });
-    setBusyCardId(cardId);
-    try {
-      const full = await WalletService.getCard({ ...context, cardId });
-      if (full && activeOwnerIdRef.current === context.userId && vaultContextRef.current()?.vaultKey === context.vaultKey) {
-        dispatch({
-          type: "revealed",
-          cardId,
-          summary: full.summary,
-          secrets: full.secrets,
-          vaultUnlocked: vaultContextRef.current() !== null,
-        });
-      }
-    } catch {
-      morphyToast.error("This card could not be opened.");
-    } finally {
-      setBusyCardId(null);
-    }
-  };
-
   const removeCard = async (cardId: string) => {
     const context = vaultContext();
     if (!context) return;
@@ -614,31 +588,8 @@ export function WalletWorkspace() {
       className="motion-step-enter [animation-delay:var(--motion-duration-sm)]"
       data-testid="one-wallet-card-actions"
     >
-      <FlowActionGroup
-        stacked
-        primary={
-          <Button
-            size="standard"
-            isLoading={busyCardId === focusedCard.cardId}
-            onClick={() => void revealCard(focusedCard.cardId)}
-            data-testid={`one-wallet-reveal-${focusedCard.last4}`}
-          >
-            Show card details
-          </Button>
-        }
-        tertiary={
-          <Button
-            variant="ghost"
-            size="compact"
-            disabled={busyCardId === focusedCard.cardId}
-            className="text-[color:var(--app-destructive)] hover:bg-[color:color-mix(in_srgb,var(--app-destructive)_10%,transparent)]"
-            onClick={() => setRemoveTarget(focusedCard)}
-            data-testid="one-wallet-remove"
-          >
-            Remove card
-          </Button>
-        }
-      />
+      <WalletSavedCardDetails card={focusedCard} name={cardholderNames[focusedCard.cardId]} />
+
     </div>
   ) : null}
 

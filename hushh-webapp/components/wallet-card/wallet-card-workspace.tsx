@@ -680,7 +680,6 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 headline={draft.headline || card?.headline || ""}
                 organisation={draft.organisation}
                 locationLabel={draft.locationLabel}
-                avatarUrl={avatarUrl}
                 shareUrl={shareLink?.shareUrl ?? null}
               />
             </div>

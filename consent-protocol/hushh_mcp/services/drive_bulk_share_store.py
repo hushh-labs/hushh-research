@@ -682,6 +682,20 @@ class DriveBulkShareStore(DriveLivePreferences):
             )
             if source is None:
                 raise DriveSharingError("search_not_found")
+            checkpoint = self._open(
+                source["checkpoint_envelope"],
+                user_id=user_id,
+                resource_id=search,
+                purpose="owner-search-checkpoint",
+            )
+            # A bounded newest-N request is one global selection across all
+            # corpora. Intermediate positions may change during final ranking;
+            # neither owner review nor automatic checkout can freeze them.
+            if checkpoint.get("request_result_limit") is not None and (
+                source["status"] != "completed"
+                or checkpoint.get("request_results_finalized") is not True
+            ):
+                raise DriveSharingError("search_in_progress")
             if not progressive and source["status"] in {"queued", "running"}:
                 raise DriveSharingError("search_in_progress")
             if (
@@ -731,12 +745,6 @@ class DriveBulkShareStore(DriveLivePreferences):
             if not 1 <= source["matched"] <= 10000:
                 raise DriveSharingError("invalid_argument")
             if progressive:
-                checkpoint = self._open(
-                    source["checkpoint_envelope"],
-                    user_id=user_id,
-                    resource_id=search,
-                    purpose="owner-search-checkpoint",
-                )
                 if (
                     checkpoint.get("request_origin_id") != origin
                     or checkpoint.get("request_revision") != request_row["revision"]
@@ -1141,6 +1149,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                 resource_id=str(source["job_id"]),
                 purpose="owner-search-checkpoint",
             )
+            if checkpoint.get("request_result_limit") is not None and (
+                source["status"] != "completed"
+                or checkpoint.get("request_results_finalized") is not True
+            ):
+                return []
             if (
                 checkpoint.get("request_origin_id") != request
                 or checkpoint.get("request_revision") != origin["revision"]

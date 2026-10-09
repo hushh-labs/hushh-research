@@ -23,6 +23,52 @@ import type { ToolResultPublic } from "@/lib/one-voice/protocol";
 afterEach(() => cleanup());
 
 describe("ToolResultCard", () => {
+  it("shows Calendar reads only on the owner's card with ordered, ID-free details", () => {
+    expect(toolResultFamily("read_calendar", "ok")).toBe("calendar");
+    const { rerender } = render(
+      <ToolResultCard
+        tool="read_calendar"
+        ok
+        result={{
+          status: "ok",
+          operation: "events",
+          returned_count: 2,
+          truncated: true,
+          spoken_facts: ["I found 2 events. Their details are on screen."],
+          events: [
+            { id: "google-secret-1", title: "Planning", start: { dateTime: "2026-10-09T09:00:00Z" }, end: { dateTime: "2026-10-09T09:30:00Z" } },
+            { id: "google-secret-2", title: "Review", start: { date: "2026-10-10" }, end: { date: "2026-10-11" } },
+          ],
+        }}
+      />,
+    );
+    const card = screen.getByTestId("one-voice-tool-result");
+    const list = screen.getByRole("list", { name: "Calendar events" });
+    expect(list.querySelectorAll("li")).toHaveLength(2);
+    expect(list).toHaveTextContent("Planning");
+    expect(list).toHaveTextContent("Review");
+    expect(card).toHaveTextContent("More results exist");
+    expect(card).not.toHaveTextContent("google-secret");
+    expect(card).not.toHaveTextContent("Done");
+
+    rerender(
+      <ToolResultCard
+        tool="read_calendar"
+        ok
+        result={{
+          status: "ok",
+          operation: "event",
+          returned_count: 1,
+          spoken_facts: ["I opened that event's details on screen."],
+          event: { id: "google-secret-1", title: "Planning", location: "Conference room", description: "Agenda details" },
+        }}
+      />,
+    );
+    expect(screen.getByText("Agenda details")).toBeInTheDocument();
+    expect(screen.getByText("Conference room")).toBeInTheDocument();
+    expect(card).not.toHaveTextContent("google-secret");
+  });
+
   it("renders spoken_facts as the summary and a Done chip only for ok:true + success status", () => {
     const result: ToolResultPublic = {
       status: "created",

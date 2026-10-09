@@ -239,7 +239,16 @@ async def test_nontrusted_progressive_payment_starts_only_after_owner_approval(
         )
 
 
-def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None, verified=True):
+def _search(
+    bulk,
+    *,
+    request_id,
+    count=525,
+    incomplete=False,
+    shareability=None,
+    verified=True,
+    selection=None,
+):
     job = str(uuid4())
     rows = []
     for position in range(1, count + 1):
@@ -297,6 +306,7 @@ def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None,
                         "request_origin_id": request_id,
                         "request_revision": request_revision,
                         **({"request_shareability_version": 1} if verified else {}),
+                        **(selection or {}),
                     },
                     user_id="owner",
                     resource_id=job,
@@ -312,6 +322,76 @@ def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None,
                 rows,
             )
     return job
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "completed"])
+@pytest.mark.parametrize("progressive", [False, True])
+async def test_bounded_candidates_cannot_be_frozen_or_paid_before_final_ranking(
+    request_bulk, sharing, status, progressive
+):
+    request_id = (await _request(sharing))["requestId"]
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=1,
+        selection={"request_result_limit": 100, "request_order_field": "modifiedTime"},
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
+            {"job": search, "status": status},
+        )
+    assert await request_bulk.unclaimed_positions(user_id="owner", request_id=request_id) == []
+    with pytest.raises(DriveSharingError, match="search_in_progress"):
+        await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=search,
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("recipient", "b@example.invalid")],
+            excluded=[],
+            origin_request_id=request_id,
+            **({"selected_positions": [1]} if progressive else {}),
+        )
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_bulk_shares WHERE origin_request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+
+
+async def test_bounded_final_selection_can_enter_normal_review(request_bulk, sharing):
+    request_id = (await _request(sharing))["requestId"]
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=1,
+        selection={
+            "request_result_limit": 100,
+            "request_order_field": "modifiedTime",
+            "request_results_finalized": True,
+        },
+    )
+    assert await request_bulk.unclaimed_positions(user_id="owner", request_id=request_id) == [1]
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1],
+    )
+    assert review["status"] == "review_ready"
 
 
 @pytest.mark.asyncio

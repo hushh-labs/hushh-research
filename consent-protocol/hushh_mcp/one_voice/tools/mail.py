@@ -906,6 +906,12 @@ async def _send_mail_connection(
 
 
 async def _prepare_send_mail(ctx: ToolContext, args: SendMailInput) -> Prepared | ToolResult:
+    if getattr(ctx.services.get("mail_compose"), "review_supported", False):
+        return _send_mail_rejected(
+            "review_flow_required",
+            "Use the editable Mail review for this email; only your Send tap can deliver it.",
+            stage="prepare",
+        )
     person = ctx.entities.person(args.recipient.user_id)
     if person is None or person.relationship != "connected":
         return _send_mail_rejected(
@@ -943,6 +949,12 @@ async def _prepare_send_mail(ctx: ToolContext, args: SendMailInput) -> Prepared 
 
 
 async def _send_mail(ctx: ToolContext, args: SendMailInput) -> ToolResult:
+    if getattr(ctx.services.get("mail_compose"), "review_supported", False):
+        return _send_mail_rejected(
+            "review_flow_required",
+            "Use the editable Mail review for this email; nothing was sent.",
+            stage="open",
+        )
     person = ctx.entities.person(args.recipient.user_id)
     prepared = ctx.prepared or {}
     if (

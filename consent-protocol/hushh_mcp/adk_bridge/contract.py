@@ -8,7 +8,7 @@ exact shapes over HTTP without touching callers.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -126,6 +126,9 @@ class A2ATask:
     # Neither is authority: the hop re-validates both and reads no mailbox.
     receipt_memory: dict | None = None
     receipt_cursor: str | None = None
+    # Server-authored, owner/conversation-bound Mail selection. It is never a
+    # model argument or a tool response; the Email bridge validates it again.
+    mail_read_offer: dict | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -203,3 +206,5 @@ class SpecialistTurnResult:
     # ``{"action": "set" | "clear" | "keep", "value": str | None}``. The caller
     # decides where it is kept; it never carries the information itself.
     continuation: dict | None = None
+    # Private handback to the encrypted One session, never to the model/result.
+    mail_read_offer: dict | None = field(default=None, repr=False)

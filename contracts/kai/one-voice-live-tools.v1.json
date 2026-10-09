@@ -2183,6 +2183,129 @@
     },
     {
       "circle_args": [],
+      "description": "Read owner Calendar events, offered event detail, calendars, busy time, or openings. Use owner-local windows and shown positions. Screen holds details; model sees counts. No writes.",
+      "firebase_plane": false,
+      "gateway_action_id": "calendar.read",
+      "name": "read_calendar",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "calendar_ordinal": {
+            "anyOf": [
+              {
+                "maximum": 20,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Position in last calendar list; omit for primary.",
+            "title": "Calendar Ordinal"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "maximum": 720,
+                "minimum": 5,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For openings: free slot length in minutes.",
+            "title": "Duration Minutes"
+          },
+          "end_at": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Exclusive ISO-8601 end; no offset means owner-local time.",
+            "title": "End At"
+          },
+          "event_ordinal": {
+            "anyOf": [
+              {
+                "maximum": 10,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For event detail: position in last event list.",
+            "title": "Event Ordinal"
+          },
+          "operation": {
+            "description": "Requested read: events, offered event detail, calendars, busy time, or openings.",
+            "enum": [
+              "events",
+              "event",
+              "calendars",
+              "freebusy",
+              "openings"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional event search words.",
+            "title": "Query"
+          },
+          "start_at": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "ISO-8601 start for window reads; no offset means owner-local time.",
+            "title": "Start At"
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "ok",
+        "rejected"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Answer a question about the person's own mailbox: recent or unread mail, mail from someone, what needs a reply, or what a specific message says. Shows the matching messages and says how many were found. When they refer to mail by its position in the list you last showed them, pass that position as `ordinal` instead of describing it. Reading never marks mail read and never archives, sends or deletes anything.",
       "firebase_plane": false,
       "gateway_action_id": "email.chat.turn",

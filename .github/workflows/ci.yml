@@ -282,6 +282,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -291,6 +293,8 @@ jobs:
         working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
       - run: npm run verify:ui-contracts
         working-directory: hushh-webapp
+        env:
+          UI_CONTRACT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
 
   preflight-gate:
     name: "Preflight Gate"
@@ -360,6 +364,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@v6
         with:

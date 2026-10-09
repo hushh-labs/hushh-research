@@ -10,10 +10,10 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 146,
-    "physical_page_count": 145,
-    "route_contract_count": 146,
-    "surface_map_count": 146,
+    "total_screens": 147,
+    "physical_page_count": 146,
+    "route_contract_count": 147,
+    "surface_map_count": 147,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
@@ -22,7 +22,7 @@
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 2,
-      "PKM-secure": 5,
+      "PKM-secure": 6,
       "public/static": 1
     },
     "pages_missing_route_contract": [],
@@ -4841,7 +4841,7 @@
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
-        "use_stale_resource": false,
+        "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
@@ -4852,9 +4852,7 @@
         "sse_or_streaming": false,
         "native_beacon": true
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/setup",
@@ -5379,6 +5377,57 @@
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": true
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "secure-resource",
+      "cache_keys": [
+        "PKM_DOMAIN_RESOURCE(one_todos)",
+        "Calendar event projection (memory-only)"
+      ],
+      "resource_classes": [
+        "pkm_projection",
+        "calendar_events"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
+      "warm_source": "Vault unlock plus secure resource cache",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Ftodos",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
       },
       "findings": [
         "no local cache primitive detected in page/contract source"
@@ -6552,5 +6601,5 @@
       ]
     }
   ],
-  "content_sha256": "b318cd6bb55e496c4530a8b9c0f7c1af85d845dd0b1cb2b264f163a5c3176345"
+  "content_sha256": "4d2858dfc43354e22b4c78431d65031887d499457ef05a3b1ac56ed9a291f3fe"
 }

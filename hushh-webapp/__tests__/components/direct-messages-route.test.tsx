@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectMessagesRoute } from "@/components/direct-messages/direct-messages-route";
 
@@ -14,7 +14,7 @@ vi.mock("@/components/system/route-suspense-fallback", () => ({ RouteSuspenseFal
 vi.mock("@/components/direct-messages/direct-messages-page", () => ({ DirectMessagesPage: ({ selection }: { selection: { ref: string } | null }) => { mocks.renders.push([mocks.user.uid, selection?.ref || null]); return <div data-testid="messages">{JSON.stringify(selection)}</div>; } }));
 
 describe("DirectMessagesRoute", () => {
-  beforeEach(() => { mocks.query = ""; mocks.replace.mockReset(); mocks.routeSelection.mockReset(); mocks.user.uid = "viewer"; mocks.renders.length = 0; });
+  beforeEach(() => { window.history.replaceState(null, "", "/one/messages"); mocks.query = ""; mocks.replace.mockReset(); mocks.routeSelection.mockReset(); mocks.user.uid = "viewer"; mocks.renders.length = 0; });
   it("restores the bare inbox", () => {
     render(<DirectMessagesRoute />);
     expect(screen.getByTestId("messages")).toHaveTextContent("null");
@@ -32,7 +32,48 @@ describe("DirectMessagesRoute", () => {
     mocks.query = "conversation=internal-id";
     mocks.routeSelection.mockResolvedValue({ token: "dm1.opaque", kind: "conversation", ref: "internal-id" });
     render(<DirectMessagesRoute />);
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/one/messages?token=dm1.opaque", { scroll: false }));
+    await waitFor(() => expect(window.history.state.directMessageSelection).toEqual({ owner: "viewer", token: "dm1.opaque" }));
+    expect(window.location.search).toBe("");
+  });
+  it("restores a hidden encrypted selection after refresh", async () => {
+    window.history.replaceState({ directMessageSelection: { owner: "viewer", token: "dm1.hidden" }, unrelated: "preserved" }, "", "/one/messages");
+    mocks.routeSelection.mockResolvedValue({ token: "dm1.hidden", kind: "conversation", ref: "restored-thread" });
+    render(<DirectMessagesRoute />);
+    await waitFor(() => expect(screen.getByTestId("messages")).toHaveTextContent("restored-thread"));
+    expect(window.location.search).toBe("");
+    expect(window.history.state.unrelated).toBe("preserved");
+    expect(mocks.routeSelection).toHaveBeenCalledWith({ idToken: "auth", token: "dm1.hidden" });
+  });
+  it("restores the hidden selection on native trailing-slash routes", async () => {
+    window.history.replaceState({ directMessageSelection: { owner: "viewer", token: "dm1.native" } }, "", "/one/messages/");
+    mocks.routeSelection.mockResolvedValue({ token: "dm1.native", kind: "conversation", ref: "native-thread" });
+    render(<DirectMessagesRoute />);
+    await waitFor(() => expect(screen.getByTestId("messages")).toHaveTextContent("native-thread"));
+  });
+  it("restores clean-address selections on history navigation and clears invalid selections", async () => {
+    mocks.routeSelection.mockImplementation(async ({ token }: { token: string }) => {
+      if (token === "dm1.invalid") throw new Error("Invalid link");
+      return { token, kind: "conversation", ref: token === "dm1.a" ? "thread-a" : "thread-b" };
+    });
+    const navigate = (token: string | null) => act(() => {
+      window.history.replaceState({ directMessageSelection: token ? { owner: "viewer", token } : null }, "", "/one/messages");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    render(<DirectMessagesRoute />);
+    for (const token of ["dm1.a", "dm1.b", "dm1.a", "dm1.b"]) {
+      navigate(token);
+      await waitFor(() => expect(screen.getByTestId("messages")).toHaveTextContent(token === "dm1.a" ? "thread-a" : "thread-b"));
+      expect(window.location.search).toBe("");
+    }
+    navigate("dm1.invalid");
+    await waitFor(() => expect(window.history.state.directMessageSelection).toBeNull());
+    expect(screen.getByTestId("messages")).toHaveTextContent("null");
+  });
+  it("does not restore another owner's hidden selection", () => {
+    window.history.replaceState({ directMessageSelection: { owner: "someone-else", token: "dm1.private" } }, "", "/one/messages");
+    render(<DirectMessagesRoute />);
+    expect(mocks.routeSelection).not.toHaveBeenCalled();
+    expect(screen.getByTestId("messages")).toHaveTextContent("null");
   });
   it("returns a tampered token to the inbox", async () => {
     mocks.query = "token=dm1.tampered";
