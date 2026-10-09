@@ -153,6 +153,11 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", measureFit);
     window.visualViewport?.addEventListener("resize", measureFit);
+    // The entry transform changes visual bounds without a ResizeObserver
+    // notification. Refit against the settled position, rather than retaining
+    // a narrower cold-entry deck until the next tab/viewport change.
+    const collection = collectionRef.current;
+    collection?.addEventListener("animationend", measureFit);
     // These only schedule a read of the ensuing native scroll position. They
     // never consume input or manufacture progress when the page did not move.
     stack.addEventListener("wheel", schedule, { passive: true });
@@ -166,6 +171,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       window.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", measureFit);
       window.visualViewport?.removeEventListener("resize", measureFit);
+      collection?.removeEventListener("animationend", measureFit);
       stack.removeEventListener("wheel", schedule);
       stack.removeEventListener("touchmove", schedule);
       stack.querySelectorAll<HTMLElement>("[data-stack-details]").forEach(details => { details.style.visibility = ""; });

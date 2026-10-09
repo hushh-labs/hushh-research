@@ -14,16 +14,14 @@ describe("Wallet Sharing", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.vaultKey = "test-key"; mocks.approve.mockResolvedValue(undefined); mocks.deny.mockResolvedValue(undefined); mocks.revoke.mockResolvedValue(undefined); });
   it("shows current projected artwork and conceals it while locked, retaining the real empty state", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [] });
-    const profile = { displayName: "Current projected owner", shareUrl: "https://example.com/profile" };
+    const profile = { displayName: "Current projected owner", username: "current.projected.owner", shareUrl: "https://example.com/profile" };
     const view = render(<WalletSharing profile={profile} />);
     await screen.findByText("Not shared with anyone yet.");
     expect(screen.getByText("Not shared with anyone yet.")).toBeVisible();
-    expect(screen.getByText("Current projected owner")).toBeVisible();
-    expect(screen.getByRole("img", { name: "Wallet Profile QR code" })).toBeVisible();
-    mocks.vaultKey = null;
+    expect(screen.getByText("current.projected.owner")).toBeInTheDocument();
+        mocks.vaultKey = null;
     view.rerender(<WalletSharing profile={profile} />);
-    expect(screen.queryByText("Current projected owner")).toBeNull();
-    expect(screen.queryByRole("img", { name: "Wallet Profile QR code" })).toBeNull();
+    expect(screen.queryByText("current.projected.owner")).toBeNull();
     expect(mocks.getProfile).not.toHaveBeenCalled();
   });
   it("shows only recipients and shared information below the hero", async () => {

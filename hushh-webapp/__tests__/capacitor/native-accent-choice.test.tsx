@@ -19,6 +19,8 @@ describe("native color preference", () => {
     bridge.platform = "ios";
     bridge.documentId = crypto.randomUUID();
     document.documentElement.style.setProperty("--app-accent", "#007aff");
+    document.documentElement.style.setProperty("--accent-preview-blue", "#007aff");
+    document.documentElement.style.setProperty("--accent-preview-gold", "#d4a574");
     document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, families: [], independentControls: true });
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
@@ -28,17 +30,23 @@ describe("native color preference", () => {
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); });
 
-  it.each(["web", "android", "unsupported-ios"])("keeps the selected color inside its established fallback on %s", async platform => {
-    bridge.platform = platform === "unsupported-ios" ? "ios" : platform;
+  it.each(["web", "android", "unsupported-ios", "partial-ios"])("keeps the selected color inside its established fallback on %s", async platform => {
+    bridge.platform = ["unsupported-ios", "partial-ios"].includes(platform) ? "ios" : platform;
+    if (platform === "partial-ios") {
+      bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["accent"], independentControls: true, inPlaceUpdates: true, fullAccentTrigger: false });
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
+        x: 2, y: 60, width: 172, height: 44, top: 60, left: 2, right: 174, bottom: 104, toJSON: () => ({}),
+      }));
+    }
     const view = render(<NativeAccentChoice value="gold" owner="synthetic-owner" context="preferences" eligible />);
-    const trigger = view.getByRole("combobox", { name: "App accent color" });
+    const trigger = await view.findByRole("combobox", { name: "App accent color" });
     await waitFor(() => expect(trigger).toBeVisible());
     expect(trigger).toHaveTextContent("Molten Gold");
     expect(bridge.prepare).not.toHaveBeenCalled();
   });
 
   it("admits the native control only with current owner and bounded visible geometry", async () => {
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["accent"], independentControls: true, inPlaceUpdates: true });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["accent"], independentControls: true, inPlaceUpdates: true, fullAccentTrigger: true });
     let x = 2;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
       x, y: 60, width: 172, height: 44, top: 60, left: x, right: x + 172, bottom: 104, toJSON: () => ({}),
@@ -53,6 +61,6 @@ describe("native color preference", () => {
     x = 2;
     fireEvent(window, new Event("resize"));
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
-    expect(bridge.prepare.mock.calls[0]![0]).toMatchObject({ kind: "accent", value: "gold", frame: { width: 172, height: 44 } });
+    expect(bridge.prepare.mock.calls[0]![0]).toMatchObject({ kind: "accent", value: "gold", fullTrigger: true, frame: { width: 172, height: 44 } });
   });
 });

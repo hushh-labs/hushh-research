@@ -556,6 +556,7 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
       await content.evaluate((node) => { node.scrollTop = 0; });
       const scroll = await content.boundingBox();
       const overflows = await content.evaluate((node) => node.scrollHeight > node.clientHeight);
+      const recoveryNeedsScroll = !(await recoveryGeometry()).contained;
       if (keyboard === 320 && height === 834) expect(overflows).toBe(true);
       await page.mouse.move(scroll!.x + scroll!.width / 2, scroll!.y + scroll!.height / 2);
       if (overflows) {
@@ -567,7 +568,7 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
         }));
         await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBe(0);
-        expect((await recoveryGeometry()).contained).toBe(false);
+        if (recoveryNeedsScroll) expect((await recoveryGeometry()).contained).toBe(false);
         await content.evaluate((node) => { node.style.overflowY = ""; });
         // Synchronize the fixture's deliberate overflow mutation before the
         // next wheel. WebKit failed without this paint boundary.

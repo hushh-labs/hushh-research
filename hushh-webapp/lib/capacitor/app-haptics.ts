@@ -21,14 +21,15 @@ export async function writeAppHapticPreference(value: boolean): Promise<void> {
 
 /** Called only by an accepted authored interaction, never by route observation.
  * No retries, queued cues, protected fields or dependency on operation success. */
-export function appHaptic(kind: "light" | "selection", intentId: string = crypto.randomUUID()) {
+export function appHaptic(kind: "light" | "selection", intentId?: string) {
   if (!usesNativeHapticPreference() || document.visibilityState === "hidden") return;
   const documentId = nativeDocumentId(), issuedAtMs = Date.now();
   void (async () => {
+    const acceptedIntentId = intentId ?? crypto.randomUUID();
     const capability = await getNativeChromeCapabilities();
     if (capability?.interactionFeedback !== true) return;
     const privacy = await getNativeSessionPrivacyState();
     if (privacy.shielded || !privacy.appIsActive || nativeDocumentId() !== documentId || Date.now() - issuedAtMs > 200) return;
-    await nativeChrome.interactionFeedback({ documentId, privacyGeneration: privacy.generation, intentId, kind, issuedAtMs });
+    await nativeChrome.interactionFeedback({ documentId, privacyGeneration: privacy.generation, intentId: acceptedIntentId, kind, issuedAtMs });
   })().catch(() => { /* Feedback must not block or replay the user's action. */ });
 }

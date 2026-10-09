@@ -31,3 +31,7 @@ export const getNativeUiTestVaultPassphrase = () => null;
 export const isNativeUiTestSession = () => false;
 export const preferPassphraseUnlockForAutomation = () => false;
 export const shouldSkipGeneratedVaultUnlockForAutomation = () => false;
+export const shouldSkipFirstWelcomeForAutomation = () => false;
+export const shouldSkipAmbientIdentityHydrationForAutomation = () => true;
+export const shouldSkipReviewerBackgroundWritesForAutomation = () => true;
+export const shouldDisableExternalTelemetryForAutomation = () => true;

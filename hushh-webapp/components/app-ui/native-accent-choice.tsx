@@ -31,7 +31,7 @@ export function NativeAccentChoice({ value, owner, context, eligible }: {
   const label = value === "gold" ? "Molten Gold" : "Blue";
   return <div className="flex min-w-0 items-center justify-end">
     <NativeChatChrome kind="accent" value={value} onValueChange={writeAccent}
-      palette={palette} owner={owner} context={context} eligible={eligible && !!palette} focusRef={trigger}
+      fullTrigger palette={palette} owner={owner} context={context} eligible={eligible && !!palette} focusRef={trigger}
       className="flex h-11 w-[180px] max-w-full shrink-0 items-center justify-center [&>div]:w-full">
       <Select value={value} onValueChange={(next) => { if (next === "blue" || next === "gold") writeAccent(next); }}>
         <SelectTrigger ref={trigger} aria-label="App accent color"
