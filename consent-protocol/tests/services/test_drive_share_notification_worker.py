@@ -276,6 +276,41 @@ async def test_payment_ready_push_checks_live_order_before_dispatch():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("request_status", ["pending", "approved", "partial"])
+async def test_payment_push_accepts_approved_requests_but_suppresses_expired_checkout(
+    sharing, notification_store, request_status
+):
+    created = await request(sharing)
+    request_id = created["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET payment_required=TRUE,status=:status
+              WHERE request_id=:request"""),
+            {"request": request_id, "status": request_status},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,status,stripe_checkout_expires_at)
+              VALUES (:request,'owner','recipient','checkout_open',
+                clock_timestamp()+INTERVAL '5 minutes')"""),
+            {"request": request_id},
+        )
+    assert await notification_store.payment_ready_current(
+        request_id=request_id, user_id="recipient"
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET stripe_checkout_expires_at=clock_timestamp()-INTERVAL '1 second'
+              WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    assert not await notification_store.payment_ready_current(
+        request_id=request_id, user_id="recipient"
+    )
+
+
+@pytest.mark.asyncio
 async def test_zero_push_delivery_is_retried_not_falsely_settled():
     store = SimpleNamespace(retry=AsyncMock(return_value="retry_scheduled"), settle=AsyncMock())
     send = MagicMock(return_value=0)

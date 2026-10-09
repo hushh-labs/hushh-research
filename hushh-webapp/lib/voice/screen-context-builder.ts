@@ -1,5 +1,7 @@
 "use client";
 
+import searchGateway from "@/contracts/kai/kai-action-gateway.vnext.json";
+
 import type {
   AppRuntimeState,
   VoiceSurfaceActionDefinition,
@@ -612,57 +614,13 @@ function readRedactedVoiceState(
  * at the ordinary screen-owned tier, so an incomplete or stale mapping can
  * only fail to help -- it cannot make today's insertion-order tiebreak worse.
  */
-export const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
-  // Bare /one/location, no open flow: what someone is most likely to ask for
-  // without having drilled into a specific circle or share first.
-  "one_location:": [
-    "location.pause_updates",
-    "location.resume_updates",
-    "location.stop_share",
-    "location.approve_request",
-    "location.decline_request",
-    "location.refresh",
-  ],
-  "one_location:create-circle": ["location.create_circle"],
-  "one_location:share": [
-    "location.select_share_recipient",
-    "location.share_selected",
-    "location.change_share_duration",
-    "location.set_auto_share",
-  ],
-  "one_location:ask": ["location.select_ask_recipient", "location.send_request"],
-  "one_location:active-shares": [
-    "location.stop_share",
-    "location.change_share_duration",
-  ],
-  "one_location:needs-review": [
-    "location.approve_request",
-    "location.decline_request",
-  ],
-  "one_location:shared-with-me": ["location.change_share_duration"],
-  "one_location:settings": [
-    "location.pause_updates",
-    "location.resume_updates",
-    "location.set_auto_share",
-    "location.add_emergency_contact",
-    "location.remove_emergency_contact",
-  ],
-  "one_location:sos": [
-    "location.trigger_sos",
-    "location.stop_sos",
-    "location.sos_default",
-  ],
-  // The People tab is where circle membership is actually managed.
-  "one_location:people": [
-    "location.add_to_circle",
-    "location.remove_from_circle",
-    "location.rename_circle",
-    "location.leave_circle",
-    "location.delete_circle",
-    "location.accept_circle_invite",
-    "location.decline_circle_invite",
-  ],
-};
+export const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> =
+  Object.fromEntries(searchGateway.surfaces.flatMap((surface) => {
+    const search = surface.search as { subview_action_boost?: Record<string, string[]> };
+    return Object.entries(search.subview_action_boost || {}).map(([subview, actions]) =>
+      [`${surface.surface_id}:${subview}`, actions],
+    );
+  }));
 
 /**
  * Rank action ids by relevance BEFORE the 10-item context cap slices them, so

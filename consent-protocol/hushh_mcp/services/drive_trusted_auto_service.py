@@ -229,7 +229,10 @@ class DriveTrustedAutoService:
     async def continue_batches(self, *, max_jobs: int = 2) -> int:
         """Continue after search completion, when the search job is no longer due."""
         count = 0
-        for item in await self.sharing.due_trusted_batches(limit=min(20, max_jobs * 4)):
+        # due_trusted_batches rotates each selected row. Claim only work this
+        # invocation can process so older unpaid or busy requests cannot keep
+        # a paid frozen review behind them indefinitely.
+        for item in await self.sharing.due_trusted_batches(limit=max_jobs):
             if count >= max_jobs:
                 break
             try:

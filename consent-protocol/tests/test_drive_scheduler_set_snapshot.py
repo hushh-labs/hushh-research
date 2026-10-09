@@ -124,7 +124,22 @@ def test_verify_rejects_partial_or_substituted_rollback(tmp_path: Path, change: 
 def test_capture_accepts_exact_three_stage_jobs(tmp_path: Path):
     jobs = [
         _job("drive-work-drain-uat", stage="documents", schedule="*/4 * * * *"),
-        _job("drive-work-suggestions-uat", stage="suggestions", schedule="2-59/4 * * * *"),
+        _job("drive-work-suggestions-uat", stage="suggestions", schedule="* * * * *"),
+        _job("drive-work-sharing-uat", stage="sharing", schedule="* * * * *"),
+    ]
+    assert _run("capture-set", tmp_path, jobs).returncode == 0
+    assert _run("verify-set", tmp_path, jobs).returncode == 0
+
+
+def test_capture_accepts_legacy_suggestions_cadence_for_rollback_baseline(tmp_path: Path):
+    """A release may need to restore a snapshot taken before this cadence fix."""
+    jobs = [
+        _job("drive-work-drain-uat", stage="documents", schedule="*/4 * * * *"),
+        _job(
+            "drive-work-suggestions-uat",
+            stage="suggestions",
+            schedule="2-59/4 * * * *",
+        ),
         _job("drive-work-sharing-uat", stage="sharing", schedule="* * * * *"),
     ]
     assert _run("capture-set", tmp_path, jobs).returncode == 0

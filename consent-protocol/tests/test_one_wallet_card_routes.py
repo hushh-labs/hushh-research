@@ -142,6 +142,10 @@ class FakeCardService:
         self._record("get_card", user_id=user_id)
         return self.card
 
+    def ensure_card(self, **kwargs: Any) -> dict[str, Any]:
+        self._record("ensure_card", **kwargs)
+        return self.mutation
+
     def upsert_card(self, **kwargs: Any) -> dict[str, Any]:
         self._record("upsert_card", **kwargs)
         return self.mutation
@@ -172,8 +176,14 @@ class FakeCardService:
         self._record("resolve_public_card", share_token=share_token)
         return self.public_result
 
-    def resolve_pass_material(self, *, share_token: str) -> dict[str, Any]:
-        self._record("resolve_pass_material", share_token=share_token)
+    def resolve_pass_material(
+        self, *, share_token: str, variant: str = "profile"
+    ) -> dict[str, Any]:
+        self._record(
+            "resolve_pass_material",
+            share_token=share_token,
+            **({"variant": variant} if variant != "profile" else {}),
+        )
         return self.pass_result
 
     def record_scan(self, *, share_token: str) -> None:
@@ -224,6 +234,7 @@ def test_owner_routes_reject_a_missing_vault_owner_token(service: FakeCardServic
     responses = [
         client.get(f"/api/one/wallet-card?user_id={OWNER_ID}"),
         client.post("/api/one/wallet-card", json={"userId": OWNER_ID, "cardPayload": {}}),
+        client.post("/api/one/wallet-card/ensure", json={"userId": OWNER_ID}),
         client.post("/api/one/wallet-card/rotate", json={"userId": OWNER_ID}),
         client.post("/api/one/wallet-card/pause", json={"userId": OWNER_ID}),
         client.post("/api/one/wallet-card/resume", json={"userId": OWNER_ID}),
@@ -251,7 +262,11 @@ def test_owner_mutations_reject_a_token_for_a_different_user(
 ) -> None:
     client = _client(authenticated_as="someone_else")
 
-    for path in ("/api/one/wallet-card/rotate", "/api/one/wallet-card/pause"):
+    for path in (
+        "/api/one/wallet-card/rotate",
+        "/api/one/wallet-card/pause",
+        "/api/one/wallet-card/ensure",
+    ):
         response = client.post(path, json={"userId": OWNER_ID})
         assert response.status_code == 403, path
     assert service.calls == []
@@ -997,3 +1012,53 @@ def test_publishing_a_card_writes_only_to_the_wallet_card_plane(
         "portfolio",
         "preferred_contact",
     }
+
+
+def test_ensure_accepts_an_empty_profile_and_returns_recoverable_link(service):
+    service.mutation = {
+        "card": dict(OWNER_CARD_VIEW),
+        "shareToken": SHARE_TOKEN,
+        "shareUrl": PUBLIC_CARD_URL,
+    }
+    response = _client().post("/api/one/wallet-card/ensure", json={"userId": OWNER_ID})
+    assert response.status_code == 200
+    assert response.json()["shareToken"] == SHARE_TOKEN
+    assert service.calls == [
+        (
+            "ensure_card",
+            {"user_id": OWNER_ID, "card_payload": {}, "avatar_url": None, "share_token": None},
+        )
+    ]
+
+
+@pytest.mark.parametrize("path", ["/api/one/wallet-card", "/api/one/wallet-card/ensure"])
+@pytest.mark.parametrize("username", ["name with spaces", "sex", "a" * 33, "@invalid"])
+def test_wallet_username_is_validated_before_service(path, username, service):
+    response = _client().post(
+        path, json={"userId": OWNER_ID, "cardPayload": {"username": username}}
+    )
+    assert response.status_code == 422
+    assert service.calls == []
+
+
+@pytest.mark.parametrize("variant", ["referral", "nws"])
+def test_pass_variants_resolve_server_owned_material(service, monkeypatch, variant):
+    monkeypatch.setattr(one_wallet_card, "wallet_pass_signing_available", lambda: True)
+    monkeypatch.setattr(one_wallet_card, "build_wallet_pass", lambda content, **kwargs: b"pass")
+    response = _client(authenticated_as=None).get(
+        f"/api/one/wallet-card/pass/{SHARE_TOKEN}.pkpass?variant={variant}"
+    )
+    assert response.status_code == 200
+    assert (
+        "resolve_pass_material",
+        {"share_token": SHARE_TOKEN, "variant": variant},
+    ) in service.calls
+    assert not service.called("record_scan")
+
+
+def test_unknown_pass_variant_is_rejected_before_resolving(service):
+    response = _client(authenticated_as=None).get(
+        f"/api/one/wallet-card/pass/{SHARE_TOKEN}.pkpass?variant=external"
+    )
+    assert response.status_code == 422
+    assert not service.called("resolve_pass_material")

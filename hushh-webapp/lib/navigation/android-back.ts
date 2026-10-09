@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
+import { dismissTopmostOverlay, registerBackLayer, unwindBackLayer } from "@/lib/navigation/back-layers";
+import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 /**
  * One owner for the Android system Back gesture.
@@ -15,65 +18,24 @@ import { useEffect } from "react";
  *      path, so a surface that deliberately refuses dismissal (the one-time
  *      recovery key) keeps refusing;
  *   2. a screen that owns Back (a full-screen map) handles it;
- *   3. history goes back, and with none left the app is minimised, not quit.
+ *   3. the authored route parent handles it; at a root the app is minimised.
  */
 
-type BackHandler = () => void;
+export { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
 
-const screenHandlers: BackHandler[] = [];
-
-/**
- * Lets a screen own Back while it is mounted; the most recent registration
- * wins. Returns the unregister function.
- */
-export function pushAndroidBackHandler(handler: BackHandler): () => void {
-  screenHandlers.push(handler);
-  return () => {
-    const index = screenHandlers.lastIndexOf(handler);
-    if (index >= 0) screenHandlers.splice(index, 1);
-  };
-}
-
-const OPEN_OVERLAY_SELECTOR =
-  '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]';
-
-/**
- * Sends Escape to the topmost open sheet or dialog. Radix listens for Escape on
- * the document and only its highest layer reacts, so exactly one surface
- * closes, and one that prevents Escape stays open. True when one was open.
- */
-export function dismissTopmostOverlay(doc: Document = document): boolean {
-  const open = doc.querySelectorAll<HTMLElement>(OPEN_OVERLAY_SELECTOR);
-  const top = open[open.length - 1];
-  if (!top) return false;
-  const active = doc.activeElement;
-  const target = active instanceof HTMLElement && top.contains(active) ? active : top;
-  target.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Escape",
-      code: "Escape",
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
-  return true;
+/** Compatibility entrypoint for the immersive map, now shared with shell Back. */
+export function pushAndroidBackHandler(handler: () => void): () => void {
+  return registerBackLayer({ pathname: window.location.pathname, depth: 100, back: () => { handler(); return true; } });
 }
 
 export function resolveAndroidBack(
-  canGoBack: boolean,
-  actions: { goBack: () => void; minimize: () => void },
+  _canGoBack: boolean,
+  actions: { navigateParent: () => boolean; minimize: () => void },
   doc: Document = document,
-): "overlay" | "screen" | "history" | "minimize" {
+): "overlay" | "screen" | "parent" | "minimize" {
   if (dismissTopmostOverlay(doc)) return "overlay";
-  const screenHandler = screenHandlers[screenHandlers.length - 1];
-  if (screenHandler) {
-    screenHandler();
-    return "screen";
-  }
-  if (canGoBack) {
-    actions.goBack();
-    return "history";
-  }
+  if (unwindBackLayer(window.location.pathname, new URLSearchParams(window.location.search))) return "screen";
+  if (actions.navigateParent()) return "parent";
   actions.minimize();
   return "minimize";
 }
@@ -90,7 +52,11 @@ export function useAndroidBack(): void {
       const { App } = await import("@capacitor/app");
       const handle = await App.addListener("backButton", ({ canGoBack }) => {
         resolveAndroidBack(canGoBack, {
-          goBack: () => window.history.back(),
+          navigateParent: () => navigateTopShellBack({
+            pathname: window.location.pathname,
+            searchParams: new URLSearchParams(window.location.search),
+            navigate: action => { requestInternalAppNavigation({ href: action.href, replace: action.mode === "replace", scroll: false, source: "native_back", transitionMode: action.transitionMode }); },
+          }),
           minimize: () => void App.minimizeApp(),
         });
       });

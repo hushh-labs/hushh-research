@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "region": "us-central1",
+  "database_max_connections": 1000,
+  "admission_limit": 800,
+  "administrative_reserve": 100,
+  "environments": {
+    "uat": {
+      "project": "hushh-pda-uat",
+      "database_instance": "hushh-uat-pg",
+      "non_database_services": ["hushh-adk-openwebui", "hushh-adk-playground", "hushh-ria-intelligence-api", "hushh-webapp"],
+      "services": {
+        "consent-protocol": {
+          "container": "consent-protocol",
+          "workers_per_instance": 2,
+          "candidate": {"max_instances": 5, "workers_per_instance": 2, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 3, "sqlalchemy_max_overflow": 0}
+        },
+        "consent-protocol-drive-worker": {
+          "container": "drive-worker",
+          "workers_per_instance": 1,
+          "candidate": {"max_instances": 2, "workers_per_instance": 1, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        }
+      },
+      "jobs": {
+        "consent-protocol-genai-readiness": {"connections_per_task": 8, "concurrent_executions": 2},
+        "marketplace-investor-replenisher": {"connections_per_task": 8, "concurrent_executions": 2},
+        "obs-supabase-data-health": {"connections_per_task": 8, "concurrent_executions": 2},
+        "uat-db-data-health": {"connections_per_task": 8, "concurrent_executions": 2},
+        "uat-db-migrate": {"connections_per_task": 8, "concurrent_executions": 2},
+        "uat-db-verify-vault": {"connections_per_task": 8, "concurrent_executions": 2}
+      }
+    },
+    "production": {
+      "project": "hushh-pda",
+      "database_instance": "hushh-vault-db",
+      "non_database_services": ["hushh-ria-intelligence-api", "hushh-webapp", "prod-kai-redirect"],
+      "services": {
+        "consent-protocol": {
+          "container": "consent-protocol",
+          "workers_per_instance": 2,
+          "candidate": {"max_instances": 5, "workers_per_instance": 2, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 4, "sqlalchemy_max_overflow": 0}
+        },
+        "consent-protocol-drive-worker": {
+          "container": "drive-worker",
+          "optional_existing": true,
+          "workers_per_instance": 1,
+          "candidate": {"max_instances": 2, "workers_per_instance": 1, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+        }
+      },
+      "jobs": {
+        "consent-protocol-genai-readiness": {"connections_per_task": 8, "concurrent_executions": 2}
+      }
+    }
+  }
+}

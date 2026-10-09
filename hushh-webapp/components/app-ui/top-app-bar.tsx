@@ -1125,7 +1125,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       : "justify-center",
                   )}
                 >
-                  {hasBreadcrumbTrail ? (
+                  {model.mode === "bar-with-tabs" && model.tabs.id === "public" ? null : hasBreadcrumbTrail ? (
                     <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />
                   ) : centerTitle ? (
                     centerTitle.interactive && canShowPersonaSwitcher ? (

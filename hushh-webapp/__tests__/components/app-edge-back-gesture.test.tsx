@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
+import { registerBackLayer } from "@/lib/navigation/back-layers";
 
 const capacitor = vi.hoisted(() => ({ native: true, platform: "ios" }));
 const navigation = vi.hoisted(() => ({ pathname: "/one/kai" }));
@@ -46,6 +47,27 @@ describe("AppEdgeBackGesture", () => {
 
   afterEach(() => {
     document.documentElement.removeAttribute("data-app-edge-back-active");
+  });
+
+  it("enables when a local layer mounts and sends the gesture through the real hierarchy", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/navigation/top-shell-back")>("@/lib/navigation/top-shell-back");
+    backAction.resolve.mockImplementation(() => null!);
+    backAction.navigate.mockImplementation(params => actual.navigateTopShellBack(params));
+    const feature = vi.fn(() => true);
+    const view = render(<AppEdgeBackGesture />);
+    let release: () => void = () => {};
+    try {
+      act(() => { release = registerBackLayer({ pathname: navigation.pathname, depth: 1, back: feature }); });
+      fireEvent.touchStart(document, { touches: [touch(99, 12, 300)], timeStamp: 0 });
+      fireEvent.touchMove(document, { touches: [touch(99, 100, 304)], timeStamp: 100 });
+      fireEvent.touchEnd(document, { changedTouches: [touch(99, 110, 304)], timeStamp: 120 });
+      expect(feature).toHaveBeenCalledOnce();
+    } finally {
+      act(() => release());
+      view.unmount();
+      backAction.resolve.mockImplementation(() => ({ href: "/one", mode: "push", transitionMode: "full" }));
+      backAction.navigate.mockReset();
+    }
   });
 
   it("commits a rightward edge swipe without cancelling the touch default", () => {

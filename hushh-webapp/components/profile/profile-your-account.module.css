@@ -1,0 +1,432 @@
+/* The account tab lives inside Profile's existing glass sheet. Keep its
+   appearance local to the pane; the full-page account route keeps its layout. */
+@layer base {
+  .paneAccountContent {
+    --account-card: var(--profile-pane-card-surface);
+    --account-card-edge: var(--profile-pane-card-border);
+    --account-highlight: var(--profile-pane-card-highlight);
+    --account-ink: var(--ios-account-label);
+    --account-muted: var(--ios-account-secondary-label);
+    --account-icon: var(--ios-account-label);
+    --account-accent: var(--ios-account-accent);
+    --account-danger: var(--app-destructive);
+    --account-hair: var(--profile-pane-hair);
+    --account-field: var(--profile-pane-surface-strong);
+    --settings-row-px: 12px;
+    --settings-row-py: 9px;
+    --settings-row-gap: 10px;
+    color: var(--account-ink);
+    gap: 0 !important;
+    margin: 0 !important;
+    padding: 4px 0 20px;
+    font-family: var(--font-app-body);
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-testid="settings-group"]) {
+    margin-inline: 0 !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-testid="settings-group"] > div:first-child) {
+    margin: 12px 0 7px !important;
+    padding-inline: 9px !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-testid="settings-group"]:first-child > div:first-child) {
+    margin-top: 6px !important;
+  }
+
+  :global(.profile-pane-scroll-root .app-page-shell)
+    .paneAccountContent:global(.profile-account-content)
+    :global(
+      [data-slot="settings-group-heading"][role="heading"][aria-level="2"]
+    ) {
+    color: var(--account-muted) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+    line-height: 14px !important;
+    text-transform: none !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-slot="settings-group-shell"]) {
+    --settings-group-radius: 17px;
+    overflow: hidden !important;
+    border: 1px solid var(--account-card-edge) !important;
+    border-radius: 17px !important;
+    background: var(--account-card) !important;
+    box-shadow:
+      inset 0 1px 0 var(--account-highlight),
+      0 8px 24px rgba(35, 42, 51, 0.05) !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-row-layout="settings"]) {
+    min-height: 58px !important;
+    background: transparent !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(
+      [data-row-layout="settings"]
+        > button:not([data-slot="settings-row-action"])
+    ),
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(
+      [data-row-layout="settings"] > div[data-slot="settings-row-content"]
+    ),
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-row-layout="settings"] > div:not([data-slot])) {
+    min-height: 58px !important;
+    padding: 9px 12px !important;
+    gap: 10px !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-row-layout="settings"]::after) {
+    left: 53px !important;
+    right: 12px !important;
+    height: 1px !important;
+    background: var(--account-hair) !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-slot="settings-row-icon"]) {
+    width: 31px !important;
+    height: 31px !important;
+    color: var(--account-icon) !important;
+    background: transparent !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-slot="settings-row-icon"] svg),
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(.profile-account-line-icon) {
+    width: 22px !important;
+    height: 22px !important;
+    color: var(--account-icon) !important;
+    stroke: currentColor !important;
+    stroke-width: 1.8 !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(.profile-account-icon-accent) {
+    stroke: var(--account-accent) !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(.profile-account-icon-accent-fill) {
+    fill: var(--account-accent) !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent:global(.profile-account-content)
+    :global([data-slot="settings-row-title"]) {
+    color: var(--account-ink) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.22 !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent:global(.profile-account-content)
+    :global([data-slot="settings-row-description"]) {
+    color: var(--account-muted) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.3 !important;
+    margin-top: 3px !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-slot="settings-row-trailing"]) {
+    gap: 7px !important;
+    color: var(--account-muted) !important;
+    font-size: 12px !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-slot="settings-row-chevron"]) {
+    width: 16px !important;
+    height: 16px !important;
+    color: var(--account-muted) !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(.profile-account-inline-action) {
+    color: var(--account-accent) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    line-height: 1.2 !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(.profile-account-delete-row [data-slot="settings-row-title"]),
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(.profile-account-delete-row [data-slot="settings-row-icon"]),
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(.profile-account-delete-row .profile-account-line-icon) {
+    color: var(--account-danger) !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global(.profile-account-delete-row [data-slot="settings-row-icon"] svg) {
+    color: var(--account-danger) !important;
+  }
+
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-row-layout="settings"]:has(button:hover)::before),
+  :global(.profile-pane-scroll-root)
+    .paneAccountContent
+    :global([data-row-layout="settings"]:has(button:focus-visible)::before) {
+    inset: 0 !important;
+    border-radius: 0 !important;
+    background: linear-gradient(
+      90deg,
+      var(--account-highlight),
+      transparent
+    ) !important;
+    box-shadow: none !important;
+    opacity: 0.3 !important;
+  }
+
+  .paneEditor {
+    padding: 12px 12px 14px 53px !important;
+    border-top: 1px solid var(--account-hair);
+    background: color-mix(in srgb, var(--account-card) 50%, transparent);
+  }
+
+  .paneEditor :global([data-testid="display-name-editor"]) {
+    gap: 10px !important;
+  }
+
+  .paneEditor :global([data-slot="field-group"]),
+  .paneEditor :global([data-slot="field"]) {
+    gap: 8px !important;
+  }
+
+  .paneEditor :global([data-slot="field-label"]) {
+    color: var(--account-muted) !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+  }
+
+  .paneEditor :global(input) {
+    height: 45px !important;
+    border: 1px solid var(--account-hair) !important;
+    border-radius: 14px !important;
+    background: var(--account-field) !important;
+    color: var(--account-ink) !important;
+    font-size: 13px !important;
+  }
+
+  .paneEditor :global([data-slot="field-description"]) {
+    color: var(--account-muted) !important;
+    font-size: 10px !important;
+    line-height: 1.35 !important;
+  }
+
+  .paneEditor :global(button) {
+    min-height: 36px !important;
+    border-radius: 999px !important;
+    font-size: 12px !important;
+  }
+
+  .phoneDetail {
+    padding: 5px 8px 20px;
+    gap: 16px !important;
+  }
+
+  .phoneDetail :global([data-figma-phone-field] [data-slot="field-label"]) {
+    color: var(--ios-account-secondary-label) !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+  }
+
+  .phoneDetail
+    :global([data-figma-phone-field] :is(input, [data-slot="input-group"])) {
+    border-radius: 15px !important;
+    background: var(--profile-pane-surface-strong) !important;
+  }
+
+  .phoneDetail :global([data-figma-phone-helper]) {
+    color: var(--ios-account-secondary-label) !important;
+    font-size: 10px !important;
+  }
+
+  .accountDialogOverlay {
+    background: var(--app-scrim-color) !important;
+    backdrop-filter: blur(7px) !important;
+    -webkit-backdrop-filter: blur(7px) !important;
+  }
+
+  .accountDialog {
+    --account-dialog-ink: var(--ios-account-label);
+    --account-dialog-muted: var(--ios-account-secondary-label);
+    --account-dialog-accent: var(--ios-account-accent);
+    --account-dialog-danger: var(--app-destructive);
+    --account-dialog-hair: var(--app-separator);
+    --account-dialog-glass: color-mix(
+      in srgb,
+      var(--app-card-surface-default-solid) 84%,
+      transparent
+    );
+    width: calc(100% - 32px) !important;
+    max-width: 352px !important;
+    padding: 18px !important;
+    gap: 6px !important;
+    border: 1px solid var(--account-dialog-hair) !important;
+    border-radius: 19px !important;
+    background: var(--account-dialog-glass) !important;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.28) !important;
+    backdrop-filter: blur(34px) saturate(175%) !important;
+    -webkit-backdrop-filter: blur(34px) saturate(175%) !important;
+    color: var(--account-dialog-ink) !important;
+  }
+
+  .accountDialog :global([data-slot="alert-dialog-header"]) {
+    text-align: left !important;
+    place-items: start !important;
+  }
+
+  .accountDialog :global([data-slot="alert-dialog-title"]) {
+    color: var(--account-dialog-ink) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+  }
+
+  .dangerDialog :global([data-slot="alert-dialog-title"]) {
+    color: var(--account-dialog-danger) !important;
+  }
+
+  .accountDialog :global([data-slot="alert-dialog-title"] svg) {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  .accountDialog :global([data-slot="alert-dialog-description"]) {
+    color: var(--account-dialog-muted) !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 11px !important;
+    line-height: 1.45 !important;
+  }
+
+  .accountDialog :global([data-slot="alert-dialog-footer"]) {
+    flex-direction: row !important;
+    justify-content: flex-end !important;
+    gap: 8px !important;
+    margin-top: 10px !important;
+  }
+
+  .accountDialog :global([data-slot="alert-dialog-footer"] > button) {
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 34px !important;
+    padding: 0 13px !important;
+    border-radius: 999px !important;
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+  }
+
+  .accountDialog :global([data-slot="alert-dialog-action"]) {
+    background: var(--account-dialog-accent) !important;
+    color: var(--app-accent-fg) !important;
+  }
+
+  .dangerDialog :global([data-slot="alert-dialog-action"]) {
+    background: var(--account-dialog-danger) !important;
+  }
+
+  @media (max-width: 380px) {
+    .paneAccountContent {
+      --settings-row-px: 10px;
+      --settings-row-gap: 7px;
+    }
+
+    :global(.profile-pane-scroll-root)
+      .paneAccountContent
+      :global(
+        [data-row-layout="settings"]
+          > button:not([data-slot="settings-row-action"])
+      ),
+    :global(.profile-pane-scroll-root)
+      .paneAccountContent
+      :global(
+        [data-row-layout="settings"] > div[data-slot="settings-row-content"]
+      ),
+    :global(.profile-pane-scroll-root)
+      .paneAccountContent
+      :global([data-row-layout="settings"] > div:not([data-slot])) {
+      padding-inline: 10px !important;
+      gap: 7px !important;
+    }
+
+    :global(.profile-pane-scroll-root)
+      .paneAccountContent
+      :global([data-row-layout="settings"]::after) {
+      left: 48px !important;
+      right: 10px !important;
+    }
+
+    .paneEditor {
+      padding-left: 48px !important;
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .paneAccountContent {
+      --account-card: var(--app-card-surface-default-solid);
+    }
+
+    .accountDialog {
+      --account-dialog-glass: var(--app-card-surface-default-solid);
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .paneAccountContent *,
+    .paneAccountContent *::before,
+    .paneAccountContent *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}

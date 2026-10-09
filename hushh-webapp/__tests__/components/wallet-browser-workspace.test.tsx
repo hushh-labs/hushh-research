@@ -113,7 +113,7 @@ describe("Wallet video browser workspace", () => {
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
     await screen.findByTestId("secure-card-reveal");
-    fireEvent.click(screen.getByRole("button", { name: "All (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "All (5)" }));
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
   });
   it("drops a late reveal on workspace tab departure", async () => {

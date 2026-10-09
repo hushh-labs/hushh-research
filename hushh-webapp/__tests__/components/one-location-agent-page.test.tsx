@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
+import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigation/top-shell-back";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import {
   OneLocationContactSyncError,
@@ -4070,9 +4071,9 @@ describe("OneLocationAgentPage", () => {
     mockUseSearchParams.mockReturnValue(shareParams);
     rerender(<OneLocationAgentPage />);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Change who can see you" }),
-    );
+    const navigateBack = vi.fn();
+    act(() => { navigateTopShellBack({ pathname: ROUTES.ONE_LOCATION, searchParams: shareParams, navigate: navigateBack }); });
+    expect(navigateBack).not.toHaveBeenCalled();
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
@@ -4345,11 +4346,15 @@ describe("OneLocationAgentPage", () => {
       hasMore: false,
       totalCount: 1,
     });
-    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    mockGetSmsContacts.mockResolvedValue([]);
 
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("action=settings"));
+    rerender(<OneLocationAgentPage />);
+    await waitFor(() => expect(screen.getByTestId("one-location-sms-contacts-entry")).toHaveTextContent("0"));
     mockGetSmsContacts.mockClear();
+    mockGetSmsContacts.mockResolvedValue(["user_a", "user_b", "user_b"]);
     mockUseSearchParams.mockReturnValue(
       new URLSearchParams(
         "action=circle-detail&circleId=circle-sms&source=sos",
@@ -4371,9 +4376,27 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalled());
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("action=settings"));
+    rerender(<OneLocationAgentPage />);
+    await waitFor(() => expect(screen.getByTestId("one-location-sms-contacts-entry")).toHaveTextContent("1"));
+    mockGetSmsContacts.mockClear();
+    mockGetSmsContacts.mockResolvedValue([]);
+    act(() => {
+      dispatchOneLocationStateChanged("user_a", ["workspace", "circles", "sms_roster"], {
+        notificationType: "location_circle_member_removed",
+        circleId: "circle-sms",
+        eventId: "sms-count-removal",
+      });
+    });
+    await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("one-location-sms-contacts-entry")).toHaveTextContent("0"));
   });
 
   it("renders the canonical Location Settings URL and owns Saved Locations there", async () => {
+    const settingsState = { ...locationState(), circles: [{ id: "circle-sms", name: "SMS Circle", kind: "other" as const, role: "owner" as const, memberCount: 1, memberLimit: 20, isSystem: true, systemKind: "sms" as const }] };
+    mockGetState.mockResolvedValue(settingsState);
+    const { OneLocationStateResource } = await import("@/lib/one-location/one-location-state-resource");
+    OneLocationStateResource.write("user_a", settingsState);
     mockLocationSearchParams("action=settings");
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow({ expectMain: false });
@@ -4385,6 +4408,11 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("region", { name: "Saved Locations" }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Manage sharing" })).toBeNull();
+    fireEvent.click(within(screen.getByTestId("one-location-sms-contacts-entry")).getByRole("button"));
+    await waitFor(() => expect(mockRouterPush).toHaveBeenCalledWith(expect.stringContaining("source=settings"), { scroll: false }));
+    const opened = new URL(String(mockRouterPush.mock.calls.at(-1)?.[0]), "https://app.test");
+    expect(opened.searchParams.get("circleId")).toBe("circle-sms");
+    expect(resolveTopShellBackAction({ pathname: opened.pathname, searchParams: opened.searchParams, sectionOrigin: null })).toEqual({ href: "/one/location?action=settings", mode: "replace", transitionMode: "contextual" });
   });
 
   it("canonicalizes the legacy Location privacy URL without losing its origin", async () => {
@@ -6743,6 +6771,11 @@ describe("OneLocationAgentPage", () => {
     // one here is what the report was about.
     expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
     expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
+    const navigateBack = vi.fn();
+    act(() => { navigateTopShellBack({ pathname: ROUTES.ONE_LOCATION, searchParams: new URLSearchParams("action=ask"), navigate: navigateBack }); });
+    expect(await screen.findByRole("heading", { name: "Ask for location" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Who, then how long?" })).toBeNull();
+    expect(navigateBack).not.toHaveBeenCalled();
   }, 10_000);
 
   it("offers four durations when asking, and reaches the rest through Custom", async () => {

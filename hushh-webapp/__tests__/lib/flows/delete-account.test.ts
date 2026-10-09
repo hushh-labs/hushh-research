@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockDeleteAccount,
+  mockDeleteLostVaultAccount,
   mockOnAccountDeleted,
   mockClearForUser,
   mockClearDeviceSecrets,
@@ -15,6 +16,7 @@ const {
   mockRevokeAllVaultPlaid,
 } = vi.hoisted(() => ({
   mockDeleteAccount: vi.fn(),
+  mockDeleteLostVaultAccount: vi.fn(),
   mockOnAccountDeleted: vi.fn(),
   mockClearForUser: vi.fn(),
   mockClearDeviceSecrets: vi.fn(),
@@ -43,7 +45,10 @@ vi.mock("@/lib/auth/session-invalidation", () => ({
 }));
 
 vi.mock("@/lib/services/account-service", () => ({
-  AccountService: { deleteAccount: mockDeleteAccount },
+  AccountService: {
+    deleteAccount: mockDeleteAccount,
+    deleteLostVaultAccount: mockDeleteLostVaultAccount,
+  },
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -83,6 +88,7 @@ import {
   DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE,
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
+  executeLostVaultAccountDeletion,
   isHandledAccountDeletionOutcome,
 } from "@/lib/flows/delete-account";
 import { ApiError } from "@/lib/services/api-client";
@@ -725,5 +731,32 @@ describe("banks sealed in the vault are revoked before the account is erased", (
     expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
     expect(mockClearForUser).not.toHaveBeenCalled();
     expect(isAccountDeletionActive("uid-paused")).toBe(false);
+  });
+
+  it.each([
+    [true, "account_deleted_ready_to_start_fresh"],
+    [false, "account_deletion_finishing"],
+  ])("reports locked-vault deletion readiness %s at sign-out", async (ready, code) => {
+    mockDeleteLostVaultAccount.mockResolvedValue({
+      success: true,
+      account_deleted: true,
+      ready_to_start_fresh: ready,
+    });
+
+    await executeLostVaultAccountDeletion({
+      userId: "user_123",
+      sessionUser: makeSessionUser(),
+      firebaseIdToken: "fresh-provider-token",
+    });
+
+    expect(mockDeleteLostVaultAccount).toHaveBeenCalledWith({
+      firebaseIdToken: "fresh-provider-token",
+      phoneIdToken: undefined,
+    });
+    expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      code,
+      path: "account_delete_confirmed",
+      userId: "user_123",
+    });
   });
 });

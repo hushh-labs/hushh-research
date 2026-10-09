@@ -159,9 +159,7 @@ it("anchors the custom close button and keeps the nested back control separate",
   render(<ProfilePane open onOpenChange={onOpenChange} />);
 
   const close = screen.getByRole("button", { name: "Close Profile" });
-  expect(close.style.right).toBe(
-    "max(1rem, env(safe-area-inset-right, 0px))",
-  );
+  expect(close.style.right).toBe("20px");
   expect(close.getAttribute("style")).not.toContain("left:");
   expect(screen.getByRole("button", { name: "Back in Profile" })).toBeTruthy();
 

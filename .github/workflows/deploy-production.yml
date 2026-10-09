@@ -72,7 +72,7 @@ env:
   FRONTEND_SERVICE: hushh-webapp
   APP_FRONTEND_ORIGIN: https://one.hushh.ai
   CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai
-  BACKEND_REVISION_RETENTION: "3"
+  BACKEND_REVISION_RETENTION: "2"
   FRONTEND_REVISION_RETENTION: "10"
   PROD_CLOUDSQL_INSTANCE_NAME: hushh-vault-db
   PROD_CLOUDSQL_INSTANCE: hushh-pda:us-central1:hushh-vault-db
@@ -218,6 +218,10 @@ jobs:
             echo "Refusing deploy: expected project '${{ env.GCP_PROJECT_ID }}' but got '$ACTIVE_PROJECT'."
             exit 1
           fi
+
+      - name: Enforce production database connection budget before deployment
+        shell: bash
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment production
 
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
@@ -903,11 +907,6 @@ jobs:
           echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
           echo "Backend URL: $BACKEND_URL"
 
-      - name: Retain latest backend revisions
-        if: steps.scope.outputs.deploy_backend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
-
       - name: Resolve backend candidate revision
         id: backend-candidate-state
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -1116,11 +1115,6 @@ jobs:
             --format='value(status.url)')
           echo "url=$FRONTEND_ORIGIN" >> $GITHUB_OUTPUT
           echo "Frontend URL: $FRONTEND_ORIGIN"
-
-      - name: Retain latest frontend revisions
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}"
 
       - name: Resolve deployed candidate revisions
         id: candidate-state
@@ -2139,6 +2133,29 @@ jobs:
             exit 0
           fi
           bash scripts/ci/tag-last-known-good.sh
+
+      - name: Retire old production revisions after a healthy release
+        if: always()
+        shell: bash
+        env:
+          BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_serving }}
+          FRONTEND_CURRENT: ${{ steps.final-state.outputs.frontend_serving }}
+          BACKEND_ROLLBACK: ${{ steps.predeploy-state.outputs.backend_revision }}
+          FRONTEND_ROLLBACK: ${{ steps.predeploy-state.outputs.frontend_revision }}
+        run: |
+          set -euo pipefail
+          status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$status" != healthy ]; then
+            echo "Skipping revision cleanup for release status $status"
+            exit 0
+          fi
+          bash scripts/ci/cloudrun-retention.sh "$BACKEND_SERVICE" "$GCP_REGION" "$BACKEND_REVISION_RETENTION" \
+            "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
+            --last-known-good-revision "$BACKEND_CURRENT" --apply --healthy
+          bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
+            "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
+            --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy
+          python3 scripts/ci/runtime-capacity-budget.py --environment production
 
       - name: Fail workflow when production release did not end healthy
         if: always()

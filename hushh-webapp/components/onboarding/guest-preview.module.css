@@ -674,13 +674,20 @@
     font-size: var(--type-caption1-size, 13px);
   }
   .agents {
-    row-gap: 0.25rem;
+    row-gap: 0.125rem;
   }
+  /* Nine available agents use three rows. Compact the decorative icons and
+     row padding on short phones while keeping every label and tap target. */
   .agent {
-    min-height: 5rem;
+    min-height: 3.75rem;
+    padding: 0.25rem 0;
   }
   .agentContents {
     gap: 0.25rem;
+  }
+  .agentContents > :first-child {
+    width: 1.75rem;
+    height: 1.75rem;
   }
   .agentExplanation {
     margin-top: 0.25rem;

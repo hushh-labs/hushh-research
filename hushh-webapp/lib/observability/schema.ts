@@ -50,6 +50,7 @@ const BASE_ALLOWED_KEYS = [
   "platform",
   "event_category",
   "app_version",
+  "app_build",
   "route_id",
 ] as const;
 
@@ -472,6 +473,10 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
   }
 
   for (const [key, value] of Object.entries(rawPayload)) {
+    if (key === "app_build" && (typeof value !== "string" || !/^\d{1,12}$/.test(value))) {
+      droppedKeys.push(key);
+      continue;
+    }
     if (!allowed.has(key)) {
       droppedKeys.push(key);
       continue;
