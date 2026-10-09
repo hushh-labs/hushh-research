@@ -47,16 +47,60 @@ final class NativeSupportTests: XCTestCase {
     func testDockRetainsEditorAndSelectionAcrossVoiceAndThemeUpdates() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Native dock requires iOS 26") }
         let model = NativeDockModel()
-        model.mode = "text"; model.visible = true; model.editable = true; model.text = "Hello 👋"
+        model.mode = "text"; model.visible = true; model.editable = true
+        model.micEnabled = true; model.sendEnabled = true
+        model.placeholder = "Message One"
         let host = UIHostingController(rootView: NativeAgentDockView(model: model))
         host.safeAreaRegions = []
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        let parent = UIViewController(); window.rootViewController = parent; window.isHidden = false
+        let parent = UIViewController(); parent.view.backgroundColor = .systemBackground
+        window.rootViewController = parent; window.isHidden = false
         parent.addChild(host); parent.view.addSubview(host.view); host.didMove(toParent: parent)
         host.view.frame = CGRect(x: 16, y: 700, width: 358, height: 100)
         defer { model.clear(); host.view.removeFromSuperview(); host.removeFromParent(); window.isHidden = true }
         host.view.layoutIfNeeded()
+        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 358, height: 340)).height, 52, accuracy: 1,
+            "Compact editor and two actions must fit the existing 52-point Agent Bar, without glass-button padding enlarging it")
         let editor = try XCTUnwrap(model.editor)
+        XCTAssertFalse(editor.placeholderLabel.isHidden)
+        XCTAssertEqual(editor.placeholderLabel.font, editor.font)
+        XCTAssertEqual(editor.placeholderLabel.frame.minX, editor.textContainerInset.left, accuracy: 0.5)
+        XCTAssertEqual(editor.placeholderLabel.frame.midY,
+            editor.caretRect(for: editor.beginningOfDocument).midY, accuracy: 1)
+        if ProcessInfo.processInfo.environment["HUSHH_DOCK_SYNTHETIC_VISUALS"] == "1" {
+            // Only this opaque, synthetic window: never capture the app's
+            // WebView, a reviewer session, or a private native dock.
+            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+            let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+            window.windowScene = scene
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true; previousKeyWindow?.makeKeyAndVisible() }
+            host.view.frame.size.height = 52
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                parent.overrideUserInterfaceStyle = style
+                host.overrideUserInterfaceStyle = style
+                for mode in ["text", "voice"] {
+                    model.mode = mode
+                    model.placeholder = mode == "text" ? "Message One" : "Talk to One"
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+                    host.view.layoutIfNeeded()
+                    var rendered = false
+                    let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                        rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                    }
+                    XCTAssertTrue(rendered, "Synthetic visual capture must reach an attached native presentation")
+                    let attachment = XCTAttachment(image: image)
+                    attachment.name = "synthetic-dock-\(style == .dark ? "dark" : "light")-\(mode)"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+            model.mode = "text"; model.placeholder = "Message One"
+        }
+        model.text = "Hello 👋"
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertTrue(editor.placeholderLabel.isHidden)
         editor.selectedRange = NSRange(location: 2, length: 2)
         for mode in ["voice", "text", "voice", "text"] {
             model.mode = mode
@@ -82,6 +126,8 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(sends, 0)
         model.awaitingConsumption = true
         model.consumeText()
+        XCTAssertFalse(editor.placeholderLabel.isHidden,
+            "Committed consumption restores the empty-editor label synchronously, not after another React/native update")
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         host.view.layoutIfNeeded()
         XCTAssertFalse(editor.isEditable) // An uncertain Send cannot overwrite the unsent owner draft.

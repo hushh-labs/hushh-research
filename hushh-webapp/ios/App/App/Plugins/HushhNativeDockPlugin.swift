@@ -119,12 +119,43 @@ final class NativeDockModel: ObservableObject {
         consumeText(); attachments = []; visible = false; awaitingConsumption = false; awaitingTransition = false
     }
     func consumeText() {
-        editor?.text = ""; editor?.undoManager?.removeAllActions(); text = ""
+        editor?.text = ""; editor?.undoManager?.removeAllActions()
+        editor?.refreshPlaceholder(); text = ""
     }
 }
 
 final class DockTextView: UITextView {
     var submit: (() -> Void)?
+    let placeholderLabel = UILabel()
+    private var placeholderEligible = false
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        placeholderLabel.textColor = .secondaryLabel
+        placeholderLabel.isUserInteractionEnabled = false
+        placeholderLabel.isAccessibilityElement = false
+        placeholderLabel.numberOfLines = 1
+        addSubview(placeholderLabel)
+    }
+    required init?(coder: NSCoder) { fatalError("DockTextView is created programmatically") }
+    func updatePlaceholder(_ value: String, visible: Bool) {
+        placeholderLabel.text = value
+        placeholderEligible = visible
+        refreshPlaceholder()
+    }
+    func refreshPlaceholder() {
+        placeholderLabel.isHidden = !placeholderEligible || !(text ?? "").isEmpty
+        setNeedsLayout()
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Placeholder and entered text share the editor's actual font/insets,
+        // including Dynamic Type. A separate SwiftUI overlay had a different
+        // vertical centre as the editor grew or changed mode.
+        placeholderLabel.font = font
+        placeholderLabel.frame = CGRect(x: textContainerInset.left, y: textContainerInset.top,
+            width: max(0, bounds.width - textContainerInset.left - textContainerInset.right),
+            height: font?.lineHeight ?? 0)
+    }
     override var keyCommands: [UIKeyCommand]? {
         [UIKeyCommand(input: "\r", modifierFlags: .command, action: #selector(sendFromKeyboard)),
          UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(dismissKeyboard))]
@@ -186,9 +217,9 @@ struct NativeDockEditor: UIViewRepresentable {
         let editor = DockTextView()
         editor.delegate = context.coordinator
         editor.backgroundColor = .clear
-        editor.font = .preferredFont(forTextStyle: .body)
+        editor.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 16))
         editor.adjustsFontForContentSizeCategory = true
-        editor.textContainerInset = UIEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        editor.textContainerInset = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 8)
         editor.textContainer.lineFragmentPadding = 0
         editor.accessibilityLabel = "Message One"
         editor.accessibilityIdentifier = "native-dock-editor"
@@ -203,19 +234,21 @@ struct NativeDockEditor: UIViewRepresentable {
         editor.isSelectable = model.visible
         editor.textColor = .label
         editor.tintColor = model.accent
+        editor.updatePlaceholder(model.placeholder, visible: model.mode == "text" && model.visible)
         // Never destroy marked text, selection or undo on a theme/geometry echo.
         if editor.markedTextRange == nil && editor.text != model.text {
             let selection = editor.selectedRange
             editor.text = model.text
             let count = (model.text as NSString).length
             editor.selectedRange = NSRange(location: min(selection.location, count), length: min(selection.length, max(0, count - selection.location)))
+            editor.refreshPlaceholder()
         }
         if model.mode != "text" || !model.visible { editor.resignFirstResponder() }
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: DockTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
         let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: min(model.expanded ? 260 : 144, max(48, size.height)))
+        return CGSize(width: width, height: min(model.expanded ? 260 : 144, max(44, size.height)))
     }
     func makeCoordinator() -> Coordinator { Coordinator(model) }
     static func dismantleUIView(_ editor: DockTextView, coordinator: Coordinator) {
@@ -226,6 +259,7 @@ struct NativeDockEditor: UIViewRepresentable {
         private let model: NativeDockModel
         init(_ model: NativeDockModel) { self.model = model }
         func textViewDidChange(_ textView: UITextView) {
+            (textView as? DockTextView)?.refreshPlaceholder()
             model.text = textView.text
             model.emit?("edit", nil, nil, textView.text, textView.selectedRange)
             model.changedHeight?()
@@ -248,6 +282,8 @@ struct NativeAgentDockView: View {
     @State private var pressStarted: Date?
     @State private var cancelled = false
     @State private var pressWasActive = false
+    @ScaledMetric(relativeTo: .body) private var glyphSize = 16
+    @ScaledMetric(relativeTo: .body) private var actionSize = 32
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             VStack(spacing: 0) {
@@ -279,13 +315,10 @@ struct NativeAgentDockView: View {
                         .allowsHitTesting(model.mode == "text")
                         .frame(maxWidth: model.mode == "text" ? .infinity : 0)
                         .frame(height: model.mode == "text" ? nil : 0)
-                        .overlay(alignment: .leading) {
-                            if model.mode == "text" && model.text.isEmpty {
-                                Text(model.placeholder).foregroundStyle(.secondary).padding(.leading, 14).allowsHitTesting(false)
-                            }
-                        }
                     if model.mode == "voice" {
-                        Text(model.placeholder).lineLimit(1).frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                        Text(model.placeholder)
+                            .font(Font(UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 16))))
+                            .lineLimit(1).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                             .padding(.horizontal, 16).contentShape(Rectangle())
                             .accessibilityAddTraits(.isButton).accessibilityLabel(model.placeholder)
                             .accessibilityAction { model.action("voice-tap") }
@@ -320,7 +353,7 @@ struct NativeAgentDockView: View {
                     if model.mode == "text" && model.expanded {
                         dockButton("arrow.down.right.and.arrow.up.left", "Finish editing") { model.action("collapse") }
                     }
-                }
+                }.padding(.vertical, 4).padding(.trailing, 6)
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 24))
             .glassEffectID("agent-dock", in: glass)
@@ -329,8 +362,18 @@ struct NativeAgentDockView: View {
         .accessibilityIdentifier("native-agent-dock")
     }
     private func dockButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).frame(width: 44, height: 44).contentShape(Rectangle()) }
-            .buttonStyle(.glass).accessibilityLabel(label).padding(.trailing, 4).padding(.bottom, 4)
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: glyphSize, weight: .semibold))
+                .foregroundStyle(.tint)
+                .frame(width: actionSize, height: actionSize)
+                .glassEffect(.regular.interactive(), in: .circle)
+                // Compact visible material; the entire 44-point slot still
+                // belongs to the button, including its transparent perimeter.
+                .frame(width: max(44, actionSize), height: max(44, actionSize))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).accessibilityLabel(label)
     }
 }
 

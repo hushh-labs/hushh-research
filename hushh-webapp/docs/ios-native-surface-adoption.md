@@ -104,11 +104,99 @@ rows; Accent fills its reserved trigger width, keeps swatch contrast, and preser
 label/color coherence when browser persistence is denied. Its native trigger uses
 the existing assistive-focus acknowledgement contract.
 
-Focused regression tests and a signed native compile verify these source paths.
+Focused regression tests and a signed native build verify these source paths.
 Ten repeated Accent/Profile cycles passed in a synthetic WebKit fixture; synthetic
-phone light/dark, tablet and desktop renders were reviewed separately. This does
-not qualify the installed physical candidate, native editor, accessibility or frame
-pacing, and does not enable any additional release or iPad family.
+phone light/dark, tablet and desktop renders were reviewed separately.
+
+The physical iPhone candidate from `7a3921c43` (installed binary SHA-256
+`ee23d1633252f1c5181baaf6dde672f918342e3e867242ab6532e428bf7a6ed1`)
+uses the bundled UAT export, not a remote WebView override. Credential-free XCUI
+admission and one identity-checked normal passphrase unlock passed. Subsequent
+warm checks passed Appearance/Accent selection and cancellation, ten Profile
+edge-close/reopen cycles, History/Profile edge presses, keyboard isolation and
+overlay restoration. The Account/Preferences/Security/Vault/Support stack passed
+with unchanged native Back host/root counters and no additional missing sampled
+frames during its measured handoff. Native retirement, preserved Accent, no web
+Close duplicate and unchanged host count/frame were asserted on each reopen.
+
+The first Chat-family run failed an existence-plus-immediate-hittability assertion
+for Profile Close. The nearest test now awaits joint native readiness within the
+same ten-second boundary; its subsequent run passed. That result does not alone
+establish the timing cause of the earlier failure. The strengthened runner was
+installed separately without reinstalling the product, resetting the account or
+repeating credentials. Failure-gated teardown does not replay uncertain actions.
+Private-run result bundles were destroyed.
+
+This evidence does not qualify native editor adoption, all-route visuals,
+VoiceOver/Dynamic Type, Release frame pacing or iPad. The existing complete parity
+report gate remains failed for incomplete/stale route evidence; no additional
+release or iPad family is enabled.
+
+### Remaining composition gap — Profile exit, 2026-10-08
+
+Retaining a hosting controller does **not** retain its visible presentation behind
+a React sheet. Profile's overlay/content refs keep the shared native isolation
+lease until their animated DOM nodes detach. NativeChrome suspension hides the
+underlying Chat controls; fresh preparation/activation reveals them afterward.
+The native dock follows the same overlay isolation owner. Passing settled tap,
+retirement and reopen assertions does not prove continuous pixels during exit.
+
+The source places native hosts above WebView content. Capacitor's current bridge
+root is the WebView itself (`CAPBridgeViewController.loadView`); CSS z-index cannot
+interleave its DOM Profile/scrim with those native subviews. Profile's semantic
+frame also remains stationary and fades while its body slides. Finger offset
+alone is therefore not a correct clipping boundary. Removing `isHidden`, releasing
+isolation at `open=false`, or adding an arbitrary early-resume timer would either
+paint native controls over Profile or restore interaction before isolation ends.
+None of those shortcuts is implemented.
+
+A live-underlay solution needs an explicit compositor boundary, not another React
+state refresh. First qualify a public, uniform-header family: authored transparent
+apertures in the base canvas, retained bounded native controls beneath web content,
+and bounded UIKit hit routing only for acknowledged active slots. React keeps
+Profile, its scrim and gesture authority; its portals must remain above those
+apertures. Confirm the actual host containment before changing opacity or ordering,
+arbitrate existing Maps transparency, and retain the window-wide privacy cover.
+Suspended underlay pixels must remain noninteractive and accessibility-hidden;
+fresh document/owner/revision/geometry/privacy admission is still required on return.
+Failure/uncertain retirement must preserve the existing noninteractive fallback.
+
+This is a proposed bounded architectural seam, **not implemented or qualified**.
+It initially addresses uniform header backing, not live sampling of scrolling Chat
+content or the private editor. Native glass can sample its backdrop: a screenshot
+of a nominally public control can contain private pixels. Do not export control,
+dock or WebView bitmaps through public chrome as a transition stand-in. Require
+transition-time physical evidence, rather than settled screenshots, before closing
+this finding. The latest separate body-drawer run ended with XCUI exit 70 and no
+observed test-body receipt; it is not gesture acceptance or a vault failure.
+
+### Agent Dock geometry correction — 2026-10-08
+
+The web geometry remains the reference: 52-point compact bar, 24-point outer
+radius, 16-point glyphs and 44-point action hit regions. The previous native
+implementation measured 62 points in the nearest host regression test because
+its visible 44-point labels acquired glass-button sizing. The corrected candidate
+uses scaled 16-point glyphs, compact 32-point interactive glass surfaces and full
+44-point hit regions, with symmetric four-point vertical padding. Dynamic Type
+can legitimately increase the height; multiline editor growth remains bounded.
+The implementation uses Apple's own interactive glass effect, not an imitation.
+
+The empty label now belongs to the retained UITextView and shares its font and
+text-container insets. Direct draft consumption refreshes it synchronously;
+appearance and mode updates preserve selection and marked-text guards. The source
+change does not itself prove visual acceptance or install a new device candidate.
+The nearest native support suite passed 45 tests; the old compiled implementation
+failed the new compact-height assertion at 62 points. The corrected implementation
+passed height, placeholder/caret alignment and retained-editor checks. Synthetic
+attached-host light/dark text/voice images were inspected for geometry only; their
+captured material/backdrop appearance is not live-glass or physical acceptance.
+Their diagnostic capture is explicit opt-in and restricted to an opaque synthetic
+window containing no WebView or account content. The first detached-window capture
+was blank and rejected as evidence. Disposable failed-run diagnostics were removed;
+subsequent synthetic runs disabled verbose failure collection.
+The updated signed iPhone Debug build compiled successfully. This build is still
+separate from the previously installed and tested `7a3921c43` physical candidate;
+it has not yet received physical visual, keyboard or accessibility acceptance.
 
 - [HushhNativeNavigationPlugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift)
   presents a standard UIKit `UITabBar` on iOS 26+. It does not use SwiftUI `TabView`
