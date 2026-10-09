@@ -99,7 +99,10 @@ export function resolveOneNavSlot(
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.ONE_HOME
   ) {
-    return normalizedPathname === ROUTES.HOME ? "chat" : "dashboard";
+    return "dashboard";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
+    return "chat";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
     return "connect";
@@ -184,7 +187,10 @@ export function resolveInvestorActiveNav(
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.ONE_HOME
   ) {
-    return normalizedPathname === ROUTES.HOME ? "chat" : "dashboard";
+    return "dashboard";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
+    return "chat";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
@@ -219,7 +225,10 @@ export function resolveRiaActiveNav(
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.ONE_HOME
   ) {
-    return normalizedPathname === ROUTES.HOME ? "chat" : "dashboard";
+    return "dashboard";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
+    return "chat";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
@@ -245,7 +254,7 @@ export function resolveBottomNavActiveKey(
     normalizedPathname === ROUTES.HOME ||
     normalizedPathname === ROUTES.ONE_HOME
   ) {
-    return normalizedPathname === ROUTES.HOME ? "chat" : "dashboard";
+    return "dashboard";
   }
   // Connection threads are a Chat destination, not the One dashboard.
   if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
@@ -300,9 +309,9 @@ export function resolveBottomNavAction(
     case "portfolio":
       return { type: "route", href: ROUTES.KAI_PORTFOLIO };
     case "dashboard":
-      return { type: "route", href: ROUTES.ONE_HOME };
-    case "chat":
       return { type: "route", href: ROUTES.HOME };
+    case "chat":
+      return { type: "route", href: ROUTES.ONE_MESSAGES };
     case "search":
       return { type: "command", mode: "search" };
     case "gmail":
