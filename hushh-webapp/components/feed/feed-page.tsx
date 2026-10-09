@@ -42,6 +42,7 @@ import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-n
 import { FeedSoundControl } from "@/components/feed/feed-sound-control";
 import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
 import { collapseConsentBundleRows } from "@/lib/feed/feed-consent-grouping";
+import { collapseDriveLifecycleRows } from "@/lib/feed/feed-drive-grouping";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -604,7 +605,7 @@ function FeedPageSession({
     previousItemsRef.current = new Map(merged.map((item) => [item.id, item]));
     // One request is one row in history too: per-item consent rows that share
     // a bundle fold into the newest of them.
-    return collapseConsentBundleRows(merged);
+    return collapseDriveLifecycleRows(collapseConsentBundleRows(merged));
   }, [
     data,
     pagination.additionalItems,

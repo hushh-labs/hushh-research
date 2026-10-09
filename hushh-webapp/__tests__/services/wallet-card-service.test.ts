@@ -563,6 +563,41 @@ describe("validateWalletCardPayload", () => {
 // ==================== Owner routes ====================
 
 describe("owner routes", () => {
+  it("does not replace a newer rotation with a delayed recovery response", async () => {
+    let finishRecovery!: (response: unknown) => void;
+    mockApiJson.mockReturnValueOnce(new Promise((resolve) => { finishRecovery = resolve; }));
+    const pending = WalletCardService.ensureCard({ userId: "owner-a", vaultOwnerToken: "owner-token" });
+    mockApiJson.mockResolvedValueOnce({ card: { ...OWNER_CARD, shareTokenVersion: 3 }, shareToken: `${SHARE_TOKEN}-new` });
+    await WalletCardService.rotateShareToken({ userId: "owner-a", vaultOwnerToken: "owner-token" });
+    finishRecovery({ card: { ...OWNER_CARD, shareTokenVersion: 2 }, shareToken: SHARE_TOKEN });
+    await pending;
+    expect(WalletCardService.readShareLink("owner-a")).toEqual(expect.objectContaining({ version: 3, shareToken: `${SHARE_TOKEN}-new` }));
+  });
+
+  it("adopts a recovered ensure token before notifying only that owner's subscribers", async () => {
+    const changed = vi.fn();
+    const otherOwner = vi.fn();
+    const unsubscribe = WalletCardService.subscribe("owner-a", changed);
+    const unsubscribeOther = WalletCardService.subscribe("owner-b", otherOwner);
+    mockApiJson.mockResolvedValueOnce({
+      card: { status: "active", share_token_version: 2, card_payload: { username: "ada.lovelace" } },
+      shareToken: SHARE_TOKEN,
+      shareUrl: `${APP_ORIGIN}/c/${SHARE_TOKEN}`,
+    });
+    const result = await WalletCardService.ensureCard({ userId: "owner-a", vaultOwnerToken: "owner-token", payload: { full_name: "Ada Lovelace" } });
+    expect(result.card.cardPayload.username).toBe("ada.lovelace");
+    expect(WalletCardService.readShareLink("owner-a")?.shareToken).toBe(SHARE_TOKEN);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(otherOwner).not.toHaveBeenCalled();
+    expect(mockApiJson.mock.calls[0]?.[0]).toBe(`${WALLET_CARD_API_PREFIX}/ensure`);
+    unsubscribe(); unsubscribeOther();
+  });
+
+  it("keeps pass variants on the same trusted signing endpoint", async () => {
+    expect(walletCardPassUrl(SHARE_TOKEN, "referral")).toBe(`${BACKEND_ORIGIN}${WALLET_CARD_API_PREFIX}/pass/${SHARE_TOKEN}.pkpass?variant=referral`);
+    expect(walletCardPassUrl(SHARE_TOKEN, "nws")).toContain("?variant=nws");
+    expect(walletCardPassUrl(SHARE_TOKEN)).not.toContain("?variant=");
+  });
   it("sends the vault owner token and the owner user_id on read", async () => {
     mockApiJson.mockResolvedValueOnce({ card: OWNER_CARD });
 
@@ -598,7 +633,7 @@ describe("owner routes", () => {
     ).toEqual({ enabled: false, exists: false, card: null, shareUrl: null });
   });
 
-  it("returns the plaintext token exactly once, on create and on rotate", async () => {
+  it("returns the created token and omits it from ordinary status mutations", async () => {
     mockApiJson.mockResolvedValueOnce({
       card: OWNER_CARD,
       shareToken: SHARE_TOKEN,
@@ -622,7 +657,7 @@ describe("owner routes", () => {
     expect(paused.status).toBe("active");
   });
 
-  it("persists the share link locally because the server cannot return it again", async () => {
+  it("persists the share link locally for subsequent owner reads", async () => {
     mockApiJson.mockResolvedValueOnce({
       card: OWNER_CARD,
       shareToken: SHARE_TOKEN,

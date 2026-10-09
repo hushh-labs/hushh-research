@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
 
 import {
   dismissTopmostOverlay,
   pushAndroidBackHandler,
   resolveAndroidBack,
+  useAndroidBack,
 } from "@/lib/navigation/android-back";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+
+const native = vi.hoisted(() => ({ back: null as null | ((event: { canGoBack: boolean }) => void), minimize: vi.fn(), remove: vi.fn() }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { getPlatform: () => "android" } }));
+vi.mock("@capacitor/app", () => ({ App: {
+  addListener: async (_name: string, back: typeof native.back) => { native.back = back; return { remove: native.remove }; },
+  minimizeApp: native.minimize,
+} }));
+vi.mock("@/lib/utils/browser-navigation", () => ({ requestInternalAppNavigation: vi.fn() }));
 
 function mountDialog(id: string, state = "open", role = "dialog") {
   const el = document.createElement("div");
@@ -18,6 +29,23 @@ function mountDialog(id: string, state = "open", role = "dialog") {
 describe("android back", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    window.history.replaceState(null, "", "/");
+    vi.clearAllMocks();
+  });
+
+  it("the real native listener climbs a cold Settings circle and minimises only at a root", async () => {
+    window.history.replaceState(null, "", "/one/location?action=circle-detail&source=settings&circleId=sample");
+    native.back = null;
+    const hook = renderHook(() => useAndroidBack());
+    await waitFor(() => expect(native.back).not.toBeNull());
+    act(() => native.back!({ canGoBack: false }));
+    expect(requestInternalAppNavigation).toHaveBeenCalledWith(expect.objectContaining({ href: "/one/location?action=settings", replace: true, transitionMode: "contextual" }));
+    expect(native.minimize).not.toHaveBeenCalled();
+    window.history.replaceState(null, "", "/one");
+    act(() => native.back!({ canGoBack: true }));
+    expect(native.minimize).toHaveBeenCalledOnce();
+    hook.unmount();
+    expect(native.remove).toHaveBeenCalledOnce();
   });
 
   it("closes the topmost open sheet through Escape and goes nowhere else", () => {
@@ -27,12 +55,12 @@ describe("android back", () => {
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") seen.push((event.target as HTMLElement).id);
     });
-    const goBack = vi.fn();
+    const navigateParent = vi.fn().mockReturnValue(true);
     const minimize = vi.fn();
 
-    expect(resolveAndroidBack(true, { goBack, minimize })).toBe("overlay");
+    expect(resolveAndroidBack(true, { navigateParent, minimize })).toBe("overlay");
     expect(seen).toEqual([top.id]);
-    expect(goBack).not.toHaveBeenCalled();
+    expect(navigateParent).not.toHaveBeenCalled();
   });
 
   it("ignores closed dialogs and counts alert dialogs", () => {
@@ -47,23 +75,24 @@ describe("android back", () => {
     const second = vi.fn();
     const releaseFirst = pushAndroidBackHandler(first);
     const releaseSecond = pushAndroidBackHandler(second);
-    const goBack = vi.fn();
+    const navigateParent = vi.fn().mockReturnValue(true);
 
-    expect(resolveAndroidBack(true, { goBack, minimize: vi.fn() })).toBe("screen");
+    expect(resolveAndroidBack(true, { navigateParent, minimize: vi.fn() })).toBe("screen");
     expect(second).toHaveBeenCalledOnce();
     expect(first).not.toHaveBeenCalled();
-    expect(goBack).not.toHaveBeenCalled();
+    expect(navigateParent).not.toHaveBeenCalled();
 
     releaseSecond();
     releaseFirst();
   });
 
-  it("goes back in history, and minimises rather than quitting at the root", () => {
-    const goBack = vi.fn();
+  it("uses the authored parent regardless of browser history, and minimises only at root", () => {
+    const navigateParent = vi.fn().mockReturnValue(true);
     const minimize = vi.fn();
-    expect(resolveAndroidBack(true, { goBack, minimize })).toBe("history");
-    expect(resolveAndroidBack(false, { goBack, minimize })).toBe("minimize");
-    expect(goBack).toHaveBeenCalledOnce();
+    expect(resolveAndroidBack(true, { navigateParent, minimize })).toBe("parent");
+    navigateParent.mockReturnValue(false);
+    expect(resolveAndroidBack(true, { navigateParent, minimize })).toBe("minimize");
+    expect(navigateParent).toHaveBeenCalledTimes(2);
     expect(minimize).toHaveBeenCalledOnce();
   });
 });

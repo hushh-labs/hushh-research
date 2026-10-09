@@ -30,6 +30,7 @@ import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
 import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import { classifyMergeOutcome, type PkmMergeOutcome } from "@/lib/pkm/pkm-supersede-merge";
+import { assertBusinessMemoryTarget, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -487,7 +488,10 @@ export async function addToPKM(params: {
    * from it, so replaying the same card after an interruption cannot write it twice.
    */
   idempotencyScopes?: readonly (string | undefined)[];
+  businessOrigin?: BusinessMemoryOrigin;
 }): Promise<AgentPkmSaveResult> {
+  if (params.source === "business_profile_review" && !params.businessOrigin)
+    throw new Error("Business identity is required for this review.");
   // Writes to a single domain must stay ordered: each write reads and merges
   // the result of the preceding one. Independent domains have no such
   // dependency, so a small bounded fan-out keeps large imports responsive
@@ -657,6 +661,11 @@ export async function addToPKM(params: {
                 : undefined,
             },
         build: async (context) => {
+          if (params.businessOrigin) {
+            if (automatic || params.source !== "business_profile_review")
+              throw new Error("Business information requires its explicit review writer.");
+            assertBusinessMemoryTarget(context.currentDomainData, card, params.businessOrigin);
+          }
           // Re-run on a conflict retry, so the outcome follows the state that
           // was finally merged into.
           outcome = classifyMergeOutcome({
@@ -701,6 +710,8 @@ export async function addToPKM(params: {
   };
 
   const isSimpleDomainExtension = (card: AgentPkmPreviewCard): boolean => {
+    // Business-origin checks must run inside each conflict-aware entity write.
+    if (params.businessOrigin) return false;
     if (isDegradedPreviewCard(card)) return false;
     if (isReservedPkmCard(card)) return false;
     if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {

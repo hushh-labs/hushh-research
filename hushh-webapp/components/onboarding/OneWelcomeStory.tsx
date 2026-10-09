@@ -4,7 +4,6 @@ import { useId, type CSSProperties, type RefObject } from "react";
 import {
   FigmaHushhLogo,
   FigmaOneLogo,
-  FigmaPrivacyNote,
 } from "./FigmaOnboardingPrimitives";
 import styles from "./IntroStep.module.css";
 
@@ -96,7 +95,7 @@ export function OneWelcomeStory({ headingRef, motionEnabled }: {
             <FigmaOneLogo />
           </h1>
           <p className={styles.tagline}>Your agents. Yours to own.</p>
-          <p className={styles.subtitle}>Your private network of AI agents</p>
+          <p className={styles.subtitle}>Your personal team of AI agents.</p>
         </div>
       </div>
     </>
@@ -106,7 +105,7 @@ export function OneWelcomeStory({ headingRef, motionEnabled }: {
 export function OneWelcomePrivacy() {
   return (
     <div className={styles.privacy}>
-      <FigmaPrivacyNote>You choose what to share.</FigmaPrivacyNote>
+      <p className={styles.privacyText}>You choose what to share.</p>
     </div>
   );
 }

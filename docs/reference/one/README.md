@@ -49,6 +49,7 @@ for finance-specialist runtime references, and keep future-only One plans under
 
 ## References
 
+- [lost-vault-account-deletion.md](./lost-vault-account-deletion.md): product promise, locked-vault deletion journey, verification boundary, and UAT acceptance story.
 - [one-live-voice-decision-2026-09.md](./one-live-voice-decision-2026-09.md): why Gemini Live returns on Vertex ADC behind one flag, the premise-verification table, and the governance reconciliation.
 - [one-voice-live-tool-contract.md](./one-voice-live-tool-contract.md): One Live Voice runtime, supported intents, tool contract, consent rules, Vertex ADC setup and model pinning.
 - [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current Location command capture, semantic planning, execution, user gates, screen handoff and encrypted restart recovery.

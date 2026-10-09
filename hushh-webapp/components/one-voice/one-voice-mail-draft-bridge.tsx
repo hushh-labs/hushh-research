@@ -96,6 +96,7 @@ function reviewRecovery(reasonCode: string | null) {
     case "GMAIL_SEND_PERMISSION_REQUIRED":
     case "GMAIL_RECONNECT_REQUIRED": return { message: "Reconnect Gmail and allow sending, then review this draft again.", action: "Reconnect Gmail" };
     case "GMAIL_SENDER_CHANGED": return { message: "The sending account changed. Review this draft again.", action: null };
+    case "RECIPIENT_LOOKUP_UNAVAILABLE": return { message: "Recipients could not be checked. Nothing was sent. Review this draft again.", action: null };
     default: return { message: "Check the recipients, subject, and message to continue.", action: null };
   }
 }
@@ -201,6 +202,34 @@ export function OneVoiceMailDraftBridge() {
       if (step.kind === "mail_draft_outcome") {
         const outcome = parseMailDraftOutcome(step.payload);
         const current = draftRef.current ?? deliveryRef.current;
+        if (outcome?.status === "cancelled") {
+          // Cancellation is a terminal client-side state. Clear every pending
+          // edit before closing the card so a late edit response cannot
+          // resurrect a draft that the user explicitly cancelled.
+          const edits = editsRef.current;
+          if (!outcome || !current?.binding || current.ownerUid !== user?.uid ||
+              closedDraftsRef.current.has(outcome.draftRef) ||
+              current.binding.draftRef !== outcome.draftRef ||
+              current.binding.revision !== outcome.revision) {
+            report("failed", { reason: "stale_review" });
+            return;
+          }
+          if (edits.timer) clearTimeout(edits.timer);
+          edits.timer = null;
+          edits.latest = null;
+          edits.inFlight = null;
+          closedDraftsRef.current.add(outcome.draftRef);
+          const next: MailDelivery = {
+            ...current, id: `voice:cancelled:${outcome.draftRef}:${outcome.revision}`,
+            status: "cancelled", error: null,
+          };
+          deliveryRef.current = next;
+          draftRef.current = null;
+          setMailDraft(null);
+          setMailDelivery(next);
+          report("ok", { draft_ref: outcome.draftRef, revision: outcome.revision, action_id: outcome.actionId });
+          return;
+        }
         if (outcome?.status === "needs_input") {
           if (outcome.reasonCode === "VOICE_APPROVAL_SUPERSEDED" && current?.binding &&
               current.ownerUid === user?.uid && !closedDraftsRef.current.has(outcome.draftRef) &&
@@ -233,7 +262,7 @@ export function OneVoiceMailDraftBridge() {
         }
         if (!outcome || !current?.binding || current.ownerUid !== user?.uid ||
             current.binding.draftRef !== outcome.draftRef || current.binding.revision !== outcome.revision ||
-            (outcome.status !== "cancelled" && current.review?.actionId !== outcome.actionId)) {
+            current.review?.actionId !== outcome.actionId) {
           report("failed", { reason: "stale_review" });
           return;
         }
@@ -251,6 +280,7 @@ export function OneVoiceMailDraftBridge() {
         if (handledStepsRef.current.has(step.stepId)) return;
         handledStepsRef.current.add(step.stepId);
         const review = parseReviewedMailDraftStep(step.payload);
+        const activeDelivery = deliveryRef.current;
         const current = draftRef.current;
         if (!review) { report("failed", { reason: "invalid_mail_draft" }); return; }
         if (!user?.uid || !isVaultUnlocked || document.visibilityState !== "visible") {
@@ -259,6 +289,31 @@ export function OneVoiceMailDraftBridge() {
         }
         const edits = editsRef.current;
         const pending = edits.inFlight;
+        const previous = current ?? activeDelivery;
+        const isRetiredSendRecovery = !review.ready && review.operationId === null &&
+          review.previousActionId !== null && review.previousRevision !== null &&
+          previous?.ownerUid === user.uid && previous.binding?.draftRef === review.draftRef &&
+          previous.binding.revision === review.previousRevision &&
+          previous.review?.actionId === review.previousActionId &&
+          review.revision > previous.binding.revision && pending === null && edits.latest === null &&
+          (!activeDelivery || ["sending", "failed"].includes(activeDelivery.status));
+        if (review.previousActionId !== null && !isRetiredSendRecovery) {
+          report("failed", { reason: "stale_review" }); return;
+        }
+        // Once the card has handed its reviewed action to the delivery layer,
+        // a new voice review must not replace the in-flight delivery surface.
+        // The next review can be accepted after the delivery reaches a
+        // terminal state and the server issues a newer binding.
+        if (activeDelivery?.status === "sending" && !isRetiredSendRecovery) {
+          report("failed", { reason: "stale_review" });
+          return;
+        }
+        const isVoiceRecovery = review.operationId === null &&
+          current?.invalidated === true &&
+          current.binding?.draftRef === review.draftRef &&
+          review.revision > (current.binding?.revision ?? 0) &&
+          pending === null &&
+          edits.latest === null;
         if (current?.binding?.draftRef === review.draftRef && pending) {
           if (pending.operationId !== review.operationId || review.revision <= current.binding.revision) {
             report("failed", { reason: "stale_review" }); return;
@@ -272,7 +327,8 @@ export function OneVoiceMailDraftBridge() {
             submitLatestEdit();
             return;
           }
-        } else if (review.operationId || (current?.invalidated && current.binding?.draftRef === review.draftRef)) {
+        } else if (review.operationId ||
+          (current?.invalidated && current.binding?.draftRef === review.draftRef && !isVoiceRecovery && !isRetiredSendRecovery)) {
           report("failed", { reason: "stale_review" }); return;
         }
         if (closedDraftsRef.current.has(review.draftRef) || (review.ready && Date.parse(review.expiresAt) <= Date.now()) ||
@@ -294,6 +350,7 @@ export function OneVoiceMailDraftBridge() {
         edits.inFlight = null;
         previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         draftRef.current = next;
+        deliveryRef.current = null;
         reportsRef.current.set(next.id, report);
         setMailDelivery(null);
         setMailDraft(next);
@@ -429,7 +486,7 @@ export function OneVoiceMailDraftBridge() {
     const id = newAttemptId();
     const openDraft = draftRef.current;
     attemptsRef.current.set(id, { deliveryRef: openDraft?.deliveryRef ?? null, actionId: null });
-    setMailDelivery({
+    const next: MailDelivery = {
       id,
       ownerUid: openDraft?.ownerUid ?? user?.uid ?? "",
       draft: reviewedDraft,
@@ -441,7 +498,9 @@ export function OneVoiceMailDraftBridge() {
       review: openDraft?.review,
       status: "sending",
       error: null,
-    });
+    };
+    deliveryRef.current = next;
+    setMailDelivery(next);
     draftRef.current = null;
     setMailDraft(null);
     return id;

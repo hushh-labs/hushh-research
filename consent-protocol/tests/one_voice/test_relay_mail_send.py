@@ -26,6 +26,7 @@ from tests.one_voice.test_tools_people import AYESHA, OWNER, ConnectionsDouble, 
 
 CONV = "11111111-2222-4333-8444-555555555555"
 MESSAGE = "I will send the demo tomorrow. " + "A" * 220
+REVIEWED_MESSAGE = "Private reviewed mail body must never reach the model"
 CONFIG = OneVoiceLiveConfig(
     enabled=True,
     model_id="gemini-live-2.5-flash-native-audio",
@@ -373,7 +374,10 @@ async def reviewed_mail(draft_session, monkeypatch):
     created = await session.executor.call(
         session.ctx,
         "compose_mail",
-        {"recipients": [{"kind": "address", "address": "friend@example.com"}], "message": "Hi"},
+        {
+            "recipients": [{"kind": "address", "address": "friend@example.com"}],
+            "message": REVIEWED_MESSAGE,
+        },
     )
     assert created.result.status == "review_requested"
     await session._after_execution(created, source="voice", origin_turn_id=session.turn.turn_id)
@@ -418,7 +422,8 @@ async def test_spoken_send_requires_exact_render_and_fresh_send_approval(reviewe
     )
     assert confirmed.result.status == "sent"
     delivery.execute.assert_awaited_once()
-    assert "Hi" not in str(confirmed.result.model_public())
+    # A two-letter greeting can occur by chance in the opaque random draft ID.
+    assert REVIEWED_MESSAGE not in str(confirmed.result.model_public())
     again = await session.executor.call(
         session.ctx, "confirm_pending_action", {"pending_action_id": proposal.pending.id}
     )
@@ -508,4 +513,29 @@ async def test_prepared_null_draft_mount_is_not_send_review(reviewed_mail):
         )
     )
     assert _events(live)[-1]["status"] == "needs_input"
+    delivery.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generic_voice_cancel_emits_mail_draft_outcome(reviewed_mail):
+    session, transport, _live, _pending, delivery, created, _ = reviewed_mail
+    await _ack_review(reviewed_mail)
+
+    await session._dispatch_tool_call_inner(
+        name="edit_mail_draft",
+        call_id="cancel-voice",
+        args={
+            "draft_ref": created.result.draft_ref,
+            "revision": created.result.revision,
+            "cancel": True,
+        },
+        origin_turn_id=session.turn.turn_id,
+    )
+
+    outcome_frame = transport.frames("client_step.request")[-1]
+    outcome = outcome_frame["payload"]
+    assert outcome_frame["kind"] == "mail_draft_outcome"
+    assert outcome["status"] == "cancelled"
+    assert outcome["draft_ref"] == created.result.draft_ref
+    assert outcome["action_id"] is None
     delivery.execute.assert_not_awaited()

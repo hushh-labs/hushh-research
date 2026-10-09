@@ -1,11 +1,13 @@
 name: Ship Android to Google Play Store
 
-# Manual production release: cut a Hushh One Android App Bundle (.aab) from an
-# exact green `main` SHA, build the Capacitor app against the production backend
-# and shared Firebase authority, sign it with the existing Android Release Upload
-# Keystore, and upload it directly to the Google Play production track.
+# Manual Google Play release: cut a Hushh One Android App Bundle (.aab) from an
+# exact green `main` SHA, build the Capacitor app against the UAT backend (latest
+# frontend + latest backend, matching UAT) and the shared Firebase authority, sign
+# it with the existing Android Release Upload Keystore, and upload it directly to
+# the Google Play production track. The UAT backend must already be serving the
+# exact release SHA; this workflow never deploys infrastructure.
 #
-# Public iOS production source of truth: .github/workflows/release-ios-appstore.yml
+# iOS equivalent: .github/workflows/release-ios-appstore.yml (backend_target=uat).
 # Runbook & secret setup: docs/guides/mobile/ship-android-playstore.md
 
 "on":
@@ -31,10 +33,8 @@ permissions:
   id-token: write
 
 env:
-  # Production routing and backend provenance come from the production project.
-  PROD_GCP_PROJECT_ID: hushh-pda
-  # Existing Android signing, Google Play, shared Firebase, and private artifact
-  # material remains in the UAT secrets project, matching the iOS public lane.
+  # UAT routing, backend provenance, Android signing, Google Play, shared
+  # Firebase, and private artifact material all live in the UAT project.
   GCP_PROJECT_ID: hushh-pda-uat
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
@@ -48,9 +48,12 @@ concurrency:
 
 jobs:
   ship:
-    name: Build & upload Android production AAB
+    name: Build & upload Android AAB (UAT backend, Play production track)
     runs-on: ubuntu-latest
-    environment: production
+    # The `uat` environment carries the UAT workload identity needed to read the
+    # UAT backend revision and secrets. Dispatch authority stays on the stricter
+    # production actor list because the upload target is the production track.
+    environment: uat
     timeout-minutes: 50
 
     steps:
@@ -125,121 +128,55 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Validate production workload identity configuration
+      - name: Validate UAT workload identity configuration
         shell: bash
         env:
           WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          test -n "$WIF_PROVIDER" || { echo "Missing production workload identity provider." >&2; exit 1; }
-          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing production deployment service account." >&2; exit 1; }
+          test -n "$WIF_PROVIDER" || { echo "Missing UAT workload identity provider." >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing UAT deployment service account." >&2; exit 1; }
 
-      - name: Authenticate to Google Cloud (production contract)
+      - name: Authenticate to GCP with UAT workload identity
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-          project_id: ${{ env.PROD_GCP_PROJECT_ID }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
           create_credentials_file: true
           export_environment_variables: true
 
-      - name: Set up gcloud (production contract)
+      - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Read production routing contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          get() {
-            gcloud secrets versions access latest --secret="$1" --project="${PROD_GCP_PROJECT_ID}" 2>/dev/null || true
-          }
-          require() {
-            local name="$1" val="$2"
-            if [ -z "$val" ]; then
-              echo "Missing required production secret: $name (project ${PROD_GCP_PROJECT_ID})" >&2
-              exit 1
-            fi
-          }
-          put() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
-
-          PROD_BACKEND_URL="$(get BACKEND_URL)";                       require BACKEND_URL "$PROD_BACKEND_URL"
-          PROD_APP_URL="$(get APP_FRONTEND_ORIGIN)"
-          [ -n "$PROD_APP_URL" ] || PROD_APP_URL="https://one.hushh.ai"
-          PROD_FB_PROJECT_ID="$(get NEXT_PUBLIC_FIREBASE_PROJECT_ID)"; require NEXT_PUBLIC_FIREBASE_PROJECT_ID "$PROD_FB_PROJECT_ID"
-          PROD_FB_APP_ID="$(get NEXT_PUBLIC_FIREBASE_APP_ID)";         require NEXT_PUBLIC_FIREBASE_APP_ID "$PROD_FB_APP_ID"
-          PROD_FB_STORAGE="$(get NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)"; require NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$PROD_FB_STORAGE"
-          PROD_FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
-
-          case "$PROD_BACKEND_URL" in
-            https://*) ;;
-            *) echo "Refusing production release: BACKEND_URL must use HTTPS." >&2; exit 1 ;;
-          esac
-          PROD_BACKEND_HOST="$(printf '%s' "$PROD_BACKEND_URL" | sed -E 's#^https?://##; s#/.*$##' | tr 'A-Z' 'a-z')"
-          case "$PROD_BACKEND_HOST" in
-            ""|*uat*|*f2gsa4kfsq*|localhost|127.0.0.1|0.0.0.0|10.0.2.2)
-              echo "Refusing production release: BACKEND_URL resolves to '${PROD_BACKEND_HOST}'." >&2
-              exit 1
-              ;;
-          esac
-          case "$PROD_APP_URL" in
-            https://*) ;;
-            *) echo "Refusing production release: APP_FRONTEND_ORIGIN must use HTTPS." >&2; exit 1 ;;
-          esac
-          case "$PROD_APP_URL" in
-            *uat*|*localhost*|*127.0.0.1*)
-              echo "Refusing production release: APP_FRONTEND_ORIGIN is not production." >&2
-              exit 1
-              ;;
-          esac
-
-          put PROD_BACKEND_URL "$PROD_BACKEND_URL"
-          put PROD_APP_URL "$PROD_APP_URL"
-          put PROD_FB_PROJECT_ID "$PROD_FB_PROJECT_ID"
-          put PROD_FB_APP_ID "$PROD_FB_APP_ID"
-          put PROD_FB_STORAGE "$PROD_FB_STORAGE"
-          [ -n "$PROD_FB_MEASUREMENT" ] && put PROD_FB_MEASUREMENT "$PROD_FB_MEASUREMENT"
-          echo "Production routing contract read (backend host ${PROD_BACKEND_HOST})."
-
-      - name: Verify matching production backend revision
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/verify-cloudrun-revision-provenance.py \
-            --project "$PROD_GCP_PROJECT_ID" \
-            --region "$GCP_REGION" \
-            --service "$BACKEND_SERVICE" \
-            --expected-env production \
-            --expected-source deploy-production \
-            --expected-sha "$EXPECTED_SHA" \
-            --report-path "$RUNNER_TEMP/android-production-backend-provenance.json"
-
-      - name: Authenticate to Google Cloud (release secrets)
-        uses: google-github-actions/auth@v2
-        with:
-          # Android signing, Play credentials, and the native/shared Firebase
-          # config remain in the UAT secrets project, matching public iOS.
-          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
-          create_credentials_file: true
-          export_environment_variables: true
-
-      - name: Set up gcloud (release secrets)
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Assert release-secrets project scope
+      - name: Assert UAT project scope
         shell: bash
         run: |
           set -euo pipefail
           gcloud config set project "$GCP_PROJECT_ID"
           ACTIVE_PROJECT="$(gcloud config get-value project 2>/dev/null)"
           if [ "$ACTIVE_PROJECT" != "$GCP_PROJECT_ID" ]; then
-            echo "Refusing release: expected secrets project '$GCP_PROJECT_ID' but got '$ACTIVE_PROJECT'." >&2
+            echo "Refusing release: expected UAT project '$GCP_PROJECT_ID' but got '$ACTIVE_PROJECT'." >&2
             exit 1
           fi
 
-      - name: Materialize production frontend contract
+      - name: Verify matching UAT backend revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --service "$BACKEND_SERVICE" \
+            --expected-env uat \
+            --expected-source deploy-uat \
+            --expected-sha "$EXPECTED_SHA" \
+            --report-path "$RUNNER_TEMP/android-uat-backend-provenance.json"
+
+      - name: Materialize UAT frontend contract
         shell: bash
         run: |
           set -euo pipefail
@@ -255,6 +192,10 @@ jobs:
           }
           put() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
 
+          BACKEND_URL="$(get BACKEND_URL)";                            require BACKEND_URL "$BACKEND_URL"
+          APP_URL="$(get APP_FRONTEND_ORIGIN)"
+          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
+
           FB_API_KEY="$(get NEXT_PUBLIC_FIREBASE_API_KEY)";           require NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
           FB_AUTH_DOMAIN="$(get NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN)";    require NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
           FB_PROJECT_ID="$(get NEXT_PUBLIC_FIREBASE_PROJECT_ID)";      require NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
@@ -266,35 +207,62 @@ jobs:
           MAPS_BROWSER_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)"
           MAPS_ANDROID_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY)"
 
-          if [ "${PROD_FB_PROJECT_ID:-}" != "$FB_PROJECT_ID" ] || [ "${PROD_FB_APP_ID:-}" != "$FB_APP_ID" ]; then
-            echo "Refusing release: production and release-secrets Firebase identity differ." >&2
-            exit 1
-          fi
+          # Fail before the heavy web build if the resolved backend is not the UAT
+          # host: this guards against a mis-scoped project, and it can never let a
+          # production, localhost or emulator URL into a UAT-target build.
+          case "$BACKEND_URL" in
+            https://*) ;;
+            *) echo "Refusing release: BACKEND_URL must use HTTPS." >&2; exit 1 ;;
+          esac
+          BACKEND_HOST="$(printf '%s' "$BACKEND_URL" | sed -E 's#^https?://##; s#/.*$##' | tr 'A-Z' 'a-z')"
+          case "$BACKEND_HOST" in
+            ""|localhost|127.0.0.1|0.0.0.0|10.0.2.2)
+              echo "Refusing release: BACKEND_URL resolves to local/emulator host '${BACKEND_HOST}'." >&2
+              exit 1
+              ;;
+            *uat*|*f2gsa4kfsq*)
+              : # expected UAT backend
+              ;;
+            *)
+              echo "Refusing release: BACKEND_URL resolves to '${BACKEND_HOST}', which is not the UAT backend (project ${GCP_PROJECT_ID})." >&2
+              exit 1
+              ;;
+          esac
+          case "$APP_URL" in
+            https://*) ;;
+            *) echo "Refusing release: APP_FRONTEND_ORIGIN must use HTTPS." >&2; exit 1 ;;
+          esac
+          case "$APP_URL" in
+            *localhost*|*127.0.0.1*)
+              echo "Refusing release: APP_FRONTEND_ORIGIN is a local origin." >&2
+              exit 1
+              ;;
+          esac
 
           echo "::add-mask::$FB_API_KEY"
           echo "::add-mask::$FB_VAPID"
           [ -n "$MAPS_BROWSER_KEY" ] && echo "::add-mask::$MAPS_BROWSER_KEY"
           [ -n "$MAPS_ANDROID_KEY" ] && echo "::add-mask::$MAPS_ANDROID_KEY"
 
-          put APP_RUNTIME_PROFILE "prod"
-          put NEXT_PUBLIC_APP_ENV "production"
-          put NEXT_PUBLIC_BACKEND_URL "${PROD_BACKEND_URL:?production routing contract was not read}"
-          put NEXT_PUBLIC_APP_URL "${PROD_APP_URL:?production routing contract was not read}"
+          put APP_RUNTIME_PROFILE "uat"
+          put NEXT_PUBLIC_APP_ENV "uat"
+          put NEXT_PUBLIC_BACKEND_URL "$BACKEND_URL"
+          put NEXT_PUBLIC_APP_URL "$APP_URL"
           put NEXT_PUBLIC_PASSKEY_RP_ID "one.hushh.ai"
           put NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
           put NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
           put NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
-          put NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "${PROD_FB_STORAGE:?production routing contract was not read}"
+          put NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$FB_STORAGE"
           put NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID "$FB_SENDER"
           put NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
           put NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
-          [ -n "${PROD_FB_MEASUREMENT:-$FB_MEASUREMENT}" ] && put NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID "${PROD_FB_MEASUREMENT:-$FB_MEASUREMENT}"
+          [ -n "$FB_MEASUREMENT" ] && put NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID "$FB_MEASUREMENT"
           [ -n "$MAPS_BROWSER_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY "$MAPS_BROWSER_KEY"
           [ -n "$MAPS_ANDROID_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY "$MAPS_ANDROID_KEY"
           put NEXT_PUBLIC_OBSERVABILITY_ENABLED "true"
           put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
           put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"
-          echo "Production Android frontend contract materialized."
+          echo "UAT Android frontend contract materialized (backend host ${BACKEND_HOST})."
 
       - name: Fetch Android release secrets from GCP Secret Manager
         id: gcp-secrets
@@ -330,7 +298,7 @@ jobs:
           expected_project = os.environ["NEXT_PUBLIC_FIREBASE_PROJECT_ID"]
           if actual_project != expected_project:
               raise SystemExit(
-                  "Android Firebase project does not match the production web Firebase identity."
+                  "Android Firebase project does not match the web Firebase identity."
               )
           packages = {
               client.get("client_info", {})
@@ -342,7 +310,7 @@ jobs:
               raise SystemExit("Android Firebase config does not contain com.hussh.app.")
           PY
           chmod 600 google-services.json
-          echo "Android Firebase config matches the production identity and package."
+          echo "Android Firebase config matches the web Firebase identity and package."
 
       - name: Hydrate Android Release Keystore
         shell: bash
@@ -424,11 +392,11 @@ jobs:
           set -euo pipefail
           cd hushh-webapp
           # A clean Actions checkout must not contain a local profile capable of
-          # overriding the production contract supplied through GITHUB_ENV.
+          # overriding the UAT contract supplied through GITHUB_ENV.
           test ! -e .env.native.android.local
           test ! -e .env.native.ios.local
-          test "$(node ./scripts/native/with-android-native-env.mjs --print APP_RUNTIME_PROFILE)" = "prod"
-          test "$(node ./scripts/native/with-android-native-env.mjs --print NEXT_PUBLIC_APP_ENV)" = "production"
+          test "$(node ./scripts/native/with-android-native-env.mjs --print APP_RUNTIME_PROFILE)" = "uat"
+          test "$(node ./scripts/native/with-android-native-env.mjs --print NEXT_PUBLIC_APP_ENV)" = "uat"
           test "$(node ./scripts/native/with-android-native-env.mjs --print NEXT_PUBLIC_BACKEND_URL)" = "$NEXT_PUBLIC_BACKEND_URL"
           npm run sync:native-firebase-configs -- --platform android
           # Keep the export and Capacitor sync in Android's isolated native
@@ -448,7 +416,7 @@ jobs:
             npx cross-env CAPACITOR_PLATFORM=android NEXT_DIST_DIR="$NATIVE_EXPORT" \
             npx cap sync android
 
-      - name: Verify bundled Android production runtime
+      - name: Verify bundled Android UAT runtime
         shell: bash
         run: |
           set -euo pipefail
@@ -463,10 +431,10 @@ jobs:
           parsed = urlsplit(expected_url)
           expected_origin = f"{parsed.scheme}://{parsed.netloc}"
           host = (parsed.hostname or "").lower()
-          if parsed.scheme != "https" or not host or "uat" in host or host in {
+          if parsed.scheme != "https" or not host or host in {
               "localhost", "127.0.0.1", "0.0.0.0", "10.0.2.2"
-          }:
-              raise SystemExit("Resolved Android backend is not production-safe.")
+          } or not ("uat" in host or "f2gsa4kfsq" in host):
+              raise SystemExit("Resolved Android backend is not the UAT backend.")
 
           assets = Path("hushh-webapp/android/app/src/main/assets")
           capacitor = json.loads((assets / "capacitor.config.json").read_text(encoding="utf-8"))
@@ -476,7 +444,7 @@ jobs:
               if isinstance(plugin, dict) and "backendUrl" in plugin
           ]
           if not backend_urls or any(value.rstrip("/") != expected_url for value in backend_urls):
-              raise SystemExit("Bundled Capacitor plugin routing is not uniformly production.")
+              raise SystemExit("Bundled Capacitor plugin routing is not uniformly UAT.")
 
           contract = json.loads(
               (assets / "public/hushh-native-runtime-contract.json").read_text(encoding="utf-8")
@@ -492,12 +460,12 @@ jobs:
               json.dumps(expected_contract, separators=(",", ":")).encode("utf-8")
           ).hexdigest()
           if contract.get("backend_origin") != expected_origin:
-              raise SystemExit("Bundled runtime contract backend does not match production.")
-          if contract.get("app_env") != "production" or contract.get("dist_dir") != ".next-native-android":
-              raise SystemExit("Bundled runtime contract is not the Android production profile.")
+              raise SystemExit("Bundled runtime contract backend does not match UAT.")
+          if contract.get("app_env") != "uat" or contract.get("dist_dir") != ".next-native-android":
+              raise SystemExit("Bundled runtime contract is not the Android UAT profile.")
           if contract.get("bundle_attestation") != attestation:
               raise SystemExit("Bundled runtime contract attestation is invalid.")
-          print(f"Verified Android production runtime for {host}.")
+          print(f"Verified Android UAT runtime for {host}.")
           PY
 
       - name: Compile Android App Bundle (.aab)
@@ -579,7 +547,7 @@ jobs:
             printf -- '- **Version Code**: `%s`\n' "$VERSION_CODE"
             printf -- '- **Package Name**: `%s`\n' "$ANDROID_PACKAGE_NAME"
             printf -- '- **Source SHA**: `%s`\n' "$RELEASE_SHA"
-            printf -- '- **Runtime**: `production` (`%s`)\n' "$NEXT_PUBLIC_BACKEND_URL"
+            printf -- '- **Runtime**: `uat` (`%s`)\n' "$NEXT_PUBLIC_BACKEND_URL"
             printf -- '- **Dry Run**: `%s`\n' "$DRY_RUN"
             printf -- '- **Private UAT AAB**: `%s` (14-day bucket retention; receipt only in Actions)\n' "$PRIVATE_ARTIFACT_OUTCOME"
             printf -- '- **Play Console**: [Google Play Console Releases](https://play.google.com/console)\n'

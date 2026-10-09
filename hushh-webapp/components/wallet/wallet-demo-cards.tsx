@@ -1,71 +1,89 @@
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
-import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
-import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
-import { formatCardExpiry, formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
+import type { WalletCardPayload } from "@/lib/services/wallet-card-service";
+import { walletProfileUsername } from "@/lib/wallet/wallet-profile-username";
 import styles from "./wallet-demo-cards.module.css";
+import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
 
-/** Fixed illustration records, never accepted as saved Wallet cards. */
-const DEMOS = [
-  { name: "Everyday", brand: "visa", number: "0000000000004242", month: 12, finish: "platinum", tier: "Platinum" },
-  { name: "Travel", brand: "mastercard", number: "0000000000004444", month: 9, finish: "gold", tier: "Signature" },
-  { name: "Rewards", brand: "visa", number: "0000000000001234", month: 6, finish: "graphite", tier: "Black" },
+export type WalletDemoProfile = {
+  ownerId?: string;
+  shareToken?: string | null;
+  displayName: string | null;
+  shareUrl: string | null;
+  cardPayload?: WalletCardPayload | null;
+  memberSince?: string | null;
+  walletId?: string | null;
+  referralUrl?: string | null;
+};
+
+/** System cards have stable identities separate from encrypted payment records. */
+const AGENT_CARDS = [
+  { id: "agent-one-profile", name: "Agent One Profile", kind: "Profile", finish: "profile" },
+  { id: "agent-one-referral", name: "Agent One Referral", kind: "Referral", finish: "referral" },
+  { id: "agent-one-nws", name: "Agent One NWS", kind: "NWS", finish: "nws" },
 ] as const;
 
-export const WALLET_DEMO_CARDS: WalletCardSummary[] = DEMOS.map((demo, index) => ({
-  cardId: `demo-${index}`,
-  nickname: demo.name,
-  brand: demo.brand,
-  last4: demo.number.slice(-4),
-  expiryMonth: demo.month,
-  expiryYear: 2030,
+// Compatibility export: these are now live identity surfaces, not sample bank cards.
+export const WALLET_DEMO_CARDS: WalletCardSummary[] = AGENT_CARDS.map((card) => ({
+  cardId: card.id,
+  nickname: card.name,
+  brand: "other",
+  last4: "",
+  expiryMonth: 0,
+  expiryYear: 0,
   issuingRegion: "",
   createdAt: "",
 }));
 
-function demoFor(cardId: string) {
-  const index = WALLET_DEMO_CARDS.findIndex((card) => card.cardId === cardId);
-  return DEMOS[index];
+export function isAgentWalletCard(cardId: string): boolean {
+  return AGENT_CARDS.some((card) => card.id === cardId);
 }
 
-/** Only the preview branch calls this; real cards never receive these numbers. */
-export function WalletDemoCardFace({ summary }: { summary: WalletCardSummary }) {
-  const demo = demoFor(summary.cardId);
-  if (!demo) return <WalletCardFace summary={summary} collection />;
-  return (
-    <div className={`${styles.face} ${styles[demo.finish]}`} data-demo-card="true">
-      <WalletCardFace summary={summary} collection revealed={{ pan: demo.number, cardholderName: "Alex Morgan" }} />
+export function WalletDemoCardFace({ summary, profile }: { summary: WalletCardSummary; profile?: WalletDemoProfile | null; onArtworkLoad?: () => void }) {
+  const card = AGENT_CARDS.find((item) => item.id === summary.cardId);
+  if (!card) return <WalletCardFace summary={summary} collection />;
+  const username = profile?.cardPayload?.username || walletProfileUsername(profile?.displayName ?? "");
+  const memberDate = profile?.memberSince ? new Date(profile.memberSince) : null;
+  const memberSince = memberDate && !Number.isNaN(memberDate.getTime()) ? memberDate.getFullYear() : "—";
+  const isNws = card.kind === "NWS";
+  const walletId = profile?.walletId ? profile.walletId.slice(-8).toUpperCase() : "—";
+  const qrUrl = card.kind === "Referral" ? profile?.referralUrl : profile?.shareUrl;
+  return <div className={`@container ${styles.face}`}>
+    <div data-testid="wallet-card-face" data-agent-card={card.finish} data-revealed="false" className={`${styles.artworkFrame} ${styles[card.finish]}`}>
+      {isNws ? <span className="sr-only">Sample NWS score: 900 out of 1000. This is not an evaluated net worth score.</span> : null}
+      <iframe title={`${card.name} artwork`} aria-hidden="true" tabIndex={-1} src={`/wallet/agent-one-card-${card.finish}.html?v=${isNws ? 5 : 4}`} className={styles.artwork} />
+      {!isNws ? qrUrl ? <WalletCardQr value={qrUrl} label={`${card.name} QR code`} className={styles.profileQr} /> : <span className={styles.qrPlaceholder} aria-label="QR unavailable">QR</span> : null}
+      {isNws ? <svg viewBox="0 0 1080 650" preserveAspectRatio="none" aria-hidden="true" className={styles.nwsIdentityFields}>
+        <g fill="#9DBFA9" fontSize="14" fontWeight="500" letterSpacing="4.48">
+          <text x="100" y="449">USERNAME</text>
+          <text x="390" y="449">MEMBER SINCE</text>
+          <text x="640" y="449">WALLET ID</text>
+        </g>
+        <g fill="none" stroke="#3F7A5E" strokeOpacity=".7" strokeWidth="1.5">
+          <line x1="344" y1="428" x2="344" y2="507" />
+          <line x1="594" y1="428" x2="594" y2="507" />
+        </g>
+        <g fill="#F2EFE3" fontWeight="600">
+          <text x="100" y="495" fontSize="28" letterSpacing="4.48" textLength={username.length > 10 ? 220 : undefined} lengthAdjust="spacingAndGlyphs">{username}</text>
+          <text x="390" y="495" fontSize="32" letterSpacing="1.28">{memberSince}</text>
+          <text x="640" y="495" fontSize="32" letterSpacing="1.28">{walletId}</text>
+        </g>
+      </svg> : null}
+      <dl className={isNws ? "sr-only" : styles.identityFields}>
+        <div><dt>Username</dt><dd>{username}</dd></div>
+        <div><dt>Member since</dt><dd>{memberSince}</dd></div>
+        <div><dt>Wallet ID</dt><dd>{walletId}</dd></div>
+      </dl>
     </div>
-  );
+  </div>;
 }
 
-export function WalletDemoCardDetails({ cardId }: { cardId: string }) {
-  const demo = demoFor(cardId);
-  const summary = WALLET_DEMO_CARDS.find((card) => card.cardId === cardId);
-  if (!demo || !summary) return null;
-  const fields = [
-    ["Card number", formatCardNumber(summary.brand, demo.number)],
-    ["Cardholder", "Alex Morgan"],
-    ["Network", cardNetworkLabel(summary.brand)],
-    ["Valid until", formatCardExpiry(summary.expiryMonth, summary.expiryYear)],
-  ];
-  return (
-    <section aria-label="Example card details" aria-live="polite" className={styles.details} data-testid="wallet-demo-details">
-      <div key={cardId} className="motion-step-enter space-y-4">
-        <div className="space-y-1">
-          <p className={TYPOGRAPHY_CLASSNAMES.helperText}>{demo.tier}</p>
-          <h3 className={TYPOGRAPHY_CLASSNAMES.mediumRowLabel}>{demo.name} card</h3>
-        </div>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
-          {fields.map(([label, value], index) => (
-            <div key={label} className={index === 0 ? "col-span-2 min-w-0" : "min-w-0"}>
-              <dt className={TYPOGRAPHY_CLASSNAMES.helperText}>{label}</dt>
-              <dd className="mt-1 break-words text-sm font-medium tabular-nums text-foreground">{value}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className={TYPOGRAPHY_CLASSNAMES.helperText}>These example details cannot be used for payments.</p>
-      </div>
-    </section>
-  );
+/** Kept for the Add illustration: owner details use WalletCardWorkspace. */
+export function WalletDemoCardDetails({ cardId, profile }: { cardId: string; profile?: WalletDemoProfile | null }) {
+  const card = AGENT_CARDS.find((item) => item.id === cardId);
+  if (!card) return null;
+  return <section aria-label={`${card.name} details`} className={styles.details} data-testid="wallet-demo-details">
+    <h3 className="ui-text-section-title">{card.name}</h3>
+    <p className="mt-1 text-sm text-muted-foreground">{profile?.displayName || "Your profile, ready to share."}</p>
+  </section>;
 }

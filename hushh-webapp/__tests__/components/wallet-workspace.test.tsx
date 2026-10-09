@@ -81,6 +81,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
 import { stageReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import { WalletCardService, type WalletCardRecord } from "@/lib/services/wallet-card-service";
 
 function makeCards(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -96,6 +97,33 @@ function makeCards(count: number) {
 }
 
 describe("WalletWorkspace at scale", () => {
+  it("refreshes the profile QR after a remote rotation without reopening Wallet", async () => {
+    const card = { status: "active", displayName: "Ada", cardPayload: { full_name: "Ada" }, shareTokenVersion: 1 } as WalletCardRecord;
+    const rotated = { ...card, shareTokenVersion: 2 };
+    let changed: (() => void) | undefined;
+    let recovered = false;
+    const getCard = vi.spyOn(WalletCardService, "getCard")
+      .mockResolvedValueOnce({ enabled: true, exists: true, card, shareUrl: "https://one.hushh.ai/c/original" })
+      .mockResolvedValue({ enabled: true, exists: true, card: rotated, shareUrl: null });
+    vi.spyOn(WalletCardService, "subscribe").mockImplementation((_owner, listener) => { changed = listener; return () => { changed = undefined; }; });
+    vi.spyOn(WalletCardService, "readShareLink").mockImplementation((_owner, current) => current?.shareTokenVersion === 1
+      ? { shareToken: "original", shareUrl: "https://one.hushh.ai/c/original", version: 1 }
+      : recovered ? { shareToken: "rotated", shareUrl: "https://one.hushh.ai/c/rotated", version: 2 } : null);
+    const ensure = vi.spyOn(WalletCardService, "ensureCard").mockImplementation(async () => {
+      recovered = true;
+      changed?.();
+      return { card: rotated, shareToken: "rotated", shareUrl: "https://one.hushh.ai/c/rotated", passUrl: null };
+    });
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    render(<WalletWorkspace />);
+    const originalQr = (await screen.findByRole("img", { name: "Agent One Profile QR code" })).innerHTML;
+    await act(async () => { changed?.(); });
+    await waitFor(() => expect(screen.getByRole("img", { name: "Agent One Profile QR code" }).innerHTML).not.toBe(originalQr));
+    expect(ensure).toHaveBeenCalledOnce();
+    expect(getCard).toHaveBeenCalledTimes(2);
+  });
+
   it("skips the introduction for an account that has continued before", async () => {
     vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
     serviceMock.listCardSummaries.mockResolvedValue([]);
@@ -151,8 +179,11 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByRole("button", { name: "Open New card, ending 4242" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "All (3)" }));
-    expect(screen.getAllByTestId(/^wallet-add-layer-/).map((el) => el.getAttribute("data-testid"))).toEqual(["wallet-add-layer-1000", "wallet-add-layer-1001", "wallet-add-layer-4242"]);
+    // Use the visible navigation action, then wait for the deck to render after
+    // the save-to-Cards transition instead of reading during its lifecycle.
+    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    await waitFor(() => expect(screen.getAllByTestId(/^wallet-add-layer-/).map((el) => el.getAttribute("data-testid"))).toEqual(["wallet-add-layer-agent-one-profile", "wallet-add-layer-agent-one-referral", "wallet-add-layer-agent-one-nws", "wallet-add-layer-1000", "wallet-add-layer-1001", "wallet-add-layer-4242"]));
+    expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
   });
 
   it("retains a failed save draft and rejects a late save after vault lock", async () => {
@@ -268,6 +299,7 @@ describe("WalletWorkspace at scale", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   it("renders every saved card in storage order for scroll unfolding", async () => {
@@ -275,9 +307,9 @@ describe("WalletWorkspace at scale", () => {
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
     await screen.findByTestId("wallet-add-collection");
-    expect(screen.getAllByTestId(/^wallet-add-layer-/)).toHaveLength(25);
+    expect(screen.getAllByTestId(/^wallet-add-layer-/)).toHaveLength(28);
     expect(screen.getAllByTestId(/^wallet-add-layer-/).map(node => node.dataset.gestureCard)).toEqual(
-      Array.from({ length:25 }, (_, index) => `card_${index}`),
+      ["agent-one-profile", "agent-one-referral", "agent-one-nws", ...Array.from({ length:25 }, (_, index) => `card_${index}`)],
     );
     expect(screen.getByTestId("wallet-add-stack")).toHaveAttribute("data-expanded", "true");
   });
@@ -361,7 +393,7 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
     await waitFor(() => expect(finishDelete).toBeTypeOf("function"));
     expect(screen.getByRole("button", { name: "Add a card", exact: true })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "All (25)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "All (28)" })).toBeDisabled();
     authMock.user = { uid: "user_2" };
     view.rerender(<WalletWorkspace />);
     await act(async () => finishDelete());

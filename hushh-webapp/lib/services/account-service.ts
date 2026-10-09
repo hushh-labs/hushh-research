@@ -77,6 +77,14 @@ export interface AccountDeletionResult {
   account_deleted?: boolean;
   remaining_personas?: Array<"investor" | "ria">;
   details?: Record<string, unknown>;
+  /** Only true after the old Firebase identity is removed. */
+  ready_to_start_fresh?: boolean;
+}
+
+export interface LostVaultDeleteOptions {
+  phone_available: boolean;
+  phone_hint: string | null;
+  providers: Array<"google.com" | "apple.com">;
 }
 
 export interface AccountResetResult {
@@ -140,6 +148,28 @@ export interface AccountEmailAliasVerificationConfirmResponse {
 }
 
 export class AccountServiceImpl {
+  async getLostVaultDeleteOptions(firebaseIdToken: string): Promise<LostVaultDeleteOptions> {
+    return apiJson<LostVaultDeleteOptions>("/api/account/delete-lost-vault/options", {
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+    });
+  }
+
+  async deleteLostVaultAccount(params: {
+    firebaseIdToken: string;
+    phoneIdToken?: string;
+  }): Promise<AccountDeletionResult> {
+    if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
+    return apiJson<AccountDeletionResult>("/api/account/delete-lost-vault", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${params.firebaseIdToken}` },
+      body: JSON.stringify(
+        params.phoneIdToken
+          ? { method: "phone", phone_id_token: params.phoneIdToken }
+          : { method: "provider" },
+      ),
+    });
+  }
+
   /**
    * Delete the user's account and user-owned information.
    * Required security or regulated evidence follows its separately approved

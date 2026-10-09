@@ -1,3 +1,4 @@
+import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/voice/search-route-context";
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -299,5 +300,22 @@ describe("what search offers", () => {
     renderPalette("ask location", { state: homeState });
 
     expect(renderedLabels()).not.toContain("Ask Location");
+  });
+});
+
+
+describe("contract-owned search route context", () => {
+  it("derives the current screen from generated route contracts", () => {
+    expect(resolveSearchScreen("/ria/picks?source=my&category=avoid", "app")).toBe("ria_picks");
+    expect(resolveSearchScreen("/one/location?view=people", "app")).toBe("one_location");
+    expect(searchTargetMatchesCurrentRoute("/ria/picks", "/ria/picks?returnTo=%2Fone")).toBe(true);
+  });
+  it("recognizes RIA source and category independently, including authored defaults", () => {
+    expect(searchTargetMatchesCurrentRoute("/ria/picks?source=my", "/ria/picks?source=my&category=avoid")).toBe(true);
+    expect(searchTargetMatchesCurrentRoute("/ria/picks?category=avoid", "/ria/picks?source=my&category=avoid")).toBe(true);
+    expect(searchTargetMatchesCurrentRoute("/ria/picks?source=kai", "/ria/picks?source=my&category=avoid")).toBe(false);
+    expect(searchTargetMatchesCurrentRoute("/ria/picks?source=kai", "/ria/picks")).toBe(true);
+    expect(searchTargetMatchesCurrentRoute("/ria/picks?category=top-picks", "/ria/picks")).toBe(true);
+    expect(searchTargetMatchesCurrentRoute("/ria/picks", "/ria/picks?source=my")).toBe(false);
   });
 });

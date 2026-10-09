@@ -7,7 +7,8 @@ renamed to Wallet on 2026-09-02 (founder directive). Items inside it are still
 called cards, because that is what they are; everything that names the feature
 says Wallet. The **Wallet Profile** (public identity pass at `/one/wallet-card`,
 `one_wallet_cards`, `ONE_WALLET_CARD_ENABLED`, `wallet-card-service.ts`) is a
-different, older feature and was never renamed.
+separate identity lifecycle. The Cards tab now composes that lifecycle alongside
+encrypted payment cards; it does not copy profile fields into the payment-card domain.
 
 ## Visual Map
 
@@ -88,8 +89,9 @@ without a duplicate Wallet page heading. Continue saves a cosmetic account-scope
 the workspace directly. This does not complete account setup or unlock the vault.
 
 Cards owns the animated collection, safe summary search, and the existing
-explicit reveal/removal actions. An empty collection shows labelled demo
-summaries; these never enter Wallet storage or invoke reveal/remove services.
+explicit reveal/removal actions. Profile, Referral and NWS are system cards and
+remain present beside saved payment cards. They never enter payment-card storage
+or invoke payment-card reveal/removal services.
 Add opens the encrypted card-entry form directly. Save and Cancel return to
 Cards, while switching tabs preserves and masks an unfinished draft. Vault lock
 discards the form and revealed details. Chat and Secrets handoffs wait until
@@ -109,13 +111,48 @@ the compact deck without overlapping detail links. A thumbnail strip outside the
 bottom chrome; its plus action opens the existing Add form. Reduced-motion users
 receive the same controls with a static list and instant selection.
 
-An empty Wallet shows explicitly labelled demo cards with fictional numbers,
-statements, activity, rewards, payment and autopay previews. These are presentation
-records only: they are never inserted into saved Wallet cards or sent to payment,
-consent, or vault services. Preview actions explain that no transaction or autopay
-is performed. Saved-card selection remains metadata-only; the existing explicit
+Agent One cards use the owner's identity and existing sharing services. Profile
+details compose `WalletCardWorkspace`, including the real QR, aggregate scans,
+last scan, edits, pause/resume, rotation, removal and Apple Wallet handoff. Referral
+uses the existing referral link, qualification counts and referral event stream.
+NWS has no computed score in this release. Its emerald face shows the fixed
+900/1000 sample requested for the card design; the accessible description and
+details identify it as a sample, not an evaluation. The NWS face has no QR;
+its existing Wallet Profile QR and sharing controls remain in details. Saved-card selection remains metadata-only; the existing explicit
 Show card details action owns decryption, and leaving Cards or selecting All
 clears any revealed values.
+
+### Automatic Wallet Profile
+
+`WalletProfileBootstrap` runs once account authentication and the existing vault
+owner session are ready, without visiting Wallet. `POST /api/one/wallet-card/ensure`
+creates only a missing row from available account basics. Existing payloads,
+paused profiles and removed profiles are preserved, including concurrent first
+requests. The management route uses the same operation instead of requiring a
+setup form. Missing optional fields remain editable in Wallet Profile.
+
+New QR tokens have an encrypted recovery envelope under the deployed credential
+encryption key, bound to the owner and token digest. Public lookup still uses the
+hash. A legacy QR can be adopted from its valid device-local token; if neither
+token nor envelope exists, the owner must explicitly rotate. Opening Wallet never
+silently invalidates a printed QR. Migration 285 adds the nullable envelope.
+
+Owner mutations notify account-scoped subscribers immediately. Visible Wallet
+views refresh on focus and every 15 seconds for remote changes and aggregate
+scan updates; this is polling, not a Wallet Profile SSE stream. Referral updates
+continue to use the existing referral stream.
+
+Usernames are owner-scoped profile labels, not globally unique URLs. Defaults use
+the account name (`Ankit Kumar Singh` → `ankit.kumar.singh`). They allow 3–30
+lowercase ASCII letters/digits and single internal dots; reserved and blocked
+labels are rejected on the server as well as in the form. A nonrepresentable or
+unavailable name receives `member`, which the owner can edit.
+
+Existing-account batch provisioning uses
+`consent-protocol/scripts/backfill_one_wallet_cards.py`. It defaults to dry-run,
+has bounded batches, prints counts only, requires encrypted link recovery when
+applying, and never edits existing rows. Apply it in each environment only after
+its schema and runtime are deployed; a UAT deployment does not deploy production.
 
 The card thumbnail bar hides on downward page scrolling and returns on upward scrolling. Stopping alone does not reveal it; keyboard focus keeps its controls available.
 

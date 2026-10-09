@@ -26,14 +26,19 @@ SURFACES = {
 # request/review/plan/receipt envelope participates in search or classification.
 _PROJECTION = """
 WITH participants AS (
-  SELECT request_id,revision,created_at,'share' AS source,
-    CASE WHEN recipient_user_id=:user THEN 'outgoing' ELSE 'incoming' END AS direction,
-    CASE WHEN status IN ('pending','preparing','review_ready') AND expires_at<=now()
+  SELECT drive_share_requests.request_id,drive_share_requests.revision,
+    drive_share_requests.created_at,'share' AS source,
+    CASE WHEN drive_share_requests.recipient_user_id=:user THEN 'outgoing' ELSE 'incoming' END AS direction,
+    {counterpart_label} AS counterpart_label,
+    CASE WHEN drive_share_requests.status IN ('pending','preparing','review_ready')
+      AND drive_share_requests.expires_at<=now()
       THEN 'expired'
-      WHEN recipient_user_id=:user AND status IN ('preparing','review_ready') THEN 'pending'
-      WHEN recipient_user_id=:user AND status='no_match' THEN 'no_files_shared'
-      ELSE status END AS state,
-    preparation_error_code,
+      WHEN drive_share_requests.recipient_user_id=:user
+        AND drive_share_requests.status IN ('preparing','review_ready') THEN 'pending'
+      WHEN drive_share_requests.recipient_user_id=:user
+        AND drive_share_requests.status='no_match' THEN 'no_files_shared'
+      ELSE drive_share_requests.status END AS state,
+    drive_share_requests.preparation_error_code,
     {owner_search_state} AS owner_search_state,
     {trusted_authority_ready} AS trusted_authority_ready,
     {trusted_batch_seen} AS trusted_batch_seen,
@@ -42,11 +47,16 @@ WITH participants AS (
     {payment_status} AS payment_status,
     {payment_amount_cents} AS payment_amount_cents,
     {payment_currency} AS payment_currency,
-    {payment_reconciliation_required} AS payment_reconciliation_required
-  FROM drive_share_requests WHERE user_id=:user OR recipient_user_id=:user
+    {payment_reconciliation_required} AS payment_reconciliation_required,
+    {payment_link_expired} AS payment_link_expired,
+    {checkout_expires_at} AS checkout_expires_at
+  FROM drive_share_requests
+  {identity_joins}
+  WHERE drive_share_requests.user_id=:user
+    OR drive_share_requests.recipient_user_id=:user
   UNION ALL
-  SELECT request_id,revocation_revision,created_at,'share','incoming','management_only',
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean
+  SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -99,13 +109,14 @@ _QUERIES = """
   UNION ALL
   SELECT request_id,revision,created_at,'query',
     CASE WHEN requester_user_id=:user THEN 'outgoing' ELSE 'incoming' END,
+    NULL::text,
     CASE WHEN status='pending' AND expires_at<=now() THEN 'expired'
       -- An abandoned claim (DriveLiveQueryStore.STALE_CLAIM_SECONDS) reads like the view.
       WHEN status='running' AND expires_at<=now()
         AND decided_at < now() - interval '300 seconds' THEN 'expired'
       WHEN status='running' THEN 'pending'
       ELSE status END,
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -190,11 +201,31 @@ _TRUSTED_RECOVERY_NEEDED = """EXISTS (
     AND effect.attempts=0 AND effect.receipt_envelope IS NULL
 )"""
 
+_COUNTERPART_LABEL = """CASE WHEN drive_share_requests.recipient_user_id=:user
+  THEN COALESCE(NULLIF(owner_identity.display_name,''), 'Document request')
+  ELSE COALESCE(NULLIF(recipient_identity.display_name,''), 'Document request')
+END"""
+
+_IDENTITY_JOINS = """LEFT JOIN actor_identity_cache owner_identity
+    ON owner_identity.user_id=drive_share_requests.user_id
+  LEFT JOIN actor_identity_cache recipient_identity
+    ON recipient_identity.user_id=drive_share_requests.recipient_user_id"""
+
 
 def _projection(
-    queries: bool, owner_search: bool, bulk: bool, background: bool, payments: bool
+    queries: bool,
+    owner_search: bool,
+    bulk: bool,
+    background: bool,
+    payments: bool,
+    identity_cache: bool,
 ) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
+    projection = projection.replace("{identity_joins}", _IDENTITY_JOINS if identity_cache else "")
+    projection = projection.replace(
+        "{counterpart_label}",
+        _COUNTERPART_LABEL if identity_cache else "'Document request'::text",
+    )
     for name, expression in {
         "owner_search_state": _OWNER_SEARCH_STATE if owner_search else "'unavailable'::text",
         "trusted_authority_ready": _TRUSTED_AUTHORITY_READY if background else "FALSE",
@@ -219,6 +250,20 @@ def _projection(
           WHERE pay.request_id=drive_share_requests.request_id)"""
         if payments
         else "NULL::boolean",
+        "payment_link_expired": """(SELECT (pay.status NOT IN ('paid','refunded')
+          AND pay.stripe_checkout_expires_at IS NOT NULL
+          AND pay.stripe_checkout_expires_at <= clock_timestamp())
+          FROM drive_request_payment_orders pay
+          WHERE pay.request_id=drive_share_requests.request_id
+            AND drive_share_requests.recipient_user_id=:user)"""
+        if payments
+        else "FALSE",
+        "checkout_expires_at": """(SELECT pay.stripe_checkout_expires_at
+          FROM drive_request_payment_orders pay
+          WHERE pay.request_id=drive_share_requests.request_id
+            AND drive_share_requests.recipient_user_id=:user)"""
+        if payments
+        else "NULL::timestamptz",
     }.items():
         projection = projection.replace("{" + name + "}", expression)
     return projection
@@ -300,7 +345,7 @@ def entry(row: Any) -> dict[str, Any]:
         ),
         "counterpart_type": "investor",
         "counterpart_id": None,
-        "counterpart_label": "Document request",
+        "counterpart_label": row.get("counterpart_label") or "Document request",
         "issued_at": int(row["issued_at"]),
         "metadata": {
             "request_source": REQUEST_SOURCE,
@@ -314,7 +359,8 @@ def entry(row: Any) -> dict[str, Any]:
             # A Trusted Circle request stays pending while automatic search and
             # sharing run. Only the sharing authority can distinguish that
             # progress from an owner task or a paused/manual recovery.
-            "owner_attention_required": row["bucket"] == "incoming_requests"
+            "owner_attention_required": row["state"] == "pending"
+            and row["bucket"] == "incoming_requests"
             and not automatic_progressing
             and not owner_payment_blocked,
             **({"payment_waiting_for_requester": True} if owner_payment_waiting else {}),
@@ -324,6 +370,12 @@ def entry(row: Any) -> dict[str, Any]:
                     "paymentAmountCents": row["payment_amount_cents"],
                     "paymentCurrency": row["payment_currency"],
                     "paymentReconciliationRequired": row["payment_reconciliation_required"] is True,
+                    "paymentLinkExpired": row["payment_link_expired"] is True,
+                    "checkoutExpiresAt": (
+                        row["checkout_expires_at"].isoformat()
+                        if row.get("checkout_expires_at") is not None
+                        else None
+                    ),
                 }
                 if row["direction"] == "outgoing" and row.get("payment_status") is not None
                 else {}
@@ -416,6 +468,17 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _identity_cache_installed(connection) -> bool:
+        # Test fixtures and rolling deployments can predate the optional
+        # identity cache. Keep the metadata projection available with its
+        # generic label until that table is installed.
+        return bool(
+            connection.execute(
+                text("SELECT to_regclass('actor_identity_cache') IS NOT NULL")
+            ).scalar_one()
+        )
+
+    @staticmethod
     def _params(user_id: str, *, query: str = "", bucket: str = "") -> dict[str, Any]:
         return {
             "user": user_id,
@@ -455,6 +518,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._bulk_installed(connection),
                         self._background_installed(connection),
                         self._payments_installed(connection),
+                        self._identity_cache_installed(connection),
                     )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
@@ -489,6 +553,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             self._bulk_installed(connection),
                             self._background_installed(connection),
                             self._payments_installed(connection),
+                            self._identity_cache_installed(connection),
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -538,6 +603,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._bulk_installed(connection),
                         self._background_installed(connection),
                         self._payments_installed(connection),
+                        self._identity_cache_installed(connection),
                     )  # nosec B608
                     + """
                     , ranked AS (

@@ -13,7 +13,8 @@ Streams:
 
 | Surface | Stream ID | Firebase / web identifier | Reporting note |
 | --- | --- | --- | --- |
-| Android | `13694989021` | `1:1006304528804:android:e38e29d91ba817aecfd931` | include |
+| Android (`com.hussh.app`) | `15395548050` | `1:1006304528804:android:55bde832bb50240acfd931` | current Play app; required in daily export |
+| Legacy Android (`com.hushh.app`) | `13694989021` | `1:1006304528804:android:e38e29d91ba817aecfd931` | historical/test app; exclude from current Android customer reports |
 | iOS | `13695001361` | `1:1006304528804:ios:eb2720b5eda7da4bcfd931` | include |
 | Web | `13695004816` | `G-2PCECPSKCR` / `1:1006304528804:web:d2479c8817799a28cfd931` | include |
 | HushhVoice iOS | `13702689760` | `1:1006304528804:ios:fc1e5fd477d3f757cfd931` | exclude from Kai growth models and excluded from current BigQuery export streams |
@@ -105,3 +106,21 @@ That means:
 1. Use GA Admin API for property, stream, key-event, custom-dimension, and BigQuery-link inspection.
 2. Use `bq ls -a` plus table checks to confirm export materialization.
 3. Do not trust dashboard cutover until both property-side and project-side checks agree.
+
+## Android release and export verification
+
+The current Android package is `com.hussh.app`; iOS remains `com.hushh.app`.
+Verify package **and** Firebase app ID **and** stream export membership. Existence of
+an Android stream alone does not prove ingestion into the dashboard's dataset.
+
+On 7 October 2026, stream `15395548050` was added to the existing production
+BigQuery link, preserving its other streams and export settings. Earlier raw
+Android events were missing because this stream was excluded. GA4 aggregate
+history can be read separately; it cannot reconstruct historical raw account
+identifiers or retention cohorts. GA4 reports in `Etc/GMT+8` (fixed UTC−08:00).
+
+Play build 10 / 1.3.9 serves both production and internal testing. The successful
+28 September ship run resolved SHA `e633b369d383d366d68217cf97c21750b9b0272b`
+and built with the UAT backend. Production-track availability is not proof of
+production-backend use. The current release workflow again explicitly targets UAT as of 7 October. This analytics repair does not change backend routing. Debug and
+reviewer activity must not be treated as customer behaviour.

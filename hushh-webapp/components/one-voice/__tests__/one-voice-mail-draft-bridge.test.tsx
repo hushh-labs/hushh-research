@@ -374,6 +374,97 @@ describe("OneVoiceMailDraftBridge", () => {
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
   });
 
+  it("closes a voice-cancelled draft and rejects a late edit response", async () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    fireEvent.change(screen.getByRole("textbox", { name: "Subject" }), { target: { value: "Edited before cancel" } });
+    await waitFor(() => expect(draftSubmissions()).toHaveLength(1));
+    const edit = draftSubmissions()[0];
+    const cancelled = vi.fn();
+    act(() => useVoiceSessionStore.getState().emitClientStep({ stepId: "cancelled-mail-draft", kind: "mail_draft_outcome", payload: {
+      draft_ref: DRAFT_REF, revision: 1, action_id: null, status: "cancelled",
+    }, timeoutS: 30 }, cancelled));
+    expect(cancelled).toHaveBeenCalledExactlyOnceWith("ok", { draft_ref: DRAFT_REF, revision: 1, action_id: null });
+    expect(screen.queryByTestId("one-email-draft-card")).toBeNull();
+    expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Mail cancelled.");
+
+    const late = vi.fn();
+    act(() => useVoiceSessionStore.getState().emitClientStep({ stepId: "late-cancel-edit", kind: "mail_draft_outcome", payload: {
+      draft_ref: DRAFT_REF, revision: 2, operation_id: edit.operation_id, status: "needs_input",
+    }, timeoutS: 30 }, late));
+    expect(late).toHaveBeenCalledExactlyOnceWith("failed", { reason: "stale_review" });
+    expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Mail cancelled.");
+  });
+
+  it("accepts a newer voice review after approval supersession and rejects its replay", () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    const superseded = vi.fn();
+    act(() => useVoiceSessionStore.getState().emitClientStep({ stepId: "superseded-for-recovery", kind: "mail_draft_outcome", payload: {
+      draft_ref: DRAFT_REF, revision: 1, action_id: "action-1", status: "needs_input", reason_code: "VOICE_APPROVAL_SUPERSEDED",
+    }, timeoutS: 30 }, superseded));
+    expect(superseded).toHaveBeenCalledExactlyOnceWith("ok", { draft_ref: DRAFT_REF, revision: 1, action_id: "action-1" });
+
+    const recovered = reviewStep(reviewedPayload(2));
+    expect(recovered).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true, draft_ref: DRAFT_REF, revision: 2, action_id: "action-2" });
+    expect(screen.getByRole("button", { name: /^Send$/ })).toBeEnabled();
+
+    const replay = reviewStep(reviewedPayload(2));
+    expect(replay).toHaveBeenCalledExactlyOnceWith("failed", { reason: "stale_review" });
+  });
+
+  it("rejects a newer voice review for a different draft after supersession", () => {
+    enableRealCard();
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    const superseded = vi.fn();
+    act(() => useVoiceSessionStore.getState().emitClientStep({ stepId: "superseded-cross-draft", kind: "mail_draft_outcome", payload: {
+      draft_ref: DRAFT_REF, revision: 1, action_id: "action-1", status: "needs_input", reason_code: "VOICE_APPROVAL_SUPERSEDED",
+    }, timeoutS: 30 }, superseded));
+    const wrongDraft = reviewStep({ ...reviewedPayload(2), draft_ref: "other_draft_reference_123" });
+    expect(wrongDraft).toHaveBeenCalledExactlyOnceWith("failed", { reason: "stale_review" });
+    expect(screen.getByText("Review the current email again. Nothing was sent.")).toBeInTheDocument();
+  });
+
+  it("does not replace an in-flight delivery with a fresh voice review", async () => {
+    enableRealCard();
+    const prepared = deferred<PreparedEmailSend>();
+    vi.mocked(EmailDeliveryService.prepare).mockReturnValue(prepared.promise);
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
+    expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Sending mail…");
+    const reviewWhileSending = reviewStep(reviewedPayload(2));
+    expect(reviewWhileSending).toHaveBeenCalledExactlyOnceWith("failed", { reason: "stale_review" });
+    expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Sending mail…");
+    prepared.resolve({ actionId: "action-1", expiresAt: null, senderToken: "sender-1", senderLabel: "owner@example.com" });
+  });
+
+  it("accepts an explicit retired-send recovery while preparation is still visible", async () => {
+    enableRealCard();
+    const prepared = deferred<PreparedEmailSend>();
+    vi.mocked(EmailDeliveryService.prepare).mockReturnValue(prepared.promise);
+    render(<OneVoiceMailDraftBridge />);
+    reviewStep();
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
+    expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Sending mail…");
+
+    const recovery = {
+      ...reviewedPayload(2),
+      prepared: null,
+      reason_code: "RECIPIENT_LOOKUP_UNAVAILABLE",
+      previous_action_id: "action-1",
+      previous_revision: 1,
+    };
+    const report = reviewStep(recovery);
+    expect(report).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true, draft_ref: DRAFT_REF, revision: 2 });
+    expect(screen.getByText(/Recipients could not be checked/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review again" })).toBeEnabled();
+    prepared.resolve({ actionId: "action-1", expiresAt: null, senderToken: "sender-1", senderLabel: "owner@example.com" });
+  });
+
   it("acknowledges only after a card mounts in a body portal, outside hidden bottom chrome", () => {
     render(<div data-app-bottom-shell style={{ visibility: "hidden" }}><OneVoiceMailDraftBridge /></div>);
     const report = openDraft();

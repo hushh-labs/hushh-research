@@ -30,6 +30,7 @@ def setup(monkeypatch):
                 "create",
                 "list_requests",
                 "status",
+                "requester_context",
                 "review",
                 "delivery",
                 "approve",
@@ -61,6 +62,7 @@ def unlock(app, uid="recipient"):
         ("get", "", None),
         ("get", f"/{REQUEST_ID}", None),
         ("get", f"/{REQUEST_ID}/review", None),
+        ("get", f"/{REQUEST_ID}/context", None),
         ("get", f"/{REQUEST_ID}/delivery", None),
         ("post", f"/{REQUEST_ID}/prepare", {}),
         ("post", f"/{REQUEST_ID}/prepare/stream", {}),
@@ -125,6 +127,32 @@ def test_review_is_owner_derived_no_store_and_authority_rechecked(setup):
         call.kwargs == {"authorization": "Bearer synthetic-owner", "hushh_consent": None}
         for call in current.await_args_list
     )
+
+
+def test_requester_context_is_private_and_rechecks_vault_authority(setup):
+    client, app, service, current = setup
+    unlock(app)
+    service.requester_context.return_value = {
+        "requestId": REQUEST_ID,
+        "purpose": {"purpose": "Private request", "periodStart": None, "periodEnd": None},
+    }
+    response = client.get(BASE + f"/{REQUEST_ID}/context")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.requester_context.assert_awaited_once_with(user_id="recipient", request_id=REQUEST_ID)
+    assert current.await_count == 2
+
+    current.side_effect = [{"user_id": "recipient"}, HTTPException(401, "Owner revoked")]
+    response = client.get(BASE + f"/{REQUEST_ID}/context")
+    assert response.status_code == 401
+    assert "Private request" not in response.text
+    assert "no-store" in response.headers["Cache-Control"]
+
+    current.side_effect = None
+    service.requester_context.side_effect = DriveSharingError("request_unavailable")
+    response = client.get(BASE + f"/{REQUEST_ID}/context")
+    assert response.status_code == 404
+    assert "no-store" in response.headers["Cache-Control"]
 
 
 def test_late_owner_revocation_releases_no_private_result(setup):

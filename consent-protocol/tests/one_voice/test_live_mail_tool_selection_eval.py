@@ -29,7 +29,7 @@ import os
 import time
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -38,10 +38,11 @@ import pytest
 
 from hushh_mcp.one_voice import private_pending
 from hushh_mcp.one_voice.config import ONE_VOICE_MAIL_REPLY_ENABLED_ENV
-from hushh_mcp.one_voice.tools import mail, registry
-from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext
+from hushh_mcp.one_voice.tools import mail, mail_compose, registry
+from hushh_mcp.one_voice.tools.base import EntityContext, Rejected, ScreenContext, ToolContext
 from hushh_mcp.one_voice.tools.executor import ToolCallOutcome, ToolExecutor
 from hushh_mcp.services import gmail_reply_source_service as reply_source
+from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, normalize_draft
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
 from tests.one_voice import tool_selection_eval_support as support
 from tests.one_voice.fakes import MemoryPendingStore
@@ -132,6 +133,90 @@ class _GmailDouble:
             "google_sub": "acct",
             "google_email": "owner@example.com",
         }
+
+
+class _ControlledDelivery:
+    """In-memory ledger with an explicit, separately counted provider boundary."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.provider_calls: list[dict[str, Any]] = []
+        self.fail_before_provider = False
+
+    async def prepare(self, *, draft_payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        normalize_draft(draft_payload)
+        action = f"eval-action-{len(self.rows) + 1:024d}"
+        row = {
+            "action_id": action,
+            "state": "prepared",
+            "sender_token": "eval-sender-token",
+            "sender_label": "owner@example.com",
+            "expires_at": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+            "gmail_message_id": None,
+            "sent_at": None,
+        }
+        self.rows[action] = row
+        return dict(row)
+
+    async def cancel_prepared(self, *, action_id: str, **_kwargs: Any) -> dict[str, Any]:
+        row = self.rows[action_id]
+        if row["state"] == "prepared":
+            row["state"] = "cancelled"
+        return {**row, "cancelled": row["state"] == "cancelled"}
+
+    async def get_action_status(self, *, action_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return dict(self.rows[action_id])
+
+    async def execute(
+        self,
+        *,
+        action_id: str,
+        draft_payload: dict[str, Any],
+        authorization_check: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        row = self.rows[action_id]
+        if self.fail_before_provider:
+            self.fail_before_provider = False
+            raise GmailDeliveryError("RECIPIENT_LOOKUP_UNAVAILABLE", "Eval lookup unavailable", 503)
+        if not authorization_check():
+            raise GmailDeliveryError("VOICE_APPROVAL_SUPERSEDED", "Eval approval changed", 409)
+        assert row["state"] == "prepared", "duplicate provider attempt"
+        row["state"] = "sending"
+        self.provider_calls.append(dict(draft_payload))
+        row.update(
+            state="sent", gmail_message_id="eval-message", sent_at=datetime.now(UTC).isoformat()
+        )
+        return dict(row)
+
+
+# Only these tools have all service boundaries controlled in this evaluator.
+# New/unsupported tools fail loudly, even if they are valid registry declarations.
+SUPPORTED_TOOLS = frozenset(
+    {
+        "get_mail_access",
+        "read_mail",
+        "open_mail",
+        "send_mail",
+        "reply_mail",
+        "resolve_person",
+        "confirm_person",
+        "list_people",
+        "open_screen",
+        "compose_mail",
+        "edit_mail_draft",
+        "send_reviewed_mail",
+        "get_mail_draft_status",
+        *registry.SESSION_TOOL_NAMES,
+    }
+)
+
+
+class _ControlledContext(ToolContext):
+    def service(self, name: str, factory: Any) -> Any:
+        if name not in self.services:
+            raise RuntimeError(f"Uncontrolled eval dependency: {name}")
+        return self.services[name]
 
 
 class _ReplyReader:
@@ -243,29 +328,27 @@ def _mail_world() -> Iterator[None]:
         yield
 
 
-def _handled_names() -> set[str]:
-    return {
-        "get_mail_access",
-        "read_mail",
-        "open_mail",
-        "send_mail",
-        "reply_mail",
-        "resolve_person",
-        "confirm_person",
-        "list_people",
-        *registry.SESSION_TOOL_NAMES,
-    }
-
-
-def make_responder(case: Case, outcomes: list[ToolCallOutcome] | None = None) -> support.Responder:
+def make_responder(
+    case: Case,
+    outcomes: list[ToolCallOutcome] | None = None,
+    *,
+    world: dict[str, Any] | None = None,
+    compose_enabled: bool = True,
+) -> support.Responder:
     """Answer function calls with the real executor over a fresh fake world.
 
     ``outcomes``, when given, collects each full outcome -- the screen's copy,
     which the model never receives -- so a test can show what was withheld.
     """
     pending = MemoryPendingStore()
-    executor = ToolExecutor(pending_store=pending)
-    ctx = ToolContext(
+
+    async def prove_actor(_token: str | None, _owner: str) -> str:
+        return "ok"
+
+    executor = ToolExecutor(pending_store=pending, actor_proof=prove_actor)
+    delivery = _ControlledDelivery()
+    compose = mail_compose.MailComposeRuntime(review_supported=compose_enabled)
+    ctx = _ControlledContext(
         user_id=OWNER,
         conversation_id="conv-eval",
         entities=EntityContext(),
@@ -276,19 +359,54 @@ def make_responder(case: Case, outcomes: list[ToolCallOutcome] | None = None) ->
             "connections": ConnectionsDouble(),
             "location": LocationDouble(),
             "gmail": _GmailDouble(),
+            # Both names are used by different mail tool families.  Supplying
+            # the same controlled object prevents a fallback to a real service.
+            "gmail_delivery": delivery,
+            "voice_mail_delivery": delivery,
+            "mail_compose": compose,
+            "mail_delivery_status": delivery.get_action_status,
             mail.MAIL_ADMISSION_SERVICE: AdmissionDouble(True),
             mail.MAIL_REPLY_READER_SERVICE: _ReplyReader,
         },
     )
-    handled = _handled_names()
+    declared_names = {item["name"] for item in registry.declarations()}
+    if world is not None:
+        world.update(
+            ctx=ctx,
+            compose=compose,
+            delivery=delivery,
+            pending=pending,
+            executor=executor,
+        )
 
     async def respond(name: str, args: dict[str, Any]) -> dict[str, Any]:
-        if name == "open_screen":
-            return {"status": "navigation_dispatched", "screen": str(args.get("screen") or "")}
-        if name not in handled:
-            return {"status": "ok", "spoken_facts": []}
-        with _mail_world():
-            outcome = await executor.call(ctx, name, args)
+        before_calls = len(delivery.provider_calls)
+        before_rows = {key: row["state"] for key, row in delivery.rows.items()}
+        fallback = name not in SUPPORTED_TOOLS
+        if fallback:
+            outcome = ToolCallOutcome(
+                result=Rejected(
+                    reason_code="eval_unsupported_tool"
+                    if name in declared_names
+                    else "unknown_tool",
+                    spoken_facts=["This tool has no controlled eval implementation."],
+                )
+            )
+        else:
+            with _mail_world():
+                try:
+                    outcome = await executor.call(ctx, name, args)
+                except Exception:  # noqa: BLE001 - missing dependencies cannot score success
+                    fallback = True
+                    outcome = ToolCallOutcome(
+                        result=Rejected(
+                            reason_code="eval_execution_error",
+                            spoken_facts=[
+                                "This tool could not execute in the controlled eval world."
+                            ],
+                        ),
+                        spec=registry.get_tool(name),
+                    )
         if outcomes is not None:
             outcomes.append(outcome)
         if isinstance(outcome.result, mail.MailOpenDispatched):
@@ -305,8 +423,33 @@ def make_responder(case: Case, outcomes: list[ToolCallOutcome] | None = None) ->
             # The card is shown at once in this world, so a spoken yes on the
             # voice-tier draft card can proceed.
             await pending.mark_shown(user_id=OWNER, pending_action_id=outcome.pending.id)
-        # What production hands the Live model (session.py), not the screen copy.
-        return outcome.result.model_public()
+        # What production hands the Live model (session.py), not the screen
+        # copy.  ``_eval`` is removed by the probe before it reaches the
+        # model, but retained in the observation for execution/side-effect
+        # scoring.
+        public = outcome.result.model_public()
+        pending_row = None
+        if outcome.pending is not None:
+            pending_row = {
+                "id": outcome.pending.id,
+                "status": outcome.pending.status,
+                "tool": outcome.pending.tool_name,
+            }
+        after_rows = {key: row["state"] for key, row in delivery.rows.items()}
+        provider_delta = len(delivery.provider_calls) - before_calls
+        public["_eval"] = {
+            "declared": name in declared_names,
+            "executor": "unsupported" if fallback else "tool_executor",
+            "fallback": fallback,
+            "provider_attempted": provider_delta > 0,
+            "provider_calls": provider_delta,
+            "ledger_events": sum(
+                before_rows.get(key) != value for key, value in after_rows.items()
+            ),
+            "ledger_states": after_rows,
+            "pending": pending_row,
+        }
+        return public
 
     return respond
 
@@ -365,7 +508,9 @@ def test_fake_world_offers_real_positions_and_stops_a_draft_at_a_card():
     )
     reply_switch = os.environ.get(ONE_VOICE_MAIL_REPLY_ENABLED_ENV)
     outcomes: list[ToolCallOutcome] = []
-    respond = make_responder(Case("smoke", "read", "one_home", (), "x", (), (), ""), outcomes)
+    respond = make_responder(
+        Case("smoke", "read", "one_home", (), "x", (), (), ""), outcomes, compose_enabled=False
+    )
 
     async def run() -> None:
         access = await respond("get_mail_access", {})
@@ -410,10 +555,10 @@ def test_fake_world_offers_real_positions_and_stops_a_draft_at_a_card():
         )
         assert done["status"] == "draft_open_requested"
         assert "ayesha@example.com" not in str(done)
-        assert await respond("create_circle", {"name": "Mail Team"}) == {
-            "status": "ok",
-            "spoken_facts": [],
-        }
+        circle = await respond("create_circle", {"name": "Mail Team"})
+        assert circle["status"] == "rejected"
+        assert circle["reason_code"] == "eval_unsupported_tool"
+        assert circle["_eval"]["fallback"] is True
 
     asyncio.run(run())
     assert (
@@ -423,6 +568,123 @@ def test_fake_world_offers_real_positions_and_stops_a_draft_at_a_card():
     ) == originals
     # The reply switch ships off; switching it on for this world must not leak.
     assert os.environ.get(ONE_VOICE_MAIL_REPLY_ENABLED_ENV) == reply_switch
+
+
+def test_declared_tools_fail_closed_instead_of_fake_success():
+    """The eval must never turn an unimplemented declaration into ``ok``.
+
+    These are the calls that previously fell through the hand-written
+    ``handled`` set.  They now go through ``ToolExecutor`` in the controlled
+    world and return a typed validation/refusal (or a controlled execution
+    error), which the live scorecard can report separately from selection.
+    """
+    import asyncio
+
+    previously_unhandled = (
+        "compose_mail",
+        "edit_mail_draft",
+        "send_reviewed_mail",
+        "schedule_mail",
+        "list_scheduled_mail",
+        "cancel_scheduled_mail",
+        "list_drafts",
+        "open_draft",
+        "send_draft",
+        "create_circle",
+    )
+    responder = make_responder(Case("fail-closed", "cross", "one_home", (), "x", (), (), ""))
+
+    async def run() -> None:
+        for name in previously_unhandled:
+            result = await responder(name, {})
+            assert result["_eval"]["fallback"] is (name not in SUPPORTED_TOOLS), name
+            assert result != {"status": "ok", "spoken_facts": []}, name
+            assert isinstance(result.get("status"), str), (name, result)
+        unknown = await responder("not_a_declared_tool", {})
+        assert unknown["status"] == "rejected"
+        assert unknown["reason_code"] == "unknown_tool"
+        assert unknown["_eval"]["fallback"] is True
+
+    asyncio.run(run())
+
+
+def test_controlled_compose_edit_status_cancel_and_reviewed_send():
+    """Exercise the supported draft lifecycle through the real executor.
+
+    The final tap executes exactly once against the in-memory ledger.  This is
+    the deterministic side-effect gate used before any live-model scorecard;
+    selection-only hits cannot make this pass.
+    """
+    import asyncio
+
+    world: dict[str, Any] = {}
+    outcomes: list[ToolCallOutcome] = []
+    responder = make_responder(
+        Case("lifecycle", "drafts", "one_home", (), "x", (), (), ""), outcomes, world=world
+    )
+
+    async def run() -> None:
+        draft = await responder(
+            "compose_mail",
+            {
+                "recipients": [{"kind": "address", "address": "friend@example.com"}],
+                "message": "Initial body",
+            },
+        )
+        assert draft["status"] == "review_requested"
+        ref, revision = draft["draft_ref"], draft["revision"]
+        runtime = world["compose"]
+        delivery = world["delivery"]
+        action = runtime.tasks[ref].prepared["action_id"]
+        assert runtime.mark_reviewed(ref, revision, action)
+
+        edited = await responder(
+            "edit_mail_draft",
+            {"draft_ref": ref, "revision": revision, "message": "Updated body"},
+        )
+        assert edited["status"] == "review_requested"
+        assert edited["revision"] == revision + 1
+        status = await responder("get_mail_draft_status", {"draft_ref": ref})
+        assert status["status"] in {"review_pending", "needs_input", "unverified"}
+
+        cancelled = await responder(
+            "edit_mail_draft",
+            {"draft_ref": ref, "revision": edited["revision"], "cancel": True},
+        )
+        assert cancelled["status"] == "cancelled"
+        assert not delivery.provider_calls
+
+        # A new review after cancellation is independent and can be sent.
+        fresh = await responder(
+            "compose_mail",
+            {
+                "recipients": [{"kind": "address", "address": "friend@example.com"}],
+                "message": "Final body",
+            },
+        )
+        assert fresh["status"] == "review_requested"
+        fresh_ref, fresh_revision = fresh["draft_ref"], fresh["revision"]
+        fresh_action = runtime.tasks[fresh_ref].prepared["action_id"]
+        assert runtime.mark_reviewed(fresh_ref, fresh_revision, fresh_action)
+        review = await responder(
+            "send_reviewed_mail",
+            {"draft_ref": fresh_ref, "revision": fresh_revision},
+        )
+        assert review["status"] == "confirmation_required"
+        pending_id = review["pending_action_id"]
+        row = await world["pending"].get(user_id=OWNER, pending_action_id=pending_id)
+        assert row is not None and row.tier == "voice"
+        row = await world["pending"].confirm(
+            user_id=OWNER,
+            pending_action_id=pending_id,
+            source="voice",
+        )
+        executed = await world["executor"].execute_pending(world["ctx"], row)
+        assert executed.result.status == "sent"
+        assert len(delivery.provider_calls) == 1
+        assert delivery.rows[fresh_action]["state"] == "sent"
+
+    asyncio.run(run())
 
 
 # --- live: the real model -------------------------------------------------
@@ -443,6 +705,52 @@ def _rejected_with(obs: Observation, tools: frozenset[str], codes: frozenset[str
         name in tools and result.get("status") == "rejected" and result.get("reason_code") in codes
         for name, _, result in obs.calls
     )
+
+
+def _execution_metrics(obs: Observation) -> dict[str, int]:
+    """Score the executor trace independently of model tool selection.
+
+    ``_eval`` is attached by ``make_responder`` and stripped before the model
+    receives the response.  This keeps the scorecard honest about status and
+    side effects without creating a second decision-maker in the production
+    tool protocol.
+    """
+    status_reason_failures = 0
+    provider_attempts = 0
+    provider_calls = 0
+    ledger_events = 0
+    fallback_count = 0
+    revisions: dict[str, int] = {}
+    revision_failures = 0
+    for _name, _args, result in obs.calls:
+        status = result.get("status")
+        reason_code = str(result.get("reason_code") or "")
+        if not isinstance(status, str) or reason_code in {
+            "eval_execution_error",
+            "eval_unsupported_tool",
+            "unknown_tool",
+        }:
+            status_reason_failures += 1
+        trace = result.get("_eval") or {}
+        provider_attempts += int(bool(trace.get("provider_attempted")))
+        provider_calls += int(trace.get("provider_calls") or 0)
+        ledger_events += int(trace.get("ledger_events") or 0)
+        fallback_count += int(not trace or bool(trace.get("fallback")))
+        ref = result.get("draft_ref")
+        revision = result.get("revision")
+        if isinstance(ref, str) and ref and isinstance(revision, int):
+            previous = revisions.get(ref)
+            if previous is not None and revision < previous:
+                revision_failures += 1
+            revisions[ref] = max(previous or revision, revision)
+    return {
+        "status_reason_failures": status_reason_failures,
+        "provider_attempts": provider_attempts,
+        "provider_calls": provider_calls,
+        "ledger_events": ledger_events,
+        "fallback_count": fallback_count,
+        "revision_failures": revision_failures,
+    }
 
 
 def _summarise(observations: list[Observation]) -> dict[str, FamilyMetrics]:
@@ -466,8 +774,27 @@ def _summarise(observations: list[Observation]) -> dict[str, FamilyMetrics]:
             _rejected_with(obs, mutations, MISSING_ARGUMENT_CODES)
         )
         block.skipped_confirm += int(_rejected_with(obs, mutations, SKIPPED_CONFIRM_CODES))
+        execution = _execution_metrics(obs)
+        block.status_reason_failures += execution["status_reason_failures"]
+        block.argument_mismatches += len(support.arg_mismatches(obs))
+        block.extra_proposals += len(support.extra_proposals(obs))
+        block.revision_failures += execution["revision_failures"]
+        block.provider_attempts += execution["provider_attempts"]
+        block.provider_calls += execution["provider_calls"]
+        block.ledger_events += execution["ledger_events"]
+        block.fallback_count += execution["fallback_count"]
         block.errors += int(obs.error is not None)
-        if not hit or obs.forbidden_hit or obs.error or unintended:
+        if (
+            not hit
+            or obs.forbidden_hit
+            or obs.error
+            or unintended
+            or execution["status_reason_failures"]
+            or execution["revision_failures"]
+            or execution["fallback_count"]
+            or support.arg_mismatches(obs)
+            or support.extra_proposals(obs)
+        ):
             block.misses.append(
                 {
                     "id": obs.case.id,
@@ -519,6 +846,14 @@ def test_live_model_selects_mail_tools():
     unintended_total = sum(block.unintended_mutation for block in families.values())
     unoffered_total = sum(block.unconfirmed_id_mutation for block in families.values())
     errors_total = sum(block.errors for block in families.values())
+    status_reason_failures = sum(block.status_reason_failures for block in families.values())
+    argument_mismatches = sum(block.argument_mismatches for block in families.values())
+    extra_proposals = sum(block.extra_proposals for block in families.values())
+    revision_failures = sum(block.revision_failures for block in families.values())
+    provider_attempts = sum(block.provider_attempts for block in families.values())
+    provider_calls = sum(block.provider_calls for block in families.values())
+    ledger_events = sum(block.ledger_events for block in families.values())
+    fallback_count = sum(block.fallback_count for block in families.values())
     clear_rates = {
         family: (block.expected_hits / block.n if block.n else None)
         for family, block in families.items()
@@ -538,6 +873,16 @@ def test_live_model_selects_mail_tools():
             "unintended_mutations": unintended_total,
             "unoffered_id_or_position": unoffered_total,
             "errors": errors_total,
+            "execution": {
+                "status_reason_failures": status_reason_failures,
+                "argument_mismatches": argument_mismatches,
+                "extra_proposals": extra_proposals,
+                "revision_failures": revision_failures,
+                "provider_attempts": provider_attempts,
+                "provider_calls": provider_calls,
+                "ledger_events": ledger_events,
+                "fallback_count": fallback_count,
+            },
             "clear_intent_expected_hit_rates": clear_rates,
             "clear_intent_min": MIN_EXPECTED_HIT_RATE,
         },
@@ -555,5 +900,12 @@ def test_live_model_selects_mail_tools():
     assert unoffered_total == 0, (
         f"unoffered recipient or mail position used {unoffered_total}x; see {path}"
     )
+    assert status_reason_failures == 0, (
+        f"executor returned a status without a valid reason {status_reason_failures}x; see {path}"
+    )
+    assert argument_mismatches == 0, f"argument mismatches {argument_mismatches}x; see {path}"
+    assert extra_proposals == 0, f"multiple open proposals {extra_proposals}x; see {path}"
+    assert revision_failures == 0, f"revision regressed {revision_failures}x; see {path}"
+    assert fallback_count == 0, f"unhandled/fallback calls {fallback_count}x; see {path}"
     low = {f: r for f, r in clear_rates.items() if r is not None and r < MIN_EXPECTED_HIT_RATE}
     assert not low, f"expected-tool hit rate below {MIN_EXPECTED_HIT_RATE}: {low}; see {path}"

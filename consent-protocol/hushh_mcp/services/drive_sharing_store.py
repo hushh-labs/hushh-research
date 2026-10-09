@@ -200,7 +200,8 @@ class DriveSharingStore(DriveDocumentStore):
     def _payment_metadata(connection, request_id):
         order = (
             connection.execute(
-                text("""SELECT status,amount_cents,currency,reconciliation_required
+                text("""SELECT status,amount_cents,currency,reconciliation_required,
+                    stripe_checkout_expires_at
                 FROM drive_request_payment_orders WHERE request_id=:request"""),
                 {"request": request_id},
             )
@@ -213,6 +214,16 @@ class DriveSharingStore(DriveDocumentStore):
                 "paymentAmountCents": order["amount_cents"],
                 "paymentCurrency": order["currency"],
                 "paymentReconciliationRequired": order["reconciliation_required"] is True,
+                "paymentLinkExpired": bool(
+                    order["status"] not in {"paid", "refunded"}
+                    and order["stripe_checkout_expires_at"] is not None
+                    and order["stripe_checkout_expires_at"] <= datetime.now(UTC)
+                ),
+                "checkoutExpiresAt": (
+                    order["stripe_checkout_expires_at"].isoformat()
+                    if order["stripe_checkout_expires_at"] is not None
+                    else None
+                ),
             }
             if order
             else {}
@@ -329,13 +340,19 @@ class DriveSharingStore(DriveDocumentStore):
                   SELECT r.request_id FROM drive_share_requests r
                   JOIN drive_owner_search_jobs j ON j.user_id=r.user_id
                     AND j.client_request_id=r.request_id
+                  LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NOT NULL
                     AND r.preparation_error_code IN
                       ('trusted_auto_active','background_preparation_required')
                     AND r.preparation_next_at<=clock_timestamp()
                     AND r.expires_at>clock_timestamp()
                     AND j.status IN ('queued','running','completed')
-                  ORDER BY r.preparation_inspected_at,r.created_at,r.request_id
+                    AND (NOT r.payment_required OR o.request_id IS NULL
+                      OR (o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE))
+                  ORDER BY CASE WHEN r.payment_required AND o.status='paid'
+                    THEN 0 ELSE 1 END,
+                    r.preparation_inspected_at,r.created_at,r.request_id
                   LIMIT :limit FOR UPDATE OF r SKIP LOCKED
                 )
                 UPDATE drive_share_requests r SET preparation_inspected_at=clock_timestamp()
@@ -606,7 +623,7 @@ class DriveSharingStore(DriveDocumentStore):
                 and self._trusted_recipient_current(connection, owner_user_id, recipient.user_id)
             )
             payment_required = (
-                trusted_auto
+                not owner_initiated
                 and os.getenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "").strip().lower() == "true"
             )
             if payment_required:
@@ -940,10 +957,13 @@ class DriveSharingStore(DriveDocumentStore):
                 return candidate
         return None
 
-    def _queue_grants(self, connection, *, request, approval, sources, batch, rule=None):
+    def _queue_grants(
+        self, connection, *, request, approval, sources, batch, rule=None, enforce_payment=True
+    ):
         from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
 
-        DriveRequestPaymentStore.require_paid_if_required(connection, request)
+        if enforce_payment:
+            DriveRequestPaymentStore.require_paid_if_required(connection, request)
         # A plan's approval must name exactly the files queued in this batch.
         if sorted(str(source["document_id"]) for source in sources) != sorted(
             str(source.document_id) for source in approval.sources
@@ -1189,6 +1209,7 @@ class DriveSharingStore(DriveDocumentStore):
                     sources=sources,
                     batch=f"rule:{rule['rule_id']}:{rule['version']}",
                     rule=rule,
+                    enforce_payment=False,
                 )
             updated = self._row(
                 connection,
@@ -1203,6 +1224,10 @@ class DriveSharingStore(DriveDocumentStore):
                     "status": "approved" if rule else "review_ready",
                 },
             )
+            if rule and updated["payment_required"]:
+                from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+
+                DriveRequestPaymentStore.ensure_order_for_approved_request(connection, updated)
             if rule or notify_owner:
                 self._event(
                     connection,
@@ -1320,7 +1345,12 @@ class DriveSharingStore(DriveDocumentStore):
             # files and a change to an unselected file cannot withdraw them.
             granted = current.narrowed_to([str(source["document_id"]) for source in selected])
             self._queue_grants(
-                connection, request=request, approval=granted, sources=selected, batch=batch
+                connection,
+                request=request,
+                approval=granted,
+                sources=selected,
+                batch=batch,
+                enforce_payment=False,
             )
             if trust_future_requests:
                 rule_id = str(uuid4())
@@ -1377,6 +1407,10 @@ class DriveSharingStore(DriveDocumentStore):
             """,
                 {"id": request_id},
             )
+            if updated["payment_required"]:
+                from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+
+                DriveRequestPaymentStore.ensure_order_for_approved_request(connection, updated)
             self._event(connection, updated, request["recipient_user_id"], "document_share_decided")
             return {
                 **self._summary(updated),
@@ -1525,6 +1559,29 @@ class DriveSharingStore(DriveDocumentStore):
                 {"user": user_id, "client": str(UUID(client_request_id))},
             )
             return self._summary(row, recipient=True) if row else {"status": "draft"}
+
+        return cast(dict, await self._transaction(operation))
+
+    async def requester_context(self, *, user_id: str, request_id: str) -> dict:
+        """The payer's own request text, never owner matches or review contents.
+
+        The caller requires current Vault Owner authority. Keep this separate
+        from the metadata-only status/projection, which can be cached. A paid
+        request was authored by its recipient; owner-initiated shares are free.
+        """
+
+        def operation(connection):
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests
+                   WHERE request_id=:id AND recipient_user_id=:user
+                     AND payment_required=TRUE""",
+                {"id": str(UUID(request_id)), "user": user_id},
+            )
+            if not row:
+                raise DriveSharingError("request_unavailable")
+            purpose = ShareRequestPurpose.model_validate(self._open_request(row)["purpose"])
+            return {"requestId": str(row["request_id"]), "purpose": purpose.model_dump()}
 
         return cast(dict, await self._transaction(operation))
 

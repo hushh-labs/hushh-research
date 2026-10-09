@@ -52,6 +52,9 @@ class DriveSharingService:
     async def lookup_client(self, **kwargs):
         return await self.store.lookup_client_request(**kwargs)
 
+    async def requester_context(self, **kwargs):
+        return await self.store.requester_context(**kwargs)
+
     async def review(self, **kwargs):
         return await self.store.owner_review(**kwargs)
 

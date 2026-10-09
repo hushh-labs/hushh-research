@@ -271,7 +271,7 @@ retargeted=true
 for fixed_job in drive-work-drain-prod drive-work-suggestions-prod drive-work-sharing-prod; do
   case "${fixed_job}" in
     drive-work-drain-prod) fixed_stage=documents; fixed_cron='*/4 * * * *' ;;
-    drive-work-suggestions-prod) fixed_stage=suggestions; fixed_cron='2-59/4 * * * *' ;;
+    drive-work-suggestions-prod) fixed_stage=suggestions; fixed_cron='* * * * *' ;;
     drive-work-sharing-prod) fixed_stage=sharing; fixed_cron='* * * * *' ;;
   esac
   JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}" \

@@ -151,6 +151,7 @@ tests/test_fcm_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_agent_manifests.py
+tests/test_pass_assets_reach_the_deployed_image.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
 # A pasted context transfer is kept whole (Phase 4): recorded server answers.
@@ -276,6 +277,7 @@ tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
 tests/test_pool_acquire_is_bounded.py
+tests/test_market_advisory_lock_connection.py
 
 # Deleted-account session invalidation is a cross-client privacy boundary.
 # Keep the route machine code, Firebase classification, durable cleanup intent,
@@ -647,6 +649,7 @@ tests/one_voice/test_mail_schedule.py
 tests/services/test_scheduled_mail_drain.py
 tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
+tests/test_business_suggestions.py
 
 # Gmail drafts by voice: list/open/send by position, the send gate and the
 # drafts grant, one ledger row per send, and the draft open route.

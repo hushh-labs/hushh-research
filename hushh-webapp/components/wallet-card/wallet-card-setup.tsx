@@ -49,7 +49,7 @@ function DraftField({
   const describedBy = `${inputId}-help`;
   const help = error || definition.description;
   const isUrlField =
-    definition.inputMode === "url" || definition.type === "url";
+    definition.inputMode === "url" || definition.type === "url" || definition.key === "username";
 
   return (
     <div className="space-y-1.5" data-wallet-field={definition.key}>
@@ -159,7 +159,7 @@ export function WalletCardSetup({
   useEffect(() => {
     const firstInvalidKey = preferredFieldError
       ? preferredField
-      : ((["fullName", "headline"] as const).find((key) => errors[key]) ??
+      : ((["fullName", "username", "headline"] as const).find((key) => errors[key]) ??
         moreDetailsFields.find((definition) => errors[definition.key])?.key);
     if (!firstInvalidKey) return;
 

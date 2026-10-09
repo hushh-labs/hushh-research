@@ -95,6 +95,7 @@ export function TopShellTabs({
   // (founder directive, 2026-09-22: Finance joined Connect and Consent). The
   // underline arm remains for the public knowledge tab sets only.
   const usesModuleSegmentedTabs =
+    tabSet.id === "public" ||
     tabSet.id === "wallet" ||
     tabSet.id === "location" ||
     tabSet.id === "connect" ||

@@ -7,15 +7,6 @@ import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache
 const USER_ID = "uid-secure-cache";
 const VAULT_KEY = "ab".repeat(32);
 
-function deleteSecureCache(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase("hushh-secure-resource-cache");
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-    request.onblocked = () => resolve();
-  });
-}
-
 async function readRawCacheRecord(): Promise<unknown> {
   return await new Promise((resolve, reject) => {
     const request = indexedDB.open("hushh-secure-resource-cache", 1);
@@ -36,10 +27,25 @@ async function readRawCacheRecord(): Promise<unknown> {
 }
 
 afterEach(async () => {
-  await deleteSecureCache();
+  // The service retains its open connection. Deleting the whole database
+  // between tests blocks the next open behind that connection.
+  await SecureResourceCacheService.invalidateUser(USER_ID);
 });
 
 describe("SecureResourceCacheService.writeRequired", () => {
+  it("recovery reads distinguish absence from failed decryption without deleting ciphertext", async () => {
+    const params = { userId: USER_ID, resourceKey: "migration:test", vaultKey: VAULT_KEY };
+    await expect(SecureResourceCacheService.readRequired(params)).resolves.toBeNull();
+    await SecureResourceCacheService.writeRequired({ ...params, value: { revision: "synthetic-recovery" }, ttlMs: 60_000 });
+    await expect(SecureResourceCacheService.readRequired({ ...params, vaultKey: "cd".repeat(32) })).rejects.toThrow();
+    await expect(SecureResourceCacheService.readRequired(params)).resolves.toEqual({ revision: "synthetic-recovery" });
+  });
+  it("expired recovery stays encrypted rather than becoming a new absent job", async () => {
+    const params = { userId: USER_ID, resourceKey: "migration:test", vaultKey: VAULT_KEY };
+    await SecureResourceCacheService.writeRequired({ ...params, value: { revision: "synthetic-recovery" }, ttlMs: -1 });
+    await expect(SecureResourceCacheService.readRequired(params)).rejects.toThrow("needs review");
+    expect(await readRawCacheRecord()).not.toBeNull();
+  });
   it("commits an encrypted record before callers retire a legacy source", async () => {
     const value = {
       source: "pre_vault_onboarding",

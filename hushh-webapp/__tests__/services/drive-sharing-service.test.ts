@@ -41,6 +41,21 @@ const guard = () => {};
 describe("requester document payment boundary", () => {
   beforeEach(() => vi.resetAllMocks());
 
+  it("reads only vault-authorized request context without caching or trusting another request", async () => {
+    const purpose = { purpose: "Standup notes", periodStart: "2026-10-01", periodEnd: "2026-10-08" };
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, files: [{ name: "private.pdf" }] }));
+    expect(await DriveSharingService.requesterContext("vault", requestId, guard))
+      .toEqual({ requestId, purpose });
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/context`);
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ cache: "no-store", headers: { Authorization: "Bearer vault" } });
+    fetcher.mockResolvedValueOnce(reply({ requestId: documentId, purpose }));
+    await expect(DriveSharingService.requesterContext("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose: { ...purpose, purpose: "x".repeat(2001) } }));
+    await expect(DriveSharingService.requesterContext("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
   it("uses Firebase auth and accepts only the fixed Stripe checkout host", async () => {
     fetcher.mockResolvedValueOnce(reply({ status: "awaiting_payment", amountCents: 1000, currency: "usd" }));
     expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ status: "awaiting_payment" });

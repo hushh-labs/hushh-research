@@ -1,5 +1,7 @@
 "use client";
 
+import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/voice/search-route-context";
+
 import {
   Fragment,
   useCallback,
@@ -212,9 +214,11 @@ export function actionTargetsCurrentSurface(
   action: KaiActionDefinition,
   pathname: string,
   subview: string | null,
+  currentHref?: string,
 ): boolean {
   const target = action.execution_target;
   if (target.status !== "wired" || target.path !== "route") return false;
+  if (currentHref) return searchTargetMatchesCurrentRoute(String(target.target || ""), currentHref);
   const [targetPath, targetQuery] = String(target.target || "").split("?");
   if (targetPath !== pathname) return false;
   if (!targetQuery) return !subview;
@@ -541,7 +545,7 @@ export function KaiCommandPalette({
   const isFiltering = trimmedQuery.length > 0;
 
   const currentScreen =
-    String(appRuntimeState?.route.screen || "").trim() || null;
+    resolveSearchScreen(String(appRuntimeState?.route.pathname || ""), String(appRuntimeState?.route.screen || "").trim() || null);
   // `route.pathname` carries the query string as well -- the runtime state
   // builder feeds it `pathnameWithQuery` -- so the path has to be split back
   // out before it can be compared with a contract's route target.
@@ -843,7 +847,7 @@ export function KaiCommandPalette({
       .filter(
         (action) =>
           isOfferableInSearch(action) &&
-          !actionTargetsCurrentSurface(action, currentPath, currentSubview),
+          !actionTargetsCurrentSurface(action, currentPath, currentSubview, appRuntimeState?.route.pathname),
       )
       .map((action) => ({
         action,
