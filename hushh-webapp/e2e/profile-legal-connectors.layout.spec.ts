@@ -143,6 +143,86 @@ async function mount(
 const pane = (page: Page) => page.getByTestId("profile-pane");
 const paneTitle = (page: Page) => pane(page).locator("h2").first();
 
+test("stationary Profile chrome and Preferences keep their grid while only the body follows a pull", async ({ page }) => {
+  await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
+  const preferences = pane(page).locator("[data-profile-stationary-preferences]");
+  await expect(preferences.getByText("Appearance", { exact: true })).toBeVisible();
+  const controlEdges = await preferences.evaluate(node => {
+    const appearance = node.querySelector('[role="radiogroup"]')!.getBoundingClientRect();
+    const accent = node.querySelector('[role="combobox"]')!.getBoundingClientRect();
+    return { appearance: appearance.right, accent: accent.right };
+  });
+  expect(Math.abs(controlEdges.appearance - controlEdges.accent)).toBeLessThanOrEqual(1);
+  const measured = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLElement>('[data-testid="profile-pane"]')!;
+    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
+    const title = frame.querySelector("h2")!;
+    const controls = frame.querySelector("[data-profile-stationary-preferences]")!;
+    const before = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    const dispatch = (type: string, x: number, time: number) => {
+      const point = { identifier: 1, clientX: x, clientY: 320 };
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperties(event, { touches: { value: [point] }, changedTouches: { value: [point] }, timeStamp: { value: time } });
+      body.dispatchEvent(event);
+    };
+    dispatch("touchstart", 120, 100); dispatch("touchmove", 170, 220);
+    const after = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    dispatch("touchcancel", 170, 240);
+    return { before, after, frameTransform: frame.style.transform, hasDuplicatedAppearance: frame.querySelectorAll('[data-profile-stationary-preferences]').length };
+  });
+  expect(Math.abs(measured.after[0]! - measured.before[0]!)).toBeLessThanOrEqual(1);
+  expect(Math.abs(measured.after[1]! - measured.before[1]!)).toBeLessThanOrEqual(1);
+  expect(measured.after[2]! - measured.before[2]!).toBeCloseTo(50, 0);
+  expect(measured.frameTransform).toBe("");
+  expect(measured.hasDuplicatedAppearance).toBe(1);
+  await expect(pane(page)).toBeVisible(); // Cancellation never commits dismissal.
+  // Observe settlement cleanup, where removing animation suppression used to
+  // replay the entire opening slide. A settled screenshot cannot catch it.
+  const afterCancellation = await pane(page).evaluate(async frame => {
+    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
+    let worstSettledOffset = 0;
+    const started = performance.now();
+    while (performance.now() - started < 550) {
+      await new Promise(requestAnimationFrame);
+      if (!body.style.transform) worstSettledOffset = Math.max(worstSettledOffset,
+        Math.abs(body.getBoundingClientRect().x - frame.getBoundingClientRect().x));
+    }
+    return { worstSettledOffset, inlineTransform: body.style.transform };
+  });
+  expect(afterCancellation.inlineTransform).toBe("");
+  expect(afterCancellation.worstSettledOffset).toBeLessThanOrEqual(1);
+});
+
+test("Accent stays coherent through repeated selection and Profile close/reopen", async ({ page }) => {
+  // Ten full open/menu/selection/close cycles, not one 30s interaction.
+  test.setTimeout(60_000);
+  const errors = await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const trigger = page.getByRole("combobox", { name: "App accent color" });
+  for (let cycle = 0; cycle < 10; cycle += 1) {
+    const accent = cycle % 2 === 0 ? "Molten Gold" : "Blue";
+    await trigger.click();
+    const option = page.getByRole("option", { name: accent, exact: true });
+    await expect(option).toBeVisible();
+    expect(await option.evaluate(node => {
+      const frame = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(frame.x + frame.width / 2, frame.y + frame.height / 2);
+      return !!hit && node.contains(hit);
+    })).toBe(true);
+    await option.click();
+    await expect(trigger).toContainText(accent);
+    if (accent === "Molten Gold") await expect(page.locator("html")).toHaveAttribute("data-accent", "gold");
+    else await expect(page.locator("html")).not.toHaveAttribute("data-accent", /.+/);
+    await page.getByRole("button", { name: "Close Profile", exact: true }).click();
+    await expect(pane(page)).not.toBeVisible();
+    await page.getByTestId("open-profile").click();
+    await expect(pane(page)).toBeVisible();
+    await page.getByTestId("profile-preferences-row").click();
+    await expect(trigger).toContainText(accent);
+  }
+  expect(errors).toEqual([]);
+});
+
 function query(page: Page) {
   return new URL(page.url()).searchParams;
 }
@@ -338,10 +418,11 @@ for (const width of [320, 393, 1440]) {
 // Review renders for the founder, written only when LEGAL_RENDER_DIR is set.
 test.describe("review renders", () => {
   test.skip(!process.env.LEGAL_RENDER_DIR, "set LEGAL_RENDER_DIR to write review renders");
-  for (const [width, theme] of [[393, "light"], [393, "dark"], [1440, "light"]] as const) {
+  for (const [width, theme] of [[393, "light"], [393, "dark"], [820, "light"], [1440, "light"]] as const) {
     test(`pane renders at ${width}px ${theme}`, async ({ page }) => {
       const dir = process.env.LEGAL_RENDER_DIR!;
       for (const [name, at] of [
+        ["pane-preferences", "/one?profile_pane=1&profile_panel=preferences"],
         ["pane-legal-terms", "/one?profile_pane=1&profile_panel=legal&profile_detail=terms"],
         ["pane-legal-section", "/one?profile_pane=1&profile_panel=legal"],
         ["pane-connectors", "/?profile_pane=1&profile_panel=connectors"],

@@ -10,15 +10,14 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { isNative } from "@/lib/capacitor/platform";
 import {
   WarningIcon as AlertTriangle,
   SpinnerGapIcon as Loader2,
   ArrowsClockwiseIcon as RefreshCw,
 } from "@/components/icons";
 import {
-  AccentRowIcon,
   AccountProfileIcon,
-  AppearanceRowIcon,
   ConsentAgentIcon,
   ConnectedSystemsAgentIcon,
   DeleteRowIcon,
@@ -121,8 +120,7 @@ import {
   ProfileLegalRows,
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
-import { ThemeToggleLean } from "@/components/theme-toggle";
-import { NativeAccentChoice } from "@/components/app-ui/native-accent-choice";
+import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
@@ -3503,9 +3501,10 @@ function ProfilePageContent({
     </div>
   );
 
+  const appearanceControls = <ProfileAppearanceControls value={appAccent} nativeContext={preferenceChrome} />;
   const preferencesContent = (
     <div className="profile-preferences-content space-y-4">
-      {isPanePresentation ? (
+      {isPanePresentation && (!isNative() || !nativeControlsEligible) ? (
         <ProfileAppearancePreferences
           accent={appAccent}
           onAccentChange={writeAccent}
@@ -3517,33 +3516,9 @@ function ProfilePageContent({
           }
         />
       ) : (
+      <>
+      {appearanceControls}
       <SettingsGroup>
-        <SettingsRow
-          className="profile-preferences-control-row"
-          icon={AppearanceRowIcon}
-          iconTone="capability"
-          title="Appearance"
-          description="Light, dark, or system."
-          trailing={
-            <ThemeToggleLean
-              size="expanded"
-              className="h-12 w-full min-w-0 p-0.5 sm:w-full [&_button]:min-h-11 [&_span.text-xs]:inline"
-              nativeContext={preferenceChrome}
-            />
-          }
-          stackTrailingOnMobile
-        />
-        <SettingsRow
-          className="profile-preferences-control-row"
-          icon={AccentRowIcon}
-          iconTone="capability"
-          title="Accent"
-          description="Choose the app accent."
-          trailing={
-            <NativeAccentChoice value={appAccent} {...preferenceChrome} />
-          }
-          stackTrailingOnMobile
-        />
         <SettingsRow
           leading={<GeminiLogo className="h-8 w-8" />}
           title="Gemini"
@@ -3567,6 +3542,7 @@ function ProfilePageContent({
           }
         />
       </SettingsGroup>
+      </>
       )}
       <CommunicationPreferencesSection
         userId={user?.uid ?? null}

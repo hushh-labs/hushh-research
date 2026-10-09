@@ -7,6 +7,12 @@ const { mockPreferences } = vi.hoisted(() => ({
     remove: vi.fn(),
   },
 }));
+const haptics = vi.hoisted(() => ({ native: false, read: vi.fn(), write: vi.fn() }));
+vi.mock("@/lib/capacitor/app-haptics", () => ({
+  usesNativeHapticPreference: () => haptics.native,
+  readAppHapticPreference: haptics.read,
+  writeAppHapticPreference: haptics.write,
+}));
 
 vi.mock("@capacitor/preferences", () => ({
   Preferences: mockPreferences,
@@ -26,6 +32,9 @@ import {
 describe("SettingsService", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    haptics.native = false;
+    haptics.read.mockResolvedValue(true);
+    haptics.write.mockResolvedValue(undefined);
     mockPreferences.remove.mockResolvedValue(undefined);
     mockPreferences.set.mockResolvedValue(undefined);
     mockPreferences.get.mockResolvedValue({ value: null });
@@ -69,6 +78,29 @@ describe("SettingsService", () => {
   });
 
   describe("updateSettings", () => {
+    it("uses native haptic authority on iOS and omits it from the legacy JSON store", async () => {
+      haptics.native = true;
+      haptics.read.mockResolvedValue(false);
+      (SettingsService as any).cachedSettings = null;
+      const settings = await SettingsService.getSettings();
+      expect(settings.hapticFeedback).toBe(false);
+      await SettingsService.updateSettings({ hapticFeedback: true, theme: "dark" });
+      expect(haptics.write).toHaveBeenCalledExactlyOnceWith(true);
+      const stored = JSON.parse(mockPreferences.set.mock.calls.at(-1)![0].value);
+      expect(stored.hapticFeedback).toBeUndefined();
+      expect(stored.theme).toBe("dark");
+      expect((await SettingsService.getSettings()).hapticFeedback).toBe(true);
+    });
+
+    it("serializes simultaneous changes without losing an unrelated setting or replacing a newer preference", async () => {
+      await Promise.all([
+        SettingsService.updateSettings({ hapticFeedback: false }),
+        SettingsService.updateSettings({ theme: "dark" }),
+        SettingsService.updateSettings({ hapticFeedback: true }),
+      ]);
+      expect(await SettingsService.getSettings()).toMatchObject({ theme: "dark", hapticFeedback: true });
+      expect(JSON.parse(mockPreferences.set.mock.calls.at(-1)![0].value)).toMatchObject({ theme: "dark", hapticFeedback: true });
+    });
     it("persists partial updates merged with current settings", async () => {
       await SettingsService.updateSettings({ theme: "light" });
 

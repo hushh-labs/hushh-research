@@ -417,7 +417,7 @@ export const Navbar = ({
   }, [bottomNavScope, interactionIntents, navOptions]);
   const activeNav = (optimisticNav ?? routeActiveNav) as AppBottomNavKey;
 
-  const navigateTo = (value: string) => {
+  const navigateTo = (value: string, nativeSelection = false) => {
     if (busyOperations["portfolio_save"]) {
       toast.info("Saving to vault. Please wait until encryption completes.");
       return;
@@ -465,6 +465,7 @@ export const Navbar = ({
         scroll: false,
         source: "tap",
         transitionMode: "contextual",
+        ...(!nativeSelection && key !== activeNav ? { feedback: "selection" as const } : {}),
       });
     }
   };
@@ -483,7 +484,7 @@ export const Navbar = ({
     appearance: nativeAppearance?.appearance ?? "light",
     accentHex: nativeAppearance?.accentHex ?? "",
     foregroundHex: nativeAppearance?.foregroundHex ?? "",
-    onSelect: navigateTo,
+    onSelect: value => navigateTo(value, true),
   });
 
   if (shellNavigationHidden || hideNavbar || useOnboardingChrome || !isAuthenticated || navOptions.length === 0) {

@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import Capacitor
+import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
@@ -41,6 +42,271 @@ final class NativeSupportTests: XCTestCase {
         )
         XCTAssertEqual(audit.vaultPassphrase, "synthetic-passphrase")
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
+    }
+
+    @MainActor
+    func testNativePanelPoseAndClippingDoNotGrantStaleOrOutsideHits() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web)
+        let control = UIButton(frame: CGRect(x: 10, y: 10, width: 44, height: 44))
+        let pose = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 1, privacyGeneration: 0, frame: CGRect(x: 100, y: 0, width: 100, height: 844),
+            offset: 0, opacity: 1, settled: true)
+        container.install(control, id: "profile-close", group: "profile")
+        XCTAssertTrue(container.apply(pose, group: "profile", privacy: 0))
+        container.setAdmission("profile-close", admitted: true)
+        XCTAssertTrue(web.superview === container)
+        XCTAssertTrue(container.subviews.first === web,
+            "WK's rectangle must not sit in front of native controls in UIKit traversal")
+        XCTAssertLessThan(container.underlay.layer.zPosition, web.layer.zPosition,
+            "Native accessibility ordering must not move glass above product paint")
+        XCTAssertTrue(container.hitTest(CGPoint(x: 120, y: 20), with: nil) === control)
+        control.frame.origin.x = -30 // Its bounds extend outside the clipped group.
+        XCTAssertFalse(container.hitTest(CGPoint(x: 85, y: 20), with: nil) === control)
+        XCTAssertFalse(container.apply(pose, group: "profile", privacy: 0), "Reordered pose cannot regain interaction")
+        control.frame.origin.x = 10
+        let originalHost = control.superview
+        let moving = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 2, privacyGeneration: 0, frame: pose.frame, offset: 30, opacity: 1, settled: false)
+        XCTAssertTrue(container.apply(moving, group: "profile", privacy: 0))
+        XCTAssertTrue(control.superview === originalHost, "Motion must preserve the native presentation")
+        XCTAssertFalse(control.isHidden, "Interaction suspension must not hide a moving control")
+        XCTAssertFalse(control.isUserInteractionEnabled)
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 150, y: 20), with: nil) === control,
+            "A moving native control cannot execute an action")
+        let transparent = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 3, privacyGeneration: 0, frame: pose.frame, offset: 0, opacity: 0, settled: true)
+        XCTAssertTrue(container.apply(transparent, group: "profile", privacy: 0))
+        container.setAdmission("profile-close", admitted: true)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 120, y: 20), with: nil) === control,
+            "Ancestor opacity must exclude a native hit even when its own view is visible")
+        XCTAssertTrue(container.retire(group: "profile", document: "synthetic", ownerEpoch: "epoch", generation: 1))
+        XCTAssertFalse(container.apply(pose, group: "profile", privacy: 0), "Retired presentation cannot resurrect")
+        container.conceal()
+        XCTAssertFalse(container.hitTest(CGPoint(x: 120, y: 20), with: nil) === control)
+    }
+
+    func testAppHapticMigrationUsesAnExplicitDisabledValueOnce() {
+        let name = "hushh-haptic-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(true, forKey: "hapticFeedback")
+        defaults.set("{\"hapticFeedback\":false,\"theme\":\"dark\"}", forKey: "CapacitorStorage.hushh_settings")
+        XCTAssertFalse(HushhAppHaptics.enabled(in: defaults))
+        defaults.set(true, forKey: "hapticFeedback")
+        XCTAssertTrue(HushhAppHaptics.enabled(in: defaults), "Legacy JSON cannot override the authoritative native value after migration")
+        XCTAssertNil(defaults.object(forKey: "theme"), "No unrelated setting is migrated")
+    }
+
+    func testAppHapticFeedbackCannotReplayOrQueueExpiredChoices() {
+        var state = HushhAppHapticFeedbackState()
+        XCTAssertTrue(state.consume("choice-1", issuedAt: 1000, now: 1001))
+        XCTAssertFalse(state.consume("choice-1", issuedAt: 1000, now: 1002), "One choice must not vibrate twice")
+        XCTAssertFalse(state.consume("expired", issuedAt: 1000, now: 1251), "Late feedback is dropped, not queued")
+        XCTAssertFalse(state.consume("future", issuedAt: 1100, now: 1000))
+        XCTAssertTrue(state.consume("choice-2", issuedAt: 1002, now: 1003), "A distinct current choice remains admitted")
+    }
+
+    @MainActor
+    func testDockFollowsKeyboardLayoutWithoutAnotherApplyAndVoiceReleasesTheLift() {
+        let parent = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let window = UIWindow(frame: parent.bounds)
+        let controller = UIViewController(); controller.view = parent
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true }
+        let dock = UIView(); parent.addSubview(dock)
+        let keyboard = UILayoutGuide(); parent.addLayoutGuide(keyboard)
+        let top = keyboard.topAnchor.constraint(equalTo: parent.topAnchor, constant: 844)
+        NSLayoutConstraint.activate([top, keyboard.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+            keyboard.widthAnchor.constraint(equalTo: parent.widthAnchor), keyboard.heightAnchor.constraint(equalToConstant: 0)])
+        let placement = NativeDockPlacement(parent: parent, dock: dock, keyboard: keyboard)
+        let frame = CGRect(x: 16, y: 700, width: 358, height: 52)
+        XCTAssertTrue(placement.update(frame: frame, height: 52, editing: true))
+        parent.layoutIfNeeded()
+        XCTAssertEqual(dock.frame.maxY, 752, accuracy: 0.5)
+        for _ in 0..<10 {
+            XCTAssertFalse(placement.update(frame: frame, height: 52, editing: true),
+                "A settled host layout must not schedule another dock layout")
+            parent.layoutIfNeeded()
+        }
+        var receipts = NativeDockLayoutState()
+        XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))
+        XCTAssertEqual(receipts.sequence, 1)
+        top.constant = 500 // No bridge apply or web resize occurs here.
+        parent.layoutIfNeeded()
+        XCTAssertEqual(dock.frame.maxY, 492, accuracy: 0.5)
+        XCTAssertEqual(dock.frame.height, 52, accuracy: 0.5)
+        XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))
+        XCTAssertEqual(receipts.sequence, 2) // Equal height does not hide occlusion movement.
+        XCTAssertFalse(receipts.record(dock.frame, update: 1, privacy: 0))
+        XCTAssertFalse(placement.update(frame: frame, height: 52, editing: true),
+            "Keyboard-guide movement is system-owned, not another bridge apply")
+        XCTAssertTrue(placement.update(frame: frame, height: 52, editing: false))
+        parent.layoutIfNeeded()
+        XCTAssertEqual(dock.frame.maxY, 752, accuracy: 0.5)
+        XCTAssertTrue(receipts.record(dock.frame, update: 1, privacy: 0))
+    }
+
+    @MainActor
+    func testDockRetainsEditorAndSelectionAcrossVoiceAndThemeUpdates() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native dock requires iOS 26") }
+        let model = NativeDockModel()
+        model.mode = "text"; model.visible = true; model.editable = true
+        model.micEnabled = true; model.sendEnabled = true
+        model.placeholder = "Message One"
+        let host = UIHostingController(rootView: NativeAgentDockView(model: model))
+        host.safeAreaRegions = []
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let parent = UIViewController(); parent.view.backgroundColor = .systemBackground
+        window.rootViewController = parent; window.isHidden = false
+        parent.addChild(host); parent.view.addSubview(host.view); host.didMove(toParent: parent)
+        host.view.frame = CGRect(x: 16, y: 700, width: 358, height: 100)
+        defer { model.clear(); host.view.removeFromSuperview(); host.removeFromParent(); window.isHidden = true }
+        host.view.layoutIfNeeded()
+        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 358, height: 340)).height, 52, accuracy: 1,
+            "Compact editor and two actions must fit the existing 52-point Agent Bar, without glass-button padding enlarging it")
+        let editor = try XCTUnwrap(model.editor)
+        XCTAssertFalse(editor.placeholderLabel.isHidden)
+        XCTAssertEqual(editor.placeholderLabel.font, editor.font)
+        XCTAssertEqual(editor.placeholderLabel.frame.minX, editor.textContainerInset.left, accuracy: 0.5)
+        XCTAssertEqual(editor.placeholderLabel.frame.midY,
+            editor.caretRect(for: editor.beginningOfDocument).midY, accuracy: 1)
+        if ProcessInfo.processInfo.environment["HUSHH_DOCK_SYNTHETIC_VISUALS"] == "1" {
+            // Only this opaque, synthetic window: never capture the app's
+            // WebView, a reviewer session, or a private native dock.
+            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+            let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+            window.windowScene = scene
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true; previousKeyWindow?.makeKeyAndVisible() }
+            host.view.frame.size.height = 52
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                parent.overrideUserInterfaceStyle = style
+                host.overrideUserInterfaceStyle = style
+                for mode in ["text", "voice"] {
+                    model.mode = mode
+                    model.placeholder = mode == "text" ? "Message One" : "Talk to One"
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+                    host.view.layoutIfNeeded()
+                    var rendered = false
+                    let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                        rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                    }
+                    XCTAssertTrue(rendered, "Synthetic visual capture must reach an attached native presentation")
+                    let attachment = XCTAttachment(image: image)
+                    attachment.name = "synthetic-dock-\(style == .dark ? "dark" : "light")-\(mode)"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+            model.mode = "text"; model.placeholder = "Message One"
+        }
+        model.text = "Hello 👋"
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertTrue(editor.placeholderLabel.isHidden)
+        editor.selectedRange = NSRange(location: 2, length: 2)
+        for mode in ["voice", "text", "voice", "text"] {
+            model.mode = mode
+            model.accent = UIColor.label
+            host.overrideUserInterfaceStyle = .dark
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            host.view.layoutIfNeeded()
+            XCTAssertTrue(model.editor === editor)
+            XCTAssertEqual(editor.text, "Hello 👋")
+            XCTAssertEqual(editor.selectedRange, NSRange(location: 2, length: 2))
+        }
+        // Return is ordinary editing, not Send. IME is owned by UITextView.
+        XCTAssertTrue(editor.delegate?.textView?(editor, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: "\n") == true)
+        var sends = 0
+        editor.submit = { sends += 1 }
+        XCTAssertTrue(editor.becomeFirstResponder())
+        let selected = editor.selectedRange
+        let escape = try XCTUnwrap(editor.keyCommands?.first { $0.input == UIKeyCommand.inputEscape })
+        editor.perform(escape.action, with: escape)
+        XCTAssertFalse(editor.isFirstResponder)
+        XCTAssertEqual(editor.text, "Hello 👋")
+        XCTAssertEqual(editor.selectedRange, selected)
+        XCTAssertEqual(sends, 0)
+        model.awaitingConsumption = true
+        model.consumeText()
+        XCTAssertFalse(editor.placeholderLabel.isHidden,
+            "Committed consumption restores the empty-editor label synchronously, not after another React/native update")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertFalse(editor.isEditable) // An uncertain Send cannot overwrite the unsent owner draft.
+        model.awaitingConsumption = false; model.text = "Restored unsent draft"
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertTrue(editor.isEditable)
+        XCTAssertTrue(model.editor === editor)
+        XCTAssertEqual(editor.text, "Restored unsent draft")
+        model.awaitingTransition = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertFalse(editor.isEditable)
+        model.awaitingTransition = false
+    }
+
+    func testDockEditsSurviveAppearanceEchoButActionsRequireCurrentSnapshot() {
+        var fence = HushhDockFence()
+        let identity = HushhDockFence.Identity(document: "dock-doc", owner: "owner-a", revision: 1)
+        XCTAssertTrue(fence.apply(identity, sequence: 1))
+        fence.edited()
+        let edit = fence.emitted(kind: "edit")
+        let oldSend = fence.emitted(kind: "action")
+        XCTAssertTrue(fence.apply(identity, sequence: 2))
+        XCTAssertTrue(fence.confirm(identity, sequence: edit, applied: 1, editRevision: 1, kind: "edit", allowed: true))
+        XCTAssertFalse(fence.confirm(identity, sequence: oldSend, applied: 1, editRevision: 1, kind: "action", allowed: true))
+        let send = fence.emitted(kind: "action")
+        XCTAssertFalse(fence.confirm(identity, sequence: send, applied: 2, editRevision: 1, kind: "edit", allowed: true))
+        XCTAssertTrue(fence.confirm(identity, sequence: send, applied: 2, editRevision: 1, kind: "action", allowed: true))
+        XCTAssertFalse(fence.confirm(identity, sequence: send, applied: 2, editRevision: 1, kind: "action", allowed: true))
+    }
+
+    func testDockOwnerRetirementAndPrivacyCannotAuthorizeAnEarlierChoice() {
+        var fence = HushhDockFence()
+        let old = HushhDockFence.Identity(document: "dock-doc", owner: "owner-a", revision: 1)
+        let next = HushhDockFence.Identity(document: "dock-doc", owner: "owner-b", revision: 2)
+        XCTAssertTrue(fence.apply(old, sequence: 1))
+        let choice = fence.emitted(kind: "action")
+        XCTAssertFalse(fence.confirm(old, sequence: choice, applied: 1, editRevision: 0, kind: "action", allowed: false))
+        XCTAssertTrue(fence.retire(old))
+        XCTAssertFalse(fence.apply(old, sequence: 2))
+        XCTAssertTrue(fence.apply(next, sequence: 1))
+        XCTAssertFalse(fence.confirm(old, sequence: choice, applied: 1, editRevision: 0, kind: "action", allowed: true))
+        XCTAssertFalse(fence.retire(old))
+        XCTAssertEqual(fence.identity, next)
+        XCTAssertTrue(fence.retire(next))
+        let nextDocument = HushhDockFence.Identity(document: "next-doc", owner: "owner-b", revision: 1)
+        XCTAssertTrue(fence.apply(nextDocument, sequence: 1), "A new document starts its own revision sequence after confirmed retirement")
+        XCTAssertFalse(fence.apply(.init(document: "dock-doc", owner: "owner-a", revision: 3), sequence: 2),
+            "The earlier document cannot regain its private editor")
+    }
+
+    func testDockConsumesConfirmedSendOnceButNeverDiscardsAnInterveningEdit() {
+        var fence = HushhDockFence()
+        let identity = HushhDockFence.Identity(document: "dock-doc", owner: "owner-a", revision: 1)
+        XCTAssertTrue(fence.apply(identity, sequence: 1))
+        fence.edited()
+        let send = fence.emitted(kind: "action", action: "send")
+        XCTAssertTrue(fence.confirm(identity, sequence: send, applied: 1, editRevision: 1, kind: "action", allowed: true))
+        XCTAssertTrue(fence.consume(identity, sequence: send, editRevision: 1, allowed: true))
+        XCTAssertEqual(fence.edit, 2)
+        XCTAssertFalse(fence.consume(identity, sequence: send, editRevision: 1, allowed: true))
+        fence.edited()
+        let next = fence.emitted(kind: "action", action: "send")
+        XCTAssertTrue(fence.confirm(identity, sequence: next, applied: 1, editRevision: 3, kind: "action", allowed: true))
+        fence.edited() // A later keystroke before the acknowledgement.
+        XCTAssertFalse(fence.consume(identity, sequence: next, editRevision: 3, allowed: true))
+        let open = fence.emitted(kind: "action", action: "attachment-edit")
+        XCTAssertTrue(fence.confirm(identity, sequence: open, applied: fence.update, editRevision: fence.edit, kind: "action", allowed: true))
+        XCTAssertTrue(fence.admitsEditingTransition(identity, sequence: open, editRevision: fence.edit))
+        let editAtOpen = fence.edit
+        fence.edited()
+        XCTAssertFalse(fence.admitsEditingTransition(identity, sequence: open, editRevision: editAtOpen))
+        XCTAssertEqual(fence.edit, editAtOpen + 1, "Refusing a stale transition must preserve the intervening keystroke")
     }
 
     #if DEBUG
@@ -166,6 +432,12 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.confirm(first, sequence: 2, latestSequence: 2, allowed: true))
         XCTAssertFalse(state.confirm(replacement, sequence: 2, latestSequence: 2, allowed: true))
         XCTAssertTrue(state.activate(replacement))
+        XCTAssertTrue(state.suspend(replacement))
+        XCTAssertEqual(state.identity, replacement) // Host identity survives; action authority does not.
+        XCTAssertFalse(state.confirm(replacement, sequence: 2, latestSequence: 2, allowed: true))
+        XCTAssertFalse(state.update(replacement, sequence: 1))
+        XCTAssertFalse(state.activate(replacement)) // A new preparation is required after suspension.
+        XCTAssertFalse(state.suspend(first))
         let next = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-b", revision: 3)
         XCTAssertTrue(state.prepare(next))
         XCTAssertFalse(state.activate(first))
@@ -579,6 +851,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(config.initialRoute, "/login?redirect=%2Fconsents")
         XCTAssertEqual(config.expectedMarker, "consent-manager-primary")
         XCTAssertTrue(config.autoReviewerLogin)
+        XCTAssertTrue(config.resetAppState)
+
+        // Preparation for attach-only reviewer tests must select the normal
+        // passphrase surface without signing out, resetting or auto-unlocking.
+        let retainedSession = NativeTestConfiguration(arguments: [
+            "App", "-UITestMode",
+            "-UITestResetAppState", "false",
+            "-UITestAutoReviewerLogin", "false",
+            "-UITestRunUiFlows", "false",
+        ], environment: [:])
+        XCTAssertTrue(retainedSession.enabled)
+        XCTAssertFalse(retainedSession.resetAppState)
+        XCTAssertFalse(retainedSession.autoReviewerLogin)
+        XCTAssertFalse(retainedSession.runUiFlows)
+        XCTAssertNil(retainedSession.vaultPassphrase)
+        XCTAssertNil(retainedSession.expectedUserId)
+        XCTAssertNil(retainedSession.initialRoute)
     }
 
     func testNativeReviewerCredentialsNeverComeFromLaunchArguments() {

@@ -63,6 +63,20 @@ Native checks have two deliberately separate lanes:
 
 The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector. Components that need lifecycle work subscribe to its signal; AuthProvider and VaultProvider deliberately do not use routine resume events to revalidate or rerender an already-unlocked session.
 
+For an iPhone Debug reviewer preparation that must use Passphrase rather than
+the account's default quick unlock, launch once with `-UITestMode`,
+`-UITestResetAppState false`, `-UITestAutoReviewerLogin false` and
+`-UITestRunUiFlows false`. All four belong together: test mode alone defaults
+to resetting app state. Omit initial-route, expected-user and app credential
+injection; preserve the existing sign-in and verify its owner before the
+normal XCUI Unlock action. The existing test bridge selects the passphrase
+surface without authenticating it. Resolve the authorized credential into
+runner memory only. This launch is preparation, not continuity evidence;
+subsequent attach-only tests do not relaunch, reset or sign out. Ordinary
+users' default methods are unchanged. Follow
+[physical reviewer preflight](../../../.codex/skills/mobile-parity-audit/references/physical-reviewer-preflight.md)
+for device authorization and artifact handling.
+
 ## Native Authentication Settlement
 
 - `AuthProvider` is the only React publication authority for native identity.

@@ -1,12 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+const feedback = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/capacitor/app-haptics", () => ({ appHaptic: feedback }));
 
 describe("route transition intent ownership", () => {
   afterEach(() => {
+    feedback.mockClear();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     delete document.documentElement.dataset.routeTransition;
+  });
+
+  it("emits one authored cue for an accepted commit, not for cancelled, repeated or programmatic changes", () => {
+    vi.useFakeTimers();
+    const previousHref = window.location.href;
+    window.history.replaceState(null, "", "/one");
+    const discarded = vi.fn(); const accepted = vi.fn();
+    beginRouteTransition("/one/memory", discarded, "tap", "full", "selection");
+    beginRouteTransition("/one/profile", accepted, "tap", "full", "light");
+    beginRouteTransition("/one/profile", accepted, "tap", "full", "light");
+    expect(feedback).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60);
+    expect(discarded).not.toHaveBeenCalled(); expect(accepted).toHaveBeenCalledOnce();
+    expect(feedback).toHaveBeenCalledExactlyOnceWith("light", expect.any(String));
+    beginRouteTransition("/one", () => undefined, "tap", "contextual", "selection");
+    beginRouteTransition("/one/mail", () => undefined, "programmatic", "contextual", "selection");
+    expect(feedback).toHaveBeenCalledOnce();
+    window.history.replaceState(null, "", previousHref);
   });
 
   it("commits only the latest target when taps arrive during the exit beat", () => {

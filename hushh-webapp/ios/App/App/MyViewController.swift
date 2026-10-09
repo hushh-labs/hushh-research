@@ -100,6 +100,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         super.viewDidLayoutSubviews()
         (bridge?.plugin(withName: "HushhNativeNavigation") as? HushhNativeNavigationPlugin)?.layoutTabBar()
         (bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?.layoutControls()
+        (bridge?.plugin(withName: "HushhNativeDock") as? HushhNativeDockPlugin)?.layoutDock()
     }
 
     deinit {
@@ -200,6 +201,15 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
+        #if DEBUG
+        // Qualification-only; older wrappers and Release retain their current
+        // host until composition, touch and physical frame pacing pass.
+        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
+           ProcessInfo.processInfo.arguments.contains("--hushh-native-compositor"),
+           let existing = webView, view === existing {
+            view = NativePresentationContainer(webView: existing)
+        }
+        #endif
         
         print("🔌 [MyViewController] Registering all native plugins...")
         print("🔌 [MyViewController] Bridge available: \(bridge != nil)")
@@ -224,6 +234,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhSessionPrivacyPlugin())
         bridge?.registerPluginInstance(HushhNativeNavigationPlugin())
         bridge?.registerPluginInstance(HushhNativeChromePlugin())
+        bridge?.registerPluginInstance(HushhNativeDockPlugin())
         bridge?.registerPluginInstance(HushhStreamPlugin())
         bridge?.registerPluginInstance(HushhOAuthReturnPlugin())
         bridge?.registerPluginInstance(HushhPlaidLinkPlugin())
@@ -270,6 +281,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "HushhSessionPrivacy",
             "HushhNativeNavigation",
             "HushhNativeChrome",
+            "HushhNativeDock",
             "HushhStream",
             "HushhOAuthReturn",
             "HushhPlaidLink"

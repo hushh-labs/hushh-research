@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { NativeDockPortProvider } from "./native-dock-port";
 
 type Dock = {
   host: HTMLDivElement | null;
@@ -34,7 +35,7 @@ export function AgentDockProvider({ children }: { children: ReactNode }) {
       setSuppressed(false);
   }, []);
   const value = useMemo<Dock>(() => ({ host, setHost, composerVisible, suppressed, claim, release }), [host, composerVisible, suppressed, claim, release]);
-  return <DockContext.Provider value={value}>{children}</DockContext.Provider>;
+  return <DockContext.Provider value={value}><NativeDockPortProvider>{children}</NativeDockPortProvider></DockContext.Provider>;
 }
 
 export function AgentDockVoiceBoundary({ children }: { children: ReactNode }) {
@@ -70,6 +71,7 @@ export function AgentDockPortal({ enabled, visible, suppressed = false, children
 }
 
 export function useAgentDockHost() { return useContext(DockContext)?.host ?? null; }
+export function useAgentDockState() { return useContext(DockContext); }
 
 /** Geometry only: include the retained voice panel as well as the form. The
  * hidden form's zero rectangle cannot describe the visible dock's occlusion. */

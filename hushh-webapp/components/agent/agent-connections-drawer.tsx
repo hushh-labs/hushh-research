@@ -17,6 +17,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
+import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 
 const selector =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -88,6 +89,9 @@ export function AgentConnectionsDrawer({
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
   const historyOpen = open && mode === "chats";
+  const attachNativePanel = useNativePanelPresentation("history", presentationKey ?? null, drawer, historyOpen);
+  const historyActive = useRef(historyOpen);
+  useLayoutEffect(() => { historyActive.current = historyOpen; }, [historyOpen]);
   useNativeNavigationBlocked(historyOpen, "chat-history");
   const connectorsOpen = open && mode === "connections";
   const connectorActive = useRef(connectorsOpen);
@@ -138,19 +142,31 @@ export function AgentConnectionsDrawer({
   }, [open, restoreFocus, onRestoreHistoryFocus]);
   useEffect(() => {
     if (!historyOpen || modalActive.current) return;
+    let current = true;
+    const initialFocus = document.activeElement;
     const frame = requestAnimationFrame(() => {
-      if (mode === "chats")
-        drawer.current
-          ?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')
+      const body = drawer.current;
+      // The whole panel translates. Focusing its footer while clipped can
+      // be refused (or scroll the panel).
+      // Only finite entry motion owns this wait, never child loading spinners.
+      const entry = body?.getAnimations().filter(animation =>
+        (animation.effect as KeyframeEffect | null)?.target === body &&
+        animation.effect?.getComputedTiming().iterations !== Infinity,
+      ) ?? [];
+      void Promise.allSettled(entry.map(animation => animation.finished)).then(() => {
+        if (!current || body !== drawer.current || modalActive.current || drawer.current?.closest("[inert]") ||
+            document.activeElement !== initialFocus) return;
+        drawer.current?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')
           ?.focus({ preventScroll: true });
-      else focused()[0]?.focus({ preventScroll: true });
+      });
     });
-    return () => cancelAnimationFrame(frame);
+    return () => { current = false; cancelAnimationFrame(frame); };
   }, [mode, historyOpen]);
   useEffect(() => {
     if (!historyOpen) return;
     const escape = (event: globalThis.KeyboardEvent) => {
-      // Recover only the brief body-focus gap while switching nested views.
+      // Recover only the brief focus gap while entering/switching views. Some
+      // engines retain the authored trigger until the body's entry completes.
       // An Escape originating in a provider/Radix portal must not also close
       // this drawer when that portal disposes itself during the same event.
       if (
@@ -158,13 +174,15 @@ export function AgentConnectionsDrawer({
         !event.defaultPrevented &&
         !modalActive.current &&
         (event.target === document.body ||
-          event.target === document.documentElement)
+          event.target === document.documentElement ||
+          event.target === triggerRef.current ||
+          event.target === returnFocus.current)
       )
         onOpenChange(false);
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
-  }, [historyOpen, onOpenChange]);
+  }, [historyOpen, onOpenChange, triggerRef]);
   const keyDown = (event: KeyboardEvent) => {
     if (externalModalOpen || event.defaultPrevented) return;
     if (event.key === "Escape") {
@@ -198,7 +216,9 @@ export function AgentConnectionsDrawer({
     },
     onCloseAutoFocus: (event: Event) => {
       event.preventDefault();
-      if (connectorActive.current || modalActive.current) return;
+      // Radix may finish closing after History has already reopened. The old
+      // presentation must not steal focus from that newer interaction layer.
+      if (connectorActive.current || historyActive.current || modalActive.current) return;
       restoreFocus();
     },
     onInteractOutside: (event: Event) => {
@@ -214,7 +234,7 @@ export function AgentConnectionsDrawer({
         enabled={presentationReady && gestureEnabled && mode === "chats" && !externalModalOpen}
         open={historyOpen}
         presentationKey={presentationKey}
-        surfaceRef={gestureSurfaceRef} drawerRef={drawer} scrimRef={scrim}
+        surfaceRef={gestureSurfaceRef} drawerRef={drawer} motionRef={drawer} scrimRef={scrim}
         onOpen={onGestureOpen ?? (() => onOpenChange(true))}
         onClose={() => onOpenChange(false)} /> : null}
       {connectorHost && createPortal(connections, connectorHost)}
@@ -256,17 +276,18 @@ export function AgentConnectionsDrawer({
               "z-(--z-sheet-overlay) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
               "transition-[opacity,visibility] motion-reduce:transition-none",
               historyOpen
-                ? "pointer-events-auto visible opacity-100 duration-140 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                : "pointer-events-none invisible opacity-0 duration-100 ease-[cubic-bezier(0.4,0,1,1)]",
+                ? "pointer-events-auto visible opacity-100 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
+                : "pointer-events-none invisible opacity-0 duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}
             onClick={() => {
               if (!externalModalOpen) onOpenChange(false);
             }}
           />
           <div
-            ref={drawer}
+            ref={attachNativePanel}
             role="dialog"
             data-agent-history-drawer
+            data-native-panel-group="history"
             aria-modal={externalModalOpen ? undefined : true}
             aria-label="Agent chat history"
             aria-hidden={!historyOpen || externalModalOpen}
@@ -279,11 +300,11 @@ export function AgentConnectionsDrawer({
               // get a nearly full-width panel that leaves a strip of scrim to tap
               // closed; from md up it keeps the drawer's 336px. Closed, it also
               // clears its own shadow. Motion uses the shared sheet tier.
-              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transform transition-transform motion-reduce:transition-none",
+              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transform-gpu transition-[transform,visibility] motion-reduce:transition-none",
               "w-[min(88vw,360px)] md:w-[336px]",
               historyOpen
-                ? "translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
-                : "translate-x-[calc(-100%_-_3rem)] duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
+                ? "visible translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
+                : "invisible -translate-x-full duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}
           >
             <div

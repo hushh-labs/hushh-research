@@ -105,11 +105,10 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func commandCaptureHaptic(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.commandRecording?.sessionID == call.getString("sessionId") else { call.resolve(); return }
-            guard UserDefaults.standard.object(forKey: "hapticFeedback") as? Bool ?? true else { call.resolve(); return }
             if call.getString("kind") == "ready" {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                HushhAppHaptics.play("light")
             } else if call.getString("kind") == "cancel" {
-                UISelectionFeedbackGenerator().selectionChanged()
+                HushhAppHaptics.play("selection")
             }
             call.resolve()
         }

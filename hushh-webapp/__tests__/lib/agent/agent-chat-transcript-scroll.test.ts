@@ -111,6 +111,10 @@ describe("findPendingAssistantTurn", () => {
     expect(measureTranscriptReveal(transcript, row, dock).visibleBottom).toBe(500);
     // Negative control: the old hidden-form measurement misses the voice panel.
     expect(measureTranscriptReveal(transcript, row, hiddenForm).visibleBottom).toBe(800);
+    // UIKit can move at equal height while the retained DOM seat stays put.
+    const nativeFrame = { getBoundingClientRect: () => rect(440, 492) };
+    expect(measureTranscriptReveal(transcript, row, nativeFrame).visibleBottom).toBe(440);
+    expect(measureTranscriptReveal(transcript, row, dock).visibleBottom).toBe(500);
     bounds.mockReturnValue(rect(50, 800));
     expect(measureTranscriptReveal(transcript, row, dock).visibleBottom).toBe(100);
   });
@@ -154,11 +158,11 @@ describe("chat workspace send path", () => {
       "(submittedTurn ? findPendingAssistantTurn(transcript) : null) ?? messagesEnd",
     );
     expect(source).toContain(
-      "measureTranscriptReveal(transcript, target, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current)",
+      "measureTranscriptReveal(transcript, target, isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current)",
     );
     expect(source).not.toMatch(/messagesEnd\.scrollIntoView\(/);
     // The follow gate is measured against the composer and sticky once followed.
-    expect(source).toContain("measureTranscriptReveal(transcript, messagesEnd, isCanonicalChatRoute ? agentDockFrame : composerStackRef.current)");
+    expect(source).toContain("measureTranscriptReveal(transcript, messagesEnd, isCanonicalChatRoute ? agentDockOccluder : composerStackRef.current)");
     expect(source).toContain("const shouldFollowTranscript = transcriptFollowsLatest({");
     expect(source).not.toContain("oneScrollTopRef.current <= 2 || distanceFromBottom <= 48");
   });

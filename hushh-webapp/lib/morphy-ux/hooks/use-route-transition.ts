@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 import {
   appInteractionCoordinator,
   type InteractionIntentSource,
@@ -111,6 +112,7 @@ export function beginRouteTransition(
   navigate: () => void,
   source: InteractionIntentSource = "programmatic",
   transitionMode: NavigationTransitionMode = "full",
+  feedback?: "selection" | "light",
 ): void {
   if (typeof window === "undefined") {
     navigate();
@@ -121,6 +123,11 @@ export function beginRouteTransition(
     source,
     transitionMode,
     start: (intent) => {
+      const commit = () => {
+        if (feedback && (source === "tap" || source === "native_back") &&
+            new URL(targetHref, window.location.href).href !== window.location.href) appHaptic(feedback, intent.id);
+        navigate();
+      };
       activeRouteIntentId = intent.id;
       clearRouteTimers();
       // A target on the current pathname (the active bottom-nav tab tapped
@@ -143,7 +150,7 @@ export function beginRouteTransition(
         appInteractionCoordinator.markNavigationCommitting(intent.id);
         transitionInFlight = true;
         try {
-          navigate();
+          commit();
         } finally {
           Promise.resolve().then(() => {
             transitionInFlight = false;
@@ -172,7 +179,7 @@ export function beginRouteTransition(
         appInteractionCoordinator.markNavigationCommitting(intent.id);
         transitionInFlight = true;
         try {
-          navigate();
+          commit();
         } finally {
           Promise.resolve().then(() => {
             transitionInFlight = false;

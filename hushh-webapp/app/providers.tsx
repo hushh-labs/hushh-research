@@ -47,6 +47,7 @@ import { AppTopShell } from "@/components/app-ui/top-app-bar";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
@@ -500,13 +501,13 @@ function AppShellFrame({ children }: ProvidersProps) {
     const handleProfilePaneOpen = (event: Event) => {
       // Answer the requester so a caller that must know (voice) never reports
       // an open that the shell silently dropped.
-      const report = (event as CustomEvent<ProfilePaneOpenDetail>).detail
-        ?.onResult;
+      const detail = (event as CustomEvent<ProfilePaneOpenDetail>).detail;
+      const report = detail?.onResult;
       if (!profilePaneEnabled) {
         report?.("unavailable");
         return;
       }
-      if (profilePaneUrlState.open) {
+      if (profilePaneUrlState.open || resolveProfilePaneUrlState(window.location.search).open) {
         report?.("already_open");
         return;
       }
@@ -517,6 +518,8 @@ function AppShellFrame({ children }: ProvidersProps) {
         searchParams,
         profilePaneResumeLocation,
       );
+      if (detail?.source === "tap") appHaptic("light");
+      else if (detail?.source === "native_swipe") appHaptic("selection");
       report?.("opening");
     };
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, handleProfilePaneOpen);
@@ -577,6 +580,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         },
         customEvent.detail?.source ?? "programmatic",
         customEvent.detail?.transitionMode ?? "full",
+        customEvent.detail?.feedback,
       );
     };
 

@@ -35,6 +35,7 @@ import { AudioLines, Keyboard, Send, X } from "@/components/icons";
 import { useVoiceSession } from "@/components/one-voice/voice-session-provider";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { useAgentDockSurface } from "@/components/agent/agent-dock";
+import { useNativeDockPort } from "@/components/agent/native-dock-port";
 import { useAuth } from "@/hooks/use-auth";
 import { isNative } from "@/lib/capacitor/platform";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -179,6 +180,17 @@ export function OneVoiceControl({
 
   const statusLine =
     collapsed && hasPanel ? transcriptStatusLine(state.transcript) : null;
+  useNativeDockPort("voice", dock ? {
+    projection: { context: "live-voice", mode: "voice", text: "", placeholder: active ? (state.speaking ? "One is speaking…" : "Tap to stop") : "Talk to One",
+      expanded: false, editable: false, sendEnabled: false, micEnabled: active,
+      cancelEnabled: active, recording: false, recordingReady: false, supportsHold: false,
+      muted: state.muted, attachments: [], attachmentRevision: 0, editorRevision: 0 },
+    onAction: event => {
+      if (event.action === "voice-tap") { if (active) session.stop("tap"); else start("bar"); }
+      else if (event.action === "cancel") session.stop("tap");
+      else if (event.action === "mute") session.setMuted(!state.muted);
+    },
+  } : null);
 
   return (
     <div

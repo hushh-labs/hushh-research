@@ -64,6 +64,31 @@ describe("chat history body gesture", () => {
     vi.useRealTimers();
   });
 
+  it("re-grabs a button-driven opening transition at its rendered position rather than its endpoint", () => {
+    const { drawer, overlay, transcript } = mountChat();
+    drawer.setAttribute("aria-hidden", "false");
+    const motion = document.createElement("section"); drawer.append(motion);
+    Object.defineProperty(motion, "offsetWidth", { value: 320 });
+    const onClose = vi.fn();
+    const view = render(<AppChatHistoryEdgeGesture enabled open onOpen={vi.fn()} onClose={onClose}
+      surfaceRef={{ current: transcript }} drawerRef={{ current: drawer }} motionRef={{ current: motion }} scrimRef={{ current: overlay }} />);
+    const computed = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(element => {
+      const style = computed(element);
+      return element === motion ? new Proxy(style, { get: (target, key) => key === "transform"
+        ? "matrix(1, 0, 0, 1, -120, 0)" : Reflect.get(target, key, target) }) : style;
+    });
+    touch("touchstart", 200, 300, motion);
+    expect(motion.style.transform).toBe("translate3d(-120px, 0, 0)");
+    expect(native.dragging).toBe(true); // Native choices stay fenced during a re-grab.
+    touch("touchmove", 170, 301, motion);
+    expect(motion.style.transform).toBe("translate3d(-150px, 0, 0)");
+    expect(drawer.style.transform).toBe("");
+    touch("touchcancel", 170, 301, motion);
+    expect(onClose).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it("tracks the finger with the portalled panel and visible scrim without moving the body; commits through the owner", () => {
     const { drawer, overlay, transcript, onOpen } = mountGesture();
 

@@ -68,6 +68,11 @@ struct HushhNativeChromeState {
         phase = "active"
         return true
     }
+    mutating func suspend(_ requested: Identity) -> Bool {
+        guard identity == requested, ["active", "prepared", "suspended"].contains(phase) else { return false }
+        phase = "suspended"
+        return true
+    }
     mutating func prepareBackReplacement(_ next: Identity, previousRevision: Int) -> Bool {
         guard ["top-shell-back", "profile-back"].contains(next.controlId) else { return false }
         return prepareReplacement(next, previousRevision: previousRevision, controlId: next.controlId)
@@ -156,6 +161,35 @@ private struct NativeChromeButton: View {
     }
 }
 
+@available(iOS 26.0, *)
+private struct NativeAccentTrigger: View {
+    let selected: String
+    let width: CGFloat
+    let theme: HushhNativeControlAppearance
+    let action: () -> Void
+    let layout: (CGSize) -> Void
+    @ObservedObject var focus: ChromeFocusRequest
+    @AccessibilityFocusState private var accessibilityFocused: Bool
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle().fill(Color(uiColor: theme.accent)).frame(width: 12, height: 12).accessibilityHidden(true)
+                Text(selected == "gold" ? "Molten Gold" : "Blue").lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
+            }.padding(.horizontal, 12).frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
+        }
+        .buttonStyle(.glass).tint(Color(uiColor: theme.accent))
+        .foregroundStyle(Color(uiColor: theme.foreground))
+        .accessibilityLabel("App accent color").accessibilityValue(selected == "gold" ? "Molten Gold" : "Blue")
+        .accessibilityIdentifier("profile-accent")
+        .accessibilityFocused($accessibilityFocused)
+        .onChange(of: focus.sequence) { _, _ in accessibilityFocused = true }
+        .frame(width: width, height: 44)
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
+    }
+}
+
 /// Transient presentation intent, never a route or operation. The plugin
 /// acknowledges assistive focus from UIKit's actual focused-element event.
 final class ChromeFocusRequest: ObservableObject {
@@ -203,6 +237,12 @@ private final class ChromeHostingController: UIHostingController<AnyView> {
 struct HushhChromeConfiguration {
     var options = [HushhChromeOption]()
     var dateBounds: ClosedRange<Date>?
+    var swatches = [String: UIColor]()
+    func matches(_ other: Self) -> Bool {
+        options.count == other.options.count && zip(options, other.options).allSatisfy { pair in
+            pair.0.value == pair.1.value && pair.0.label == pair.1.label && pair.0.disabled == pair.1.disabled
+        } && dateBounds == other.dateBounds && swatches == other.swatches
+    }
 
     mutating func prepare(_ identity: HushhNativeChromeState.Identity, parsed: Self?, state: inout HushhNativeChromeState) -> Bool {
         guard let parsed, state.prepare(identity) else { return false }
@@ -210,12 +250,18 @@ struct HushhChromeConfiguration {
         return true
     }
 
-    static func parse(kind: String, value: String?, options: [JSObject]?, minimum: String?, maximum: String?) -> Self? {
+    static func parse(kind: String, value: String?, options: [JSObject]?, minimum: String?, maximum: String?, palette: JSObject? = nil) -> Self? {
         var result = Self()
         if kind == "appearance" { return ["light", "dark", "system"].contains(value ?? "") ? result : nil }
         if kind == "accent" {
             guard ["blue", "gold"].contains(value ?? "") else { return nil }
             result.options = [.init(value: "blue", label: "iOS Blue", disabled: false), .init(value: "gold", label: "Molten Gold", disabled: false)]
+            if let palette {
+                guard Set(palette.keys) == Set(["blue", "gold"]),
+                      let blue = HushhNativeControlAppearance.color(palette["blue"] as? String),
+                      let gold = HushhNativeControlAppearance.color(palette["gold"] as? String) else { return nil }
+                result.swatches = ["blue": blue, "gold": gold]
+            }
             return result
         }
         if kind == "date" {
@@ -242,6 +288,11 @@ struct HushhChromeConfiguration {
 }
 
 private final class ChromeSlot {
+    var controlId = ""
+    var group: String?
+    var groupGeneration: Int?
+    var authoredFrame = CGRect.zero
+    var layoutConfirmed = false
     var state = HushhNativeChromeState()
     var hosting: ChromeHostingController?
     var pendingLayout: CAPPluginCall?
@@ -253,6 +304,7 @@ private final class ChromeSlot {
     var choiceValue: String?
     var kind = "back"
     var label = ""
+    var fullAccentTrigger = false
     var presentation: ChromePresentation?
     var configuration = HushhChromeConfiguration()
     var options: [HushhChromeOption] { configuration.options }
@@ -298,8 +350,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "activate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "suspend", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "restoreFocus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyPanelPose", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retirePanel", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "interactionFeedback", returnType: CAPPluginReturnPromise),
     ]
     private var slots = [String: ChromeSlot]()
     private var document: String?
@@ -310,6 +366,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     // Reuse the existing monotonic document/retirement fence. A prior page's
     // delayed appearance must not repaint the current document.
     private var canvasState = HushhNativeChromeState()
+    private var feedback = HushhAppHapticFeedbackState()
+    private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     #if DEBUG
     private var backContinuity: NativeBackContinuityProbe?
     private var historyContinuity: NativeBackContinuityProbe?
@@ -351,7 +409,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                         self.keyboardVisible = false
                     }
                     // Synchronously remove every owned control beneath privacy/IME.
-                    self.invalidatePresentation()
+                    self.invalidatePresentation(conceal: note.name == UIApplication.willResignActiveNotification ||
+                        note.name == HushhSessionPrivacyShield.presentationDidChange)
                 })
             }
             self.observers.append(NotificationCenter.default.addObserver(forName: UIAccessibility.elementFocusedNotification,
@@ -385,9 +444,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 families.append("back")
                 if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "profile-back", "more", "selection", "date"] }
             }
+            if self?.compositor != nil, self?.chatControlsAdmitted == true { families.append("history-close") }
             call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
                           "families": families, "canvasAppearance": true, "independentControls": true,
                           "inPlaceUpdates": true,
+                          "panelPresentation": self?.compositor != nil,
+                          "interactionFeedback": true,
+                          "fullAccentTrigger": self?.chatControlsAdmitted == true,
+                          "retainedControls": self?.chatControlsAdmitted == true,
                           "backReplacement": self?.backAdmitted == true,
                           "profileBackReplacement": self?.chatControlsAdmitted == true,
                           "historyReplacement": self?.chatControlsAdmitted == true,
@@ -419,7 +483,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             self.acceptDocument(document)
             // Capacitor's bridge root can be the WebView itself. In that case
             // respect the same transparency guard as its backing canvas.
-            if host !== webView { host.backgroundColor = color }
+            if let compositor = self.compositor { compositor.setCanvas(color) }
+            else if host !== webView { host.backgroundColor = color }
             // Google Maps may own a transparent WebView. Preserve that mode;
             // the opaque page's backing and overscroll canvas follow CSS.
             if webView.isOpaque {
@@ -479,50 +544,86 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE"); return
             }
             self.acceptDocument(identity.document)
+            let group = call.getString("presentationGroup")
+            let groupPose = group.flatMap { self.compositor?.groupPose($0) }
+            if let group {
+                guard ["profile", "history"].contains(group), let groupPose,
+                      groupPose.document == identity.document,
+                      groupPose.ownerEpoch == call.getString("presentationOwnerEpoch"),
+                      groupPose.generation == call.getInt("presentationGeneration") else {
+                    call.reject("NATIVE_CHROME_PANEL_STALE"); return
+                }
+            }
+            let localFrame = groupPose.map { frame.offsetBy(dx: -$0.frame.minX, dy: -$0.frame.minY) } ?? frame
             guard !self.slots.contains(where: { id, slot in
-                id != identity.controlId && slot.hosting?.view.frame.intersects(frame) == true
+                id != identity.controlId && slot.state.phase == "active" && slot.group == group && slot.authoredFrame.intersects(frame)
             }) else { call.reject("NATIVE_CHROME_OVERLAPPING_CONTROLS"); return }
             let slot = self.slot(identity.controlId)
             guard slot.presenter == nil, let configuration = self.readOptions(call, kind: kind) else {
                 call.reject("NATIVE_CHROME_OPTIONS_INVALID"); return
             }
-            let focus = ChromeFocusRequest()
-            var swiftUILayout = false
+            guard kind != "accent" || call.getBool("fullTrigger") != true || configuration.swatches.count == 2 else {
+                call.reject("NATIVE_CHROME_OPTIONS_INVALID"); return
+            }
+            let previous = slot.state.identity
+            let retained = slot.layoutConfirmed && slot.state.phase == "suspended" && previous?.document == identity.document &&
+                previous?.ownerEpoch == identity.ownerEpoch && slot.kind == kind && slot.label == label &&
+                slot.fullAccentTrigger == (kind == "accent" && call.getBool("fullTrigger") == true) &&
+                slot.authoredFrame == frame && slot.group == group && slot.viewport == bounds && slot.configuration.matches(configuration)
+            // Reopening grants fresh authority, not a fresh SwiftUI tree.
+            // Button callbacks resolve the current slot; no old lease is kept.
+            let retainRoot = retained && slot.presentation == presentation && slot.focus.sequence == 0
+            guard slot.configuration.prepare(identity, parsed: configuration, state: &slot.state) else { call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return }
+            if !retained { self.removeHosting(slot) }
+            slot.kind = kind
+            slot.group = group
+            slot.groupGeneration = groupPose?.generation
+            slot.authoredFrame = frame
+            slot.label = label
+            slot.fullAccentTrigger = kind == "accent" && call.getBool("fullTrigger") == true
+            slot.presentation = presentation
+            if !retainRoot { slot.focus = ChromeFocusRequest() }
+            slot.viewport = parent.view.bounds.size
+            var swiftUILayout = retained
             let layout: (CGSize) -> Void = { [weak slot] size in
                 swiftUILayout = size == frame.size
                 slot?.hosting?.view.setNeedsLayout()
             }
             guard let root = self.controlRoot(kind: kind, controlId: identity.controlId, label: label,
-                width: frame.width, presentation: presentation, focus: focus, layout: layout),
-                slot.configuration.prepare(identity, parsed: configuration, state: &slot.state) else {
+                width: frame.width, presentation: presentation, focus: slot.focus, layout: layout) else {
                 call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return
             }
-            self.removeHosting(slot)
-            slot.kind = kind
-            slot.label = label
-            slot.presentation = presentation
-            slot.focus = focus
-            slot.viewport = parent.view.bounds.size
-            let controller = ChromeHostingController(rootView: root)
+            let controller = retained ? slot.hosting! : ChromeHostingController(rootView: root)
+            if retained && !retainRoot { controller.rootView = root }
             slot.hosting = controller
             controller.overrideUserInterfaceStyle = presentation.theme.style
             controller.view.backgroundColor = .clear
-            controller.view.isHidden = true
+            controller.view.isHidden = !retained
             controller.view.isUserInteractionEnabled = false
             controller.view.accessibilityElementsHidden = true
             // The web shell has already applied safe-area clearance. SwiftUI
             // must not apply a second inherited inset to this 44pt slot.
             controller.safeAreaRegions = []
-            parent.addChild(controller)
-            if let cover = parent.view.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
-                parent.view.insertSubview(controller.view, belowSubview: cover)
-            } else { parent.view.addSubview(controller.view) }
-            controller.view.frame = frame
-            controller.didMove(toParent: parent)
+            if !retained {
+                parent.addChild(controller)
+                if let compositor = self.compositor {
+                    compositor.install(controller.view, id: identity.controlId, group: group)
+                } else if let cover = parent.view.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
+                    parent.view.insertSubview(controller.view, belowSubview: cover)
+                } else { parent.view.addSubview(controller.view) }
+            }
+            controller.view.frame = localFrame
+            if !retained { controller.didMove(toParent: parent) }
             #if DEBUG
-            if kind == "back" { self.backContinuity?.installed(controller.view) }
-            if kind == "history" { self.historyContinuity?.installed(controller.view) }
-            if kind == "profile-back" { self.profileBackContinuity?.installed(controller.view) }
+            if !retained {
+                if kind == "back" { self.backContinuity?.installed(controller.view) }
+                if kind == "history" { self.historyContinuity?.installed(controller.view) }
+                if kind == "profile-back" { self.profileBackContinuity?.installed(controller.view) }
+            } else {
+                if kind == "back" { self.backContinuity?.replaced(controller.view, rootUpdated: !retainRoot) }
+                if kind == "history" { self.historyContinuity?.replaced(controller.view, rootUpdated: !retainRoot) }
+                if kind == "profile-back" { self.profileBackContinuity?.replaced(controller.view, rootUpdated: !retainRoot) }
+            }
             #endif
             slot.pendingLayout = call
             controller.didLayout = { [weak self, weak slot, weak controller] in
@@ -530,8 +631,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                       slot.state.identity == identity, let pending = slot.pendingLayout else { return }
                 guard swiftUILayout, controller.view.bounds.size == frame.size, controller.view.superview != nil else { return }
                 slot.pendingLayout = nil
+                slot.layoutConfirmed = true
                 controller.didLayout = nil
-                pending.resolve(self.payload(identity, phase: "prepared", frame: controller.view.frame))
+                pending.resolve(self.payload(identity, phase: "prepared", frame: frame))
             }
             controller.view.setNeedsLayout()
             controller.view.layoutIfNeeded()
@@ -567,7 +669,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   let label = call.getString("label"), label == slot.label,
                   let presentation = ChromePresentation(call), presentation.value == nil,
                   presentation.expanded == slot.presentation?.expanded,
-                  let frame = self.frame(call, kind: kind), hosting.view.frame == frame,
+                  let frame = self.frame(call, kind: kind), slot.authoredFrame == frame,
                   let viewport = self.viewport(call), viewport == slot.viewport,
                   self.geometryIsCurrent(slot), self.canPresent, self.document == identity.document,
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
@@ -597,7 +699,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             hosting.view.layoutIfNeeded()
             // The already-qualified host is unchanged. A moved/detached view
             // cannot claim layout acknowledgement or retain this presentation.
-            guard hosting.view.frame == frame, hosting.view.bounds.size == frame.size,
+            guard hosting.view.bounds.size == frame.size,
                   hosting.view.superview != nil else {
                 slot.state.invalidate(); self.removeHosting(slot)
                 call.reject("NATIVE_CHROME_LAYOUT_UNCONFIRMED"); return
@@ -607,7 +709,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if kind == "history" { self.historyContinuity?.replaced(hosting.view, rootUpdated: !retainRoot) }
             if kind == "profile-back" { self.profileBackContinuity?.replaced(hosting.view, rootUpdated: !retainRoot) }
             #endif
-            call.resolve(self.payload(identity, phase: "prepared", frame: hosting.view.frame))
+            call.resolve(self.payload(identity, phase: "prepared", frame: frame))
         }
     }
 
@@ -618,16 +720,43 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   self.canPresent, self.geometryIsCurrent(slot), self.document == identity.document,
                   slot.pendingLayout == nil, let hosting = slot.hosting,
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+                  !self.slots.contains(where: { id, other in
+                      id != identity.controlId && other.state.phase == "active" && other.group == slot.group &&
+                          other.authoredFrame.intersects(slot.authoredFrame)
+                  }),
                   slot.state.activate(identity) else { call.reject("NATIVE_CHROME_ACTIVATE_REFUSED"); return }
             hosting.view.isHidden = false
             hosting.view.isUserInteractionEnabled = true
             hosting.view.accessibilityElementsHidden = false
+            self.compositor?.revealUnderlay()
+            self.compositor?.setAdmission(identity.controlId, admitted: self.panelIsSettled(slot))
             #if DEBUG
             if slot.kind == "back" { self.backContinuity?.activated() }
             if slot.kind == "history" { self.historyContinuity?.activated() }
             if slot.kind == "profile-back" { self.profileBackContinuity?.activated() }
             #endif
             call.resolve(self.payload(identity, phase: "active"))
+        }
+    }
+
+    @objc func suspend(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.chatControlsAdmitted, let identity = self.identity(call),
+                  let slot = self.slots[identity.controlId], slot.state.suspend(identity) else {
+                call.reject("NATIVE_CHROME_SUSPEND_REFUSED"); return
+            }
+            // Overlay isolation revokes interaction, not retained pixels.
+            slot.hosting?.view.isHidden = self.compositor == nil
+            self.compositor?.setAdmission(identity.controlId, admitted: false)
+            slot.hosting?.view.isUserInteractionEnabled = false
+            slot.hosting?.view.accessibilityElementsHidden = true
+            slot.hosting?.didLayout = nil
+            slot.pendingLayout?.reject("NATIVE_CHROME_LAYOUT_RETIRED"); slot.pendingLayout = nil
+            slot.pendingFocus?.reject("NATIVE_CHROME_FOCUS_RETIRED"); slot.pendingFocus = nil
+            slot.choiceValue = nil
+            if let presenter = slot.presenter {
+                presenter.retire { call.resolve(self.payload(identity, phase: "suspended")) }
+            } else { call.resolve(self.payload(identity, phase: "suspended")) }
         }
     }
 
@@ -736,7 +865,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             var valid = false
             if let identity = self.identity(call), let slot = self.slots[identity.controlId] {
                 valid = slot.state.confirm(identity, sequence: call.getInt("sequence") ?? -1, latestSequence: slot.sequence,
-                    allowed: self.canPresent && slot.presentation?.enabled == true && self.geometryIsCurrent(slot) && self.document == identity.document &&
+                    allowed: self.canPresent && self.panelIsSettled(slot) &&
+                    (slot.group == nil || (call.getInt("presentationGeneration") == slot.groupGeneration &&
+                        call.getInt("presentationSequence") == self.compositor?.groupPose(slot.group!)?.sequence)) &&
+                    slot.presentation?.enabled == true && self.geometryIsCurrent(slot) && self.document == identity.document &&
                     HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) &&
                     call.getString("value") == slot.choiceValue && call.getInt("privacyGeneration") == privacy.generation,
                     updateSequence: call.getInt("updateSequence") ?? 0)
@@ -749,9 +881,95 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         guard slots.values.contains(where: { $0.hosting != nil && !geometryIsCurrent($0) }) else { return }
         invalidatePresentation()
     }
+
+    @objc func applyPanelPose(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let compositor = self.compositor,
+                  let group = call.getString("group"), ["profile", "history"].contains(group),
+                  let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
+                  let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
+                  let generation = call.getInt("generation"), generation >= 0, generation < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
+                  let sequence = call.getInt("sequence"), sequence > 0, sequence < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
+                  let privacy = call.getInt("privacyGeneration"),
+                  let rect = call.getObject("frame"), let x = rect["x"] as? Double, let y = rect["y"] as? Double,
+                  let width = rect["width"] as? Double, let height = rect["height"] as? Double,
+                  let offset = call.getDouble("offset"), let opacity = call.getDouble("opacity"),
+                  let settled = call.getBool("settled"),
+                  self.canMirrorPresentation, HushhSessionPrivacyShield.shared.acceptsDocument(document),
+                  !self.retiredDocuments.contains(document),
+                  x.isFinite, y.isFinite, width.isFinite, height.isFinite,
+                  x >= -1, y >= -1, x + width <= compositor.bounds.width + 1,
+                  y + height <= compositor.bounds.height + 1 else {
+                call.reject("NATIVE_PANEL_POSE_REFUSED"); return
+            }
+            self.acceptDocument(document)
+            let pose = NativePanelPose(document: document, ownerEpoch: owner, generation: generation,
+                sequence: sequence, privacyGeneration: privacy,
+                frame: CGRect(x: x, y: y, width: width, height: height),
+                offset: offset, opacity: opacity, settled: settled)
+            guard compositor.apply(pose, group: group, privacy: HushhSessionPrivacyShield.shared.snapshot().generation) else {
+                call.reject("NATIVE_PANEL_POSE_STALE"); return
+            }
+            compositor.recordPoseTiming(group: group, sampledAtMs: call.getDouble("sampledAtMs"))
+            for (id, slot) in self.slots where slot.group == group {
+                compositor.setAdmission(id, admitted: self.canPresent && slot.state.phase == "active" && self.panelIsSettled(slot))
+                if !pose.settled { slot.choiceValue = nil; slot.presenter?.retire {} }
+            }
+            call.resolve(["documentId": document, "ownerEpoch": owner, "group": group,
+                "generation": generation, "sequence": sequence, "privacyGeneration": privacy])
+        }
+    }
+
+    @objc func retirePanel(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let compositor = self.compositor, let document = call.getString("documentId"),
+                  let owner = call.getString("ownerEpoch"), let group = call.getString("group"),
+                  let generation = call.getInt("generation"),
+                  compositor.retire(group: group, document: document, ownerEpoch: owner, generation: generation) else {
+                call.reject("NATIVE_PANEL_RETIRE_STALE"); return
+            }
+            let completed = DispatchGroup()
+            for slot in self.slots.values where slot.group == group && slot.groupGeneration == generation {
+                slot.choiceValue = nil
+                if let identity = slot.state.identity { _ = slot.state.suspend(identity) }
+                if let presenter = slot.presenter {
+                    completed.enter()
+                    presenter.retire { completed.leave() }
+                }
+            }
+            completed.notify(queue: .main) {
+                call.resolve(["documentId": document, "ownerEpoch": owner, "group": group, "generation": generation])
+            }
+        }
+    }
+
+    @objc func interactionFeedback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { call.resolve(["played": false]); return }
+            let privacy = HushhSessionPrivacyShield.shared.snapshot()
+            let now = Date().timeIntervalSince1970 * 1000
+            guard let id = call.getString("intentId"),
+                  let document = call.getString("documentId"),
+                  let issued = call.getDouble("issuedAtMs"),
+                  let kind = call.getString("kind"), ["light", "selection"].contains(kind),
+                  call.getInt("privacyGeneration") == privacy.generation,
+                  privacy.appIsActive, !privacy.shielded,
+                  HushhSessionPrivacyShield.shared.acceptsDocument(document),
+                  HushhAppHaptics.enabled(), self.feedback.consume(id, issuedAt: issued, now: now) else {
+                call.resolve(["played": false]); return
+            }
+            HushhAppHaptics.play(kind)
+            call.resolve(["played": true])
+        }
+    }
     // Preserve the owning host's existing entrypoint while covering every slot.
     func layoutBackControl() { layoutControls() }
     private func geometryIsCurrent(_ slot: ChromeSlot) -> Bool { bridge?.viewController?.view.bounds.size == slot.viewport }
+    private func panelIsSettled(_ slot: ChromeSlot) -> Bool {
+        guard let group = slot.group else { return true }
+        let pose = compositor?.groupPose(group)
+        return pose?.generation == slot.groupGeneration && pose?.settled == true
+    }
     private var backAdmitted: Bool {
         // Debug pilot only; release and iPad retain accepted controls until
         // their physical visual/accessibility acceptance has been recorded.
@@ -761,8 +979,11 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         return false
     }
     private var canPresent: Bool {
+        return canMirrorPresentation && !keyboardVisible
+    }
+    private var canMirrorPresentation: Bool {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
-        return privacy.appIsActive && !privacy.shielded && !keyboardVisible
+        return privacy.appIsActive && !privacy.shielded
     }
     private var chatControlsAdmitted: Bool {
         // Explicit Debug rehearsal opt-in; this is not promotion of an audited family.
@@ -778,6 +999,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             return (kind == "appearance" && controlId == "profile-appearance") || (kind == "accent" && controlId == "profile-accent")
         }
         return chatControlsAdmitted && ((kind == "history" && controlId == "chat-history-toggle") ||
+            (kind == "history-close" && compositor != nil && controlId == "chat-history-close") ||
             (kind == "agent-surface" && controlId == "chat-agent-surface") ||
             (kind == "more" && controlId == "stationary-more") || (kind == "selection" && controlId == "bounded-selection") ||
             (kind == "date" && controlId == "bounded-date") || (kind == "close" && controlId == "profile-close") ||
@@ -786,13 +1008,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func slot(_ id: String) -> ChromeSlot {
         if let slot = slots[id] { return slot }
         let slot = ChromeSlot()
+        slot.controlId = id
         slots[id] = slot
         return slot
     }
     private func symbol(_ kind: String, expanded: Bool) -> String {
         switch kind {
         case "back", "profile-back": return "chevron.backward"
-        case "close": return "xmark"
+        case "close", "history-close": return "xmark"
         case "history": return expanded ? "xmark" : "line.3.horizontal"
         case "more": return "ellipsis"
         case "selection": return "chevron.up.chevron.down"
@@ -803,7 +1026,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func readOptions(_ call: CAPPluginCall, kind: String) -> HushhChromeConfiguration? {
         HushhChromeConfiguration.parse(kind: kind, value: call.getString("value"),
-            options: call.getArray("options", JSObject.self), minimum: call.getString("minimum"), maximum: call.getString("maximum"))
+            options: call.getArray("options", JSObject.self), minimum: call.getString("minimum"), maximum: call.getString("maximum"), palette: call.getObject("palette"))
     }
     private func admittedValue(_ value: String?, slot: ChromeSlot, forUpdate: Bool) -> Bool {
         switch slot.kind {
@@ -820,18 +1043,23 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func activateControl(_ controlId: String) {
         guard let slot = slots[controlId], let identity = slot.state.identity, let presentation = slot.presentation,
-              slot.state.phase == "active", presentation.enabled, canPresent, geometryIsCurrent(slot) else { return }
+              slot.state.phase == "active", presentation.enabled, canPresent, geometryIsCurrent(slot), panelIsSettled(slot) else { return }
         guard ["more", "selection", "date", "accent"].contains(slot.kind) else { requestChoice(controlId); return }
         guard slot.presenter == nil, let parent = bridge?.viewController, let source = slot.hosting?.view,
               parent.presentedViewController == nil else { return }
         let privacyGeneration = HushhSessionPrivacyShield.shared.snapshot().generation
+        let presentationPose = slot.group.flatMap { compositor?.groupPose($0) }
         let choose: (String, Int) -> Void = { [weak self, weak slot] value, sequence in
             guard let self, let slot, slot.state.identity == identity, slot.state.updateSequence == sequence,
-                  HushhSessionPrivacyShield.shared.snapshot().generation == privacyGeneration else { return }
+                  HushhSessionPrivacyShield.shared.snapshot().generation == privacyGeneration,
+                  slot.group.flatMap({ self.compositor?.groupPose($0) }) == presentationPose else { return }
             self.requestChoice(controlId, value: value)
         }
         let presenter: HushhNativeChromePresenter
-        if slot.kind == "more" || slot.kind == "accent" {
+        if slot.kind == "accent", !slot.configuration.swatches.isEmpty, let value = presentation.value {
+            presenter = .accent(parent: parent, value: value, options: slot.options, swatches: slot.configuration.swatches,
+                theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
+        } else if slot.kind == "more" || slot.kind == "accent" {
             presenter = .menu(parent: parent, source: source, title: slot.label, options: slot.options, theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
         } else if slot.kind == "selection", let value = presentation.value {
             presenter = .selection(parent: parent, title: slot.label, value: value, options: slot.options, theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
@@ -850,11 +1078,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             retiredDocuments.insert(document)
             invalidatePresentation()
             slots.removeAll()
+            compositor?.resetGroups()
         }
         document = next
     }
     private func requestChoice(_ controlId: String, value: String? = nil) {
         guard let slot = slots[controlId], slot.presentation?.enabled == true, canPresent, geometryIsCurrent(slot), slot.state.phase == "active",
+              panelIsSettled(slot),
               let identity = slot.state.identity, document == identity.document,
               HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) else { return }
         guard admittedValue(value, slot: slot, forUpdate: false) else { return }
@@ -866,9 +1096,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         event["updateSequence"] = slot.state.updateSequence
         if let value { event["value"] = value }
         event["privacyGeneration"] = HushhSessionPrivacyShield.shared.snapshot().generation
+        if let group = slot.group, let pose = compositor?.groupPose(group) {
+            event["presentationGeneration"] = pose.generation
+            event["presentationSequence"] = pose.sequence
+        }
         notifyListeners("choiceRequested", data: event)
     }
-    private func invalidatePresentation() {
+    private func invalidatePresentation(conceal: Bool = false) {
+        if conceal { compositor?.conceal() }
         for slot in slots.values {
             slot.state.invalidate()
             removeHosting(slot)
@@ -877,12 +1112,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         notifyListeners("invalidated", data: [:])
     }
     private func removeHosting(_ slot: ChromeSlot) {
+        slot.layoutConfirmed = false
         slot.pendingLayout?.reject("NATIVE_CHROME_LAYOUT_RETIRED")
         slot.pendingLayout = nil
         slot.pendingFocus?.reject("NATIVE_CHROME_FOCUS_RETIRED")
         slot.pendingFocus = nil
         slot.choiceValue = nil
         guard let hosting = slot.hosting else { return }
+        compositor?.remove(slot.controlId)
         #if DEBUG
         if slot.kind == "back" { backContinuity?.removed() }
         if slot.kind == "history" { historyContinuity?.removed() }
@@ -898,7 +1135,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func identity(_ call: CAPPluginCall) -> HushhNativeChromeState.Identity? {
         guard let controlId = call.getString("controlId"),
-              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-agent-surface", "stationary-more", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
+              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-history-close", "chat-agent-surface", "stationary-more", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
               let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
               let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
               let revision = call.getInt("revision"), revision >= 0,

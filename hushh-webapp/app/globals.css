@@ -5397,6 +5397,14 @@ body:has([data-testid="one-location-onboarding"])
     padding-right: env(safe-area-inset-right);
   }
 
+  /* Native compositor opt-in: only acknowledged base slots are cut from the
+     app paint owner. Body-level modal portals keep their own opaque surfaces. */
+  html.native-ios.native-compositor-apertures,
+  html.native-ios.native-compositor-apertures body,
+  html.native-ios.native-compositor-apertures.dark body {
+    background: transparent !important;
+  }
+
   /* The Capacitor Google Maps renderer is a native surface below the WebView.
  * Only the immersive Map route opts into this class, so its shell layers must
  * be transparent while the controls above remain regular web UI. Keeping the
@@ -7377,6 +7385,46 @@ html[data-accent="gold"].dark {
       0
     );
   }
+}
+
+/* Opt-in stationary chrome: Radix still observes the semantic frame's
+ * animation lifetime, but only its body is translated. Other sheets retain
+ * the established surface motion. No translated ancestor owns these slots. */
+[data-stationary-side-frame][data-state="open"] {
+  animation-name: stationary-side-frame-enter;
+  transform: none;
+  translate: none;
+}
+[data-stationary-side-frame][data-state="closed"] {
+  animation-name: stationary-side-frame-exit;
+  transform: none;
+  translate: none;
+}
+@keyframes stationary-side-frame-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes stationary-side-frame-exit { from { opacity: 1; } to { opacity: 0; } }
+[data-side-panel-body] {
+  transition: transform var(--motion-sheet-exit-duration) var(--motion-sheet-exit-ease);
+}
+[data-side-panel-body="right"][data-state="open"] {
+  animation: sheet-surface-enter var(--motion-sheet-enter-duration) var(--motion-sheet-enter-ease);
+  --tw-enter-translate-x: 100%;
+}
+[data-side-panel-body="right"][data-state="closed"] {
+  animation: sheet-surface-exit var(--motion-sheet-exit-duration) var(--motion-sheet-exit-ease) forwards;
+  --tw-exit-translate-x: 100%;
+}
+[data-side-panel-body="left"][data-state="open"] {
+  transform: translate3d(0, 0, 0);
+  transition-duration: var(--motion-sheet-enter-duration);
+  transition-timing-function: var(--motion-sheet-enter-ease);
+}
+[data-side-panel-body="left"][data-state="closed"] { transform: translate3d(calc(-100% - 3rem), 0, 0); }
+[data-side-panel-body][data-profile-pull="drag"] { animation: none; }
+[data-side-panel-body][data-profile-pull="exit"][data-state="closed"] {
+  animation-name: profile-pull-exit;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-stationary-side-frame], [data-side-panel-body] { animation: none !important; transition: none !important; }
 }
 
 /* Profile keeps the Sheet's modal lease while the finger moves. On release,

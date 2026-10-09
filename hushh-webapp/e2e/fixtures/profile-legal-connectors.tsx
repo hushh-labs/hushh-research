@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
+import { ThemeProvider } from "next-themes";
 
 import { ProfilePane } from "../../components/app-ui/profile-pane";
 import { ProfileConnectorsLink } from "../../components/profile/profile-connectors-link";
@@ -62,4 +63,4 @@ function Host() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<Host />);
+createRoot(document.getElementById("root")!).render(<ThemeProvider attribute="class" defaultTheme="system"><Host /></ThemeProvider>);

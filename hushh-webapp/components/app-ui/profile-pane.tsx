@@ -2,8 +2,10 @@
 
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { ProfilePaneDrag } from "@/components/app-ui/profile-pane-drag";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
+import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
-import { presentationMotionDuration } from "@/components/app-ui/drawer-motion";
+import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
 import { nativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 
 import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
@@ -130,7 +132,9 @@ function ProfilePaneShell() {
  * after each close: every open starts from the shell, and a close (or a move
  * between panels while open) never shows it again.
  */
-function ProfilePaneBody({ location, nativeControlsEligible }: { location: ProfilePaneLocation; nativeControlsEligible: boolean }) {
+function ProfilePaneBody({ location, nativeControlsEligible }: {
+  location: ProfilePaneLocation; nativeControlsEligible: boolean;
+}) {
   const firstFramePainted = useProfilePaneFirstFramePainted();
   // Mounted once per open, inside the committed sheet content: the evidence a
   // requested open is actually showing (voice settles on this, not the ask).
@@ -158,16 +162,18 @@ type ProfilePaneProps = {
  */
 export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange, returnFocusRef }: ProfilePaneProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const semanticRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const previewScrimRef = useRef<HTMLDivElement>(null);
   const previewOffset = useRef<number | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  const [stationaryKey, setStationaryKey] = useState<string | null>(null);
-  const [paneStationaryKey, setPaneStationaryKey] = useState<string | null>(null);
+  const { isVaultUnlocked } = useVault();
+  const attachNativePanel = useNativePanelPresentation("profile", owner ?? null, panelRef, open && isVaultUnlocked);
   const attachPanel = useCallback((node: HTMLDivElement | null) => {
-    panelRef.current = node;
+    semanticRef.current = node;
+    attachNativePanel(node);
     if (node && previewOffset.current !== null) {
       node.style.setProperty("--profile-entry-offset", `${previewOffset.current}px`);
       previewOffset.current = null;
@@ -176,9 +182,8 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     } else if (node) {
       node.style.removeProperty("--profile-entry-offset");
     }
-  }, []);
+  }, [attachNativePanel]);
   const scrimRef = useRef<HTMLDivElement>(null);
-  const { isVaultUnlocked } = useVault();
   const focusOwner = useRef({ owner, open, isVaultUnlocked });
   useLayoutEffect(() => { focusOwner.current = { owner, open, isVaultUnlocked }; });
   useLayoutEffect(() => {
@@ -188,30 +193,34 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     let timer = 0;
     let generation = 0;
     let committed = false;
+    let dragOrigin: number | null = null;
     const clear = () => {
-      preview.hidden = true; scrim.hidden = true; previewOffset.current = null;
+      preview.hidden = true; scrim.hidden = true; previewOffset.current = null; dragOrigin = null;
     };
     const onPreview = (event: Event) => {
       const detail = (event as CustomEvent<ProfilePanePreview>).detail;
       if (!detail || !Number.isFinite(detail.distance) || detail.distance < 0) return;
       window.clearTimeout(timer);
       const current = ++generation;
-      const offset = Math.max(0, preview.offsetWidth - detail.distance);
       if (detail.phase === "drag") {
         committed = false;
+        const wasHidden = preview.hidden;
         preview.hidden = false; scrim.hidden = false;
         // Measure after un-hiding; a hidden surface reports width zero.
         const width = preview.offsetWidth;
+        dragOrigin ??= wasHidden ? width : Math.max(0, Math.min(width, renderedDrawerOffset(preview)));
+        const offset = Math.max(0, dragOrigin - detail.distance);
         preview.style.transition = "none";
         scrim.style.transition = "none";
-        preview.style.transform = `translate3d(${Math.max(0, width - detail.distance)}px,0,0)`;
-        scrim.style.opacity = String(Math.min(1, detail.distance / Math.max(1, width)));
+        preview.style.transform = `translate3d(${offset}px,0,0)`;
+        scrim.style.opacity = String(1 - offset / Math.max(1, width));
       } else if (detail.phase === "commit") {
         committed = true;
-        previewOffset.current = offset;
+        previewOffset.current = Math.max(0, (dragOrigin ?? preview.offsetWidth) - detail.distance);
         // Failed admission cannot leave a presentation-only preview behind.
         timer = window.setTimeout(() => { if (generation === current) clear(); }, 500);
       } else {
+        dragOrigin = null;
         preview.style.transition = "transform var(--motion-drawer-settle-duration) var(--motion-sheet-exit-ease)";
         scrim.style.transition = "opacity var(--motion-drawer-settle-duration) var(--motion-sheet-exit-ease)";
         preview.style.transform = "translate3d(100%,0,0)"; scrim.style.opacity = "0";
@@ -246,24 +255,13 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
   // Back keeps location-bound action authority without an artificial admission
   // delay on each settings change. Content controls still wait for settlement.
   const panePresentationKey = JSON.stringify([owner, pathname, open, isVaultUnlocked]);
-  const presentationKey = JSON.stringify([owner, pathname, profilePaneLocationKey(location), open, isVaultUnlocked]);
   useEffect(() => {
-    setPaneStationaryKey(null);
     if (!open || !isVaultUnlocked) return;
     const timer = window.setTimeout(() => {
       panelRef.current?.style.removeProperty("--profile-entry-offset");
-      setPaneStationaryKey(panePresentationKey);
     }, presentationMotionDuration("--motion-sheet-enter-duration", 300));
     return () => window.clearTimeout(timer);
   }, [panePresentationKey, open, isVaultUnlocked]);
-  useEffect(() => {
-    setStationaryKey(null);
-    if (!open || !isVaultUnlocked) return;
-    const timer = window.setTimeout(() => {
-      setStationaryKey(presentationKey);
-    }, presentationMotionDuration("--motion-sheet-enter-duration", 300));
-    return () => window.clearTimeout(timer);
-  }, [presentationKey, open, isVaultUnlocked]);
   const canGoBack = canGoBackProfilePane(location);
   const panelTitle = location.panel
     ? location.panel === "my-data"
@@ -281,7 +279,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
               : location.panel === "software-updates"
                 ? "Software updates"
                 : location.panel === "preferences"
-                  ? "Appearance & preferences"
+                  ? "Preferences"
                   : location.panel === "security"
                     ? "Security & privacy"
                     : location.panel === "referrals"
@@ -321,9 +319,11 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
         contentDragDismiss={false}
         contentRef={attachPanel}
         overlayRef={scrimRef}
-        className="profile-pane-sheet w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,430px)] sm:max-w-[430px]"
+        overlayClassName="data-[state=open]:duration-(--motion-sheet-enter-duration) data-[state=closed]:duration-(--motion-sheet-exit-duration) data-[state=open]:ease-(--motion-sheet-enter-ease) data-[state=closed]:ease-(--motion-sheet-exit-ease)"
+        className="profile-pane-sheet w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,430px)] sm:max-w-[430px] data-[state=open]:duration-(--motion-sheet-enter-duration) data-[state=closed]:duration-(--motion-sheet-exit-duration) data-[state=open]:ease-(--motion-sheet-enter-ease) data-[state=closed]:ease-(--motion-sheet-exit-ease)"
         aria-label="Profile"
         data-testid="profile-pane"
+        data-native-panel-group="profile"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           // Name the modal before its content is ready; Close must not become
@@ -341,7 +341,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
               !nativeShellOverlayBlocked("profile-pane")) target.target.focus({ preventScroll: true });
         }}
       >
-        <ProfilePaneDrag open={open} presentationKey={JSON.stringify([owner, pathname, profilePaneLocationKey(location), isVaultUnlocked])} panelRef={panelRef} scrimRef={scrimRef} onClose={() => onOpenChange(false)} />
+        <ProfilePaneDrag open={open} presentationKey={JSON.stringify([owner, pathname, profilePaneLocationKey(location), isVaultUnlocked])} panelRef={panelRef} semanticRef={semanticRef} scrimRef={scrimRef} onClose={() => onOpenChange(false)} />
         <SheetHeader className="shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left">
           <div className="flex min-w-0 items-center gap-2">
             {canGoBack ? (
@@ -351,7 +351,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
                 label="Back in Profile"
                 focusRef={backRef}
                 context={`${pathname}:${profilePaneLocationKey(location)}`}
-                eligible={open && paneStationaryKey === panePresentationKey}
+                eligible={open}
                 onActivate={() => popProfilePaneLocation(pathname, searchParams)}
                 className="-ml-4 flex size-11 shrink-0 items-center justify-center"
               >
@@ -359,7 +359,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
                   ref={backRef}
                   type="button"
                   aria-label="Back in Profile"
-                  onClick={() => popProfilePaneLocation(pathname, searchParams)}
+                  onClick={() => { appHaptic("light"); popProfilePaneLocation(pathname, searchParams); }}
                   className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                 >
                   <ArrowLeft className="h-5 w-5" />
@@ -387,7 +387,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
           </SheetDescription>
         </SheetHeader>
         <NativeChatChrome kind="close" owner={owner ?? null} label="Close Profile" focusRef={closeRef}
-          context={panePresentationKey} eligible={open && paneStationaryKey === panePresentationKey}
+          context={panePresentationKey} eligible={open}
           onActivate={() => onOpenChange(false)}
           style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
           className="absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
@@ -396,6 +396,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
             ref={closeRef}
             type="button"
             aria-label="Close Profile"
+            onClick={() => appHaptic("light")}
             className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-muted-foreground transition-colors duration-100 hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           >
             <X className="h-4 w-4" />
@@ -406,7 +407,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
           className="profile-pane-scroll-root min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
-          <ProfilePaneBody location={location} nativeControlsEligible={open && stationaryKey === presentationKey} />
+          <ProfilePaneBody location={location} nativeControlsEligible={open} />
         </div>
       </SheetContent>
     </Sheet>

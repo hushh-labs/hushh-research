@@ -795,7 +795,8 @@ final class NativeVaultLayoutProbe {
                             "scrollTopEdge", "scrollBottomEdge", "clientHeight", "scrollHeight", "scrollTop",
                             "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
                             "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
-                            "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight"])
+                            "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
+                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -807,8 +808,13 @@ final class NativeVaultLayoutProbe {
             // Read UIKit's current docked-keyboard layout guide independently
             // of the Capacitor height event consumed by CSS. A hardware/floating
             // keyboard need not reserve a full-width inset.
-            payload["nativeGuideHeight"] = webView.keyboardLayoutGuide.layoutFrame.height
+            payload["nativeGuideHeight"] = (webView.superview as? NativePresentationContainer)?.keyboardLayoutGuide.layoutFrame.height
+                ?? webView.keyboardLayoutGuide.layoutFrame.height
             payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
+            // Public Debug admission booleans, never process arguments or
+            // private editor state. Activation alone need not apply new flags.
+            payload["dockOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-agent-dock")
+            payload["chromeOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-chat-chrome")
             guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
                   let json = String(data: data, encoding: .utf8) else { return }
             self.label.update(status: json)
@@ -821,12 +827,23 @@ final class NativeVaultLayoutProbe {
     (() => {
       const receiptKey = Symbol.for('hushh.native.vault.public-receipt');
       if (!window[receiptKey]) {
-        const receipt = { clicks: 0, accepted: 0 };
+        const receipt = { clicks: 0, accepted: 0, methodClicks: 0, methodPointerUps: 0 };
         window[receiptKey] = receipt;
         document.addEventListener('click', event => {
           const button = event.target instanceof Element ? event.target.closest('button') : null;
           if (event.isTrusted && button?.closest('[data-vault-unlock-surface]') &&
               button.textContent?.trim() === 'Unlock') receipt.clicks = Math.min(100000, receipt.clicks + 1);
+          if (event.isTrusted && button?.closest('[data-vault-unlock-surface]') &&
+              button.matches('[data-testid="vault-use-passphrase-instead"]')) {
+            receipt.methodClicks = Math.min(100000, receipt.methodClicks + 1);
+          }
+        }, { capture: true, passive: true });
+        document.addEventListener('pointerup', event => {
+          const button = event.target instanceof Element ? event.target.closest('button') : null;
+          if (event.isTrusted && button?.closest('[data-vault-unlock-surface]') &&
+              button.matches('[data-testid="vault-use-passphrase-instead"]')) {
+            receipt.methodPointerUps = Math.min(100000, receipt.methodPointerUps + 1);
+          }
         }, { capture: true, passive: true });
         // Occurrence only, never the event detail. This is not proof that React
         // rendered protected content; the normal Chat assertion remains required.
@@ -843,7 +860,10 @@ final class NativeVaultLayoutProbe {
         visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
         cssInset: finite(getComputedStyle(root).getPropertyValue('--kb-height')),
         kbOpen: root.classList.contains('kb-open'), kbResizes: root.classList.contains('kb-resizes'),
-        unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted
+        unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted,
+        methodClicks: receipt.methodClicks, methodPointerUps: receipt.methodPointerUps,
+        passphraseFields: document.querySelectorAll('#unlock-passphrase').length,
+        dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]'))
       };
       // Public interaction admission only. Never read the editor's value,
       // selection contents, transcript, account identity or arbitrary DOM.

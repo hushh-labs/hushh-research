@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-07.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-09.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -12,6 +12,280 @@ One Capacitor host retains the active document; adopting a control does not crea
 another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
+
+### Current candidate: retained controls and private dock
+
+This candidate extends NativeChrome **version 2** with capability-negotiated
+`retainedControls`. In the legacy host, a suspended control is hidden. In the
+opt-in compositor it remains visible but noninteractive and unavailable to
+accessibility; its owned popup must complete dismissal before suspension is
+acknowledged. Reopening can reuse its hosting controller only with the same
+document, opaque owner epoch, family, immutable configuration and exact frame/
+viewport. It always receives a new action revision. Ownership, geometry or schema
+replacement and privacy invalidation retain strict retirement. The public Chrome
+keyboard fence does not conceal the separate private dock. Uncertain
+retirement never exposes an interactive web duplicate. Older wrappers retain their
+existing path.
+
+Cold eligible slots are reserved before capability discovery settles; unsupported
+wrappers restore their authored fallback without creating an installation.
+Native preparation/activation still owns interaction transfer. This avoids a
+brief interactive DOM control before the first native admission; it is not a
+claim that native geometry exists before React lays out the owning surface.
+
+[NativeDock](../lib/capacitor/native-dock.ts) is a separate private editor contract,
+not an extension of the public chrome payload. The dedicated
+[plugin](../ios/App/App/Plugins/HushhNativeDockPlugin.swift) retains one SwiftUI
+glass container and `UITextView`. [The adapter](../components/agent/native-agent-dock.tsx)
+connects it to the existing Chat, command-capture and Live feature owners. React
+owns drafts, attachments, guarded submission, routing and voice operations. No
+native persistence, provider call, new microphone engine or second WebView exists.
+Return inserts a newline; Command-Return requests the existing guarded Send.
+The retained host follows UIKit keyboard-guide constraints without requiring
+another JavaScript apply. Ordered, owner/update/privacy-fenced frame receipts
+include equal-height keyboard movement; the existing transcript layout owner
+uses them for local clearance and reveal. Position-only receipts do not rerender
+the feature tree or introduce a second keyboard offset.
+
+The 2026-10-08 physical candidate produced a UIKit main-thread run-loop hang
+inside dock apply/layout. The report's app UUID matched the installed binary.
+Host layout re-entered dock placement, which unconditionally requested another
+parent layout. Placement now reports only actual constraint changes; an unchanged
+host pass cannot schedule itself again. The nearest keyboard-placement contract
+also checks repeated settled updates. Physical rerun remains required; this is not
+a claim that every observed admission failure had the same cause.
+
+Native input is document/owner/conversation/editing-purpose/revision-bound. Send
+consumes one confirmed snapshot; its editor is held noneditable until owner
+settlement. An uncertain consumption retires the replica before restoring the
+unsent owner projection and never dispatches or retries Send. Feature-directed
+text/purpose replacement is atomic; old-purpose events cannot overwrite it.
+Privacy-cover release cannot revive the editor: a fresh active, unshielded
+generation must be admitted. Private editor content stays in process memory and
+is excluded from diagnostics and public chrome.
+
+Accent has a complete swatch/name/chevron trigger and an owned Blue/Molten Gold
+chooser with accessible selection and explicit Done/Cancel. Stored values remain
+`blue`/`gold`; colors come from the existing app tokens. Cloud/Puppy retains its
+icon-based segmented selection. Existing friendly Vault method rows, owner
+authorization and recovery safeguards remain unchanged.
+
+**Enablement and evidence:** all added families remain iPhone/iOS 26 Debug-only.
+The dock additionally requires `--hushh-native-agent-dock`. Focused contracts cover
+suspension/retirement, stale choices, editing-purpose fencing, one-shot draft
+consumption and actual host editor/selection retention. These source/simulator
+checks do not establish physical visual, speech or performance acceptance.
+
+Profile and History translate their whole panels, including headers and
+Preferences, through their existing dialog and gesture owners. The stationary
+Preferences portal and split-body presentation have been removed. The opt-in
+`--hushh-native-compositor` container retains the same WebView and bridge. Base
+controls/dock use acknowledged apertures beneath it; drawer controls use bounded,
+clipped native groups above it. Pose transport is latest-wins with one in-flight
+and one pending value, sampled at most once per animation frame and only while
+presentation changes. Document, owner epoch, generation, sequence and privacy
+bind pose admission. Closing revokes interaction immediately but retains the
+presentation generation through the exit animation. Popup choices bind the exact
+pose at opening; movement dismisses the owned popup. No route or gesture decision
+is made by the native group.
+
+App haptics uses the existing iOS native preference. Its one-time migration lets
+an explicit disabled native or legacy JSON value win; subsequent reads use the
+native value. The Settings service serializes writes and leaves unrelated
+preferences alone. Feedback is requested by authored, accepted interactions,
+not a route observer; expired, duplicate, inactive and privacy-stale requests
+do not play. Native tab feedback is not duplicated by React. This source work
+does not qualify tactile behavior on a device.
+
+**Remaining:** physical whole-panel composition and Preferences acceptance. Complete dock
+IME/paste/attachment/refusal and keyboard geometry journeys, ten warm cycles per
+family, VoiceOver/Dynamic Type/rotation/transparency, and three physical Release
+performance runs remain required. The current route inventory continues below;
+historic receipts do not qualify this candidate. iPad is unqualified. Complex
+multiselects, protected forms, scrolling controls and rich approval cards remain
+React deliberately. Rollback is capability denial/removal of the Debug arguments;
+fallback and strict retirement must still be verified before any family promotion.
+
+### Whole-panel compositor qualification — 2026-10-09
+
+The candidate is derived from `fe58d0e56e` on
+`feat/adk-orchestration-runtime`; it is an opt-in implementation, not a promoted
+native family. Profile and History translate their complete existing panel,
+including headers and Preferences. Their existing gesture writers remain the
+decision owners. Covered base controls retain presentation while admission and
+accessibility are revoked. This is distinct from privacy concealment.
+
+Local verification passes the canonical core mirror (2,015 seconds), 169 nearest
+frontend contracts, typecheck, static/plugin/design checks, final native export
+and sync, 48 native-support tests, and Android Debug unit tests. The signed iPhone build and its actual
+bundle assets pass. The installed App executable fingerprint is
+`6500502210f44c20c9968bed80eeaadc88ae573ac1028db6f4f8a4d9d6709630`;
+the packaged runtime is UAT, not production. Later test-runner-only diagnostics
+are not a second product-installation receipt. Exact-head CI is outstanding.
+
+The first installed composition exported one native editor at its expected
+frame, with no web editor, but neither editor nor dock was hittable. Its
+compositor journey stopped at `NATIVE_COMPOSITOR_REQUIRES_UNLOCKED_NATIVE_EDITOR`.
+DOM paint apertures do not establish UIKit accessibility ordering. The bounded
+container now traverses the native underlay after WK while keeping its
+[layer paint order](https://developer.apple.com/documentation/quartzcore/calayer/zposition)
+below WK. Explicit touch/admission routing remains unchanged. The nearest native
+contract rejects the earlier ordering and preserves the paint and stale-hit
+boundaries; all 48 tests pass after this change.
+
+On the separately installed corrected candidate, canonical reviewer admission
+and one normal whole-value passphrase unlock pass, including protected native
+Chat interaction. This supports the hierarchy correction; it does not qualify
+drawer motion. No reviewer reset, alternate account, forced privacy-uncover or
+repeated credential submission within that cold-preparation session is used.
+The first twenty-cycle batch exceeded its outer three-minute harness deadline
+without returning an assertion receipt. The revised runner sizes only that
+macro deadline for twenty interactions and emits bounded cycle counts. Individual
+action waits and pose-age limits are unchanged; the interrupted batch is not a
+motion pass.
+
+The completed follow-up receipts identify the failing seam: ten Profile cycles
+and nine History cycles return successfully; the final History close fails
+`NATIVE_PANEL_WARM_RETURN_UNCONFIRMED`. Credential-free inspection afterward
+finds an interactive native dock editor but no native History toggle or Close.
+The existing focus-return code contains a retirement/DOM-focus fallback path;
+its causal role in this failed return is **not yet proved**. A settled screenshot
+or a new installation cannot qualify this reopen race.
+
+The same inspection reports 553 motion samples, 553 stale samples, zero invalid
+clock samples, maximum target-frame pose age 37.9736 ms and maximum age 2.2778
+display intervals. Thus the current RAF/bridge mirroring has **not met** the
+one-display-interval architecture gate. These target-frame estimates do not
+establish actual detached-pixel distance or Release hitch ratio, but they cannot
+be called a timing pass. Require a corrected, revision-bound presentation and
+focus handoff, then rerun the same unchanged acceptance limits. Do not expand
+families, hide controls, substitute React to pass, or promote this candidate.
+
+The opt-in numeric timing probe compares a pose's JavaScript epoch timestamp with
+the native target display interval, retaining only the latest pending sample
+per group. It records neither information nor actions and cannot admit a choice.
+Its clock precision and target-frame estimate do not prove visual alignment or
+absence of detachment. The unchanged gate requires zero stale/invalid samples
+and pose age at most one display interval. It has **not** passed on device.
+
+Expansion and release remain blocked by whole-panel composition
+(including nested-overlay paint occlusion), one-CSS-pixel
+rest alignment, interrupted drags, ten warm cycles per family, accessibility/
+theme/keyboard acceptance and three physical Release performance runs. iPad
+remains unqualified. Synthetic unit/layout results cannot replace these receipts.
+
+### Historical warm handoff corrections — 2026-10-08
+
+Compatible active History/Profile Back handoffs now take the existing replacement
+contract before suspension; they keep their native presentation while fresh action
+authority is acknowledged. Reopening an actually suspended compatible control
+retains its identical SwiftUI root as well as its host. Privacy and overlay
+suspension still hide controls and complete owned-popup dismissal.
+
+Profile interruption handling now preserves the rendered position when Close
+interrupts spring-back or an opening preview is re-grabbed. Location-only stack
+changes retain outer animation suppression. Preferences uses compact, title-only
+rows; Accent fills its reserved trigger width, keeps swatch contrast, and preserves
+label/color coherence when browser persistence is denied. Its native trigger uses
+the existing assistive-focus acknowledgement contract.
+
+Focused regression tests and a signed native build verify these source paths.
+Ten repeated Accent/Profile cycles passed in a synthetic WebKit fixture; synthetic
+phone light/dark, tablet and desktop renders were reviewed separately.
+
+The physical iPhone candidate from `7a3921c43` (installed binary SHA-256
+`ee23d1633252f1c5181baaf6dde672f918342e3e867242ab6532e428bf7a6ed1`)
+uses the bundled UAT export, not a remote WebView override. Credential-free XCUI
+admission and one identity-checked normal passphrase unlock passed. Subsequent
+warm checks passed Appearance/Accent selection and cancellation, ten Profile
+edge-close/reopen cycles, History/Profile edge presses, keyboard isolation and
+overlay restoration. The Account/Preferences/Security/Vault/Support stack passed
+with unchanged native Back host/root counters and no additional missing sampled
+frames during its measured handoff. Native retirement, preserved Accent, no web
+Close duplicate and unchanged host count/frame were asserted on each reopen.
+
+The first Chat-family run failed an existence-plus-immediate-hittability assertion
+for Profile Close. The nearest test now awaits joint native readiness within the
+same ten-second boundary; its subsequent run passed. That result does not alone
+establish the timing cause of the earlier failure. The strengthened runner was
+installed separately without reinstalling the product, resetting the account or
+repeating credentials. Failure-gated teardown does not replay uncertain actions.
+Private-run result bundles were destroyed.
+
+This evidence does not qualify native editor adoption, all-route visuals,
+VoiceOver/Dynamic Type, Release frame pacing or iPad. The existing complete parity
+report gate remains failed for incomplete/stale route evidence; no additional
+release or iPad family is enabled.
+
+### Historical composition gap — Profile exit, 2026-10-08
+
+The observations below describe the pre-compositor source. The current candidate
+implements the bounded seam above but has not passed physical composition
+acceptance. These historical receipts must not qualify the new composition.
+
+Retaining a hosting controller does **not** retain its visible presentation behind
+a React sheet. Profile's overlay/content refs keep the shared native isolation
+lease until their animated DOM nodes detach. NativeChrome suspension hides the
+underlying Chat controls; fresh preparation/activation reveals them afterward.
+The native dock follows the same overlay isolation owner. Passing settled tap,
+retirement and reopen assertions does not prove continuous pixels during exit.
+
+The source places native hosts above WebView content. Capacitor's current bridge
+root is the WebView itself (`CAPBridgeViewController.loadView`); CSS z-index cannot
+interleave its DOM Profile/scrim with those native subviews. Profile's semantic
+frame also remains stationary and fades while its body slides. Finger offset
+alone is therefore not a correct clipping boundary. Removing `isHidden`, releasing
+isolation at `open=false`, or adding an arbitrary early-resume timer would either
+paint native controls over Profile or restore interaction before isolation ends.
+None of those shortcuts is implemented.
+
+A live-underlay solution needs an explicit compositor boundary, not another React
+state refresh. First qualify a public, uniform-header family: authored transparent
+apertures in the base canvas, retained bounded native controls beneath web content,
+and bounded UIKit hit routing only for acknowledged active slots. React keeps
+Profile, its scrim and gesture authority; its portals must remain above those
+apertures. Confirm the actual host containment before changing opacity or ordering,
+arbitrate existing Maps transparency, and retain the window-wide privacy cover.
+Suspended underlay pixels must remain noninteractive and accessibility-hidden;
+fresh document/owner/revision/geometry/privacy admission is still required on return.
+Failure/uncertain retirement must preserve the existing noninteractive fallback.
+
+This is a proposed bounded architectural seam, **not implemented or qualified**.
+It initially addresses uniform header backing, not live sampling of scrolling Chat
+content or the private editor. Native glass can sample its backdrop: a screenshot
+of a nominally public control can contain private pixels. Do not export control,
+dock or WebView bitmaps through public chrome as a transition stand-in. Require
+transition-time physical evidence, rather than settled screenshots, before closing
+this finding. The latest separate body-drawer run ended with XCUI exit 70 and no
+observed test-body receipt; it is not gesture acceptance or a vault failure.
+
+### Agent Dock geometry correction — 2026-10-08
+
+The web geometry remains the reference: 52-point compact bar, 24-point outer
+radius, 16-point glyphs and 44-point action hit regions. The previous native
+implementation measured 62 points in the nearest host regression test because
+its visible 44-point labels acquired glass-button sizing. The corrected candidate
+uses scaled 16-point glyphs, compact 32-point interactive glass surfaces and full
+44-point hit regions, with symmetric four-point vertical padding. Dynamic Type
+can legitimately increase the height; multiline editor growth remains bounded.
+The implementation uses Apple's own interactive glass effect, not an imitation.
+
+The empty label now belongs to the retained UITextView and shares its font and
+text-container insets. Direct draft consumption refreshes it synchronously;
+appearance and mode updates preserve selection and marked-text guards. The source
+change does not itself prove visual acceptance or install a new device candidate.
+The nearest native support suite passed 45 tests; the old compiled implementation
+failed the new compact-height assertion at 62 points. The corrected implementation
+passed height, placeholder/caret alignment and retained-editor checks. Synthetic
+attached-host light/dark text/voice images were inspected for geometry only; their
+captured material/backdrop appearance is not live-glass or physical acceptance.
+Their diagnostic capture is explicit opt-in and restricted to an opaque synthetic
+window containing no WebView or account content. The first detached-window capture
+was blank and rejected as evidence. Disposable failed-run diagnostics were removed;
+subsequent synthetic runs disabled verbose failure collection.
+The updated signed iPhone Debug build compiled successfully. This build is still
+separate from the previously installed and tested `7a3921c43` physical candidate;
+it has not yet received physical visual, keyboard or accessibility acceptance.
 
 - [HushhNativeNavigationPlugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift)
   presents a standard UIKit `UITabBar` on iOS 26+. It does not use SwiftUI `TabView`
@@ -91,14 +365,15 @@ another navigation stack, WebView, session, or information store.
   independent `profile-appearance` and `profile-accent` IDs. Appearance uses an
   icon segmented SwiftUI Picker for Light/Dark/System; System remains the selected
   preference even when its resolved canvas is light or dark. Accent uses the
-  owned UIKit short menu for the existing Blue/Gold values. Choices invoke
+  owned SwiftUI chooser for the existing Blue/Molten Gold values. Choices invoke
   `setTheme`/`writeAccent`; no native preference store is introduced. The owning
-  Profile pane must be open and stationary. Scroll, ancestor animation/transition,
-  clipped geometry, inactive retained panes and nested overlays retire admission;
-  native restoration waits for settlement and acknowledged layout. Accent's
-  selected value and menu opener share one stable 172-by-44-point control.
-  Unsupported wrappers retain the authored controls. Physical visual,
-  accessibility and Release-performance acceptance remain separate gates.
+  Profile pane must be open and its controls stationary. Clipped geometry,
+  inactive retained panes and nested overlays retire admission; native restoration
+  waits for settlement and acknowledged layout. Public preference controls retain
+  the iOS 17+ renderer independently of the Debug-only chat controls. The Accent
+  trigger carries its retained palette into the bounded chooser. Unsupported
+  wrappers retain authored controls. Physical visual, accessibility and Release
+  performance acceptance remain separate gates.
 
   Opt-in Debug continuity counters retain fresh frame/gap deltas past 100,000
   frames; the earlier saturation could stop an otherwise warm rehearsal.

@@ -210,6 +210,19 @@ final class HushhNativeChromePresenter: NSObject, UIAdaptivePresentationControll
         return presenter
     }
 
+    static func accent(parent: UIViewController, value: String, options: [HushhChromeOption], swatches: [String: UIColor],
+                       theme: HushhNativeControlAppearance, sequence: Int, onChoice: @escaping (String, Int) -> Void) -> HushhNativeChromePresenter {
+        let box = WeakChromePresenter()
+        let draft = HushhChromeDraft(value: value, accent: theme.accent)
+        let host = UIHostingController(rootView: HushhAccentSelection(draft: draft, options: options, swatches: swatches,
+            complete: { [box] value in box.value?.choose(value) }))
+        host.view.accessibilityIdentifier = "native-accent-presentation"
+        let presenter = HushhNativeChromePresenter(parent: parent, controller: host, updateSequence: sequence, onChoice: onChoice)
+        presenter.draft = draft; presenter.sourceValue = value; box.value = presenter
+        configure(host, theme: theme)
+        return presenter
+    }
+
     static func date(parent: UIViewController, title: String, value: Date, bounds: ClosedRange<Date>,
                      theme: HushhNativeControlAppearance, sequence: Int, onChoice: @escaping (String, Int) -> Void) -> HushhNativeChromePresenter {
         let box = WeakChromePresenter()
@@ -240,6 +253,35 @@ private final class HushhChromeDraft: ObservableObject {
     @Published var accent: UIColor
     @Published var enabled = true
     init(value: String, accent: UIColor) { self.value = value; self.accent = accent }
+}
+
+private struct HushhAccentSelection: View {
+    @ObservedObject var draft: HushhChromeDraft
+    let options: [HushhChromeOption]
+    let swatches: [String: UIColor]
+    let complete: (String?) -> Void
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Button("Cancel") { complete(nil) }.frame(minWidth: 44, minHeight: 44)
+                Text("Accent").font(.headline).frame(maxWidth: .infinity)
+                Button("Done") { complete(draft.value) }.frame(minWidth: 44, minHeight: 44).disabled(!draft.enabled)
+            }
+            ForEach(options, id: \.value) { option in
+                Button { draft.value = option.value } label: {
+                    HStack(spacing: 12) {
+                        if let color = swatches[option.value] { Circle().fill(Color(uiColor: color)).frame(width: 20, height: 20).accessibilityHidden(true) }
+                        Text(option.label).foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "checkmark").opacity(draft.value == option.value ? 1 : 0).accessibilityHidden(true)
+                    }.frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .disabled(!draft.enabled || option.disabled)
+                .accessibilityAddTraits(draft.value == option.value ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }.padding().tint(Color(uiColor: draft.accent))
+    }
 }
 
 private struct HushhBoundedSelection: View {

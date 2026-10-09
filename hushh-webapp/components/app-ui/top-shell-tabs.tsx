@@ -10,6 +10,7 @@ import {
   type CSSProperties,
 } from "react";
 import { useRouter } from "next/navigation";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import {
@@ -168,6 +169,7 @@ export function TopShellTabs({
         // Local workspaces keep route authority, but use the same immediate
         // pager/indicator handoff as routed taps before publishing selection.
         onValueChange(tab.value);
+        appHaptic("selection");
         return;
       }
       beginRouteTransition(
@@ -191,6 +193,7 @@ export function TopShellTabs({
         },
         "tap",
         transitionMode,
+        "selection",
       );
     },
     [

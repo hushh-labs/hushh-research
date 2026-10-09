@@ -73,7 +73,9 @@ describe("Agent One chat workspace wiring contract", () => {
     // Only an explicitly armed name answer is kept from the model; everything
     // else typed in the composer is an ordinary turn.
     const submit = source.slice(
-      source.indexOf("const submitComposerText = async () => {"),
+      // Both the DOM form and native committed snapshot use this guarded
+      // entrypoint. Its optional input must not invalidate onboarding coverage.
+      source.indexOf("const submitComposerText = async ("),
       source.indexOf("const handleSubmit = async"),
     );
     expect(submit).toContain("chatOnboarding.captureComposerText(typedText)");

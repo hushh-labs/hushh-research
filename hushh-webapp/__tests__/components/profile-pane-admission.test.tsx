@@ -86,6 +86,17 @@ it("keeps the drag preview inert and does not mount protected Profile content be
   expect(preview).toHaveAttribute("aria-hidden", "true");
   expect(profilePage.renders).toBe(0);
   expect(change).not.toHaveBeenCalled();
+  act(() => previewProfilePane({ phase: "cancel", distance: 80 }));
+  const computedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((node) => {
+    const style = computedStyle(node);
+    return node === preview ? new Proxy(style, { get: (target, key) => key === "transform"
+      ? "matrix(1, 0, 0, 1, 330, 0)" : Reflect.get(target, key, target) }) : style;
+  });
+  act(() => previewProfilePane({ phase: "drag", distance: 10 }));
+  expect(preview.style.transform).toBe("translate3d(320px,0,0)");
+  act(() => vi.advanceTimersByTime(200));
+  expect(preview.hidden).toBe(false); // Old cancellation cannot clear a re-grab.
   act(() => previewProfilePane({ phase: "commit", distance: 80 }));
   act(() => vi.advanceTimersByTime(500));
   expect(preview.hidden).toBe(true); // An unadmitted request cannot strand a shell.
@@ -103,7 +114,7 @@ it("tracks an owned Profile close without moving the page and commits exactly on
   vi.spyOn(window, "getComputedStyle").mockImplementation((node) => {
     const style = computedStyle(node);
     return new Proxy(style, { get: (target, key) => key === "animationName" && node.getAttribute("data-slot") === "sheet-content"
-      ? node.getAttribute("data-state") === "closed" ? "profile-pull-exit" : "sheet-surface-enter"
+      ? node.getAttribute("data-state") === "closed" ? "stationary-side-frame-exit" : "stationary-side-frame-enter"
       : Reflect.get(target, key, target) });
   });
   let reopen = () => {};
@@ -113,14 +124,17 @@ it("tracks an owned Profile close without moving the page and commits exactly on
     return <ProfilePane open={open} onOpenChange={(next) => { close(next); setOpen(next); }} />;
   }
   const view = render(<ControlledPane />);
-  const panel = screen.getByTestId("profile-pane");
+  const frame = screen.getByTestId("profile-pane");
+  const panel = frame;
   Object.defineProperty(panel, "offsetWidth", { value: 390 });
-  const title = screen.getByRole("heading");
+  const title = panel;
   const scrim = document.querySelector<HTMLElement>('[data-slot="sheet-overlay"]')!;
   pull("touchstart", title, 100, 150, 0);
   pull("touchmove", title, 150, 152, 120);
   expect(panel.style.transform).toBe("translate3d(50px, 0, 0)");
   expect(panel.style.transition).toBe("none");
+  expect(frame.style.transform).toBe("translate3d(50px, 0, 0)");
+  expect(screen.getByRole("heading").closest('[data-testid="profile-pane"]')).toBe(panel);
   expect(Number(scrim.style.opacity)).toBeCloseTo(1 - 50 / 390);
   expect(document.body.style.transform).toBe("");
   expect(close).not.toHaveBeenCalled();
@@ -134,7 +148,7 @@ it("tracks an owned Profile close without moving the page and commits exactly on
   expect(panel).toHaveAttribute("data-state", "open");
   expect(panel.style.transform).toBe("translate3d(0px, 0, 0)");
   act(() => vi.advanceTimersByTime(200));
-  expect(panel).not.toHaveAttribute("data-profile-pull");
+  expect(panel).toHaveAttribute("data-profile-pull", "settled");
   expect(panel.style.transform).toBe("");
   view.unmount();
   expect(panel.style.transform).toBe("");
@@ -147,7 +161,7 @@ it("freezes a re-grab at its current rendered position before the next movement"
   const view = render(<ProfilePane open onOpenChange={close} />);
   const panel = screen.getByTestId("profile-pane");
   Object.defineProperty(panel, "offsetWidth", { value: 390 });
-  const title = screen.getByRole("heading");
+  const title = panel;
   pull("touchstart", title, 100, 150, 0);
   pull("touchmove", title, 125, 151, 120);
   pull("touchend", title, 125, 151, 240);
@@ -164,6 +178,48 @@ it("freezes a re-grab at its current rendered position before the next movement"
   expect(panel.style.transform).toBe("translate3d(12px, 0, 0)");
   pull("touchcancel", title, 100, 150, 260);
   expect(close).not.toHaveBeenCalled();
+  act(() => vi.advanceTimersByTime(200));
+  expect(panel.dataset.profilePull).toBe("settled");
+  url.query = "profile_pane=1&profile_panel=security";
+  view.rerender(<ProfilePane open onOpenChange={close} />);
+  expect(panel.dataset.profilePull).toBe("settled"); // Stack changes do not replay outer entry.
+  view.unmount();
+});
+
+it("hands an interrupted spring-back to the owned Close exit without replaying dismissal", () => {
+  vi.useFakeTimers();
+  vault.isVaultUnlocked = true;
+  const close = vi.fn();
+  let finish = () => {};
+  function ControlledPane() {
+    const [open, setOpen] = useState(true);
+    useLayoutEffect(() => { finish = () => setOpen(false); }, []);
+    return <ProfilePane open={open} onOpenChange={(next) => { close(next); setOpen(next); }} />;
+  }
+  const view = render(<ControlledPane />);
+  const panel = screen.getByTestId("profile-pane");
+  Object.defineProperty(panel, "offsetWidth", { value: 390 });
+  pull("touchstart", panel, 100, 150, 0);
+  pull("touchmove", panel, 125, 151, 120);
+  pull("touchend", panel, 125, 151, 240);
+  const frame = screen.getByTestId("profile-pane");
+  const computedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((node) => {
+    const style = computedStyle(node);
+    return new Proxy(style, { get: (target, key) => {
+      if (node === panel && key === "transform") return "matrix(1, 0, 0, 1, 12, 0)";
+      // Keep the closing frame mounted to inspect its exit ownership.
+      if (node === frame && key === "animationName") return node.getAttribute("data-state") === "closed"
+        ? "sheet-slide-out-right" : "sheet-slide-in-right";
+      return Reflect.get(target, key, target);
+    } });
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Close Profile" }));
+  expect(close).toHaveBeenCalledExactlyOnceWith(false);
+  expect(panel.dataset.profilePull).toBe("exit");
+  expect(panel.style.getPropertyValue("--profile-pull-x")).toBe("12px");
+  act(() => { finish(); vi.advanceTimersByTime(500); });
+  expect(close).toHaveBeenCalledOnce();
   view.unmount();
 });
 
@@ -173,12 +229,13 @@ it("keeps Profile scroll, fields, horizontal rails and nested dialogs outside th
   const view = render(<ProfilePane open onOpenChange={close} />);
   const panel = screen.getByTestId("profile-pane");
   Object.defineProperty(panel, "offsetWidth", { value: 390 });
-  const title = screen.getByRole("heading");
+  const title = panel;
   const swipe = (target: Element, vertical = false) => {
     pull("touchstart", target, 100, 150, 0);
     pull("touchmove", target, vertical ? 105 : 210, vertical ? 270 : 152, 120);
     pull("touchend", target, 220, vertical ? 290 : 152, 240);
   };
+  // The title belongs to the translated panel; vertical scroll stays excluded.
   swipe(title, true);
   swipe(screen.getByRole("button", { name: "Close Profile" }));
   const field = document.createElement("input");
@@ -295,13 +352,13 @@ it("holds the open location while the pane closes, so the exit is one motion", (
   const onOpenChange = vi.fn();
   const view = render(<ProfilePane open onOpenChange={onOpenChange} />);
   paintFirstFrames();
-  expect(screen.getByText("Appearance & preferences")).toBeTruthy();
+  expect(screen.getByText("Preferences", { exact: true })).toBeTruthy();
 
   url.query = "";
   view.rerender(
     <ProfilePane open onOpenChange={(nextOpen) => onOpenChange(nextOpen)} />,
   );
-  expect(screen.getByText("Appearance & preferences")).toBeTruthy();
+  expect(screen.getByText("Preferences", { exact: true })).toBeTruthy();
   expect(screen.queryByText("Profile", { selector: "h2" })).toBeNull();
   expect(screen.getByTestId("pane-body").dataset.panel).toBe("preferences");
 
