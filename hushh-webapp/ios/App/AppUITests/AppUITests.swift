@@ -1215,8 +1215,12 @@ final class AppUITests: XCTestCase {
             openProfile.tap()
             let nativeClose = app.buttons.matching(NSPredicate(
                 format: "identifier == %@ AND label == %@", "profile-close", "Close Profile")).firstMatch
-            XCTAssertTrue(nativeClose.waitForExistence(timeout: 10) && nativeClose.isHittable,
-                          "Profile Close must remain native across repeated opens")
+            print("NATIVE_PROFILE_REOPEN_ADMISSION exists=\(nativeClose.exists) hittable=\(nativeClose.exists && nativeClose.isHittable)")
+            let closeReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                nativeClose.exists && nativeClose.isHittable
+            }, object: nativeClose)
+            XCTAssertEqual(XCTWaiter.wait(for: [closeReady], timeout: 10), .completed,
+                           "Profile Close must become interactive within the existing admission boundary")
             XCTAssertGreaterThanOrEqual(nativeClose.frame.width, 44)
             XCTAssertGreaterThanOrEqual(nativeClose.frame.height, 44)
             XCTAssertFalse(web.buttons.matching(NSPredicate(
@@ -1635,7 +1639,13 @@ final class AppUITests: XCTestCase {
               let originalAccent = accent.value as? String, ["Blue", "Molten Gold"].contains(originalAccent) else {
             XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return
         }
+        guard let initialFailureCount = testRun?.failureCount else {
+            XCTFail("NATIVE_PREFERENCE_RUN_UNAVAILABLE"); return
+        }
         addTeardownBlock {
+            guard self.testRun?.failureCount == initialFailureCount else {
+                print("NATIVE_PREFERENCES_TEARDOWN skipped_after_failure_no_navigation_replay"); return
+            }
             if accentSheet.exists { _ = cancelAccentMenu() }
             if !picker.exists { openPreferences() }
             selectTheme(originalTheme); selectAccent(originalAccent)
@@ -1657,14 +1667,39 @@ final class AppUITests: XCTestCase {
             guard cancelAccentMenu() else { return }
             XCTAssertEqual(accent.value as? String, value, "Native cancellation changed the preference")
         }
-        app.buttons["Close Profile"].firstMatch.tap()
-        let retired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: picker)
-        XCTAssertEqual(XCTWaiter.wait(for: [retired], timeout: 5), .completed, "NATIVE_PREFERENCES_NOT_RETIRED")
-        openPreferences()
-        XCTAssertEqual(hosts.count, 1)
-        XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)
-        XCTAssertFalse(web.buttons["Unlock"].exists)
-        print("NATIVE_PUBLIC_PREFERENCES_CONTINUITY icons_theme_accent_cancel_reopen_single_host")
+        let hostFrame = web.frame
+        for cycle in 0..<10 {
+            let close = app.buttons.matching(NSPredicate(
+                format: "identifier == %@ AND label == %@", "profile-close", "Close Profile")).firstMatch
+            XCTAssertTrue(close.exists && close.isHittable, "NATIVE_PROFILE_CLOSE_REOPEN_FELL_BACK")
+            XCTAssertFalse(web.buttons.matching(NSPredicate(
+                format: "label == %@ AND identifier != %@", "Close Profile", "profile-close")).firstMatch.exists,
+                "Profile exposed a web Close beside its native control")
+            // Exercise the whole hit region, not only the visible X glyph.
+            let point = cycle.isMultiple(of: 2) ? CGVector(dx: 0.1, dy: 0.5) : CGVector(dx: 0.9, dy: 0.5)
+            close.coordinate(withNormalizedOffset: point).tap()
+            let openProfile = web.buttons["Open Profile"].firstMatch
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !close.exists && !picker.exists && !accent.exists && openProfile.exists && openProfile.isHittable
+            }, object: app)
+            guard XCTWaiter.wait(for: [retired], timeout: 5) == .completed else {
+                XCTFail("NATIVE_PROFILE_CLOSE_NOT_CONFIRMED"); return
+            }
+            openProfile.tap()
+            let reopened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                close.exists && close.isHittable
+            }, object: close)
+            guard XCTWaiter.wait(for: [reopened], timeout: 10) == .completed else {
+                XCTFail("NATIVE_PROFILE_REOPEN_NOT_CONFIRMED"); return
+            }
+            openPreferences()
+            XCTAssertEqual(accent.value as? String, value, "Profile reopen lost the applied Accent")
+            XCTAssertEqual(hosts.count, 1)
+            XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)
+            XCTAssertEqual(web.frame, hostFrame, "Profile reopen moved the Chat host")
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+        }
+        print("NATIVE_PUBLIC_PREFERENCES_CONTINUITY icons_theme_accent_cancel_ten_edge_reopens_single_host")
     }
 
     func testLocalSessionNativeChromeFollowsAppTheme() throws {
