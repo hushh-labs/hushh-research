@@ -435,6 +435,7 @@ describe("InformationRequestReviewView with and without progress", () => {
   // own read of a starved pool and still said "Seen" until 33.5s.
   it("shows Reading… from the doorbell's reading at once, even while its own reads stall", async () => {
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("pending", true));
+    const initialRead = readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token" });
     let phase: "reading" | null = null;
     const card = () => (
       <ConsentCardPhaseContext.Provider value={(id) => id === bundleId ? phase : null}>
@@ -442,16 +443,27 @@ describe("InformationRequestReviewView with and without progress", () => {
       </ConsentCardPhaseContext.Provider>
     );
     const view = render(card());
+    // Publication can render before the coordinator retires its in-flight
+    // read. Await that exact read so the doorbell below starts a new lookup.
+    await act(async () => { await initialRead; });
     expect(await screen.findByTestId("requester-progress")).toHaveAttribute("data-outcome", "pending");
+    expect(mocks.getInformationRequest).toHaveBeenCalledTimes(1);
+    // A chat phase alone never supplies approval authority.
+    phase = "reading";
+    view.rerender(card());
+    expect(screen.getByTestId("requester-progress")).toHaveAttribute("data-outcome", "pending");
     // The doorbell reads the approval; every read after it stalls.
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("granted", true));
     mocks.getInformationRequest.mockReturnValue(new Promise(() => undefined));
     await act(async () => { await readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token" }); });
-    phase = "reading";
-    view.rerender(card());
-    const progress = screen.getByTestId("requester-progress");
-    expect(progress).toHaveAttribute("data-outcome", "granted");
-    expect(within(progress).getByRole("status")).toHaveTextContent("Reading what Kushal shared…");
+    expect(mocks.getInformationRequest).toHaveBeenNthCalledWith(2, {
+      bundleId, vaultOwnerToken: "test-owner-token",
+    });
+    await waitFor(() => {
+      const progress = screen.getByTestId("requester-progress");
+      expect(progress).toHaveAttribute("data-outcome", "granted");
+      expect(within(progress).getByRole("status")).toHaveTextContent("Reading what Kushal shared…");
+    });
   });
 
   it("drops revealed values and shows Access ended when the owner revokes", async () => {

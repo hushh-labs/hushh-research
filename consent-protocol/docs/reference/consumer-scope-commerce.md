@@ -1655,7 +1655,17 @@ because a reused dependency tree lacked `@capacitor/browser`. Installing the
 candidate's own lockfile corrected that setup error without source or gate
 changes. A fresh complete core passed in 730 seconds, including 16,650 protocol
 tests, 400 Postgres tests and 380 PKM integration tests. [Full CI 37908803816](https://github.com/hushh-labs/hushh-research/actions/runs/37908803816)
-is running on that exact published candidate; terminal results remain required.
+finished with one failure in frontend shard 3/3; all other selected jobs passed.
+The requester-card test expected granted progress but observed pending progress
+at a synchronous assertion. The consent component and shared reader are unchanged
+from the previous green application source; a production regression has not been
+established. The follow-up test awaits the initial coordinator promise, verifies
+that the next authenticated lookup actually occurs, and waits for its React
+publication while later reads remain stalled. A reading phase alone must retain
+pending consent. The nearest card/doorbell files passed twice (74 tests per run),
+and a temporary phase-derived approval mutation failed that negative control.
+The production component was restored byte-for-byte. Complete core and terminal
+CI for this follow-up remain required before deployment.
 An independently added pod commit remains local and is excluded from the
 published candidate. The developer's original branch and unrelated edits remain
 preserved.
