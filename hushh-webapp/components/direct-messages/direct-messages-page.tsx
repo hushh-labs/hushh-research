@@ -1319,10 +1319,26 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                         onFocusCapture={() => {
                           if (!openMessageMenu) setActiveMessageActions(message.id);
                         }}
+                        onBlurCapture={(event) => {
+                          if (!openMessageMenu && !event.currentTarget.matches(":hover") &&
+                            !event.currentTarget.contains(event.relatedTarget)) {
+                            setActiveMessageActions((current) =>
+                              current === message.id ? null : current,
+                            );
+                          }
+                        }}
                         onPointerDown={(event) => handleMessagePointerDown(event, message)}
                         onPointerUp={clearMessageLongPress}
                         onPointerCancel={clearMessageLongPress}
-                        onPointerLeave={clearMessageLongPress}
+                        onPointerLeave={(event) => {
+                          clearMessageLongPress();
+                          if (event.pointerType === "mouse" && !openMessageMenu &&
+                            !event.currentTarget.contains(document.activeElement)) {
+                            setActiveMessageActions((current) =>
+                              current === message.id ? null : current,
+                            );
+                          }
+                        }}
                         onClick={(event) => {
                           if ((event.target as HTMLElement).closest("button, textarea")) return;
                           setActiveMessageActions(message.id);
@@ -1346,6 +1362,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                           <div className={styles.messageContent}>
                             <div className={styles.messageBubbleWrap}>
                               <OneChatBubble
+                                data-chat-bubble="true"
                                 tone={message.senderIsViewer ? "user" : "assistant"}
                                 className={cn(
                                   styles.messageBubble,

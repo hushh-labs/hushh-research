@@ -275,6 +275,26 @@ async def test_legacy_undated_request_cannot_resume_or_prepare_existing_results(
     lookup.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_unsearched_request_review_has_no_batch_fields():
+    """The owner's review parser rejects batch fields without a search.
+
+    Empty batches here left every new request's review unable to load.
+    """
+    service = DriveRequestBulkService(
+        sharing=SimpleNamespace(
+            request_bulk_context=AsyncMock(return_value={"searchStarted": False})
+        ),
+        search=SimpleNamespace(store=SimpleNamespace(by_client=AsyncMock())),
+        bulk=SimpleNamespace(batches_by_request=AsyncMock()),
+        require_owner=AsyncMock(),
+    )
+    assert await service.review_context(user_id="owner", request_id="new-request") == {
+        "search": None,
+        "bulkShare": None,
+    }
+
+
 def test_yesterday_uses_requesters_frozen_local_day_even_when_planner_used_utc():
     requested_at = datetime(2026, 9, 29, 21, 33, tzinfo=UTC)
     plan = {

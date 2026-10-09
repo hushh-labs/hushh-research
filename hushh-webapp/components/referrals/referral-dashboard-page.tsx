@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import type { User } from "firebase/auth";
-import { ArrowLeft, Link2, Users, ShieldCheck, Zap, Trophy } from "@/components/icons";
+import { ArrowLeft, Link2, Users, ShieldCheck, Zap, Trophy, WhatsappLogo, MessageSquareText, Brain, Bot, UserPlus, Flame } from "@/components/icons";
 import "./referral-dashboard.css";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { Progress } from "@/components/ui/progress";
@@ -30,13 +31,11 @@ import {
   type WeeklyChallenge,
 } from "@/lib/services/referral-service";
 
-type TabKey = "you" | "standings" | "rewards" | "rules";
+type TabKey = "you" | "standings";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "you", label: "You" },
   { key: "standings", label: "Standings" },
-  { key: "rewards", label: "Rewards" },
-  { key: "rules", label: "Rules" },
 ];
 
 /** Fixed reference palette; globals.css scopes accent tokens to this route. */
@@ -66,16 +65,6 @@ const COLORS = {
   orangeSoft: "rgba(255, 149, 0, .16)",
   orangeText: "#c96f00",
 } as const;
-
-/** Exact embedded mark from the approved standalone reference. */
-function OneMark({ dotSize }: { emojiSize: number; dotSize: number }) {
-  return (
-    <span className="inline-flex items-center gap-2">
-      <span aria-hidden className="referral-reference-mark" style={{ width: dotSize ? 24 : 60, height: dotSize ? 24 : 60 }} />
-      {dotSize > 0 ? <span className="font-semibold leading-none tracking-[-0.01em]" style={{ fontSize: dotSize }}>One<span style={{ color: COLORS.blue }}>.</span></span> : null}
-    </span>
-  );
-}
 
 function fmt(value: number): string {
   return value.toLocaleString("en-IN");
@@ -442,12 +431,19 @@ function ReferralDashboardContent({ onReplayIntroduction }: { onReplayIntroducti
               onBoardChange={setBoard}
             />
           ) : null}
-          {tab === "rewards" ? (
-            <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} />
-          ) : null}
-          {tab === "rules" ? <RulesTab policyRes={policyRes} onRetry={reloadPolicy} /> : null}
+
         </>
       )}
+      {tab === "you" ? (
+        <>
+          <section className="mt-7" aria-label="Rewards">
+            <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} />
+          </section>
+          <section className="mt-7" aria-label="How referrals work">
+            <RulesTab policyRes={policyRes} onRetry={reloadPolicy} />
+          </section>
+        </>
+      ) : null}
     </ShellRoot>
   );
 }
@@ -497,45 +493,27 @@ function ShellRoot({
         className="sticky top-0 z-50 backdrop-blur-xl"
         style={{ background: "rgba(242, 242, 247, .82)" }}
       >
-        <div className="mx-auto grid h-16 max-w-[1008px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-6">
+        <div className="mx-auto grid h-16 max-w-[912px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-6">
           <div className="flex items-center gap-3">
-            <ShellActionSurface aria-label="Back to One home" title="Back to One home" onClick={() => navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })} className="referral-back-button !h-11 !w-11">
+            <ShellActionSurface aria-label="Back to One home" title="Back to One home" onClick={() => navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })} className="!h-11 !w-11 !border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent">
               <ArrowLeft className="size-5" aria-hidden="true" />
             </ShellActionSurface>
-            <OneMark emojiSize={19} dotSize={17} />
           </div>
-          <div
-            role="tablist"
-            aria-label="Referral sections"
-            className="flex gap-0.5 rounded-xl p-0.5"
-            style={{ background: COLORS.fill }}
-          >
-            {TABS.map((item) => (
-              <button
-                key={item.key}
-                role="tab"
-                aria-selected={tab === item.key}
-                onClick={() => onTabChange(item.key)}
-                className="whitespace-nowrap rounded-[10px] px-3.5 text-[13px] font-semibold transition-colors"
-                style={{
-                  height: 32,
-                  background: tab === item.key ? COLORS.card : "transparent",
-                  color: tab === item.key ? COLORS.blueText : COLORS.text2,
-                  boxShadow: tab === item.key ? "0 1px 2px rgba(0,0,0,.1)" : undefined,
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedTabs
+            value={tab}
+            onValueChange={(value) => onTabChange(value as TabKey)}
+            options={TABS.map(({ key, label }) => ({ value: key, label }))}
+            ariaLabel="Referral sections"
+            className="referral-tabs"
+          />
           <span aria-hidden />
         </div>
       </header>
 
-      <main ref={mainRef} aria-label="Referral dashboard" tabIndex={-1} className="mx-auto max-w-[1008px] px-6 pb-[calc(128px+env(safe-area-inset-bottom,0px))] pt-3 outline-none">
+      <main ref={mainRef} aria-label="Referral dashboard" tabIndex={-1} className="mx-auto max-w-[912px] px-6 pb-[calc(96px+env(safe-area-inset-bottom,0px))] pt-3 outline-none">
         <section role="tabpanel" aria-label={TABS.find((item) => item.key === tab)?.label}>{children}</section>
-        <footer className="mt-9 text-center text-xs leading-[1.6]" style={{ color: COLORS.text3 }}>
-          <p><span className="referral-reference-mark mr-1.5 size-4 align-[-3px]" aria-hidden />Your agents. Yours to own.</p>
+        <footer className="mt-6 text-center text-xs leading-[1.6]" style={{ color: COLORS.text3 }}>
+          <p>Your agents. Yours to own.</p>
           <button onClick={onReplayIntroduction} className="min-h-11 px-3 text-xs underline underline-offset-4">View welcome screen</button>
         </footer>
       </main>
@@ -628,29 +606,10 @@ function YouTab({
 }) {
   return (
     <>
-      <div className="relative px-0 pb-[26px] pt-1 text-center">
-        <div
-          aria-hidden="true"
-          className="mx-auto -mb-[58px] -mt-11 grid h-[200px] w-[240px] place-items-center"
-          style={{
-            background:
-              "radial-gradient(circle 100px at center, rgba(0,122,255,.15), rgba(0,122,255,.05) 56%, transparent 100%)",
-          }}
-        >
-          <OneMark emojiSize={50} dotSize={0} />
-        </div>
-        <h1
-          className="relative font-bold leading-[1.12] tracking-[-0.022em]"
-          style={{ fontSize: "clamp(28px, 4.4vw, 40px)" }}
-        >
-          Good things grow together
-          <i className="not-italic" style={{ color: COLORS.blue }}>
-            .
-          </i>
-        </h1>
-        <p className="relative mt-2 text-[15px]" style={{ color: COLORS.text2 }}>
-          Invite friends, build your streak, and unlock your next reward.
-        </p>
+      <div className="referral-hero">
+        <span className="referral-hero-mark" aria-hidden="true" />
+        <h1 className="referral-hero-title">Good things grow together<span style={{ color: COLORS.blue }}>.</span></h1>
+        <p>Invite friends, build your streak, and unlock your next reward.</p>
       </div>
 
       <ChallengeClock
@@ -671,44 +630,29 @@ function YouTab({
         onRetryEngagement={onRetryEngagement}
       />
 
-      <Card className="my-4 p-[22px]">
-        <h3 className="text-[20px] font-semibold leading-[25px] tracking-[-0.012em]">
-          Connected to your One profile
-        </h3>
-        <p className="mt-1 text-sm" style={{ color: COLORS.text2 }}>
-          In the app, your invitation link and earned points belong to the One account you are
-          signed in to. Your public leaderboard name is a separate display name.
-        </p>
-        <p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>
-          Your points shows your recorded total, including bonuses and adjustments. Published
-          rank updates when the standings are published. You can track your points even before
-          you have a rank.
-        </p>
-      </Card>
-
       <div className="referral-duo grid gap-4 sm:grid-cols-2">
         <Card className="p-[22px]">
-          <h3 className="text-[20px] font-semibold leading-[25px] tracking-[-0.012em]">Invite</h3>
+          <h3 className="ui-text-section-title">Invite</h3>
           <p className="mt-1 text-sm" style={{ color: COLORS.text2 }}>
             Earn points when an eligible referral qualifies.
           </p>
           <div className="mt-[18px] grid grid-cols-2 gap-2.5">
             <a
-              className="flex h-11 items-center justify-center rounded-[14px] px-5 text-[15px] font-semibold"
-              style={{ background: "rgba(0,122,255,.1)", color: "#006dcc" }}
+              className="referral-share-button flex items-center justify-center gap-2.5 rounded-[14px] px-5 text-base font-semibold"
               href={`https://wa.me/?text=${encodeURIComponent(
                 `Join me on Hushh One for the weekly referral challenge: ${link}`,
               )}`}
               target="_blank"
               rel="noopener"
             >
+              <WhatsappLogo className="size-6" weight="regular" aria-hidden="true" />
               WhatsApp
             </a>
             <a
-              className="flex h-11 items-center justify-center rounded-[14px] px-5 text-[15px] font-semibold"
-              style={{ background: "rgba(0,122,255,.1)", color: "#006dcc" }}
+              className="referral-share-button flex items-center justify-center gap-2.5 rounded-[14px] px-5 text-base font-semibold"
               href={`sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${link}`)}`}
             >
+              <MessageSquareText className="size-6" aria-hidden="true" />
               SMS
             </a>
           </div>
@@ -732,8 +676,8 @@ function YouTab({
                     <Users className="size-[18px]" aria-hidden="true" />
                   </span>
                   <div className="min-w-0">
-                    <strong className="block truncate text-[15px] font-medium">New member</strong>
-                    <time className="block text-[13px]" style={{ color: COLORS.text2 }}>
+                    <strong className="block truncate text-base font-medium">New member</strong>
+                    <time className="block text-sm" style={{ color: COLORS.text2 }}>
                       {row.started_on}
                     </time>
                   </div>
@@ -751,8 +695,8 @@ function YouTab({
         </Card>
 
         <Card className="p-[22px]">
-          <p
-            className="flex items-center gap-[9px] text-[13px] font-semibold"
+          <h3
+            className="ui-text-section-title flex items-center gap-[9px]"
             style={{ color: "#137a35" }}
           >
             <span
@@ -761,7 +705,7 @@ function YouTab({
               aria-hidden="true"
             />
             Your circle
-          </p>
+          </h3>
           <Section res={circleRes} onRetry={onRetryCircle} retryLabel="your circle">
             {(circle) => (
               <CircleCardBody
@@ -777,8 +721,7 @@ function YouTab({
           >
             <p className="text-xs font-semibold" style={{ color: COLORS.text2 }}>Circle Wars · Preview</p>
             <p className="mt-1 text-xs" style={{ color: COLORS.text2 }}>
-              Team battles, matchups and prizes are not active. The current referral rules
-              do not award automatic points for a circle battle win.
+              Team battles and prizes are not active yet.
             </p>
           </div>
         </Card>
@@ -838,7 +781,7 @@ function ChallengeClock({
         boxShadow: "inset 0 0 0 1px rgba(212,165,116,.24)",
       }}
     >
-      <p className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-[13px] font-medium" style={{ color: "#aeaeb2" }}>
+      <p className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs font-medium" style={{ color: "#aeaeb2" }}>
         <span className="inline-flex items-center gap-[9px]">
           <span
             className="inline-flex size-[7px] rounded-full"
@@ -852,21 +795,21 @@ function ChallengeClock({
       <div className="mt-2 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div
           className="font-bold leading-none tabular-nums"
-          style={{ fontSize: "clamp(46px, 13.5vw, 84px)", letterSpacing: "-0.04em" }}
+          style={{ fontSize: "clamp(40px, 11vw, 68px)", letterSpacing: "-0.04em" }}
         >
           {headline.value}
         </div>
         <div className="flex gap-2.5 pb-2">
           <button
             onClick={onSeeStandings}
-            className="flex h-11 items-center justify-center rounded-[14px] px-5 text-[15px] font-semibold"
+            className="flex h-11 items-center justify-center rounded-[12px] px-4 text-sm font-semibold"
             style={{ background: "rgba(255,255,255,.12)" }}
           >
             See standings
           </button>
           <button
             onClick={onCopy}
-            className="flex h-11 items-center justify-center rounded-[14px] px-5 text-[15px] font-semibold"
+            className="flex h-11 items-center justify-center rounded-[12px] px-4 text-sm font-semibold"
             style={{ background: COLORS.blue }}
           >
             Copy invite link
@@ -922,7 +865,7 @@ function ChallengeClock({
             weekProgress.live &&
             i === Math.min(weekProgress.totalDays - 1, Math.floor(weekProgress.elapsedDays));
           return (
-            <li key={i} className="min-w-0 text-center text-[11px] leading-[1.4]" style={{ color: isNow ? "#aeaeb2" : "#8e8e93" }}>
+            <li key={i} className="min-w-0 text-center text-xs leading-[1.4]" style={{ color: isNow ? "#aeaeb2" : "#8e8e93" }}>
               <b className="block whitespace-nowrap font-semibold" style={{ fontSize: "clamp(10px, 2.8vw, 13px)", color: isNow ? "#fff" : "#aeaeb2" }}>
                 Day {i + 1}
               </b>
@@ -956,7 +899,6 @@ function StatsGrid({
     value: string;
     sub: string;
     onRetry?: () => void;
-    trailing?: React.ReactNode;
   }[] = [
     {
       label: "Your points",
@@ -986,47 +928,67 @@ function StatsGrid({
       value: fmt(summary.qualified_count),
       sub: `${summary.in_progress_count} in progress`,
     },
-    {
-      label: "Day streak",
-      value: statText(engagementRes, (e) => String(e.streak.current_run_days)),
-      sub: statSub(engagementRes, (e) => `${e.streak.run_length_days}-day bonus target`),
-      onRetry: engagementRes.status === "error" ? onRetryEngagement : undefined,
-      trailing: <StreakFlame engagementRes={engagementRes} />,
-    },
   ];
 
   return (
-    <dl className="my-4 grid grid-cols-2 rounded-[18px] sm:grid-cols-4" style={{ background: COLORS.card }}>
-      {cells.map((cell, index) => (
-        <div
-          key={cell.label}
-          className={
-            "px-[18px] py-4 sm:px-[22px] sm:py-[18px] " +
-            (index === 0 ? "border-l-0" : index % 2 === 0 ? "border-l-0 sm:border-l" : "sm:border-l") +
-            (index >= 2 ? " border-t sm:border-t-0" : "")
-          }
-          style={{ borderColor: COLORS.sep }}
-        >
-          <dt className="text-[13px] font-medium" style={{ color: COLORS.text2 }}>{cell.label}</dt>
-          <dd className="mt-1 flex items-center gap-2">
-            <span className="text-[28px] font-bold leading-[36px] tracking-[-0.025em] tabular-nums sm:text-[32px]">
-              {cell.value}
-            </span>
-            {cell.trailing}
-          </dd>
-          <dd className="mt-0.5 text-[13px]" style={{ color: COLORS.text2 }}>{cell.sub}</dd>
-          {cell.onRetry ? (
-            <button
-              onClick={cell.onRetry}
-              className="mt-1 text-xs font-medium"
-              style={{ color: COLORS.blue }}
-            >
-              Try again
-            </button>
-          ) : null}
+    <>
+      <dl className="referral-summary-stats my-4 grid grid-cols-3 rounded-[18px]" style={{ background: COLORS.card }}>
+        {cells.map((cell, index) => (
+          <div
+            key={cell.label}
+            className={"px-3 py-4 sm:px-[22px] sm:py-[18px] " + (index > 0 ? "border-l" : "")}
+            style={{ borderColor: COLORS.sep }}
+          >
+            <dt className="text-xs font-medium" style={{ color: COLORS.text2 }}>{cell.label}</dt>
+            <dd className="mt-1 flex items-center gap-2">
+              <span className="text-[28px] font-bold leading-[34px] tracking-[-0.025em] tabular-nums">
+                {cell.value}
+              </span>
+            </dd>
+            <dd className="mt-0.5 text-xs" style={{ color: COLORS.text2 }}>{cell.sub}</dd>
+            {cell.onRetry ? (
+              <button
+                onClick={cell.onRetry}
+                className="mt-1 text-xs font-medium"
+                style={{ color: COLORS.blue }}
+              >
+                Try again
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </dl>
+      <StreakCard engagementRes={engagementRes} onRetry={onRetryEngagement} />
+    </>
+  );
+}
+
+function StreakCard({
+  engagementRes,
+  onRetry,
+}: {
+  engagementRes: Res<EngagementStatus>;
+  onRetry: () => void;
+}) {
+  return (
+    <section className="referral-streak-card" aria-label="Referral streak">
+      <div className="flex min-w-0 items-center gap-4">
+        <StreakFlame engagementRes={engagementRes} />
+        <div className="min-w-0">
+          <h2 className="ui-text-section-title">Day streak</h2>
+          <p className="mt-1 text-sm" style={{ color: COLORS.text2 }}>
+            One qualifying referral each day.
+          </p>
         </div>
-      ))}
-    </dl>
+      </div>
+      <div className="referral-streak-count">
+        <strong className="tabular-nums">{statText(engagementRes, (e) => String(e.streak.current_run_days))}</strong>
+        <span>{statSub(engagementRes, (e) => `${e.streak.run_length_days}-day bonus target`)}</span>
+        {engagementRes.status === "error" ? (
+          <Button variant="muted" size="sm" onClick={onRetry}>Try again</Button>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -1047,23 +1009,10 @@ function StreakFlame({ engagementRes }: { engagementRes: Res<EngagementStatus> }
       role="img"
       aria-label={`${days} day streak`}
       className={"grid shrink-0 place-items-center rounded-full " + (active ? "motion-safe:animate-pulse" : "")}
-      style={{ width: 26, height: 26, background: active ? COLORS.orangeSoft : COLORS.fill2 }}
+      style={{ width: 38, height: 38, background: active ? COLORS.orangeSoft : COLORS.fill2 }}
     >
-      <FlameIcon className="size-[16px]" active={active} />
+      <Flame className="size-6" style={{ color: COLORS.orange }} aria-hidden="true" />
     </span>
-  );
-}
-
-function FlameIcon({ className, active }: { className?: string; active: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      aria-hidden="true"
-      fill={COLORS.orange} data-active={active}
-    >
-      <path d="M12 2c.6 3.2-1 5-2.6 6.7C7.8 10.5 6.5 12.1 6.5 14.5A5.5 5.5 0 0 0 12 20a5.5 5.5 0 0 0 5.5-5.5c0-1.7-.7-2.9-1.5-4 .1 1.4-.4 2.3-1.2 2.9-.3-2.2-1.1-3.6-2-4.8C12.2 7.1 12.6 4.6 12 2z" />
-    </svg>
   );
 }
 
@@ -1079,7 +1028,7 @@ function CircleCardBody({
   if (!circle.circle_id) {
     return (
       <p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>
-        You have not chosen a referral-contest team yet.
+        Choose a circle to contribute together.
       </p>
     );
   }
@@ -1103,13 +1052,13 @@ function CircleCardBody({
             <dl className="mt-4 flex justify-between gap-4 border-t pt-4" style={{ borderColor: COLORS.sep }}>
               <div>
                 <dt className="text-xs" style={{ color: COLORS.text2 }}>Team rank</dt>
-                <dd className="mt-0.5 text-[15px] font-semibold tabular-nums">
+                <dd className="mt-0.5 text-base font-semibold tabular-nums">
                   {index >= 0 ? `#${index + 1}` : "—"}
                 </dd>
               </div>
               <div>
                 <dt className="text-xs" style={{ color: COLORS.text2 }}>Team referrals</dt>
-                <dd className="mt-0.5 text-[15px] font-semibold tabular-nums">
+                <dd className="mt-0.5 text-base font-semibold tabular-nums">
                   {myCircle ? fmt(myCircle.contribution_count) : "—"}
                 </dd>
               </div>
@@ -1146,7 +1095,7 @@ function StandingsTab({
   return (
     <div className="referral-standings grid gap-6 sm:grid-cols-[280px_minmax(0,1fr)] sm:items-start">
       <aside className="sm:sticky sm:top-20">
-        <h2 className="my-4 text-[28px] font-bold leading-[34px] tracking-[-0.022em] sm:mt-0">
+        <h2 className="ui-text-section-title">
           Standings
           <i className="not-italic" style={{ color: COLORS.blue }}>
             .
@@ -1163,7 +1112,7 @@ function StandingsTab({
               key={key}
               aria-pressed={board === key}
               onClick={() => onBoardChange(key)}
-              className="rounded-[10px] px-[15px] text-[13px] font-semibold capitalize"
+              className="rounded-[10px] px-[15px] text-sm font-semibold capitalize"
               style={{
                 height: 32,
                 background: board === key ? COLORS.card : "transparent",
@@ -1283,15 +1232,15 @@ function BoardRow({
       >
         {rank}
       </span>
-      <span className="min-w-0 truncate text-[15px] font-semibold">
+      <span className="min-w-0 truncate text-base font-semibold">
         {who}
         {me ? (
-          <small className="ml-2 text-[13px] font-normal" style={{ color: COLORS.blue }}>
+          <small className="ml-2 text-sm font-normal" style={{ color: COLORS.blue }}>
             You
           </small>
         ) : null}
       </span>
-      <span className="text-[15px] font-semibold tabular-nums">{fmt(points)}</span>
+      <span className="text-base font-semibold tabular-nums">{fmt(points)}</span>
       <div
         className="col-span-2 col-start-2 h-1.5 overflow-hidden rounded-full"
         style={{ background: me ? "rgba(0,122,255,.14)" : COLORS.fill2 }}
@@ -1335,11 +1284,8 @@ function RewardsTab({
 }) {
   return (
     <>
-      <h2 className="my-4 text-[28px] font-bold leading-[34px] tracking-[-0.022em]">
+      <h2 className="ui-text-section-title mb-3">
         Rewards
-        <i className="not-italic" style={{ color: COLORS.blue }}>
-          .
-        </i>
       </h2>
       <Section res={milestonesRes} onRetry={onRetry} retryLabel="your reward progress">
         {(milestones) => {
@@ -1352,9 +1298,9 @@ function RewardsTab({
             catalogue.some((entry) => expected[entry.milestone_key as keyof typeof expected] !== entry.threshold)) {
             return (
               <Card className="p-[22px]" >
-                <h3 className="text-xl font-semibold">Rewards policy unavailable</h3>
+                <h3 className="ui-text-section-title">Rewards policy unavailable</h3>
                 <p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>
-                  The new reward catalogue has not been activated. Your qualified referrals and previously earned rewards are preserved.
+                  Rewards are not available yet. Your progress is saved.
                 </p>
                 <p className="mt-3 text-sm" style={{ color: COLORS.text2 }}>
                   {fmt(milestones.lifetime_qualified_count)} lifetime qualified referrals · {milestones.earned.length} recorded rewards
@@ -1379,11 +1325,10 @@ function RewardsTab({
                 >
                   <div>
                     <p className="referral-reward-eyebrow">Your next reward</p>
-                    <h3 className="referral-reward-title">
+                    <h3 className="referral-reward-title ui-text-section-title">
                       {nextLabel[0]}
                     </h3>
-                    {nextLabel[1] ? <p className="mt-[5px] text-sm" style={{ color: COLORS.text2 }}>Worth {nextLabel[1]}</p> : null}
-                    <p className="referral-reward-remaining"><strong>{fmt(next.threshold - count)} more.</strong><span>Qualified referrals to make it yours.</span></p>
+                    <p className="referral-reward-remaining"><strong>{fmt(next.threshold - count)} more.</strong><span>Qualified referrals to go.</span></p>
                   </div>
                   <div className="referral-reward-stage">
                     <RewardArtwork milestoneKey={next.milestone_key} title={nextLabel[0] ?? next.reward} />
@@ -1406,12 +1351,12 @@ function RewardsTab({
                 </Card>
               ) : (
                 <Card rewardKey="iphone_10000" className="p-6">
-                  <div className="flex items-center gap-6"><div className="h-40 w-28 shrink-0"><RewardArtwork milestoneKey="iphone_10000" title="iPhone" /></div><div><h3 className="text-[28px] font-semibold">All rewards unlocked</h3><p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>{fmt(count)} qualified referrals. You have reached all four milestones.</p></div></div>
+                  <div className="flex items-center gap-6"><div className="h-40 w-28 shrink-0"><RewardArtwork milestoneKey="iphone_10000" title="iPhone" /></div><div><h3 className="ui-text-section-title">All rewards unlocked</h3><p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>{fmt(count)} qualified referrals. You have reached all four milestones.</p></div></div>
                 </Card>
               )}
 
               <div className="-mb-1.5 flex items-baseline justify-between gap-3">
-                <h3 className="text-lg font-semibold">Milestones</h3>
+                <h3 className="ui-text-section-title">Milestones</h3>
                 <p className="text-xs" style={{ color: COLORS.text2 }}>
                   {earnedKeys.size} of 4 unlocked
                 </p>
@@ -1446,16 +1391,15 @@ function RewardsTab({
                             <RewardArtwork milestoneKey={entry.milestone_key} title={label[0] ?? entry.reward} />
                           </span>
                           <span
-                            className="text-[10px] font-semibold sm:text-[11px]"
+                            className="text-xs font-semibold sm:text-xs"
                             style={{ color: earned ? "#137a35" : isNext ? "#006dcc" : COLORS.text2 }}
                           >
                             {earned ? "Unlocked" : isNext ? "Up next" : "Milestone"}
                           </span>
                         </div>
-                        <h4 className="text-[15px] font-semibold leading-[1.4] tracking-[-0.01em]">
+                        <h4 className="ui-text-headline">
                           {label[0]}
                         </h4>
-                        {label[1] ? <p className="mt-[3px] text-xs" style={{ color: COLORS.text2 }}>Worth {label[1]}</p> : null}
                         <p
                           className="mt-auto pt-5 text-xs tabular-nums"
                           style={{ color: earned ? "#137a35" : COLORS.text2, fontWeight: earned ? 600 : 400 }}
@@ -1467,7 +1411,7 @@ function RewardsTab({
                   );
                 })}
               </ol>
-              <p className="text-xs" style={{ color: COLORS.text2 }}>Unlocked shows qualified-referral progress. Reward fulfillment follows your recorded entitlements.</p>
+              <p className="text-xs" style={{ color: COLORS.text2 }}>Unlocked rewards follow the program’s claim and delivery terms.</p>
             </div>
           );
         }}
@@ -1479,173 +1423,49 @@ function RewardsTab({
 function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRetry: () => void }) {
   return (
     <>
-      <h2 className="my-4 text-[28px] font-bold leading-[34px] tracking-[-0.022em]">
+      <h2 className="ui-text-section-title mb-3">
         How referrals work
-        <i className="not-italic" style={{ color: COLORS.blue }}>
-          .
-        </i>
       </h2>
-      <ol className="referral-rules-steps">
-        {["Invite", "Verify", "Finish setup", "Earn points", "Unlock rewards"].map((step, i) => (
-          <li key={step} className="flex items-center gap-1.5">
-            <span className="referral-rule-step-number">{i + 1}</span>{step}
-          </li>
-        ))}
-      </ol>
-      <div className="referral-duo grid gap-4 sm:grid-cols-2">
-        <div>
-          <Section res={policyRes} onRetry={onRetry} retryLabel="referral rules">{(policy) => <Card className="referral-rules-points p-[22px]">
-            <div className="referral-rules-card-title"><Zap className="size-5" aria-hidden="true" /><h3>Make every invite count</h3></div>
-            <ul className="-mt-2.5 -mb-3">
+      <div className="referral-duo referral-rules-grid grid gap-4 sm:grid-cols-2">
+        <Section res={policyRes} onRetry={onRetry} retryLabel="referral rules">{(policy) => (
+          <Card className="referral-rules-points p-5">
+            <div className="referral-rules-card-title"><Zap className="size-5" aria-hidden="true" /><h3 className="ui-text-section-title">Points</h3></div>
+            <ul className="referral-points-list">
               {[
-                ["Qualified referral", `${fmt(policy.points.qualified_referral_points)} points`],
-                ["Referral streak bonus", `+${fmt(policy.streak_rules.bonus_points)} points`],
-                ["Flash referral, when active", `${fmt(policy.points.flash_window_total_points)} total`],
-                ["Clicks or incomplete sign-ups", "0 points"],
-                ["Challenge duration", policy.challenge_duration_days ? `${policy.challenge_duration_days} days` : "Not yet scheduled"],
-                ["Milestone progress", "Qualified referrals"],
-                ["Circle contribution", "1 per referral"],
-              ].map(([label, value], i) => (
-                <li
-                  key={label}
-                  className="flex min-h-[50px] items-center justify-between gap-4 text-[15px]"
-                  style={{ borderTop: i === 0 ? undefined : `1px solid ${COLORS.sep}` }}
-                >
-                  <span className="referral-rule-label">{i < 3 ? (i === 1 ? <FlameIcon active /> : <Zap aria-hidden="true" />) : <ShieldCheck aria-hidden="true" />}{label}</span>
-                  <b className="referral-rule-value text-right font-semibold tabular-nums">{value}</b>
+                { title: "Qualified referral", value: `${fmt(policy.points.qualified_referral_points)} points`, icon: <ShieldCheck aria-hidden="true" /> },
+                { title: "Referral streak bonus", value: `+${fmt(policy.streak_rules.bonus_points)} points`, icon: <Flame aria-hidden="true" /> },
+                { title: "Flash referral, when active", value: `${fmt(policy.points.flash_window_total_points)} total`, icon: <Zap aria-hidden="true" /> },
+                { title: "PKM master", detail: "Save a new memory each day", value: "+10 points", icon: <Brain aria-hidden="true" /> },
+                { title: "Agent explorer", detail: "Use a different specialist", value: "+20 points", icon: <Bot aria-hidden="true" /> },
+                { title: "Connection builder", detail: "Make a new connection", value: "+5 points", icon: <UserPlus aria-hidden="true" /> },
+              ].map((point) => (
+                <li key={point.title}>
+                  <span className="referral-rule-icon">{point.icon}</span>
+                  <div className="referral-rule-label">
+                    <h4 className="referral-point-title">{point.title}</h4>
+                    {point.detail ? <p className="referral-point-detail">{point.detail}</p> : null}
+                  </div>
+                  <b className="referral-rule-value font-semibold tabular-nums">{point.value}</b>
                 </li>
               ))}
             </ul>
-          </Card>}</Section>
-          <p className="mx-[22px] mt-2.5 text-xs" style={{ color: COLORS.text2 }}>
-            Your active program sets point amounts. Recorded points
-            appear after a referral qualifies and is processed.
-          </p>
-        </div>
-        <Card className="referral-rules-details p-1" aria-label="Referral rules">
-          <div className="referral-rules-card-title"><Trophy className="size-5" aria-hidden="true" /><h3>The path to your rewards</h3></div>
-          <RuleSection title="What makes a referral count?" defaultOpen>
-            <ol className="list-decimal space-y-1.5 pl-4">
-              <li>Share your personal invitation link with a friend who is new to One.</li>
-              <li>
-                Your friend opens your link, creates their account, verifies their phone and
-                finishes the required One setup.
-              </li>
-              <li>
-                Each eligible account can credit one referrer. The first eligible referral linked
-                to that account is kept; another link cannot replace it later.
-              </li>
-              <li>
-                Self-referrals and duplicate referrals do not count. Link clicks and unfinished
-                sign-ups earn no points.
-              </li>
-            </ol>
-          </RuleSection>
-          <RuleSection title="Your points and One profile">
-            <ul className="list-disc space-y-1.5 pl-4">
-              <li>
-                Your link, recorded points and milestone progress belong to the One account you
-                are signed in to. Your public display name does not create a separate points
-                balance.
-              </li>
-              <li>
-                The active program determines the award per qualified referral. During an
-                active flash window, its total award replaces the standard award.
-              </li>
-              <li>
-                Streak bonuses follow the active program's run length and point rules.
-                Each streak day requires a qualified referral. Multiple referrals on one day
-                still count as one streak day.{" "}
-                <b className="font-semibold" style={{ color: COLORS.text }}>
-                  This is a separate referral bonus. The weekly challenge still lasts seven days.
-                </b>{" "}
-                A streak can continue across weekly rounds.
-              </li>
-              <li>
-                Your recorded total includes awarded bonuses and corrections. Points may appear
-                before your published rank updates; pending referrals are not yet earned points.
-              </li>
-            </ul>
-          </RuleSection>
-          <RuleSection title="Weekly challenge and rewards">
-            <ul className="list-disc space-y-1.5 pl-4">
-              <li>
-                The You tab shows the deadline from the active program schedule. An unset
-                schedule is shown as not yet scheduled.
-              </li>
-              <li>
-                Your recorded points and milestone progress carry forward. They do not restart at
-                the beginning of each week.
-              </li>
-              <li>
-                Published individual standings use cumulative point totals. Weekly prize
-                eligibility, closing times and tie rules follow the announced program terms.
-              </li>
-              <li>
-                The Rewards tab shows the active program's milestone thresholds and recorded
-                entitlements. Bonus points do not increase your referral count.
-              </li>
-              <li>
-                Unlocked means the milestone has been reached. Reward availability, claiming and
-                delivery follow the published reward terms.
-              </li>
-            </ul>
-          </RuleSection>
-          <RuleSection title="Circles and Circle Wars">
-            <ul className="list-disc space-y-1.5 pl-4">
-              <li>Choose one referral circle from the circles you already belong to.</li>
-              <li>
-                Each qualified referral adds{" "}
-                <b className="font-semibold" style={{ color: COLORS.text }}>one contribution</b> to the circle
-                selected when your friend qualifies. Personal bonus points do not multiply this
-                contribution.
-              </li>
-              <li>
-                Changing circles affects future contributions. Earlier contributions stay with the
-                circle that received them.
-              </li>
-              <li>
-                Circle standings show recorded referral contributions. A circle's position
-                does not by itself award a prize.
-              </li>
-            </ul>
-          </RuleSection>
+            <p className="referral-preview-note">Memory, agent and connection rewards are coming soon.</p>
+          </Card>
+        )}</Section>
+        <Card className="referral-rules-details p-5" aria-label="Referral rules">
+          <div className="referral-rules-card-title"><Trophy className="size-5" aria-hidden="true" /><h3 className="ui-text-section-title">Rules</h3></div>
+          <ol className="referral-visual-rules">
+            <li><span><Link2 aria-hidden="true" /></span><div><h4>Invite a friend</h4><p>Share your link with someone new.</p></div></li>
+            <li><span><ShieldCheck aria-hidden="true" /></span><div><h4>They finish setup</h4><p>Sign up, verify their phone, and finish setup.</p></div></li>
+            <li><span><Trophy aria-hidden="true" /></span><div><h4>You earn points</h4><p>Every qualifying friend brings your next reward closer.</p></div></li>
+          </ol>
+          <div className="referral-rule-highlights">
+            <p><Flame aria-hidden="true" /><span><b>Keep your streak</b>One qualifying friend a day. Keep it going.</span></p>
+            <p><ShieldCheck aria-hidden="true" /><span><b>New friends only</b>Self-referrals and unfinished sign-ups do not count.</span></p>
+            <p><Zap aria-hidden="true" /><span><b>Flash boost</b>When active, flash points replace the standard award.</span></p>
+          </div>
         </Card>
       </div>
     </>
-  );
-}
-
-function RuleSection({
-  title,
-  defaultOpen,
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <details
-      className="group px-[22px] py-3 last:border-0"
-      style={{ borderBottom: `1px solid ${COLORS.sep}` }}
-      open={defaultOpen}
-    >
-      <summary className="flex min-h-[52px] cursor-pointer list-none items-center justify-between gap-4 text-[16px] font-medium">
-        {title}
-        <ChevronGlyph />
-      </summary>
-      <div className="pb-4 text-sm leading-[1.5]" style={{ color: COLORS.text2 }}>{children}</div>
-    </details>
-  );
-}
-
-function ChevronGlyph() {
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-block size-2 shrink-0 rotate-[-45deg] border-r-2 border-b-2 transition-transform group-open:rotate-45"
-      style={{ borderColor: COLORS.chevron }}
-    />
   );
 }

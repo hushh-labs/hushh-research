@@ -549,7 +549,8 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
       purpose: "private purpose",
     });
     expect(harness.shown[0]?.title).toBe("Payment needed");
-    expect(harness.shown[0]?.options?.body).toContain("Pay $10");
+    // The owner sets the price, so a push never names a fixed amount.
+    expect(harness.shown[0]?.options?.body).toBe("Pay in One to continue your document request.");
     const data = harness.shown[0]?.options?.data as Record<string, unknown>;
     expect(data.url).toBe("/one/feed");
     expect(JSON.stringify(data)).not.toMatch(/private\.pdf|private purpose/);

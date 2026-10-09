@@ -147,6 +147,15 @@ class DriveSharingService:
         await wake_drive_work("sharing")
         return result
 
+    async def allow(self, *, user_id, request_id, revision, amount_cents):
+        """A's Allow hands one request to the automatic search; nothing is shared yet."""
+        await self._require_owner()
+        result = await self.store.allow_request(
+            user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
+        )
+        await wake_drive_work("suggestions")
+        return result
+
     async def retry_preparation(self, **kwargs):
         await self._require_owner()
         result = await self.store.retry_preparation(**kwargs)

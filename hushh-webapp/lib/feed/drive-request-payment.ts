@@ -1,6 +1,10 @@
 import { documentShareRequestId, isDocumentShareEntry } from "@/lib/consent/document-share-consent";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
+import {
+  formatDocumentRequestPrice,
+  isValidDocumentRequestPriceCents,
+} from "@/lib/consent/document-request-price";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type { SharingRequestContext } from "@/lib/services/drive-sharing-service";
 
@@ -12,6 +16,8 @@ export interface FeedDrivePayment {
   title: string;
   description: string;
   requestedAt: number | null;
+  /** The payment order's whole-dollar price in cents, as the server projected it. */
+  amountCents: number;
   /** A terminal payment stays inspectable from Feed, even without an action. */
   href?: string;
   /** Provider checkout deadline in epoch milliseconds, when one is active. */
@@ -130,7 +136,7 @@ export function formatPaymentRemaining(remainingMs: number): string {
 
 /** Recompute copy/status from the local clock without waiting for a refetch. */
 export function describeFeedDrivePayment(
-  payment: Pick<FeedDrivePayment, "status" | "ownerLabel" | "expiresAt" | "requestedAt">,
+  payment: Pick<FeedDrivePayment, "status" | "amountCents" | "ownerLabel" | "expiresAt" | "requestedAt">,
   now = Date.now(),
   context?: SharingRequestContext,
 ): Pick<FeedDrivePayment, "status" | "title" | "description"> {
@@ -143,7 +149,10 @@ export function describeFeedDrivePayment(
     status === "ready" && payment.expiresAt !== null
       ? Math.max(0, payment.expiresAt - now)
       : null;
-  return { status, ...paymentCopy(status, payment.ownerLabel, remainingMs, payment.requestedAt, context) };
+  return {
+    status,
+    ...paymentCopy(status, payment.amountCents, payment.ownerLabel, remainingMs, payment.requestedAt, context),
+  };
 }
 
 function compactPurpose(context: SharingRequestContext): string {
@@ -169,11 +178,13 @@ function requestedDate(requestedAt: number | null): string | null {
 
 function paymentCopy(
   status: FeedDrivePaymentStatus,
+  amountCents: number,
   owner: string | null,
   remainingMs: number | null = null,
   requestedAt: number | null = null,
   context?: SharingRequestContext,
 ): Pick<FeedDrivePayment, "title" | "description"> {
+  const price = formatDocumentRequestPrice(amountCents);
   const subject = context ? compactPurpose(context) : null;
   const deadline = remainingMs !== null && remainingMs > 0
     ? formatPaymentRemaining(remainingMs)
@@ -181,7 +192,7 @@ function paymentCopy(
   if (subject) {
     return {
       title: status === "expired" ? "Document request expired"
-        : status === "link_expired" ? "Payment link expired" : `Pay $10 · ${subject}`,
+        : status === "link_expired" ? "Payment link expired" : `Pay ${price} · ${subject}`,
       description: [
         status === "ready" ? null : subject,
         owner ? `From ${owner}` : null,
@@ -195,7 +206,7 @@ function paymentCopy(
     return {
       title: status === "expired" ? "Document request expired"
         : status === "link_expired" ? "Payment link expired"
-          : owner ? `Pay $10 for files from ${owner}` : "Pay $10 for your document request",
+          : owner ? `Pay ${price} for files from ${owner}` : `Pay ${price} for your document request`,
       description: [status !== "ready" && owner ? `From ${owner}` : null, requested, deadline]
         .filter(Boolean).join(" · "),
     };
@@ -215,20 +226,20 @@ function paymentCopy(
     return owner
       ? {
           title: "Payment link expired",
-          description: `The $10 link for files from ${owner} expired.`,
+          description: `The ${price} link for files from ${owner} expired.`,
         }
       : {
           title: "Payment link expired",
-          description: "The $10 link expired.",
+          description: `The ${price} link expired.`,
         };
   }
   return owner
     ? {
-        title: `Pay $10 for files from ${owner}`,
+        title: `Pay ${price} for files from ${owner}`,
         description: deadline ? `${deadline} to pay.` : `You requested files from ${owner}. Pay to continue.`,
       }
     : {
-        title: "Pay $10 for your document request",
+        title: `Pay ${price} for your document request`,
         description: deadline ? `${deadline} to pay.` : "Sharing starts after payment.",
       };
 }
@@ -245,8 +256,11 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
     const requestId = documentShareRequestId(entry.id);
     if (!requestId || entry.metadata?.direction !== "outgoing") continue;
     const metadata = entry.metadata || {};
+    // The order fixes the price: an owner-set amount or the $10 Trusted Circle
+    // default. A malformed amount never becomes a Pay action.
+    const amountCents: unknown = metadata.paymentAmountCents;
     if (
-      Number(metadata.paymentAmountCents) !== 1000 ||
+      !isValidDocumentRequestPriceCents(amountCents) ||
       nonEmptyString(metadata.paymentCurrency).toLowerCase() !== "usd"
     ) continue;
     const paymentStatus = nonEmptyString(metadata.paymentStatus).toLowerCase();
@@ -273,6 +287,7 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
     );
     const copy = paymentCopy(
       effectiveStatus,
+      amountCents,
       ownerLabel,
       effectiveStatus === "ready" && expiresAt !== null ? Math.max(0, expiresAt - now) : null,
       requestedAt,
@@ -295,6 +310,7 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
       status: effectiveStatus,
       ...copy,
       requestedAt,
+      amountCents,
       ownerLabel,
       expiresAt,
       href:

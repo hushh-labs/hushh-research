@@ -7,13 +7,20 @@ Canonical visual owner: [Architecture Index](../architecture/README.md).
 ```mermaid
 sequenceDiagram
     participant Chris
+    participant Manish
     participant PrivateAgent as Manish's private agent
     participant Feed
     participant Stripe
     participant Drive
     Chris->>PrivateAgent: Request documents
+    alt Chris is in Manish's Trusted circle
+        PrivateAgent->>PrivateAgent: Price is $10
+    else Chris is outside the Trusted circle
+        PrivateAgent->>Feed: Deny or Allow for Manish
+        Manish->>PrivateAgent: Allow at a whole-dollar price
+    end
     PrivateAgent->>Drive: Search and freeze shareable batch
-    PrivateAgent->>Feed: Pay $10 request
+    PrivateAgent->>Feed: Pay request at that price
     Feed->>Chris: Payment action
     Chris->>Stripe: Complete hosted Checkout
     Stripe->>PrivateAgent: Signed payment webhook
@@ -26,17 +33,36 @@ sequenceDiagram
 For a Trusted Circle request, the private agent searches under the existing owner
 authority, freezes the first nonempty shareable batch, and puts a **Pay $10** item
 in the requester's Feed. After Stripe confirms payment, the Drive worker resumes
-the exact-file grant flow without another owner approval. For a non-trusted
-request, the owner first approves the request in Consent Center; only then does
-the requester receive the same payment step. Files are never shared before a
-successful payment.
+the exact-file grant flow without another owner approval.
 
-The fee is **one USD 10.00 charge per request**, independent of document count or
-the number of progressive 25-file batches. No payment item is created when the
-search finds zero shareable files. Earlier requests retain their original free
-behavior because `payment_required` defaults to false and is set only on new
-eligible requests while the rollout switch is on. The selected-file indexing
-lane and the owner-reviewed question lane are outside this gate.
+A request from anyone outside the Trusted circle waits in the owner's Feed under
+**Needs you** with **Deny** and **Allow**. Allow opens a price sheet with $10,
+$20 and $30 choices or a custom whole-dollar amount from $1 to $500. The sheet
+first shows what Allow grants, read from the owner's review: the purpose, the
+period, the recipient's Google account and **Viewer, until removed**. Allow
+stays off until those terms load, and it answers that review's revision. After
+Allow, the request runs the same automatic pipeline as a Trusted request:
+background Drive search, the first frozen batch, a payment order at the owner's
+price (for example **Pay $20** in the requester's Feed), and automatic sharing
+after payment. Deny declines the request, and the requester sees **Declined your
+file request**. Until the first batch is frozen, the owner can still decline an
+allowed request from its review.
+
+Where Allow is offered, the request shows only Allow and Deny, not an exact-file
+review. The owner's manual exact-file review, charged at the default $10 after
+approval, remains for requests that cannot be allowed: a current Trusted
+member's request made before the owner's Drive was live, a request whose owner's
+Drive is not live, or a request whose Allow a disconnect ended. Files are never
+shared before a successful payment.
+
+Each request has **one charge**, independent of document count or the number of
+progressive 25-file batches: USD 10.00 for a Trusted request, or the owner's
+price for an allowed request. No payment item is created when the search finds
+zero shareable files. Earlier requests retain their original free behavior
+because `payment_required` defaults to false and is set only on new eligible
+requests while the rollout switch is on. When a request does not require
+payment, Allow takes no price and the request runs free. The selected-file
+indexing lane and the owner-reviewed question lane are outside this gate.
 
 The payment layer exposes only opaque workflow identifiers to Stripe. The
 existing live Drive search still runs on the backend with Manish's delegated
@@ -45,7 +71,8 @@ as end-to-end or strict cryptographic zero knowledge of the Drive documents.
 
 ## Search latency and bounded requests
 
-Both trusted and owner-approved requests use the same metadata search engine.
+Trusted, owner-allowed and owner-reviewed requests use the same metadata search
+engine.
 New request planning runs concurrently with already queued searches, so a slow
 planner does not consume their worker slice before Google receives a query.
 The existing authority checks, durable checkpoints and retry backoff remain in
@@ -71,8 +98,8 @@ For every bounded request, the store deduplicates candidates and selects the
 newest N globally using the requested timestamp and a deterministic file-ID tie
 break. It freezes final positions atomically. Intermediate candidates cannot be
 reviewed, paid for or shared. Unshareable files within the newest N are not
-silently replaced with older files. Once finalized, the existing trusted or
-owner-approval path continues, followed by one request-bound payment.
+silently replaced with older files. Once finalized, the automatic path or the
+owner's review continues, followed by one request-bound payment.
 
 Automated synthetic provider tests compare identical selections across 10,000
 originals in two corpora: ordinary and tied latest-100 cases need 5 provider calls
@@ -92,16 +119,32 @@ define the native query, pagination and corpus boundaries used here.
 1. A new eligible request is created with `payment_required=true` only when
    `DRIVE_REQUEST_PAYMENTS_ENABLED=true`. Trusted-auto requests retain the
    existing Trusted Circle, verified identity, live connection, owner preference,
-   and request-expiry checks. Non-trusted requests remain owner-gated until
-   Consent Center approval.
+   and request-expiry checks. A request from outside the Trusted circle does
+   nothing until the owner decides. Allow is accepted only while the request is
+   pending, unexpired, not stopped, has a date range and has not started a
+   search, the requester is not a current Trusted member, the owner's Drive is
+   live, and the two people still have an active connection. Allow re-seals the
+   request envelope with the `trusted_auto` marker and an owner Allow record
+   holding the price. Every automatic recheck then accepts either current
+   Trusted membership or that sealed record with an active connection between
+   the two people. The plaintext `owner_allowed_at` column is the Consent
+   Center's projection hint and never grants authority, but it can end it: a
+   disconnect clears it in the same transaction, so the Allow ends for good.
+   Reconnecting never restores it, as it never restores revoked scope grants or
+   named Circles. A pending automatic request then returns to the owner's
+   manual review, as a Trusted request does when its Trusted relationship
+   changes.
 2. Preparation freezes at least one shareable file before it creates the single
    request-bound payment order and durable requester Feed event. Owner-private
    filenames, request wording, contents, Google IDs, and email addresses stay out
    of the payment order, Stripe metadata, webhook logs, and push notification.
 3. Only the authenticated requester may create or reuse a Stripe-hosted Checkout
-   Session. Checkout uses fixed `usd` and `1000` cents and a server-selected
-   return origin. A success URL is an indication to refresh status, never proof
-   of payment.
+   Session. Checkout charges `usd` and the amount stored on the order, with a
+   server-selected return origin. The order fixes that amount when it is
+   created: `1000` cents for a Trusted or owner-reviewed request, or the owner's
+   price for an allowed one. Migration 291 limits every live order and retained
+   obligation to whole dollars from `100` to `50000` cents. A success URL is an
+   indication to refresh status, never proof of payment.
 4. The public webhook verifies Stripe's signature on the raw request body,
    matches its session, amount, currency, request ID, and opaque payer binding to
    the stored order, and settles once. Replayed or out-of-order events cannot
@@ -111,8 +154,9 @@ define the native query, pagination and corpus boundaries used here.
    dispatched or shown. Revocation, erasure, and provider reconciliation retain
    their existing authority paths.
 6. The Feed row is durable. Push notification is best effort and contains only
-   fixed copy and an opaque request ID. Opening Feed or returning from Checkout
-   reads authoritative server state.
+   fixed copy and an opaque request ID: **Payment needed** and "Pay in One to
+   continue your document request." The push never carries the price. Opening
+   Feed or returning from Checkout reads authoritative server state.
 7. A paid request that reaches a terminal state with zero confirmed grants is
    held from further sharing and enters one durable Stripe refund attempt. The
    private scheduled sharing drain checks uncertain outcomes before issuing a
@@ -147,14 +191,16 @@ origin. The backend refuses Checkout if these values are absent or mismatched.
    Stripe test secrets are ready, enable the governed UAT deploy. It refuses to turn
    on without both project secrets.
 3. Exercise both paths with a fresh request: no files produces no payment; a
-   frozen nonempty batch produces one concise payment Feed item; non-trusted
-   requests stay blocked until the owner approves; before payment, no Google ACL
-   or recipient link exists; a test payment settles by webhook and resumes grants;
-   a browser return alone changes nothing. Repeat with replayed webhooks, two
-   devices, multiple requests, expired/cancelled requests, zero-delivery refunds,
-   notification delivery failure, and background off. The private Drive worker
-   also needs the UAT Stripe secrets so its scheduled sharing drain can reconcile
-   refunds.
+   frozen nonempty batch produces one concise payment Feed item; a request from
+   outside the Trusted circle stays blocked until the owner decides; Allow at $20
+   produces a **Pay $20** item and the Stripe Checkout total matches; Deny shows
+   the requester a declined request and starts no search; a Trusted request still
+   pays $10; before payment, no Google ACL or recipient link exists; a test
+   payment settles by webhook and resumes grants; a browser return alone changes
+   nothing. Repeat with replayed webhooks, two devices, multiple requests,
+   expired/cancelled requests, zero-delivery refunds, notification delivery
+   failure, and background off. The private Drive worker also needs the UAT
+   Stripe secrets so its scheduled sharing drain can reconcile refunds.
 4. Production remains off until its live Drive worker/scheduler and the same
    acceptance path work. Put the production `sk_live_` key and the production
    endpoint's `whsec_` secret in `hushh-pda` Secret Manager, register the public
@@ -162,6 +208,15 @@ origin. The backend refuses Checkout if these values are absent or mismatched.
    `DRIVE_REQUEST_PAYMENTS_PROD_ENABLED=true`, and use the governed production
    deployment. Test a low-volume real payment and confirmed grant before
    expanding exposure.
+
+Release requester clients that accept owner prices before owners can set one.
+iOS and Android builds bundle the web assets, and a build released before owner
+pricing shows a Pay row and accepts a payment status only for a `1000`-cent
+order. On such a build, an owner-priced order fails closed: the requester sees
+no Pay action and can't check out, so nothing is charged or shared, and the
+request expires. Trusted `$10` orders still work there. Publish the native
+requester builds with the order-price Feed projection and payment status check
+before deploying the backend that lets owners allow at a price.
 
 Turning the switch off stops marking new requests as paid-required. Already
 marked requests stay gated so disabling the switch cannot bypass a charge in
@@ -172,10 +227,26 @@ outstanding payments and refunds reconcile. If an incident requires stopping
 Checkout itself, hold affected requests operationally and reconcile their orders
 before removing credentials. Live orders cascade on request/account erasure, while
 an account-free payment obligation retains only the random request UUID, payer
-digest, fixed amount/currency, provider identifiers and delivery outcome flags.
+digest, amount and currency, provider identifiers and delivery outcome flags.
 It lets the signed webhook and refund drain settle late charges without restoring
 either participant's account or document details. Stripe's merchant records
 follow the payment account's separate retention rules.
+
+### Migration 291: owner Allow and owner price
+
+Migration 291 adds the nullable `drive_share_requests.owner_allowed_at` column.
+It replaces the `amount_cents = 1000` checks on `drive_request_payment_orders`
+and `drive_request_payment_obligations` with one bound: whole dollars from `100`
+to `50000` cents. It finds the old checks by definition, not by generated name.
+The `1000` default stays, so Trusted orders and orders written by the previous
+release are unchanged. Every step is catalog-guarded, so a replay changes
+nothing and waits behind no live reader or writer.
+
+The rollback refuses while any live order or retained obligation holds a price
+other than `1000` cents, because the restored check would reject that row.
+Otherwise it restores the fixed check and drops the column. Sealed owner Allow
+records stay in request envelopes. The previous release requires current Trusted
+membership for automatic work, so those requests stop instead of sharing.
 
 ### Activation check: bulk sharing and account erasure
 
@@ -191,10 +262,11 @@ writes.
 
 ## Decisions for launch
 
-Hussh is the merchant account. The implemented policy is an automatic full refund
-for a paid request that ultimately delivers zero files, and Stripe test-mode
-UAT before live production charging. A Manish payout would require Stripe Connect
-and a separate payout contract.
+Hussh is the merchant account. Manish sets the price for a request he allows,
+but receives no payout: that would require Stripe Connect and a separate payout
+contract. The implemented policy is an automatic full refund for a paid request
+that ultimately delivers zero files, and Stripe test-mode UAT before live
+production charging.
 
 ## Refund reconciliation
 
@@ -210,8 +282,8 @@ record a full refund made through Stripe. [Stripe idempotency reference](https:/
 Monitor `drive_request_payment_refunds` for `manual_review` or `failed`, joined
 to `drive_request_payment_obligations` by `request_id`. For `manual_review`, inspect
 the stored PaymentIntent and its refunds in the same Stripe account. If Stripe
-has no full USD 10.00 refund, issue one manually for that PaymentIntent; the
-worker will observe it. If the request still exists, it emits Chris's refund Feed
+has no full refund of the obligation's `amount_cents`, issue one manually for
+that PaymentIntent; the worker will observe it. If the request still exists, it emits Chris's refund Feed
 event after Stripe confirms success; after account erasure, the retained obligation
 and Stripe refund are the operational evidence. Resolve a mismatched, failed, or canceled provider refund with payment
 operations before changing a local order. Keep the order's

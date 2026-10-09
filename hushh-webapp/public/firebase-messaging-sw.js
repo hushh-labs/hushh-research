@@ -45,7 +45,7 @@ const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE = {
   },
   document_share_payment_ready: {
     title: "Payment needed",
-    body: "Pay $10 in One to continue your document request.",
+    body: "Pay in One to continue your document request.",
   },
   document_share_payment_confirmed: {
     title: "Payment confirmed",

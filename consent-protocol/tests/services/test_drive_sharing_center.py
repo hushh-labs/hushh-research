@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, text
 
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
 from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor, entry
 from tests.services.test_drive_permission_executor import (  # noqa: F401
     connector_postgres_url,
@@ -24,6 +25,7 @@ from tests.services.test_drive_permission_executor import (  # noqa: F401
 )
 from tests.services.test_drive_request_bulk_postgres import request_bulk  # noqa: F401
 from tests.services.test_drive_sharing_store import request, review
+from tests.services.test_drive_trusted_auto import _connection, _membership, _request
 
 
 @pytest.mark.parametrize(
@@ -383,7 +385,11 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
         "recorded_outcome_only",
         "automatic_progress_active",
         "automatic_progress_stage",
+        "accessStopped",
         "owner_attention_required",
+        "owner_decision_available",
+        "owner_allowed",
+        "payment_required",
     }
     assert row["metadata"]["owner_attention_required"] is True
     assert "recipient@example" not in str(snapshot) and "purpose" not in str(snapshot)
@@ -670,6 +676,86 @@ async def test_trusted_progress_is_participant_scoped_and_tracks_durable_work(
     expired = (await projection.page("owner", bucket="history", limit=1))["items"][0]
     assert expired["metadata"]["automatic_progress_active"] is False
     assert expired["metadata"]["automatic_progress_stage"] is None
+
+
+@pytest.mark.asyncio
+async def test_owner_decision_is_offered_only_for_fresh_requests_outside_trust(
+    sharing, request_bulk
+):
+    projection = DriveSharingCenterContributor(db=sharing.db)
+
+    async def items(user_id: str) -> dict[str, dict]:
+        preview = await projection.preview(user_id)
+        return {
+            item["request_id"]: item for bucket in preview["buckets"].values() for item in bucket
+        }
+
+    _membership(sharing, "active")
+    trusted = (await _request(sharing))["requestId"]
+    _membership(sharing, "removed")
+    fresh, allowed, started, expired = [(await _request(sharing))["requestId"] for _ in range(4)]
+    owner_initiated = (await _request(sharing, owner_initiated=True))["requestId"]
+    await sharing.allow_request(user_id="owner", request_id=allowed, revision=0, amount_cents=2000)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET bulk_search_started_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": started},
+        )
+        connection.execute(
+            text("""UPDATE drive_share_requests SET
+              created_at=clock_timestamp()-INTERVAL '31 days',
+              expires_at=clock_timestamp()-INTERVAL '1 day'
+              WHERE request_id=:request"""),
+            {"request": expired},
+        )
+    owner = await items("owner")
+    assert {key for key, item in owner.items() if item["metadata"]["owner_decision_available"]} == {
+        fresh
+    }
+    assert owner[trusted]["metadata"]["owner_allowed"] is False
+    assert owner[fresh]["metadata"]["owner_attention_required"] is True
+    assert owner[fresh]["metadata"]["payment_required"] is True
+    assert owner[owner_initiated]["metadata"]["payment_required"] is False
+    # A current Trusted member keeps the Trusted path, even for a request with no
+    # automatic marker (one made before the owner's Drive was live).
+    _membership(sharing, "active")
+    assert (await items("owner"))[fresh]["metadata"]["owner_decision_available"] is False
+    _membership(sharing, "removed")
+    assert (await items("owner"))[fresh]["metadata"]["owner_decision_available"] is True
+    # After Allow the request leaves Needs you; both participants see the same
+    # automatic progress a Trusted request shows.
+    requester = await items("recipient")
+    for item in (owner[allowed], requester[allowed]):
+        assert item["metadata"]["owner_allowed"] is True
+        assert item["metadata"]["automatic_progress_active"] is True
+    assert owner[allowed]["metadata"]["owner_attention_required"] is False
+    assert not any(item["metadata"]["owner_decision_available"] for item in requester.values())
+    assert "payment_required" not in requester[fresh]["metadata"]
+
+    # Allow carries automatic work only while the pair is connected.
+    _connection(sharing, "removed")
+    owner = await items("owner")
+    assert owner[allowed]["metadata"]["automatic_progress_active"] is False
+    assert owner[allowed]["metadata"]["owner_attention_required"] is True
+    assert owner[fresh]["metadata"]["owner_decision_available"] is False
+    # The disconnect ends the Allow, so reconnecting brings back no automatic work.
+    with sharing.db.engine.begin() as connection:
+        end_owner_allows_for_disconnected_pair(connection, user_a_id="owner", user_b_id="recipient")
+    _connection(sharing, "active")
+    owner = await items("owner")
+    assert owner[allowed]["metadata"]["owner_allowed"] is False
+    assert owner[allowed]["metadata"]["automatic_progress_active"] is False
+    assert owner[allowed]["metadata"]["owner_attention_required"] is True
+    assert owner[allowed]["metadata"]["owner_decision_available"] is False
+    assert owner[fresh]["metadata"]["owner_decision_available"] is True
+    # Allow/Deny needs the owner's live Drive as well.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE user_external_connector_connections SET validation_state='unverified'
+              WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    assert (await items("owner"))[fresh]["metadata"]["owner_decision_available"] is False
 
 
 @pytest.mark.asyncio

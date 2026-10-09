@@ -369,6 +369,86 @@ describe("useSheetDragHandle", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
+  it("drags only the sheet a gesture starts in, never the sheet beneath it", () => {
+    // A price sheet opened from inside the Consent Center's request sheet is a
+    // portal out of that sheet's DOM, but React still bubbles its pointer
+    // events up through the outer sheet's handlers. Without an ownership
+    // check, swiping the inner sheet down dismissed the request under it too.
+    const outerOpenChange = vi.fn();
+    const innerOpenChange = vi.fn();
+    render(
+      <Sheet open onOpenChange={outerOpenChange}>
+        <SheetContent side="bottom" aria-label="Request">
+          <p>Request</p>
+          <Sheet open onOpenChange={innerOpenChange}>
+            <SheetContent side="bottom" aria-label="Price">
+              <p data-testid="inner-body">Price</p>
+            </SheetContent>
+          </Sheet>
+        </SheetContent>
+      </Sheet>,
+    );
+    const [outer, inner] = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot="sheet-content"]'),
+    );
+    const innerHandle = inner!.querySelector<HTMLElement>(
+      '[data-slot="sheet-drag-handle"]',
+    )!;
+
+    vi.useFakeTimers();
+    try {
+      for (const start of [screen.getByTestId("inner-body"), innerHandle]) {
+        fireEvent.pointerDown(start, { clientY: 100, pointerId: 1 });
+        fireEvent.pointerMove(start, { clientY: 140, pointerId: 1 });
+        fireEvent.pointerMove(start, { clientY: 300, pointerId: 1 });
+        expect(outer!.style.transform).toBe("");
+        fireEvent.pointerUp(start, { clientY: 300, pointerId: 1 });
+        vi.advanceTimersByTime(1_000);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(innerOpenChange).toHaveBeenCalledWith(false);
+    expect(outerOpenChange).not.toHaveBeenCalled();
+    expect(outer!.style.transform).toBe("");
+  });
+
+  it("brings a sheet back when its owner refuses to close it", () => {
+    // A decision in flight refuses dismissal. The swipe has already moved the
+    // surface off-screen, and the controlled `open` never changes, so without
+    // settling back the sheet stays open and invisible behind its scrim.
+    const onOpenChange = vi.fn();
+    render(
+      <Sheet open onOpenChange={onOpenChange}>
+        <SheetContent side="bottom" aria-label="Busy">
+          <p data-testid="busy-body">Allowing…</p>
+        </SheetContent>
+      </Sheet>,
+    );
+    const surface = document.querySelector<HTMLElement>(
+      '[data-slot="sheet-content"]',
+    )!;
+    const body = screen.getByTestId("busy-body");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(body, { clientY: 100, pointerId: 1 });
+      fireEvent.pointerMove(body, { clientY: 140, pointerId: 1 });
+      fireEvent.pointerMove(body, { clientY: 300, pointerId: 1 });
+      fireEvent.pointerUp(body, { clientY: 300, pointerId: 1 });
+      vi.advanceTimersByTime(150);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(surface.style.transform).toBe("translate3d(0, 100%, 0)");
+      vi.advanceTimersByTime(1_000);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(surface).toHaveAttribute("data-state", "open");
+    expect(surface.style.transform).toBe("");
+  });
+
   it("closes on the handle's keyboard affordance, as before", () => {
     const onOpenChange = vi.fn();
     render(

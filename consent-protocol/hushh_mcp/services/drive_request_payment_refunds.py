@@ -1,4 +1,8 @@
-"""Durable full-refund reconciliation for paid requests with no delivered files."""
+"""Durable full-refund reconciliation for paid requests with no delivered files.
+
+A refund is always for the paid obligation's own amount: the claim carries it
+into the provider lookup, the create call and the final match.
+"""
 
 from __future__ import annotations
 
@@ -193,6 +197,7 @@ def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
             {
                 "request_id": str(request_id),
                 "payment_intent": order["stripe_payment_intent_id"],
+                "amount_cents": order["amount_cents"],
                 "attempt_id": str(refund["attempt_id"]),
                 "refund_id": refund["stripe_refund_id"],
                 "first_dispatch_at": dispatched["first_dispatch_at"],
@@ -223,7 +228,7 @@ def _provider_refund(service, claim: dict, key: str) -> tuple[dict | None, str |
             r
             for r in refunds
             if r.get("payment_intent") == intent
-            and r.get("amount") == 1000
+            and r.get("amount") == claim["amount_cents"]
             and r.get("currency") == "usd"
         ]
         if len(refunds) != 1 or len(exact) != 1:
@@ -233,7 +238,7 @@ def _provider_refund(service, claim: dict, key: str) -> tuple[dict | None, str |
         return None, "idempotency_window_elapsed"
     refund = api.Refund.create(
         payment_intent=intent,
-        amount=1000,
+        amount=claim["amount_cents"],
         metadata={"payment_kind": "drive_request", "request_id": claim["request_id"]},
         api_key=key,
         idempotency_key=f"drive-request-refund-{claim['request_id']}-{claim['attempt_id']}",
@@ -289,7 +294,7 @@ def _finish_refund(service, connection, claim: dict, refund: dict | None, error:
     if refund is not None:
         if (
             refund.get("payment_intent") != claim["payment_intent"]
-            or refund.get("amount") != 1000
+            or refund.get("amount") != claim["amount_cents"]
             or refund.get("currency") != "usd"
             or not isinstance(refund.get("id"), str)
         ):
