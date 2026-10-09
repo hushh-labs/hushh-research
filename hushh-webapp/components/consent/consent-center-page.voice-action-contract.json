@@ -59,7 +59,7 @@
     {"action_id": "consent.cancel_request", "label": "Cancel a request you sent", "meaning": "Withdraws an information request the owner sent that the other person has not decided yet. With no bundle_id it withdraws the request sent most recently in this conversation, which is the usual case; the Agent One app confirmation ledger authorizes the cancellation.", "aliases": ["cancel my information request", "withdraw that request", "cancel that request I just sent", "take back my information request"], "search_keywords": ["cancel", "withdraw", "request", "sent", "consent"], "reachability": {"routes": ["/", "/one", "/one/consent", "/people/[personRef]", "/one/connect"], "screens": ["app", "one_agents", "consents", "one_person_profile", "connect"], "hidden_navigable": false, "navigation_prerequisites": []}, "guard_ids": ["auth_signed_in", "vault_owner_token"], "risk_level": "medium", "execution_policy": "confirm_required", "execution_target": {"status": "wired", "path": "local_handler", "target": "consent.cancel_request"}, "control_ids": [], "state_exposure": ["pending request count"], "docs_references": ["docs/reference/iam/consent-scope-catalog.md"], "speaker_persona": "one", "goal": {"goal_id": "goal.consent.cancel_request", "slot_schema": {"bundle_id": "opaque_bundle_id_optional"}, "required_inputs": [], "workflow_steps": [{"type": "action", "action_id": "consent.cancel_request", "label": "Cancel a request you sent", "settlement_target": {"route": "/one/consent", "screen": "consents"}}]}, "text_backend_executor": {"binding": "consent.cancel_request", "confirmation_only": true}}
   ],
   "search": {
-    "source_revision": "4756d244237fa15fc43d3bdd3591dcff720076ca053275526e19d48de9818e63",
-    "source_module_count": 1511
+    "source_revision": "e984e2973e81072fce79999e4b17aaca0d4761bc4a3c6087261ad9445879feab",
+    "source_module_count": 1508
   }
 }

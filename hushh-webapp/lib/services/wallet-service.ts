@@ -41,14 +41,21 @@ export interface WalletCardSecrets {
 }
 
 export interface WalletCardInput {
-  nickname: string;
+  nickname?: string;
+  brand?: CardBrand;
   pan: string;
   cvv?: string;
   pin?: string;
   cardholderName: string;
   expiryMonth: number;
   expiryYear: number;
-  issuingRegion: string;
+  issuingRegion?: string;
+}
+
+/** Owner-only display projection. Never pass this to agent/chat summary callers. */
+export interface WalletCardPresentation {
+  summary: WalletCardSummary;
+  cardholderName: string;
 }
 
 interface VaultContextParams {
@@ -75,6 +82,14 @@ function toSummary(cardId: string, value: unknown): WalletCardSummary | null {
   };
 }
 
+function summariesFromDomain(data: Record<string, unknown> | null): WalletCardSummary[] {
+  const branch = isRecord(data?.summary) ? data.summary : {};
+  return Object.entries(branch)
+    .map(([cardId, value]) => toSummary(cardId, value))
+    .filter((entry): entry is WalletCardSummary => entry !== null)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.cardId.localeCompare(b.cardId));
+}
+
 export class WalletService {
   static isEnabled(): boolean {
     return true;
@@ -83,8 +98,10 @@ export class WalletService {
   static validateCard(input: WalletCardInput): CardValidationResult {
     return validateCardForRegion({
       pan: input.pan,
+      brand: input.brand,
       cvv: input.cvv,
       pin: input.pin,
+      cardholderName: input.cardholderName,
       expiryMonth: input.expiryMonth,
       expiryYear: input.expiryYear,
       issuingRegion: input.issuingRegion,
@@ -99,19 +116,33 @@ export class WalletService {
       domain: WALLET_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
-    return isRecord(data) ? data : null;
+    });
+    if (data !== null && !isRecord(data)) {
+      throw new Error("Your saved cards could not be read. Please try again.");
+    }
+    return data;
   }
 
   static async listCardSummaries(
     params: VaultContextParams,
   ): Promise<WalletCardSummary[]> {
     const data = await this.loadDomain(params);
-    const branch = isRecord(data?.summary) ? data.summary : {};
-    return Object.entries(branch)
-      .map(([cardId, value]) => toSummary(cardId, value))
-      .filter((entry): entry is WalletCardSummary => entry !== null)
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+    return summariesFromDomain(data);
+  }
+
+  /** One decrypted read for the unlocked owner UI; credentials never leave this service. */
+  static async listCardPresentations(
+    params: VaultContextParams,
+  ): Promise<WalletCardPresentation[]> {
+    const data = await this.loadDomain(params);
+    const secrets = isRecord(data?.secrets) ? data.secrets : {};
+    return summariesFromDomain(data).map((summary) => {
+      const cardSecrets = secrets[summary.cardId];
+      return {
+        summary,
+        cardholderName: isRecord(cardSecrets) ? String(cardSecrets.cardholder_name ?? "") : "",
+      };
+    });
   }
 
   /** Decrypts one card fully. Call only from a reveal surface; never hand the result to a model. */
@@ -141,7 +172,7 @@ export class WalletService {
       surface: PkmUserConfirmation["surface"];
       source: string;
     },
-  ): Promise<{ cardId: string; summary: WalletCardSummary }> {
+  ): Promise<{ cardId: string; summary: WalletCardSummary; cardholderName: string }> {
     if (!this.isEnabled()) {
       throw new Error("Payment cards are not enabled in this environment.");
     }
@@ -152,12 +183,12 @@ export class WalletService {
     const cardId = `card_${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
     const summaryRecord = {
-      nickname: params.card.nickname.trim(),
+      nickname: params.card.nickname?.trim() ?? "",
       brand: validation.brand ?? "other",
       last4: validation.last4,
       expiry_month: params.card.expiryMonth,
       expiry_year: params.card.expiryYear,
-      issuing_region: params.card.issuingRegion.trim().toUpperCase(),
+      issuing_region: params.card.issuingRegion?.trim().toUpperCase() ?? "",
       created_at: createdAt,
     };
     const secretsRecord = {
@@ -188,7 +219,11 @@ export class WalletService {
         return next;
       },
     });
-    return { cardId, summary: toSummary(cardId, summaryRecord)! };
+    return {
+      cardId,
+      summary: toSummary(cardId, summaryRecord)!,
+      cardholderName: secretsRecord.cardholder_name,
+    };
   }
 
   static async updateCardNickname(

@@ -318,7 +318,7 @@ function GmailConnectorChatCard({ onOpenConnections }: {
   >
     <AlertDialog open={confirm} onOpenChange={setConfirm}><AlertDialogContent size="sm"><AlertDialogHeader>
       <AlertDialogTitle>Disconnect Gmail?</AlertDialogTitle>
-      <AlertDialogDescription>One will no longer read your Gmail through this connection. This does not revoke access in your Google Account.</AlertDialogDescription>
+      <AlertDialogDescription>One will stop reading Mail and delete its synced Mail receipt data. Information saved to private memory stays. You can also remove app access in your Google Account.</AlertDialogDescription>
     </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel size="standard" className="min-w-0 w-full px-3" disabled={busy}>Cancel</AlertDialogCancel>
       <AlertDialogAction size="standard" className="min-w-0 w-full px-3" aria-label="Disconnect Gmail" disabled={busy} onClick={event => {
         event.preventDefault();

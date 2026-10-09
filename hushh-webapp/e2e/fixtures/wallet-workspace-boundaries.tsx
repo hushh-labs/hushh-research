@@ -3,6 +3,7 @@
 // card, and nothing leaves the page. The scenario is read from
 // `window.__walletScenario`, set by the spec before the fixture script runs.
 import React from "react";
+import { detectBrand } from "../../lib/wallet/card-validation";
 
 type FixtureCard = {
   cardId: string;
@@ -24,6 +25,7 @@ type Scenario = {
   locked?: boolean;
   delayMs?: number;
   error?: boolean;
+  artworkGallery?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -37,6 +39,7 @@ declare global {
   interface Window {
     __walletScenario?: Scenario;
     __walletEvents?: string[];
+    __walletRemount?: () => void;
   }
 }
 
@@ -77,6 +80,11 @@ export class WalletService {
     if (scenario().error) throw new Error("Your cards could not be loaded.");
     return cards().map(summaryOf);
   }
+  static async listCardPresentations() {
+    await wait();
+    if (scenario().error) throw new Error("Your cards could not be loaded.");
+    return cards().map((card) => ({ summary: summaryOf(card), cardholderName: card.cardholderName }));
+  }
   static async getCard({ cardId }: { cardId: string }) {
     record(`reveal:${cardId}`);
     const card = cards().find((entry) => entry.cardId === cardId);
@@ -90,9 +98,23 @@ export class WalletService {
     record(`delete:${cardId}`);
     store = cards().filter((card) => card.cardId !== cardId);
   }
-  static async addCard() {
+  static async addCard({ card }: { card: {
+    nickname: string; brand?: string; pan: string; cardholderName: string;
+    cvv: string; pin?: string; expiryMonth: number; expiryYear: number; issuingRegion?: string;
+  } }) {
+    await wait();
     record("add");
-    return { cardId: "card_new", summary: summaryOf(SYNTHETIC[0]!) };
+    const saved: FixtureCard = {
+      ...card,
+      cardId: `card_saved_${cards().length + 1}`,
+      brand: card.brand || detectBrand(card.pan) || "other",
+      last4: card.pan.slice(-4),
+      issuingRegion: card.issuingRegion || "",
+      pin: card.pin || "",
+      createdAt: "2026-10-09T00:00:00.000Z",
+    };
+    cards().push(saved);
+    return { cardId: saved.cardId, summary: summaryOf(saved), cardholderName: saved.cardholderName };
   }
   static matchesQuery(card: { nickname: string; brand: string; last4: string; issuingRegion: string }, query: string) {
     const q = query.trim().toLowerCase();

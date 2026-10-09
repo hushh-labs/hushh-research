@@ -33,20 +33,25 @@ flowchart LR
   cold OAuth return therefore requires a fresh vault unlock; the existing
   same-window popup flow preserves the already open session naturally.
 - `/one/email` is a compact handoff surface. A disconnected account is sent to
-  `/one/gmail`; a connected account opens One with the approval-first drafting
-  prompt.
-- One Google OAuth request includes both `gmail.readonly` and `gmail.send`.
+  `/one/gmail`; a connected account opens One with an empty composer, awaiting
+  the owner's request.
+- The initial web Google OAuth request asks for `gmail.readonly`; an explicit
+  send path requests `gmail.send` incrementally before delivery. Gmail draft
+  saving and mailbox changes ask for `gmail.compose` and `gmail.modify` in
+  their own reviewed paths.
   The redirect is environment-derived and must exactly equal
   `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return` in the Google OAuth
   client for each environment.
-- A legacy read-only connection remains usable for receipt sync, but must be
-  reconnected once before an owner can send email from One.
+- A read-only connection remains usable for bounded reads. The legacy server
+  receipt sync is disabled during its storage cutover; existing receipt rows
+  remain readable. Sending requires the separate send grant.
 
 Provider `gmail.send` allows the delivery boundary to prepare an owner-reviewed
-message after the combined grant. It never lets One or a chat message send
+message after the incremental grant. It never lets One or a chat message send
 mail directly: every email still requires a visible editable draft, review,
-and the owner’s final **Send email** click. Disconnect revokes and clears the
-canonical connection as before.
+and the owner's final **Send email** click or the distinct reviewed One Voice
+confirmation. Disconnect clears the canonical connection and attempts Google
+token revocation.
 
 ## Delivery contract
 
@@ -92,6 +97,10 @@ safe error code. It never persists recipients, subject, body, OAuth tokens,
 vault credentials, or PKM values. Provider timeouts or a response without a
 Gmail message ID become `outcome_unknown`; the owner is told to check Sent Mail
 and the action is not blindly retried.
+The owner- and vault-authorized `GET /api/one/email/send/status/{action_id}`
+returns only the action ID, state and unknown-outcome flag. The browser may keep
+opaque pending action IDs in owner-scoped session storage to recover a lost
+response after reload; it never keeps an envelope or credential there.
 
 ## Explicit boundaries
 

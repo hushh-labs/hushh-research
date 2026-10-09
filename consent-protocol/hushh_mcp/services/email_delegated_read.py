@@ -160,6 +160,9 @@ _ERRORS = {
     "reconnect_required": "Reconnect Mail in Connections to continue.",
     "connection_changed": "Your Mail connection changed. Please try that request again.",
     "permission_denied": "Mail did not allow that read. Check your connection permissions.",
+    "quota_exceeded": "Gmail's daily read limit was reached. Please try again later.",
+    "domain_policy": "Your Google Workspace policy does not allow this Mail read.",
+    "retryable": "Gmail is temporarily unavailable. Please try again.",
     "source_changed": "The inbox changed during that read. Please try again.",
     "response_too_large": "That inbox result is too large. Try a narrower search.",
     "invalid_argument": (
@@ -726,7 +729,12 @@ async def run_delegated_mail_read(
         return _result(
             conversation_id,
             _ERRORS.get(exc.code, "Mail is temporarily unavailable. Please try again."),
-            exc.code if exc.code in _ERRORS else "unavailable",
+            (
+                exc.code
+                if exc.code in _ERRORS
+                and exc.code not in {"quota_exceeded", "domain_policy", "retryable"}
+                else "unavailable"
+            ),
             failure_stage=stage,
             analysis_failed=analysis_categories if stage == "analysis" else (),
         )
