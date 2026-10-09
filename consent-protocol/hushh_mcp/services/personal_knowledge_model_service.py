@@ -371,10 +371,13 @@ class PersonalKnowledgeModelService:
         return canonical_domain
 
     async def _run_rpc(self, function_name: str, params: Optional[dict] = None):
-        call = self.db.rpc(function_name, params or {})
-        if not hasattr(call, "execute"):
-            return call
-        return await asyncio.to_thread(call.execute)
+        def execute_rpc():
+            # The canonical SQL client executes eagerly in rpc(); compatible
+            # lazy clients execute afterward. Both belong off the API loop.
+            call = self.db.rpc(function_name, params or {})
+            return call.execute() if hasattr(call, "execute") else call
+
+        return await asyncio.to_thread(execute_rpc)
 
     @staticmethod
     def _unwrap_rpc_payload(rpc_result: Any, function_name: str) -> Any:
@@ -2126,6 +2129,8 @@ class PersonalKnowledgeModelService:
         self,
         user_id: str,
         domains: list[str],
+        *,
+        raise_on_error: bool = False,
     ) -> dict[str, dict]:
         """Return several domain manifests using one read per manifest table.
 
@@ -2211,6 +2216,8 @@ class PersonalKnowledgeModelService:
             }
         except Exception as exc:
             logger.error("Error getting domain manifests for user=%s: %s", user_id, exc)
+            if raise_on_error:
+                raise
             return {}
 
     async def record_mutation_event(

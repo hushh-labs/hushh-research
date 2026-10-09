@@ -57,5 +57,5 @@ it("suppresses only exact saved fields of the same UID and sends changed or miss
 it("keeps wrong destinations and extra policy facts out of the save UI", async () => {
   const prepared = await mocks.prepare();
   mocks.prepare.mockResolvedValue({ ...prepared, cards: [{ ...prepared.cards[0], target_domain: "identity" }] });
-  expect(await prepareConnectorMemoryReview(input)).toMatchObject({ cards: [], incomplete: true, alreadySaved: false });
+  await expect(prepareConnectorMemoryReview(input)).rejects.toMatchObject({ reason: "contract_rejected" });
 });
