@@ -177,6 +177,25 @@ operators set `PG_RESTORE_BIN` explicitly when the host default differs.
 Reports remain under ignored `tmp/` and never contain plaintext protected
 information.
 
+Capture runs within one repeatable-read, read-only transaction, including the
+catalog, table digests, null counts and ciphertext aggregates. For a logical
+backup, keep an exporting transaction open and pass its `pg_export_snapshot()`
+identifier to both the capture tool's `--snapshot-id` and `pg_dump --snapshot`.
+Close the exporter only after both operations finish. Keep the identifier in
+process memory. The final source-preservation check still requires current
+state under the bounded write-freeze; an earlier shared snapshot cannot prove
+that subsequent writes preserved the source.
+
+Pin extension namespaces and versions before restoring into the empty clone.
+PostgreSQL client-major parity alone does not prevent `CREATE EXTENSION` from
+selecting a newer default version. A restore that differs in extension version
+or catalog representation is not accepted evidence. Reconstruct a deparsed
+object only in the disposable clone, from its exact authored migration DDL,
+after independently checking its column types, constraint/index flags and
+bindings. Retain the repair recipe and source hashes, then rerun the unchanged
+exact catalog and information comparison. Do not normalize away differences or
+omit changing operational tables to obtain a pass.
+
 This logical dump/restore procedure is a **nonproduction baseline tool**. It is not the
 production recovery path: production recovery is Cloud SQL automated backups plus
 PITR, described in

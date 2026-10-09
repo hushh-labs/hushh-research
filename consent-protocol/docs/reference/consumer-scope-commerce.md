@@ -1876,6 +1876,34 @@ and its installation/outbox families accompany the canonical schema declarations
 The Memory/Account changes remain source-verified; shared Dev deployment and
 reviewer Stripe transactions remain unverified. Payment admission stays disabled.
 
+### Combined candidate and restore qualification — 2026-10-09
+
+Memory Saved/Add, integrated sharing and pricing, the Account earnings/activity
+surfaces and the Memory/Structure agent manifests passed full hosted CI at
+`890e29975d602a93f8df2a574b63ab7a7207bb52`. The subsequent migration-lineage and
+account-erasure candidate `6d64de03b78e78a02683fc5121de355e2b75d8ba` passed the full
+local core bundle. It erases both push-registration stores and preserves newer
+Drive event types during replay. These checks do not establish deployment or
+Stripe settlement.
+
+Frontend-only Dev run
+[37998768181](https://github.com/hushh-labs/hushh-research/actions/runs/37998768181)
+refused before build or migration: the candidate changes the account-lifecycle
+boundary and must deploy with its backend. Preserve that scope guard. The
+serving Dev release remains unchanged pending the combined release.
+
+A logical backup restored into the task-owned temporary database, but its exact
+comparison refused qualification. The clone selected pgvector 0.8.5 instead of
+source 0.8.1; nine catalog objects changed cast representation during SQL
+deparse/reparse; operational registry/nonce records changed between the serial
+capture and backup. No baseline was recorded and no source database migration
+ran. The capture tool now uses a coherent read-only snapshot, supports the same
+exported snapshot as the backup and includes column lengths/precision. A real
+PostgreSQL concurrency test passes; the original capture fails its negative
+control. Extension pinning, bounded clone-only catalog reconstruction and the
+original exact comparison remain required. Paid admission and live activity
+stay disabled.
+
 The existing 056/057 replay-preservation guards remain in the active source.
 A negative-control rehearsal against main's older seed bodies failed both
 bootstrap replay stability and refreshed/curated-profile preservation. No test

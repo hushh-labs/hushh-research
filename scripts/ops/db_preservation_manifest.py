@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -72,7 +73,8 @@ async def _catalog(conn: asyncpg.Connection) -> dict[str, Any]:
     columns = await conn.fetch(
         """
         SELECT table_name, column_name, ordinal_position, data_type, udt_name,
-               is_nullable, column_default
+               is_nullable, column_default, character_maximum_length,
+               numeric_precision, numeric_scale, datetime_precision, collation_name
         FROM information_schema.columns
         WHERE table_schema = 'public'
         ORDER BY table_name, ordinal_position
@@ -258,6 +260,22 @@ async def _foreign_key_orphans(conn: asyncpg.Connection) -> list[dict[str, Any]]
     return results
 
 
+@asynccontextmanager
+async def _snapshot_connection(database_url: str, timeout: float, snapshot_id: str = ""):
+    if snapshot_id and not re.fullmatch(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{8}-[0-9]+", snapshot_id):
+        raise ValueError("invalid exported PostgreSQL snapshot identifier")
+    conn = await asyncpg.connect(database_url, command_timeout=timeout)
+    try:
+        async with conn.transaction(isolation="repeatable_read", readonly=True):
+            if snapshot_id:
+                # SET TRANSACTION requires a literal; the closed grammar above
+                # admits only PostgreSQL's opaque export identifier.
+                await conn.execute(f"SET TRANSACTION SNAPSHOT '{snapshot_id}'")
+            yield conn
+    finally:
+        await conn.close()
+
+
 async def run(args: argparse.Namespace) -> int:
     repo_root = Path(__file__).resolve().parents[2]
     output = _required_tmp_output(repo_root, args.output)
@@ -274,9 +292,9 @@ async def run(args: argparse.Namespace) -> int:
 
         database_url = get_database_url()
     started = time.time()
-    conn = await asyncpg.connect(database_url, command_timeout=float(args.statement_timeout))
-    try:
-        await conn.execute("SET default_transaction_read_only = on")
+    async with _snapshot_connection(
+        database_url, float(args.statement_timeout), getattr(args, "snapshot_id", "")
+    ) as conn:
         identity = await conn.fetchrow(
             "SELECT current_database() AS database_name, current_setting('server_version_num') AS version"
         )
@@ -399,8 +417,6 @@ async def run(args: argparse.Namespace) -> int:
             "catalog_sha256", "duration_ms", "violation_count"
         )}))
         return 0 if report["status"] in {"ok", "capture_only"} else 1
-    finally:
-        await conn.close()
 
 
 def parse_args() -> argparse.Namespace:
@@ -428,6 +444,11 @@ def parse_args() -> argparse.Namespace:
         help="Checksum independently verified for the backup restored into this database.",
     )
     parser.add_argument("--statement-timeout", type=float, default=300.0)
+    parser.add_argument(
+        "--snapshot-id",
+        default="",
+        help="Import the same still-open exported snapshot used by pg_dump --snapshot.",
+    )
     return parser.parse_args()
 
 
