@@ -416,10 +416,20 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
   });
 
-  it("keeps only Saved and Add, with exact-scope sharing and price controls in Saved", async () => {
-    vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockImplementation(async (_owner, domain) => domain === "financial" ? financialManifest("consent_required") as never : null);
+  it("keeps Saved/Add with verified sharing and retries unavailable manifests in place", async () => {
+    vi.spyOn(ConsentCenterService, "getCenter").mockRejectedValueOnce(new Error("consent unavailable"));
+    vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockRejectedValue(new Error("manifest unavailable"));
     vi.mocked(ScopeCommerceService.tariff).mockResolvedValue({ scope_handle: "financial.profile", machine_scope: "attr.financial.profile.*", price_cents: 1, base_duration_seconds: 3600, tariff_revision: 1 });
     await openMainScreen();
+    expect(await screen.findByText("Some sharing settings could not be checked. Try again before changing access.")).toBeVisible();
+    expect(screen.queryByText("Nothing to share yet.")).toBeNull();
+    expect(screen.getByTestId("memory-category-financial")).toBeTruthy();
+    expect(screen.queryByText(/no active access/i)).toBeNull();
+    expect(screen.queryByText(/shared/i)).toBeNull();
+    vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockImplementation(async (_owner, domain) => domain === "financial" ? financialManifest("consent_required") as never : { domain, scope_registry: [] } as never);
+    fireEvent.click(screen.getByRole("button", { name: "Retry sharing settings" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry sharing settings" })).toBeNull());
+    expect(push).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("textbox", { name: "Memory note" })).toBeTruthy();
@@ -1161,28 +1171,6 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(await screen.findByRole("textbox", { name: "Memory note" })).toBeDisabled();
     await act(async () => finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
-  });
-
-  it("still renders the Saved screen when domain-level sharing verification fails", async () => {
-    vi.spyOn(ConsentCenterService, "getCenter").mockRejectedValueOnce(new Error("consent unavailable"));
-
-    await openMainScreen();
-    // No crash, no false access claim, categories still browsable.
-    expect(screen.getByTestId("memory-category-financial")).toBeTruthy();
-    expect(screen.queryByText(/no active access/i)).toBeNull();
-    expect(screen.queryByText(/shared/i)).toBeNull();
-  });
-
-  it("distinguishes unavailable scope manifests from empty sharing and retries in place", async () => {
-    vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockRejectedValue(new Error("manifest unavailable"));
-    await openMainScreen();
-    expect(await screen.findByText("Some sharing settings could not be checked. Try again before changing access.")).toBeVisible();
-    expect(screen.queryByText("Nothing to share yet.")).toBeNull();
-    vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockResolvedValue(financialManifest("consent_required") as never);
-    fireEvent.click(screen.getByRole("button", { name: "Retry sharing settings" }));
-    await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry sharing settings" })).toBeNull());
-    expect(push).not.toHaveBeenCalled();
   });
 
   // ── Issue #6307: item sharing acts in place, never opens the Consent Center ──
