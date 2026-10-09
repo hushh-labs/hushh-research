@@ -552,6 +552,14 @@ passed, 203 skipped); three parallel runs each passed the same 6,388 with the
 same 203 skipped and zero failures, in 186 s, 59 s and 103 s. The three
 `ONE_COMMAND_TEST_DATABASE_URL` Postgres files, run concurrently against one
 shared database three times, passed 57/57 each time and left no schema behind.
+The protocol service uses PostgreSQL 17 with pgvector 0.8.6, pinned to the
+upstream OCI index `sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f`
+through Google's public `mirror.gcr.io` cache. On October 9, two hosted runs were
+refused by Docker Hub before checkout. Both registries returned that same index
+and platform digests; the mirror changes transport without changing the database
+fixture. A missing cached digest must fail initialization. See
+[Google's cache contract](https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images).
+
 Before the switch CI spent 321 s in serial pytest (of a 7.8 min `Protocol
 (Python)` p50). Enabling it surfaced one class of defect: two route tests
 baked a module-level `uuid4()` into their parametrize ids, so every worker
