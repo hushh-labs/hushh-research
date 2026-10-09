@@ -32,6 +32,7 @@ import os
 import re
 from typing import Any, Optional
 
+from hushh_mcp.runtime_environment import scope_commerce_test_pin_environment
 from hushh_mcp.runtime_settings import pod_turn_enabled
 from hushh_mcp.services.compute_backend import (
     BACKEND_GCP,
@@ -342,8 +343,7 @@ class GcpBackend:
                     "memory": self._memory,
                 }
             },
-            # Identity + pins only. No secrets: BYOK keys and consent tokens
-            # arrive per-turn at runtime.
+            # Identity and public pins only; BYOK keys and consent tokens arrive per turn.
             "env": [
                 {"name": "HUSSH_ID", "value": spec.hushh_id},
                 {"name": "HUSSH_BILLING_SPACE_ID", "value": spec.billing_space_id or ""},
@@ -415,8 +415,7 @@ class GcpBackend:
                     "name": "HUSSH_POD_HUB_CALLER_EMAILS",
                     "value": _hub_caller_email(self._invoker_member),
                 },
-                # The consent-token VERIFYING keys (Ed25519, public half only --
-                # public material is safe in plain config). This is what lets a
+                # Public Ed25519 verifying keys are safe in plain config and let a
                 # pod check a token's authenticity at its own door without ever
                 # holding anything that could forge one. Empty when the hub has
                 # no asymmetric issuance configured yet.
@@ -430,6 +429,7 @@ class GcpBackend:
                         public_verification_keys(OWNER_FEED), separators=(",", ":")
                     ),
                 },
+                *scope_commerce_test_pin_environment(os.environ),
                 *[
                     {"name": name, "value": _env(name) or ""}
                     for name in (

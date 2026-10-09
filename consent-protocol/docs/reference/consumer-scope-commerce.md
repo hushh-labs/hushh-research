@@ -1668,7 +1668,11 @@ The production component was restored byte-for-byte. The follow-up core initiall
 stopped at the architecture gate because the expanded test increased an already
 oversized module. The same test was tightened without module growth or removing
 its authority assertions; the architecture gate remains unchanged. Complete core
-and terminal CI for this follow-up remain required before deployment.
+and terminal CI for this follow-up remain required before deployment. Candidate
+`2752b5d9e726747a7c90459eec00a89ce36861e5` subsequently passed the complete core
+in 440 seconds. An earlier runner attempt stopped before protocol tests because
+the local process omitted CI's synthetic security environment; the successful
+run used the tracked CI fixtures, without application credentials or gate changes.
 An independently added pod commit remains local and is excluded from the
 published candidate. The developer's original branch and unrelated edits remain
 preserved.
@@ -1687,3 +1691,30 @@ The completed diagnostic job was deleted and absence verified at 08:37:22 UTC.
 No IAM mutation, application promotion, vault commitment or financial action
 occurred. Requalify after the permission change, then use the normal fixed-target
 release and authenticated managed-readiness checks.
+
+### Private-runtime Stripe pin parity, 2026-10-09
+
+Source review found that freshly rendered private pods omitted the configured
+Stripe account/test pin required by the governed verifier. OAuth therefore
+remained documentation-only there. The canonical runtime-environment mapper now
+projects only a syntactically valid account ID with explicit test mode into the
+existing GCP environment contract; owner GCP and Azure inherit that projection.
+Unset, malformed or live configuration emits no admitted pin. The hydrated
+runtime configuration retains its existing direct-environment precedence.
+SDK credentials, webhook secrets, the full runtime configuration and payment
+admission flags are not propagated to pods.
+
+The pin declares the expected account; it is not an authenticated account receipt.
+Owner OAuth, schema checks, paired account/balance receipts, current configuration
+and catalog binding, review policy and tool restrictions remain mandatory.
+Existing pods are not updated by a source change; their owning update workflow
+must render and verify the configuration before private-runtime acceptance.
+No pod rollout or authenticated provider operation has occurred.
+
+The nearest renderer, runtime-map and governed-tool files passed 281 focused
+tests. Restoring the missing projection failed all three positive platform
+variants while the nine inadmissible cases remained denied. Complete final-source
+core and CI remain required. The headless financial rehearsal uses the exported
+canonical runner with a private, role-bound token-provider callback; its generic
+CLI does not construct that callback. Hosted financial actions and each exact
+quote, withdrawal and source refund remain independent human checkpoints.
