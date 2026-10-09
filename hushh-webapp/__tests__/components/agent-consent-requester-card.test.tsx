@@ -435,24 +435,22 @@ describe("InformationRequestReviewView with and without progress", () => {
   // own read of a starved pool and still said "Seen" until 33.5s.
   it("shows Reading… from the doorbell's reading at once, even while its own reads stall", async () => {
     mocks.getInformationRequest.mockResolvedValueOnce(bundle("pending", true));
+    const initialRead = readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token" });
     let phase: "reading" | null = null;
-    const card = () => (
-      <ConsentCardPhaseContext.Provider value={(id) => id === bundleId ? phase : null}>
-        <AgentStructuredExperienceView experience={restored} />
-      </ConsentCardPhaseContext.Provider>
-    );
+    const card = () => <ConsentCardPhaseContext.Provider value={(id) => id === bundleId ? phase : null}>
+      <AgentStructuredExperienceView experience={restored} />
+    </ConsentCardPhaseContext.Provider>;
     const view = render(card());
-    expect(await screen.findByTestId("requester-progress")).toHaveAttribute("data-outcome", "pending");
-    // The doorbell reads the approval; every read after it stalls.
-    mocks.getInformationRequest.mockResolvedValueOnce(bundle("granted", true));
-    mocks.getInformationRequest.mockReturnValue(new Promise(() => undefined));
-    // Rendering pending does not guarantee its shared read has finished its
-    // finally handler. This post-approval reading must not join that older read.
-    await act(async () => { await readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token", fresh: true }); });
+    await act(async () => { await initialRead; }); // Retire the initial lookup before the doorbell reads again.
+    const progress = await screen.findByTestId("requester-progress");
     phase = "reading";
     view.rerender(card());
-    const progress = screen.getByTestId("requester-progress");
-    expect(progress).toHaveAttribute("data-outcome", "granted");
+    expect(progress).toHaveAttribute("data-outcome", "pending"); // Phase cannot authorize access.
+    mocks.getInformationRequest.mockResolvedValueOnce(bundle("granted", true));
+    mocks.getInformationRequest.mockReturnValue(new Promise(() => undefined)); // Every subsequent read stalls.
+    await act(async () => { await readInformationRequest({ bundleId, vaultOwnerToken: "test-owner-token", fresh: true }); });
+    expect(mocks.getInformationRequest).toHaveBeenNthCalledWith(2, { bundleId, vaultOwnerToken: "test-owner-token" });
+    await waitFor(() => expect(progress).toHaveAttribute("data-outcome", "granted"));
     expect(within(progress).getByRole("status")).toHaveTextContent("Reading what Kushal shared…");
   });
 
