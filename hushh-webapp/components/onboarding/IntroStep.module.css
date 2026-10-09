@@ -235,16 +235,16 @@
 /* Solid primary button on the shared pill: no page-specific glow or gradient. */
 .shell .welcomeCta {
   min-height: 52px;
-  background: #0071e3;
-  color: #fff;
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
   font-family: var(--font-app-body);
   font-size: 17px;
   font-weight: 500;
   line-height: 22px;
 }
 
-.shell .welcomeCta:hover:not(:disabled) { background: #0077ed; }
-.shell .welcomeCta:active:not(:disabled) { background: #006acf; }
+.shell .welcomeCta:hover:not(:disabled) { background: var(--app-accent-hover); }
+.shell .welcomeCta:active:not(:disabled) { background: var(--app-accent-hover); }
 
 .link:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 4px; }
 
