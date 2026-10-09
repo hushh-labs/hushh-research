@@ -1800,3 +1800,23 @@ on return. Fit now uses unscrolled layout coordinates including parent borders.
 The unchanged scroll-tail bound fails before the source fix and passes after it.
 All eight affected Chromium/WebKit checks passed, including a repeat run; full
 CI and Dev deployment remain required. No tolerance or real gate was weakened.
+
+Shared Dev payment preparation exposed three lane mismatches: its `dev` runtime
+label was absent from the Sandbox allowlist; the rehearsal counted parked
+migrations as the release head; and the operator webhook sink could not write
+the dedicated commerce secrets mounted by shared Dev. The corrected path admits
+test mode on Dev while rejecting production/live mode, proves the exact release
+manifest through existing ledger checksum and baseline authority without writes,
+and admits only the two commerce webhook destinations at the attested shared
+backend callback. Drive secret destinations remain forbidden. Missing release
+receipts or checksum drift cannot produce a verified schema head.
+
+Read-only Dev evidence at 2026-10-09T20:16:17Z found both commerce admission flags
+off, no commerce provider mounts or account pin, no financial records, and parked
+ledger head 957 with release 289 not recorded applied. The primary reviewer had
+no vault; the counterpart had an active vault. These are setup prerequisites,
+not completed payment stories. Physical iOS work is deferred while another
+coding agent operates the devices. Continue both reviewers' authorized web
+stories using synthetic, normally encrypted information, signed Stripe receipts
+and the existing exact-action confirmation contract. Simulated provider tests
+remain separate from hosted transaction and payout acceptance.

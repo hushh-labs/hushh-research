@@ -1,7 +1,15 @@
 """Read-only, reviewer-restricted attestation of the isolated sandbox binding."""
 
+import json
 import os
+from pathlib import Path
 from typing import Any
+
+from db.migration_authority import (
+    MigrationAuthorityError,
+    build_manifest_entries,
+)
+from db.migration_readiness import verified_manifest_head
 
 from .domain import CommerceError
 
@@ -42,13 +50,19 @@ class SandboxReadiness:
                 raise CommerceError("sandbox_readiness_unbound")
             head = None
             if await c.fetchval("SELECT to_regclass('schema_migrations')"):
-                head = await c.fetchval(
-                    """SELECT max(head) FROM (
-                    SELECT migration_id::integer AS head FROM schema_migrations
-                    WHERE status='applied' AND migration_id ~ '^[0-9]+$'
-                    UNION ALL SELECT baseline_through FROM schema_migrations
-                    WHERE status='baseline') versions"""
-                )
+                # Shared Dev also has parked migrations. Only exact release
+                # receipts or a verified release baseline prove this source.
+                database = Path(__file__).resolve().parents[3] / "db"
+                try:
+                    manifest = json.loads(
+                        (database / "release_migration_manifest.json").read_text()
+                    )
+                    entries = build_manifest_entries(
+                        database / "migrations", manifest["ordered_migrations"]
+                    )
+                    head = await verified_manifest_head(c, entries)
+                except (MigrationAuthorityError, OSError, ValueError, KeyError):
+                    head = None
             return {
                 "app_origin": config.frontend_origin,
                 "environment": "sandbox",

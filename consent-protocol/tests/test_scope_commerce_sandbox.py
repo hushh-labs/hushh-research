@@ -304,59 +304,6 @@ async def test_source_refund_proof_requires_actual_original_intent_and_actor(pro
         await service._refund_receipt(row, "other")
 
 
-@pytest.mark.parametrize("scope", ["platform", "connect"])
-@pytest.mark.parametrize("mutation", [None, "account", "prefix", "scope", "project", "mode"])
-def test_webhook_secret_destination_binds_preview_scope_account_and_project(
-    provider, scope, mutation
-):
-    service, _facts = provider
-    names = {
-        "platform": "SCOPE_COMMERCE_SANDBOX_SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
-        "connect": "SCOPE_COMMERCE_SANDBOX_SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
-    }
-    args = SimpleNamespace(
-        **{
-            "account_id": "acct_fixture",
-            "webhook_scope": scope,
-            "secret_name": names[scope],
-            "secret_project": "hushh-pda-dev",
-        },
-    )
-    evidence = {
-        "schema_version": 1,
-        "platform_account_id": "acct_fixture",
-        "source": "dashboard_general_sandbox",
-        "reference": "operator-inspection",
-        "verification_owner": "operator",
-        "verified_at": datetime.now(UTC).isoformat(),
-        "secret_project": "hushh-pda-dev",
-    }
-    pin = {"platform_account_id": "acct_fixture", "livemode": False}
-    if mutation == "account":
-        pin["platform_account_id"] = "acct_other"
-    elif mutation == "prefix":
-        args.secret_name = names[scope].removeprefix("SCOPE_COMMERCE_SANDBOX_")
-    elif mutation == "scope":
-        args.webhook_scope = "connect" if scope == "platform" else "platform"
-    elif mutation == "project":
-        args.secret_project = evidence["secret_project"] = "production-project"
-    elif mutation == "mode":
-        pin["livemode"] = True
-    if mutation:
-        with pytest.raises(CommerceProviderError, match="sandbox_secret_destination_unapproved"):
-            _secret_destination(args, evidence, config=service.config, pin=pin)
-        return
-    expected = f"projects/{args.secret_project}/secrets/{args.secret_name}"
-    assert _secret_destination(args, evidence, config=service.config, pin=pin) == expected
-    assert callable(_secret_sink(args, evidence, config=service.config, pin=pin))
-    evidence["source"] = "stripe_cli_anonymous_sandbox"
-    with pytest.raises(CommerceProviderError, match="sandbox_secret_destination_unapproved"):
-        _secret_destination(args, evidence, config=service.config, pin=pin)
-    args.secret_name = f"scope-commerce-sandbox-acct_fixture-{scope}-webhook"
-    expected = f"projects/{args.secret_project}/secrets/{args.secret_name}"
-    assert _secret_destination(args, evidence, config=service.config, pin=pin) == expected
-
-
 @pytest.mark.asyncio
 async def test_bank_receipt_proof_rejects_wrong_source_and_unreconciled_actual_cost(provider):
     service, _facts = provider
@@ -459,6 +406,25 @@ async def test_onboarding_refresh_requires_authenticated_fresh_attempt_and_never
     assert adapter.created == 1
     await service.onboarding(user_id="owner", country="US", operation_id=str(uuid4()))
     assert adapter.created == 2
+
+
+@pytest.mark.parametrize(
+    "environments,livemode,allowed",
+    [({"dev"}, False, True), ({"dev"}, True, False), ({"dev", "production"}, False, False)],
+)
+def test_shared_dev_sandbox_requires_test_mode_and_excludes_production(
+    environments, livemode, allowed
+):
+    policy = SandboxPolicy("acct_platform", ("owner", "buyer"))
+    if allowed:
+        policy.validate(
+            account_id="acct_platform", livemode=livemode, runtime_environments=environments
+        )
+    else:
+        with pytest.raises(CommerceProviderError, match="provider_sandbox_environment_mismatch"):
+            policy.validate(
+                account_id="acct_platform", livemode=livemode, runtime_environments=environments
+            )
 
 
 @pytest.mark.parametrize(

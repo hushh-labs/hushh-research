@@ -241,7 +241,10 @@ def _secret_destination(
     config: ScopeCommerceProviderConfig,
     pin: dict[str, Any],
 ) -> str:
-    from scripts.ops.scope_commerce_sandbox_policy import isolation_evidence
+    from scripts.ops.scope_commerce_sandbox_policy import (
+        isolation_evidence,
+        shared_dev_webhook_destination,
+    )
 
     from hushh_mcp.services.scope_commerce.stripe_adapter import CommerceProviderError
 
@@ -253,6 +256,7 @@ def _secret_destination(
     }
     account_name = f"scope-commerce-sandbox-{args.account_id}-{args.webhook_scope}-webhook"
     preview = args.secret_name == preview_names.get(args.webhook_scope)
+    shared = shared_dev_webhook_destination(args, evidence, config)
     if (
         config.sandbox_policy is None
         or config.livemode
@@ -260,7 +264,7 @@ def _secret_destination(
         or pin.get("platform_account_id") != args.account_id
         or pin.get("livemode") is not False
         or args.webhook_scope not in preview_names
-        or (args.secret_name != account_name and not preview)
+        or (args.secret_name != account_name and not preview and not shared)
         or not args.secret_project
         or args.secret_project != evidence.get("secret_project")
         or (preview and args.secret_project != PREVIEW_PROJECT)
