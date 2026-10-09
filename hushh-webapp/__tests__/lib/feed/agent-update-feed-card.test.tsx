@@ -36,6 +36,8 @@ import { AZURE_SIGN_IN_CHANNEL } from "@/lib/one/azure-sign-in";
 
 const SIGN_IN = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=feed";
 const RELEASE = `rel_${"9".repeat(32)}`;
+const OPERATION = "op_feed_9";
+const DIGEST = `sha256:${"a".repeat(64)}`;
 const OFFER: AgentUpdateStatus = {
   ...NO_UPDATE, available: true, offerable: true, releaseId: RELEASE, summary: "Keeps your agent current.",
 };
@@ -45,6 +47,19 @@ function agent(installed: string) {
     installedRelease: { version: installed },
     availableRelease: { version: "2026.10-dev.7", releasedAt: "2026-10-05T12:00:00Z", summary: "", notes: { improvements: [], fixes: [], security: [] } },
     update: { summary: "", presentationState: "updating", phase: "installing" },
+  };
+}
+
+function verifiedInstalledAgent() {
+  return {
+    ...agent("2026.10-dev.7"),
+    installedReleaseVerified: true,
+    installedRelease: { version: "2026.10-dev.7", imageDigest: DIGEST },
+    completedUpdate: {
+      operationId: OPERATION, releaseId: RELEASE, podIncarnation: "pod-9",
+      imageDigest: DIGEST, verifiedAt: "2026-10-05T12:05:00Z",
+      version: "2026.10-dev.7", releasedAt: "2026-10-05T12:00:00Z",
+    },
   };
 }
 
@@ -69,7 +84,7 @@ beforeEach(() => {
   popup = { closed: false, location: { assign: vi.fn() }, focus: vi.fn(), close: vi.fn() };
   vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
   microsoftWindow = new BroadcastChannel(AZURE_SIGN_IN_CHANNEL);
-  mocks.approve.mockResolvedValue({ operationId: "op", releaseId: RELEASE, status: "scheduled" });
+  mocks.approve.mockResolvedValue({ operationId: OPERATION, releaseId: RELEASE, status: "scheduled" });
   mocks.azureUpgrade.mockResolvedValue({ authorizationUrl: SIGN_IN });
   mocks.getStatus.mockResolvedValue(agent("2026.10-dev.6"));
   mocks.setupStatus.mockResolvedValue({
@@ -105,10 +120,16 @@ describe("the Feed's update card for an Azure agent", () => {
     expect(mocks.assign).not.toHaveBeenCalled();
     expect(result.current?.title).toBe("Waiting for your Microsoft sign-in");
 
-    microsoftWindow.postMessage({ type: "azure-setup-started", kind: "upgrade", jobId: "job-9" });
+    microsoftWindow.postMessage({ type: "azure-setup-started", kind: "upgrade", jobId: "job-9", operationId: OPERATION, releaseId: RELEASE });
     await waitFor(() => expect(result.current?.title).toBe("Updating your agent"));
 
     mocks.getStatus.mockResolvedValue(agent("2026.10-dev.7"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(result.current?.title).toBe("Updating your agent");
+    expect(onResolved).not.toHaveBeenCalled();
+    mocks.getStatus.mockResolvedValue(verifiedInstalledAgent());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
@@ -133,7 +154,7 @@ describe("the Feed's update card for an Azure agent", () => {
     await act(async () => {
       await result.current?.actions.find((action) => action.key === "approve")?.run();
     });
-    microsoftWindow.postMessage({ type: "azure-setup-started", kind: "upgrade", jobId: "job-9" });
+    microsoftWindow.postMessage({ type: "azure-setup-started", kind: "upgrade", jobId: "job-9", operationId: OPERATION, releaseId: RELEASE });
     await waitFor(() => expect(result.current?.description).toBe("Confirming the new version with your agent…"));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
@@ -141,6 +162,12 @@ describe("the Feed's update card for an Azure agent", () => {
     expect(result.current?.title).toBe("Updating your agent");
 
     mocks.getStatus.mockResolvedValue(agent("2026.10-dev.7"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(result.current?.title).toBe("Updating your agent");
+    expect(onResolved).not.toHaveBeenCalled();
+    mocks.getStatus.mockResolvedValue(verifiedInstalledAgent());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });

@@ -228,13 +228,7 @@ describe("the Microsoft sign-in return", () => {
     expect(progress).not.toHaveTextContent("Creating your resource group");
   });
 
-  it("confirms a finished update", async () => {
-    complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2" });
-    vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(status({ jobId: "job-2", status: "recorded", stage: "proving" }));
-    render(<AzureCloudReturnPage />);
-    expect(await screen.findByTestId("azure-upgrade-done")).toHaveTextContent("Your agent is updated");
-    expect(screen.getByRole("link", { name: "Open Software updates" })).toHaveAttribute("href", ROUTES.PROFILE_SOFTWARE_UPDATES);
-  });
+  // Verified completion and recorded-job refusal belong to azure-cloud-return-update.test.tsx.
 
   it("never reports another job's record as this update's result", async () => {
     complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2" });
