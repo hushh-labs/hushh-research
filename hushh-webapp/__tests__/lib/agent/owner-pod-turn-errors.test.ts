@@ -48,6 +48,8 @@ describe("direct-path turn errors", () => {
     expect(formatAgentChatErrorMessage("POD_CHALLENGE_REFUSED:revoked")).toMatch(/could not be established/);
     expect(formatAgentChatErrorMessage("ENDPOINT_VERSION_REGRESSION")).toMatch(/could not be established/);
     expect(formatAgentChatErrorMessage("x", "POD_CHAT_BUSY")).toMatch(/finishing active work/);
+    expect(formatAgentChatErrorMessage("private provider details", "POD_CHAT_UPDATING"))
+      .toBe("Your private agent is updating. Check Software updates in Settings before trying again.");
     // Negative controls: a marker inside other text, or unknown text, stays generic.
     expect(formatAgentChatErrorMessage("detail POD_ASSIGNMENT_CHANGED at 10.0.0.1")).toBe(GENERIC);
     expect(formatAgentChatErrorMessage("Failed to fetch https://private.example/x")).toBe(GENERIC);

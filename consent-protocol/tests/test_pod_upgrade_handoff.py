@@ -92,3 +92,46 @@ def test_handoff_waits_for_idle_receipt_and_releases(monkeypatch) -> None:
         ("GET", "https://pod.example/api/one/pod/upgrade/status"),
         ("POST", "https://pod.example/api/one/pod/upgrade/release"),
     ]
+
+
+@pytest.mark.parametrize("updating", [True, False])
+async def test_pod_update_refusal_is_terminal_without_running_the_model(monkeypatch, updating):
+    from contextlib import nullcontext
+    from unittest.mock import AsyncMock
+
+    from ag_ui.core import RunAgentInput
+
+    from hushh_mcp.one_adk import pod_agui_lifetime as pod
+    from hushh_mcp.one_adk.agui_turn_timing import TimedADKAgent
+    from hushh_mcp.services.pod_upgrade_admission import (
+        PodUpgradeAdmissionRefused,
+        PodUpgradeInProgress,
+    )
+
+    refusal = PodUpgradeInProgress if updating else PodUpgradeAdmissionRefused
+    monkeypatch.setattr(
+        pod.ADMISSION, "acquire_turn", AsyncMock(side_effect=refusal("private details"))
+    )
+    sdk = AsyncMock()
+    monkeypatch.setattr(TimedADKAgent, "run", sdk)
+    agent = pod.PodTimedADKAgent.__new__(pod.PodTimedADKAgent)
+    agent.configure_pod_turn(require_access=AsyncMock(), runtime_scope=nullcontext)
+    request = RunAgentInput(
+        thread_id="synthetic-update-turn",
+        run_id="synthetic-run",
+        state={},
+        messages=[],
+        tools=[],
+        context=[],
+        forwarded_props={},
+    )
+    if updating:
+        events = [event async for event in agent.run(request)]
+        assert len(events) == 1
+        assert events[0].code == "POD_CHAT_UPDATING"
+        assert "private details" not in events[0].message
+    else:
+        with pytest.raises(PodUpgradeAdmissionRefused):
+            await anext(agent.run(request))
+    sdk.assert_not_called()
+    assert request.thread_id not in pod._ACTIVE_THREADS

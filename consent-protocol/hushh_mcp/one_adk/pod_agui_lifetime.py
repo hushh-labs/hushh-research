@@ -13,7 +13,11 @@ from ag_ui.core import BaseEvent, EventType, RunAgentInput, RunErrorEvent
 from hushh_mcp.one_adk.agui_turn_timing import TimedADKAgent
 from hushh_mcp.one_adk.mcp_turn_scope import McpTurnResources
 from hushh_mcp.services.chat_key import retain_request_chat_key
-from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+from hushh_mcp.services.pod_upgrade_admission import (
+    ADMISSION,
+    PodUpgradeInProgress,
+    pod_incarnation,
+)
 
 logger = logging.getLogger(__name__)
 _CLEANUP_TASKS: set[asyncio.Task] = set()
@@ -172,6 +176,13 @@ class PodTimedADKAgent(TimedADKAgent):
         _ACTIVE_THREADS.add(input.thread_id)
         try:
             permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+        except PodUpgradeInProgress:
+            _ACTIVE_THREADS.discard(input.thread_id)
+            yield RunErrorEvent(
+                code="POD_CHAT_UPDATING",
+                message="Your private agent is updating. Check Software updates in Settings before trying again.",
+            )
+            return
         except BaseException:
             _ACTIVE_THREADS.discard(input.thread_id)
             raise

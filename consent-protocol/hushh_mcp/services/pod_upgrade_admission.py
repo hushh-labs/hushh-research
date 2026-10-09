@@ -28,6 +28,10 @@ class PodUpgradeAdmissionRefused(RuntimeError):
     """A turn arrived after the pod began an upgrade handoff."""
 
 
+class PodUpgradeInProgress(PodUpgradeAdmissionRefused):
+    """An approved update fences new work; other recovery refusals stay distinct."""
+
+
 @dataclass
 class _State:
     incarnation: str
@@ -192,7 +196,7 @@ class PodUpgradeAdmission:
             state = self._states.setdefault(key, _State(incarnation=key))
             await self._hydrate(state)
             if state.draining:
-                raise PodUpgradeAdmissionRefused("pod is preparing an approved update")
+                raise PodUpgradeInProgress("pod is preparing an approved update")
             state.active += 1
         return TurnPermit(self, key)
 

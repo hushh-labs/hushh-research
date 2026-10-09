@@ -86,16 +86,21 @@ describe("post-onboarding business suggestion", () => {
     render(<BusinessProfileSuggestion {...props} {...(value === false ? { enabled: false } : { tokenExpiresAt: value as number | null })} />);
     await act(async () => undefined); expect(mocks.get).not.toHaveBeenCalled();
   });
-  it("shows a retryable state when the directory is unavailable", async () => {
+  it("keeps an unavailable ambient lookup out of chat without saving anything", async () => {
     mocks.get.mockRejectedValueOnce(new Error("directory unavailable"));
     render(<BusinessProfileSuggestion {...props} />);
-    expect(await screen.findByText(/temporarily unavailable/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Retry business lookup", exact: true })).toBeTruthy();
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Retry business lookup", exact: true })).toBeNull();
+    expect(screen.queryByText(/temporarily unavailable/)).toBeNull();
+    expect(mocks.save).not.toHaveBeenCalled();
   });
-  it("explains when verified contacts are insufficient without showing a false no-match", async () => {
+  it("keeps an empty incomplete lookup quiet without showing a false no-match", async () => {
     mocks.get.mockResolvedValueOnce({ status: "insufficient_signals", candidates: [], coverageIncomplete: true });
     render(<BusinessProfileSuggestion {...props} />);
-    expect(await screen.findByText(/verified contacts could not be used/)).toBeTruthy();
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    expect(screen.queryByText(/verified contacts could not be used/)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Is this your business?" })).toBeNull();
+    expect(mocks.save).not.toHaveBeenCalled();
   });
   it.each(["not_me", "saved", "later"])("durable %s suppresses the nudge without memory writes", async decision => {
     mocks.load.mockResolvedValue({ version: 1, decision, until: Date.now() + 100000 });

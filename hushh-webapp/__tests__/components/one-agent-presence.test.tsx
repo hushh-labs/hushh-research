@@ -35,6 +35,15 @@ vi.mock("next/navigation", () => ({
 
 const mockStatus = vi.mocked(ApiService.getPersonalAgentStatus);
 
+it("does not advertise a blocked update as Online or wake it through the status chip", async () => {
+  mockStatus.mockResolvedValue({ state: "active", updateFailed: true,
+    update: { presentationState: "blocked", phase: "blocked", operationId: "synthetic-update" } } as any);
+  render(<OneAgentPresence />);
+  expect(await screen.findByText("Update needs attention")).toBeTruthy();
+  expect(screen.queryByText("Online")).toBeNull();
+  expect(ApiService.wakePod).not.toHaveBeenCalled();
+});
+
 beforeEach(() => {
   __resetProactiveWakeForTests();
   vi.mocked(ApiService.wakePod).mockResolvedValue({ state: "awake", etaMs: 0 });

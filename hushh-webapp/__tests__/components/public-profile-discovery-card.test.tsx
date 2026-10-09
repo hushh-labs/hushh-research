@@ -12,7 +12,7 @@ vi.mock("@/lib/services/public-profile-discovery-service", () => ({
   PublicProfileDiscoveryService: { getStatus: mocks.getStatus, start: mocks.start },
 }));
 
-import { PublicProfileDiscoveryCard } from "@/components/profile/public-profile-discovery-card";
+import { PublicProfileDiscoveryCard, PublicProfileDiscoveryEntry } from "@/components/profile/public-profile-discovery-card";
 
 describe("PublicProfileDiscoveryCard", () => {
   beforeEach(() => {
@@ -43,5 +43,20 @@ describe("PublicProfileDiscoveryCard", () => {
     mocks.getStatus.mockRejectedValue(new Error("profile_discovery_unavailable"));
     const { container } = render(<PublicProfileDiscoveryCard userId="owner-1" />);
     await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it("opens the compact entry without starting a search or granting consent", async () => {
+    render(<PublicProfileDiscoveryEntry userId="owner-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Claim your profile" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(screen.getByText(/account deletion do not remove that shared record/)).toBeInTheDocument();
+    const start = screen.getByRole("button", { name: "Start one-time search" });
+    expect(start).toBeDisabled();
+    fireEvent.click(screen.getByLabelText(/I agree to a one-time public-web search/));
+    fireEvent.click(start);
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledWith("firebase-token", expect.objectContaining({
+      consent: true, externalPhoneConsent: false,
+    })));
   });
 });

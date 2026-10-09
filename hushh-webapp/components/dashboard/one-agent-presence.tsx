@@ -116,19 +116,10 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
     update,
   } = useAgentDeploymentFollow();
   const state: AgentState | null = toAgentState(followed);
-  // Warm the pod from the home surface too, on mount and on app resume, so a returning
-  // person's agent is already awake by the time they open the composer. This only
-  // warms an active-but-asleep pod (the chip's own "it wakes the moment you use it"
-  // promise, kept early); it shares ONE module-level cooldown with the chat surface, so
-  // mounting it in both places cannot double-wake. No UI of its own here.
-  // The wake hook is also the fresher READER. `useAgentDeploymentFollow` stops
-  // polling once the row is terminal, so its `health` freezes at whatever it saw
-  // first -- which is why this chip kept saying "Asleep" for a pod that had been
-  // awake for ten minutes (founder, 2026-09-02: "why is it still asleep!"). The
-  // wake route answers with the pod's live state every time it is touched, and
-  // while a tab is visible it is touched on a keep-alive, so prefer it.
+  const updateBlocked = update.presentationState === "blocked";
+  // Foreground wake is shared and deduplicated; a held update is not chat readiness.
   const { isWaking, livePresence } = useProactiveAgentWake({
-    state: followed as string | null,
+    state: updateBlocked ? null : followed as string | null,
     health,
     userId,
   });
@@ -167,7 +158,7 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
   const online =
     state === "active" &&
     (livePresence === "awake" || (!livePresence && health === "healthy"));
-  const label = notAnswering
+  const label = updateBlocked ? "Update needs attention" : notAnswering
     ? "Not responding"
     : updating
       ? "Updating"
@@ -178,7 +169,7 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
           : online
             ? "Online"
             : copy.badge;
-  const dotClass = notAnswering
+  const dotClass = updateBlocked ? "bg-amber-500" : notAnswering
     ? "bg-amber-500"
     : updating
       ? "bg-sky-500 animate-pulse"

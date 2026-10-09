@@ -32,6 +32,7 @@ const CHAT_GRANTS_REFUSAL = /^POD_CHAT_AUTHORITY_UNAVAILABLE:\d{3}(?::([A-Z][A-Z
 const FIXED_MESSAGES: Readonly<Record<string, string>> = {
   "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY": NOT_READY,
   POD_CHAT_BUSY: "Your private agent is finishing active work. Try again shortly.",
+  POD_CHAT_UPDATING: "Your private agent is updating. Check Software updates in Settings before trying again.",
   POD_CHAT_RECOVERY_FAILED: "This answer could not be saved safely. Reconnect to your private agent before continuing.",
   POD_CHAT_AUTHORITY_UNAVAILABLE: "This action is not available through your private agent yet.",
   POD_APP_ROUTE_REFUSED: "This action is not available through your private agent yet.",

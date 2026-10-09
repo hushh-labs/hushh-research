@@ -116,7 +116,6 @@ import {
 import { isBareReviewReply } from "@/lib/agent/mcp-review-typed-reply";
 import { serverNow } from "@/lib/agent/server-clock";
 import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
-import { ComputerUseOwnerBridge } from "@/components/computer-use/computer-use-owner-bridge";
 import { BusinessProfileSuggestion } from "@/components/agent/business-profile-suggestion";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
@@ -9829,10 +9828,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 vaultOwnerToken={vaultOwnerToken ?? null}
                 enabled={hasChatAccess && !isPuppySurface}
               />
-
-              {hasChatAccess && user?.uid && !isPuppySurface ? (
-                <ComputerUseOwnerBridge key={`${user.uid}:${vaultSessionEpoch}`} ownerId={user.uid} />
-              ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
                 <McpCallReviewCard

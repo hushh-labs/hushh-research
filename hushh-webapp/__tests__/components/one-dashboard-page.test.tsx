@@ -11,7 +11,7 @@ vi.mock("@/components/dashboard/one-agent-presence", () => ({
 }));
 // Discovery has its own auth and service tests; these assertions cover the roster.
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({
-  PublicProfileDiscoveryCard: () => null,
+  PublicProfileDiscoveryEntry: () => null,
 }));
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";

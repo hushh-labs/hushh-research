@@ -8,6 +8,40 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
 import { PublicProfileDiscoveryService, type PublicProfileDiscoveryJob } from "@/lib/services/public-profile-discovery-service";
 import { Button } from "@/lib/morphy-ux/button";
+import { AdaptiveDetailSurface, SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+
+/** The launcher stays compact; disclosure and consent belong to the opened flow. */
+export function PublicProfileDiscoveryEntry({ userId }: { userId?: string | null }) {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [observation, setObservation] = useState<{ ownerId: string; job: PublicProfileDiscoveryJob | null } | null>(null);
+  useEffect(() => {
+    let current = true;
+    if (!user || (userId && user.uid !== userId)) return;
+    void (async () => {
+      try {
+        const job = await PublicProfileDiscoveryService.getStatus(await user.getIdToken());
+        if (current) setObservation({ ownerId: user.uid, job });
+      } catch {
+        // Optional discovery does not place an outage banner above the agents.
+        if (current) setObservation(null);
+      }
+    })();
+    return () => { current = false; };
+  }, [user, userId, open]);
+  if (!user || observation?.ownerId !== user.uid || ["claimed", "cancelled"].includes(observation.job?.status || "")) return null;
+  const ready = observation.job?.status === "ready";
+  return <>
+    <SettingsGroup className="mb-5">
+      {ready ? <SettingsRow title="Review your profile" chevron asChild><Link href={ROUTES.ONE_PROFILE_DISCOVERY} /></SettingsRow>
+        : <SettingsRow title="Claim your profile" chevron onClick={() => setOpen(true)} />}
+    </SettingsGroup>
+    <AdaptiveDetailSurface open={open} onOpenChange={setOpen} title="Claim your profile"
+      mobilePresentation="sheet" bodyClassName="[&>section]:border-0 [&>section]:bg-transparent [&>section]:p-0 [&_h2]:sr-only">
+      {open ? <PublicProfileDiscoveryCard key={user.uid} userId={user.uid} /> : null}
+    </AdaptiveDetailSurface>
+  </>;
+}
 
 function statusCopy(job: PublicProfileDiscoveryJob): string {
   switch (job.status) {
