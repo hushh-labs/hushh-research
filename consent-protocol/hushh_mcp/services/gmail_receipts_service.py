@@ -1007,17 +1007,11 @@ class GmailReceiptsService:
             # Mailbox organization is likewise its own explicit capability; the
             # web connect adds it on top of existing grants (include_granted_scopes).
             return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_MODIFY_SCOPE)
-        # `purpose` intentionally does not gate the send scope: no call site
-        # in this codebase (web popup, native, or the connectors panel) ever
-        # passes purpose="send" -- every real connect/reconnect defaults or
-        # hardcodes "read", so gating gmail.send on that value made send
-        # capability unreachable through any live path, with no working
-        # recovery flow (the app's own "Reconnect Mail" link re-runs the
-        # same read-only connect). Request both scopes unconditionally, as
-        # this did before purpose existed, until a real incremental-consent
-        # UI actually calls this with "send".
-        del purpose
-        return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_SEND_SCOPE)
+        if purpose == "send":
+            # The reviewed send path requests this incrementally in Chat and
+            # in the Gmail workspace's information-request flow.
+            return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_SEND_SCOPE)
+        return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE)
 
     def _encrypt_token(self, token: str) -> dict[str, str]:
         aesgcm = AESGCM(self._token_key())
@@ -1055,11 +1049,11 @@ class GmailReceiptsService:
         timeout = httpx.Timeout(self._http_timeout)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, data=data, headers=headers)
-        payload: dict[str, Any]
         try:
-            payload = response.json()
+            parsed = response.json()
         except Exception:
-            payload = {}
+            parsed = {}
+        payload = parsed if isinstance(parsed, dict) else {}
         if response.status_code >= 400:
             message = _clean_text(payload.get("error_description")) or _clean_text(
                 payload.get("error")
@@ -1069,6 +1063,7 @@ class GmailReceiptsService:
                 message or f"Google request failed ({response.status_code})",
                 status_code=status_code,
                 payload=payload,
+                provider_status_code=response.status_code,
             )
         return payload
 
@@ -2378,12 +2373,14 @@ class GmailReceiptsService:
                 message=message,
                 observed=observed,
             )
-            raise GmailApiError(message, status_code=401)
+            raise GmailApiError(message, status_code=401, code="GMAIL_REAUTH_REQUIRED")
 
         try:
             refreshed = await self._refresh_access_token(refresh_token=refresh_token)
         except GmailApiError as exc:
-            if exc.status_code in {400, 401, 403, 404, 502}:
+            provider_error = _clean_text((exc.payload or {}).get("error"))
+            provider_status = exc.provider_status_code or exc.status_code
+            if provider_error == "invalid_grant" and provider_status in {400, 401}:
                 message = "Gmail token refresh failed. Reconnect Gmail to continue."
                 await asyncio.to_thread(
                     self._mark_connection_needs_reauth,
@@ -2391,23 +2388,32 @@ class GmailReceiptsService:
                     message=message,
                     observed=observed,
                 )
-                raise GmailApiError(message, status_code=401) from None
+                raise GmailApiError(
+                    message, status_code=401, code="GMAIL_REAUTH_REQUIRED"
+                ) from None
+            # Rate limits, provider outages and OAuth client/configuration errors
+            # do not prove that this owner's refresh grant is invalid.
             raise GmailApiError(
                 "Gmail token refresh is unavailable. Retry the request.",
-                status_code=exc.status_code,
+                status_code=503,
+                code="GMAIL_PROVIDER_UNAVAILABLE",
+            ) from None
+        except httpx.RequestError:
+            raise GmailApiError(
+                "Gmail token refresh is unavailable. Retry the request.",
+                status_code=503,
+                code="GMAIL_PROVIDER_UNAVAILABLE",
             ) from None
         next_access = _clean_text(refreshed.get("access_token"))
         next_expires = int(refreshed.get("expires_in") or 3600)
         next_refresh = _clean_text(refreshed.get("refresh_token")) or refresh_token
         if not next_access:
-            message = "Gmail token refresh did not return an access token. Reconnect Gmail."
-            await asyncio.to_thread(
-                self._mark_connection_needs_reauth,
-                user_id=user_id,
-                message=message,
-                observed=observed,
+            # A malformed success response does not invalidate the stored grant.
+            raise GmailApiError(
+                "Gmail token refresh is unavailable. Retry the request.",
+                status_code=503,
+                code="GMAIL_PROVIDER_UNAVAILABLE",
             )
-            raise GmailApiError(message, status_code=401)
 
         access_env = self._encrypt_token(next_access)
         refresh_env = self._encrypt_token(next_refresh)

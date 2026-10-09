@@ -5,12 +5,6 @@ import { CheckCircle2, Mail } from "@/components/icons";
 import { useRouter } from "next/navigation";
 
 import { AskOneButton } from "@/components/agent/ask-one-button";
-import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
-import {
-  buildEmailAgentIntroPrompt,
-  hasSeenEmailAgentIntro,
-  markEmailAgentIntroSeen,
-} from "@/lib/agent/email-agent-intro";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -32,7 +26,6 @@ import { ROUTES } from "@/lib/navigation/routes";
 export function EmailAgentPageClient() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const createHandoff = useOneConversationSession((state) => state.createHandoff);
   const idTokenProvider = useCallback(
     () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
     [user],
@@ -45,8 +38,6 @@ export function EmailAgentPageClient() {
     refreshKey: user?.uid || "",
   });
   const connected = gmail.presentation.isConnected;
-  const emailAgentIntroRecipient =
-    gmail.status?.google_email?.trim() || user?.email?.trim() || null;
   const dataState = authLoading || gmail.loadingStatus
     ? "loading"
     : connected
@@ -54,32 +45,9 @@ export function EmailAgentPageClient() {
       : "unavailable-valid";
 
   const openOneForDraft = useCallback(() => {
-    // The intro prompt asks One to compose a sample email about itself. That
-    // is a first-run demonstration, not what someone arriving to write a real
-    // email wants: queuing it on every open started a fresh sample draft each
-    // time, because every handoff carried a new id and so was never de-duped
-    // against the previous one. Queue it only until this user has seen it;
-    // afterwards the agent opens on an empty composer awaiting a real
-    // instruction.
-    const userId = user?.uid || null;
-    if (!hasSeenEmailAgentIntro(userId)) {
-      const createdAtMs = Date.now();
-      markEmailAgentIntroSeen(userId);
-      createHandoff({
-        id: `email-agent-prompt-${createdAtMs}`,
-        reason: "user_requested",
-        transcript: emailAgentIntroRecipient
-          ? buildEmailAgentIntroPrompt(emailAgentIntroRecipient)
-          : "Please help me draft a mail message. I will review it before anything is sent.",
-        createdAtMs,
-      });
-    }
+    // Enter with an empty composer; only the owner's instruction starts a turn.
     navigateToAgentChat();
-  }, [
-    createHandoff,
-    emailAgentIntroRecipient,
-    user?.uid,
-  ]);
+  }, []);
 
   return (
     <AppPageShell
@@ -126,7 +94,7 @@ export function EmailAgentPageClient() {
                 </div>
               </div>
               <AskOneButton onClick={openOneForDraft}>
-                Try Mail Agent with One
+                Ask One about Mail
               </AskOneButton>
             </SurfaceInset>
           ) : (

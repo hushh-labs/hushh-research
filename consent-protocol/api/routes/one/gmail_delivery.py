@@ -8,9 +8,10 @@ or a sender address from the caller.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -21,6 +22,7 @@ from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
     create_reviewed_gmail_draft,
     get_gmail_delivery_service,
+    get_owner_send_action,
     normalize_draft,
 )
 from hushh_mcp.services.gmail_mailbox_actions import get_gmail_mailbox_actions
@@ -411,3 +413,48 @@ async def gmail_email_send(
     except Exception as exc:
         logger.warning("one.gmail_delivery.send_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from exc
+
+
+@router.get("/email/send/status/{action_id}")
+async def gmail_email_send_status(
+    action_id: str,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Read one owner's durable send result without exposing mail or provider ids.
+
+    A lost HTTP response is reconciled against the same action. In particular,
+    ``sending`` and ``outcome_unknown`` never authorize a fresh send.
+    """
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,128}", action_id):
+        raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
+    try:
+        row = await get_owner_send_action(user_id=user_id, action_id=action_id)
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.status_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
+    state = str(row.get("state") or "")
+    if state not in {
+        "prepared",
+        "sending",
+        "sent",
+        "failed",
+        "outcome_unknown",
+        "expired",
+        "cancelled",
+    }:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "GMAIL_DELIVERY_UNAVAILABLE"},
+        )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return {
+        "action_id": action_id,
+        "state": state,
+        "outcome_unknown": state == "outcome_unknown",
+    }

@@ -448,6 +448,9 @@ import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 import {
   EmailDeliveryService,
+  forgetPendingEmailSendAction,
+  pendingEmailSendActionIds,
+  rememberPendingEmailSendAction,
   type EmailDeliveryError,
   type EmailDraft,
 } from "@/lib/services/email-delivery-service";
@@ -2747,6 +2750,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [emailDeliveryHistory, setEmailDeliveryHistory] = useState<
     EmailDeliveryTimelineItem[]
   >([]);
+  const emailDeliveryActionByAttemptRef = useRef<Map<string, {
+    actionId: string; ownerId: string;
+  }>>(new Map());
+  const [checkingEmailActionId, setCheckingEmailActionId] = useState<string | null>(null);
+  const emailHistoryOwnerRef = useRef<string | null>(user?.uid ?? null);
+  useEffect(() => {
+    if (emailHistoryOwnerRef.current === (user?.uid ?? null)) return;
+    emailHistoryOwnerRef.current = user?.uid ?? null;
+    emailDeliveryActionByAttemptRef.current.clear();
+    setEmailDeliveryHistory([]);
+    setCheckingEmailActionId(null);
+  }, [user?.uid]);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [visiblePkmToolCount, setVisiblePkmToolCount] = useState(0);
@@ -3869,8 +3884,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     return id;
   };
 
+  const handleEmailDeliveryPrepared = (actionId: string, attemptId: string | null) => {
+    if (!attemptId || !user?.uid) return;
+    emailDeliveryActionByAttemptRef.current.set(attemptId, { actionId, ownerId: user.uid });
+    rememberPendingEmailSendAction(user.uid, actionId);
+    setEmailDeliveryHistory((current) => current.map((item) =>
+      item.id === attemptId ? { ...item, actionId } : item));
+  };
+
   const handleEmailSent = (attemptId?: string | null) => {
     if (!attemptId) return;
+    const prepared = emailDeliveryActionByAttemptRef.current.get(attemptId);
+    if (prepared) forgetPendingEmailSendAction(prepared.ownerId, prepared.actionId);
+    emailDeliveryActionByAttemptRef.current.delete(attemptId);
     setEmailDeliveryHistory((current) =>
       current.map((item) =>
         item.id === attemptId
@@ -3885,6 +3911,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     attemptId?: string | null,
   ) => {
     if (!attemptId) return;
+    const prepared = emailDeliveryActionByAttemptRef.current.get(attemptId);
+    if (prepared && error.code !== "EMAIL_ACTION_OUTCOME_UNKNOWN") {
+      forgetPendingEmailSendAction(prepared.ownerId, prepared.actionId);
+    }
+    emailDeliveryActionByAttemptRef.current.delete(attemptId);
     setEmailDeliveryHistory((current) =>
       current.map((item) =>
         item.id === attemptId
@@ -3903,6 +3934,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   const retryEmailDelivery = (item: EmailDeliveryHistoryItem) => {
+    if (item.restoredOnly || item.status !== "failed") return;
     const anchorMessageId =
       emailDeliveryHistory.find((candidate) => candidate.id === item.id)
         ?.anchorMessageId ?? null;
@@ -8164,6 +8196,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSendStarted={handleEmailSendStarted}
           onSent={handleEmailSent}
           onSendFailed={handleEmailSendFailed}
+          onDeliveryPrepared={handleEmailDeliveryPrepared}
           sourceBoundEnvelope={gmailKycEmailDraftEnvelope}
           onDraftChange={handleEmailDraftChange}
           onOpenConnections={openConnectorSurface}
@@ -8175,6 +8208,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     vaultOwnerToken,
                     draft,
                     idempotencyKey,
+                    onSendRequestStarted,
+                    onPrepared,
                   }) => {
                     const body = richEmailPlainText(draft.body);
                     if (!body) {
@@ -8194,6 +8229,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       },
                       idempotencyKey,
                     });
+                    if (!prepared.actionId) {
+                      throw new Error("Mail could not be prepared for sending.");
+                    }
+                    onPrepared?.(prepared.actionId);
+                    onSendRequestStarted?.();
                     const sent = await EmailDeliveryService.send({
                       firebaseIdToken,
                       vaultOwnerToken,
@@ -8207,6 +8247,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     });
                     return { outcomeUnknown: sent.outcomeUnknown };
                   },
+                  reportsSendStart: true,
                 }
               : null
           }
@@ -8473,6 +8514,87 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!firebaseIdToken) return null;
     return { firebaseIdToken, vaultOwnerToken: currentVaultOwnerToken };
   };
+
+  const checkEmailDeliveryStatus = async (item: EmailDeliveryHistoryItem) => {
+    if (!item.actionId || !user?.uid || checkingEmailActionId) return;
+    const auth = await getEmailDeliveryAuth();
+    if (!auth) {
+      setVaultDialogOpen(true);
+      return;
+    }
+    const ownerId = user.uid;
+    const actionId = item.actionId;
+    setCheckingEmailActionId(actionId);
+    try {
+      const result = await EmailDeliveryService.sendStatus({ ...auth, actionId });
+      const terminal = ["sent", "failed", "expired", "cancelled"].includes(result.state);
+      if (terminal) forgetPendingEmailSendAction(ownerId, actionId);
+      setEmailDeliveryHistory((current) => current.map((entry) =>
+        entry.actionId === actionId
+          ? {
+              ...entry,
+              status: result.state === "sent" ? "sent"
+                : terminal ? "failed" : "outcome_unknown",
+              errorMessage: result.state === "sent" ? null
+                : terminal ? "Mail was not sent." : "Check Gmail Sent Mail before sending again.",
+            }
+          : entry));
+    } catch {
+      setEmailDeliveryHistory((current) => current.map((entry) =>
+        entry.actionId === actionId
+          ? { ...entry, status: "outcome_unknown", errorMessage: "Could not check Mail right now." }
+          : entry));
+    } finally {
+      setCheckingEmailActionId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.uid || !isVaultUnlocked || !tokenIsFresh) return;
+    const actionIds = pendingEmailSendActionIds(user.uid);
+    if (!actionIds.length) return;
+    const owner = user;
+    const token = getVaultOwnerToken();
+    if (!token) return;
+    let active = true;
+    const emptyDraft: EmailDraft = { to: "", cc: "", bcc: "", subject: "", body: "" };
+    setEmailDeliveryHistory((current) => {
+      const known = new Set(current.map((item) => item.actionId));
+      return [...current, ...actionIds.filter((id) => !known.has(id)).map((actionId) => ({
+        id: `email-recovered-${actionId}`,
+        actionId,
+        instruction: "",
+        draft: emptyDraft,
+        status: "outcome_unknown" as const,
+        restoredOnly: true,
+        anchorMessageId: null,
+      }))];
+    });
+    void owner.getIdToken().then(async (firebaseIdToken) => {
+      await Promise.all(actionIds.map(async (actionId) => {
+        try {
+          const result = await EmailDeliveryService.sendStatus({
+            firebaseIdToken, vaultOwnerToken: token, actionId,
+          });
+          if (!active) return;
+          const terminal = ["sent", "failed", "expired", "cancelled"].includes(result.state);
+          if (terminal) forgetPendingEmailSendAction(owner.uid, actionId);
+          setEmailDeliveryHistory((current) => current.map((item) =>
+            item.actionId === actionId
+              ? {
+                  ...item,
+                  status: result.state === "sent" ? "sent"
+                    : terminal ? "failed" : "outcome_unknown",
+                  errorMessage: terminal && result.state !== "sent" ? "Mail was not sent." : null,
+                }
+              : item));
+        } catch {
+          // A failed status read is still unknown; the action remains available to check.
+        }
+      }));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [user, isVaultUnlocked, tokenIsFresh, getVaultOwnerToken]);
   const composerActionRail = (
     <>
       {agentVoiceEnabled ? (
@@ -9305,6 +9427,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           : undefined
                       }
                       onRetry={retryEmailDelivery}
+                      onCheckStatus={checkEmailDeliveryStatus}
+                      checkingStatus={checkingEmailActionId === item.actionId}
                     />
                   ))}
                   <AgentFollowUpSuggestions
@@ -10218,6 +10342,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       : undefined
                   }
                   onRetry={retryEmailDelivery}
+                  onCheckStatus={checkEmailDeliveryStatus}
+                  checkingStatus={checkingEmailActionId === item.actionId}
                 />
               ))}
               <div ref={messagesEndRef} />

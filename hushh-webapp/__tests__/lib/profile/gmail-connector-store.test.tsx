@@ -40,6 +40,7 @@ import {
 } from "@/lib/profile/gmail-connector-store";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { getCachedGmailReceipts, primeCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 
 describe("gmail-connector-store", () => {
   beforeEach(() => {
@@ -92,6 +93,66 @@ describe("gmail-connector-store", () => {
     expect(populatedFirst).toBe(populatedSecond);
     expect(populatedFirst).not.toBe(emptyFirst);
     expect(populatedFirst.status?.google_email).toBe("akshat@hushh.ai");
+  });
+
+  it("clears warm receipt rows when Chat's shared connector action disconnects", async () => {
+    const userId = "user-chat-disconnect";
+    primeConnectorStatus({
+      userId,
+      status: {
+        configured: true, connected: true, status: "connected", scope_csv: "gmail.readonly",
+        auto_sync_enabled: true, revoked: false, last_sync_status: "idle",
+      },
+    });
+    primeCachedGmailReceipts({
+      userId, accountKey: "mail@example.com",
+      response: {
+        items: [{ id: 1, source_kind: "gmail_live", source_id: "source-1", gmail_message_id: "message-1" }],
+        page: 1, per_page: 20, total: 1, has_more: false,
+      },
+    });
+    vi.mocked(GmailReceiptsService.disconnect).mockResolvedValue({
+      configured: true, connected: false, status: "disconnected", scope_csv: "",
+      auto_sync_enabled: false, revoked: false, last_sync_status: "idle",
+    });
+    const hook = renderHook(() => useGmailConnectorStatus({
+      userId, idTokenProvider: async () => "id-token",
+    }));
+
+    await act(async () => { await hook.result.current.disconnectGmail(); });
+
+    expect(getCachedGmailReceipts(userId, "mail@example.com")).toBeNull();
+    expect(hook.result.current.status?.connected).toBe(false);
+    hook.unmount();
+    clearConnectorStatus(userId);
+  });
+
+  it("does not restore connected status from a request started before disconnect", async () => {
+    const userId = "user-racing-disconnect";
+    let releaseStatus!: (status: Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>) => void;
+    vi.mocked(GmailReceiptsService.getStatus).mockImplementationOnce(() =>
+      new Promise((resolve) => { releaseStatus = resolve; }));
+    vi.mocked(GmailReceiptsService.disconnect).mockResolvedValue({
+      configured: true, connected: false, status: "disconnected", scope_csv: "",
+      auto_sync_enabled: false, revoked: false, last_sync_status: "idle",
+    });
+    const hook = renderHook(() => useGmailConnectorStatus({
+      userId, idTokenProvider: async () => "id-token",
+    }));
+    await waitFor(() => expect(GmailReceiptsService.getStatus).toHaveBeenCalled());
+
+    await act(async () => { await hook.result.current.disconnectGmail(); });
+    await act(async () => {
+      releaseStatus({
+        configured: true, connected: true, status: "connected", scope_csv: "gmail.readonly",
+        auto_sync_enabled: true, revoked: false, last_sync_status: "idle",
+      });
+      await Promise.resolve();
+    });
+
+    expect(getConnectorView(userId).status?.connected).toBe(false);
+    hook.unmount();
+    clearConnectorStatus(userId);
   });
 
   it("keeps a direct OAuth completion in memory and clears it only on a verified outcome", () => {

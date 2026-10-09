@@ -12,6 +12,25 @@ const profileSource = readFileSync(
   "utf8",
 );
 
+function expectOwnerScopedReceiptProjection(pageSource: string) {
+  expect(pageSource).toContain(
+    "displayedReceiptScopeRef.current === receiptDisplayScope",
+  );
+  expect(pageSource).toContain(
+    "const visibleReceipts = receiptDisplayScopeCurrent ? receipts : [];",
+  );
+  expect(pageSource).toContain(
+    "const visibleTotal = receiptDisplayScopeCurrent ? total : 0;",
+  );
+  expect(pageSource).toContain("receipts={visibleReceipts}");
+  expect(pageSource).toContain("receipt_count: visibleTotal");
+  expect(pageSource).toContain("{visibleTotal} receipt");
+  expect(pageSource).toContain(
+    "receiptListReady && receiptDisplayScopeCurrent",
+  );
+  expect(pageSource).not.toContain("receipts={receipts}");
+}
+
 describe("Gmail workspace background loading contract", () => {
   it("keeps the Gmail shell actionable while connection status uses an accessible skeleton", () => {
     expect(source).toContain('aria-label="Checking your Gmail status"');
@@ -33,12 +52,38 @@ describe("Gmail workspace background loading contract", () => {
     expect(source).not.toContain("silent:");
   });
 
+  it("hides previous owner/account rows, detail entry, and counts before the clearing effect runs", () => {
+    expect(source).toContain(
+      '`${user.uid}\\u0000${String(receiptAccountKey || "")}`',
+    );
+    expectOwnerScopedReceiptProjection(source);
+
+    // Negative controls: removing either render-time gate must fail this
+    // contract even though the clearing effect still exists.
+    expect(() =>
+      expectOwnerScopedReceiptProjection(
+        source.replace(
+          "const visibleReceipts = receiptDisplayScopeCurrent ? receipts : [];",
+          "const visibleReceipts = receipts;",
+        ),
+      ),
+    ).toThrow();
+    expect(() =>
+      expectOwnerScopedReceiptProjection(
+        source.replace(
+          "const visibleTotal = receiptDisplayScopeCurrent ? total : 0;",
+          "const visibleTotal = total;",
+        ),
+      ),
+    ).toThrow();
+  });
+
   it("reserves the receipt list with accessible rows during a cold load", () => {
     expect(source).toContain("function ReceiptListSkeleton()");
     expect(source).toContain('aria-label="Loading receipts"');
     expect(source).toContain("RECEIPT_PLACEHOLDER_ROWS = 8");
     expect(source).toContain(
-      "receiptsWorkspaceActive && (isConnected || receipts.length > 0)",
+      "receiptsWorkspaceActive && isConnected",
     );
     expect(source).toContain(
       "showReceiptPlaceholders ? <ReceiptListSkeleton /> : null",

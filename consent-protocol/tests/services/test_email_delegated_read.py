@@ -375,6 +375,30 @@ async def test_failed_planning_and_retrieval_have_distinct_stages():
     assert retrieval_failed["failure_stage"] == "retrieval"
 
 
+@pytest.mark.parametrize(
+    "provider_code,expected_text",
+    [
+        ("quota_exceeded", "daily read limit"),
+        ("domain_policy", "Workspace policy"),
+        ("retryable", "temporarily unavailable"),
+    ],
+)
+async def test_provider_read_failure_has_safe_specific_copy_and_valid_status(
+    provider_code, expected_text
+):
+    class FailingReader(_Reader):
+        async def read(self, operation, args):
+            raise GmailMetadataError(provider_code)
+
+    result = await _run(
+        FailingReader(),
+        AsyncMock(return_value={"operation": "search_inbox", "query": "", "limit": 2}),
+    )
+    assert result["structured"]["status"] == "unavailable"
+    assert expected_text in result["response"]
+    assert result["failure_stage"] == "retrieval"
+
+
 async def test_planner_never_sees_external_content_and_interpreter_has_no_second_read():
     reader = _Reader()
     calls = []
