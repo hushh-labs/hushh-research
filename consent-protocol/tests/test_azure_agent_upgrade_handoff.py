@@ -161,54 +161,10 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
 
     from hushh_mcp.services.pod_files.azure_checkpoint import AzureFilesUpgradeCheckpoint
     from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
-    from hushh_mcp.services.pod_update_identity import approved_files_plan
-    from tests.test_user_azure_backend import _OLD, _SOURCE
+    from tests.fixtures.azure_files_upgrade import approved_update_fixture
 
-    backend = _backend(arm)
-    target = f"{_SOURCE}@{_OLD}"
-    plan, row = _files_plan(arm, backend, target)
-    role_call = next(call for call in plan.operations() if call["kind"] == "role_definition")
-    role_id = plan.scopes.role_definition(role_call["path"].rsplit("/", 1)[-1])
-    get = arm.get
-
-    def canonical_readback(path, **kwargs):
-        result = get(path, **kwargs)
-        if path == role_call["path"]:
-            result["id"] = role_id
-        return result
-
-    monkeypatch.setattr(arm, "get", canonical_readback)
-    approval = {
-        "capabilityPlan": plan.model_dump(),
-        "capabilityPlanDigest": plan.digest,
-        "ownerId": plan.ownerId,
-        "hushhId": plan.hushhId,
-        "podIncarnation": plan.serviceUid,
-        "targetImage": target,
-    }
-    assert approved_files_plan(approval) == plan
-    with pytest.raises(ValueError, match="approval"):
-        approved_files_plan({**approval, "podIncarnation": "replaced"})
-    with pytest.raises(ValueError, match="assignment"):
-        plan.require_owner({**row, "user_id": "foreign-owner"}, target)
-    checkpoint = AzureFilesUpgradeCheckpoint(
-        plan=plan, operation_id="op-files", attempt_id="f" * 64, original_inventory={}
-    )
-    receipts = []
-
-    def persist(phase, step, completed):
-        value, inventory = checkpoint.prepare(phase, step, completed)
-        receipts.append((value, inventory))
-        checkpoint.acknowledge(value)
-
-    spec = _upgrade_spec(
-        arm,
-        backend,
-        [],
-        upgrade_target_image=target,
-        upgrade_operation_id="op-files",
-        files_upgrade_plan=plan.model_dump(),
-        on_files_upgrade_checkpoint=persist,
+    backend, target, plan, row, role_call, checkpoint, receipts, spec = approved_update_fixture(
+        arm, monkeypatch
     )
     before = deepcopy(arm.resources[backend.app_id])
     arm.resources[plan.storageId]["properties"]["allowBlobPublicAccess"] = True
@@ -219,29 +175,9 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
     assert not arm.writes() and not _Handoff.events and not receipts
     arm.resources[plan.storageId]["properties"]["allowBlobPublicAccess"] = False
     if reconciled_prefix:
-        from dataclasses import replace
+        from tests.fixtures.azure_files_upgrade import seed_verified_prefix
 
-        from hushh_mcp.services.pod_files.azure_checkpoint import qualify_readback
-
-        prefix = []
-        for call in plan.operations()[:2]:
-            arm.put(call["path"], api_version="fixture", body=call["body"])
-            value, _ = checkpoint.prepare("intent", call["step"], prefix)
-            checkpoint.acknowledge(value)
-            prefix.append(
-                {
-                    "step": call["step"],
-                    "ok": True,
-                    "status": 200,
-                    "observation": qualify_readback(
-                        call, arm.get(call["path"], api_version="fixture")
-                    ),
-                }
-            )
-            value, _ = checkpoint.prepare("observed", call["step"], prefix)
-            checkpoint.acknowledge(value)
-        spec = replace(spec, files_upgrade_completed_steps=prefix)
-        arm.calls.clear()
+        spec = seed_verified_prefix(arm, plan, checkpoint, spec)
     with jit_person_authority("person-jit-token"):
         handle = await backend.upgrade(spec)
     assert checkpoint.complete and len(receipts) == (4 if reconciled_prefix else 8)

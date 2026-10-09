@@ -280,33 +280,9 @@ class UserAzureBackend(RegistryPruneHook):
         The pod then proves its key (the orchestrator's key pull) before anything is
         granted. An unreadable agent raises rather than reading as nothing to adopt.
         """
-        observation = await self.observe()
-        if not observation.present:
-            if observation.absence_confirmed:
-                return None
-            raise observation.refusal("adopt")
-        try:
-            handle = self.verified_handle(hushh_id, observation)
-        except RuntimeError:
-            logger.warning("user_azure_backend.discover_foreign group=%s", self._group)
-            return None
-        refused = adoption_refusal(
-            handle.backend_metadata or {},
-            recorded_principal=self._recorded_principal,
-            recorded_digest=self._recorded_digest,
-        )
-        if refused:
-            logger.warning("user_azure_backend.discover_refused reason=%s", refused)
-            return None
-        self._require_files_installation(hushh_id, observation, self._files_library_enabled)
-        metadata = {**(handle.backend_metadata or {}), "adopted": True}
-        return BackendHandle(
-            external_agent_id=handle.external_agent_id,
-            a2a_route=handle.a2a_route,
-            status=handle.status,
-            backend=handle.backend,
-            backend_metadata=metadata,
-        )
+        from hushh_mcp.services.pod_files.azure_provisioning import discover_with_files
+
+        return await discover_with_files(self, hushh_id)
 
     async def get(self, external_agent_id: str) -> BackendStatus:
         """``gone`` only on a confirmed absence; an unreadable agent raises."""

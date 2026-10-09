@@ -352,46 +352,10 @@ def test_files_late_receipts_keep_exact_owner_inventory_during_erasure(arm, monk
             ]
             observed, _ = cp.prepare("observed", call["step"], completed)
             cp.acknowledge(observed)
-            snapshot = {
-                **row,
-                "backend_metadata": {
-                    **row["backend_metadata"],
-                    "upgradeLease": lease,
-                    "upgradeApproval": {
-                        "operationId": "op-files",
-                        "targetImage": plan.targetImage,
-                        "capabilityPlanDigest": plan.digest,
-                        "capabilityPlan": plan.model_dump(),
-                    },
-                    "filesUpgradeCheckpoint": intent,
-                    "azureFilesInventory": inventory,
-                },
-            }
-            reserved = {
-                "version": 1,
-                "ownerId": plan.ownerId,
-                "hushhId": plan.hushhId,
-                "attemptId": "erase-files",
-                "phase": "reserved",
-                "registrySnapshot": snapshot,
-            }
-            if len(intent["completed"]) == 2:
-                # Reconciliation retains the original uncertain receipt outside
-                # the canonical checkpoint. A subsequent assignment may still
-                # arrive during erasure and must retain its exact obligations.
-                snapshot["backend_metadata"]["filesUpgradeReconciliation"] = {
-                    "operationId": "op-files",
-                    "failedCheckpoint": {
-                        **intent,
-                        "phase": "observed",
-                        "step": "files_custody_role",
-                        "completed": [
-                            intent["completed"][0],
-                            {"step": "files_custody_role", "ok": False, "status": 0},
-                        ],
-                    },
-                    "observedAt": "2026-10-09T01:00:00+00:00",
-                }
+            from tests.fixtures.azure_files_upgrade import erasure_reservation
+
+            reserved = erasure_reservation(row, plan, lease, intent, inventory)
+            snapshot = reserved["registrySnapshot"]
 
             def valid(value, receipt=observed):
                 return server.execute(

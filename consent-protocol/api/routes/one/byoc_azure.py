@@ -494,38 +494,9 @@ async def begin_azure_upgrade(
 async def _start_upgrade(
     user_id: str, token: entra.DelegatedToken
 ) -> AzureAuthorizeCompleteResponse:
-    from hushh_mcp.services.azure_setup_job import run_azure_upgrade_job
-    from hushh_mcp.services.azure_setup_plan import group_id
-    from hushh_mcp.services.compute_backend import resolve_compute_backend
-    from hushh_mcp.services.personal_agent_provisioning_service import (
-        PersonalAgentProvisioningService,
-    )
-    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from api.routes.one.byoc_azure_upgrade import start_upgrade
 
-    row, target = await _upgrade_row(user_id)
-    if token.tenant_id != str(row.get("user_cloud_tenant_id") or "").lower():
-        raise _refuse(409, "BAD_TENANT", "Sign in with the directory that holds your agent.")
-    group = group_id(str(row["user_cloud_subscription_id"]), str(row["user_cloud_resource_group"]))
-    from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
-    from hushh_mcp.services.pod_files.azure_recovery import settled_role_operation
-
-    continuation = settled_role_operation(row, await ByocSetupJobRepo().get(user_id))
-    job_id, started = await _claim_job(user_id, group)
-    if started:
-        service = PersonalAgentProvisioningService(
-            registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
-        )
-        _spawn(
-            run_azure_upgrade_job(
-                user_id=user_id,
-                job_id=job_id,
-                access_token=token.access_token,
-                target_image=target,
-                upgrade=service.upgrade_pod,
-                **({"resume_files_queue_operation": continuation} if continuation else {}),
-            )
-        )
-    return AzureAuthorizeCompleteResponse(status="upgrade_started", jobId=job_id)
+    return await start_upgrade(user_id, token)
 
 
 # Mounted here so the hosting card's read and its rebuild need no new app wiring.

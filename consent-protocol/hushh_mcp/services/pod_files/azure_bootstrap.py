@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
+from hushh_mcp.services.compute_backend import PodSpec
 
 from .azure_capability import AzureFilesCapabilityPlan
 from .azure_checkpoint import qualify_readback
@@ -130,3 +131,30 @@ class AzureFilesBootstrap:
                 raise
             completed.append({"step": step, "ok": True, "status": 200, "observation": observation})
             checkpoint("observed", step, completed)
+
+
+def approved_bootstrap(
+    spec: PodSpec, app: dict, arm: ArmClient, app_id: str
+) -> AzureFilesBootstrap | None:
+    """Validate the exact plan and custody before acquiring a pod handoff."""
+    if spec.files_upgrade_plan is None:
+        return None
+
+    plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+    if (
+        not spec.on_files_upgrade_checkpoint
+        or not spec.upgrade_operation_id
+        or not spec.upgrade_attempt_id
+        or plan.hushhId != spec.hushh_id
+        or plan.serviceUid != str(spec.expected_service_uid or "").strip()
+        or plan.service.lower() != app_id.lower()
+        or plan.targetImage != spec.upgrade_target_image
+    ):
+        raise FilesCapabilityChanged("Files requires exact owner approval and durable checkpoints")
+    try:
+        plan.require_observation(app)
+    except ValueError:
+        raise FilesCapabilityChanged("Files pod configuration changed before activation") from None
+    files = AzureFilesBootstrap(plan, arm)
+    files.preflight()
+    return files

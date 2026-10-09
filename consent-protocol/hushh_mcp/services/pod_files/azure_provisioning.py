@@ -233,3 +233,37 @@ def configure_files(body: dict[str, Any], coords: AgentCoordinates) -> None:
             },
         },
     ]
+
+
+async def discover_with_files(backend: UserAzureBackend, hushh_id: str) -> BackendHandle | None:
+    """Adopt only the recorded owner, identity, approved image and Files custody."""
+    from hushh_mcp.services.azure_agent_observation import adoption_refusal
+    from hushh_mcp.services.user_azure_backend import logger
+
+    observation = await backend.observe()
+    if not observation.present:
+        if observation.absence_confirmed:
+            return None
+        raise observation.refusal("adopt")
+    try:
+        handle = backend.verified_handle(hushh_id, observation)
+    except RuntimeError:
+        logger.warning("user_azure_backend.discover_foreign group=%s", backend._group)
+        return None
+    refused = adoption_refusal(
+        handle.backend_metadata or {},
+        recorded_principal=backend._recorded_principal,
+        recorded_digest=backend._recorded_digest,
+    )
+    if refused:
+        logger.warning("user_azure_backend.discover_refused reason=%s", refused)
+        return None
+    backend._require_files_installation(hushh_id, observation, backend._files_library_enabled)
+    metadata = {**(handle.backend_metadata or {}), "adopted": True}
+    return BackendHandle(
+        external_agent_id=handle.external_agent_id,
+        a2a_route=handle.a2a_route,
+        status=handle.status,
+        backend=handle.backend,
+        backend_metadata=metadata,
+    )

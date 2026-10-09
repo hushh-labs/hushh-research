@@ -122,33 +122,9 @@ def upgrade_agent(
     api = API_VERSIONS["container_apps"]
     app = arm.get(backend.app_id, api_version=api, op="upgrade")
     nonce, created = _fence(app, spec, expected)
-    files = None
-    if spec.files_upgrade_plan is not None:
-        from hushh_mcp.services.pod_files.azure_bootstrap import AzureFilesBootstrap
-        from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
-        from hushh_mcp.services.pod_files.capability_update import FilesCapabilityChanged
+    from hushh_mcp.services.pod_files.azure_bootstrap import approved_bootstrap
 
-        plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
-        if (
-            not spec.on_files_upgrade_checkpoint
-            or not spec.upgrade_operation_id
-            or not spec.upgrade_attempt_id
-            or plan.hushhId != spec.hushh_id
-            or plan.serviceUid != expected
-            or plan.service.lower() != backend.app_id.lower()
-            or plan.targetImage != spec.upgrade_target_image
-        ):
-            raise FilesCapabilityChanged(
-                "Files requires exact owner approval and durable checkpoints"
-            )
-        try:
-            plan.require_observation(app)
-        except ValueError:
-            raise FilesCapabilityChanged(
-                "Files pod configuration changed before activation"
-            ) from None
-        files = AzureFilesBootstrap(plan, arm)
-        files.preflight()
+    files = approved_bootstrap(spec, app, arm, backend.app_id)
     names = resource_names(backend.plan_inputs(spec.hushh_id, nonce))
     scopes = Scopes(backend.plan_inputs(spec.hushh_id, nonce), names)
     target = image_reference(f"{names.registry}.azurecr.io", digest)
