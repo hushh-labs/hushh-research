@@ -29,11 +29,12 @@ const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", ca
   listeners: new Map<string, Set<(event: unknown) => void>>(), setPresentationRegions: vi.fn(),
   subscribe: vi.fn(), prepare: vi.fn(), prepareBackReplacement: vi.fn(), prepareHistoryReplacement: vi.fn(), activate: vi.fn(), update: vi.fn(), suspend: vi.fn(), retire: vi.fn(), restoreFocus: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
-  getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn() }));
+  subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
   registerPlugin: (plugin: string) => plugin === "HushhNativeDock" ? { ...dockBridge,
     addListener: async (name: string, callback: (event: unknown) => void) => {
+      await dockBridge.subscribe(name);
       dockBridge.callbacks.set(name, callback);
       return { remove: async () => { if (dockBridge.callbacks.get(name) === callback) dockBridge.callbacks.delete(name); } };
     },
@@ -196,6 +197,7 @@ describe("private dock asynchronous submission boundary", () => {
     document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
     document.documentElement.classList.remove("dark");
     dockBridge.callbacks.clear();
+    dockBridge.subscribe.mockReset().mockResolvedValue(undefined);
     dockBridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 1, supported: true });
     dockBridge.apply.mockReset().mockImplementation(async state => ({ ...state, height: 52, phase: "active" }));
     dockBridge.suspend.mockReset().mockImplementation(async state => ({ ...state, height: 52, phase: "active" }));
@@ -208,6 +210,22 @@ describe("private dock asynchronous submission boundary", () => {
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it.each([false, true])("waits for operation listeners before admitting the editor; rejection %s", async (reject) => {
+    const input = deferred<void>();
+    dockBridge.subscribe.mockImplementation(async name => { if (name === "input") await input.promise; });
+    const view = render(fixture(false, vi.fn()));
+    await waitFor(() => expect(dockBridge.subscribe).toHaveBeenCalledWith("input"));
+    expect(dockBridge.apply).not.toHaveBeenCalled();
+    expect(view.getByTestId("dock-presentation").textContent).toBe("reserved");
+    await act(async () => { if (reject) input.reject(new Error("Synthetic listener refusal")); else input.resolve(); });
+    if (reject) {
+      await waitFor(() => expect(view.getByTestId("dock-presentation").textContent).toBe("fallback"));
+      expect(dockBridge.apply).not.toHaveBeenCalled();
+      expect(dockBridge.callbacks.size).toBe(0);
+    } else {
+      await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+    }
+  });
   it("reserves the cold dock before discovery and restores an unsupported wrapper without creating a native editor", async () => {
     const receipt = deferred<{ contractVersion: number; supported: boolean }>();
     dockBridge.getCapabilities.mockReturnValueOnce(receipt.promise);
@@ -968,8 +986,10 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(view.getByRole("button", { name: "Authored history" })).toBeVisible());
     expect(hasOutstandingNativeChrome("chat-history-toggle")).toBe(false);
   });
-  it("isolates simultaneous authored controls and retires native history when attention appears", async () => {
-    admitChat();
+  it.each([false, true])("isolates simultaneous controls and retires history attention with retained hosts %s", async (retainedControls) => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history", "agent-surface"],
+      independentControls: true, inPlaceUpdates: true, retainedControls });
+    await getNativeChromeCapabilities();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const selector = this.textContent?.includes("agent-surface");
       return { x: selector ? 100 : 2, y: 60, width: selector ? 100 : 44, height: 44,

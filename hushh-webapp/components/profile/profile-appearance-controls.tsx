@@ -29,7 +29,7 @@ export function ProfileAppearanceControls({ value, nativeContext }: {
   };
   return <SettingsGroup rowSizing="uniform">
     <SettingsRow icon={AppearanceRowIcon} iconTone="capability" title="Appearance"
-      trailing={<ThemeToggleLean size="compact" className="w-[132px] min-w-0" nativeContext={nativeContext} />} />
+      trailing={<ThemeToggleLean size="compact" className="w-[138px]" nativeContext={nativeContext} />} />
     <SettingsRow icon={AccentRowIcon} iconTone="capability" title="Accent"
       trailing={<NativeAccentChoice value={value} {...nativeContext} />} />
     {usesNativeHapticPreference() ? <SettingsRow icon={DevicesProfileIcon} iconTone="capability" title="App haptics"

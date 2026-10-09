@@ -765,6 +765,10 @@ final class AppUITests: XCTestCase {
     }
 
     private func dismissRehearsalChatKeyboard(_ app: XCUIApplication) {
+        if app.textViews["native-dock-editor"].firstMatch.exists {
+            XCTAssertTrue(dismissDockKeyboardThroughProfile(app), "REHEARSAL_NATIVE_KEYBOARD_NOT_SETTLED")
+            return
+        }
         guard app.keyboards.firstMatch.exists else { return }
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         guard web.exists else { return }
@@ -781,6 +785,15 @@ final class AppUITests: XCTestCase {
         }, object: app.keyboards.firstMatch)
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 10), .completed,
                        "REHEARSAL_KEYBOARD_NOT_SETTLED")
+    }
+
+    /// Follow the admitted renderer; a retained, hidden web reservation is not
+    /// the editor. Never type into or submit through a second composer.
+    private func rehearsalChatComposer(_ app: XCUIApplication) -> XCUIElement {
+        let native = app.textViews["native-dock-editor"].firstMatch
+        if native.waitForExistence(timeout: 2) { return native }
+        return app.webViews.matching(identifier: "native-webview").firstMatch
+            .descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
     }
 
     func testLocalSessionNativeTabsKeepTheSessionAndRespectOverlays() throws {
@@ -1778,7 +1791,7 @@ final class AppUITests: XCTestCase {
             if close.exists && close.isHittable { close.tap() }
         }
         perfTapNav(app, label: "Chat")
-        let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        let composer = rehearsalChatComposer(app)
         XCTAssertTrue(composer.waitForExistence(timeout: 15) && composer.isHittable)
         let draft = composer.value as? String
         // Open the actual software keyboard; do not overwrite or submit a draft.
@@ -2072,7 +2085,7 @@ final class AppUITests: XCTestCase {
             let chat = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch.buttons["Chat"]
             let selectedChat = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: chat)
             XCTAssertEqual(XCTWaiter.wait(for: [selectedChat], timeout: 10), .completed, "THEME_RESTORE_CHAT_NOT_SELECTED")
-            let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+            let composer = self.rehearsalChatComposer(app)
             XCTAssertTrue(composer.waitForExistence(timeout: 10) && composer.isHittable, "THEME_RESTORE_CHAT_NOT_READY")
             XCTAssertFalse(web.buttons["Unlock"].exists, "Theme restoration lost the session")
             print("NATIVE_THEME_RESTORED original_preference_unlocked_chat=true")
@@ -2240,6 +2253,7 @@ final class AppUITests: XCTestCase {
         }
         app.activate()
         dismissRehearsalChatKeyboard(app)
+        returnToRehearsalChat(app)
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
         let close = app.buttons["Close Profile"].firstMatch
@@ -2256,8 +2270,12 @@ final class AppUITests: XCTestCase {
             if close.exists && close.isHittable { close.tap() }
             self.perfTapNav(app, label: "Chat")
         }
-        if !close.exists { app.buttons["Open Profile"].firstMatch.tap() }
-        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        if !close.exists {
+            let open = app.buttons["Open Profile"].firstMatch
+            guard waitForAdmittedControl(open) else { XCTFail("PROFILE_OPENER_NOT_ADMITTED"); return }
+            open.tap()
+        }
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "PROFILE_CLOSE_NOT_ADMITTED")
         func row(_ label: String) -> XCUIElement {
             web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
         }
@@ -2272,7 +2290,12 @@ final class AppUITests: XCTestCase {
         }
         func assertBack() {
             let back = app.buttons["Back in Profile"].firstMatch
-            XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable, "PROFILE_BACK_UNAVAILABLE")
+            let admitted = waitForAdmittedControl(back)
+            if !admitted {
+                let unlocked = !web.buttons["Unlock"].exists
+                print("PROFILE_BACK_ADMISSION exists=\(back.exists) hittable=\(back.isHittable) close=\(close.exists) unlocked=\(unlocked)")
+            }
+            XCTAssertTrue(admitted, "PROFILE_BACK_UNAVAILABLE")
             XCTAssertEqual(back.frame.width, 44, accuracy: 1)
             XCTAssertEqual(back.frame.height, 44, accuracy: 1)
             let native = app.buttons["profile-back"].firstMatch
@@ -2291,13 +2314,19 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(entry.isHittable, "PROFILE_STACK_ENTRY_UNAVAILABLE")
             entry.tap()
             assertBack()
+            let family = ["Your account": "account", "Appearance & preferences": "preferences",
+                          "Security & privacy": "security", "Help & feedback": "support"][label]!
+            print("PROFILE_SCREEN_ADMISSION family=\(family) back=true")
             if label == "Security & privacy" {
                 let vault = row("Vault methods")
                 XCTAssertTrue(vault.waitForExistence(timeout: 10) && vault.isHittable)
-                let originalFrame = app.buttons["profile-back"].firstMatch.frame
+                let originalFrame = nativeExpected ? app.buttons["profile-back"].firstMatch.frame : nil
                 let before = profileCounters()
                 if nativeExpected { XCTAssertNotNil(before, "PROFILE_BACK_MEASUREMENTS_UNAVAILABLE") }
                 vault.tap() // View only: no enrollment or authentication change.
+                let vaultTitle = web.staticTexts["Vault methods"].firstMatch.exists
+                let profileRoot = row("Your account").exists
+                print("PROFILE_VAULT_STACK title=\(vaultTitle) root=\(profileRoot) security=\(vault.exists)")
                 assertBack()
                 app.buttons["Back in Profile"].firstMatch.tap()
                 XCTAssertTrue(vault.waitForExistence(timeout: 10))
@@ -2315,7 +2344,7 @@ final class AppUITests: XCTestCase {
                     XCTAssertEqual(after?["removals"], before["removals"], "Inner Profile navigation removed the native host")
                     XCTAssertEqual(after?["rootUpdates"], before["rootUpdates"], "Unchanged Profile Back rebound its SwiftUI root")
                     XCTAssertEqual(after?["missingFrames"], before["missingFrames"], "Inner Profile navigation hid or displaced Back")
-                    XCTAssertEqual(app.buttons["profile-back"].firstMatch.frame, originalFrame)
+                    XCTAssertEqual(app.buttons["profile-back"].firstMatch.frame, originalFrame!)
                     print("PROFILE_BACK_REPLACEMENT_CONTINUITY inner_stack_retained_host_observed_frames")
                 }
             }
@@ -2345,7 +2374,7 @@ final class AppUITests: XCTestCase {
             if close.exists && close.isHittable { close.tap() }
         }
         perfTapNav(app, label: "Chat")
-        let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        let composer = rehearsalChatComposer(app)
         XCTAssertTrue(composer.waitForExistence(timeout: 15) && composer.isHittable)
         let draft = composer.value as? String
         let hostFrame = web.frame

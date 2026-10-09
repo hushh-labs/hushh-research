@@ -50,6 +50,9 @@ interface SegmentedControlProps {
   variant?: "compact" | "expanding" | "sliding";
   size?: "sm" | "default" | "lg";
   className?: string;
+  disabled?: boolean;
+  /** Bounded choices can keep their authored two-column phone layout. */
+  mobileColumns?: 2;
   /**
    * The group's name, matching `SegmentedPill`'s prop of the same name.
    *
@@ -83,6 +86,8 @@ export function SegmentedControl({
   variant = "compact",
   size = "default",
   className,
+  disabled = false,
+  mobileColumns,
   ariaLabel,
   iconClassName,
   labelClassName,
@@ -128,7 +133,7 @@ export function SegmentedControl({
 
   const moveTo = (index: number) => {
     const option = options[index];
-    if (!option) return;
+    if (!option || disabled) return;
     if (option.value !== value) onValueChange(option.value);
     buttonsRef.current[index]?.focus();
   };
@@ -138,7 +143,7 @@ export function SegmentedControl({
     index: number,
   ) => {
     // Browser and OS chords keep their meaning.
-    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    if (disabled || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
     const last = options.length - 1;
     if (last < 0) return;
     switch (event.key) {
@@ -171,18 +176,23 @@ export function SegmentedControl({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
+      aria-disabled={disabled || undefined}
+      style={isSliding ? { minWidth: options.length * 44 + 6 } : undefined}
       className={cn(
         "relative inline-flex items-center rounded-full",
         isSliding
-          ? "bg-black/[0.05] dark:bg-white/[0.07]"
+          ? "h-11 px-[3px]"
           : "bg-black/[0.04] dark:bg-white/[0.06] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]",
-        config.container,
+        !isSliding && config.container,
+        mobileColumns === 2 && !isSliding && "grid h-auto grid-cols-2 sm:inline-flex",
+        disabled && "opacity-50",
         className
       )}
     >
-      {isSliding && options.length > 0 ? <span aria-hidden="true"
-        className="pointer-events-none absolute inset-y-[3px] left-[3px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12)] dark:bg-neutral-800 dark:shadow-[0_1px_2px_rgba(0,0,0,0.4)] transition-transform duration-150 ease-out motion-reduce:transition-none"
-        style={{ width: `calc((100% - 6px) / ${options.length})`, transform: `translateX(${focusIndex * 100}%)` }} /> : null}
+      {isSliding ? <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 inset-y-1 rounded-full bg-black/[0.05] dark:bg-white/[0.07]" /> : null}
+      {isSliding && activeIndex >= 0 ? <span aria-hidden="true" data-slot="segmented-selection"
+        className="pointer-events-none absolute inset-y-[7px] left-[3px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12)] dark:bg-neutral-800 dark:shadow-[0_1px_2px_rgba(0,0,0,0.4)] transition-transform duration-150 ease-out motion-reduce:transition-none"
+        style={{ width: `calc((100% - 6px) / ${options.length})`, transform: `translateX(${activeIndex * 100}%)` }} /> : null}
       {options.map((option, index) => {
         const isActive = value === option.value;
         const Icon = option.icon;
@@ -198,11 +208,12 @@ export function SegmentedControl({
             role="radio"
             aria-checked={isActive}
             aria-label={option.accessibleLabel}
+            disabled={disabled}
             // Roving tabindex: a radio group is ONE tab stop, and the arrows
             // move within it.
-            tabIndex={index === focusIndex ? 0 : -1}
+            tabIndex={!disabled && index === focusIndex ? 0 : -1}
             onKeyDown={(event) => handleKeyDown(event, index)}
-            onClick={() => { if (!isActive) onValueChange(option.value); }}
+            onClick={() => { if (!disabled && !isActive) onValueChange(option.value); }}
             className={cn(
               // Base styles
               "relative flex items-center justify-center rounded-full select-none",
@@ -214,6 +225,7 @@ export function SegmentedControl({
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               "overflow-hidden font-normal tracking-tight",
               isSliding ? "z-10 h-full min-w-0 px-0.5" : config.segment,
+              mobileColumns === 2 && !isSliding && "min-h-11",
 
               // Active state
               isActive && (isSliding ? "text-slate-950 dark:text-white" : [

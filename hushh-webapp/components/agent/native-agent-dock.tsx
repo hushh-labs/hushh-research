@@ -41,6 +41,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const regionRevision = useNativePresentationRegionRevision();
   const [supported, setSupported] = useState(false);
   const [discovered, setDiscovered] = useState(false);
+  const [listenersReady, setListenersReady] = useState(false);
   const [measurement, measure] = useState(0);
   const family: "text" | "voice" = dock?.composerVisible ? "text" : "voice";
   const port = ports?.get(family);
@@ -105,6 +106,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
 
   useEffect(() => {
     if (!supported) return;
+    let live = true;
     const subscriptions = [nativeDock.addListener("input", event => {
       const capturedGeneration = generation.current;
       let dispatched = false;
@@ -215,7 +217,21 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     const removePrivacy = subscribeNativeSessionPrivacy(() => {
       generation.current++; current.current.ports?.setLayout(null); measure(value => value + 1);
     });
-    return () => { subscriptions.forEach(subscription => void subscription.then(handle => handle.remove())); void removePrivacy.then(handle => handle.remove()); };
+    const handles = [...subscriptions, removePrivacy];
+    const remove = () => handles.forEach(handle => { void handle.then(value => value.remove()).catch(() => undefined); });
+    void Promise.all(handles.map(handle => boundedDock(handle))).then(() => {
+      if (live) setListenersReady(true);
+    }).catch(() => {
+      if (!live) return;
+      live = false; generation.current++; failed.current = true;
+      remove();
+      // No editor can have been admitted before all operation/privacy listeners
+      // are ready. Restore only this presentation's untouched web fallback.
+      if (!identity.current && presentationOwner === presentation.current) {
+        current.current.ports?.present(false); setActive(false);
+      }
+    });
+    return () => { live = false; remove(); };
   }, [supported]);
 
   useEffect(() => {
@@ -229,7 +245,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   }, [supported, dock?.host]);
 
   useLayoutEffect(() => {
-    if (!supported || !ports) return;
+    if (!supported || !listenersReady || !ports) return;
     if (!user?.uid || suppressed || dock?.suppressed) {
       generation.current++;
       const previous = identity.current;
@@ -300,7 +316,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
         identity.current = null; fence.current = null; ports.present(false); setActive(false);
       } catch { /* uncertain ownership remains concealed and noninteractive */ }
     });
-  }, [supported, user?.uid, suppressed, dock?.suppressed, dock?.host, enabled, overlay, theme, port, measurement, ports, family, regionRevision]);
+  }, [supported, listenersReady, user?.uid, suppressed, dock?.suppressed, dock?.host, enabled, overlay, theme, port, measurement, ports, family, regionRevision]);
 
   useEffect(() => {
     const generationCounter = generation;

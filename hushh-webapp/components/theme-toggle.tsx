@@ -183,14 +183,14 @@ export function ThemeToggleLean({
   if (!activeTheme) {
     return (
       <div
-        className={cn("h-9", sizeIntent.width, className)}
+        className={cn("h-11 min-w-[138px]", sizeIntent.width, className)}
         aria-hidden="true"
       />
     );
   }
 
   const control = (
-    <div data-theme-control className={cn("h-9", sizeIntent.width, className)}>
+    <div data-theme-control className={cn("h-11 min-w-[138px]", sizeIntent.width, className)}>
       <SegmentedControl ariaLabel="Theme" variant="sliding" value={activeTheme}
         onValueChange={value => selectTheme(value as ThemeOption)}
         selectedButtonRef={selectedRef}
@@ -202,7 +202,7 @@ export function ThemeToggleLean({
   if (!nativeContext) return control;
   return <NativeChatChrome kind="appearance" value={activeTheme} onValueChange={selectTheme}
     {...nativeContext} focusRef={selectedRef}
-    className={cn("flex h-11 min-w-[132px] max-w-[320px] items-center justify-center", sizeIntent.width, className)}>
+    className={cn("flex h-11 min-w-[138px] max-w-[320px] items-center justify-center", sizeIntent.width, className)}>
     {control}
   </NativeChatChrome>;
 }

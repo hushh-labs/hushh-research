@@ -67,6 +67,24 @@ describe("SegmentedControl accessibility", () => {
     expect(radios.some((node) => node.getAttribute("tabindex") === "0")).toBe(true);
   });
 
+  it("does not paint a false sliding selection or dispatch a disabled choice", () => {
+    const onValueChange = vi.fn();
+    const options = [{ value: "one", label: "One" }, { value: "puppy", label: "Puppy" }];
+    const view = render(<SegmentedControl ariaLabel="Agent" variant="sliding" value="missing"
+      options={options} onValueChange={onValueChange} />);
+    expect(view.container.querySelector('[data-slot="segmented-selection"]')).toBeNull();
+    expect(screen.getAllByRole("radio").every(radio => radio.getAttribute("aria-checked") === "false")).toBe(true);
+    view.rerender(<SegmentedControl ariaLabel="Agent" variant="sliding" value="one"
+      options={options} onValueChange={onValueChange} disabled />);
+    for (const radio of screen.getAllByRole("radio")) {
+      expect(radio).toBeDisabled();
+      expect(radio).toHaveAttribute("tabindex", "-1");
+      fireEvent.click(radio);
+      fireEvent.keyDown(radio, { key: "ArrowRight" });
+    }
+    expect(onValueChange).not.toHaveBeenCalled();
+  });
+
   it("moves with the arrow keys, and wraps", () => {
     render(<Harness />);
     const one = screen.getByRole("radio", { name: /cloud agent/ });

@@ -477,7 +477,7 @@ export function NativeChatChrome(props: Props) {
           props.kind === "selection" ? { kind: "selection", value: props.value, options: props.options, label: props.label } :
           { kind: "more", options: props.options, label: props.label };
         const retainHost = peekNativeChromeCapabilities()?.retainedControls === true &&
-          !!props.owner && !isSessionChromeSuppressed() && retiring?.projection.ownerEpoch === epoch;
+          badgeAdmitted && !!props.owner && !isSessionChromeSuppressed() && retiring?.projection.ownerEpoch === epoch;
         // A compatible active handoff must stay visible. Suspension belongs to
         // an actually inactive surface, not a route/action revision change.
         // The native replacement contract fences interaction until activation.
@@ -580,7 +580,7 @@ export function NativeChatChrome(props: Props) {
       // The next committed layout explicitly replaces or hard-retires this
       // slot. Actual unmount has its own strict removal below.
     };
-  }, [supported, allowed, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, historyReplacement, profileBackReplacement, canAct, reportRehearsal, restorePendingDomFocus]);
+  }, [supported, allowed, badgeAdmitted, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, historyReplacement, profileBackReplacement, canAct, reportRehearsal, restorePendingDomFocus]);
 
   useLayoutEffect(() => () => {
     replacementCandidate.current = null;
