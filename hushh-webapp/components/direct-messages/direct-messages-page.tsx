@@ -1282,13 +1282,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                   const opening = messageMenuOpening.current?.messageId === message.id &&
                     messageMenuOpening.current.conversationId === message.conversationId
                       ? messageMenuOpening.current : null;
-                  const nextMessage = visibleMessages[index + 1];
-                  const showPeerAvatar =
-                    !message.senderIsViewer &&
-                    (!nextMessage ||
-                      nextMessage.senderIsViewer ||
-                      isNewMessageDay(nextMessage, message));
-
                   return (
                     <div key={message.id} className={styles.messageFeedItem} data-group-start={index === 0 || visibleMessages[index - 1]?.senderIsViewer !== message.senderIsViewer || isNewMessageDay(message, visibleMessages[index - 1])}>
                       {isNewMessageDay(message, visibleMessages[index - 1]) ? (

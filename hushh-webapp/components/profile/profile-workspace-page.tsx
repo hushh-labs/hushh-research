@@ -56,13 +56,9 @@ import {
   ProfileInnerReviewIcon,
 } from "@/components/profile/profile-inner-icons";
 import {
-  ProfileSecondaryFingerprintIcon,
   ProfileSecondaryInboxIcon,
   ProfileSecondaryLocationIcon,
-  ProfileSecondaryPassphraseIcon,
-  ProfileSecondaryReceiptIcon,
   ProfileSecondaryRefreshIcon,
-  ProfileSecondaryUnlinkIcon,
   ProfileSecondaryVisibilityIcon,
 } from "@/components/profile/profile-secondary-icons";
 import {
