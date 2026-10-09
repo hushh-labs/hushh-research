@@ -16,7 +16,7 @@ import type { CustomConnectorRecoveryReference, DriveChatRecoveryReason } from "
 
 type Access = { userId: string; vaultKey: string; vaultOwnerToken: string };
 type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked"; review?: "required" | "not_required"; access?: "read" | "write" };
-type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displayName" | "revision" | "enabled"> & {
+type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displayName" | "revision" | "enabled" | "readOnly"> & {
   authenticationKind: CustomConnectorConfiguration["authentication"]["kind"];
   hasOAuthRegistration: boolean;
 };
@@ -24,7 +24,7 @@ type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displa
 function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
   return {
     connectorId: record.connectorId, displayName: record.displayName,
-    revision: record.revision, enabled: record.enabled,
+    revision: record.revision, enabled: record.enabled, readOnly: record.readOnly,
     authenticationKind: record.authentication.kind,
     hasOAuthRegistration: Boolean(record.oauthRegistration),
   };
@@ -178,6 +178,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       if (!configuration || !configuration.enabled || configuration.revision !== item.revision ||
           !catalogs[item.connectorId]?.some(entry => entry.id === tool.id && entry.fingerprint === tool.fingerprint))
         throw new Error("Connector tools changed.");
+      if (configuration.readOnly && tool.access !== "read") throw new Error("This connection is read-only.");
       const blockedTools = (configuration.blockedTools ?? []).filter(entry => entry.id !== tool.id);
       if (tool.permission !== "blocked") blockedTools.push({ id: tool.id, fingerprint: tool.fingerprint });
       const saved = await saveCustomConnectorConfiguration(access, { ...configuration, blockedTools },
@@ -240,6 +241,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     </div> : null}
     <ul className="divide-y rounded-2xl bg-foreground/10">{items.map(item => <li key={item.connectorId} className="px-4 py-3">
       <p className="text-sm font-medium">{item.displayName}</p>
+      {item.readOnly ? <p className="text-xs text-muted-foreground">Read-only connection. Tools that may change things stay blocked, including new tools. Remove and reconnect to allow changes.</p> : null}
       <p className="text-xs text-muted-foreground">{!item.enabled ? "Blocked for new turns"
         : authRequired[item.connectorId] ? item.authenticationKind === "api_key"
           ? "Saved credential rejected · remove and add again"
@@ -256,7 +258,7 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
       {catalogs[item.connectorId] ? <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">{catalogs[item.connectorId]?.length} tools</summary>
         <ul className="max-h-60 overflow-y-auto">{catalogs[item.connectorId]?.map(tool => <li key={tool.id} className="flex min-h-11 items-center justify-between gap-3 border-t py-1">
           <span className="min-w-0 break-words">{tool.name}</span>
-          <Button size="compact" variant="none" effect="fade" disabled={busy || !item.enabled}
+          <Button size="compact" variant="none" effect="fade" disabled={busy || !item.enabled || (item.readOnly === true && tool.access !== "read")}
             aria-label={`${tool.permission === "blocked" ? "Allow" : "Block"} ${tool.name} in ${item.displayName}`}
             onClick={() => void setToolBlocked(item, tool)}>{tool.permission === "blocked" ? "Blocked · Allow"
               : tool.review === "not_required" ? "Runs without asking · Block" : "Ask first · Block"}</Button>

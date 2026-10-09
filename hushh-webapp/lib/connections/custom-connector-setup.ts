@@ -69,7 +69,7 @@ export async function verifyAndSaveCustomConnector(input: {
   isCurrent: () => boolean;
   blockWrites?: boolean;
 }): Promise<AddedConnector> {
-  let configuration = input.configuration;
+  let configuration = input.blockWrites ? { ...input.configuration, readOnly: true } : input.configuration;
   let tools: CatalogTool[] | null = null;
   let signInNeeded = Boolean(configuration.oauthRegistration);
   if (!configuration.oauthRegistration) {

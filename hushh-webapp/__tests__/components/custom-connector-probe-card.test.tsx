@@ -4,7 +4,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import { parseCustomConnectorProbe } from "@/lib/agent/custom-connector-probe";
 import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
-import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import { verifyAndSaveCustomConnector } from "@/lib/connections/custom-connector-setup";
+import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
 
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" } }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -88,6 +89,7 @@ it("connect read-only blocks every tool that may change things", async () => {
   render(<CustomConnectorProbeCard experience={probe()} />);
   fireEvent.click(screen.getByRole("button", { name: "Connect read-only" }));
   await screen.findByText(/1 that may change things blocked/);
+  expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][1].readOnly).toBe(true);
   expect(vi.mocked(saveCustomConnectorConfiguration).mock.calls[0][1].blockedTools).toEqual([
     { id: TOOL.id, fingerprint: TOOL.fingerprint },
   ]);
@@ -121,4 +123,20 @@ it("does not save a second copy of a server already in the vault", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
   await waitFor(() => expect(screen.getByText("Already saved as My Example.")).toBeTruthy());
   expect(saveCustomConnectorConfiguration).not.toHaveBeenCalled();
+});
+
+it("retains read-only intent when discovery requires sign-in", async () => {
+  vi.mocked(ExternalConnectorService.refreshMcpCatalog).mockRejectedValue(new McpCatalogAuthenticationError());
+  const configuration = {
+    version: 1 as const, connectorId: "custom_" + "a".repeat(32),
+    revision: "00000000-0000-4000-8000-000000000001", displayName: "Example",
+    endpoint: "https://mcp.example.test/mcp", enabled: true, authentication: { kind: "none" as const },
+  };
+  const result = await verifyAndSaveCustomConnector({
+    access: { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token" },
+    configuration, blockWrites: true, confirmation: { confirmedByUser: true, surface: "chat", source: "test" },
+    signal: new AbortController().signal, isCurrent: () => true,
+  });
+  expect(result.signInNeeded).toBe(true);
+  expect(result.configuration.readOnly).toBe(true);
 });

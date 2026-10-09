@@ -29,6 +29,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     GovernedMcpToolset,
     McpConnectionBinding,
     ResolvedMcpConnection,
+    _annotated_read_only,
     mcp_tool_fingerprint,
     mcp_tool_name,
     resolve_registered_connection,
@@ -103,26 +104,20 @@ def validate_mcp_turn_configurations(value: Any) -> dict[str, dict[str, Any]]:
             raise ValueError
         records = {}
         for raw in value:
-            if not isinstance(raw, dict) or set(raw) not in (
-                {
-                    "version",
-                    "connectorId",
-                    "revision",
-                    "displayName",
-                    "endpoint",
-                    "enabled",
-                    "authentication",
-                },
-                {
-                    "version",
-                    "connectorId",
-                    "revision",
-                    "displayName",
-                    "endpoint",
-                    "enabled",
-                    "authentication",
-                    "blockedTools",
-                },
+            required_keys = {
+                "version",
+                "connectorId",
+                "revision",
+                "displayName",
+                "endpoint",
+                "enabled",
+                "authentication",
+            }
+            if (
+                not isinstance(raw, dict)
+                or not required_keys <= set(raw)
+                or set(raw) - required_keys - {"blockedTools", "readOnly"}
+                or ("readOnly" in raw and type(raw["readOnly"]) is not bool)
             ):
                 raise ValueError
             if (
@@ -304,6 +299,7 @@ class McpTurnResources:
                 for item in catalog
                 if (mcp_tool_name(connector_id, item["name"]), mcp_tool_fingerprint(item))
                 not in blocked
+                and (not record.get("readOnly", False) or _annotated_read_only(item))
             ]
 
         return ResolvedMcpConnection(
