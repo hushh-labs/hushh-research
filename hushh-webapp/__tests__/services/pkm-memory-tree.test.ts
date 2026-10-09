@@ -4,6 +4,7 @@ import {
   buildPkmMemoryTree,
   buildPkmShareBundles,
   pkmShareBundleState,
+  resolvePkmMemoryShareBundle,
 } from "@/lib/profile/pkm-memory-tree";
 
 /**
@@ -48,6 +49,19 @@ const SAMPLE_PKM_CARDS = [
 ];
 
 describe("Memory tree and sharing presentation", () => {
+  it("binds pricing to one materialized section and refuses missing, foreign or ambiguous bindings", () => {
+    const entry = { scope_handle: "scope_profile", scope_label: "Profile", segment_ids: [], visibility_posture: "private" as const,
+      summary_projection: { top_level_scope_path: "profile", materialization_state: "materialized", materialized_leaf_count: 2 } };
+    const manifest = { domain: "financial", manifest_version: 1, summary_projection: {}, top_level_scope_paths: ["profile"], externalizable_paths: [], paths: [], scope_registry: [entry] };
+    const card = SAMPLE_PKM_CARDS[0]!;
+    expect(resolvePkmMemoryShareBundle(manifest, card)).toMatchObject({ scopeHandle: "scope_profile", topLevelScopePath: "profile", enabled: false });
+    for (const invalid of [null, { ...manifest, domain: "preferences" }, { ...manifest, scope_registry: [entry, entry] },
+      { ...manifest, scope_registry: [{ ...entry, scope_handle: "" }] }, { ...manifest, scope_registry: [{ ...entry, summary_projection: { ...entry.summary_projection, materialization_state: "empty" } }] }]) {
+      expect(resolvePkmMemoryShareBundle(invalid, card)).toBeNull();
+    }
+    expect(resolvePkmMemoryShareBundle(manifest, { ...card, pathSegments: [] })).toBeNull();
+    expect(resolvePkmMemoryShareBundle(manifest, SAMPLE_PKM_CARDS[1]!)).toBeNull();
+  });
   it("keeps a realistic nested PKM fixture collapsed into folders", () => {
     const tree = buildPkmMemoryTree(SAMPLE_PKM_CARDS);
 

@@ -8,6 +8,8 @@ import {
   ShieldWarningIcon as ShieldAlert,
 } from "@/components/icons";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
+import { consentScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
 import { LocationMemoryView } from "@/components/profile/location-memory-view";
@@ -72,6 +74,7 @@ import { pkmMemoryCardBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import {
   buildPkmShareBundles,
   pkmShareBundleState,
+  resolvePkmMemoryShareBundle,
 } from "@/lib/profile/pkm-memory-tree";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
@@ -1336,17 +1339,9 @@ export function PkmNaturalPanel({
     return "loading";
   }
 
-  // The share bundle for this memory's own top-level scope, resolved from the
-  // domain manifest. Reuses the same PKM sharing contract the Sharing tab uses.
   function memoryScopeShareBundle(card: PkmMemoryCard) {
-    const scopePath = cardScopePath(card);
-    return (
-      buildPkmShareBundles(selectedCardManifest).find(
-        (bundle) => bundle.topLevelScopePath === scopePath,
-      ) || null
-    );
+    return resolvePkmMemoryShareBundle(selectedCardManifest, card);
   }
-
   function memorySharingPosture(card: PkmMemoryCard): MemorySharingPosture {
     const bundle = memoryScopeShareBundle(card);
     if (!bundle || !bundle.scopeHandle) return null;
@@ -1536,6 +1531,7 @@ export function PkmNaturalPanel({
   }
 
   if (selectedCard) {
+    const priceSection = memoryScopeShareBundle(selectedCard);
     return (
       <>
         {nativeBeacon}
@@ -1550,6 +1546,10 @@ export function PkmNaturalPanel({
           sharingPosture={memorySharingPosture(selectedCard)}
           sharingBusy={memorySharingActionId === cardImpactKey(selectedCard)}
           sharingError={memorySharingError}
+          sharingPriceControl={priceSection?.scopeHandle ? <div className="space-y-2 border-t pt-4">
+            <p className="text-xs text-muted-foreground">Price applies to requests for the entire {priceSection.label} section. You review the requested scope before approval.</p>
+            <ScopeTariffEditor key={`${user.uid}:${priceSection.scopeHandle}:${selectedCard.domain}:${priceSection.topLevelScopePath}`} scopeHandle={priceSection.scopeHandle} machineScope={consentScopeForPermission(selectedCard.domain, priceSection.topLevelScopePath)} label={priceSection.label} />
+          </div> : null}
           canMutate={selectedCard.editable && Boolean(sharingImpacts[cardImpactKey(selectedCard)])}
           saving={memoryActionId === `${selectedCard.id}:edited`}
           deleting={memoryActionId === `${selectedCard.id}:deleted`}

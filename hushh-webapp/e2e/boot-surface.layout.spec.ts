@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import { verifyRecoveryWheelAccess } from "./fixtures/vault-recovery-wheel";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 /**
@@ -527,7 +528,7 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
       return {
         centered: Math.abs(surface.left + surface.width / 2 - innerWidth / 2) <= 1,
         horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-        contained: footer.every((button) => {
+        contained: footer.length === 2 && footer.every((button) => {
           const r = button.getBoundingClientRect();
           return r.top >= box.top - 1 && r.bottom <= box.bottom + 1 &&
             r.bottom <= innerHeight - Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-height")) + 1;
@@ -556,27 +557,10 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
       await content.evaluate((node) => { node.scrollTop = 0; });
       const scroll = await content.boundingBox();
       const overflows = await content.evaluate((node) => node.scrollHeight > node.clientHeight);
-      const recoveryNeedsScroll = !(await recoveryGeometry()).contained;
       if (keyboard === 320 && height === 834) expect(overflows).toBe(true);
       await page.mouse.move(scroll!.x + scroll!.width / 2, scroll!.y + scroll!.height / 2);
       if (overflows) {
-        // Negative control: programmatic reveal would pass overflow:hidden.
-        // A real wheel inside the scrollport must not pass that broken state.
-        await content.evaluate((node) => { node.style.overflowY = "hidden"; });
-        await page.mouse.wheel(0, 1000);
-        await page.evaluate(() => new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        }));
-        await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBe(0);
-        if (recoveryNeedsScroll) expect((await recoveryGeometry()).contained).toBe(false);
-        await content.evaluate((node) => { node.style.overflowY = ""; });
-        // Synchronize the fixture's deliberate overflow mutation before the
-        // next wheel. WebKit failed without this paint boundary.
-        await page.evaluate(() => new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        }));
-        await page.mouse.wheel(0, 1000);
-        await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+        await verifyRecoveryWheelAccess(page, content, recoveryGeometry);
       }
       // A positive scroll offset proves motion started, not that WebKit has
       // finished it. Require the full original geometry contract at settlement.

@@ -20,7 +20,7 @@ describe("native color preference", () => {
     bridge.documentId = crypto.randomUUID();
     document.documentElement.style.setProperty("--app-accent", "#007aff");
     document.documentElement.style.setProperty("--accent-preview-blue", "#007aff");
-    document.documentElement.style.setProperty("--accent-preview-gold", "#d4a574");
+    document.documentElement.style.setProperty("--accent-preview-gold", "#b8860b");
     document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, families: [], independentControls: true });
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));

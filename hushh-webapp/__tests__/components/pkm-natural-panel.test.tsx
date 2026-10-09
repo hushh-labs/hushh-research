@@ -13,6 +13,8 @@ import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { buildLocationMemoryPresentation } from "@/lib/profile/location-memory-presentation";
+import { financialManifest } from "../fixtures/materialized-financial-manifest";
+import { ScopeCommerceService } from "@/lib/services/scope-commerce-service";
 
 const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory, trackEvent } = vi.hoisted(() => ({
   addToPKM: vi.fn(),
@@ -123,30 +125,6 @@ function baseMetadata() {
   };
 }
 
-// A domain manifest whose `profile` scope is a materialized, consumer-visible
-// share bundle — the shape buildPkmShareBundles() keeps. `posture` sets whether
-// the scope is currently "ask before sharing" (consent_required) or private.
-function financialManifest(posture: "consent_required" | "private") {
-  return {
-    domain: "financial",
-    manifest_version: 7,
-    scope_registry: [
-      {
-        scope_handle: "financial.profile",
-        scope_label: "Profile",
-        visibility_posture: posture,
-        exposure_enabled: posture !== "private",
-        summary_projection: {
-          top_level_scope_path: "profile",
-          materialization_state: "materialized",
-          materialized_leaf_count: 2,
-          consumer_visible: true,
-          internal_only: false,
-        },
-      },
-    ],
-  };
-}
 
 const FULL_BLOB = {
   financial: {
@@ -1207,6 +1185,12 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       // No navigation at all — specifically not to the Consent Center.
       expect(push).not.toHaveBeenCalled();
       expect(push).not.toHaveBeenCalledWith(expect.stringContaining("/consent"));
+      const tariff = vi.spyOn(ScopeCommerceService, "tariff").mockResolvedValue(null);
+      vi.spyOn(ScopeCommerceService, "readiness").mockRejectedValue(new Error("Payments paused"));
+      fireEvent.click(screen.getByRole("button", { name: "Set sharing price for Profile" }));
+      await screen.findByRole("heading", { name: "Price for Profile" });
+      await waitFor(() => expect(tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*"));
+      expect(push).not.toHaveBeenCalled();
     });
 
     it("changes this memory's own scope through the PKM scope-exposure contract", async () => {
@@ -1326,6 +1310,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         await screen.findByText(/Sharing controls for this memory aren’t available right now/),
       ).toBeTruthy();
       expect(screen.queryByRole("switch")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Set sharing price/ })).toBeNull();
       expect(updateScopeExposure).not.toHaveBeenCalled();
       expect(push).not.toHaveBeenCalled();
     });

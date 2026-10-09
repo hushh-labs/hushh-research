@@ -70,9 +70,7 @@ export function useVault() {
  * moving through the real pane history helpers exactly as
  * ProfilePageContent's updateProfileView does.
  */
-export function ProfilePage({ paneLocation }: {
-  paneLocation?: ProfilePaneLocation;
-}) {
+export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocation }) {
   const accent = useAccent();
   const search = useSearchParams();
   const location = paneLocation ?? { panel: null, detail: null };
@@ -95,11 +93,10 @@ export function ProfilePage({ paneLocation }: {
   } else if (location.panel === "account") {
     entries.push({ key: "panel:account", title: "Account", content: <SettingsGroup title="Account"><SettingsRow title="Signed-in account" /></SettingsGroup> });
   } else if (location.panel === "preferences") {
-    entries.push({ key: "panel:preferences", title: "Preferences", content: <ProfileAppearancePreferences
-      accent={accent} onAccentChange={writeAccent}
-      onGeminiClick={() => updateView({ panel: "preferences", detail: "gemini" })}
-      onVoiceClick={() => updateView({ panel: "preferences", detail: "voice" })}
-    /> });
+    entries.push({ key: "panel:preferences", title: "Preferences", content:
+      <ProfileAppearancePreferences accent={accent} onAccentChange={writeAccent}
+        onGeminiClick={() => updateView({ panel: "preferences", detail: "gemini" })}
+        onVoiceClick={() => updateView({ panel: "preferences", detail: "voice" })} /> });
   }
   return (
     <SettingsPresentationProvider density="compact">

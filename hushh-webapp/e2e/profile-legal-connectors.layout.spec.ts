@@ -147,6 +147,7 @@ test("Profile chrome and Preferences keep their grid while the panel follows a p
   await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
   const preferences = pane(page).locator("[data-profile-appearance-preferences]");
   await expect(preferences.getByText("Appearance", { exact: true })).toBeVisible();
+  await expect(preferences.getByRole("radiogroup", { name: "Theme", exact: true })).toBeVisible();
   const controlEdges = await preferences.evaluate(node => {
     const appearance = node.querySelector('[role="radiogroup"]')!.getBoundingClientRect();
     const accent = node.querySelector('select[aria-label="App accent color"]')!.getBoundingClientRect();
@@ -212,7 +213,7 @@ test("Accent stays coherent through repeated selection and Profile close/reopen"
     await page.getByTestId("open-profile").click();
     await expect(pane(page)).toBeVisible();
     await page.getByTestId("profile-preferences-row").click();
-    await expect(trigger).toContainText(accent);
+    await expect(trigger).toHaveValue(value);
   }
   expect(errors).toEqual([]);
 });

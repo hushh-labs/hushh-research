@@ -1,5 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import * as walletCardArtwork from "@/lib/services/wallet-card-artwork-service";
+import { decodePayload } from "@/components/wallet-card/__tests__/qr-code-test-decoder";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { loadWalletSharing } from "@/lib/services/wallet-sharing-service";
 const mocks = vi.hoisted(() => ({ push: vi.fn(), approve: vi.fn(), deny: vi.fn(), revoke: vi.fn(), getProfile: vi.fn().mockResolvedValue({ card: null, shareUrl: null }), vaultKey: "test-key" as string | null, user: { uid: "owner", getIdToken: vi.fn().mockResolvedValue("test") } }));
@@ -11,16 +15,44 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/lib/services/wallet-sharing-service", async (original) => ({ ...await original<object>(), loadWalletSharing: vi.fn() }));
 describe("Wallet Sharing", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
   beforeEach(() => { vi.clearAllMocks(); mocks.vaultKey = "test-key"; mocks.approve.mockResolvedValue(undefined); mocks.deny.mockResolvedValue(undefined); mocks.revoke.mockResolvedValue(undefined); });
   it("shows current projected artwork and conceals it while locked, retaining the real empty state", async () => {
     vi.mocked(loadWalletSharing).mockResolvedValue({ requests: [], grants: [] });
     const profile = { displayName: "Current projected owner", username: "current.projected.owner", shareUrl: "https://example.com/profile" };
+    vi.spyOn(walletCardArtwork, "loadWalletCardArtwork").mockImplementation(async (kind) =>
+      readFileSync(join(process.cwd(), `public/wallet/artwork/${kind}-v1.svg`), "utf8"));
+    const images = new Map<string, Blob>();
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn((blob: Blob) => { const url = `blob:sharing-${images.size}`; images.set(url, blob); return url; });
+      static revokeObjectURL = vi.fn();
+    });
     const view = render(<WalletSharing profile={profile} />);
+    const profileImage = () => view.container.querySelector<HTMLImageElement>('[data-agent-card="profile"] img');
+    await waitFor(() => expect(profileImage()).not.toBeNull());
+    const originalUrl = profileImage()!.getAttribute("src")!;
+    const svg = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject;
+      reader.readAsText(images.get(originalUrl)!);
+    });
+    const artwork = new DOMParser().parseFromString(svg, "image/svg+xml");
+    expect(artwork.querySelector("[data-wallet-identity]")?.textContent).toContain("current.projected.owner");
+    const qr = artwork.querySelector("[data-wallet-qr]")!;
+    expect(qr).not.toBeNull();
+    const size = Number(qr.getAttribute("viewBox")!.split(" ")[2]) - 8;
+    const modules = new Uint8Array(size * size);
+    for (const run of qr.querySelector("path")!.getAttribute("d")!.matchAll(/M(\d+) (\d+)h(\d+)v1H\d+z/g)) {
+      for (let x = Number(run[1]) - 4; x < Number(run[1]) - 4 + Number(run[3]); x += 1) modules[(Number(run[2]) - 4) * size + x] = 1;
+    }
+    expect(decodePayload({ size, modules })).toBe(profile.shareUrl);
+    await act(async () => { fireEvent.load(profileImage()!); });
     await screen.findByText("Not shared with anyone yet.");
     expect(screen.getByText("Not shared with anyone yet.")).toBeVisible();
-    expect(screen.getByText("current.projected.owner")).toBeInTheDocument();
-        mocks.vaultKey = null;
+    expect(screen.getByRole("img", { name: "Agent One Profile" })).toBeVisible();
+    mocks.vaultKey = null;
     view.rerender(<WalletSharing profile={profile} />);
+    expect(profileImage()).toBeNull();
+    expect(view.container.querySelector(`img[src="${originalUrl}"]`)).toBeNull();
     expect(screen.queryByText("current.projected.owner")).toBeNull();
     expect(mocks.getProfile).not.toHaveBeenCalled();
   });

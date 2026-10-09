@@ -190,6 +190,7 @@ describe("OneDashboardPage", () => {
     expect(
       screen.getByRole("link", { name: "Open Calendar" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("calendar"));
+    expect(screen.getByRole("link", { name: "Open Messages" })).toHaveAttribute("href", ROUTES.ONE_MESSAGES);
     expect(screen.queryByRole("link", { name: "Open KYC" })).toBeNull();
     expect(
       screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),

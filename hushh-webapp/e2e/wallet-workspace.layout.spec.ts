@@ -196,7 +196,10 @@ async function open(
   await page.setViewportSize({ width, height });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("http://wallet-fixture.local/**", async (route) => {
+  const fixture = shell ? shellMarkup() : '<div id="root"></div>';
+  const html = `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`;
+  await page.route("https://wallet-fixture.local/**", async (route) => {
+    if (route.request().isNavigationRequest()) { await route.fulfill({ body: html, contentType: "text/html" }); return; }
     const requestUrl = new URL(route.request().url());
     const assetPath = requestUrl.searchParams.get("url") ?? requestUrl.pathname;
     if (assetPath === "/wallet/wallet-cards-hero.webp") {
@@ -209,10 +212,7 @@ async function open(
     }
     await route.abort();
   });
-  const fixture = shell ? shellMarkup() : '<div id="root"></div>';
-  await page.setContent(
-    `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><base href="http://wallet-fixture.local/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`,
-  );
+  await page.goto("https://wallet-fixture.local/");
   await awaitProductFont(page);
   await page.addScriptTag({ content: `window.__walletScenario = ${JSON.stringify(scenario)};${PROBES}` });
   return errors;

@@ -26,7 +26,7 @@ vi.mock("@ag-ui/client", () => ({
     abortRun() {
       mockTransport.aborted = true;
       this.abortController.abort();
-      void this.reader?.cancel();
+      void this.reader?.cancel().catch(() => undefined);
       this.releaseAfterEof?.();
     }
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
