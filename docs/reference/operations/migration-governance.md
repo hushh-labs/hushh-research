@@ -186,6 +186,13 @@ process memory. The final source-preservation check still requires current
 state under the bounded write-freeze; an earlier shared snapshot cannot prove
 that subsequent writes preserved the source.
 
+Row digests order collatable primary-key components with explicit `C` collation;
+numeric and UUID keys retain their native comparisons. Every component reverses
+for the maximum composite-key bound. This prevents libc/ICU ordering differences
+from masquerading as changed information. Capture both comparison reports with
+the current ordering contract and the same snapshot/backup; retain historical
+reports unchanged. Exact catalog and full-information comparison still apply.
+
 Pin extension namespaces and versions before restoring into the empty clone.
 PostgreSQL client-major parity alone does not prevent `CREATE EXTENSION` from
 selecting a newer default version. A restore that differs in extension version

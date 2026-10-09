@@ -1906,6 +1906,18 @@ control. Extension pinning, bounded clone-only catalog reconstruction and the
 original exact comparison remain required. Paid admission and live activity
 stay disabled.
 
+The Cloud SQL extension catalog does not offer the source's pgvector 0.8.1 for
+new installs. Recovery therefore uses an isolated Linux PostgreSQL 15 image with
+pgvector 0.8.1, without changing shared Dev. Its catalog matched after the nine
+bounded authored reconstructions. A ticker digest mismatch was independently
+proved to be ordering-only: all 10,571 primary-key/row-hash pairs matched and the
+current source still matched the original backup snapshot. Source libc collation
+2.19 and recovery libc 2.36 ordered those text keys differently. Capture now uses
+explicit C ordering for collatable keys, preserves native numeric/UUID ordering
+and fixes descending composite bounds. The real PostgreSQL regression detects
+the original bug and altered information. Fresh backup/restore qualification is
+required; no failed report was rewritten or accepted as baseline evidence.
+
 The existing 056/057 replay-preservation guards remain in the active source.
 A negative-control rehearsal against main's older seed bodies failed both
 bootstrap replay stability and refreshed/curated-profile preservation. No test

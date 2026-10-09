@@ -136,10 +136,12 @@ async def _catalog(conn: asyncpg.Connection) -> dict[str, Any]:
     }
 
 
-async def _primary_key_columns(conn: asyncpg.Connection, table: str) -> list[str]:
+async def _primary_key_components(
+    conn: asyncpg.Connection, table: str
+) -> list[tuple[str, bool]]:
     rows = await conn.fetch(
         """
-        SELECT a.attname AS column_name
+        SELECT a.attname AS column_name, a.attcollation <> 0 AS collatable
         FROM pg_index i
         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
         WHERE i.indrelid = to_regclass($1) AND i.indisprimary
@@ -147,7 +149,23 @@ async def _primary_key_columns(conn: asyncpg.Connection, table: str) -> list[str
         """,
         f"public.{table}",
     )
-    return [str(row["column_name"]) for row in rows]
+    return [(str(row["column_name"]), bool(row["collatable"])) for row in rows]
+
+
+async def _primary_key_columns(conn: asyncpg.Connection, table: str) -> list[str]:
+    return [name for name, _ in await _primary_key_components(conn, table)]
+
+
+def _primary_key_order(
+    components: list[tuple[str, bool]], prefix: str = "", *, descending: bool = False
+) -> str:
+    return ", ".join(
+        prefix
+        + _quote(name)
+        + (' COLLATE pg_catalog."C"' if collatable else "")
+        + (" DESC" if descending else "")
+        for name, collatable in components
+    )
 
 
 async def _table_manifest(
@@ -156,11 +174,12 @@ async def _table_manifest(
     column_names: list[str],
 ) -> dict[str, Any]:
     quoted_table = _quote(table)
-    primary_key = await _primary_key_columns(conn, table)
+    components = await _primary_key_components(conn, table)
+    primary_key = [name for name, _ in components]
     order_clause = (
-        ", ".join(f"source.{_quote(column)}" for column in primary_key)
+        _primary_key_order(components, "source.")
         if primary_key
-        else "md5(row_to_json(source)::text)"
+        else 'md5(row_to_json(source)::text) COLLATE pg_catalog."C"'
     )
     projected_columns = ", ".join(f"source.{_quote(column)}" for column in column_names)
     digest = hashlib.sha256()
@@ -186,11 +205,12 @@ async def _table_manifest(
         else f"SELECT COUNT(*) AS count FROM {quoted_table}"
     )
     null_counts = {
-        column: int(null_row[f"n{index}"])
-        for index, column in enumerate(column_names)
+        column: int(null_row[f"n{index}"]) for index, column in enumerate(column_names)
     }
 
-    ciphertext_columns = [column for column in column_names if _CIPHERTEXT_COLUMN.search(column)]
+    ciphertext_columns = [
+        column for column in column_names if _CIPHERTEXT_COLUMN.search(column)
+    ]
     ciphertext_bytes: dict[str, int] = {}
     for column in ciphertext_columns:
         value = await conn.fetchval(
@@ -202,13 +222,14 @@ async def _table_manifest(
     pk_range_digest = None
     if primary_key and row_count:
         pk_expression = ", ".join(_quote(column) for column in primary_key)
-        pk_order = ", ".join(_quote(column) for column in primary_key)
+        pk_order = _primary_key_order(components)
+        pk_desc_order = _primary_key_order(components, descending=True)
         bounds = await conn.fetchrow(
             "SELECT md5("
             f"COALESCE((SELECT ROW({pk_expression})::text FROM {quoted_table} "
             f"ORDER BY {pk_order} LIMIT 1), '') || '|' || "
             f"COALESCE((SELECT ROW({pk_expression})::text FROM {quoted_table} "
-            f"ORDER BY {pk_order} DESC LIMIT 1), '')"
+            f"ORDER BY {pk_desc_order} LIMIT 1), '')"
             ") AS digest"
         )
         pk_range_digest = str(bounds["digest"] or "")

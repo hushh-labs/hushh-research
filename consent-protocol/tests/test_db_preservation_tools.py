@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -138,3 +140,56 @@ async def test_capture_rejects_malformed_snapshot_before_connect(snapshot, monke
     with pytest.raises(ValueError, match="snapshot identifier"):
         async with preservation._snapshot_connection("unused", 1, snapshot):
             pytest.fail("malformed snapshot was admitted")
+
+
+@pytest.mark.asyncio
+async def test_row_digest_preserves_information_across_text_collations_and_numeric_keys():
+    dsn = os.getenv("SCOPE_COMMERCE_TEST_DSN") or os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("isolated PostgreSQL fixture is not configured")
+    conn = await asyncpg.connect(dsn)
+    names = ["preservation_order_" + uuid4().hex for _ in range(2)]
+    try:
+        for table, collation in zip(names, ["C", "und-x-icu"], strict=True):
+            await conn.execute(
+                f'CREATE TABLE public."{table}" (id INTEGER, label TEXT COLLATE "{collation}", note TEXT, PRIMARY KEY (id, label))'
+            )
+            await conn.executemany(
+                f'INSERT INTO public."{table}" VALUES ($1, $2, $3)',
+                [(2, "Z", "first"), (2, "a", "second"), (10, "_", "last")],
+            )
+        manifests = [
+            await preservation._table_manifest(conn, table, ["id", "label", "note"])
+            for table in names
+        ]
+        assert {k: v for k, v in manifests[0].items() if k != "table"} == {
+            k: v for k, v in manifests[1].items() if k != "table"
+        }
+        expected_rows = [(2, "Z", "first"), (2, "a", "second"), (10, "_", "last")]
+        hashes = [
+            hashlib.md5(
+                json.dumps(
+                    dict(zip(["id", "label", "note"], row, strict=True)), separators=(",", ":")
+                ).encode(),
+                usedforsecurity=False,
+            ).hexdigest()
+            for row in expected_rows
+        ]
+        assert (
+            manifests[0]["deterministic_row_digest_sha256"]
+            == hashlib.sha256("".join(value + "\n" for value in hashes).encode()).hexdigest()
+        )
+        expected_bounds = await conn.fetchval(
+            "SELECT md5(ROW(2, 'Z'::text)::text || '|' || ROW(10, '_'::text)::text)"
+        )
+        assert manifests[0]["primary_key_range_digest"] == expected_bounds
+        await conn.execute(f'UPDATE public."{names[1]}" SET note=$1 WHERE label=$2', "changed", "a")
+        changed = await preservation._table_manifest(conn, names[1], ["id", "label", "note"])
+        assert (
+            changed["deterministic_row_digest_sha256"]
+            != manifests[0]["deterministic_row_digest_sha256"]
+        )
+    finally:
+        for table in names:
+            await conn.execute(f'DROP TABLE IF EXISTS public."{table}"')
+        await conn.close()
