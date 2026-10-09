@@ -41,6 +41,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     upgrade_release_id,
 )
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+from hushh_mcp.services.placement_observation import read_optional_placement
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
 from hushh_mcp.services.pod_release import (
     configured_release,
@@ -505,7 +506,7 @@ async def resolve_personal_agent_status(
     row = None
     registry_read_ok = True
     try:
-        row = await repo.get(user_id)
+        row = await read_optional_placement(repo, user_id, table="personal_agent_registry")
     except Exception as exc:  # fail safe: never break the home on a registry hiccup
         registry_read_ok = False
         logger.warning(

@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 284,
+  "expected_migration_version": 287,
   "migration_version_policy": "minimum",
   "required_functions": [
     "publish_personal_agent_notification_checkpoint",
@@ -168,6 +168,17 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "byoc_setup_jobs": [
+      "user_id",
+      "job_id",
+      "project_id",
+      "status",
+      "stage",
+      "stages",
+      "authorization_attempts",
+      "created_at",
+      "updated_at"
     ],
     "circle_chat_messages": [
       "original_recipient_count",
@@ -1555,6 +1566,17 @@
       "observed_at",
       "cloud_object_uri"
     ],
+    "personal_agent_registry": [
+      "user_id",
+      "status",
+      "deployment_target",
+      "backend",
+      "external_agent_id",
+      "a2a_route",
+      "pod_key_id",
+      "pod_pubkey",
+      "backend_metadata"
+    ],
     "pkm_blobs": [
       "user_id",
       "domain",
@@ -2261,28 +2283,6 @@
       "one_hosting_choice",
       "one_hosting_choice_at",
       "one_hosting_legacy_shared_at"
-    ],
-    "personal_agent_registry": [
-      "user_id",
-      "status",
-      "deployment_target",
-      "backend",
-      "external_agent_id",
-      "a2a_route",
-      "pod_key_id",
-      "pod_pubkey",
-      "backend_metadata"
-    ],
-    "byoc_setup_jobs": [
-      "user_id",
-      "job_id",
-      "project_id",
-      "status",
-      "stage",
-      "stages",
-      "authorization_attempts",
-      "created_at",
-      "updated_at"
     ]
   }
 }

@@ -50,6 +50,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from db.db_client import get_db
+from hushh_mcp.services.placement_observation import read_placement_row
 
 logger = logging.getLogger(__name__)
 
@@ -240,9 +241,7 @@ class ByocSetupJobRepo:
         return bool(response.data)
 
     async def _current(self, user_id: str) -> Optional[dict]:
-        response = self._db().table(_JOBS).select("*").eq("user_id", user_id).limit(1).execute()
-        rows = response.data or []
-        return dict(rows[0]) if rows else None
+        return await read_placement_row(self._db(), _JOBS, user_id)
 
     async def find_by_project(self, project_id: str) -> list[dict]:
         """The reverse index the cross-project orphan sweep needs: which user(s) set up

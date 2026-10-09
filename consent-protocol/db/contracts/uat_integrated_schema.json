@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 284,
+  "expected_migration_version": 287,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2845,7 +2845,9 @@
       "onboarding_callback_attempt_id",
       "onboarding_journey_updated_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "one_hosting_choice",
+      "one_hosting_choice_at"
     ]
   }
 }

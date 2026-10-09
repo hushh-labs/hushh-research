@@ -66,6 +66,15 @@ def _db(client: Any) -> Any:
     return get_db()
 
 
+async def record_or_observe_intent(user_id: str, *, provider: Provider, project: str = "") -> bool:
+    """A provider consent URL requires a durable intent or an already pending job."""
+    if await record_intent(user_id, provider=provider, project=project):
+        return True
+    from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+
+    return await get_owner_hosting_mode(user_id) == "pending"
+
+
 async def record_intent(
     user_id: str, *, provider: Provider, project: str = "", client: Any = None
 ) -> bool:

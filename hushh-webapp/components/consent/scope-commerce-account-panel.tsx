@@ -7,6 +7,7 @@ import { formatCommerceMoney as money, formatCommerceMicroUsd, commerceWithdrawa
 import { ScopeCommerceActivity } from "@/components/consent/scope-commerce-activity";
 import { CommerceBalanceSummary, CommerceFundingControls, CommercePayoutControls } from "@/components/consent/scope-commerce-account-controls";
 import { useScopeCommerceAccount } from "@/components/consent/use-scope-commerce-account";
+import { COMMERCE_SANDBOX_COPY } from "@/lib/services/scope-commerce-sandbox";
 
 /** Account-level funds and earning controls; every movement requires a human gesture. */
 export function ScopeCommerceAccountPanel() {
@@ -16,6 +17,7 @@ export function ScopeCommerceAccountPanel() {
   return <SettingsGroup title="Payments and earnings" description="1 USD = 100 Hussh coins. Fund your balance to pay for approved information.">
     <div className="space-y-4 px-4 py-3">
       {message ? <p role="status" className="text-sm">{message}</p> : null}
+      {account?.sandboxVerified === true ? <p role="status" className="text-sm">{COMMERCE_SANDBOX_COPY}</p> : null}
       {account ? <p role="status" className="text-sm">{commerceReadinessCopy(account.readiness)}</p> : null}
       {account?.enabled === false && !account.managed_balances ? <p role="status" className="text-sm">New purchases and funding are currently unavailable. Your sharing history remains below.</p> : null}
       {!account ? <Button variant="outline" disabled={busy} onClick={() => void state.refresh()}>Check payments</Button> : <>
@@ -48,6 +50,7 @@ export function ScopeCommerceAccountPanel() {
           Amount {money(review.preview.amount_cents)}. {review.kind === "withdraw" ? "Estimated processing cost reserve" : "Refund processing costs"} {money(review.preview.fee_cents)}. You receive {money(review.preview.net_cents)}.
           {review.kind === "withdraw" ? " Final costs are reconciled from provider receipts." : " The refund returns to your original payment method."}
           {" "}{review.preview.blocked_reason || "Review these costs before continuing."}
+          {account?.sandboxVerified === true ? ` ${COMMERCE_SANDBOX_COPY}` : ""}
         </> : null}</AlertDialogDescription>
       </AlertDialogHeader><AlertDialogFooter>
         <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>

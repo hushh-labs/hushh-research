@@ -1,5 +1,6 @@
 import { resolveReviewerAuthMode, isHumanReviewerAuthenticationRequest } from "../../../../hushh-webapp/lib/testing/reviewer-authentication-policy.mjs";
 import { createReviewerBootstrap } from "./reviewer-session-bootstrap.mjs";
+import { createReviewerArrival } from "./reviewer-session-arrival.mjs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -382,14 +383,15 @@ export async function createReviewerSessionHarness({
   async function openSession(browser, redirect, {
     allowQueryMutation = false,
     requireVaultUnlocked = true,
+    allowFirstRunSetupRedirect = false,
     onPageCreated,
   } = {}) {
     const maxAttempts = humanAuthenticated || operatorIssued ? 1 : 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
     const redirectUrl = new URL(redirect, normalizedOrigin);
-    const expectedPath = redirectUrl.pathname;
-    const expectedHref = `${redirectUrl.pathname}${redirectUrl.search}`;
+    const waitForArrival = createReviewerArrival({ redirectUrl, requireVaultUnlocked,
+      allowQueryMutation, allowFirstRunSetupRedirect, reviewerUid });
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const context = await browser.newContext({ baseURL: normalizedOrigin, viewport: { width: 1440, height: 900 } });
@@ -407,18 +409,8 @@ export async function createReviewerSessionHarness({
         await waitForUnlock(page, readOnlyGuard, attemptTimeoutMs, requireVaultUnlocked);
         // Unlock can finish before the login component's pending redirect.
         // Do not race that redirect with the first same-session navigation.
-        await page.waitForFunction(
-          ({ targetPath, targetHref, queryMayChange }) =>
-            queryMayChange
-              ? window.location.pathname === targetPath
-              : `${window.location.pathname}${window.location.search}` === targetHref,
-          {
-            targetPath: expectedPath,
-            targetHref: expectedHref,
-            queryMayChange: allowQueryMutation,
-          },
-          { timeout: attemptTimeoutMs },
-        );
+        await waitForArrival(page, attemptTimeoutMs);
+        if (allowFirstRunSetupRedirect) await assertAuthenticatedContinuity(page, "first-run arrival");
         return { context, page, capture, readOnlyGuard };
       } catch (error) {
         lastError = error;

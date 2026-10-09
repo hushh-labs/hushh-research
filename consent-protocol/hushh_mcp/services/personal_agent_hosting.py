@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from hushh_mcp.services.compute_backend import is_known_pod_target, is_owner_cloud_target
+from hushh_mcp.services.placement_observation import read_optional_placement
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,9 @@ async def resolve_observed_hosting_mode(
         from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
 
         try:
-            setup_job = await ByocSetupJobRepo().get(user_id)
+            setup_job = await read_optional_placement(
+                ByocSetupJobRepo(), user_id, table="byoc_setup_jobs"
+            )
         except Exception:
             logger.warning("personal_agent.hosting_setup_observation_unavailable")
             setup_job_read_ok = False
@@ -249,7 +252,9 @@ async def get_owner_hosting_mode(user_id: str) -> str:
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
     try:
-        row = await PersonalAgentRegistryRepo().get(user_id)
+        row = await read_optional_placement(
+            PersonalAgentRegistryRepo(), user_id, table="personal_agent_registry"
+        )
     except Exception:
         logger.warning("personal_agent.hosting_registry_observation_unavailable")
         return "unknown"

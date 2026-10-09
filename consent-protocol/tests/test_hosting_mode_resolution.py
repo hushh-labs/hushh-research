@@ -2,9 +2,45 @@ from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
+from psycopg2.errors import UndefinedTable
 
 from api.routes.one import personal_agent, runtime
+from db.db_client import DatabaseExecutionError, QueryResult
 from hushh_mcp.services.personal_agent_hosting import resolve_hosting_mode
+from hushh_mcp.services.placement_observation import read_optional_placement
+
+
+@pytest.mark.parametrize("catalog", [[{"present": True}], [], [{"present": 0}]])
+async def test_optional_placement_never_treats_unconfirmed_absence_as_no_placement(catalog):
+    class Registry:
+        async def get(self, _user_id):
+            raise DatabaseExecutionError(
+                table_name="personal_agent_registry", operation="select", details="suppressed"
+            ) from UndefinedTable()
+
+        def _db(self):
+            return self
+
+        def execute_raw(self, _sql, params):
+            assert params == {"relation": "public.personal_agent_registry"}
+            return QueryResult(data=catalog)
+
+    with pytest.raises(DatabaseExecutionError):
+        await read_optional_placement(Registry(), "u1", table="personal_agent_registry")
+
+
+async def test_optional_placement_preserves_unreadable_existing_store():
+    class Registry:
+        async def get(self, _user_id):
+            raise DatabaseExecutionError(
+                table_name="personal_agent_registry", operation="select", details="suppressed"
+            )
+
+        def _db(self):
+            raise AssertionError("generic failures cannot establish absence")
+
+    with pytest.raises(DatabaseExecutionError):
+        await read_optional_placement(Registry(), "u1", table="personal_agent_registry")
 
 
 @pytest.mark.parametrize(

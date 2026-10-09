@@ -1,4 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
+import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
+import { verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
 import { parseCommerceReadiness, commerceActionError, type CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
 export { parseCommerceReadiness, commerceReadinessCopy, CommerceActionError } from "@/lib/services/scope-commerce-readiness";
 export type { CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
@@ -21,6 +23,7 @@ export type ScopePurchase = {
 export type CommerceAccount = {
   enabled: boolean; managed_balances?: boolean; currency: "USD";
   readiness?: CommerceReadiness;
+  sandboxVerified?: boolean;
   balance: { available_cents: number; reserved_cents: number; frozen_cents?: number };
   earnings: { pending_cents: number; available_cents: number; debt_cents?: number; withdrawing_cents?: number };
   seller: { onboarded: boolean; eligible: boolean; country: string | null };
@@ -182,6 +185,11 @@ async function request(token: string, path: string, body?: unknown): Promise<Rec
 }
 
 export const ScopeCommerceService = {
+  async sandboxVerified(token: string) {
+    const origin = resolveShareableAppOrigin();
+    if (!origin) throw new Error("Sandbox identity could not be verified.");
+    return verifyCommerceSandbox(await request(token, `sandbox-readiness?${new URLSearchParams({ app_origin: origin })}`), origin);
+  },
   async readiness(token: string) { return parseCommerceReadiness(await request(token, "readiness")); },
   async account(token: string) { return parseCommerceAccount(await request(token, "account")); },
   async tariff(token: string, handle: string, machineScope: string): Promise<ScopeTariff | null> {

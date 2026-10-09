@@ -27,7 +27,11 @@ function useOnboardingRefresh(refresh: () => Promise<void>) {
 export function useScopeCommerceAccount() {
   const load = useCallback(async (token: string) => {
     const account = await ScopeCommerceService.account(token);
-    return { ...account, readiness: account.readiness || await ScopeCommerceService.readiness(token).catch(() => undefined) };
+    const [readiness, sandboxVerified] = await Promise.all([
+      account.readiness || ScopeCommerceService.readiness(token).catch(() => undefined),
+      ScopeCommerceService.sandboxVerified(token).catch(() => undefined),
+    ]);
+    return { ...account, readiness, sandboxVerified };
   }, []);
   const resource = useCommerceRead("account", load, (value: CommerceAccount) => Boolean(
     value.balance?.reserved_cents || value.balance?.frozen_cents || value.earnings?.pending_cents || value.earnings?.withdrawing_cents ||

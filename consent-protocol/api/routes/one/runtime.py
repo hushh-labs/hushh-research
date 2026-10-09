@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, SecretStr
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes.one.runtime_placement import observe_managed_cloud
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.runtime_providers import build_generate_content_config
 from hushh_mcp.runtime_providers.factory import (
@@ -30,6 +31,7 @@ from hushh_mcp.services.personal_agent_registry_repo import (
     PersonalAgentRegistryRepo,
     registry_host_snapshot,
 )
+from hushh_mcp.services.placement_observation import read_optional_placement
 from hushh_mcp.services.user_cloud_service import resolve_user_cloud
 
 logger = logging.getLogger(__name__)
@@ -193,13 +195,7 @@ async def select_managed_gemini(
     and the first pod turn asserts ``runtimeMode=user_adc`` end-to-end.
     """
     repo = PersonalAgentRegistryRepo()
-    try:
-        observed = registry_host_snapshot(await repo.get(firebase_uid))
-    except Exception:  # noqa: BLE001 - read failure is not an absent registry row
-        raise _cloud_status_unavailable() from None
-    cloud = await resolve_user_cloud(firebase_uid, registry_row=observed)
-    if cloud is not None and cloud.lookup_failed:
-        raise _cloud_status_unavailable()
+    observed, cloud = await observe_managed_cloud(repo, firebase_uid)
     if cloud is not None and cloud.is_user_owned and cloud.is_ready_to_provision:
         # Re-prove the project is still alive AT SCHEDULE TIME, not just once at save.
         # Authorization is sticky (user_cloud_authorized_at), so without this a user who
@@ -1043,8 +1039,8 @@ async def begin_byoc_authorize(
 
     The state is signed, expiring and bound to THIS caller; the grant requested
     is online-only (no refresh token exists to store)."""
+    from api.routes.one.runtime_placement import require_setup_intent
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
-    from hushh_mcp.services.byoc_setup_intent import record_intent
     from hushh_mcp.services.user_gcp_project import validate_project_id
 
     verdict = validate_project_id(body.projectId)
@@ -1068,19 +1064,7 @@ async def begin_byoc_authorize(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
         ) from exc
     # Pending from here, never Shared, while the person is on Google's consent screen.
-    if not await record_intent(firebase_uid, provider="gcp", project=verdict.project_id):
-        from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
-
-        # A billing retry may already have a durable job. An unreadable or absent
-        # intent must not publish a URL while authority still resolves to Shared.
-        if await get_owner_hosting_mode(firebase_uid) != "pending":
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": "BYOC_SETUP_UNRECORDED",
-                    "message": "Cloud setup could not be saved. Please try again.",
-                },
-            )
+    await require_setup_intent(firebase_uid, provider="gcp", project=verdict.project_id)
     return ByocAuthorizeBeginResponse(authUrl=url)
 
 
@@ -1229,7 +1213,9 @@ async def byoc_setup_status(
     from hushh_mcp.services import byoc_setup_job_service as jobs
     from hushh_mcp.services.personal_agent_hosting import setup_job_is_detached_history
 
-    row = await jobs.ByocSetupJobRepo().get(firebase_uid)
+    row = await read_optional_placement(
+        jobs.ByocSetupJobRepo(), firebase_uid, table="byoc_setup_jobs"
+    )
     if not row or await setup_job_is_detached_history(firebase_uid, row):
         return ByocSetupStatusResponse(status="none", stage="", stages=[], projectId="")
     return ByocSetupStatusResponse(**setup_status_fields(row))

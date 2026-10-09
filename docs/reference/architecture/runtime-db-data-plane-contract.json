@@ -105,10 +105,10 @@
         "vault_keys",
         "vault_key_wrappers"
       ],
-      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services",
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services; owner-authenticated pre-vault Shared choice through HostingChoiceRepo",
       "retention_policy": "Retain while account exists; delete on account deletion or explicit vault reset flow.",
       "deletion_behavior": "Hard-delete with account deletion after dependent personal data is purged.",
-      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side.",
+      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side. Non-secret pre-vault setup metadata includes the explicit Shared tier and server choice timestamp; it grants no vault decryption or pod provisioning authority.",
       "plaintext_posture": "ciphertext_or_hash_only",
       "expected_row_growth": "low_per_user"
     },

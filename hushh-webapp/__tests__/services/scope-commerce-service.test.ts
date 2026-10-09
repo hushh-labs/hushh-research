@@ -3,11 +3,21 @@ const fetcher = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: fetcher } }));
 import { ScopeCommerceService, parseCommerceReadiness, CommerceActionError, parseScopeQuote, parseCommerceDollarInput, parseCommerceTransferPreview, parseCommerceAccount, parseCommerceActivityPage, formatCommerceMoney, formatCommerceMicroUsd, commerceWithdrawalStatusCopy, commerceActivityStatusCopy } from "@/lib/services/scope-commerce-service";
 import { commerceReturnAttempt, validateCommerceHostedUrl } from "@/lib/services/scope-commerce-browser";
+import { verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
 const requestId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
 function reply(value: unknown) { return Response.json(value); }
 
 describe("scope commerce review boundary", () => {
+  it("requires exact HTTPS app origin and a persisted test-mode Sandbox pin", () => {
+    const origin = "https://preview.example.com";
+    const proof = { app_origin: origin, environment: "sandbox", livemode: false, persisted_pin_matches: true, platform_account_id: "acct_synthetic" };
+    expect(verifyCommerceSandbox(proof, origin)).toBe(true);
+    for (const change of [{ app_origin: "https://other.example.com" }, { environment: "live" }, { livemode: true }, { persisted_pin_matches: false }]) {
+      expect(() => verifyCommerceSandbox({ ...proof, ...change }, origin)).toThrow();
+    }
+    expect(() => verifyCommerceSandbox(proof, "http://preview.example.com")).toThrow();
+  });
   beforeEach(() => vi.resetAllMocks());
   const quote = () => ({ id: requestId, request_id: documentId, scope_handle: "scope_food", machine_scope: "attr.food.preferences.*",
     amount_cents: 1, base_price_cents: 7, base_duration_seconds: 604800, duration_seconds: 86400,

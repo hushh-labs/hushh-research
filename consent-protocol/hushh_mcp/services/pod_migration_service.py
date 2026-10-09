@@ -45,6 +45,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 
 from db.db_client import get_db
+from hushh_mcp.services.pod_migration_recovery import MigrationRecovery
 
 logger = logging.getLogger(__name__)
 
@@ -352,48 +353,9 @@ async def run_migration(
         verify_rebuilt_head,
     )
 
-    async def _fail(code: str, message: str) -> str:
-        await repo.finish(
-            user_id=user_id,
-            job_id=job_id,
-            status="failed",
-            error_code=code,
-            error_message=message,
-        )
-        return "failed"
-
-    async def _recover_and_fail(code: str, message: str) -> str:
-        """Retain the ticket until source admission and teardown are confirmed.
-
-        A failed recovery must not be overwritten by another attempt. Superseded
-        work cannot release another attempt's fence or delete its destination.
-        Only lifecycle codes are logged; provider exceptions may contain secrets.
-        """
-        recovery_failed = False
-        try:
-            await steps.unfreeze()
-        except MigrationJobSuperseded:
-            raise
-        except Exception:  # noqa: BLE001
-            recovery_failed = True
-            logger.warning("pod_migration.unfreeze_failed")
-        try:
-            await steps.rollback_destination()
-        except MigrationJobSuperseded:
-            raise
-        except Exception:  # noqa: BLE001
-            recovery_failed = True
-            logger.warning("pod_migration.rollback_failed")
-        if recovery_failed:
-            await repo.finish(
-                user_id=user_id,
-                job_id=job_id,
-                status="recovery_pending",
-                error_code="MIGRATION_RECOVERY_PENDING",
-                error_message="The move stopped; source admission or destination cleanup still needs verified recovery.",
-            )
-            return "recovery_pending"
-        return await _fail(code, message)
+    recovery = MigrationRecovery(steps=steps, repo=repo, user_id=user_id, job_id=job_id)
+    _fail = recovery.fail
+    _recover_and_fail = recovery.recover
 
     # 1. Freeze. Conditional on the row being `provisioned`, so this both takes
     #    the lock and answers "is this agent even in a state to be moved".

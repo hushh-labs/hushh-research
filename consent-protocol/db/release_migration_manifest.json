@@ -256,7 +256,8 @@
     "281_one_mcp_pending_calls.sql",
     "282_direct_message_actions.sql",
     "283_gmail_send_grant_generation.sql",
-    "284_consumer_scope_commerce.sql"
+    "284_consumer_scope_commerce.sql",
+    "287_one_shared_hosting_choice.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -533,6 +534,7 @@
     "281_one_mcp_pending_calls.sql": "rollback/281_one_mcp_pending_calls.rollback.sql",
     "282_direct_message_actions.sql": "rollback/282_direct_message_actions.rollback.sql",
     "283_gmail_send_grant_generation.sql": "rollback/283_gmail_send_grant_generation.rollback.sql",
-    "284_consumer_scope_commerce.sql": "rollback/284_consumer_scope_commerce.rollback.sql"
+    "284_consumer_scope_commerce.sql": "rollback/284_consumer_scope_commerce.rollback.sql",
+    "287_one_shared_hosting_choice.sql": "rollback/287_one_shared_hosting_choice.rollback.sql"
   }
 }

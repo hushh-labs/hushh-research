@@ -228,15 +228,9 @@ async def begin_azure_authorize(
     url = await _authorization_url(
         firebase_uid, kind="setup", subscription_id=subscription, files_enabled=body.filesEnabled
     )
-    from hushh_mcp.services.byoc_setup_intent import record_intent
+    from api.routes.one.runtime_placement import require_setup_intent
 
-    if not await record_intent(firebase_uid, provider="azure"):
-        from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
-
-        if await get_owner_hosting_mode(firebase_uid) != "pending":
-            raise _refuse(
-                503, "BYOC_SETUP_UNRECORDED", "Cloud setup could not be saved. Please try again."
-            )
+    await require_setup_intent(firebase_uid, provider="azure")
     return AzureAuthorizeBeginResponse(authorizationUrl=url)
 
 

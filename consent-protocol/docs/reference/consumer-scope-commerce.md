@@ -1421,3 +1421,77 @@ agreed follow-up, and live activation disabled pending the existing Stripe,
 monthly Connect-cost, residual, country and tax/reporting gates. Cleanup disables
 new admission first and retains reconciliation, access enforcement and financial
 history until outstanding obligations resolve.
+
+### Final-source device admission and release-only first run — 2026-10-09 UTC
+
+Application `4bb362472c8fd5006b84780322a3c7d7a6fd7930` passed the local core
+bundle in 322 seconds and [full CI 37871540200](https://github.com/hushh-labs/hushh-research/actions/runs/37871540200).
+[Release 37873983088](https://github.com/hushh-labs/hushh-research/actions/runs/37873983088)
+completed healthy using the existing development branch and main-owned definition
+`c68318a63eb064deaacf8cb96941af09892b1d3e`. Independent readback at 02:34:32Z
+confirmed both Ready services, exact source, 100% traffic, isolated database,
+Sandbox account/test pin and disabled paid/provider admission. A prior dispatch
+used a CI tag where the release contract requires a branch; it failed before
+cloud authentication and was corrected without changing resources.
+
+The final-source iOS product passed target-scoped signing, distinct embedded
+framework identities and exact preview association checks, then installed and
+launched on the physical iPhone. Its credential-free attach test passed at
+02:26:09Z against the existing app process and one WebView. This supersedes the
+admission-only prototype evidence; normal reviewer sign-in, protected navigation,
+native preferences and financial returns remain unverified. Physical iPad and
+older supported OS coverage remain outstanding. Aggregate Monitoring readback at
+02:35:56Z found all 17 expected metrics fresh and no unresolved financial work.
+
+Actual headless operator authentication matched the primary reviewer. Normal
+first-run setup exposed a release-schema gap: the parked pod registry and setup
+job stores are absent, as are the Shared-choice fields introduced only in parked
+migration 955. Read-only database evidence confirmed these facts; no pod placement
+or synthetic phone claim existed. An absent optional pod store must be proven
+through typed PostgreSQL undefined-table evidence and an independent catalog read.
+Existing unreadable stores remain unavailable, and strict provisioning reads
+remain strict. Explicit Shared choice never follows from absence alone.
+
+Release migration 287 adds the existing two nullable Shared-choice fields and a
+pair constraint without backfill, pod tables, new stores or default owner choices.
+Its additive rollback retains choices and the guard so code rollback cannot erase
+owner intent or break the parked lane. It deliberately avoids main's separately
+occupied 285/286 identifiers; it does not reconcile or replay the already divergent
+240/249/284 history. The choice remains non-secret owner setup metadata in the
+existing vault row, deleted with that row. Postgres remains authoritative; any
+future cache is an observation only and cannot replace a current authority read.
+Focused tests cover real release-only PostgreSQL selection, pending placements,
+unreadable stores, managed readiness with pod provisioning disabled, replay and
+rollback preservation. This correction still requires its own exact-source core,
+CI and deployed first-run evidence.
+
+For reviewer phone preparation, use the normal Account → Phone number → Add
+surface. The canonical operator bridge exempts the initial phone-mandate redirect;
+the separate register-phone page therefore returns an owner without a vault to
+Connections. The Account flow still requires a genuine authenticated server
+challenge and verified response. Its synthetic fixture uses only dedicated
+prefixed secrets and fictional numbers; no Firebase password or setup-marker
+injection substitutes for verification. Credentials and vault material remain in
+process/browser memory, with headless contexts and no protected artifacts.
+
+The first-run correction preserves strict provisioning reads and offloads
+placement queries from the event loop. Managed-cloud observation and migration
+recovery use the existing authority and recovery ports; their extracted helpers
+do not create a new placement decision or persistence system. The real SQL
+concurrent-update test uses one shared SQLite connection across worker threads,
+retaining its JSON comparison and null-filter assertions.
+
+Headless first-run admission is explicitly opt-in for the setup hub and
+Connections only. It verifies the exact authenticated owner and origin plus each
+route's actual loaded marker contract; ordinary protected arrival remains exact.
+Account also consumes the existing authenticated Sandbox-readiness projection.
+Only a verified exact origin, test mode and persisted account pin display the
+Sandbox qualification, including in transfer review. Unavailable proof never
+blocks existing balances or enables payment controls. Reserves remain estimates,
+and zero refund deduction is not evidence of actual provider processing fees.
+
+Focused verification passed 205 hosting/migration/recovery tests, 50 registry
+tests and 56 frontend/service/reviewer tests. The release-only PostgreSQL negative
+control failed on the former strict read as expected. These are source-level
+checks; the next source still needs terminal core/CI/release evidence and normal
+first-run, financial, OAuth and physical-device acceptance.

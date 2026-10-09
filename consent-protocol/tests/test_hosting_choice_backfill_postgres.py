@@ -11,7 +11,15 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 
+from db.db_client import DatabaseClient, DatabaseExecutionError
+from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
+from hushh_mcp.services.owner_hosting_choice import HostingChoiceRepo
+from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+from hushh_mcp.services.placement_observation import read_optional_placement
 from tests.pkm_conformance import postgres_harness
 from tests.pkm_conformance.postgres_harness import TempPostgres, find_pg_bin
 
@@ -20,6 +28,8 @@ pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL 
 
 MIGRATION = Path(__file__).resolve().parents[1] / "db/migrations/parked/955_one_hosting_choice.sql"
 CONTINUITY = MIGRATION.with_name("958_one_shared_legacy_continuity.sql")
+RELEASE_CHOICE = MIGRATION.parent.parent / "287_one_shared_hosting_choice.sql"
+RELEASE_DOWN = MIGRATION.parent.parent / "rollback/287_one_shared_hosting_choice.rollback.sql"
 
 #: The minimum neighbours 955 reads; columns match migrations 029, 900, 906 and 909.
 _SCHEMA = """
@@ -164,3 +174,109 @@ def test_legacy_snapshot_replay_never_opts_new_or_later_completed_accounts_into_
     assert (
         pg.execute("SELECT one_hosting_choice_at FROM vault_keys WHERE user_id='legacy'") == first
     )
+
+
+def test_release_only_choice_never_backfills_and_rollback_preserves_owner_decision(pg):
+    pg.execute("DROP TABLE personal_agent_registry, byoc_setup_jobs")
+    _person(pg, "unplaced", _CLOUD)
+    _person(pg, "chosen", None)
+    pg.apply_file(RELEASE_CHOICE)
+    assert _choices(pg) == {"chosen": None, "unplaced": None}
+    pg.execute(
+        "UPDATE vault_keys SET one_hosting_choice='shared', one_hosting_choice_at=now()"
+        " WHERE user_id='chosen'"
+    )
+    before = pg.execute("SELECT user_id, one_hosting_choice, one_hosting_choice_at FROM vault_keys")
+    pg.apply_file(RELEASE_CHOICE)
+    pg.apply_file(RELEASE_DOWN)
+    assert (
+        pg.execute("SELECT user_id, one_hosting_choice, one_hosting_choice_at FROM vault_keys")
+        == before
+    )
+    for tier, at in [(None, "2026-01-01"), ("shared", None), ("pods", "2026-01-01")]:
+        with pytest.raises(psycopg2.errors.CheckViolation):
+            pg.execute(
+                "UPDATE vault_keys SET one_hosting_choice=%s, one_hosting_choice_at=%s"
+                " WHERE user_id='unplaced'",
+                (tier, at),
+            )
+
+
+async def test_release_only_first_run_observes_absent_pods_and_records_shared(pg, monkeypatch):
+    from api.routes.one import personal_agent, runtime
+
+    pg.execute("DROP TABLE personal_agent_registry, byoc_setup_jobs")
+    pg.apply_file(RELEASE_CHOICE)
+    _person(pg, "owner", None)
+    engine = create_engine(
+        URL.create(
+            "postgresql+psycopg2",
+            username="hushh",
+            database="postgres",
+            query={"host": pg.dir, "port": str(pg.port)},
+        )
+    )
+    client = DatabaseClient(engine=engine)
+
+    class ExistingPreVault:
+        async def get_pre_vault_state(self, user_id):
+            assert user_id == "owner"
+            return {}
+
+    choice = HostingChoiceRepo(client=client, vault_keys=ExistingPreVault())
+    registry = PersonalAgentRegistryRepo(client=client)
+    jobs = ByocSetupJobRepo(client=client)
+    monkeypatch.setattr(personal_agent, "PersonalAgentRegistryRepo", lambda: registry)
+    monkeypatch.setattr(runtime, "PersonalAgentRegistryRepo", lambda: registry)
+    monkeypatch.setattr("hushh_mcp.services.byoc_setup_job_service.ByocSetupJobRepo", lambda: jobs)
+    monkeypatch.setattr("hushh_mcp.services.owner_hosting_choice.HostingChoiceRepo", lambda: choice)
+    marks = []
+
+    async def mark(user_id):
+        marks.append(user_id)
+
+    monkeypatch.setattr(runtime, "_write_cloud_setup_marker", mark)
+    try:
+        # Strict repository reads (provisioning authority) still refuse absent stores.
+        with pytest.raises(DatabaseExecutionError):
+            await registry.get("owner")
+        assert await read_optional_placement(jobs, "owner", table="byoc_setup_jobs") is None
+        status = await personal_agent.resolve_personal_agent_status(user_id="owner")
+        assert status["hostingMode"] == "unplaced"
+        await runtime.select_shared_hosting.__wrapped__(request=None, firebase_uid="owner")
+        status = await personal_agent.resolve_personal_agent_status(user_id="owner")
+        assert status["hostingMode"] == "shared"
+        assert marks == ["owner"]
+        setup = await runtime.byoc_setup_status.__wrapped__(request=None, firebase_uid="owner")
+        assert setup.status == "none"
+
+        probes = []
+
+        async def ready():
+            probes.append(True)
+            return runtime.ManagedGeminiReadinessResponse(
+                status="ready", model="synthetic-model", location="global"
+            )
+
+        monkeypatch.setattr(runtime, "_managed_readiness", ready)
+        monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "false")
+        selected = await runtime.select_managed_gemini(request=None, firebase_uid="owner")
+        assert selected.status == "ready"
+        assert selected.agentScheduled is False
+        assert selected.agentReason == "personal agent is off"
+        assert probes == [True]
+
+        # The same reader must immediately honor a newly installed pending placement.
+        pg.execute("CREATE TABLE personal_agent_registry (user_id TEXT, status TEXT)")
+        pg.execute("INSERT INTO personal_agent_registry VALUES ('owner', 'pending')")
+        status = await personal_agent.resolve_personal_agent_status(user_id="owner")
+        assert status["hostingMode"] == "pending"
+        pg.execute("ALTER TABLE personal_agent_registry RENAME COLUMN user_id TO broken_owner")
+        status = await personal_agent.resolve_personal_agent_status(user_id="owner")
+        assert status["hostingMode"] == "unknown"
+        with pytest.raises(HTTPException) as failure:
+            await runtime.select_shared_hosting.__wrapped__(request=None, firebase_uid="owner")
+        assert failure.value.status_code == 503
+        assert marks == ["owner"]
+    finally:
+        engine.dispose()

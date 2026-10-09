@@ -17,25 +17,67 @@ async function harness(authMode = "custom_token") {
   return createReviewerSessionHarness({ repoRoot: resolve(process.cwd(), ".."), appOrigin: "https://synthetic.example",
     reviewerTokenProvider: authMode === "operator_issued_token" ? vi.fn(async () => "synthetic-proof") : null });
 }
-function browser(state = "authenticated") {
-  const window = { location: { pathname: "/one/setup", search: "" }, __HUSHH_NATIVE_TEST__: { bootstrapState: state, bootstrapUserId: "synthetic-owner" } };
+function browser(state = "authenticated", arrival?: string, loaded = true) {
+  const window = { location: { origin: "https://synthetic.example", pathname: "/one/setup", search: "" }, __HUSHH_NATIVE_TEST__: { bootstrapState: state, bootstrapUserId: "synthetic-owner" } };
+  const document = { querySelector: (selector: string) => {
+    const expected = window.location.pathname === "/one/setup"
+      ? '[data-native-route-marker="true"][data-native-route-id="/one/setup"][data-native-auth-default="authenticated"][data-native-data-default="loaded"]'
+      : '[data-native-test-beacon="true"][data-native-route-id="/one/setup/connections"][data-native-auth-state="authenticated"][data-native-data-state="loaded"]';
+    return loaded && selector === expected ? {} : null;
+  } };
   const fill = vi.fn();
   const control = { first() { return this; }, isVisible: async () => false, isEnabled: async () => false, fill, click: vi.fn() };
   const page = Object.assign(new EventEmitter(), {
+    exposeBinding: vi.fn(async () => undefined),
     addInitScript: vi.fn(async () => undefined), setDefaultTimeout() {}, setDefaultNavigationTimeout() {},
     getByRole: () => control, locator: () => control,
     evaluate: async (fn, argument) => runInNewContext(`(${fn.toString()})(argument)`, { window, argument }),
     waitForFunction: async (fn, argument) => {
-      expect(runInNewContext(`(${fn.toString()})(argument)`, { window, argument })).toBe(true);
+      expect(runInNewContext(`(${fn.toString()})(argument)`, { window, document, argument })).toBe(true);
     },
     goto: vi.fn(async (url: string) => {
-      window.location.pathname = new URL(url).searchParams.get("redirect") || "/";
+      window.location.pathname = arrival ?? new URL(url).searchParams.get("redirect") ?? "/";
     }), waitForTimeout: vi.fn(async () => undefined),
   });
   const context = { newPage: async () => page, route: vi.fn(async () => undefined), close: vi.fn(async () => undefined) };
   return { newContext: async () => context, page, window, fill, context };
 }
 describe("reviewer session authority", () => {
+  it("admits normal loaded first-run routing only with explicit opt-in", async () => {
+    const reviewer = await harness("operator_issued_token");
+    const b = browser("authenticated", "/one/setup/connections");
+    await expect(reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false })).rejects.toThrow();
+    await expect(reviewer.openSession(b, "/one/setup", {
+      requireVaultUnlocked: false, allowFirstRunSetupRedirect: true,
+    })).resolves.toBeDefined();
+    expect(b.window.location.pathname).toBe("/one/setup/connections");
+    expect(b.fill).not.toHaveBeenCalled();
+    await expect(reviewer.openSession(browser(), "/one/setup", {
+      requireVaultUnlocked: false, allowFirstRunSetupRedirect: true,
+    })).resolves.toBeDefined();
+  });
+  it.each([
+    ["/one", "authenticated", true],
+    ["/one/setup/connections", "uid_mismatch", true],
+    ["/one/setup/connections", "auth_error", true],
+    ["/one/setup/connections", "authenticated", false],
+  ])("rejects unrelated, untrusted or unloaded first-run arrival (%s/%s/%s)", async (arrival, state, loaded) => {
+    const reviewer = await harness("operator_issued_token");
+    const b = browser(state, arrival, loaded);
+    await expect(reviewer.openSession(b, "/one/setup", {
+      requireVaultUnlocked: false, allowFirstRunSetupRedirect: true,
+    })).rejects.toThrow();
+    expect(b.fill).not.toHaveBeenCalled();
+  });
+  it("never applies setup arrival admission to a protected or unrelated request", async () => {
+    const reviewer = await harness("operator_issued_token");
+    const b = browser();
+    await expect(reviewer.openSession(b, "/one/setup", { allowFirstRunSetupRedirect: true })).rejects.toThrow("First-run arrival");
+    await expect(reviewer.openSession(b, "/one/profile", {
+      requireVaultUnlocked: false, allowFirstRunSetupRedirect: true,
+    })).rejects.toThrow("First-run arrival");
+    expect(b.page.goto).not.toHaveBeenCalled();
+  });
   it.each([
     "/api/one/personal-agent/endpoint",
     "/api/one/personal-agent/status",

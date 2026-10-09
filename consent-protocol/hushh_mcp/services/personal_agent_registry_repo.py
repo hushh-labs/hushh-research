@@ -25,6 +25,7 @@ from typing import Any, Optional
 from db.db_client import get_db
 from hushh_mcp.services import personal_agent_direct_admission as direct_admission
 from hushh_mcp.services.compute_backend import owner_cloud_bind
+from hushh_mcp.services.placement_observation import read_placement_row
 
 _REGISTRY = "personal_agent_registry"
 _TOMBSTONES = "personal_agent_deletion_tombstones"
@@ -988,9 +989,7 @@ class PersonalAgentRegistryRepo:
             )
 
     async def get(self, user_id: str) -> Optional[dict]:
-        response = self._db().table(_REGISTRY).select("*").eq("user_id", user_id).limit(1).execute()
-        rows = response.data or []
-        return rows[0] if rows else None
+        return await read_placement_row(self._db(), _REGISTRY, user_id)
 
     async def set_space_name(self, *, user_id: str, space_name: str) -> bool:
         """Update only an existing owner's handle, preserving lifecycle authority.

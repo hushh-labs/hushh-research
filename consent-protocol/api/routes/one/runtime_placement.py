@@ -7,15 +7,50 @@ routes stay there; what they decide lives here so it can be read and tested alon
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import HTTPException
+
+from hushh_mcp.services.placement_observation import PlacementReader, read_optional_placement
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.user_cloud_service import UserCloud
 
 logger = logging.getLogger(__name__)
 
 #: Stage entries ``owner_cloud_attach`` appends to a recorded setup job.
 ATTACH_BLOCKED_STAGE = "attach_blocked"
 ATTACH_STARTED_STAGE = "attach_started"
+
+
+async def observe_managed_cloud(
+    repo: PlacementReader, user_id: str
+) -> tuple[dict | None, UserCloud | None]:
+    """Observe placement before managed readiness; uncertainty never selects a host."""
+    from api.routes.one import runtime
+
+    try:
+        observed = runtime.registry_host_snapshot(
+            await read_optional_placement(repo, user_id, table="personal_agent_registry")
+        )
+    except Exception:  # noqa: BLE001 - unreadable placement is not absent placement
+        raise runtime._cloud_status_unavailable() from None
+    cloud = await runtime.resolve_user_cloud(user_id, registry_row=observed)
+    if cloud is not None and cloud.lookup_failed:
+        raise runtime._cloud_status_unavailable()
+    return observed, cloud
+
+
+async def require_setup_intent(
+    user_id: str, *, provider: Literal["gcp", "azure"], project: str = ""
+) -> None:
+    """Both provider consent routes require the same durable pending admission."""
+    from hushh_mcp.services.byoc_setup_intent import record_or_observe_intent
+
+    if not await record_or_observe_intent(user_id, provider=provider, project=project):
+        raise _refuse(
+            503, "BYOC_SETUP_UNRECORDED", "Cloud setup could not be saved. Please try again."
+        )
 
 
 def _refuse(status: int, code: str, message: str) -> HTTPException:

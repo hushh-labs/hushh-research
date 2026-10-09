@@ -49,3 +49,12 @@ It does not create a vault or waive first-run, legal, phone, cloud or consent ga
 For the schema-only preview, authorized synthetic preparation must use ordinary
 browser encryption and narrowly admitted fixture writes. Physical iOS uses the
 existing native reviewer flow; this web-only provider is not native admission.
+
+For a new isolated owner, normal post-auth routing may choose the setup hub or
+Connections instead of the requested setup entry. `openSession` accepts explicit
+`allowFirstRunSetupRedirect:true` only for those setup entries with
+`requireVaultUnlocked:false`. It still requires the exact authenticated owner,
+exact origin and loaded authenticated route marker; it never navigates or records
+completion. Ordinary protected-route arrival remains exact. After admission, use
+same-session Next navigation to Account → Phone number for real verification,
+then the normal encrypted vault, cloud and runtime setup flows.

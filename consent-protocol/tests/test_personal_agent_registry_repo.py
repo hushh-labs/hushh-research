@@ -1,10 +1,4 @@
-"""Hermetic tests for the personal-agent registry adapter.
-
-A tiny in-memory fake stands in for the Supabase client and implements just the
-fluent operations the repo uses (table/upsert/select/eq/limit/insert/delete/
-execute), with real semantics, so a full provision -> read -> teardown round-trip
-is exercised without a database.
-"""
+"""Hermetic registry tests using owner-scoped fakes and real SQL CAS filters."""
 
 from __future__ import annotations
 
@@ -697,7 +691,7 @@ async def test_wake_rejects_a_gone_probe_completed_after_registry_changes(monkey
 
 
 async def test_gone_snapshot_cas_executes_json_and_null_filters_through_table_query():
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import StaticPool, create_engine, text
 
     from db.db_client import TableQuery
     from hushh_mcp.services.personal_agent_registry_repo import registry_host_snapshot
@@ -713,7 +707,9 @@ async def test_gone_snapshot_cas_executes_json_and_null_filters_through_table_qu
         }
     )
     assert observed is not None
-    engine = create_engine("sqlite://")
+    engine = create_engine(
+        "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
     client = SimpleNamespace(table=lambda name: TableQuery(name, engine))
     repo = PersonalAgentRegistryRepo(client=client)
     try:

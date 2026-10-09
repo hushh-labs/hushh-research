@@ -5,7 +5,7 @@ import type { CommerceActivityItem, ScopeCommerceRequest, ScopeQuote } from "@/l
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "owner-token") } as { uid: string; getIdToken: () => Promise<string> } | null,
-  readiness: vi.fn(), tariff: vi.fn(), saveTariff: vi.fn(), account: vi.fn(), activity: vi.fn(), onboarding: vi.fn(), hosted: vi.fn(), periodic: vi.fn(),
+  readiness: vi.fn(), sandboxVerified: vi.fn(), tariff: vi.fn(), saveTariff: vi.fn(), account: vi.fn(), activity: vi.fn(), onboarding: vi.fn(), hosted: vi.fn(), periodic: vi.fn(),
   scopeRequest: vi.fn(), quote: vi.fn(), purchase: vi.fn(), exporter: vi.fn(),
   search: "", vaultKey: "memory-key",
 }));
@@ -15,7 +15,7 @@ vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks
 vi.mock("@/lib/consent/scope-commerce-export", () => ({ prepareAndStagePaidScopeExport: mocks.exporter }));
 vi.mock("@/lib/services/scope-commerce-service", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/scope-commerce-service")>(),
-  ScopeCommerceService: { readiness: mocks.readiness, tariff: mocks.tariff, saveTariff: mocks.saveTariff, account: mocks.account, activity: mocks.activity, onboarding: mocks.onboarding,
+  ScopeCommerceService: { readiness: mocks.readiness, sandboxVerified: mocks.sandboxVerified, tariff: mocks.tariff, saveTariff: mocks.saveTariff, account: mocks.account, activity: mocks.activity, onboarding: mocks.onboarding,
     scopeRequest: mocks.scopeRequest, quote: mocks.quote, purchase: mocks.purchase },
 }));
 vi.mock("@/lib/services/scope-commerce-browser", async importOriginal => ({
@@ -70,6 +70,7 @@ beforeEach(() => {
   mocks.search = ""; mocks.vaultKey = "memory-key";
   mocks.account.mockResolvedValue(balanceAccount());
   mocks.readiness.mockResolvedValue(readiness());
+  mocks.sandboxVerified.mockRejectedValue(new Error("unverified"));
   mocks.tariff.mockResolvedValue(null);
   mocks.saveTariff.mockResolvedValue({});
   mocks.activity.mockResolvedValue({ items: [], next_cursor: null });
@@ -79,6 +80,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("commerce session and review authority", () => {
+  it("labels simulated funds only after owner-bound Sandbox verification", async () => {
+    render(<ScopeCommerceAccountPanel />);
+    await screen.findByText(/1 Hussh coin/);
+    expect(screen.queryByText(/Sandbox test/)).toBeNull();
+    mocks.sandboxVerified.mockResolvedValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh payment status" }));
+    await screen.findByText(/Sandbox test — funds are simulated/);
+  });
   it("drops older reads, account ABA responses and results arriving after a vault epoch change", async () => {
     const old = deferred<{ pending: boolean; label: string }>();
     const newer = deferred<{ pending: boolean; label: string }>();
