@@ -303,7 +303,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
   return (
     <>
     {!open ? <>
-      <div ref={previewScrimRef} hidden aria-hidden inert className="pointer-events-none fixed inset-0 z-(--z-sheet-overlay) bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)]" />
+      <div ref={previewScrimRef} data-profile-preview-scrim hidden aria-hidden inert className="pointer-events-none fixed inset-0 z-(--z-sheet-overlay) bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)]" />
       <div ref={previewRef} hidden aria-hidden inert data-profile-preview
         className="pointer-events-none fixed inset-y-0 right-0 z-(--z-sheet) w-full overflow-hidden bg-background sm:w-[min(92vw,560px)]">
         <div className="border-b border-border/60 px-[var(--page-inline-gutter-standard)] pb-4 pt-[calc(1rem+env(safe-area-inset-top))] text-[22px] font-bold">Profile</div>
@@ -350,7 +350,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
                 label="Back in Profile"
                 focusRef={backRef}
                 context={`${pathname}:${profilePaneLocationKey(location)}`}
-                eligible={open}
+                eligible={false}
                 onActivate={() => popProfilePaneLocation(pathname, searchParams)}
                 className="-ml-4 flex size-11 shrink-0 items-center justify-center"
               >
@@ -386,7 +386,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
           </SheetDescription>
         </SheetHeader>
         <NativeChatChrome kind="close" owner={owner ?? null} label="Close Profile" focusRef={closeRef}
-          context={panePresentationKey} eligible={open}
+          context={panePresentationKey} eligible={false}
           onActivate={() => onOpenChange(false)}
           style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
           className="absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
@@ -406,7 +406,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
-          <ProfilePaneBody location={location} nativeControlsEligible={open} />
+          <ProfilePaneBody location={location} nativeControlsEligible={false} />
         </div>
       </SheetContent>
     </Sheet>

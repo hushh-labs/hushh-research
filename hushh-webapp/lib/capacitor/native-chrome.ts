@@ -5,6 +5,7 @@ import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
 import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { nativePanelGeometry, type NativePanelPose, type NativePanelReceipt, type NativePanelIdentity } from "./native-panel-presentation";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
+import { syncNativePresentationRegions, type NativePresentationRegions } from "./native-presentation-regions";
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
@@ -58,10 +59,12 @@ export type NativeChromeCapabilities = {
   retainedControls?: boolean;
   panelPresentation?: boolean;
   contentBackedPresentation?: boolean;
+  reservedPresentationRegions?: boolean;
   interactionFeedback?: boolean;
 };
 
 export interface HushhNativeChromePlugin {
+  setPresentationRegions(options: NativePresentationRegions): Promise<NativePresentationRegions>;
   interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;
   applyPanelPose(options: NativePanelPose): Promise<NativePanelReceipt>;
   retirePanel(options: NativePanelIdentity): Promise<NativePanelIdentity>;
@@ -367,6 +370,7 @@ export class NativeChromeLease {
     return this.current;
   }
   async prepare(): Promise<boolean> {
+    if (peekNativeChromeCapabilities()?.reservedPresentationRegions && !await syncNativePresentationRegions()) return false;
     suspended.delete(this.projection.controlId);
     outstanding.set(this.projection.controlId, this.projection);
     const ack = await bounded(nativeChrome.prepare(this.projection));
@@ -385,6 +389,7 @@ export class NativeChromeLease {
   }
   private async prepareReplacement(previous: NativeChromeLease,
     prepare: (projection: ChromeProjection & { previousRevision: number }) => Promise<ChromeAcknowledgement>): Promise<boolean> {
+    if (peekNativeChromeCapabilities()?.reservedPresentationRegions && !await syncNativePresentationRegions()) return false;
     previous.invalidate();
     outstanding.set(this.projection.controlId, this.projection);
     const ack = await bounded(prepare({

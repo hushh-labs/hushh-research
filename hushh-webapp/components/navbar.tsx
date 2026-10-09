@@ -465,8 +465,8 @@ export const Navbar = ({
   };
 
   const nativeNavigation = useNativeNavigation({
-    enabled: layout === "slot" && nativeAppearance !== null,
-    visible: isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
+    enabled: layout === "slot",
+    visible: nativeAppearance !== null && isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
       !hideNavbar && !shellNavigationHidden && !sessionChromeSuppressed,
     interactionEnabled: !surface?.interactionLayer?.blocksUnderlyingActions,
     selected: NATIVE_NAVIGATION_TABS.includes(activeNav as NativeNavigationTab)
@@ -527,7 +527,7 @@ export const Navbar = ({
           )}
           ref={pillRef}
         >
-          {nativeNavigation.ready ? (
+          {nativeNavigation.reserved ? (
             <div
               aria-hidden="true"
               data-native-navigation-reservation

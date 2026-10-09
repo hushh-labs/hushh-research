@@ -6827,6 +6827,54 @@ html[data-accent="gold"].dark {
   }
 }
 
+/* Acknowledged native seats bound web overlays; panel motion stays React. */
+html.native-reserved-chrome:not([data-session-check-active]) :is(
+  [data-slot="sheet-overlay"], [data-slot="dialog-overlay"],
+  [data-slot="alert-dialog-overlay"], [data-slot="popover-scrim"],
+  [data-agent-history-scrim], [data-profile-preview-scrim]
+) {
+  top: var(--native-overlay-top, 0px);
+  bottom: var(--native-overlay-bottom, 0px);
+}
+html.native-reserved-chrome:not([data-session-check-active]) :is(
+  [data-agent-history-drawer], [data-profile-preview],
+  [data-slot="sheet-content"][data-sheet-side="left"],
+  [data-slot="sheet-content"][data-sheet-side="right"]
+) {
+  top: var(--native-overlay-top, 0px);
+  bottom: var(--native-overlay-bottom, 0px);
+  height: auto;
+}
+html.native-reserved-chrome:not([data-session-check-active]) :is(
+  [data-slot="dialog-content"], [data-slot="alert-dialog-content"]
+) {
+  top: calc(var(--native-overlay-top, 0px) + (100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) / 2);
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px) - 2rem);
+  overflow-y: auto;
+}
+html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="bottom"] {
+  bottom: var(--native-overlay-bottom, 0px);
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
+}
+html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="top"] {
+  top: var(--native-overlay-top, 0px);
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
+}
+html.native-reserved-chrome:not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
+  padding-top: 1rem;
+}
+html.native-reserved-chrome:not([data-session-check-active]) [data-testid="profile-pane"] > [data-native-chrome-slot="profile-close"] {
+  top: 1rem;
+}
+/* The reserved chrome already owns the safe areas. Do not inset the moving
+   panel again, which left a second gap and misaligned Profile and History. */
+html.native-reserved-chrome:not([data-session-check-active]) :is(
+  [data-testid="profile-pane"], [data-agent-history-sidebar="drawer"]
+) {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 /* Opt-in stationary chrome: Radix still observes the semantic frame's
  * animation lifetime, but only its body is translated. Other sheets retain
  * the established surface motion. No translated ancestor owns these slots. */

@@ -33,7 +33,7 @@ function mountChat() {
     // The scrim and panel are portalled to <body>, outside the workspace, so
     // they can stack above the fixed bottom bar (founder direction, 2026-09-28).
     '<div data-agent-history-scrim class="fixed invisible"></div>' +
-    '<div role="dialog" data-agent-history-drawer aria-label="Agent chat history" aria-hidden="true" style="width: 320px"></div>';
+    '<div role="dialog" data-agent-history-drawer class="invisible" aria-label="Agent chat history" aria-hidden="true" style="width: 320px; visibility: hidden"></div>';
   const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
   Object.defineProperty(drawer, "offsetWidth", { value: 320 });
   return {
@@ -96,6 +96,8 @@ describe("chat history body gesture", () => {
     touch("touchmove", 140, 302, transcript);
     expect(drawer.style.transform).toBe("translate3d(-260px, 0, 0)");
     expect(drawer.style.transition).toBe("none");
+    expect(drawer.style.visibility).toBe("visible");
+    expect(drawer.getAttribute("aria-hidden")).toBe("true");
     expect(Number(overlay.style.opacity)).toBeCloseTo(60 / 320, 3);
     expect(overlay.style.visibility).toBe("visible");
     expect(native.dragging).toBe(true);
@@ -119,6 +121,7 @@ describe("chat history body gesture", () => {
     expect(drawer.style.transform).toBe("translate3d(-320px, 0, 0)");
     view.unmount();
     expect(drawer.style.transform).toBe("");
+    expect(drawer.style.visibility).toBe("");
     const next = render(<AppChatHistoryEdgeGesture enabled onOpen={onOpen} onClose={vi.fn()}
       surfaceRef={{ current: transcript }} drawerRef={{ current: drawer }} scrimRef={{ current: document.querySelector<HTMLElement>("[data-agent-history-scrim]") }} />);
 

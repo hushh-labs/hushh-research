@@ -6,6 +6,7 @@ import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor
 import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
 import type { ChromeFrame } from "./native-chrome";
+import { setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativePresentationRegionRevision } from "./native-presentation-regions";
 
 export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
@@ -22,7 +23,7 @@ type NavigationState = NativeControlAppearance & {
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
@@ -42,7 +43,7 @@ const subscribe = (listener: () => void) => {
   subscribers.add(listener);
   return () => { subscribers.delete(listener); };
 };
-function publish() { subscribers.forEach((listener) => listener()); }
+function publish() { setNativePresentationRegionIsolation(overlays.size > 0); subscribers.forEach((listener) => listener()); }
 function isNativeIOS() { return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios"; }
 // Shared isolation authority for native shell controls. Do not create another
 // overlay registry in individual plugins or feature components.
@@ -114,12 +115,15 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
   const [supported, setSupported] = useState(false);
   const [interactionIsolation, setInteractionIsolation] = useState(false);
   const [ready, setReady] = useState(false);
+  const [discovering, setDiscovering] = useState(() => enabled && isNativeIOS());
   const [height, setHeight] = useState(49);
   const overlayBlocked = useSyncExternalStore(subscribe, () => overlays.size > 0, () => false);
+  const regionRevision = useNativePresentationRegionRevision();
   const current = useRef<NavigationState | null>(null);
   const select = useRef(onSelect);
   const lastSelection = useRef(0);
   const underlayPresentation = useRef(false);
+  const reservedRegions = useRef(false);
   const apertureRevision = useRef<number | undefined>(undefined);
   const applyAperture = useCallback((geometry: Geometry, state: NavigationState) => {
     if (!underlayPresentation.current) return;
@@ -155,6 +159,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
         const capability = await nativeNavigation.getCapabilities();
         if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || cancelled) return;
         underlayPresentation.current = capability.underlayPresentation === true;
+        reservedRegions.current = capability.reservedPresentationRegions === true;
         documentId ??= nativeDocumentId();
         await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
         await retain(nativeNavigation.addListener("selectionRequested", (event) => {
@@ -186,12 +191,14 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
           }
         }));
         if (!cancelled) {
-          // Foreground glass cannot be covered by a DOM drawer/scrim. This
-          // bounded pilot retains the bar but conceals it during overlays.
-          setInteractionIsolation(capability.interactionIsolation === true && capability.contentBackedPresentation !== true);
+          // Qualified regions keep DOM overlays away from the native strip.
+          // Older foreground pilots still conceal safely during coverage.
+          setInteractionIsolation(capability.interactionIsolation === true &&
+            (capability.contentBackedPresentation !== true || reservedRegions.current));
           setSupported(true);
         }
       } catch { /* Old wrappers and non-iOS builds retain the existing web navigation. */ }
+      finally { if (!cancelled) setDiscovering(false); }
     })();
     return () => {
       cancelled = true;
@@ -207,7 +214,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
   }, [enabled, applyAperture]);
 
   useLayoutEffect(() => {
-    if (!supported || !documentId) return;
+    if (!supported || !documentId || !/^#[\da-f]{6}$/i.test(accentHex) || !/^#[\da-f]{6}$/i.test(foregroundHex)) return;
     const nextInteractionEnabled = visible && interactionEnabled && !overlayBlocked;
     // Legacy wrappers lack a separate interaction fence: retain their safe hide
     // behavior. Negotiated wrappers retain presentation during overlay isolation.
@@ -220,7 +227,11 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     };
     current.current = state;
     let cancelled = false;
-    void sendState(state).then((result) => {
+    void (reservedRegions.current ? syncNativePresentationRegions() : Promise.resolve(true)).then((confirmed) => {
+      if (!confirmed || cancelled || current.current !== state) return undefined;
+      return sendState(state);
+    }).then((result) => {
+      if (!result) return;
       if (cancelled || current.current !== state || !result.supported) return;
       setHeight(checkedHeight(result.contentHeight));
       nativeBottomInset = checkedHeight(result.bottomInset);
@@ -234,7 +245,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture]);
+  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture, regionRevision]);
 
-  return { ready, height };
+  return { ready, height, reserved: ready || discovering || supported };
 }

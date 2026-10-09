@@ -993,6 +993,10 @@ final class AppUITests: XCTestCase {
         returnToRehearsalChat(app)
         let editor = app.textViews["native-dock-editor"].firstMatch
         guard editor.waitForExistence(timeout: 10) && editor.isHittable else {
+            let chatSelected = app.buttons["one-native-tab-chat"].firstMatch.isSelected
+            let profileOpen = app.buttons["Close Profile"].firstMatch.exists
+            let historyOpen = app.buttons["Close chat history"].firstMatch.exists
+            print("NATIVE_DOCK_ROUTE_ADMISSION chat_selected=\(chatSelected) profile_open=\(profileOpen) history_open=\(historyOpen)")
             // Classify presentation versus accessibility admission before any
             // private input. Never inspect values, private labels, projections or the
             // accessibility tree, including when an existing draft is present.
@@ -1010,14 +1014,23 @@ final class AppUITests: XCTestCase {
             }
             XCTFail("NATIVE_DOCK_EDITOR_UNAVAILABLE"); return
         }
-        guard (editor.value as? String ?? "").isEmpty else {
+        let draft = "Dock continuity 👋\nSecond line"
+        // A prior interrupted run may leave only this exact synthetic draft.
+        // Remove it through the editor, never clear any other reviewer input.
+        if (editor.value as? String) == draft {
+            editor.tap()
+            editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.utf16.count))
+        }
+        let existing = editor.value as? String ?? ""
+        guard existing.isEmpty else {
+            print("NATIVE_DOCK_DRAFT_ADMISSION exact_synthetic=\(existing == draft) placeholder_only=\(existing == "Message One")")
             XCTFail("NATIVE_DOCK_REQUIRES_EMPTY_REVIEWER_DRAFT"); return // Never overwrite an existing draft.
         }
-        let draft = "Dock continuity 👋\nSecond line"
         defer {
+            returnToRehearsalChat(app)
             if editor.exists && (editor.value as? String) == draft {
-                editor.tap(); editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.count))
-                editor.typeText(XCUIKeyboardKey.escape.rawValue)
+                editor.tap(); editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.utf16.count))
+                editor.typeKey(.escape, modifierFlags: [])
             }
         }
         editor.tap()
@@ -1025,12 +1038,15 @@ final class AppUITests: XCTestCase {
         editor.typeText(draft)
         XCTAssertTrue((editor.value as? String) == draft, "NATIVE_DOCK_UNICODE_OR_NEWLINE_LOST")
         XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY - 4,
-            "The system keyboard must not cover the private editor")
-        editor.typeText(XCUIKeyboardKey.escape.rawValue)
+            "NATIVE_DOCK_KEYBOARD_OVERLAP")
+        // A command key needs key injection, not text injection. Chrome
+        // correctly retires during keyboard presentation, so its History
+        // opener cannot stand in for a hardware Escape dismissal.
+        editor.typeKey(.escape, modifierFlags: [])
         let hiddenKeyboard = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)
         }, object: app)
-        XCTAssertEqual(XCTWaiter.wait(for: [hiddenKeyboard], timeout: 5), .completed)
+        XCTAssertEqual(XCTWaiter.wait(for: [hiddenKeyboard], timeout: 5), .completed, "NATIVE_DOCK_KEYBOARD_DISMISS_FAILED")
         for _ in 0..<10 {
             perfTapNav(app, label: "One")
             let dock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
@@ -1047,7 +1063,7 @@ final class AppUITests: XCTestCase {
 
     func testLocalSessionNativeMaterialFoundationContainsReactOverlays() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_MATERIAL_SMOKE"] == "true" else {
-            throw XCTSkip("Opt-in content-backed material containment, not drawer continuity acceptance")
+            throw XCTSkip("Opt-in reserved-region native material continuity")
         }
         print("NATIVE_MATERIAL_TEST_BODY_ENTERED")
         let app = XCUIApplication()
@@ -1088,7 +1104,7 @@ final class AppUITests: XCTestCase {
                 opener.tap()
                 XCTAssertTrue(waitForAdmittedControl(close), "NATIVE_MATERIAL_REACT_CLOSE_NOT_ADMITTED")
                 let covered = packet()
-                XCTAssertEqual(covered?["visible"] as? Bool, false, "NATIVE_MATERIAL_COVERS_REACT_DRAWER")
+                XCTAssertEqual(covered?["visible"] as? Bool, true, "NATIVE_MATERIAL_DISAPPEARED_DURING_DRAWER")
                 XCTAssertEqual(covered?["interactive"] as? Bool, false, "NATIVE_MATERIAL_COVERED_ACTION_ADMITTED")
                 XCTAssertEqual(covered?["accessibilityHidden"] as? Bool, true)
                 XCTAssertFalse(editor.exists && editor.isHittable, "NATIVE_MATERIAL_COVERED_EDITOR_ADMITTED")

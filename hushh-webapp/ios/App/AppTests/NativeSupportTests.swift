@@ -26,6 +26,22 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(container.hitTest(CGPoint(x: 100, y: 100), with: nil)?.isDescendant(of: control) == true)
         container.setAdmission("chat-history-toggle", admitted: false)
         XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 1,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true))
+        XCTAssertFalse(control.isHidden, "Overlay isolation must retain the visible material")
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === container,
+            "A disabled native region must not forward touches to covered DOM controls")
+        XCTAssertFalse(container.hitTest(CGPoint(x: 100, y: 200), with: nil) === container,
+            "The React drawer keeps its central interaction region")
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 0,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertTrue(container.overlayIsolated, "A reordered acknowledgment cannot restore actions")
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 2,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertFalse(control.isUserInteractionEnabled, "Fresh bindings, not region dismissal, restore interaction")
+        container.setAdmission("chat-history-toggle", admitted: true)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
         let retained = control.superview
         container.conceal()
         XCTAssertTrue(control.superview === retained)
@@ -264,6 +280,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(editor.becomeFirstResponder())
         let selected = editor.selectedRange
         let escape = try XCTUnwrap(editor.keyCommands?.first { $0.input == UIKeyCommand.inputEscape })
+        XCTAssertTrue(escape.wantsPriorityOverSystemBehavior, "Escape must reach the idle editor before UIKit focus consumes it")
         editor.perform(escape.action, with: escape)
         XCTAssertFalse(editor.isFirstResponder)
         XCTAssertEqual(editor.text, "Hello 👋")

@@ -20,6 +20,7 @@ import { useOptionalLocationCommand } from "@/components/agent/location-command-
 import { Navbar } from "@/components/navbar";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigation";
+import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 
 export type BottomShellModel = {
   navigationHidden: boolean;
@@ -46,6 +47,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
   // The owner remains mounted above routes; Chat presents its active control
   // in the composer slot, not a second overlapping shell launcher.
   const shellRef = useRef<HTMLDivElement | null>(null);
+  useNativePresentationRegions(shellRef, !hidden);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
   // AgentBar reads client-only auth and location-command state. Rendering its
   // markup only after the first client commit keeps the server and hydration

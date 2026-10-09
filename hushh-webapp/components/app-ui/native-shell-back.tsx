@@ -27,7 +27,9 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const [supported, setSupported] = useState(false);
   const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
   const [backReplacement, setBackReplacement] = useState(false);
-  const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome() || supportsNativeChrome("back") && eligible && !!owner && !overlay && !suppressed && !layerBlocked);
+  const [retainedPresentation, setRetainedPresentation] = useState(false);
+  const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome() ||
+    (supportsNativeChrome("back") || Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios") && eligible && !!owner && !suppressed);
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
   const lease = useRef<NativeChromeLease | null>(null);
@@ -35,14 +37,15 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const ownerIdentity = useMemo(() => ({ owner, epoch: crypto.randomUUID() }), [owner]);
   const epoch = ownerIdentity.epoch;
   const allowed = eligible && !!owner && !!theme && !overlay && !layerBlocked && !suppressed;
+  const presentationAllowed = retainedPresentation ? eligible && !!owner && !!theme && !suppressed : allowed;
   const current = useRef({ allowed, context, epoch, theme });
   useLayoutEffect(() => {
-    if (current.current.allowed !== allowed || current.current.context !== context || current.current.epoch !== epoch || (!inPlaceUpdates && current.current.theme !== theme)) {
+    if (!retainedPresentation && current.current.allowed !== allowed || current.current.context !== context || current.current.epoch !== epoch || (!inPlaceUpdates && current.current.theme !== theme)) {
       lease.current?.invalidate();
     }
     callback.current = onBack;
     current.current = { allowed, context, epoch, theme };
-  }, [allowed, context, epoch, onBack, theme, inPlaceUpdates]);
+  }, [allowed, context, epoch, onBack, theme, inPlaceUpdates, retainedPresentation]);
 
   useLayoutEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
@@ -67,7 +70,10 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       try {
         const capability = await getNativeChromeCapabilities();
         if (cancelled || !capability || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
-            capability.independentControls !== true || !capability.families.includes("back")) return;
+            capability.independentControls !== true || !capability.families.includes("back")) {
+          if (!cancelled) setHidden(hasOutstandingNativeChrome());
+          return;
+        }
         await Promise.all([retain(nativeChrome.addListener("choiceRequested", (event) => {
           const active = lease.current;
           void active?.choose(event, () => lease.current === active && current.current.context === active.context &&
@@ -79,6 +85,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setBackReplacement(capability.backReplacement === true);
+          setRetainedPresentation(capability.reservedPresentationRegions === true);
           setSupported(true);
         }
       } catch {
@@ -125,7 +132,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     void (async () => {
       try {
         const { theme } = current.current;
-        const geometry = allowed && theme && document.visibilityState !== "hidden" && slot.current
+        const geometry = presentationAllowed && theme && document.visibilityState !== "hidden" && slot.current
           ? measureNativeChromeGeometry(slot.current, "back") : null;
         const projection = geometry && theme ? { kind: "back" as const, label, enabled: true, ...theme, ...geometry } : null;
         inactive = !projection;
@@ -176,7 +183,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       // The next committed layout either explicitly replaces this presentation
       // or hard-retires it. Actual unmount has its own strict removal below.
     };
-  }, [supported, allowed, epoch, context, label, measurement, installationAppearance, inPlaceUpdates, backReplacement]);
+  }, [supported, presentationAllowed, epoch, context, label, measurement, installationAppearance, inPlaceUpdates, backReplacement]);
 
   useLayoutEffect(() => () => {
     replacementCandidate.current = null;
@@ -206,7 +213,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
 
   useLayoutEffect(() => {
     if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
-    void prepared.update({ ...theme, enabled: true }).catch(async () => {
+    void prepared.update({ ...theme, enabled: allowed }).catch(async () => {
       const isCurrent = () => lease.current === prepared && prepared.projection.documentId === nativeDocumentId() &&
         prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context;
       if (!isCurrent()) return;
@@ -217,7 +224,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       }
       catch { console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
     });
-  }, [prepared, hidden, inPlaceUpdates, theme]);
+  }, [prepared, hidden, inPlaceUpdates, theme, allowed]);
 
   return <div ref={slot} className="pointer-events-auto -ml-3.5 flex h-11 w-11 items-center justify-center">
     <ShellActionSurface ref={button} variant="icon" aria-label={label} onClick={onBack}

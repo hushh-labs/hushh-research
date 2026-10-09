@@ -8,6 +8,13 @@ const bridge = vi.hoisted(() => ({
   callbacks: new Map<string, (event: unknown) => void>(),
   setState: vi.fn(), getCapabilities: vi.fn(),
   confirmSelection: vi.fn(), sequence: 0,
+  regions: vi.fn(),
+}));
+vi.mock("@/lib/capacitor/native-presentation-regions", () => ({
+  syncNativePresentationRegions: bridge.regions,
+  setNativePresentationRegionIsolation: vi.fn(),
+  useNativeOverlayCollisionPadding: (padding: unknown) => padding,
+  useNativePresentationRegionRevision: () => 0,
 }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
@@ -38,6 +45,7 @@ describe("native navigation presentation boundary", () => {
     bridge.setState.mockReset().mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.confirmSelection.mockReset().mockResolvedValue({ valid: true });
     bridge.sequence = 0;
+    bridge.regions.mockReset().mockResolvedValue(true);
   });
   afterEach(async () => { await act(async () => { await Promise.resolve(); }); });
 
@@ -185,12 +193,12 @@ describe("native navigation presentation boundary", () => {
     view.unmount();
   });
 
-  it("keeps page paint intact and conceals content-backed navigation during a React overlay", async () => {
+  it.each([false, true])("keeps page paint intact; reserved regions=%s negotiate overlay visibility", async (reserved) => {
     const shell = document.createElement("main");
     shell.dataset.appShellRoot = "true";
     document.body.appendChild(shell);
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, interactionIsolation: true,
-      contentBackedPresentation: true, underlayPresentation: false, supported: true, contentHeight: 49, bottomInset: 34 });
+      contentBackedPresentation: true, reservedPresentationRegions: reserved, underlayPresentation: false, supported: true, contentHeight: 49, bottomInset: 34 });
     const onSelect = vi.fn();
     const view = renderHook(() => useNativeNavigation({ ...options, onSelect }));
     let overlay: ReturnType<typeof render> | undefined;
@@ -203,7 +211,7 @@ describe("native navigation presentation boundary", () => {
       overlay = render(<Overlay />);
       select(before);
       expect(onSelect).not.toHaveBeenCalled();
-      await waitFor(() => expect(lastState()).toMatchObject({ visible: false, interactionEnabled: false }));
+      await waitFor(() => expect(lastState()).toMatchObject({ visible: reserved, interactionEnabled: false }));
       overlay.unmount(); overlay = undefined;
       await waitFor(() => expect(lastState().visible).toBe(true));
       select(before);

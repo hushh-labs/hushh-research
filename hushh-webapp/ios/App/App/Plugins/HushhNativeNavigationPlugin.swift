@@ -117,6 +117,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "interactionIsolation": true,
                               "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
                               "contentBackedPresentation": self.compositor?.contentBackedPresentation == true,
+                              "reservedPresentationRegions": self.compositor?.contentBackedPresentation == true,
                               "supported": self.navigationItems != nil,
                               "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
@@ -168,7 +169,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let sequence = call.getInt("sequence") ?? -1
             let tab = call.getString("tab") ?? ""
-            let valid = call.getString("documentId") == self.state.documentId &&
+            let valid = self.compositor?.overlayIsolated != true && call.getString("documentId") == self.state.documentId &&
                 call.getInt("interactionEpoch") == self.state.interactionEpoch &&
                 call.getInt("privacyGeneration") == privacy.generation &&
                 sequence == self.tapSequence && sequence > self.confirmedSequence &&

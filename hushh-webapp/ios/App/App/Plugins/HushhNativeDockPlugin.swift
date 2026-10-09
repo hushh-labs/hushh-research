@@ -157,11 +157,16 @@ final class DockTextView: UITextView {
             height: font?.lineHeight ?? 0)
     }
     override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(input: "\r", modifierFlags: .command, action: #selector(sendFromKeyboard)),
-         UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(dismissKeyboard))]
+        let send = UIKeyCommand(input: "\r", modifierFlags: .command, action: #selector(sendFromKeyboard))
+        let dismiss = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(dismissKeyboard))
+        // Modern UIKit otherwise lets text/focus handling consume these keys
+        // before the editor commands. IME still owns Escape while composing.
+        send.wantsPriorityOverSystemBehavior = true
+        dismiss.wantsPriorityOverSystemBehavior = markedTextRange == nil
+        return [send, dismiss]
     }
     @objc private func sendFromKeyboard() { if markedTextRange == nil { submit?() } }
-    @objc private func dismissKeyboard() { resignFirstResponder() }
+    @objc private func dismissKeyboard() { if markedTextRange == nil { resignFirstResponder() } }
 }
 
 /// Constraints follow UIKit's keyboard guide without a JavaScript resize or
@@ -234,7 +239,7 @@ struct NativeDockEditor: UIViewRepresentable {
         editor.isSelectable = model.visible
         editor.textColor = .label
         editor.tintColor = model.accent
-        editor.updatePlaceholder(model.placeholder, visible: model.mode == "text" && model.visible)
+        editor.updatePlaceholder(model.placeholder, visible: model.mode == "text")
         // Never destroy marked text, selection or undo on a theme/geometry echo.
         if editor.markedTextRange == nil && editor.text != model.text {
             let selection = editor.selectedRange
@@ -449,7 +454,8 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func getCapabilities(_ call: CAPPluginCall) {
         call.resolve(["contractVersion": 1, "supported": admitted,
                       "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
-                      "contentBackedPresentation": compositor?.contentBackedPresentation == true])
+                      "contentBackedPresentation": compositor?.contentBackedPresentation == true,
+                      "reservedPresentationRegions": compositor?.contentBackedPresentation == true])
     }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -533,8 +539,9 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.hosting?.overrideUserInterfaceStyle = theme.style
             self.requestedVisible = call.getBool("visible") ?? false
-            self.model.visible = self.requestedVisible && self.safe
-            self.hosting?.view.isHidden = !self.model.visible
+            self.model.visible = self.requestedVisible && self.safe && (call.getBool("interactionEnabled") ?? true) && self.compositor?.overlayIsolated != true
+            self.hosting?.view.isHidden = !self.requestedVisible || !self.safe
+            self.hosting?.view.isUserInteractionEnabled = self.model.visible
             self.hosting?.view.accessibilityElementsHidden = !self.model.visible
             if self.model.visible { self.compositor?.revealUnderlay() }
             self.compositor?.setAdmission("agent-dock", admitted: self.model.visible)
@@ -563,7 +570,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     @MainActor
     private func currentLayout() -> JSObject? {
-        guard #available(iOS 26.0, *), safe, requestedVisible, model.visible,
+        guard #available(iOS 26.0, *), safe, requestedVisible,
               let identity = fence.identity, let host = hosting, !host.view.isHidden,
               let parent = bridge?.viewController, viewport.width > 0 else { return nil }
         let scale = parent.view.bounds.width / viewport.width
@@ -592,7 +599,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             // WK drawers cannot interleave with foreground UIKit controls.
             // Retain the editor/host, but conceal the foreground pilot until
             // the current React owner acknowledges fresh admission.
-            self.hosting?.view.isHidden = self.compositor == nil || self.compositor?.contentBackedPresentation == true || !self.safe
+            self.hosting?.view.isHidden = self.compositor == nil || !self.safe
             self.hosting?.view.accessibilityElementsHidden = true
             self.compositor?.setAdmission("agent-dock", admitted: false)
             call.resolve(self.ack(identity, sequence: self.fence.update, phase: "active"))
@@ -626,7 +633,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let kind = call.getString("kind") else { call.resolve(["valid": false]); return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let valid = self.fence.confirm(identity, sequence: sequence, applied: applied, editRevision: editRevision, kind: kind,
-                allowed: self.safe && self.requestedVisible && call.getString("context") == self.context &&
+                allowed: self.safe && self.requestedVisible && self.model.visible && self.compositor?.overlayIsolated != true && call.getString("context") == self.context &&
                     call.getInt("editorRevision") == (self.model.mode == "text" ? self.editorRevision : 0) &&
                     call.getInt("privacyGeneration") == privacy.generation)
             call.resolve(["valid": valid])

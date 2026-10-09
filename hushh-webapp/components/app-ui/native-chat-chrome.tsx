@@ -59,7 +59,7 @@ type Props = {
 export function NativeChatChrome(props: Props) {
   const { ref: handleRef, className, children } = props;
   const slot = useRef<HTMLDivElement>(null);
-  const kind = props.kind === "history" && props.expanded && peekNativeChromeCapabilities()?.panelPresentation
+  const kind = props.kind === "history" && props.expanded && (peekNativeChromeCapabilities()?.panelPresentation || peekNativeChromeCapabilities()?.reservedPresentationRegions)
     ? "history-close" as const : props.kind;
   const controlId = chromeControlId(kind);
   // Only the current authored History layer may own Close. Anonymous/nested
@@ -668,8 +668,9 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
   onActivate: (preferNativeFocus: boolean, trigger?: HTMLButtonElement) => void;
 }) {
   const label = open ? "Close chat history" : "Open chat history";
+  const retainedBase = peekNativeChromeCapabilities()?.reservedPresentationRegions === true;
   return <NativeChatChrome kind="history" owner={owner} pendingAttention={pendingAttention}
-    context={context} eligible={eligible && !open} style={{ visibility: open ? "hidden" : undefined }}
+    context={context} eligible={eligible && (retainedBase || !open)} style={{ visibility: open && !retainedBase ? "hidden" : undefined }}
     onActivate={() => onActivate(true)} focusRef={focusRef} ref={ref}
     className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
     <ShellActionSurface variant="icon" id="one-chat-history-trigger" ref={focusRef}
@@ -686,26 +687,15 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
   </NativeChatChrome>;
 }
 
-/** Same History control identity, relocated to the modal's authored Close
- * slot. Geometry changes retire the old lease; no underlying-overlay bypass. */
-export function NativeHistoryClose({ owner, context, onClose, stationary = false }: {
+/** The moving drawer owns a React Close for its entire lifetime. It must not
+ * borrow the stationary opener's native identity or switch after settlement. */
+export function NativeHistoryClose({ onClose }: {
   owner: string | null; context: string; onClose: () => void; stationary?: boolean;
 }) {
-  const focusRef = useRef<HTMLButtonElement>(null);
-  const key = JSON.stringify([owner, context]);
-  const [stationaryKey, setStationaryKey] = useState<string | null>(null);
-  useEffect(() => {
-    const duration = getComputedStyle(document.documentElement).getPropertyValue("--motion-sheet-enter-duration").trim();
-    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 :
-      Number.parseFloat(duration) * (duration.endsWith("ms") ? 1 : 1000);
-    const timer = window.setTimeout(() => setStationaryKey(key), Number.isFinite(delay) ? delay : 300);
-    return () => window.clearTimeout(timer);
-  }, [key]);
-  return <NativeChatChrome kind="history" expanded pendingAttention={0} owner={owner} context={context}
-    eligible={stationary || stationaryKey === key} onActivate={onClose} focusRef={focusRef} className="relative flex size-11 shrink-0 items-center justify-center">
-    <button ref={focusRef} type="button" aria-label="Close chat history" onClick={() => { appHaptic("light"); onClose(); }}
+  return <span className="relative flex size-11 shrink-0 items-center justify-center">
+    <button type="button" aria-label="Close chat history" onClick={() => { appHaptic("light"); onClose(); }}
       className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted">
       <XIcon className="size-4" aria-hidden />
     </button>
-  </NativeChatChrome>;
+  </span>;
 }

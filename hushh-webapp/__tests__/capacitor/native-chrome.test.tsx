@@ -11,7 +11,9 @@ import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
+import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
+import { syncNativePresentationRegions, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 
@@ -24,7 +26,7 @@ vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked
 vi.mock("@/components/profile/profile-workspace-page", () => ({ ProfilePage: () => null }));
 
 const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", callbacks: new Map<string, (event: unknown) => void>(),
-  listeners: new Map<string, Set<(event: unknown) => void>>(),
+  listeners: new Map<string, Set<(event: unknown) => void>>(), setPresentationRegions: vi.fn(),
   subscribe: vi.fn(), prepare: vi.fn(), prepareBackReplacement: vi.fn(), prepareHistoryReplacement: vi.fn(), activate: vi.fn(), update: vi.fn(), suspend: vi.fn(), retire: vi.fn(), restoreFocus: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn() }));
@@ -218,6 +220,42 @@ describe("private dock asynchronous submission boundary", () => {
     expect(view.getByTestId("dock-presentation").textContent).toBe("fallback");
     expect(dockBridge.apply).not.toHaveBeenCalled();
   });
+  it("keeps the reserved voice seat unpainted and inaccessible until confirmed web fallback", () => {
+    function Seat({ owned }: { owned: boolean }) {
+      const ports = useNativeDockPorts();
+      useLayoutEffect(() => { ports?.present(owned); }, [ports, owned]);
+      return <AgentBarSurface data-testid="voice-seat"><button>Talk to One</button></AgentBarSurface>;
+    }
+    const view = render(<AgentDockProvider><Seat owned /></AgentDockProvider>);
+    expect(view.getByTestId("voice-seat").hasAttribute("inert")).toBe(true);
+    expect(view.getByTestId("voice-seat").getAttribute("aria-hidden")).toBe("true");
+    expect(view.getByTestId("voice-seat").classList.contains("bottom-chrome-surface")).toBe(false);
+    view.rerender(<AgentDockProvider><Seat owned={false} /></AgentDockProvider>);
+    expect(view.getByTestId("voice-seat").hasAttribute("inert")).toBe(false);
+    expect(view.getByTestId("voice-seat").classList.contains("bottom-chrome-surface")).toBe(true);
+  });
+  it("readmits the current dock after a newer shell layout supersedes its pending region receipt", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [], independentControls: true, reservedPresentationRegions: true });
+    dockBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, reservedPresentationRegions: true });
+    const receipt = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReset().mockImplementation(async projection => projection)
+      .mockReturnValueOnce(receipt.promise);
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    let height = 80;
+    vi.spyOn(seat, "getBoundingClientRect").mockImplementation(() => ({ bottom: height } as DOMRect));
+    try {
+      render(fixture(false, vi.fn()));
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledOnce());
+      const obsolete = bridge.setPresentationRegions.mock.calls[0][0];
+      height = 100;
+      await act(async () => { expect(await syncNativePresentationRegions()).toBe(true); });
+      expect(dockBridge.apply).not.toHaveBeenCalled();
+      await act(async () => { receipt.resolve(obsolete); });
+      await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+      expect(dockBridge.retire).not.toHaveBeenCalled();
+    } finally { seat.remove(); }
+  });
   it("retires a consumed replica when an overlay invalidates its delayed receipt, without sending or replaying", async () => {
     const onAction = vi.fn();
     const receipt = deferred<{ consumed: boolean; editRevision: number }>();
@@ -282,6 +320,7 @@ describe("native chrome presentation lease", () => {
     bridge.subscribe.mockReset().mockResolvedValue(undefined);
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true });
     bridge.setCanvasAppearance.mockReset().mockImplementation(async (value) => value);
+    bridge.setPresentationRegions.mockReset().mockImplementation(async (value) => value);
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.prepareBackReplacement.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.prepareHistoryReplacement.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
@@ -295,6 +334,28 @@ describe("native chrome presentation lease", () => {
       retireNativeChrome("owner-a", undefined, controlId as ChromeProjection["controlId"])));
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("rejects stale region acknowledgments even when returning to the previously accepted layout", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true, reservedPresentationRegions: true });
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    let height = 80;
+    vi.spyOn(seat, "getBoundingClientRect").mockImplementation(() => ({ bottom: height } as DOMRect));
+    try {
+      expect(await syncNativePresentationRegions()).toBe(true);
+      const delayed = deferred<NativePresentationRegions>();
+      bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+      height = 100;
+      const changing = syncNativePresentationRegions();
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledTimes(2));
+      const obsolete = bridge.setPresentationRegions.mock.calls[1][0];
+      height = 80;
+      expect(await syncNativePresentationRegions()).toBe(true);
+      delayed.resolve(obsolete);
+      expect(await changing).toBe(false);
+      expect(document.documentElement.style.getPropertyValue("--native-overlay-top")).toBe("80px");
+    } finally { seat.remove(); }
+  });
+
   it("requires acknowledged suspension and identical ownership/schema/geometry before resuming a host with fresh authority", async () => {
     const epoch = chromeOwnerEpoch("account-a", "top-shell-back");
     expect(chromeOwnerEpoch("account-a", "top-shell-back")).toBe(epoch);
@@ -1569,97 +1630,44 @@ describe("native chrome presentation lease", () => {
     act(() => bridge.callbacks.get("choiceRequested")?.({ ...current, sequence: 1, privacyGeneration: 0 }));
     await waitFor(() => expect(back).toHaveBeenCalledOnce());
   });
-  it("keeps stationary Profile Close native across inner-stack changes, never across owner replacement", async () => {
+  it("keeps moving Profile controls React across inner routes and ownership changes", async () => {
     measureSlot();
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true, inPlaceUpdates: true, profileBackReplacement: true });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true, inPlaceUpdates: true });
     const close = vi.fn();
     const view = render(<ProfilePane open owner="owner-a" onOpenChange={close} />);
-    const preparedCloses = () => bridge.prepare.mock.calls.filter(([p]) => p.kind === "close");
-    await waitFor(() => expect(preparedCloses()).toHaveLength(1));
-    await waitFor(() => expect(bridge.activate.mock.calls.some(([p]) => p.controlId === "profile-close")).toBe(true));
-    await act(async () => { await Promise.resolve(); });
-    const original = preparedCloses()[0]![0];
-    profile.query = "profile_pane=1&profile_panel=security";
-    view.rerender(<ProfilePane open owner="owner-a" onOpenChange={(next) => close(next)} />);
-    await act(async () => { await Promise.resolve(); });
-    expect(view.getByLabelText("Close Profile", { selector: "button" }).closest('[inert]')).not.toBeNull();
-    expect(bridge.retire.mock.calls.some(([p]) => p.controlId === "profile-close" && p.targetRevision === original.revision)).toBe(false);
-    await waitFor(() => expect(bridge.prepare.mock.calls.some(([p]) => p.kind === "profile-back")).toBe(true));
-    expect(preparedCloses()).toHaveLength(1);
-    await waitFor(() => expect(bridge.activate.mock.calls.some(([p]) => p.controlId === "profile-back")).toBe(true));
-    const previousBack = bridge.prepare.mock.calls.find(([p]) => p.kind === "profile-back")![0];
-    const handoff = deferred<ChromeAcknowledgement>();
-    bridge.prepareBackReplacement.mockReturnValueOnce(handoff.promise);
-    const removals = bridge.retire.mock.calls.length;
-    profile.query = "profile_pane=1&profile_panel=security&profile_detail=vault";
-    view.rerender(<ProfilePane open owner="owner-a" onOpenChange={close} />);
-    await act(async () => { await Promise.resolve(); });
-    // The outer header does not slide with the content stack. Its Back stays
-    // native but gets fresh action authority; no 300ms web fallback interval.
-    expect(bridge.retire).toHaveBeenCalledTimes(removals);
-    expect(view.getByLabelText("Back in Profile", { selector: "button" }).closest('[inert]')).not.toBeNull();
-    await waitFor(() => expect(bridge.prepareBackReplacement).toHaveBeenCalledOnce());
-    const nextBack = bridge.prepareBackReplacement.mock.calls[0][0];
-    expect(nextBack).toMatchObject({ controlId: "profile-back", previousRevision: previousBack.revision, frame: previousBack.frame });
-    await act(async () => handoff.resolve({ ...nextBack, phase: "prepared" }));
-    await waitFor(() => expect(bridge.activate.mock.calls.some(([p]) => p.revision === nextBack.revision)).toBe(true));
-    expect(preparedCloses()).toHaveLength(1);
-    const updateSequence = bridge.update.mock.calls.find(([p]) => p.controlId === "profile-close")?.[0].updateSequence ?? 0;
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...original, sequence: 1, updateSequence, privacyGeneration: 0 }));
-    await waitFor(() => expect(close).toHaveBeenCalledExactlyOnceWith(false));
-    const pending = deferred<{ valid: boolean }>();
-    bridge.confirmChoice.mockReturnValueOnce(pending.promise);
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...original, sequence: 2, updateSequence, privacyGeneration: 0 }));
-    await waitFor(() => expect(bridge.confirmChoice).toHaveBeenCalledTimes(2));
+    const original = view.getByRole("button", { name: "Close Profile" });
+    for (const query of ["profile_pane=1&profile_panel=security", "profile_pane=1&profile_panel=security&profile_detail=vault"]) {
+      profile.query = query;
+      // The real Next context publishes query changes. Our lightweight mock
+      // is not a context provider, so a new callback makes memo observe it.
+      view.rerender(<ProfilePane open owner="owner-a" onOpenChange={(next) => close(next)} />);
+      expect(view.getByRole("button", { name: "Close Profile" })).toBe(original);
+      await waitFor(() => expect(view.getByRole("button", { name: "Back in Profile" })).toBeVisible());
+    }
     view.rerender(<ProfilePane open owner="owner-b" onOpenChange={close} />);
-    await act(async () => { pending.resolve({ valid: true }); });
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...original, sequence: 3, updateSequence, privacyGeneration: 0 }));
-    await waitFor(() => expect(preparedCloses()).toHaveLength(2));
-    expect(preparedCloses()[1]![0].ownerEpoch).not.toBe(original.ownerEpoch);
-    expect(close).toHaveBeenCalledOnce();
+    fireEvent.click(view.getByRole("button", { name: "Close Profile" }));
+    expect(close).toHaveBeenCalledExactlyOnceWith(false);
+    expect(bridge.prepare.mock.calls.filter(([p]) => ["profile-back", "close"].includes(p.kind))).toHaveLength(0);
   });
 
-  it("admits History Close only after settlement and never bypasses a newer overlay", async () => {
-    measureSlot();
-    document.documentElement.style.setProperty("--motion-sheet-enter-duration", "300ms");
+  it("keeps History Close React through drawer settlement and reopening", async () => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true, inPlaceUpdates: true });
     const close = vi.fn();
-    function CloseHarness({ blocked = false }: { blocked?: boolean }) {
-      useNativeNavigationBlocked(true, "chat-history");
-      useNativeNavigationBlocked(blocked);
-      return <NativeHistoryClose owner="owner-a" context="chat-a" onClose={close} />;
-    }
-    const view = render(<CloseHarness />);
+    const view = render(<NativeHistoryClose owner="owner-a" context="chat-a" onClose={close} />);
+    const button = view.getByRole("button", { name: "Close chat history" });
+    await act(async () => { await Promise.resolve(); });
+    view.rerender(<NativeHistoryClose owner="owner-a" context="chat-b" stationary onClose={close} />);
+    expect(view.getByRole("button", { name: "Close chat history" })).toBe(button);
+    fireEvent.click(button);
+    expect(close).toHaveBeenCalledOnce();
     expect(bridge.prepare).not.toHaveBeenCalled();
-    expect(view.getByRole("button", { name: "Close chat history" })).toBeVisible();
-    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(1));
-    expect(view.queryByRole("button", { name: "Close chat history" })).toBeNull();
-    const installed = bridge.activate.mock.calls.at(-1)![0];
-    await act(async () => { await Promise.resolve(); });
-    expect(bridge.update).not.toHaveBeenCalled();
-    const approval = deferred<{ valid: boolean }>();
-    bridge.confirmChoice.mockReturnValueOnce(approval.promise);
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...installed, sequence: 1, privacyGeneration: 0, updateSequence: 0 }));
-    expect(bridge.confirmChoice).toHaveBeenCalledTimes(1);
-    view.rerender(<CloseHarness blocked />);
-    await act(async () => { approval.resolve({ valid: true }); });
-    expect(close).not.toHaveBeenCalled();
-    await waitFor(() => expect(view.getByRole("button", { name: "Close chat history" })).toBeVisible());
-    view.rerender(<CloseHarness />);
-    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
-    const current = bridge.activate.mock.calls.at(-1)![0];
-    await act(async () => { await Promise.resolve(); });
-    expect(bridge.update).not.toHaveBeenCalled();
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...current, sequence: 1, privacyGeneration: 0, updateSequence: 0 }));
-    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
-    view.unmount();
-    document.documentElement.style.removeProperty("--motion-sheet-enter-duration");
+    expect(bridge.activate).not.toHaveBeenCalled();
   });
   it("commits DOM isolation before activation and waits for retirement during session checks", async () => {
     measureSlot();
     const onBack = vi.fn();
     const view = render(<Harness onBack={onBack} />);
-    const button = view.getByRole("button", { name: "Go back" });
+    const button = view.getByLabelText("Go back", { selector: "button" });
     bridge.activate.mockImplementation(async (value) => {
       expect(button).toBeDisabled();
       expect(button).toHaveStyle({ visibility: "hidden" });

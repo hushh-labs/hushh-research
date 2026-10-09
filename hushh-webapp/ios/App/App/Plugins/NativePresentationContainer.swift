@@ -56,6 +56,29 @@ final class NativePresentationContainer: UIView {
     private var groups: [String: UIView] = [:]
     private var fences: [String: NativePanelPoseFence] = [:]
     private var controls: [String: (view: UIView, group: String?, admitted: Bool)] = [:]
+    private var regionDocument: String?
+    private var regionRevision = -1
+    private(set) var overlayTop: CGFloat = 0
+    private(set) var overlayBottom: CGFloat = 0
+    private(set) var overlayIsolated = false
+
+    func setRegions(document: String, revision: Int, viewport: CGSize, top: CGFloat, bottom: CGFloat, isolated: Bool) -> Bool {
+        guard contentBackedPresentation, viewport == bounds.size,
+              revision >= 0, regionDocument != document || revision > regionRevision,
+              top.isFinite, bottom.isFinite, top >= 0, bottom >= 0,
+              top + bottom < viewport.height else { return false }
+        regionDocument = document; regionRevision = revision
+        overlayTop = top; overlayBottom = bottom; overlayIsolated = isolated
+        if isolated {
+            for id in Array(controls.keys) { setAdmission(id, admitted: false) }
+        }
+        return true
+    }
+
+    func containsStationaryControl(_ frame: CGRect, document: String) -> Bool {
+        guard contentBackedPresentation, regionDocument == document, bounds.contains(frame) else { return false }
+        return frame.maxY <= overlayTop || frame.minY >= bounds.height - overlayBottom
+    }
     #if DEBUG
     private var continuity: NativePanelContinuityProbe?
     #endif
@@ -108,6 +131,7 @@ final class NativePresentationContainer: UIView {
 
     func setAdmission(_ id: String, admitted: Bool) {
         guard var control = controls[id] else { return }
+        let admitted = admitted && !(contentBackedPresentation && overlayIsolated)
         control.admitted = admitted
         controls[id] = control
         control.view.isUserInteractionEnabled = admitted
@@ -196,6 +220,10 @@ final class NativePresentationContainer: UIView {
                 control.admitted && (hit === control.view || hit.isDescendant(of: control.view))
             }) { return hit }
         }
+        // An isolated reserved strip must not pass a tap to underlying DOM
+        // controls. The central region still reaches its React modal owner.
+        if contentBackedPresentation && overlayIsolated &&
+            (point.y < overlayTop || point.y >= bounds.height - overlayBottom) { return self }
         return webView.hitTest(webView.convert(point, from: self), with: event)
     }
 
