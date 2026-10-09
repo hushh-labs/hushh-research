@@ -400,6 +400,7 @@ import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferre
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
   useOneConversationSession,
+  useOneComposerDraft,
   type GmailInformationRequestHandoff,
 } from "@/lib/agent/one-conversation-session";
 import { dedupeAdjacentAgentMessages } from "@/lib/agent/agent-chat-turn-safety";
@@ -427,7 +428,6 @@ import {
   replaceTextAttachmentForResend,
   shouldCaptureLargePaste,
   type AgentTextAttachment,
-  type PendingTextAttachment,
 } from "@/lib/agent/large-text-attachment";
 import { AgentMessageAttachments } from "@/components/agent/agent-message-attachments";
 import { AgentComposerTextAttachment } from "@/components/agent/agent-text-attachment-editor";
@@ -2617,7 +2617,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setAgentSurface("puppy");
   }, []);
 
-  const [input, setInput] = useState("");
+  const composerDraft = useOneComposerDraft(isCanonicalChatRoute, isVaultUnlocked ? user?.uid ?? null : null);
+  const { input, setInput, attachment: longPromptAttachment, setAttachment: setLongPromptAttachment,
+    expanded: composerExpanded, setExpanded: setComposerExpandedState } = composerDraft;
   // A selected search result is session-only; chat receives its opaque reference
   // separately from the human prompt and rechecks it against live Drive.
   const [pendingDriveSearchSelection, setPendingDriveSearchSelection] = useState<
@@ -2625,12 +2627,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   >(null);
   const pendingDriveSearchSelectionRef = useRef<typeof pendingDriveSearchSelection>(null);
   const generatedDriveSearchDraftRef = useRef(false);
-  const [longPromptAttachment, setLongPromptAttachment] =
-    useState<PendingTextAttachment | null>(null);
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
   const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
-  const [composerExpanded, setComposerExpandedState] = useState(false);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   // A typed turn is running that Stop can end at its next step.
   const [stoppableTurn, setStoppableTurn] = useState(false);
@@ -2649,7 +2648,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const generated = generatedDriveSearchDraftRef.current;
     generatedDriveSearchDraftRef.current = false;
     if (generated) setInput(current => clearGeneratedDriveSearchDraft(current, generated));
-  }, [conversationId, user?.uid, isVaultUnlocked, vaultSessionEpoch]);
+  }, [conversationId, user?.uid, isVaultUnlocked, vaultSessionEpoch, setInput]);
   // Ratings for this conversation, keyed by message id. Durable, so a reload
   // and a conversation switch both keep what the person said about an answer.
   const [messageRatings, setMessageRatings] = useState<
@@ -2883,7 +2882,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     composerTransitionRectRef.current = currentRect;
     composerExpandedRef.current = expanded;
     setComposerExpandedState(expanded);
-  }, []);
+  }, [setComposerExpandedState]);
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyChromeRef = useRef<NativeChatChromeHandle | null>(null);
   const agentSurfaceFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -3803,6 +3802,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     updateConversationId(null);
     setMessages([createGreetingMessage()]);
     setInput("");
+    setLongPromptAttachment(null);
+    setComposerExpanded(false);
     setIsLoadingHistory(false);
     setWalletWidgets([]);
     setPendingAppAction(null);
@@ -3826,6 +3827,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     abortAgentTurnWork,
     clearTranscriptProgrammaticScroll,
     updateConversationId,
+    setInput,
+    setLongPromptAttachment,
+    setComposerExpanded,
   ]);
 
   const updateMessage = (
@@ -4861,6 +4865,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     restoreConversationMessages,
     rootChatReady,
     setComposerExpanded,
+    setInput,
+    setLongPromptAttachment,
     updateConversationId,
     user?.uid,
     vaultKey,
@@ -6659,7 +6665,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     setInput("");
     void runAgentTurnRef.current(pending.text, pending.options);
-  }, [hasChatAccess]);
+  }, [hasChatAccess, setInput, setLongPromptAttachment]);
 
   /**
    * Follow-up turn that reports a specialist DelegateResult back to One.
@@ -8607,7 +8613,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!firebaseIdToken) return null;
     return { firebaseIdToken, vaultOwnerToken: currentVaultOwnerToken };
   };
-  const nativeComposerContext = useRef(crypto.randomUUID());
   const editorPurpose = `${composerExpanded}:${longPromptAttachment?.isExpanded ?? false}`;
   const nativeEditor = useRef({ text: input, purpose: editorPurpose, revision: 0, echo: null as string | null });
   if (nativeEditor.current.text !== input || nativeEditor.current.purpose !== editorPurpose) {
@@ -8618,9 +8623,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   if (nativeAttachments.current.paste !== longPromptAttachment || nativeAttachments.current.drive !== activeDriveSearchSelection) {
     nativeAttachments.current = { paste: longPromptAttachment, drive: activeDriveSearchSelection, revision: nativeAttachments.current.revision + 1 };
   }
-  useNativeDockPort("text", isCanonicalChatRoute && !isPuppySurface ? {
+  useNativeDockPort("text", isCanonicalChatRoute && !isPuppySurface && composerDraft.ready && composerDraft.context ? {
     projection: {
-      context: conversationId ?? nativeComposerContext.current,
+      context: conversationId ?? composerDraft.context,
       mode: "text", text: input,
       placeholder: chatOnboarding.composerPlaceholder ?? "Message One…",
       expanded: composerExpanded,
