@@ -140,6 +140,35 @@ describe("a cancelled caller stops waiting on shared admission", () => {
 });
 
 describe("a sleeping agent whose first contact would be the turn itself", () => {
+  it("does not probe again immediately after a verified direct admission", async () => {
+    pod.currentPodConnection.mockResolvedValue({
+      endpoint: PIN, session: { session: "pst1.fresh" }, directVerifiedAt: Date.now(),
+    });
+    const { fetch, ports } = harness(async () => grants(), async () => new Response("stream"));
+    await ownerPodRequest("agent-chat", turnInit(), ports);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([TURN]);
+  });
+
+  it.each([Date.now() - 60_001, Date.now() + 60_001, Number.NaN])(
+    "still probes when direct admission evidence is stale or invalid: %s", async (directVerifiedAt) => {
+      pod.currentPodConnection.mockResolvedValue({
+        endpoint: PIN, session: { session: "pst1.cached" }, directVerifiedAt,
+      });
+      const { fetch, ports } = harness(async () => grants(), async () => new Response("stream"));
+      await ownerPodRequest("agent-chat", turnInit(), ports);
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual([CAPABILITIES, TURN]);
+    },
+  );
+
+  it("never retries a failed turn after fresh admission", async () => {
+    pod.currentPodConnection.mockResolvedValue({
+      endpoint: PIN, session: { session: "pst1.fresh" }, directVerifiedAt: Date.now(),
+    });
+    const { fetch, ports } = harness(async () => grants(), async () => { throw new TypeError("Failed to fetch"); });
+    await expect(ownerPodRequest("agent-chat", turnInit(), ports)).rejects.toBeInstanceOf(PodSendUnconfirmedError);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([TURN]);
+  });
+
   it("asks a cold agent first, so an ingress reset provably did not send the turn", async () => {
     const { fetch, ports } = harness(async () => grants(), async (url) => {
       if (url === CAPABILITIES) throw new TypeError("Failed to fetch");

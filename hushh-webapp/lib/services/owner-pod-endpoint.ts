@@ -7,6 +7,10 @@
  * in IndexedDB (memory fallback in tests); revocations remain pending until delivered.
  */
 
+import { forgetDirectAdmission, observedConnection, recordDirectAdmission } from "./owner-pod-connection";
+import type { OwnerPodConnection, PinnedEndpoint, PodSessionRecord } from "./owner-pod-connection";
+export type { OwnerPodConnection, PinnedEndpoint, PodSessionRecord } from "./owner-pod-connection";
+
 import { serializeOwnerPodOperation } from "./owner-pod-session-lock";
 import { isOwnerCloudTarget } from "@/lib/one/owner-cloud";
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
@@ -25,31 +29,6 @@ export const POD_SESSION_PREFIX = "pst1.";
 /** Renew this long before expiry so a turn never starts on a dying session. */
 const SESSION_RENEW_MARGIN_MS = 60 * 60 * 1000;
 const SESSION_USABLE_MARGIN_MS = 60 * 1000;
-
-export type PinnedEndpoint = {
-  hushhId: string;
-  url: string;
-  podKeyId: string;
-  environment: string;
-  endpointVersion: number;
-  signature: string;
-  pinnedAt: number;
-  /** Pins from the former prefix-only verifier must be admitted again once. */
-  verificationVersion: 1;
-};
-
-export type PodSessionRecord = {
-  session: string;
-  sid: string;
-  role: "app";
-  scopes: string[];
-  epoch: number;
-  expiresAt: number;
-  version: number;
-  subjectId: string;
-  /** Verified grant ceiling; renewal cannot extend owner authorization. */
-  grantExpiresAt?: number;
-};
 
 export type PendingRevocation = {
   intentId: string;
@@ -89,7 +68,6 @@ export type OwnerPodTransport = {
 
 const memoryKeys = new Map<string, AppKeyRecord>();
 const memoryPins = new Map<string, PinRecord>();
-
 function indexedDbAvailable(): boolean {
   return typeof indexedDB !== "undefined" && indexedDB !== null;
 }
@@ -174,6 +152,7 @@ async function readPin(userId: string): Promise<PinRecord> {
 async function forgetOwnerPodStateUnlocked(userId: string): Promise<void> {
   memoryKeys.delete(userId);
   memoryPins.delete(userId);
+  forgetDirectAdmission(userId);
   const db = await openDb();
   if (!db) return;
   try {
@@ -511,8 +490,10 @@ async function admitEndpoint(
     throw new OwnerPodError("SESSION_BINDING_MISMATCH");
   }
   session.grantExpiresAt = Number(binding.expires_at_ms);
+  const verifiedAt = Date.now();
   const pin = await readPin(userId);
   await writeRecord(PIN_STORE, { ...pin, endpoint, session });
+  recordDirectAdmission(userId, endpoint, session, verifiedAt);
   return session;
 }
 
@@ -554,7 +535,9 @@ async function renewPodSessionUnlocked(
     session.scopes.some((scope) => !pin.session!.scopes.includes(scope))
   ) throw new OwnerPodError("SESSION_BINDING_MISMATCH");
   session.grantExpiresAt = pin.session.grantExpiresAt;
+  const verifiedAt = Date.now();
   await writeRecord(PIN_STORE, { ...pin, session });
+  recordDirectAdmission(userId, pin.endpoint, session, verifiedAt);
   return session;
 }
 
@@ -581,15 +564,13 @@ async function currentPodSessionUnlocked(
 }
 
 /** Read the matching endpoint and bearer together after any async renewal. */
-async function currentPodConnectionUnlocked(userId: string, transport: OwnerPodTransport): Promise<{
-  endpoint: PinnedEndpoint; session: PodSessionRecord;
-}> {
+async function currentPodConnectionUnlocked(userId: string, transport: OwnerPodTransport): Promise<OwnerPodConnection> {
   const session = await currentPodSessionUnlocked(userId, transport);
   const pin = await readPin(userId);
   if (!pin.endpoint || pin.session?.session !== session.session) {
     throw new OwnerPodError("POD_CONNECTION_CHANGED");
   }
-  return { endpoint: pin.endpoint, session };
+  return observedConnection(userId, pin.endpoint, session);
 }
 
 // -- revocation --------------------------------------------------------------------------

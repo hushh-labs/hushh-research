@@ -9,116 +9,11 @@
  * done.
  */
 import "fake-indexeddb/auto";
-import { createPublicKey, generateKeyPairSync, sign as nodeSign, verify as nodeVerify } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createPublicKey, verify as nodeVerify } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as ownerPod from "@/lib/services/owner-pod-endpoint";
-
-const issuer = generateKeyPairSync("ed25519");
-const publicRaw = issuer.publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("base64");
-function hubSignature(payload: Record<string, unknown>): string {
-  return `ed25519.kid.${nodeSign(null, Buffer.from(ownerPod.canonicalJson(payload)), issuer.privateKey).toString("base64url")}`;
-}
-
-const USER = "uid-owner";
-const POD_URL = "https://one-pod-owner-abc.a.run.app";
-
-type Call = { target: "hub" | "direct"; url: string; init: RequestInit };
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function endpointBody(overrides: Record<string, unknown> = {}) {
-  const body = {
-    kind: "pod_endpoint_v1",
-    hushhId: "ha1_owner",
-    url: POD_URL,
-    podKeyId: "podk_1",
-    environment: "dev",
-    endpointVersion: 1,
-    ...overrides,
-  };
-  return { ...body, signature: hubSignature(body) };
-}
-
-class FakeWorld {
-  calls: Call[] = [];
-  endpoint = endpointBody();
-  bindingIssued = false;
-  bindingVersion = 0;
-  appPublicKey = "";
-  podReachable = true;
-  challengePayload = '{"challenge_id":"psc_1","epoch":3,"hushh_id":"ha1_owner","nonce":"n","pod_key_id":"podk_1","purpose":"pod-session-admission","subject_id":"tdv_app_1"}';
-  admitted: Array<Record<string, unknown>> = [];
-  couriered: Array<Record<string, unknown>> = [];
-  revokes: Array<Record<string, unknown>> = [];
-  now = 1_757_500_000_000;
-  bindingIssuedOffsetMs = -1000;
-  bindingExpiresOffsetMs = 24 * 3600 * 1000;
-  deploymentTarget = "user_gcp";
-
-  transport(): ownerPod.OwnerPodTransport {
-    return {
-      hub: async (path, init) => this.hub(path, init),
-      direct: async (url, init) => this.direct(url, init),
-      now: () => this.now,
-    };
-  }
-
-  async hub(path: string, init: RequestInit): Promise<Response> {
-    this.calls.push({ target: "hub", url: path, init });
-    if (path === "/api/account/trusted-devices/self-enroll") {
-      this.appPublicKey = String((JSON.parse(String(init.body)) as { devicePublicKey: string }).devicePublicKey);
-      return json({ device_id: "tdv_app_1", platform: "web", status: "active" });
-    }
-    if (path === "/api/one/personal-agent/verification-keys") return json({ kind: "pod_verification_keys_v1", keys: { kid: publicRaw } });
-    if (path === "/api/one/personal-agent/endpoint") return json(this.endpoint);
-    const binding = {
-      kind: "pod_binding_v1", hushh_id: "ha1_owner", user_id: USER,
-      environment: "dev", url: POD_URL, pod_key_id: "podk_1",
-      subject_id: "tdv_app_1", subject_kind: "app", subject_public_key: this.appPublicKey,
-      platform: "web", role: "app", scopes: ["pkm.read"], deployment_target: this.deploymentTarget,
-      version: this.bindingVersion || 1, issued_at_ms: this.now + this.bindingIssuedOffsetMs, expires_at_ms: this.now + this.bindingExpiresOffsetMs,
-    };
-    if (path.endsWith("/pod-binding") && init.method === "GET") {
-      return this.bindingIssued
-        ? json({ binding, signature: hubSignature(binding), version: 1 })
-        : json({ detail: { code: "POD_BINDING_NOT_ISSUED" } }, 404);
-    }
-    if (path.endsWith("/pod-binding") && init.method === "POST") {
-      this.bindingIssued = true;
-      this.bindingVersion += 1;
-      binding.version = this.bindingVersion;
-      return json({ binding, signature: hubSignature(binding), version: binding.version });
-    }
-    if (path.endsWith("/pod-tombstone")) {
-      this.couriered.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return json({ queued: true });
-    }
-    return json({ detail: "unexpected" }, 500);
-  }
-
-  async direct(url: string, init: RequestInit): Promise<Response> {
-    this.calls.push({ target: "direct", url, init });
-    if (!this.podReachable) throw new TypeError("Failed to fetch");
-    if (url === `${POD_URL}/api/one/pod/session/challenge`) {
-      return json({ challengeId: "psc_1", nonce: "n", epoch: 3, podKeyId: "podk_1", expiresAt: this.now + 60_000, signingPayload: this.challengePayload });
-    }
-    if (url === `${POD_URL}/api/one/pod/session/admit`) {
-      this.admitted.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return json({ session: "pst1.eyJzaWQiOiJwc3NfMSJ9.bWFj", sid: "pss_1", role: "app", scopes: ["pkm.read"], epoch: 3, expiresAt: this.now + 12 * 3600 * 1000, version: this.bindingVersion || 1 });
-    }
-    if (url === `${POD_URL}/api/one/pod/session/revoke`) {
-      this.revokes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-      return json({ revoked: true, subjectId: "tdv_mac_1", atVersion: 1 });
-    }
-    return json({ detail: "not found" }, 404);
-  }
-}
+import { endpointBody, FakeWorld, json, POD_URL, USER } from "../fixtures/owner-pod";
 
 function verifyDer(publicKeySpkiB64: string, payload: string, signatureB64: string): boolean {
   const key = createPublicKey({ key: Buffer.from(publicKeySpkiB64, "base64"), format: "der", type: "spki" });
@@ -169,6 +64,59 @@ describe("owner pod endpoint", () => {
     expect(world.admitted).toHaveLength(1);
     expect(connections.every(value => value.session.session === connections[0].session.session)).toBe(true);
     expect(connections.every(value => value.endpoint.podKeyId === "podk_1")).toBe(true);
+  });
+
+  it("keeps validated admission evidence in memory and binds it to the exact session", async () => {
+    await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    const connection = await ownerPod.currentPodConnection(USER, world.transport());
+    expect(connection.directVerifiedAt).toBeGreaterThan(0);
+    expect(await ownerPod.loadPinnedEndpoint(USER)).not.toHaveProperty("directVerifiedAt");
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(ownerPod.OWNER_POD_DB_NAME);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("pins", "readwrite");
+        const store = tx.objectStore("pins");
+        const read = store.get(USER);
+        read.onsuccess = () => {
+          expect(read.result.session).not.toHaveProperty("directVerifiedAt");
+          store.put({ ...read.result, session: { ...read.result.session, sid: "pss_other" } });
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+    expect((await ownerPod.currentPodConnection(USER, world.transport())).directVerifiedAt).toBeUndefined();
+  });
+
+  it("does not refresh admission evidence when persistence delays a validated response", async () => {
+    const admittedAt = Date.now();
+    let clock = admittedAt;
+    world.now = admittedAt;
+    const date = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const original = IDBDatabase.prototype.transaction;
+    const transactions = vi.spyOn(IDBDatabase.prototype, "transaction").mockImplementation(function (
+      this: IDBDatabase, stores: string | string[], mode?: IDBTransactionMode, options?: IDBTransactionOptions,
+    ) {
+      if (stores === "pins" && mode === "readwrite" && world.admitted.length === 1) {
+        clock = admittedAt + 60_001;
+      }
+      return original.call(this, stores, mode, options);
+    });
+    try {
+      await ownerPod.refreshEndpointFromHub(USER, world.transport());
+      const connection = await ownerPod.currentPodConnection(USER, world.transport());
+      expect(clock).toBe(admittedAt + 60_001);
+      expect(connection.directVerifiedAt).toBe(admittedAt);
+    } finally {
+      transactions.mockRestore();
+      date.mockRestore();
+    }
   });
 
   it("rejects a tampered signed destination before any direct request", async () => {

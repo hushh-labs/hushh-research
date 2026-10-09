@@ -1,6 +1,6 @@
 import { AuthService } from "./auth-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
-import type { OwnerPodTransport, PinnedEndpoint, PodSessionRecord } from "./owner-pod-endpoint";
+import type { OwnerPodTransport, PinnedEndpoint, OwnerPodConnection } from "./owner-pod-endpoint";
 import {
   PodNotReachedError,
   PodSendUnconfirmedError,
@@ -104,7 +104,7 @@ export async function ownerPodRequest(
   // Admission is shared with other tabs. A cancelled caller must not dispatch
   // grants or private work when that independently owned admission finishes.
   refuseCancelled();
-  let { endpoint, session } = connection;
+  let { endpoint, session, directVerifiedAt } = connection;
   if (expectedHushhId && endpoint.hushhId !== expectedHushhId)
     throw new Error("POD_DIRECT_OWNER_MISMATCH");
   if (AuthService.getCurrentUser()?.uid !== uid)
@@ -113,8 +113,8 @@ export async function ownerPodRequest(
   if (chatTurn) {
     if (typeof body !== "string") throw new Error("POD_CHAT_REQUEST_INVALID");
     const turn = JSON.parse(body) as Record<string, unknown>;
-    const admitted = await chatGrantsFollowingEndpoint(uid, { endpoint, session }, transport, init.signal);
-    ({ endpoint, session } = admitted);
+    const admitted = await chatGrantsFollowingEndpoint(uid, connection, transport, init.signal);
+    ({ endpoint, session, directVerifiedAt } = admitted);
     if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
     turn.forwardedProps = {
       ...(turn.forwardedProps && typeof turn.forwardedProps === "object" ? turn.forwardedProps : {}),
@@ -168,7 +168,7 @@ export async function ownerPodRequest(
     throw new Error("POD_VAULT_SESSION_CHANGED");
   }
   const response = chatTurn
-    ? await sendChatTurn(endpoint.url, request, ports.fetch)
+    ? await sendChatTurn(endpoint.url, request, ports.fetch, directVerifiedAt)
     : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
   if (!isAgentStillWaking(response)) agentAnswered.set(endpoint.url, Date.now());
   if (AuthService.getCurrentUser()?.uid !== uid)
@@ -220,9 +220,12 @@ function isCancellation(error: unknown, signal?: AbortSignal | null): boolean {
  * that gets no answer, or only a gateway page, the turn provably was never sent
  * and can wait for the wake. A failure of the POST itself stays ambiguous.
  */
-async function sendChatTurn(url: string, request: RequestInit, fetch: AccessPorts["fetch"]): Promise<Response> {
+async function sendChatTurn(url: string, request: RequestInit, fetch: AccessPorts["fetch"], directVerifiedAt?: number): Promise<Response> {
+  const now = Date.now();
+  const recentlyAdmitted = typeof directVerifiedAt === "number" && Number.isFinite(directVerifiedAt)
+    && directVerifiedAt <= now && now - directVerifiedAt <= AGENT_AWAKE_MS;
   const answeredAt = agentAnswered.get(url);
-  if (answeredAt === undefined || Date.now() - answeredAt > AGENT_AWAKE_MS) {
+  if (!recentlyAdmitted && (answeredAt === undefined || now - answeredAt > AGENT_AWAKE_MS)) {
     let probe: Response;
     try {
       probe = await fetch(`${url}/api/one/pod/agent-chat/capabilities`, {
@@ -272,7 +275,7 @@ class EndpointAdvancedError extends Error {
   }
 }
 
-type PodConnection = { endpoint: PinnedEndpoint; session: PodSessionRecord };
+type PodConnection = OwnerPodConnection;
 
 /**
  * Chat grants for the pinned endpoint, following the hub once when it has
