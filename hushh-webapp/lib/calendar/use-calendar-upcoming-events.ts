@@ -9,6 +9,8 @@ import {
 } from "@/lib/services/google-calendar-service";
 
 export type RedactedCalendarEvent = {
+  /** Provider event identifier, held only in memory to reconcile private task state. */
+  id: string | null;
   title: string;
   start: CalendarEventTime;
   end: CalendarEventTime;
@@ -57,6 +59,7 @@ function googleMeetUrl(value: string | null | undefined): string | undefined {
 function redactEvent(raw: CalendarEventSummary): RedactedCalendarEvent {
   const conferenceUrl = googleMeetUrl(raw.conference_url);
   return {
+    id: raw.id ?? null,
     title: raw.title,
     start: raw.start ?? null,
     end: raw.end ?? null,

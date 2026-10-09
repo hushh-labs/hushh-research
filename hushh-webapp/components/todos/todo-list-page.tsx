@@ -1,11 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import {
+  Calendar,
+  Check,
+  ChevronDown,
   ClipboardCheck,
-  Clock,
+  ExternalLink,
   Lock,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -15,27 +27,17 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
-import { SectionLabel } from "@/components/app-ui/typography";
-import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import {
@@ -45,87 +47,32 @@ import {
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
-  TODO_CATEGORIES,
   TodoListPkmService,
+  buildTodo,
+  calendarTodoInput,
+  completedTodoItems,
+  createTodo,
   openTodoItems,
-  type TodoCadence,
-  type TodoCategory,
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
-type AgendaItem = {
-  id: string;
-  event: RedactedCalendarEvent;
-  start: Date;
-  allDay: boolean;
+type EditableTodoFields = {
+  title: string;
+  date: string | null;
+  time: string | null;
+  notes: string | null;
 };
 
-type ListEntry =
-  | { id: string; kind: "scheduled"; date: Date; agendaItem: AgendaItem }
-  | { id: string; kind: "item"; date: Date | null; task: TodoItem };
-
-type ListGroup = {
+type DateGroup = {
   id: string;
   label: string;
-  date: Date | null;
-  entries: ListEntry[];
+  overdue: boolean;
+  tasks: TodoItem[];
 };
 
-const CATEGORY_COPY: Record<TodoCategory, { label: string }> = {
-  fitness: { label: "Fitness" },
-  relationships: { label: "Relationships" },
-  finance: { label: "Finance" },
-  career: { label: "Career" },
-  interests: { label: "Interests" },
-  productivity: { label: "Productivity" },
-  other: { label: "Something else" },
-};
-
-function isSameLocalDay(left: Date, right: Date): boolean {
-  return left.getFullYear() === right.getFullYear()
-    && left.getMonth() === right.getMonth()
-    && left.getDate() === right.getDate();
-}
-
-function parseCalendarStart(event: RedactedCalendarEvent): { value: Date; allDay: boolean } | null {
-  if (event.start?.dateTime) {
-    const value = new Date(event.start.dateTime);
-    return Number.isNaN(value.getTime()) ? null : { value, allDay: false };
-  }
-  if (event.start?.date) {
-    const value = new Date(`${event.start.date}T00:00:00`);
-    return Number.isNaN(value.getTime()) ? null : { value, allDay: true };
-  }
-  return null;
-}
-
-function calendarAgendaItems(events: RedactedCalendarEvent[]): AgendaItem[] {
-  return events
-    .filter((event) => event.status?.toLowerCase() !== "cancelled")
-    .map((event, index) => {
-      const start = parseCalendarStart(event);
-      return start
-        ? {
-          id: `${event.title}-${start.value.toISOString()}-${index}`,
-          event,
-          start: start.value,
-          allDay: start.allDay,
-        }
-        : null;
-    })
-    .filter((item): item is AgendaItem => item !== null)
-    .sort((left, right) => left.start.getTime() - right.start.getTime());
-}
-
-function parseTaskDate(task: TodoItem): Date | null {
-  if (!task.dueOn) return null;
-  const value = new Date(`${task.dueOn}T00:00:00`);
-  return Number.isNaN(value.getTime()) ? null : value;
-}
-
-function localDayKey(value: Date): string {
+function localDateKey(value: Date): string {
   return [
     value.getFullYear(),
     String(value.getMonth() + 1).padStart(2, "0"),
@@ -133,347 +80,583 @@ function localDayKey(value: Date): string {
   ].join("-");
 }
 
-function formatListDate(value: Date): string {
+function isSameLocalDay(left: Date, right: Date): boolean {
+  return localDateKey(left) === localDateKey(right);
+}
+
+function dateFromKey(value: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function calendarStart(event: RedactedCalendarEvent): Date | null {
+  const value =
+    event.start?.dateTime ??
+    (event.start?.date ? `${event.start.date}T00:00:00` : null);
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateLabel(value: string | null): string {
+  const date = dateFromKey(value);
+  if (!date) return "No date";
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
-  if (isSameLocalDay(value, today)) return "Today";
-  if (isSameLocalDay(value, tomorrow)) return "Tomorrow";
+  if (isSameLocalDay(date, today)) return "Today";
+  if (isSameLocalDay(date, tomorrow)) return "Tomorrow";
   return new Intl.DateTimeFormat(undefined, {
-    weekday: "long",
+    weekday: "short",
     month: "short",
     day: "numeric",
-  }).format(value);
+  }).format(date);
 }
 
-function formatScheduledTime(item: AgendaItem): string {
-  if (item.allDay) return "All day";
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(item.start);
+function isOverdue(task: TodoItem): boolean {
+  const date = dateFromKey(task.date);
+  if (!date || task.status !== "pending") return false;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return date < startOfToday;
 }
 
-function cadenceLabel(cadence: TodoCadence): string {
-  if (cadence === "daily") return "Daily";
-  if (cadence === "weekly") return "Weekly";
-  return "One time";
+function taskSort(left: TodoItem, right: TodoItem): number {
+  const date = (left.date ?? "9999-12-31").localeCompare(
+    right.date ?? "9999-12-31",
+  );
+  if (date !== 0) return date;
+  const time = (left.time ?? "99:99").localeCompare(right.time ?? "99:99");
+  if (time !== 0) return time;
+  return left.title.localeCompare(right.title);
 }
 
-function buildListGroups(agenda: AgendaItem[], tasks: TodoItem[]): ListGroup[] {
-  const datedGroups = new Map<string, ListGroup>();
-  const anytimeEntries: Array<Extract<ListEntry, { kind: "item" }>> = [];
-
-  const addDatedEntry = (date: Date, entry: ListEntry) => {
-    const id = localDayKey(date);
-    const group = datedGroups.get(id) ?? {
+function groupByDate(tasks: TodoItem[]): DateGroup[] {
+  const groups = new Map<string, DateGroup>();
+  for (const task of [...tasks].sort(taskSort)) {
+    const id = task.date ?? "anytime";
+    const group = groups.get(id) ?? {
       id,
-      label: formatListDate(date),
-      date,
-      entries: [],
+      label: task.date ? formatDateLabel(task.date) : "Any time",
+      overdue: isOverdue(task),
+      tasks: [],
     };
-    group.entries.push(entry);
-    datedGroups.set(id, group);
+    group.tasks.push(task);
+    group.overdue ||= isOverdue(task);
+    groups.set(id, group);
+  }
+  return [...groups.values()].sort((left, right) => {
+    if (left.id === "anytime") return 1;
+    if (right.id === "anytime") return -1;
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function calendarTask(
+  event: RedactedCalendarEvent,
+  index: number,
+): TodoItem | null {
+  const start = calendarStart(event);
+  if (!start || event.status?.toLowerCase() === "cancelled") return null;
+  const sourceId = event.id ?? `${event.title}-${start.toISOString()}-${index}`;
+  const input = calendarTodoInput({
+    id: sourceId,
+    title: event.title,
+    start: event.start,
+    conferenceUrl: event.conferenceUrl,
+  });
+  return input ? buildTodo(input, start.toISOString()) : null;
+}
+
+/** Merge fresh Calendar projection with encrypted owner completion/dismissal state. */
+function mergeAutomaticTasks(
+  events: RedactedCalendarEvent[],
+  saved: TodoItem[],
+): TodoItem[] {
+  const savedAutomatic = new Map(
+    saved
+      .filter((task) => task.type === "automatic")
+      .map((task) => [task.sourceId ?? task.id, task]),
+  );
+  const seen = new Set<string>();
+  const projected = events.flatMap((event, index) => {
+    const fromCalendar = calendarTask(event, index);
+    if (!fromCalendar) return [];
+    const key = fromCalendar.sourceId ?? fromCalendar.id;
+    seen.add(key);
+    const stored = savedAutomatic.get(key);
+    if (stored?.status === "done" || stored?.status === "deleted") return [];
+    return [
+      {
+        ...fromCalendar,
+        ...(stored
+          ? {
+              status: stored.status,
+              completedAt: stored.completedAt,
+              deletedAt: stored.deletedAt,
+              createdAt: stored.createdAt,
+              updatedAt: stored.updatedAt,
+            }
+          : {}),
+      },
+    ];
+  });
+
+  // The Calendar read may lag briefly after a successful booking. Keep the
+  // encrypted automatic snapshot visible until the provider projection catches up.
+  for (const task of savedAutomatic.values()) {
+    const key = task.sourceId ?? task.id;
+    if (task.status === "pending" && !seen.has(key)) projected.push(task);
+  }
+  return projected.sort(taskSort);
+}
+
+function hapticTick(): void {
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    navigator.vibrate(8);
+  }
+}
+
+function CircularCheckbox({
+  checked,
+  disabled,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => {
+        hapticTick();
+        onChange();
+      }}
+      className={cn(
+        "mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border transition-[transform,colors,box-shadow] duration-200 motion-reduce:transition-none",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 active:scale-90 disabled:cursor-wait disabled:opacity-50",
+        checked
+          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-white shadow-[0_3px_10px_color-mix(in_oklab,var(--app-accent)_28%,transparent)]"
+          : "border-border/80 bg-background text-transparent hover:border-[color:var(--app-accent)]",
+      )}
+    >
+      <Check
+        className={cn(
+          "size-4 transition-transform duration-200 motion-reduce:transition-none",
+          checked ? "scale-100" : "scale-50",
+        )}
+        aria-hidden="true"
+      />
+    </button>
+  );
+}
+
+function useRowSwipe({
+  enabled,
+  onComplete,
+  onDelete,
+}: {
+  enabled: boolean;
+  onComplete: () => void;
+  onDelete: () => void;
+}) {
+  const start = useRef<{ x: number; y: number; pointerId: number } | null>(
+    null,
+  );
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!enabled || event.pointerType === "mouse") return;
+    if ((event.target as HTMLElement).closest("button, a, input, textarea"))
+      return;
+    start.current = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
-  for (const item of agenda) {
-    addDatedEntry(item.start, {
-      id: `scheduled-${item.id}`,
-      kind: "scheduled",
-      date: item.start,
-      agendaItem: item,
-    });
-  }
+  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const initial = start.current;
+    start.current = null;
+    if (!initial || initial.pointerId !== event.pointerId) return;
+    const dx = event.clientX - initial.x;
+    const dy = event.clientY - initial.y;
+    if (Math.abs(dx) < 64 || Math.abs(dx) <= Math.abs(dy)) return;
+    if (dx > 0) onComplete();
+    else onDelete();
+  };
 
-  for (const task of openTodoItems(tasks)) {
-    const date = parseTaskDate(task);
-    const entry: ListEntry = { id: `item-${task.id}`, kind: "item", date, task };
-    if (date) addDatedEntry(date, entry);
-    else anytimeEntries.push(entry);
-  }
-
-  const dated = [...datedGroups.values()]
-    .sort((left, right) => left.date!.getTime() - right.date!.getTime())
-    .map((group) => ({
-      ...group,
-      entries: group.entries.sort((left, right) => {
-        if (left.kind !== right.kind) return left.kind === "scheduled" ? -1 : 1;
-        if (left.kind === "scheduled" && right.kind === "scheduled") {
-          return left.date.getTime() - right.date.getTime();
-        }
-        return 0;
-      }),
-    }));
-
-  if (anytimeEntries.length > 0) {
-    dated.push({
-      id: "anytime",
-      label: "Any time",
-      date: null,
-      entries: anytimeEntries,
-    });
-  }
-
-  return dated;
+  return {
+    onPointerDown,
+    onPointerUp,
+    onPointerCancel: () => {
+      start.current = null;
+    },
+  };
 }
 
-function TodoDialog({
+function TodoRow({
+  task,
+  saving,
+  onToggle,
+  onDelete,
+  onEdit,
+}: {
+  task: TodoItem;
+  saving: boolean;
+  onToggle: (task: TodoItem, complete: boolean) => void;
+  onDelete: (task: TodoItem) => void;
+  onEdit?: (task: TodoItem) => void;
+}) {
+  const swipe = useRowSwipe({
+    enabled: !saving,
+    onComplete: () => onToggle(task, true),
+    onDelete: () => onDelete(task),
+  });
+  const automatic = task.type === "automatic";
+  const canEdit = task.type === "manual" && Boolean(onEdit);
+
+  return (
+    <div
+      data-no-route-swipe
+      className="group flex min-h-[72px] touch-pan-y items-start gap-3 px-4 py-3.5"
+      {...swipe}
+    >
+      <CircularCheckbox
+        checked={task.status === "done"}
+        disabled={saving}
+        label={`Mark ${task.title} as ${task.status === "done" ? "not completed" : "completed"}`}
+        onChange={() => onToggle(task, task.status !== "done")}
+      />
+      <div className="min-w-0 flex-1 pt-0.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p
+            className={cn(
+              "min-w-0 break-words text-[15px] font-medium leading-5 tracking-[-0.01em]",
+              task.status === "done" && "text-muted-foreground line-through",
+            )}
+          >
+            {task.title}
+          </p>
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-4 text-muted-foreground">
+          {task.date ? (
+            <span
+              className={
+                isOverdue(task) ? "font-medium text-destructive" : undefined
+              }
+            >
+              {formatDateLabel(task.date)}
+              {task.time
+                ? ` · ${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(`1970-01-01T${task.time}:00`))}`
+                : ""}
+            </span>
+          ) : null}
+          {automatic ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[color:var(--app-accent-surface)] px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--app-accent-deep)]">
+              <Calendar className="size-3" aria-hidden="true" />
+              Calendar
+            </span>
+          ) : null}
+          {task.link ? (
+            <a
+              href={task.link}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-6 items-center gap-1 font-medium text-[color:var(--app-accent)] underline-offset-2 hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
+              Join
+              <ExternalLink className="size-3" aria-hidden="true" />
+            </a>
+          ) : null}
+        </div>
+        {task.notes ? (
+          <p className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
+            {task.notes}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+        {canEdit ? (
+          <button
+            type="button"
+            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+            aria-label={`Edit ${task.title}`}
+            onClick={() => onEdit?.(task)}
+            disabled={saving}
+          >
+            <Pencil className="size-4" aria-hidden="true" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+          aria-label={`Delete ${task.title}`}
+          onClick={() => onDelete(task)}
+          disabled={saving}
+        >
+          <Trash2 className="size-4" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TodoRows({
+  tasks,
+  savingTaskId,
+  onToggle,
+  onDelete,
+  onEdit,
+  contained = false,
+}: {
+  tasks: TodoItem[];
+  savingTaskId: string | null;
+  onToggle: (task: TodoItem, complete: boolean) => void;
+  onDelete: (task: TodoItem) => void;
+  onEdit?: (task: TodoItem) => void;
+  contained?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        !contained &&
+          "overflow-hidden rounded-2xl border border-border/55 bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgb(0_0_0_/_0.035)]",
+      )}
+    >
+      {groupByDate(tasks).map((group, groupIndex) => (
+        <div
+          key={group.id}
+          className={cn(groupIndex > 0 && "border-t border-border/50")}
+        >
+          <div
+            className={cn(
+              "px-4 pb-1 pt-3 text-[12px] font-semibold",
+              group.overdue ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {group.overdue ? `${group.label} · Overdue` : group.label}
+          </div>
+          <div className="divide-y divide-border/45">
+            {group.tasks.map((task) => (
+              <TodoRow
+                key={task.id}
+                task={task}
+                saving={savingTaskId === task.id}
+                onToggle={onToggle}
+                onDelete={onDelete}
+                onEdit={onEdit}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TodoEditorSheet({
   open,
+  task,
+  saving,
   onOpenChange,
   onSave,
-  saving,
 }: {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (input: {
-    title: string;
-    category: TodoCategory;
-    cadence: TodoCadence;
-    dueOn: string | null;
-  }) => Promise<void>;
+  task: TodoItem | null;
   saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (input: EditableTodoFields) => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<TodoCategory>("productivity");
-  const [cadence, setCadence] = useState<TodoCadence>("once");
-  const [dueOn, setDueOn] = useState("");
-
-  const close = (next: boolean) => {
-    if (!saving) onOpenChange(next);
-  };
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [notes, setNotes] = useState("");
 
   useEffect(() => {
-    if (open) return;
-    setTitle("");
-    setCategory("productivity");
-    setCadence("once");
-    setDueOn("");
-  }, [open]);
+    if (!open) return;
+    setTitle(task?.title ?? "");
+    setDate(task?.date ?? "");
+    setTime(task?.time ?? "");
+    setNotes(task?.notes ?? "");
+  }, [open, task]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!title.trim()) return;
-    await onSave({ title: title.trim(), category, cadence, dueOn: dueOn || null });
+    await onSave({
+      title: title.trim(),
+      date: date || null,
+      time: time || null,
+      notes: notes.trim() || null,
+    });
   };
 
   return (
-    <Dialog modal open={open} onOpenChange={close}>
-      <DialogContent className="w-[calc(100%-1rem)] gap-5 sm:max-w-md" showCloseButton={!saving}>
-        <DialogHeader>
-          <DialogTitle>Add an item</DialogTitle>
-          <DialogDescription>This stays encrypted in your private agent.</DialogDescription>
-        </DialogHeader>
-        <form className="space-y-4" onSubmit={(event) => void submit(event)}>
-          <div className="space-y-2">
-            <Label htmlFor="todo-title">What do you want to do?</Label>
-            <Input
-              id="todo-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="For example, call Mum"
-              maxLength={240}
-              autoFocus
+    <Sheet
+      modal
+      open={open}
+      onOpenChange={(next) => {
+        if (!saving) onOpenChange(next);
+      }}
+    >
+      <SheetContent
+        side="bottom"
+        className="mx-auto max-w-xl gap-0 rounded-t-[24px] border-border/60 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[24px]"
+        showCloseButton={!saving}
+      >
+        <form onSubmit={(event) => void submit(event)}>
+          <SheetHeader className="px-5 pb-3 pt-2 text-left">
+            <SheetTitle className="text-xl tracking-[-0.02em]">
+              {task ? "Edit item" : "Add item"}
+            </SheetTitle>
+            <SheetDescription>
+              {task
+                ? "Keep the details simple and useful."
+                : "This stays encrypted in your private agent."}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 px-5 pb-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="todo-title">Title</Label>
+              <Input
+                id="todo-title"
+                autoFocus
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                disabled={saving}
+                placeholder="What do you want to do?"
+                maxLength={240}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="todo-date">
+                  Date{" "}
+                  <span className="font-normal text-muted-foreground">
+                    optional
+                  </span>
+                </Label>
+                <Input
+                  id="todo-date"
+                  type="date"
+                  value={date}
+                  onChange={(event) => setDate(event.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="todo-time">
+                  Time{" "}
+                  <span className="font-normal text-muted-foreground">
+                    optional
+                  </span>
+                </Label>
+                <Input
+                  id="todo-time"
+                  type="time"
+                  value={time}
+                  onChange={(event) => setTime(event.target.value)}
+                  disabled={saving}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="todo-notes">
+                Notes{" "}
+                <span className="font-normal text-muted-foreground">
+                  optional
+                </span>
+              </Label>
+              <Textarea
+                id="todo-notes"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                disabled={saving}
+                placeholder="Add a detail"
+                maxLength={1200}
+                className="min-h-22 resize-none"
+              />
+            </div>
+          </div>
+          <SheetFooter className="flex-row items-center justify-end gap-2 px-5 pt-5">
+            <Button
+              type="button"
+              variant="none"
+              effect="glass"
               disabled={saving}
-            />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="todo-category">Area</Label>
-              <Select
-                value={category}
-                onValueChange={(value) => setCategory(value as TodoCategory)}
-                disabled={saving}
-              >
-                <SelectTrigger id="todo-category" className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TODO_CATEGORIES.map((value) => (
-                    <SelectItem key={value} value={value}>{CATEGORY_COPY[value].label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="todo-cadence">Cadence</Label>
-              <Select
-                value={cadence}
-                onValueChange={(value) => setCadence(value as TodoCadence)}
-                disabled={saving}
-              >
-                <SelectTrigger id="todo-cadence" className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="once">One time</SelectItem>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="todo-due-date">Date <span className="font-normal text-muted-foreground">(optional)</span></Label>
-            <Input id="todo-due-date" type="date" value={dueOn} onChange={(event) => setDueOn(event.target.value)} disabled={saving} />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="none" effect="glass" disabled={saving} onClick={() => close(false)}>
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={saving || !title.trim()} loading={saving}>
-              Save item
+            <Button
+              type="submit"
+              disabled={saving || !title.trim()}
+              loading={saving}
+            >
+              Save
             </Button>
-          </DialogFooter>
+          </SheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
 
-function ScheduledRow({ item }: { item: AgendaItem }) {
+function AddItemRow({
+  disabled,
+  onClick,
+}: {
+  disabled: boolean;
+  onClick: () => void;
+}) {
   return (
-    <div className="flex min-h-15 items-start gap-3 px-2 py-3">
-      <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]">
-        <Clock className="size-4" aria-hidden="true" />
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex min-h-14 w-full items-center gap-3 rounded-2xl px-4 text-left text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span className="grid size-7 place-items-center rounded-full bg-[color:var(--app-accent-surface)]">
+        <Plus className="size-4" aria-hidden="true" />
       </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium leading-5">{item.event.title || "Scheduled plan"}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{formatScheduledTime(item)}</p>
-      </div>
-    </div>
-  );
-}
-
-function TodoItemRow({
-  task,
-  saving,
-  onToggle,
-  onRemove,
-}: {
-  task: TodoItem;
-  saving: boolean;
-  onToggle: (task: TodoItem, completed: boolean) => void;
-  onRemove: (task: TodoItem) => void;
-}) {
-  const completed = Boolean(task.completedAt);
-  return (
-    <div className="group flex min-h-15 items-start gap-3 px-2 py-3">
-      <Checkbox
-        checked={completed}
-        disabled={saving}
-        aria-label={`Mark ${task.title} as ${completed ? "not completed" : "completed"}`}
-        onCheckedChange={(value) => onToggle(task, value === true)}
-        className="mt-1"
-      />
-      <div className="min-w-0 flex-1">
-        <p className={cn("text-sm font-medium leading-5", completed && "text-muted-foreground line-through")}>{task.title}</p>
-        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <span>{CATEGORY_COPY[task.category].label}</span>
-          <span aria-hidden="true">·</span>
-          <span>{cadenceLabel(task.cadence)}</span>
-        </div>
-      </div>
-      <button
-        type="button"
-        className="mt-0.5 grid size-8 place-items-center rounded-lg text-muted-foreground opacity-100 transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] sm:opacity-0 sm:group-hover:opacity-100"
-        disabled={saving}
-        onClick={() => onRemove(task)}
-        aria-label={`Remove ${task.title}`}
-      >
-        <Trash2 className="size-4" />
-      </button>
-    </div>
-  );
-}
-
-function TodoList({
-  groups,
-  ready,
-  loading,
-  savingTaskId,
-  onAdd,
-  onToggle,
-  onRemove,
-}: {
-  groups: ListGroup[];
-  ready: boolean;
-  loading: boolean;
-  savingTaskId: string | null;
-  onAdd: () => void;
-  onToggle: (task: TodoItem, completed: boolean) => void;
-  onRemove: (task: TodoItem) => void;
-}) {
-  return (
-    <section aria-labelledby="todo-list-heading" className="space-y-3">
-      <div className="flex items-end justify-between gap-3 px-1">
-        <div>
-          <SectionLabel as="p">Today</SectionLabel>
-          <h2 id="todo-list-heading" className="mt-1 text-lg font-semibold tracking-tight">On your list</h2>
-        </div>
-        <Button size="sm" onClick={onAdd} disabled={!ready || loading}>
-          <Plus className="size-4" aria-hidden="true" />
-          Add item
-        </Button>
-      </div>
-
-      {!ready ? (
-        <SurfaceCard>
-          <SurfaceCardContent className="flex items-start gap-3 py-5">
-            <Lock className="mt-0.5 size-5 text-muted-foreground" />
-            <div>
-              <p className="font-medium">Unlock your vault to manage your list</p>
-              <p className="mt-1 text-sm leading-5 text-muted-foreground">Your items stay encrypted in your private agent.</p>
-            </div>
-          </SurfaceCardContent>
-        </SurfaceCard>
-      ) : loading ? (
-        <SurfaceCard>
-          <SurfaceCardContent className="flex items-center gap-3 py-5 text-sm text-muted-foreground">
-            <RefreshCw className="size-4 animate-spin" />
-            Loading your list…
-          </SurfaceCardContent>
-        </SurfaceCard>
-      ) : groups.length === 0 ? (
-        <SurfaceCard>
-          <SurfaceCardContent className="flex items-start gap-3 py-5">
-            <ClipboardCheck className="mt-0.5 size-5 text-muted-foreground" />
-            <div>
-              <p className="font-medium">Your day is clear</p>
-              <p className="mt-1 text-sm leading-5 text-muted-foreground">Add something meaningful, or ask One to help you plan it.</p>
-            </div>
-          </SurfaceCardContent>
-        </SurfaceCard>
-      ) : (
-        <SurfaceCard>
-          <SurfaceCardContent className="divide-y divide-border/60 py-1">
-            {groups.map((group) => (
-              <div key={group.id} className="py-4 first:pt-4 last:pb-4">
-                <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{group.label}</p>
-                <div className="divide-y divide-border/60">
-                  {group.entries.map((entry) => entry.kind === "scheduled" ? (
-                    <ScheduledRow key={entry.id} item={entry.agendaItem} />
-                  ) : (
-                    <TodoItemRow key={entry.id} task={entry.task} saving={savingTaskId === entry.task.id} onToggle={onToggle} onRemove={onRemove} />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </SurfaceCardContent>
-        </SurfaceCard>
-      )}
-    </section>
+      <span className="text-[15px] font-medium">Add item</span>
+    </button>
   );
 }
 
 export function TodoListPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<TodoItem | null>(null);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
-  const [itemsLoaded, setItemsLoaded] = useState(false);
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+  const [completedOpen, setCompletedOpen] = useState(false);
 
   const userId = user?.uid ?? null;
-  const writeReady = Boolean(userId && isVaultUnlocked && vaultKey && vaultOwnerToken);
-  const idTokenProvider = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
-  const calendar = useCalendarConnectionStatus({ userId, idTokenProvider: user ? idTokenProvider : null });
+  const writeReady = Boolean(
+    userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
+  );
+  const idTokenProvider = useCallback(
+    () => user?.getIdToken() ?? Promise.resolve(""),
+    [user],
+  );
+  const calendar = useCalendarConnectionStatus({
+    userId,
+    idTokenProvider: user ? idTokenProvider : null,
+  });
   const upcoming = useCalendarUpcomingEvents({
     userId,
     vaultOwnerToken,
@@ -484,14 +667,16 @@ export function TodoListPage() {
   const loadItems = useCallback(async () => {
     if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
       setTasks([]);
-      setItemsLoaded(false);
       return;
     }
     setItemsLoading(true);
     try {
-      const state = await TodoListPkmService.load({ userId, vaultKey, vaultOwnerToken });
+      const state = await TodoListPkmService.load({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+      });
       setTasks(state.tasks);
-      setItemsLoaded(true);
     } catch {
       morphyToast.error("Your list couldn’t load. Try refreshing the page.");
     } finally {
@@ -499,155 +684,351 @@ export function TodoListPage() {
     }
   }, [isVaultUnlocked, userId, vaultKey, vaultOwnerToken]);
 
-  useEffect(() => { void loadItems(); }, [loadItems]);
+  useEffect(() => {
+    void loadItems();
+  }, [loadItems]);
 
-  const agenda = useMemo(() => calendarAgendaItems(upcoming.events), [upcoming.events]);
-  const groups = useMemo(() => buildListGroups(agenda, tasks), [agenda, tasks]);
+  const automatic = useMemo(
+    () => mergeAutomaticTasks(upcoming.events, tasks),
+    [upcoming.events, tasks],
+  );
+  const manual = useMemo(
+    () => openTodoItems(tasks).filter((task) => task.type === "manual"),
+    [tasks],
+  );
+  const completed = useMemo(() => completedTodoItems(tasks), [tasks]);
+  const requireSaved = <T extends { success: boolean; message?: string }>(
+    result: T,
+  ): T => {
+    if (!result.success) throw new Error(result.message || "Saving failed");
+    return result;
+  };
 
-  const addTask = async (input: {
-    title: string;
-    category: TodoCategory;
-    cadence: TodoCadence;
-    dueOn: string | null;
-  }) => {
+  const saveTask = async (input: EditableTodoFields) => {
     if (!userId || !vaultKey || !vaultOwnerToken) return;
-    const now = new Date().toISOString();
-    const task: TodoItem = {
-      id: `todo_${crypto.randomUUID()}`,
-      title: input.title,
-      category: input.category,
-      cadence: input.cadence,
-      dueOn: input.dueOn,
-      completedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    setSavingTaskId(task.id);
-    const operation = TodoListPkmService.add({ userId, vaultKey, vaultOwnerToken, task })
-      .then((result) => {
-        if (!result.success) throw new Error(result.message || "Saving failed");
-        return result;
+    const current = editingTask;
+    const taskId = current?.id ?? "new-item";
+    setSavingTaskId(taskId);
+
+    if (current) {
+      const updatedAt = new Date().toISOString();
+      const optimistic = { ...current, ...input, updatedAt };
+      const operation = TodoListPkmService.update({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+        taskId: current.id,
+        update: input,
+      }).then(requireSaved);
+      void morphyToast.promise(operation, {
+        loading: "Saving item…",
+        success: "Item saved.",
+        error: "Item couldn’t be saved. Try again.",
       });
+      try {
+        await operation;
+        setTasks((currentTasks) =>
+          currentTasks.map((task) =>
+            task.id === current.id ? optimistic : task,
+          ),
+        );
+        setEditorOpen(false);
+        setEditingTask(null);
+      } catch {
+        // The shared promise toast owns the failure state.
+      } finally {
+        setSavingTaskId(null);
+      }
+      return;
+    }
+
+    const operation = createTodo(
+      { ...input, type: "manual" },
+      { userId, vaultKey, vaultOwnerToken },
+    ).then(({ task, result }) => ({ task, result: requireSaved(result) }));
     void morphyToast.promise(operation, {
       loading: "Saving item…",
       success: "Item saved.",
       error: "Item couldn’t be saved. Try again.",
     });
     try {
-      await operation;
-      setTasks((current) => [task, ...current]);
-      setDialogOpen(false);
+      const { task } = await operation;
+      setTasks((currentTasks) => [task, ...currentTasks]);
+      setEditorOpen(false);
+      setEditingTask(null);
     } catch {
-      // The promise toast owns the visible failure state.
+      // The shared promise toast owns the failure state.
     } finally {
       setSavingTaskId(null);
     }
   };
 
-  const toggleTask = async (task: TodoItem, completed: boolean) => {
+  const toggleTask = async (task: TodoItem, complete: boolean) => {
     if (!userId || !vaultKey || !vaultOwnerToken) return;
-    const updatedAt = new Date().toISOString();
-    const completedAt = completed ? updatedAt : null;
+    const nextStatus: "pending" | "done" = complete ? "done" : "pending";
+    const optimistic: TodoItem = {
+      ...task,
+      status: nextStatus,
+      completedAt: complete ? new Date().toISOString() : null,
+      deletedAt: null,
+      updatedAt: new Date().toISOString(),
+    };
     setSavingTaskId(task.id);
-    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, completedAt, updatedAt } : item));
-    const operation = TodoListPkmService.setCompletion({
+    setTasks((current) =>
+      current.some((item) => item.id === task.id)
+        ? current.map((item) => (item.id === task.id ? optimistic : item))
+        : [optimistic, ...current],
+    );
+    const operation = TodoListPkmService.setStatus({
       userId,
       vaultKey,
       vaultOwnerToken,
-      taskId: task.id,
-      completedAt,
-      updatedAt,
-    }).then((result) => {
-      if (!result.success) throw new Error(result.message || "Saving failed");
-      return result;
-    });
+      task,
+      status: nextStatus,
+    }).then(requireSaved);
     void morphyToast.promise(operation, {
-      loading: completed ? "Completing item…" : "Restoring item…",
-      success: completed ? "Item completed." : "Item restored.",
+      loading: complete ? "Completing item…" : "Restoring item…",
+      success: complete ? "Item completed." : "Item restored.",
       error: "Item couldn’t be updated. Try again.",
     });
     try {
       await operation;
     } catch {
-      setTasks((current) => current.map((item) => item.id === task.id ? task : item));
+      setTasks((current) =>
+        current.some((item) => item.id === task.id)
+          ? current.map((item) => (item.id === task.id ? task : item))
+          : current,
+      );
     } finally {
       setSavingTaskId(null);
     }
   };
 
-  const removeTask = async (task: TodoItem) => {
+  const deleteTask = async (task: TodoItem) => {
     if (!userId || !vaultKey || !vaultOwnerToken) return;
+    const tombstone: TodoItem = {
+      ...task,
+      status: "deleted",
+      deletedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     setSavingTaskId(task.id);
-    const operation = TodoListPkmService.remove({ userId, vaultKey, vaultOwnerToken, taskId: task.id })
-      .then((result) => {
-        if (!result.success) throw new Error(result.message || "Saving failed");
-        return result;
-      });
+    setTasks((current) =>
+      task.type === "automatic"
+        ? current.some((item) => item.id === task.id)
+          ? current.map((item) => (item.id === task.id ? tombstone : item))
+          : [tombstone, ...current]
+        : current.filter((item) => item.id !== task.id),
+    );
+    const operation = TodoListPkmService.remove({
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+      task,
+    }).then(requireSaved);
     void morphyToast.promise(operation, {
-      loading: "Removing item…",
-      success: "Item removed.",
-      error: "Item couldn’t be removed. Try again.",
+      loading: "Deleting item…",
+      success: "Item deleted.",
+      error: "Item couldn’t be deleted. Try again.",
       variant: "destructive",
     });
     try {
       await operation;
-      setTasks((current) => current.filter((item) => item.id !== task.id));
     } catch {
-      // The promise toast owns the visible failure state.
+      setTasks((current) =>
+        current.some((item) => item.id === task.id)
+          ? current.map((item) => (item.id === task.id ? task : item))
+          : [task, ...current],
+      );
     } finally {
       setSavingTaskId(null);
     }
   };
 
-  const dataState = authLoading
-    ? "loading"
-    : !user
-      ? "empty-valid"
-      : calendar.loading || upcoming.loading || (writeReady && !itemsLoaded)
-        ? "loading"
-        : "loaded";
+  const openCreate = () => {
+    setEditingTask(null);
+    setEditorOpen(true);
+  };
 
   return (
     <AppPageShell
       as="main"
       width="reading"
-      className="pb-12"
-      nativeTest={{
-        routeId: "/one/todos",
-        marker: "native-route-one-todos",
-        authState: user ? "authenticated" : authLoading ? "pending" : "anonymous",
-        dataState,
-      }}
+      className="min-h-full bg-transparent pb-16"
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="One"
-          title="To-do List"
-          description="A calm view of what your private agent is keeping in view."
-          icon={ClipboardCheck}
-          accent="neutral"
-          actions={(
-            <Button size="sm" onClick={() => setDialogOpen(true)} disabled={!writeReady}>
-              <Plus className="size-4" />
-              Add item
-            </Button>
-          )}
-          actionsInlineMobile
-        />
+        <div className="px-1 pb-4 pt-2 sm:px-0">
+          <p className="text-[13px] font-medium text-muted-foreground">
+            {new Intl.DateTimeFormat(undefined, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            }).format(new Date())}
+          </p>
+          <h1 className="mt-1 text-4xl font-bold tracking-[-0.04em] text-foreground sm:text-[42px]">
+            To-do list
+          </h1>
+        </div>
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="pb-24 pt-0">
-        <TodoList
-          groups={groups}
-          ready={writeReady}
-          loading={itemsLoading}
-          savingTaskId={savingTaskId}
-          onAdd={() => setDialogOpen(true)}
-          onToggle={toggleTask}
-          onRemove={removeTask}
-        />
+      <AppPageContentRegion className="space-y-9 pb-28 pt-0">
+        {!writeReady ? (
+          <div className="flex items-start gap-3 rounded-2xl border border-border/50 bg-[color:var(--app-card-surface-default-solid)] px-4 py-4 text-sm shadow-[0_1px_2px_rgb(0_0_0_/_0.035)]">
+            <Lock
+              className="mt-0.5 size-5 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <div>
+              <p className="font-medium">
+                Unlock your vault to manage your list
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                Your items stay encrypted in your private agent.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {itemsLoading ? (
+          <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
+            <RefreshCw className="size-4 animate-spin" /> Loading your list…
+          </div>
+        ) : null}
+
+        <section aria-labelledby="automatic-heading">
+          <div className="mb-3 flex items-baseline justify-between px-1">
+            <div>
+              <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Automatic
+              </p>
+              <h2
+                id="automatic-heading"
+                className="mt-1 text-xl font-semibold tracking-[-0.025em]"
+              >
+                From Calendar
+              </h2>
+            </div>
+            {calendar.connected ? (
+              <Calendar
+                className="size-5 text-[color:var(--app-accent)]"
+                aria-hidden="true"
+              />
+            ) : null}
+          </div>
+          {automatic.length > 0 ? (
+            <TodoRows
+              tasks={automatic}
+              savingTaskId={savingTaskId}
+              onToggle={toggleTask}
+              onDelete={deleteTask}
+            />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-sm text-muted-foreground">
+              {calendar.connected
+                ? "Upcoming Calendar events will appear here."
+                : "Connect Calendar to see booked meetings here."}
+            </div>
+          )}
+        </section>
+
+        <section aria-labelledby="my-items-heading">
+          <div className="mb-3 flex items-center justify-between px-1">
+            <div>
+              <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                My items
+              </p>
+              <h2
+                id="my-items-heading"
+                className="mt-1 text-xl font-semibold tracking-[-0.025em]"
+              >
+                What matters today
+              </h2>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-border/55 bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgb(0_0_0_/_0.035)]">
+            {manual.length > 0 ? (
+              <TodoRows
+                tasks={manual}
+                savingTaskId={savingTaskId}
+                onToggle={toggleTask}
+                onDelete={deleteTask}
+                contained
+                onEdit={(task) => {
+                  setEditingTask(task);
+                  setEditorOpen(true);
+                }}
+              />
+            ) : (
+              <div className="flex items-start gap-3 px-4 py-5 text-sm text-muted-foreground">
+                <ClipboardCheck className="mt-0.5 size-5" aria-hidden="true" />{" "}
+                Add something you want to remember.
+              </div>
+            )}
+            <div
+              className={
+                manual.length > 0 ? "border-t border-border/45" : undefined
+              }
+            >
+              <AddItemRow
+                disabled={!writeReady || itemsLoading}
+                onClick={openCreate}
+              />
+            </div>
+          </div>
+        </section>
+
+        {completed.length > 0 ? (
+          <section aria-labelledby="completed-heading">
+            <button
+              type="button"
+              onClick={() => setCompletedOpen((open) => !open)}
+              className="flex min-h-11 w-full items-center justify-between px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+            >
+              <span>
+                <span
+                  id="completed-heading"
+                  className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                >
+                  Completed
+                </span>
+                <span className="ml-2 text-sm text-muted-foreground">
+                  {completed.length}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-4 text-muted-foreground transition-transform motion-reduce:transition-none",
+                  completedOpen && "rotate-180",
+                )}
+                aria-hidden="true"
+              />
+            </button>
+            {completedOpen ? (
+              <div className="mt-2">
+                <TodoRows
+                  tasks={completed}
+                  savingTaskId={savingTaskId}
+                  onToggle={toggleTask}
+                  onDelete={deleteTask}
+                  onEdit={(task) => {
+                    if (task.type !== "manual") return;
+                    setEditingTask(task);
+                    setEditorOpen(true);
+                  }}
+                />
+              </div>
+            ) : null}
+          </section>
+        ) : null}
       </AppPageContentRegion>
-      <TodoDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={addTask} saving={savingTaskId !== null} />
+
+      <TodoEditorSheet
+        open={editorOpen}
+        task={editingTask}
+        saving={savingTaskId !== null}
+        onOpenChange={setEditorOpen}
+        onSave={saveTask}
+      />
     </AppPageShell>
   );
 }

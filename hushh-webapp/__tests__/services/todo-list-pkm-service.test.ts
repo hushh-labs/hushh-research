@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: { loadDomainData: vi.fn() },
@@ -11,13 +11,16 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 import {
   TODO_LIST_PKM_DOMAIN,
   TodoListPkmService,
+  buildTodo,
+  calendarTodoInput,
+  createTodo,
   openTodoItems,
   readTodoListState,
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
-const write = {
+const persistence = {
   userId: "owner-1",
   vaultKey: "vault-key",
   vaultOwnerToken: "owner-token",
@@ -26,40 +29,83 @@ const write = {
 const task: TodoItem = {
   id: "todo_1",
   title: "Walk after lunch",
-  category: "fitness",
-  cadence: "daily",
-  dueOn: "2026-10-07",
+  type: "manual",
+  date: "2026-10-07",
+  time: "13:00",
+  status: "pending",
+  sourceAgent: null,
+  sourceId: null,
+  link: null,
+  notes: "A short walk",
   completedAt: null,
+  deletedAt: null,
   createdAt: "2026-10-07T08:00:00.000Z",
   updatedAt: "2026-10-07T08:00:00.000Z",
 };
 
+const coordinatorContext = {
+  currentManifest: null,
+  currentEncryptedDomain: null,
+  baseFullBlob: {},
+  attempt: 0,
+  upgradedInSession: false,
+};
+
+function mockSuccessfulWrite() {
+  const save = vi.mocked(PkmWriteCoordinator.saveMergedDomain);
+  save.mockImplementation(async () => ({
+    success: true,
+    saveState: "saved",
+    fullBlob: {},
+  }));
+  return save;
+}
+
 describe("TodoListPkmService", () => {
-  it("reads only valid owner-added items from the private branch", () => {
-    expect(readTodoListState({
-      tasks: [{ ...task, title: "Wrong branch" }],
-      _private: {
-        tasks: [task, { id: "broken", title: "", createdAt: "now", updatedAt: "now" }],
-      },
-    })).toEqual({ tasks: [task] });
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it("keeps completed items in encrypted history but removes them from the active list", () => {
-    const completed = { ...task, id: "todo_completed", completedAt: "2026-10-07T09:00:00.000Z" };
-
-    expect(openTodoItems([task, completed])).toEqual([task]);
+  it("reads task details only from the private encrypted branch", () => {
+    expect(
+      readTodoListState({
+        tasks: [{ ...task, title: "Wrong branch" }],
+        _private: {
+          tasks: [
+            task,
+            { id: "broken", title: "", createdAt: "now", updatedAt: "now" },
+          ],
+        },
+      }),
+    ).toEqual({ tasks: [task] });
   });
 
-  it("writes owner-confirmed items to a private dynamic domain", async () => {
-    const save = vi.mocked(PkmWriteCoordinator.saveMergedDomain);
-    let captured: Parameters<typeof PkmWriteCoordinator.saveMergedDomain>[0] | null = null;
-    save.mockImplementation(async (params) => {
-      captured = params;
-      return { success: true, saveState: "saved", fullBlob: {} };
+  it("creates a safe automatic input from a confirmed Calendar event", () => {
+    expect(
+      calendarTodoInput({
+        id: "calendar-event-1",
+        title: "Meet with Sarukhan",
+        start: { date: "2026-10-08" },
+        conference_url: "https://meet.google.com/abc-defg-hij",
+      }),
+    ).toMatchObject({
+      id: "calendar_calendar-event-1",
+      title: "Meet with Sarukhan",
+      type: "automatic",
+      date: "2026-10-08",
+      time: null,
+      source: "calendar",
+      sourceId: "calendar-event-1",
+      link: "https://meet.google.com/abc-defg-hij",
     });
+  });
 
-    await TodoListPkmService.add({ ...write, task });
+  it("writes owner-created task details under the encrypted private domain", async () => {
+    const save = mockSuccessfulWrite();
 
+    await createTodo({ ...task, type: "manual", source: null }, persistence);
+
+    const captured = save.mock.calls[0]?.[0];
     expect(captured?.domain).toBe(TODO_LIST_PKM_DOMAIN);
     expect(captured?.confirmation).toMatchObject({
       confirmedByUser: true,
@@ -67,15 +113,13 @@ describe("TodoListPkmService", () => {
     });
     const plan = await captured!.build({
       currentDomainData: { public_note: "leave untouched" },
-      currentManifest: null,
-      currentEncryptedDomain: null,
-      baseFullBlob: {},
-      attempt: 0,
-      upgradedInSession: false,
+      ...coordinatorContext,
     });
     expect(plan.domainData).toMatchObject({
       public_note: "leave untouched",
-      _private: { tasks: [task] },
+      _private: {
+        tasks: [expect.objectContaining({ id: task.id, title: task.title })],
+      },
     });
     expect(plan.summary).toMatchObject({
       item_count: 1,
@@ -84,43 +128,54 @@ describe("TodoListPkmService", () => {
     });
   });
 
-  it("persists completion in the private dynamic domain before the item leaves the active list", async () => {
-    const save = vi.mocked(PkmWriteCoordinator.saveMergedDomain);
-    let captured: Parameters<typeof PkmWriteCoordinator.saveMergedDomain>[0] | null = null;
-    save.mockImplementation(async (params) => {
-      captured = params;
-      return { success: true, saveState: "saved", fullBlob: {} };
+  it("persists completion before an item leaves the active list", async () => {
+    const save = mockSuccessfulWrite();
+
+    await TodoListPkmService.setStatus({
+      ...persistence,
+      task,
+      status: "done",
     });
 
-    const completedAt = "2026-10-07T10:00:00.000Z";
-    await TodoListPkmService.setCompletion({
-      ...write,
-      taskId: task.id,
-      completedAt,
-      updatedAt: completedAt,
-    });
-
+    const captured = save.mock.calls[0]?.[0];
     expect(captured?.confirmation).toMatchObject({
       confirmedByUser: true,
-      source: "one_todo_list_owner_confirmed_completion",
+      source: "one_todo_list_owner_confirmed_status",
     });
     const plan = await captured!.build({
       currentDomainData: { _private: { tasks: [task] } },
-      currentManifest: null,
-      currentEncryptedDomain: null,
-      baseFullBlob: {},
-      attempt: 0,
-      upgradedInSession: false,
+      ...coordinatorContext,
     });
-    expect(plan.domainData).toMatchObject({
-      _private: {
-        tasks: [{ ...task, completedAt, updatedAt: completedAt }],
+    const stored = readTodoListState(plan.domainData).tasks;
+    expect(stored[0]).toMatchObject({ id: task.id, status: "done" });
+    expect(stored[0]?.completedAt).toEqual(expect.any(String));
+    expect(openTodoItems(stored)).toEqual([]);
+  });
+
+  it("keeps an encrypted tombstone when an automatic Calendar row is dismissed", async () => {
+    const save = mockSuccessfulWrite();
+    const automatic = buildTodo(
+      {
+        id: "calendar_event-1",
+        title: "Meet with Sarukhan",
+        type: "automatic",
+        source: "calendar",
+        sourceId: "event-1",
+        date: "2026-10-08",
+        time: "20:30",
       },
+      "2026-10-07T08:00:00.000Z",
+    );
+
+    await TodoListPkmService.remove({ ...persistence, task: automatic });
+
+    const captured = save.mock.calls[0]?.[0];
+    const plan = await captured!.build({
+      currentDomainData: { _private: { tasks: [] } },
+      ...coordinatorContext,
     });
-    expect(plan.summary).toMatchObject({
-      item_count: 1,
-      open_item_count: 0,
-      completed_item_count: 1,
-    });
+    expect(readTodoListState(plan.domainData).tasks).toEqual([
+      expect.objectContaining({ id: automatic.id, status: "deleted" }),
+    ]);
   });
 });

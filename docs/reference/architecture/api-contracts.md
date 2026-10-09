@@ -769,7 +769,11 @@ Create, reschedule, and cancel are always two-step: a short-lived proposal is
 reviewed by the client and then executed once. Plans are deleted after execution
 or failure and become unusable after ten minutes; a subsequent Calendar mutation
 purges expired plans. Event data is not persisted as PKM or a Calendar cache in
-this first release.
+this first release. After the owner confirms a successful Calendar create, the
+unlocked client may write a safe task presentation snapshot to the encrypted
+`one_todos` PKM domain. The Calendar event remains authoritative; the To-do
+record only retains its private completion or dismissal state and never stores
+attendees, description, location, or the provider's HTML event link.
 
 The shared Google credential boundary verifies provider subject before refresh
 reuse, rejects account replacement while connected, and requires fresh credentials

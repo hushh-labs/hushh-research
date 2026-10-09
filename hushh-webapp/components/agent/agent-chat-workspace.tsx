@@ -7376,7 +7376,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       pendingText: "Scheduling…",
       doneText: "Calendar updated.",
       failedText: "The Calendar change could not be completed.",
-      run: () => runCalendarDirective(directive.directive, token, userId),
+      run: () => runCalendarDirective(directive.directive, token, userId, vaultKey),
     });
 
   const enqueueGmailMailboxDirective = (
