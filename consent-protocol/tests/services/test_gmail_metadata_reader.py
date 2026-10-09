@@ -1332,3 +1332,16 @@ async def test_gmail_todo_card_uses_opaque_ids_and_keeps_email_details_out_of_mo
     ]
     assert "Project plan" not in json.dumps(result)
     assert "gmail-message-id" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("scope", ["", "https://www.googleapis.com/auth/gmail.send"])
+async def test_missing_read_permission_refuses_before_token_refresh(scope):
+    gmail = _Gmail()
+    gmail.row["scope_csv"] = scope
+
+    async def no_refresh(**kwargs):
+        pytest.fail("a missing permission must not refresh credentials")
+
+    gmail._ensure_access_token = no_refresh
+    with pytest.raises(GmailMetadataError, match="reconnect_required"):
+        await _reader(gmail, lambda _: pytest.fail("provider called")).read("list_recent", {})

@@ -88,6 +88,19 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
   test(`keeps chat navigation and keyboard controls reachable at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
     const errors = await mount(page, width === 430);
+    if (width! < 768) {
+      await fixture(page, "fixture.remoteChange('maya-79', 'A long outgoing message with details. '.repeat(5)); fixture.remoteChange('maya-78', 'A long incoming message with details. '.repeat(5))");
+      for (const id of ["maya-79", "maya-78"]) {
+        const row = page.locator(`[data-chat-message="${id}"]`);
+        await expect(row).toContainText("with details.");
+        await row.hover();
+        for (const label of ["Choose a reaction", "Message options"]) {
+          const box = (await row.getByRole("button", { name: label }).boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width!);
+        }
+      }
+    }
     await page.screenshot({ path: test.info().outputPath(`direct-chat-${width}.png`), animations: "disabled" });
     await page.locator("[data-direct-message-composer-input]").fill("A multiline draft\n".repeat(40));
     const inset = height! < 500 ? 140 : 300;
@@ -169,6 +182,26 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
   const dock = await page.locator('[data-bottom-shell-motion-stack]').boundingBox();
   expect(Math.abs(dock!.x + dock!.width / 2 - 720)).toBeLessThanOrEqual(1);
+  for (const role of ["user", "peer"]) {
+    const row = page.locator(`[data-message-role="${role}"]`).last();
+    await row.hover();
+    const emoji = row.getByRole("button", { name: "Choose a reaction" });
+    const iconBox = (await emoji.boundingBox())!;
+    const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
+    expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(menuBox.x - iconBox.x - iconBox.width)).toBeLessThanOrEqual(3);
+    const bubbleBox = (await emoji.locator("../..").boundingBox())!;
+    if (role === "user") expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(bubbleBox.x);
+    else expect(iconBox.x).toBeGreaterThanOrEqual(bubbleBox.x + bubbleBox.width);
+  }
+  await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
+  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
+  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS("opacity", "0");
+  await bubble.getByRole("button", { name: "Message options" }).focus();
+  await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
+  await expect(bubble).toHaveAttribute("data-actions-visible", "true");
+  await page.getByRole("button", { name: "Search messages", exact: true }).focus();
+  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
   const title = page.getByRole("heading", { name: "Chat", exact: true });
   const contact = page.getByRole("heading", { name: "Maya Rao", exact: true });
   const typography = (node: HTMLElement | SVGElement) => {
@@ -265,7 +298,7 @@ test("Enter preserves composition and mobile newlines while desktop Enter sends"
 test("preserves replies, edits and delete actions with a short phone keyboard", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 }); await mount(page);
   const received = page.locator('[data-chat-message="maya-77"]');
-  await received.click(); await received.getByRole("button", { name: "Message options" }).click();
+  await received.locator("[data-chat-bubble]").click(); await received.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
   await expect(page.getByText("Replying to Maya Rao", { exact: true })).toBeVisible();
   await page.locator("[data-direct-message-composer-input]").fill("Reply stays in this chat\nA multiline reply\nwith another line\nand a final line");
@@ -276,7 +309,7 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.sends.at(-1)?.replyToMessageId)).toBe("maya-77");
   await page.evaluate(() => { document.documentElement.classList.remove('kb-open', 'native-keyboard-inset'); document.documentElement.style.removeProperty("--kb-height"); });
   const own = page.locator('[data-chat-message]').filter({ hasText: "Reply stays in this chat" });
-  await own.click(); await own.getByRole("button", { name: "Message options" }).click();
+  await own.locator("[data-chat-bubble]").click(); await own.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
   await page.evaluate(() => { document.documentElement.classList.add('kb-open', 'native-keyboard-inset'); document.documentElement.style.setProperty("--kb-height", "300px"); });
   await page.getByRole("textbox", { name: "Edit message", exact: true }).fill("Edited reply");
@@ -286,10 +319,10 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await expect(page.locator('[data-chat-message]').filter({ hasText: "Edited reply" })).toHaveCount(1);
   await page.evaluate(() => { document.documentElement.classList.remove('kb-open', 'native-keyboard-inset'); document.documentElement.style.removeProperty("--kb-height"); });
   const edited = page.locator('[data-chat-message]').filter({ hasText: "Edited reply" });
-  await edited.click(); await edited.getByRole("button", { name: "Choose a reaction" }).click();
+  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Choose a reaction" }).click();
   await page.getByRole("button", { name: "Use 😀", exact: true }).click();
   await expect(edited.getByRole("button", { name: "😀 reaction, 1", exact: true })).toBeVisible();
-  await edited.click(); await edited.getByRole("button", { name: "Message options" }).click();
+  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
   await expect(page.getByText("This message was deleted.", { exact: true })).toHaveCount(1);
@@ -310,7 +343,7 @@ test("refresh reconciles remote edits and deletions throughout loaded history", 
   await fixture(page, "fixture.holdHistory(); fixture.incoming()");
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.historyPending())).toBe(true);
   const own = page.locator('[data-chat-message="maya-79"]');
-  await own.click(); await own.getByRole("button", { name: "Message options" }).click();
+  await own.locator("[data-chat-bubble]").click(); await own.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
   await expect(own).toHaveCount(0);

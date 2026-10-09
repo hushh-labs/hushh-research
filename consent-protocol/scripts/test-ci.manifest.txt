@@ -76,6 +76,7 @@ tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
+tests/services/test_drive_feed_projection.py
 tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
 tests/services/test_drive_bulk_share_service.py

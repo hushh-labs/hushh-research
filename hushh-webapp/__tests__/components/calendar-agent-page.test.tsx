@@ -299,7 +299,7 @@ describe("CalendarAgentPage", () => {
     await waitForConsentWindow();
     mocks.ownerId = "other-owner";
     view.rerender(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel sign-in" }));
+    expect(screen.queryByRole("button", { name: "Cancel sign-in" })).toBeNull();
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -437,4 +437,36 @@ describe("CalendarAgentPage", () => {
       expect.objectContaining({ action: "connected" }),
     );
   });
+  it("hides an old owner's connected account before the new status resolves", async () => {
+    mocks.status.mockResolvedValueOnce({ configured: true, connected: true, status: "connected", google_email: "old@example.com", access_level: "read", scope_csv: "read" });
+    let finish!: (value: unknown) => void;
+    mocks.status.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = render(<CalendarAgentPage />);
+    await screen.findByText("old@example.com");
+    mocks.ownerId = "new-owner";
+    view.rerender(<CalendarAgentPage />);
+    expect(screen.queryByText("old@example.com")).toBeNull();
+    expect(screen.queryByText("Connected")).toBeNull();
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
+    await act(async () => finish({ configured: true, connected: false, status: "disconnected", scope_csv: "" }));
+    expect(screen.queryByText("old@example.com")).toBeNull();
+  });
+
+  it("does not let an initial delayed status replace a verified connection", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.status.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    mocks.startConnect.mockResolvedValue({ authorize_url: "https://accounts.google.com/authorize", redirect_uri: "http://localhost/return", expires_at: "2026-10-09" });
+    render(<CalendarAgentPage />);
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect your calendar" }));
+    await waitForConsentWindow();
+    const attempt = JSON.parse(mocks.popupAttempt);
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", { origin: window.location.origin, source: mocks.popup, data: { schemaVersion: 1, type: "google_oauth_settlement", attemptId: attempt.attemptId, service: "calendar", outcome: "succeeded" } }));
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull());
+    await act(async () => finish({ configured: true, connected: false, status: "disconnected", scope_csv: "" }));
+    expect(screen.getByText("Connected")).toBeInTheDocument();
+  });
+
 });

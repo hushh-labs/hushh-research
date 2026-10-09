@@ -2183,7 +2183,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read owner Calendar events, offered event detail, calendars, busy time, or openings. Use owner-local windows and shown positions. Screen holds details; model sees counts. No writes.",
+      "description": "Read Calendar events, offered detail, calendars, busy time, or openings. Use more to continue; omit filters. Use owner-local windows and shown positions. Screen holds details; model sees counts. No writes.",
       "firebase_plane": false,
       "gateway_action_id": "calendar.read",
       "name": "read_calendar",
@@ -2217,7 +2217,7 @@
               }
             ],
             "default": null,
-            "description": "For openings: free slot length in minutes.",
+            "description": "Free slot minutes.",
             "title": "Duration Minutes"
           },
           "end_at": {
@@ -2231,7 +2231,7 @@
               }
             ],
             "default": null,
-            "description": "Exclusive ISO-8601 end; no offset means owner-local time.",
+            "description": "Exclusive ISO end; no offset means owner time.",
             "title": "End At"
           },
           "event_ordinal": {
@@ -2246,11 +2246,17 @@
               }
             ],
             "default": null,
-            "description": "For event detail: position in last event list.",
+            "description": "Position in last event list.",
             "title": "Event Ordinal"
           },
+          "more": {
+            "default": false,
+            "description": "Next events/calendars page; omit filters.",
+            "title": "More",
+            "type": "boolean"
+          },
           "operation": {
-            "description": "Requested read: events, offered event detail, calendars, busy time, or openings.",
+            "description": "Events, offered detail, calendars, busy time or openings.",
             "enum": [
               "events",
               "event",
@@ -2286,7 +2292,7 @@
               }
             ],
             "default": null,
-            "description": "ISO-8601 start for window reads; no offset means owner-local time.",
+            "description": "ISO start; no offset means owner time.",
             "title": "Start At"
           }
         },

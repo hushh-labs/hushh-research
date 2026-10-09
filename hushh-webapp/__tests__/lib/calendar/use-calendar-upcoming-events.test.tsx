@@ -2,9 +2,10 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useCalendarUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events";
-import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 
-vi.mock("@/lib/services/google-calendar-service", () => ({
+vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
   GoogleCalendarService: {
     listEvents: vi.fn(),
   },
@@ -197,4 +198,29 @@ describe("useCalendarUpcomingEvents", () => {
     }));
     expect(result.current.events.map((event) => event.title)).toEqual(["New owner's event"]);
   });
+  it("reloads when the requested time window changes and ignores the old window", async () => {
+    let resolveOld!: (value: { events: typeof RAW_EVENT[] }) => void;
+    mockedListEvents.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    mockedListEvents.mockResolvedValueOnce({ events: [{ ...RAW_EVENT, title: "Current window" }] });
+    const { result, rerender } = renderHook(({ windowHours }) => useCalendarUpcomingEvents({ userId: "owner", vaultOwnerToken: "token", isConnected: true, windowHours }), { initialProps: { windowHours: 24 } });
+    await waitFor(() => expect(mockedListEvents).toHaveBeenCalledTimes(1));
+    rerender({ windowHours: 168 });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => resolveOld({ events: [RAW_EVENT] }));
+    expect(result.current.events.map((event) => event.title)).toEqual(["Current window"]);
+    const query = mockedListEvents.mock.calls[1][0];
+    expect(Date.parse(query.endAt) - Date.parse(query.startAt)).toBe(168 * 60 * 60 * 1000);
+  });
+
+  it("exposes typed reconnect recovery and clears the old private events", async () => {
+    mockedListEvents.mockResolvedValueOnce({ events: [RAW_EVENT] });
+    const { result } = renderHook(() => useCalendarUpcomingEvents({ userId: "owner", vaultOwnerToken: "token", isConnected: true }));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    mockedListEvents.mockRejectedValueOnce(new GoogleCalendarError("Reconnect Calendar to read events.", "calendar_reauthorization_required", 401));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.recovery).toBe("reconnect"));
+    expect(result.current.events).toEqual([]);
+    expect(result.current.error).toBe("Reconnect Calendar to read events.");
+  });
+
 });

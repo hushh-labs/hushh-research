@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  countUnseenTranscriptMessages,
+  formatTranscriptMessageCount,
   findPendingAssistantTurn,
   measureTranscriptReveal,
+  prepareSeenTranscriptMessages,
   transcriptFollowsLatest,
   transcriptRevealScrollTop,
   type TranscriptFollowState,
@@ -182,5 +185,47 @@ describe("chat workspace send path", () => {
   it("uses the composer-aware transcript end before counting messages below", () => {
     expect(source).toContain("measureTranscriptReveal(transcript, end, overlay)");
     expect(source).toContain("if (endTargetTop <= transcript.scrollTop + 4)");
+  });
+});
+
+describe("unseen transcript messages", () => {
+  it("clears reached messages without counting them again when scrolling back", () => {
+    const seen = new Set<string>();
+    const rows = [1, 2, 3].map(id => ({ id: String(id), top: (id - 1) * 100, bottom: id * 100 }));
+    expect(countUnseenTranscriptMessages(rows, -50, seen)).toBe(3);
+    expect(countUnseenTranscriptMessages(rows, 201, seen)).toBe(1);
+    expect(countUnseenTranscriptMessages(rows, 300, seen)).toBe(0);
+    expect(countUnseenTranscriptMessages(rows, 50, seen)).toBe(0);
+    // Negative control: the old geometry-only counter reintroduces seen rows.
+    expect(rows.filter(row => row.bottom > 54)).toHaveLength(3);
+    expect(countUnseenTranscriptMessages([...rows, { id: "new", top: 300, bottom: 400 }], 50, seen)).toBe(1);
+  });
+  it("does not count a seen streaming row again when its content grows", () => {
+    const seen = new Set<string>();
+    expect(countUnseenTranscriptMessages([{ id: "reply", top: 150, bottom: 200 }], 200, seen)).toBe(0);
+    expect(countUnseenTranscriptMessages([{ id: "reply", top: 150, bottom: 500 }], 200, seen)).toBe(0);
+    expect(countUnseenTranscriptMessages([{ id: "other", top: 250, bottom: 500 }], 200, new Set())).toBe(1);
+  });
+  it("acknowledges a tall message when visible, but not one covered by the composer", () => {
+    const seen = new Set<string>();
+    expect(countUnseenTranscriptMessages([
+      { id: "tall", top: 100, bottom: 900 },
+      { id: "covered", top: 640, bottom: 700 },
+    ], 640, seen)).toBe(1);
+    expect(seen.has("tall")).toBe(true);
+    expect(seen.has("covered")).toBe(false);
+  });
+  it("preserves a draft's first ID but isolates other conversations and owner sessions", () => {
+    const draft = { scope: "owner:epoch-1", conversationId: null, ids: new Set(["seen"]) };
+    const assigned = prepareSeenTranscriptMessages(draft, draft.scope, "chat-a");
+    expect(assigned.ids).toBe(draft.ids);
+    expect(prepareSeenTranscriptMessages(assigned, draft.scope, "chat-a").ids.has("seen")).toBe(true);
+    expect(prepareSeenTranscriptMessages(assigned, draft.scope, "chat-b").ids.size).toBe(0);
+    expect(prepareSeenTranscriptMessages(assigned, draft.scope, null).ids.size).toBe(0);
+    expect(prepareSeenTranscriptMessages(assigned, "other-owner:epoch-1", "chat-a").ids.size).toBe(0);
+    expect(prepareSeenTranscriptMessages(assigned, "owner:epoch-2", "chat-a").ids.size).toBe(0);
+  });
+  it("caps the visible count after 99", () => {
+    expect([1, 3, 99, 100, 120].map(formatTranscriptMessageCount)).toEqual(["1", "3", "99", "99+", "99+"]);
   });
 });

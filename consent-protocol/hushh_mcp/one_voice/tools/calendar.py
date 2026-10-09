@@ -8,12 +8,13 @@ Positions are resolved against short-lived, account-bound server offers.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any, Literal
 
 from pydantic import Field
 
 from hushh_mcp.one_voice.tools.base import (
+    OfferedCalendarEvents,
     ToolContext,
     ToolInput,
     ToolPolicy,
@@ -22,7 +23,7 @@ from hushh_mcp.one_voice.tools.base import (
 )
 from hushh_mcp.services.google_calendar_service import get_google_calendar_service
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
-from hushh_mcp.services.owner_time import owner_zone
+from hushh_mcp.services.owner_time import resolve_calendar_time
 
 logger = logging.getLogger(__name__)
 CALENDAR_SERVICE = "voice_calendar"
@@ -33,17 +34,18 @@ MAX_WINDOW = timedelta(days=31)
 
 class ReadCalendarInput(ToolInput):
     operation: Literal["events", "event", "calendars", "freebusy", "openings"] = Field(
-        description="Requested read: events, offered event detail, calendars, busy time, or openings."
+        description="Events, offered detail, calendars, busy time or openings."
     )
+    more: bool = Field(default=False, description="Next events/calendars page; omit filters.")
     start_at: str | None = Field(
         default=None,
         max_length=40,
-        description="ISO-8601 start for window reads; no offset means owner-local time.",
+        description="ISO start; no offset means owner time.",
     )
     end_at: str | None = Field(
         default=None,
         max_length=40,
-        description="Exclusive ISO-8601 end; no offset means owner-local time.",
+        description="Exclusive ISO end; no offset means owner time.",
     )
     calendar_ordinal: int | None = Field(
         default=None,
@@ -55,7 +57,7 @@ class ReadCalendarInput(ToolInput):
         default=None,
         ge=1,
         le=MAX_EVENTS,
-        description="For event detail: position in last event list.",
+        description="Position in last event list.",
     )
     query: str | None = Field(
         default=None,
@@ -66,7 +68,7 @@ class ReadCalendarInput(ToolInput):
         default=None,
         ge=5,
         le=720,
-        description="For openings: free slot length in minutes.",
+        description="Free slot minutes.",
     )
 
 
@@ -151,14 +153,8 @@ def _range(args: ReadCalendarInput, ctx: ToolContext) -> tuple[str, str] | None:
     if not args.start_at or not args.end_at:
         return None
     try:
-        start = datetime.fromisoformat(args.start_at.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(args.end_at.replace("Z", "+00:00"))
-        zone = owner_zone(ctx.timezone)
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=zone)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=zone)
-        start, end = start.astimezone(UTC), end.astimezone(UTC)
+        start = resolve_calendar_time(args.start_at, timezone_name=ctx.timezone)
+        end = resolve_calendar_time(args.end_at, timezone_name=ctx.timezone)
         if end <= start or end - start > MAX_WINDOW:
             return None
         return start.isoformat(), end.isoformat()
@@ -193,16 +189,74 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
     try:
         binding = await _binding(service, ctx.user_id)
         if binding is None:
+            status_reader = getattr(service.connections, "status", None)
+            status = (
+                await status_reader(user_id=ctx.user_id, service="calendar")
+                if callable(status_reader)
+                else {}
+            )
+            if status.get("status") == "needs_reauth":
+                return _reject(
+                    operation, "reconnect_required", "Reconnect Google Calendar so I can read it."
+                )
+            if status.get("connected"):
+                return _reject(
+                    operation,
+                    "permission_required",
+                    "Allow Calendar reading before I can check it.",
+                )
             return _reject(operation, "calendar_not_connected", "Connect Calendar to read it.")
+        continuation = None
+        if args.more:
+            if operation not in {"events", "calendars"} or any(
+                value is not None
+                for value in (
+                    args.start_at,
+                    args.end_at,
+                    args.calendar_ordinal,
+                    args.event_ordinal,
+                    args.query,
+                    args.duration_minutes,
+                )
+            ):
+                return _reject(
+                    operation,
+                    "invalid_continuation",
+                    "Ask for the next page, or start a new search.",
+                )
+            continuation = (
+                ctx.entities.offered_calendar_events
+                if operation == "events"
+                else ctx.entities.offered_calendars
+            )
+            fresh = (
+                ctx.entities.calendar_offer_is_fresh()
+                if operation == "events"
+                else ctx.entities.calendar_list_is_fresh()
+            )
+            if not fresh or continuation is None or continuation.grant_binding != binding:
+                return _reject(
+                    operation, "page_expired", "Show the list again before asking for more."
+                )
+            if not continuation.next_page_token:
+                return _reject(
+                    operation, "no_more_results", "There are no more results in that list."
+                )
         if operation == "calendars":
-            data = await service.list_calendars(user_id=ctx.user_id, max_results=MAX_CALENDARS)
+            data = await service.list_calendars(
+                user_id=ctx.user_id,
+                max_results=MAX_CALENDARS,
+                **({"page_token": continuation.next_page_token} if continuation else {}),
+            )
             if await _binding(service, ctx.user_id) != binding:
                 return _reject(
                     operation, "connection_changed", "Calendar changed. Please ask again."
                 )
             rows = [item for item in data.get("calendars", []) if isinstance(item, dict)]
             ctx.entities.offer_calendars(
-                [str(item["id"]) for item in rows if item.get("id")], grant_binding=binding
+                [str(item["id"]) for item in rows if item.get("id")],
+                grant_binding=binding,
+                next_page_token=data.get("next_page_token"),
             )
             count = len(rows)
             truncated = bool(data.get("truncated"))
@@ -213,7 +267,7 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
                 truncated=truncated,
                 spoken_facts=[
                     f"I found {count} calendars. Their names are on screen."
-                    + (" More exist; narrow this in Calendar." if truncated else "")
+                    + (" Ask for the next page to see more." if truncated else "")
                 ],
             )
         if operation == "event":
@@ -251,14 +305,23 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
                 spoken_facts=["I opened that event's details on screen."],
             )
 
-        window = _range(args, ctx)
+        event_page = continuation if isinstance(continuation, OfferedCalendarEvents) else None
+        window = (
+            (event_page.start_at, event_page.end_at)
+            if event_page and event_page.start_at and event_page.end_at
+            else _range(args, ctx)
+        )
         if window is None:
             return _reject(
                 operation,
                 "invalid_window",
-                "Tell me which time to check, within a 31-day window.",
+                "Give me a valid time within 31 days, including a UTC offset if the local time repeats.",
             )
-        calendar_id = await _selected_calendar(ctx, service, args.calendar_ordinal, binding)
+        calendar_id = (
+            event_page.calendar_id
+            if event_page
+            else await _selected_calendar(ctx, service, args.calendar_ordinal, binding)
+        )
         if calendar_id is None:
             return _reject(
                 operation,
@@ -273,7 +336,8 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
                 start_at=start_at,
                 end_at=end_at,
                 max_results=MAX_EVENTS,
-                query=args.query,
+                query=event_page.query if event_page else args.query,
+                **({"page_token": continuation.next_page_token} if continuation else {}),
             )
             if await _binding(service, ctx.user_id) != binding:
                 return _reject(
@@ -284,6 +348,10 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
                 [str(item["id"]) for item in rows if item.get("id")],
                 calendar_id=calendar_id,
                 grant_binding=binding,
+                start_at=start_at,
+                end_at=end_at,
+                query=event_page.query if event_page else args.query,
+                next_page_token=data.get("next_page_token"),
             )
             count = len(rows)
             truncated = bool(data.get("truncated"))
@@ -295,11 +363,7 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
                 time_zone=data.get("time_zone") or ctx.timezone,
                 spoken_facts=[
                     f"I found {count} events in that time. Their details are on screen."
-                    + (
-                        " More matching events exist; narrow the time or search."
-                        if truncated
-                        else ""
-                    )
+                    + (" Ask for the next page to see more matching events." if truncated else "")
                 ],
             )
         if operation == "freebusy":
@@ -345,6 +409,12 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
     except GoogleConnectionError as exc:
         # Provider errors can contain third-party text. Map by status only.
         status = getattr(exc, "status_code", None)
+        if status == 401:
+            return _reject(
+                operation, "reconnect_required", "Reconnect Google Calendar so I can read it."
+            )
+        if status == 504 or exc.reason_code == "calendar_timeout":
+            return _reject(operation, "read_timeout", "Calendar took too long. Please try again.")
         if status == 403:
             fact = (
                 "Reconnect Calendar to allow its calendar list."
@@ -373,8 +443,9 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=ReadCalendarInput,
         output_model=CalendarReadResult,
         description=(
-            "Read owner Calendar events, offered event detail, calendars, busy "
-            "time, or openings. Use owner-local windows and shown positions. "
+            "Read Calendar events, offered detail, calendars, busy "
+            "time, or openings. Use more to continue; omit filters. "
+            "Use owner-local windows and shown positions. "
             "Screen holds details; model sees counts. No writes."
         ),
         handler=_read_calendar,

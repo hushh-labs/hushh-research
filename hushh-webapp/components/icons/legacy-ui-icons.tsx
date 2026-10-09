@@ -130,6 +130,7 @@ export const FileText = createCanonicalIcon(Phosphor.FileText);
 export const FileUp = createCanonicalIcon(Phosphor.FileArrowUp);
 export const ForkKnife = createCanonicalIcon(Phosphor.ForkKnife, "regular");
 export const Fingerprint = createCanonicalIcon(Phosphor.Fingerprint);
+export const Flame = createCanonicalIcon(Phosphor.Fire);
 export const Flag = createCanonicalIcon(Phosphor.Flag);
 export const FolderLock = createCanonicalIcon(Phosphor.FolderSimpleLock);
 export const FolderSearch = createCanonicalIcon(Phosphor.FolderSimple);
@@ -270,3 +271,5 @@ export const Workflow = createCanonicalIcon(Phosphor.FlowArrow);
 export const X = createCanonicalIcon(Phosphor.X, "regular");
 export const XCircle = createCanonicalIcon(Phosphor.XCircle);
 export const Zap = createCanonicalIcon(Phosphor.Lightning);
+
+export const WhatsappLogo = createCanonicalIcon(Phosphor.WhatsappLogo);
