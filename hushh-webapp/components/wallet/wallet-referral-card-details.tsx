@@ -78,7 +78,7 @@ export function WalletReferralCardDetails({
         <SettingsRow density="compact" title="In progress" trailing={<span>{summary.in_progress_count.toLocaleString()}</span>} />
         <SettingsRow density="compact" title="Under review" trailing={<span>{summary.under_review_count.toLocaleString()}</span>} />
       </SettingsGroup>
-      <p className="px-1 text-xs leading-relaxed text-muted-foreground">Link opens include QR visits and shared links. They are not unique visitors. Referral progress updates automatically.</p>
+      <p className="px-1 text-xs leading-relaxed text-muted-foreground">Opens include QR scans and links, not unique visitors. Progress updates automatically.</p>
       {summary.referrals.length ? (
         <SettingsGroup title="Recent referrals">
           {summary.referrals.map((referral, index) => (
