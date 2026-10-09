@@ -22,10 +22,10 @@ Computer Use and cross-cloud moves remain disabled.
 
 | Surface | Verified evidence | Limit |
 | --- | --- | --- |
-| Integrated source | Main `3e0cfd05402f`; frozen local ADK `64c2739df301`; infrastructure `061b74f267`; concurrent bridge/consent/public test-pin work preserved | Integrated in isolation. Final core, hosted CI and governed dev deployment remain required. Later unrelated ADK changes belong to the next cycle. |
+| Integrated source | Main `3e0cfd05402f`; frozen local ADK `64c2739df301`; infrastructure through `9bcc6e33f8`; candidate `cc88d66d1` | Backend 16,728 and isolated PostgreSQL 663 checks pass. Production build, typecheck, design system, generated contracts, 317 navigation checks, MCP and integration checks pass (380 PKM cases). Original core stopped at web integration defects; corrected affected gates pass. Exact-SHA hosted CI and governed deployment remain required. Later unrelated ADK changes belong to the next cycle. |
 | Integration corrections | Private email receipts stay on the sealed pod ledger. Partial/uncertain Gmail changes expose confirmed progress and cannot be replayed. Native composer/panel improvements retain pod status, Files, Hosting and Updates | 128 focused backend and 157 frontend checks pass; TypeScript and changed Swift syntax pass. Mail account/session fences pass 43 nearest cases and the broken callbacks fail a negative control. No new cloud behavior is claimed. |
 | Startup correction | Pinned semantic model assets and action vectors are packaged offline in the pod image; lazy hub imports preserve route contracts | Source verified; a new image has not been built or measured. No cold-latency improvement inferred. A confirmed baked-pod warmup mismatch is corrected: semantic loading remains on demand, without adding required startup work. The nearest 15 cases pass (one optional case skipped), and the original predicate fails the pod regression. |
-| Dev application | Fresh approved-ADC readback **2026-10-09 10:15 UTC**: source `e30732de37f21759e86b95027252163319de3d60`, [deployment 37832290957](https://github.com/hushh-labs/hushh-research/actions/runs/37832290957), backend `00151-9x6`, frontend `00129-bn5`, 100% traffic | Application remains on the earlier source. Rollback: backend `00150-slh`, frontend `00128-8m7`. |
+| Dev application | Fresh approved-ADC readback **2026-10-09 13:49 UTC**: source `e30732de37f21759e86b95027252163319de3d60`, [deployment 37832290957](https://github.com/hushh-labs/hushh-research/actions/runs/37832290957), backend `00151-9x6`, frontend `00129-bn5`, 100% traffic | Application remains on the earlier source. Rollback: backend `00150-slh`, frontend `00128-8m7`. |
 | Serving image digests | Backend `c26db844ba84e0607bcfd40c5953bb7ec211a659c34ecbb20a403ad77f52cd1b`; frontend `c81cef6c080cabf8799a95b2a9e0df89ea9dfdaebfd736c47bbc0db1e1ab6f3d` | GitHub Actions governs; Cloud Build builds immutable images. |
 | Pod offer | Dev-only `2026.10-dev.12+caaa5a82fd9c.e213acf2`, image `e213acf2468179177371709fb2651eb622439ec8c2a2df3d11394d23867ffa1e` | Exact predecessor `ace34069` qualified on both clouds. Publishing did not install it on an owner pod. |
 | Migration lineage | Main 284–288 preserved; unchanged commerce/Shared SQL registered as 289/290; original 284/287 retained under `db/legacy/` | Shared-dev ledger has neither old ID. Existing commerce preview remains pinned to its own lineage; never replay this candidate there without reconciliation. Recheck target ledger and recovery before deployment. |
@@ -34,7 +34,7 @@ Computer Use and cross-cloud moves remain disabled.
 
 | Journey | Source / isolated evidence | Required live acceptance |
 | --- | --- | --- |
-| Files workspace | `agent_files`, dedicated explorer; both clouds pass resumable 4 MiB + 1 KiB transfers, duplicate chunks, byte-exact download, folder move/rename/undo and trash/restore | Normal owner browser, exact Files configuration approval and installation |
+| Files workspace | `agent_files`, dedicated explorer; both clouds pass resumable 4 MiB + 1 KiB transfers, duplicate chunks, byte-exact download, folder move/rename/undo and trash/restore | Normal, unexpired owner Edge session verified; same-session Files workspace and four-change setup offer reached. Installed `.7` has Files disabled. Exact configuration approval, Microsoft sign-in, installation and transfer acceptance remain. |
 | Files organization | GCP authenticated Cloud Tasks and Azure managed-identity Storage Queue complete opted-in synthetic jobs; exclusions and cancellation preserve originals | Owner opt-in/UI, provider IAM and actual queue delivery |
 | Software updates | Exact `ace34069` → `e213acf2` recovery passes on both clouds: identity, keys, selected configuration and encrypted information retained | Settings approval during active chat; authenticated drain, one operation across refresh/reconnect, restart, installed digest and Files bytes |
 | Private chat | Current image completes 20 cold + 20 warm turns per cloud; bounded one/two/four chat–Files–status overlap and ten-minute soak pass | Normal-browser first-token timing, recorded voice and complete connector approval/resume |
@@ -80,7 +80,7 @@ measured structural-debt baseline, not a readiness or live acceptance receipt.
 
 | Owner | Required receipt |
 | --- | --- |
-| Engineering / release | One completed core mirror, exact-SHA hosted CI, migration/recovery preflight, governed dev deployment and serving readback |
+| Engineering / release | Retained original core plus corrected-stage receipts; exact-SHA hosted CI, migration/recovery preflight, governed dev deployment and serving readback |
 | Owner / device | Normal Google-authenticated owner browser, memory-only unlock, exact approval; device-session or admin credentials cannot substitute for browser authority |
 | Azure subscription | Eligible fresh environment/model resources; existing-environment qualification is narrower |
 | Production | Migration/release graduation, actual legacy cohort continuity, IAM, erasure, recovery, hub capacity and independent UAT acceptance |
