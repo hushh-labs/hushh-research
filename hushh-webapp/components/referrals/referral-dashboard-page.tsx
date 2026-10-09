@@ -943,21 +943,8 @@ function StreakFlame({ engagementRes }: { engagementRes: Res<EngagementStatus> }
       className={"grid shrink-0 place-items-center rounded-full " + (active ? "motion-safe:animate-pulse" : "")}
       style={{ width: 38, height: 38, background: active ? COLORS.orangeSoft : COLORS.fill2 }}
     >
-      <FlameIcon className="size-6" active={active} />
+      <Flame className="size-6" style={{ color: COLORS.orange }} aria-hidden="true" />
     </span>
-  );
-}
-
-function FlameIcon({ className, active }: { className?: string; active: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      aria-hidden="true"
-      fill={COLORS.orange} data-active={active}
-    >
-      <path d="M12 2c.6 3.2-1 5-2.6 6.7C7.8 10.5 6.5 12.1 6.5 14.5A5.5 5.5 0 0 0 12 20a5.5 5.5 0 0 0 5.5-5.5c0-1.7-.7-2.9-1.5-4 .1 1.4-.4 2.3-1.2 2.9-.3-2.2-1.1-3.6-2-4.8C12.2 7.1 12.6 4.6 12 2z" />
-    </svg>
   );
 }
 
@@ -1405,7 +1392,7 @@ function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRe
             <li><span><Trophy aria-hidden="true" /></span><div><h4>You earn points</h4><p>Every qualifying friend brings your next reward closer.</p></div></li>
           </ol>
           <div className="referral-rule-highlights">
-            <p><FlameIcon active /><span><b>Keep your streak</b>One qualifying friend a day. Keep it going.</span></p>
+            <p><Flame aria-hidden="true" /><span><b>Keep your streak</b>One qualifying friend a day. Keep it going.</span></p>
             <p><ShieldCheck aria-hidden="true" /><span><b>New friends only</b>Self-referrals and unfinished sign-ups do not count.</span></p>
             <p><Zap aria-hidden="true" /><span><b>Flash boost</b>When active, flash points replace the standard award.</span></p>
           </div>

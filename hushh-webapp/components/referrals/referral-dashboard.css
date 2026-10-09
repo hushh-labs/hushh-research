@@ -9,6 +9,10 @@
   --background: #f2f2f7;
   --foreground: #1d1d1f;
   --app-label: #1d1d1f;
+  --app-secondary-label: #6e6e73;
+  --app-segmented-track-surface: #e5e5ea;
+  --app-segmented-active-surface: #fff;
+  --app-segmented-active-foreground: #5541cf;
 
   -webkit-font-smoothing: antialiased;
 }
@@ -50,7 +54,7 @@
 .referral-dashboard { background: #f5f5f7 !important; }
 .referral-card { box-shadow: 0 9px 28px -18px rgba(58,42,110,.25); }
 .referral-dashboard > header { background: rgba(245,245,247,.96) !important; }
-.referral-dashboard [role="tab"][aria-selected="true"] { color: #5541cf !important; box-shadow: 0 3px 12px rgba(91,72,199,.12) !important; }
+.referral-dashboard [role="tab"][aria-selected="true"] { background: #fff !important; color: #5541cf !important; box-shadow: 0 3px 12px rgba(91,72,199,.12) !important; }
 .referral-dashboard [data-reward="voucher_10"] { --reward-from: #fff2cb; --reward-to: #ffd9d0; --reward-accent: #a34220; }
 .referral-dashboard [data-reward="earbuds_100"] { --reward-from: #d5fff2; --reward-to: #c8f0ff; --reward-accent: #086477; }
 .referral-dashboard [data-reward="airpods_500"] { --reward-from: #e4f4ff; --reward-to: #e8dcff; --reward-accent: #59438d; }
@@ -158,7 +162,7 @@
 /* One alignment grid for navigation, stats and sharing. */
 .referral-dashboard > header > div { grid-template-columns: minmax(44px,1fr) minmax(0,224px) minmax(44px,1fr); }
 .referral-dashboard > header > div > span[aria-hidden] { display: block; }
-.referral-dashboard .referral-tabs { width: 100%; justify-self: center; }
+.referral-dashboard .referral-tabs { --type-form-label-size: 13px; width: 100%; justify-self: center; }
 .referral-dashboard .referral-tabs [role="tab"] { min-height: 36px; font-size: 13px; }
 .referral-share-button { min-height: 44px; font-size: 14px; background: #e5f1ff; color: #006dcc; }
 .referral-share-button svg { width: 21px; height: 21px; }
