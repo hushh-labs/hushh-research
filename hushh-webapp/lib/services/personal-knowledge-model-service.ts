@@ -4474,14 +4474,12 @@ export class PersonalKnowledgeModelService {
     const domain = "wallet";
     const build = async (
       domainData: Record<string, unknown>,
-      forceManifestReload: boolean,
+      snapshot: DomainSnapshotV1 | null,
     ): Promise<Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]> => {
-      const previousManifest = await this.getDomainManifest(
-        params.userId,
-        domain,
-        params.vaultOwnerToken,
-        forceManifestReload,
-      ).catch(() => null);
+      // Bind the write to the revision that was actually decrypted. Loading a
+      // newer manifest separately can otherwise bless a stale card collection.
+      const previousManifest = snapshot?.manifest ?? null;
+      const sourceRevision = snapshot?.contentRevision ?? 0;
       const encryptedBlob = await this.encryptDomainForStorage({
         vaultKey: params.vaultKey,
         domainData,
@@ -4505,6 +4503,7 @@ export class PersonalKnowledgeModelService {
         operation: previousManifest ? "update" : "create",
         explanation: params.explanation,
         confirmation: params.confirmation,
+        sourceRevision,
       });
       return {
         userId: params.userId,
@@ -4516,18 +4515,30 @@ export class PersonalKnowledgeModelService {
         mutationPlan,
         domainData,
         vaultOwnerToken: params.vaultOwnerToken,
+        expectedDataVersion: sourceRevision,
       };
     };
 
-    const existingData = await this.loadDomainData({
+    const walletBase = (data: Record<string, unknown> | null, snapshot: DomainSnapshotV1 | null): Record<string, unknown> => {
+      if (data === null && snapshot === null) return {};
+      if (!this.isPlainObject(data)) throw new Error("Your saved cards could not be read. Please try again.");
+      for (const branch of ["summary", "secrets"] as const) {
+        if (Object.prototype.hasOwnProperty.call(data, branch) && !this.isPlainObject(data[branch])) {
+          throw new Error("Your saved cards could not be read. Please try again.");
+        }
+      }
+      return data;
+    };
+    const existing = await this.loadDomainSnapshot({
       userId: params.userId,
       domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+      force: true,
+    });
     let built = await build(
-      params.applyMutation(this.isPlainObject(existingData) ? existingData : {}),
-      false,
+      params.applyMutation(walletBase(existing.data, existing.snapshot)),
+      existing.snapshot,
     );
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
@@ -4536,15 +4547,16 @@ export class PersonalKnowledgeModelService {
         const cache = CacheService.getInstance();
         cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, domain));
         cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, domain));
-        const freshData = await this.loadDomainData({
+        const fresh = await this.loadDomainSnapshot({
           userId: params.userId,
           domain,
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
-        }).catch(() => null);
+          force: true,
+        });
         built = await build(
-          params.applyMutation(this.isPlainObject(freshData) ? freshData : {}),
-          true,
+          params.applyMutation(walletBase(fresh.data, fresh.snapshot)),
+          fresh.snapshot,
         );
       },
       pause: (ms) => this.pause(ms),

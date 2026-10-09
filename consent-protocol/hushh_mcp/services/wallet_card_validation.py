@@ -7,9 +7,10 @@ accompanies a ``wallet`` store-domain write: issuing region, brand,
 last four digits, and expiry shape, plus the region barrier (a region-locked
 scheme never claims an issuing region outside its home market).
 
-The region rule is deliberately one-directional: regional schemes are locked
-to their regions, while global schemes are valid everywhere.  Rejecting a
-global brand for any region would refuse legitimately issued cards.
+Issuing region is optional. When supplied, the region rule is deliberately
+one-directional: regional schemes are locked to their regions, while global
+schemes are valid everywhere. Rejecting a global brand for any region would
+refuse legitimately issued cards.
 """
 
 from __future__ import annotations
@@ -79,12 +80,12 @@ def validate_card_summary_entry(entry: Any) -> None:
         raise ValueError("card_expiry_year_invalid")
 
     raw_region = str(entry.get("issuing_region") or "").strip()
-    region = normalize_country_hint(raw_region)
-    if not region:
+    region = normalize_country_hint(raw_region) if raw_region else None
+    if raw_region and not region:
         raise ValueError(f"card_issuing_region_invalid:{raw_region or 'missing'}")
 
     locked_regions = REGION_LOCKED_BRANDS.get(brand)
-    if locked_regions is not None and region not in locked_regions:
+    if region and locked_regions is not None and region not in locked_regions:
         raise ValueError(f"card_brand_region_mismatch:{brand}:{region}")
 
 

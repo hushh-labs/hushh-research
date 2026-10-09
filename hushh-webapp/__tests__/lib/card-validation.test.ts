@@ -63,6 +63,7 @@ describe("detectBrand", () => {
 describe("validateCardForRegion", () => {
   const base = {
     pan: VISA,
+    cardholderName: "Test Owner",
     cvv: "123",
     pin: "1234",
     expiryMonth: 4,
@@ -76,6 +77,30 @@ describe("validateCardForRegion", () => {
     expect(result.valid).toBe(true);
     expect(result.brand).toBe("visa");
     expect(result.last4).toBe("1111");
+  });
+
+  it("requires the name and CVV while permitting omitted optional fields", () => {
+    const minimal = { ...base, issuingRegion: undefined, pin: undefined };
+    expect(validateCardForRegion(minimal).valid).toBe(true);
+    expect(validateCardForRegion({ ...minimal, cardholderName: "  ", cvv: undefined }).errors)
+      .toEqual(expect.arrayContaining(["cardholder_name_required", "cvv_required"]));
+    expect(validateCardForRegion({ ...minimal, issuingRegion: "", pin: "" }).valid).toBe(true);
+  });
+
+  it("accepts new BIN ranges with a chosen network or Other fallback", () => {
+    const pan = luhnFix("9111111111111111");
+    expect(detectBrand(pan)).toBeNull();
+    expect(validateCardForRegion({ ...base, pan }).brand).toBe("other");
+    expect(validateCardForRegion({ ...base, pan, cvv: "1234" }).valid).toBe(true);
+    expect(validateCardForRegion({ ...base, pan, brand: "mastercard" }).brand).toBe("mastercard");
+    expect(validateCardForRegion({ ...base, pan, brand: "mastercard", cvv: "1234" }).errors).toContain("cvv_invalid");
+    expect(validateCardForRegion({ ...base, pan: "0000000000000000" }).valid).toBe(false);
+  });
+
+  it("rejects malformed names and unsupported runtime network choices", () => {
+    expect(validateCardForRegion({ ...base, cardholderName: "Test\u0000Owner" }).errors).toContain("cardholder_name_invalid");
+    expect(validateCardForRegion({ ...base, cardholderName: "A".repeat(81) }).errors).toContain("cardholder_name_invalid");
+    expect(validateCardForRegion({ ...base, brand: "unknown" as never }).errors).toContain("brand_invalid");
   });
 
   it("rejects a region-locked brand outside its home market", () => {

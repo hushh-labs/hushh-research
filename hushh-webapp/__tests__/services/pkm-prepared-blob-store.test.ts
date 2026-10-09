@@ -1251,3 +1251,119 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
     );
   });
 });
+
+describe("PersonalKnowledgeModelService wallet commits", () => {
+  const context = {
+    userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token",
+    scopePath: "summary" as const,
+    explanation: "Synthetic owner confirmed a payment card.",
+    confirmation: { confirmedByUser: true as const, surface: "web" as const, source: "wallet_test" },
+  };
+  const firstId = "card_123e4567-e89b-12d3-a456-426614174000";
+  const nextId = "card_123e4567-e89b-12d3-a456-426614174001";
+  const metadata = { brand: "visa", last4: "1111", expiry_month: 5, expiry_year: 2031, issuing_region: "" };
+  const nextCard = { pan: "4111111111111111", cvv: "123", pin: "", cardholder_name: "Synthetic Owner" };
+  const applyMutation = (base: Record<string, unknown>) => ({
+    ...base,
+    summary: { ...(base.summary as Record<string, unknown>), [nextId]: metadata },
+    secrets: { ...(base.secrets as Record<string, unknown>), [nextId]: nextCard },
+  });
+
+  function mockWalletRead() {
+    const read = vi.fn<() => Promise<Record<string, unknown> | null>>();
+    let revision = 7;
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainSnapshot").mockImplementation(async () => {
+      const data = await read();
+      return { data, snapshot: data === null ? null : {
+        schemaVersion: "pkm_domain_snapshot.v1",
+        userId: context.userId, domain: "wallet",
+        encryptedBlob: { ciphertext: "synthetic", iv: "synthetic", tag: "synthetic", algorithm: "aes-256-gcm" },
+        contentRevision: revision++, manifestRevision: 0, manifest: null,
+        paths: [], scopes: [], updatedAt: null, etag: "synthetic", segmentIds: [],
+      } };
+    });
+    return read;
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    transport.native = false;
+    encryptDataMock.mockReset().mockResolvedValue({ ciphertext: "synthetic", iv: "synthetic", tag: "synthetic" });
+  });
+
+  it("initializes an absent wallet and keeps credentials out of the plaintext envelope", async () => {
+    mockWalletRead().mockResolvedValue(null);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    await PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation });
+    const payload = store.mock.calls[0]![0];
+    expect(payload.expectedDataVersion).toBe(0);
+    expect(payload.mutationPlan?.source_revision).toBe(0);
+    expect(payload.domainData).toEqual({ summary: { [nextId]: metadata }, secrets: { [nextId]: nextCard } });
+    const plaintext = JSON.stringify([payload.summary, payload.manifest, payload.structureDecision]);
+    for (const privateValue of [nextCard.pan, nextCard.cardholder_name, '"cvv"', '"pin"']) {
+      expect(plaintext).not.toContain(privateValue);
+    }
+    expect(encryptDataMock).toHaveBeenCalledWith(expect.objectContaining({ plaintext: JSON.stringify(payload.domainData) }));
+  });
+
+  it("does not replace an unreadable wallet with an empty collection", async () => {
+    const failure = new Error("Synthetic encrypted wallet unavailable");
+    mockWalletRead().mockRejectedValue(failure);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData");
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation })).rejects.toBe(failure);
+    expect(store).not.toHaveBeenCalled();
+    expect(encryptDataMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["summary", "secrets"] as const)("does not overwrite a malformed %s branch", async (branch) => {
+    const valid = { summary: { [firstId]: metadata }, secrets: { [firstId]: nextCard } };
+    mockWalletRead().mockResolvedValue({ ...valid, [branch]: [valid[branch][firstId]] });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData");
+    const mutate = vi.fn(applyMutation);
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation: mutate }))
+      .rejects.toThrow("Your saved cards could not be read.");
+    expect(mutate).not.toHaveBeenCalled();
+    expect(store).not.toHaveBeenCalled();
+    expect(encryptDataMock).not.toHaveBeenCalled();
+  });
+
+  it("does not initialize an existing wallet whose decrypted root is null", async () => {
+    mockWalletRead().mockResolvedValue({});
+    const snapshot = (await PersonalKnowledgeModelService.loadDomainSnapshot({ ...context, domain: "wallet" })).snapshot;
+    vi.mocked(PersonalKnowledgeModelService.loadDomainSnapshot).mockResolvedValue({ snapshot, data: null });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData");
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation }))
+      .rejects.toThrow("Your saved cards could not be read.");
+    expect(store).not.toHaveBeenCalled();
+    expect(encryptDataMock).not.toHaveBeenCalled();
+  });
+
+  it("binds the decrypted revision and retains a concurrent card after a conflict", async () => {
+    mockWalletRead()
+      .mockResolvedValueOnce({ summary: {}, secrets: {} })
+      .mockResolvedValueOnce({ summary: { [firstId]: metadata }, secrets: { [firstId]: { ...nextCard, cardholder_name: "Existing Owner" } } });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValueOnce({ success: false, conflict: true })
+      .mockResolvedValueOnce({ success: true });
+    await PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation });
+    const initial = store.mock.calls[0]![0];
+    const retried = store.mock.calls[1]![0];
+    expect(initial.expectedDataVersion).toBe(7);
+    expect(initial.mutationPlan?.source_revision).toBe(7);
+    expect(retried.expectedDataVersion).toBe(8);
+    expect(retried.mutationPlan?.source_revision).toBe(8);
+    expect(retried.domainData).toMatchObject({
+      summary: { [firstId]: metadata, [nextId]: metadata },
+      secrets: { [firstId]: { cardholder_name: "Existing Owner" }, [nextId]: nextCard },
+    });
+  });
+
+  it("stops conflict recovery if the fresh read fails", async () => {
+    const failure = new TypeError("Failed to fetch");
+    mockWalletRead().mockResolvedValueOnce({ summary: {}, secrets: {} }).mockRejectedValueOnce(failure);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValueOnce({ success: false, conflict: true }).mockResolvedValue({ success: true });
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation })).rejects.toBe(failure);
+    expect(store).toHaveBeenCalledTimes(1);
+  });
+});
