@@ -200,13 +200,19 @@ async def run_action_confirm(
     return {"proposalId": proposal_id, "kind": kind, "result": result}
 
 
+class _EmailSendStatusPort(Protocol):
+    async def email_send_status(
+        self, *, proposal_id: str, owner_id: str
+    ) -> dict[str, Any] | None: ...
+
+
 async def run_email_send_status(
     proposal_id: str,
     *,
     consent_token: str,
     verifier: Any = None,
     session: Optional[dict] = None,
-    store: Any = None,
+    store: _EmailSendStatusPort | None = None,
 ) -> dict:
     """Read this owner's existing send receipt; never infer safe redispatch."""
     from hushh_mcp.services.pod_action_proposals import pod_action_proposals
