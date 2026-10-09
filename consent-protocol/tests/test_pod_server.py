@@ -361,6 +361,7 @@ OWNER_REACHABLE_PATHS = frozenset(
     {
         "/api/one/pod/actions/gmail/proposals",
         "/api/one/pod/actions/{proposal_id}/confirm",
+        "/api/one/pod/actions/{proposal_id}/status",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/catalog",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/verify",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/begin",

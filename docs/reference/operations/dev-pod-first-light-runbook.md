@@ -43,7 +43,9 @@ The pod recipe bakes the pinned local embedding model and this image's action
 catalog vectors through the existing hub build helpers. A failed offline bake
 blocks the build; an owner command must not depend on a first-use model download.
 Measure image pull and first-turn latency separately before claiming a cold-start
-improvement: these assets increase the image size.
+improvement: these assets increase the image size. Only the hub schedules action
+retrieval warmup. Pods load the packaged model lazily on an actual semantic search;
+model loading must not delay their required recovery and admission startup.
 Record source commit, immutable source digest, copied owner-project digest,
 Cloud Run revision and `/pod/info` imageTag separately. Never treat `latest`, an
 image version variable, or Cloud Run Ready as proof of the serving application.

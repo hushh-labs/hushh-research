@@ -15989,7 +15989,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/action_retrieval.py",
       "symbol": null,
-      "value": 797
+      "value": 801
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20323,6 +20323,15 @@
   ],
   "inspected_files": 6149,
   "integration_review": {
+    "baked_pod_warmup_correction_20261009": {
+      "after": 801,
+      "before": 797,
+      "evidence_revision": "0c366d396bbe1b5518249611207ecd987e904e19",
+      "path": "consent-protocol/hushh_mcp/one_adk/action_retrieval.py",
+      "review": "Independent startup/image review: canonical pod_mode restores lazy offline semantic load; only hub owns background warmup. Budgets/scanner/other finding slots unchanged.",
+      "source_sha256": "837c4a2d6ee5400a1a280e1567e0e353520f87bcab5b9f15196f997f39dff2b6",
+      "verification": "15 passing nearest cases, 1 optional skip; original predicate fails the paired pod negative control. No live latency claim."
+    },
     "commerce_parent": "18c3db9ab3b03e07d070eeba70e0031ff74f3059",
     "frozen_adk": "31932bb01ae9059ac3b7996785f2bf3ed458f078",
     "frozen_source_reconciliation_20261009": {

@@ -938,10 +938,10 @@ def pod_mode() -> bool:
     shared state.
 
     When **ON** (``HUSSH_POD_MODE=1``, set by the pod deploy config), the process
-    still serves the full agent runtime + HTTP surface (Agent One orchestrating its
-    specialists, the A2A endpoint, health) and keeps its own DB pool + in-memory
-    warmups, but SKIPS the fleet-wide workers. This is the runtime half of the pod
-    architecture (the deploy half is ``GcpBackend.render_deploy_config``)."""
+    serves the pod entrypoint: One, specialists, owner-scoped HTTP and encrypted
+    recovery. It holds no hub database credentials and schedules no hub model
+    warmup or fleet-wide workers. This is the runtime half of the pod architecture
+    (the deploy half is ``GcpBackend.render_deploy_config``)."""
     return _bool_from_value(_clean_env("HUSSH_POD_MODE"), default=False)
 
 
