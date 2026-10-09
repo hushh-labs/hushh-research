@@ -168,6 +168,10 @@ test("incoming messages preserve reading position and your reply returns to the 
   const list = page.getByLabel("Circle messages", { exact: true });
   await list.evaluate((node) => { node.scrollTop = 0; });
   await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
+  const jump = await page.getByRole("button", { name: "Go to latest messages" }).boundingBox();
+  const pane = await list.boundingBox();
+  expect(Math.abs((jump!.x + jump!.width / 2) - (pane!.x + pane!.width / 2))).toBeLessThanOrEqual(1);
+
   const before = await list.evaluate((node) => node.scrollTop);
   await page.evaluate(() => (window as any).chatFixture.incoming());
   await expect(page.getByText("Incoming while reading history", { exact: true })).toHaveCount(1);

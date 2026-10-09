@@ -123,27 +123,16 @@ describe("OneDashboardPage", () => {
       financeSetupFromOne,
     );
     const rosterOrder = [
+      "finance",
+      "wallet",
+      "location",
+      "ria",
       "gmail",
       "calendar",
-      "location",
-      "finance",
-      "ria",
-      "wallet",
       "pkm",
       "consent",
       "messages",
     ] as const;
-    const iconFileNames: Readonly<Record<string, string>> = {
-      gmail: "mail",
-      calendar: "calendar",
-      location: "location",
-      finance: "finance",
-      ria: "advisor",
-      wallet: "wallet",
-      pkm: "memory",
-      consent: "consent",
-      messages: "messages",
-    };
     const grid = screen.getByTestId("one-agents-grid");
     expect(
       Array.from(grid.querySelectorAll('[data-testid^="one-agent-tile-"]')).map(
@@ -152,19 +141,13 @@ describe("OneDashboardPage", () => {
     ).toEqual(rosterOrder);
     for (const id of rosterOrder) {
       const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
-      expect(icon).toHaveAttribute("data-agent-icon-kind", "image");
-      expect(icon).toHaveAttribute(
-        "data-agent-icon-src",
-        `/icons/one-roster/${iconFileNames[id]}.svg`,
-      );
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "custom");
       expect(icon).toHaveClass("h-[68px]", "w-[68px]");
-      expect(icon.querySelectorAll("img")).toHaveLength(1);
+      expect(icon.querySelectorAll("svg")).toHaveLength(1);
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
     // An unfinished workspace keeps its recognizable full-color artwork.
-    expect(financeIcon.querySelector("img")).toHaveAttribute(
-      "src", "/icons/one-roster/finance.svg",
-    );
+    expect(financeIcon.querySelector("svg")).toBeTruthy();
     expect(financeIcon.className).not.toContain("grayscale");
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
     const riaLink = screen.getByRole("link", { name: "Open Advisor" });
@@ -239,16 +222,14 @@ describe("OneDashboardPage", () => {
 
     // Completed setup keeps the same capability artwork as unfinished setup.
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    expect(financeIcon.querySelector("img")).toHaveAttribute(
-      "src", "/icons/one-roster/finance.svg",
-    );
+    expect(financeIcon.querySelector("svg")).toBeTruthy();
     const rosterPaletteOrder = [
+      "finance",
+      "wallet",
+      "location",
+      "ria",
       "gmail",
       "calendar",
-      "location",
-      "finance",
-      "ria",
-      "wallet",
       "pkm",
       "consent",
       "messages",
@@ -256,7 +237,7 @@ describe("OneDashboardPage", () => {
     const iconSources = rosterPaletteOrder.map((id) =>
       screen
         .getAllByTestId(`one-agent-icon-${id}`)[0]
-        .querySelector("img")?.getAttribute("src"),
+        .querySelector("svg")?.innerHTML,
     );
     expect(iconSources.every(Boolean)).toBe(true);
     expect(new Set(iconSources).size).toBe(
