@@ -169,7 +169,8 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(tmp_path, legacy
         assert "Candidate deployment interface is incompatible" in result.stderr
 
 
-def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path):
+@pytest.mark.parametrize("target", ["scope-commerce-sandbox", "shared-dev", None])
+def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path, target):
     workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
     run = next(
         s["run"]
@@ -185,7 +186,7 @@ def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path):
     section = section.replace("${{ env.PROTOCOL_PYTHON }}", str(tmp_path / "python-gate"))
     (tmp_path / "consent-protocol").mkdir()
     (tmp_path / "python-gate").write_text(
-        '#!/bin/sh\nprintf "%s:%s:%s\\n" "$1" "$DB_USER" "$DB_PASSWORD" >> "$CALLS"\n'
+        '#!/bin/sh\nprintf "%s:%s:%s\\n" "$*" "$DB_USER" "$DB_PASSWORD" >> "$CALLS"\n'
     )
     (tmp_path / "python-gate").chmod(0o755)
     (tmp_path / "gcloud").write_text(
@@ -196,20 +197,35 @@ def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path):
     env = {
         **os.environ,
         "PATH": str(tmp_path) + ":" + os.environ["PATH"],
-        "DEV_TARGET": "scope-commerce-sandbox",
         "DEPLOY_SECRET_PREFIX": "SCOPE_COMMERCE_SANDBOX_",
         "DB_USER": "scope_commerce_sandbox",
         "DB_PASSWORD": "synthetic-runtime-password",
         "CALLS": str(tmp_path / "calls"),
     }
+    env.pop("DEV_TARGET", None)
+    if target is not None:
+        env["DEV_TARGET"] = target
     result = subprocess.run(  # noqa: S603 - real workflow with hermetic command adapters.
         ["bash", "-eu", "-c", section], cwd=tmp_path, env=env, capture_output=True, text=True
     )
     assert result.returncode == 0
-    assert (tmp_path / "calls").read_text().splitlines() == [
-        "db/migrate.py:scope_commerce_sandbox_migrator:synthetic-migration-password",
-        "scripts/deploy/commerce-preview-verify.py:scope_commerce_sandbox:synthetic-runtime-password",
-    ]
+    expected = (
+        [
+            "db/migrate.py --release --migration-mode ledger:"
+            "scope_commerce_sandbox_migrator:synthetic-migration-password",
+            "scripts/deploy/commerce-preview-verify.py --phase database "
+            "--report-path /tmp/dev-preview-postmigration-database.json:"
+            "scope_commerce_sandbox:synthetic-runtime-password",
+        ]
+        if target == "scope-commerce-sandbox"
+        else [
+            "db/migrate.py --release --migration-mode replay:"
+            "scope_commerce_sandbox:synthetic-runtime-password"
+        ]
+    )
+    assert (tmp_path / "calls").read_text().splitlines() == expected
+    if target != "scope-commerce-sandbox":
+        return
     (tmp_path / "calls").unlink()
     result = subprocess.run(  # noqa: S603 - real workflow with hermetic command adapters.
         ["bash", "-eu", "-c", section],

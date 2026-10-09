@@ -546,7 +546,9 @@ jobs:
             (
               export DB_USER="${MIGRATOR_DB_USER}" DB_PASSWORD="${MIGRATOR_DB_PASSWORD}"
               cd consent-protocol
-              "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
+              # The isolated preview has a verified baseline; record pending
+              # migrations so authenticated readiness observes the actual head.
+              "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode ledger
             )
             unset MIGRATOR_DB_USER MIGRATOR_DB_PASSWORD
             "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
