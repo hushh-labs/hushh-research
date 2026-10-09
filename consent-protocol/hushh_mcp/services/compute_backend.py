@@ -146,6 +146,8 @@ class PodSpec:
     files_upgrade_completed_steps: Optional[list[dict[str, Any]]] = dataclass_field(
         default=None, repr=False
     )
+    # Server-captured terminal predecessor job; never supplied by an owner client.
+    files_upgrade_recovery_job: Optional[dict[str, Any]] = dataclass_field(default=None, repr=False)
     on_files_upgrade_checkpoint: Optional[Callable[[str, str, list[dict]], None]] = dataclass_field(
         default=None, repr=False, compare=False
     )

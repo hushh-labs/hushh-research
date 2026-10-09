@@ -93,6 +93,12 @@ async def claim_queue_retry(
 ) -> tuple[dict, list[dict]]:
     """CAS one recovery executor into the existing owner-approved reservation."""
     if (spec.files_upgrade_plan or {}).get("version") == 2:
+        if getattr(spec, "files_upgrade_recovery_job", None) is not None:
+            from .azure_configuration_recovery import claim_configuration_reconciliation
+
+            return await claim_configuration_reconciliation(
+                registry=registry, row=row, spec=spec, backend=backend, operation=operation
+            )
         from .azure_recovery import claim_role_reconciliation
 
         return await claim_role_reconciliation(

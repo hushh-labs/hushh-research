@@ -270,11 +270,22 @@ operation, attempt and lease. Re-read the qualified prefix, then execute only th
 remaining assignments and approved image/configuration installation. Never replay
 an uncertain role creation or reset approval to make a retry pass.
 
-This continuation handles the confirmed first-role failure once. A crash after
-reconciliation or a later suffix failure remains held for investigation; this is
-not generic recovery. Verify digest, recovery, Files custody and byte-exact
-transfer before reporting success. October 9 source checks establish the repair;
-the owner operation is not yet completed live.
+The role continuation handles the confirmed first-role failure once. A separate,
+bounded continuation covers the legacy explicit `scale.rules: null` failure after
+all four resource readbacks. Both legacy Files writers necessarily stopped before
+Container App replacement on that exact approved template. Require the terminated
+owner/group/time-bound setup job, unchanged identity and template, fresh owner
+Microsoft authorization, all four resource readbacks and a confirmed 404 for the
+exact attempt revision. Retain the same operation, attempt, approval and lease;
+preserve the prior failed role receipt and record `filesConfigurationReconciliation`
+through full-metadata CAS. Do not replay resource writes.
+
+Current writers normalize only absent/null scaler rules and persist
+`replacement_intent` synchronously before the Container App PUT. An unreadable
+revision, changed resource, prior reconciliation or replacement intent keeps the
+operation held for read-only investigation. This is not generic crash recovery.
+Verify installed digest, recovery, Files custody and byte-exact transfer before
+reporting success; source qualification alone does not establish live completion.
 
 The existing authorization completion response carries the approved operation
 and release IDs beside its job ID. Popup and standalone update views follow

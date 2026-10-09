@@ -112,7 +112,7 @@ async def qualify_files_upgrade_prefix(
     from .azure_checkpoint import qualify_readback
 
     plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
-    if count != 2 or plan.service.lower() != backend.app_id.lower():
+    if count not in {2, len(plan.operations())} or plan.service.lower() != backend.app_id.lower():
         raise ValueError("Files reconciliation is outside the approved prefix")
     arm = backend._person_factory(current_jit_token())
 
@@ -121,6 +121,25 @@ async def qualify_files_upgrade_prefix(
             backend.app_id, api_version=API_VERSIONS["container_apps"], op="files_reconcile"
         )
         plan.require_observation(app)
+        if count == len(plan.operations()):
+            from hushh_mcp.services.azure_upgrade_configuration import revision_suffix
+
+            # The legacy null-scaler defect necessarily stopped before PUT.
+            # New writers journal replacement intent before PUT, so an absent
+            # intent plus this exact unchanged template is not a generic retry.
+            if (
+                app["properties"]["template"]["scale"].get("rules", []) is not None
+                or app["properties"].get("provisioningState") != "Succeeded"
+                or arm.get_or_none(
+                    backend.app_id
+                    + "/revisions/ca-hussh-one-pod--"
+                    + revision_suffix(spec.upgrade_attempt_id or ""),
+                    api_version=API_VERSIONS["container_apps"],
+                    op="files_reconcile_revision",
+                )
+                is not None
+            ):
+                raise ValueError("Files replacement absence is not verified")
         AzureFilesBootstrap(plan, arm).preflight()
         completed = []
         for call in plan.operations()[:count]:

@@ -80,11 +80,15 @@ class AzureFilesUpgradeCheckpoint:
                 raise ValueError("Files checkpoint belongs to another approved operation")
             self._validate_prefix(previous.get("completed", []))
             completed = previous.get("completed", [])
-            index = len(completed) - (previous.get("phase") == "observed")
+            index = len(completed) - (previous.get("phase") in {"observed", "replacement_intent"})
             if (
-                previous.get("phase") not in {"intent", "observed"}
+                previous.get("phase") not in {"intent", "observed", "replacement_intent"}
                 or not 0 <= index < len(self.calls)
                 or previous.get("step") != self.calls[index]["step"]
+                or (
+                    previous.get("phase") == "replacement_intent"
+                    and (len(completed) != len(self.calls) or not all(x["ok"] for x in completed))
+                )
             ):
                 raise ValueError("Files checkpoint sequence is invalid")
 
@@ -149,6 +153,15 @@ class AzureFilesUpgradeCheckpoint:
                 or completed[:-1] != prior["completed"]
             ):
                 raise ValueError("Files observation has no matching intent")
+        elif phase == "replacement_intent":
+            if (
+                not self.complete
+                or not prior
+                or prior["phase"] != "observed"
+                or prior["completed"] != completed
+                or step != self.calls[-1]["step"]
+            ):
+                raise ValueError("Files replacement requires its complete observed resources")
         else:
             raise ValueError("Unknown Files checkpoint phase")
         checkpoint = {
@@ -183,7 +196,7 @@ class AzureFilesUpgradeCheckpoint:
     def complete(self) -> bool:
         previous = self.previous or {}
         return (
-            previous.get("phase") == "observed"
+            previous.get("phase") in {"observed", "replacement_intent"}
             and len(previous.get("completed", [])) == len(self.calls)
             and all(x["ok"] for x in previous["completed"])
         )

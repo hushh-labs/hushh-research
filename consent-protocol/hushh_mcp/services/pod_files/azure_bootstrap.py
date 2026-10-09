@@ -84,7 +84,7 @@ class AzureFilesBootstrap:
     ) -> None:
         completed: list[dict] = list(completed_steps or [])
         calls = self.plan.operations()
-        if completed and len(completed) != 2:
+        if completed and len(completed) not in {2, len(calls)}:
             raise ValueError("Files continuation requires its qualified prefix")
         for call, receipt in zip(calls, completed, strict=False):
             observed = qualify_readback(

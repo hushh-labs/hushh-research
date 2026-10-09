@@ -26,7 +26,29 @@ async def start_upgrade(
     from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
     from hushh_mcp.services.pod_files.azure_recovery import settled_role_operation
 
-    continuation = settled_role_operation(row, await ByocSetupJobRepo().get(user_id))
+    previous_job = await ByocSetupJobRepo().get(user_id)
+    continuation = settled_role_operation(row, previous_job)
+    from hushh_mcp.services.pod_files.azure_configuration_recovery import (
+        settled_configuration_operation,
+    )
+
+    configuration_job = (
+        {
+            key: previous_job[key]
+            for key in (
+                "user_id",
+                "project_id",
+                "job_id",
+                "status",
+                "stage",
+                "error_code",
+                "created_at",
+                "updated_at",
+            )
+        }
+        if continuation and settled_configuration_operation(row, previous_job) == continuation
+        else None
+    )
     job_id, started = await authority._claim_job(user_id, group)
     if started:
         service = PersonalAgentProvisioningService(
@@ -40,6 +62,7 @@ async def start_upgrade(
                 target_image=target,
                 upgrade=service.upgrade_pod,
                 **({"resume_files_queue_operation": continuation} if continuation else {}),
+                **({"resume_files_job": configuration_job} if configuration_job else {}),
             )
         )
     approval = (row.get("backend_metadata") or {}).get("upgradeApproval") or {}

@@ -215,6 +215,7 @@ async def run_azure_upgrade_job(
     upgrade: Callable[..., Awaitable[dict]],
     repo: Optional[ByocSetupJobRepo] = None,
     resume_files_queue_operation: str | None = None,
+    resume_files_job: dict | None = None,
 ) -> None:
     """The approved update under the person's JIT token, through the orchestrator."""
     from hushh_mcp.services.user_azure_backend import jit_person_authority  # noqa: PLC0415
@@ -232,6 +233,7 @@ async def run_azure_upgrade_job(
                     if resume_files_queue_operation
                     else {}
                 ),
+                **({"resume_files_job": resume_files_job} if resume_files_job else {}),
             )
         _refuse_unfinished(outcome or {})
         await jobs.advance(user_id=user_id, job_id=job_id, stage="proving")

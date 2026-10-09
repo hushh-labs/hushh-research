@@ -159,7 +159,13 @@ class AzureFilesCapabilityPlan(BaseModel):
         if any(entry["name"].startswith("POD_FILES_") for entry in env):
             raise ValueError("Existing Files configuration requires reconciliation")
         env.extend({"name": name, "value": value} for name, value in self.environment.items())
-        rules = template["scale"].setdefault("rules", [])
+        # ARM represents its implicit HTTP scaler as null. Normalize only that
+        # documented absence; malformed or owner-authored rules must not vanish.
+        rules = template["scale"].get("rules")
+        if rules is None:
+            rules = template["scale"]["rules"] = []
+        if not isinstance(rules, list) or any(not isinstance(rule, dict) for rule in rules):
+            raise ValueError("Existing pod scaler rules are invalid")
         if any(rule.get("name") == "files" for rule in rules):
             raise ValueError("Existing Files scaler requires reconciliation")
         # Preserve explicit owner HTTP/other rules; make the platform default HTTP

@@ -185,9 +185,30 @@ def _replace(
     if spec.files_upgrade_plan is not None:
         from hushh_mcp.services.pod_files.azure_capability import AzureFilesCapabilityPlan
 
-        AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan).apply_configuration(
-            existing=current, desired=body
+        plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+        plan.apply_configuration(existing=current, desired=body)
+        # A durable intent precedes the provider write. Missing acknowledgement
+        # after this point is uncertain and may only be settled by readback.
+        from hushh_mcp.services.pod_files.azure_checkpoint import qualify_readback
+
+        completed = [
+            {
+                "step": call["step"],
+                "ok": True,
+                "status": 200,
+                "observation": qualify_readback(
+                    call,
+                    arm.get(
+                        call["path"], api_version=API_VERSIONS[call["api"]], op="files_replace"
+                    ),
+                ),
+            }
+            for call in plan.operations()
+        ]
+        plan.require_observation(
+            arm.get(backend.app_id, api_version=api, op="files_replace_identity")
         )
+        spec.on_files_upgrade_checkpoint("replacement_intent", completed[-1]["step"], completed)
     started = arm.request(
         "PUT",
         backend.app_id,

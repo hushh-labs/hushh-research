@@ -158,13 +158,13 @@ def erasure_reservation(row, plan, lease, intent, inventory):
     return reserved
 
 
-def seed_verified_prefix(arm, plan, checkpoint, spec):
+def seed_verified_prefix(arm, plan, checkpoint, spec, *, count=2):
     from dataclasses import replace
 
     from hushh_mcp.services.pod_files.azure_checkpoint import qualify_readback
 
     prefix = []
-    for call in plan.operations()[:2]:
+    for call in plan.operations()[:count]:
         arm.put(call["path"], api_version="fixture", body=call["body"])
         value, _ = checkpoint.prepare("intent", call["step"], prefix)
         checkpoint.acknowledge(value)
@@ -185,6 +185,7 @@ def seed_verified_prefix(arm, plan, checkpoint, spec):
 
 def settled_role_job(plan):
     return {
+        "job_id": "settled-files-job",
         "user_id": plan.ownerId,
         "project_id": plan.scopes.group,
         "status": "failed",
@@ -193,3 +194,55 @@ def settled_role_job(plan):
         "created_at": "2026-10-09T01:00:00+00:00",
         "updated_at": "2026-10-09T01:00:02+00:00",
     }
+
+
+def complete_configuration_fixture(arm, *, rules=None):
+    """The measured legacy pre-PUT failure, retaining the first failed receipt."""
+    from dataclasses import replace
+
+    from hushh_mcp.services.personal_agent_provisioning_service import upgrade_release_id
+    from hushh_mcp.services.pod_files.azure_checkpoint import qualify_readback
+    from hushh_mcp.services.pod_files.capability_update import _digest
+    from tests.test_user_azure_backend import _upgrade_spec
+
+    backend, target, plan, row, lease, operation, calls, _, failed = uncertain_role_fixture(arm)
+    template = arm.resources[backend.app_id]["properties"]["template"]
+    template["scale"]["rules"] = rules
+    plan = plan.model_copy(update={"templateDigest": _digest(template)})
+    completed = []
+    for call in calls:
+        arm.put(call["path"], api_version="fixture", body=call["body"])
+        completed.append(
+            {
+                "step": call["step"],
+                "ok": True,
+                "status": 200,
+                "observation": qualify_readback(call, arm.get(call["path"], api_version="fixture")),
+            }
+        )
+    meta = row["backend_metadata"]
+    meta["upgradeApproval"].update(
+        capabilityPlan=plan.model_dump(),
+        capabilityPlanDigest=plan.digest,
+        releaseId=upgrade_release_id(row, target, capability_digest=plan.digest),
+    )
+    meta["filesUpgradeCheckpoint"] = {
+        **failed,
+        "planDigest": plan.digest,
+        "step": calls[-1]["step"],
+        "completed": completed,
+    }
+    meta["filesUpgradeReconciliation"] = {"operationId": operation, "failedCheckpoint": failed}
+    spec = replace(
+        _upgrade_spec(
+            arm,
+            backend,
+            [],
+            upgrade_target_image=target,
+            files_upgrade_plan=plan.model_dump(),
+            upgrade_operation_id=operation,
+        ),
+        files_upgrade_recovery_job=settled_role_job(plan),
+    )
+    arm.calls.clear()
+    return backend, plan, row, spec, lease, operation, completed

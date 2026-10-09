@@ -151,11 +151,16 @@ async def test_files_preflight_read_refusal_has_no_mutations_or_ambiguous_receip
     assert not arm.writes() and not receipts and not _Handoff.events
 
 
-@pytest.mark.parametrize("reconciled_prefix", [False, True])
+@pytest.mark.parametrize("reconciled_prefix", [0, 2, 4])
+@pytest.mark.parametrize(
+    "scaler_rules",
+    [[], None, [{"name": "owner-http", "http": {"metadata": {"concurrentRequests": "4"}}}]],
+)
 async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_image(
     arm,  # noqa: F811 - shared ARM fixture
     monkeypatch,
     reconciled_prefix,
+    scaler_rules,
 ):  # noqa: F811
     from copy import deepcopy
 
@@ -166,6 +171,15 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
     backend, target, plan, row, role_call, checkpoint, receipts, spec = approved_update_fixture(
         arm, monkeypatch
     )
+    from dataclasses import replace
+
+    from hushh_mcp.services.pod_files.capability_update import _digest
+
+    template = arm.resources[backend.app_id]["properties"]["template"]
+    template["scale"]["rules"] = deepcopy(scaler_rules)
+    plan = plan.model_copy(update={"templateDigest": _digest(template)})
+    checkpoint.plan = plan
+    spec = replace(spec, files_upgrade_plan=plan.model_dump())
     before = deepcopy(arm.resources[backend.app_id])
     arm.resources[plan.storageId]["properties"]["allowBlobPublicAccess"] = True
     arm.calls.clear()
@@ -177,14 +191,15 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
     if reconciled_prefix:
         from tests.fixtures.azure_files_upgrade import seed_verified_prefix
 
-        spec = seed_verified_prefix(arm, plan, checkpoint, spec)
+        spec = seed_verified_prefix(arm, plan, checkpoint, spec, count=reconciled_prefix)
     with jit_person_authority("person-jit-token"):
         handle = await backend.upgrade(spec)
-    assert checkpoint.complete and len(receipts) == (4 if reconciled_prefix else 8)
+    assert checkpoint.complete and len(receipts) == 9 - 2 * reconciled_prefix
+    assert receipts[-1][0]["phase"] == "replacement_intent"
     if reconciled_prefix:
         assert {path for method, path in arm.writes() if method == "PUT"} == {
             backend.app_id,
-            *(call["path"] for call in plan.operations()[2:]),
+            *(call["path"] for call in plan.operations()[reconciled_prefix:]),
         }
     role_observation = next(
         entry["observation"]
@@ -198,6 +213,9 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
         "status": "enabled",
     }
     after = arm.resources[backend.app_id]
+    assert after["properties"]["template"]["scale"]["rules"][:-1] == (
+        scaler_rules or [{"name": "http", "http": {"metadata": {"concurrentRequests": "8"}}}]
+    )
     assert (
         after["properties"]["template"]["containers"][0]["resources"]
         == before["properties"]["template"]["containers"][0]["resources"]
@@ -221,6 +239,52 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
             original_inventory={},
             previous=last,
         )
+
+
+@pytest.mark.parametrize("failure", ["intent_refused", "put_uncertain"])
+async def test_files_replacement_is_journaled_before_put_and_never_replayed(
+    arm,  # noqa: F811 - shared fixture
+    monkeypatch,
+    failure,
+):
+    from dataclasses import replace
+
+    from tests.fixtures.azure_files_upgrade import approved_update_fixture
+
+    backend, _, plan, _, _, checkpoint, _, spec = approved_update_fixture(arm, monkeypatch)
+    persist = spec.on_files_upgrade_checkpoint
+    request = arm.request
+
+    def journal(phase, step, completed):
+        if phase == "replacement_intent" and failure == "intent_refused":
+            raise RuntimeError("fixture CAS refused")
+        persist(phase, step, completed)
+
+    def submit(method, path, **kwargs):
+        if path != backend.app_id:
+            return request(method, path, **kwargs)
+        assert checkpoint.previous["phase"] == "replacement_intent"
+        if failure == "put_uncertain":
+            raise TimeoutError("fixture lost provider response")
+        return request(method, path, **kwargs)
+
+    monkeypatch.setattr(arm, "request", submit)
+    with jit_person_authority("person-fixture"):
+        with pytest.raises((RuntimeError, TimeoutError)):
+            await backend.upgrade(replace(spec, on_files_upgrade_checkpoint=journal))
+    assert checkpoint.complete
+    assert checkpoint.previous["phase"] == (
+        "observed" if failure == "intent_refused" else "replacement_intent"
+    )
+    assert not any(path == backend.app_id for method, path in arm.writes() if method == "PUT")
+    assert not any(event[0] == "release" for event in _Handoff.events)
+    if failure == "put_uncertain":
+        with pytest.raises(ValueError, match="complete observed"):
+            checkpoint.prepare(
+                "replacement_intent",
+                plan.operations()[-1]["step"],
+                checkpoint.previous["completed"],
+            )
 
 
 @pytest.mark.parametrize(
