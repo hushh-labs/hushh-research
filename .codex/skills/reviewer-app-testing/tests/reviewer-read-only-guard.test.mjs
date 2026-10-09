@@ -304,6 +304,7 @@ test("unused calendar refunds retain half-up cents and a real partial term", () 
   assert.equal(unusedCalendarRefund(450, 0, 3_600_000, 60_000), 443);
   assert.equal(unusedCalendarRefund(1, 0, 3_600_000, 1_800_000), 1);
   assert.equal(unusedCalendarRefund(450, 0, 3_600_000, 3_600_001), 0);
+  assert.equal(unusedCalendarRefund(451, 0, 3_600_000, 67_500), 442);
   assert.equal(unusedCalendarRefund(450, 0, 3_600_000, "1970-01-01T00:01:00.000001+00:00"), 442);
   assert.equal(unusedCalendarRefund(450, 0, 3_600_000, "1970-01-01T00:01:00.000000+00:00"), 443);
   assert.throws(() => unusedCalendarRefund(450, 0, 3_600_000, "invalid"), /REFUND_TIMESTAMP_INVALID/);
