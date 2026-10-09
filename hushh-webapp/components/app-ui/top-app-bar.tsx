@@ -875,6 +875,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           scroll: false,
           source: "tap",
           transitionMode: action.transitionMode,
+          feedback: "light",
         });
       },
     });

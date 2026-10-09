@@ -12,8 +12,15 @@ import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/aut
 import { useAgentDockState } from "./agent-dock";
 import { useNativeDockPorts } from "./native-dock-port";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { setNativeBaseAperture, removeNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
 
 let presentationOwner: symbol | null = null;
+async function retireDock(identity: DockIdentity & { preserveDraft?: boolean }) {
+  const ack = await boundedDock(nativeDock.retire(identity));
+  if (!sameDock(identity, ack) || ack.phase !== "retired") throw new Error("NATIVE_DOCK_RETIRE_UNCONFIRMED");
+  removeNativeBaseAperture("agent-dock", identity.revision);
+  return ack;
+}
 // Private text is deliberately excluded: Send consumes the committed native
 // snapshot, but cannot act on a newer attachment or operation configuration.
 function actionConfiguration(projection: DockProjection) {
@@ -37,6 +44,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const current = useRef({ enabled, user: user?.uid, dock, ports, theme, suppressed, overlay, family, port });
   current.current = { enabled, user: user?.uid, dock, ports, theme, suppressed, overlay, family, port };
   const identity = useRef<DockIdentity | null>(null);
+  const underlay = useRef(false);
   const fence = useRef<DockEventFence | null>(null);
   const generation = useRef(0);
   const update = useRef(0);
@@ -56,7 +64,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     // leaving it onscreen behind an outstanding feature operation.
     if (previous) {
       const retirement = (async () => {
-      const ack = await boundedDock(nativeDock.retire(previous));
+      const ack = await retireDock(previous);
       if (!sameDock(previous, ack) || ack.phase !== "retired") throw new Error("NATIVE_DOCK_RETIRE_UNCONFIRMED");
       })();
       pending.current = Promise.all([pending.current.catch(() => undefined), retirement]).then(() => undefined)
@@ -74,6 +82,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   useEffect(() => { let live = true; void getNativeDockCapabilities().then(value => {
     if (!live) return;
     const admitted = value?.supported === true && value.contractVersion === 1;
+    underlay.current = admitted && value?.underlayPresentation === true;
     setDiscovered(true);
     setSupported(admitted);
     if (!admitted && !identity.current && presentationOwner === presentation.current) {
@@ -92,7 +101,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
         // Consumption may have completed despite an uncertain receipt. Freeze
         // and retire that replica before restoring the unsent feature snapshot.
         failed.current = true;
-        const ack = await boundedDock(nativeDock.retire({ ...consuming, preserveDraft: true }));
+        const ack = await retireDock({ ...consuming, preserveDraft: true });
         if (!sameDock(consuming, ack) || ack.phase !== "retired") throw new Error("NATIVE_DOCK_RETIRE_UNCONFIRMED");
         if (identity.current !== consuming) return;
         const port = current.current.ports?.get(current.current.family);
@@ -186,6 +195,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
           snapshot.sequence === update.current && fence.current?.acceptLayout(event, snapshot.sequence, snapshot.privacyGeneration,
             { width: window.innerWidth, height: window.innerHeight })) {
         current.current.ports?.setLayout(event);
+        if (underlay.current) setNativeBaseAperture("agent-dock", event.revision, event.frame);
       }
     }), nativeDock.addListener("readmissionRequested", () => { generation.current++; measure(value => value + 1); })];
     const removePrivacy = subscribeNativeSessionPrivacy(() => {
@@ -211,7 +221,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       const previous = identity.current;
       identity.current = null; fence.current = null;
       if (previous) void (async () => {
-        const ack = await boundedDock(nativeDock.retire(previous));
+        const ack = await retireDock(previous);
         if (!sameDock(previous, ack) || ack.phase !== "retired") throw new Error("NATIVE_DOCK_RETIRE_UNCONFIRMED");
         if (!identity.current && presentationOwner === presentation.current) { ports.present(false); setActive(false); }
       })().catch(() => { ports.present(true); });
@@ -256,6 +266,9 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
           sequence !== update.current || applyGeneration !== generation.current) return;
       const ack = await boundedDock(nativeDock.apply({ ...snapshot, privacyGeneration: privacy.generation }));
       if (!sameDock(lease, ack) || ack.updateSequence !== sequence || ack.phase !== "active") throw new Error("NATIVE_DOCK_ACK_UNCONFIRMED");
+      if (underlay.current && ack.layout && sequence === update.current && applyGeneration === generation.current) {
+        setNativeBaseAperture("agent-dock", lease.revision, ack.layout.frame);
+      }
       applied.current = { sequence, configuration, privacyGeneration: privacy.generation };
       if (ack.layout && sequence === update.current && applyGeneration === generation.current &&
           fence.current?.acceptLayout(ack.layout, sequence, privacy.generation, snapshot.viewport)) ports.setLayout(ack.layout);
@@ -263,7 +276,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       if (identity.current !== lease) return;
       failed.current = true;
       try {
-        const ack = await boundedDock(nativeDock.retire(lease));
+        const ack = await retireDock(lease);
         if (!sameDock(lease, ack) || ack.phase !== "retired") return;
         identity.current = null; fence.current = null; ports.present(false); setActive(false);
       } catch { /* uncertain ownership remains concealed and noninteractive */ }
@@ -277,8 +290,9 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       generationCounter.current++;
       const lease = identity.current;
       identity.current = null;
-      if (lease) void boundedDock(nativeDock.retire(lease)).then(ack => {
+      if (lease) void retireDock(lease).then(ack => {
         if (sameDock(lease, ack) && ack.phase === "retired" && presentationOwner === ownerAtUnmount) {
+          removeNativeBaseAperture("agent-dock", lease.revision);
           presentationOwner = null; current.current.ports?.present(false);
         }
       }).catch(() => undefined);

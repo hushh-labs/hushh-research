@@ -201,6 +201,15 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
+        #if DEBUG
+        // Qualification-only; older wrappers and Release retain their current
+        // host until composition, touch and physical frame pacing pass.
+        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
+           ProcessInfo.processInfo.arguments.contains("--hushh-native-compositor"),
+           let existing = webView, view === existing {
+            view = NativePresentationContainer(webView: existing)
+        }
+        #endif
         
         print("🔌 [MyViewController] Registering all native plugins...")
         print("🔌 [MyViewController] Bridge available: \(bridge != nil)")

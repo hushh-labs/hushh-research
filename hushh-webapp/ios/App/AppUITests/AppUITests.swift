@@ -85,6 +85,24 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
         XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
         let web = hosts.firstMatch
+        let status = app.buttons["native-test-status"].firstMatch
+        if let raw = status.exists ? status.value as? String : nil {
+            let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
+                let parts = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                return parts.count == 2 ? (String(parts[0]), String(parts[1])) : nil
+            }, uniquingKeysWith: { _, latest in latest })
+            let route = fields["route"] ?? ""
+            let routeKind = route == "/" || route == "/chat" || route.hasPrefix("/one/chat") ? "chat" : route == "/one" ? "one" : route.hasPrefix("/login") ? "login" : "other"
+            let auth = fields["auth"] ?? ""
+            let authKind = ["authenticated", "unauthenticated", "pending", "signed_in", "signed_out"].contains(auth) ? auth : "other"
+            print("NATIVE_PUBLIC_SHELL_STATE route_kind=\(routeKind) auth_kind=\(authKind) editor_present=\(app.textViews["native-dock-editor"].exists) privacy_cover=\(app.otherElements["session-privacy-shield"].exists)")
+        }
+        // Optional owner admission is read-only: emit counts, never the account
+        // label or hierarchy. This cannot authorize or submit an unlock.
+        if let email = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_EMAIL"], !email.isEmpty {
+            let ownerLabel = NSPredicate(format: "label == %@", email)
+            print("NATIVE_REVIEWER_ADMISSION configured=true static_matches=\(web.staticTexts.matching(ownerLabel).count) exact_matches=\(web.descendants(matching: .any).matching(ownerLabel).count)")
+        }
         if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETURN_CHAT"] == "true" {
             returnToRehearsalChat(app)
         }
@@ -983,6 +1001,83 @@ final class AppUITests: XCTestCase {
         }
         // Teardown clears only this exact synthetic draft through its owner.
         print("NATIVE_DOCK_CONTINUITY ten_warm_routes_unicode_newline_keyboard_no_web_duplicate")
+    }
+
+    func testLocalSessionNativeCompositorDrawerTiming() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_COMPOSITOR_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in retained compositor architecture gate")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("NATIVE_COMPOSITOR_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate()
+        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15))
+        // Restore only a drawer left open by an interrupted prior rehearsal.
+        // No route injection, document restart, account reset or draft change.
+        for identifier in ["profile-close", "chat-history-close"] {
+            let close = app.buttons[identifier].firstMatch
+            if close.exists && close.isHittable { close.tap() }
+        }
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let editorReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            editor.exists && editor.isHittable
+        }, object: editor)
+        guard XCTWaiter.wait(for: [editorReady], timeout: 15) == .completed else {
+            XCTFail("NATIVE_COMPOSITOR_REQUIRES_UNLOCKED_NATIVE_EDITOR"); return
+        }
+        let probe = app.buttons["native-panel-continuity"].firstMatch
+        func measurements() -> [String: Double]? {
+            guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8),
+                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Double],
+                  Set(packet.keys) == Set(["motionFrames", "staleFrames", "invalidSamples", "maxPoseAgeMs", "maxPoseAgeIntervals"]),
+                  packet.values.allSatisfy({ $0.isFinite && $0 >= 0 }) else { return nil }
+            return packet
+        }
+        guard let before = measurements() else { XCTFail("NATIVE_PANEL_TIMING_UNAVAILABLE"); return }
+        let profile = app.buttons["Open Profile"].firstMatch
+        let profileClose = app.buttons["profile-close"].firstMatch
+        let history = app.buttons["chat-history-toggle"].firstMatch
+        let historyClose = app.buttons["chat-history-close"].firstMatch
+        defer {
+            if profileClose.exists && profileClose.isHittable { profileClose.tap() }
+            if historyClose.exists && historyClose.isHittable { historyClose.tap() }
+        }
+        for (opener, close, fallbackLabel) in [(profile, profileClose, "Close Profile"), (history, historyClose, "Close chat history")] {
+            for cycle in 0..<10 {
+                guard opener.waitForExistence(timeout: 10), opener.isHittable else {
+                    XCTFail("NATIVE_PANEL_OPENER_UNAVAILABLE"); return
+                }
+                opener.tap()
+                guard close.waitForExistence(timeout: 10), close.isHittable else {
+                    XCTFail("NATIVE_PANEL_CLOSE_NOT_ADMITTED"); return
+                }
+                XCTAssertFalse(editor.isHittable, "Covered dock must not acquire interaction")
+                XCTAssertFalse(web.buttons[fallbackLabel].firstMatch.isHittable, "Interactive DOM duplicate")
+                XCTAssertEqual(hosts.count, 1)
+                XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)
+                XCTAssertGreaterThanOrEqual(close.frame.width, 44)
+                XCTAssertGreaterThanOrEqual(close.frame.height, 44)
+                let edge = cycle % 2 == 0 ? CGVector(dx: 0.1, dy: 0.5) : CGVector(dx: 0.9, dy: 0.5)
+                close.coordinate(withNormalizedOffset: edge).tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    editor.exists && editor.isHittable && opener.exists && opener.isHittable
+                }, object: editor)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    XCTFail("NATIVE_PANEL_WARM_RETURN_UNCONFIRMED"); return
+                }
+                let family = fallbackLabel == "Close Profile" ? "profile" : "history"
+                print("NATIVE_PANEL_CYCLE family=\(family) completed=\(cycle + 1)")
+            }
+        }
+        guard let after = measurements() else { XCTFail("NATIVE_PANEL_TIMING_UNAVAILABLE"); return }
+        print("NATIVE_PANEL_TIMING frames=\(Int(after["motionFrames", default: 0])) stale=\(Int(after["staleFrames", default: 0])) invalid=\(Int(after["invalidSamples", default: 0])) max_age_ms=\(after["maxPoseAgeMs", default: 0]) max_intervals=\(after["maxPoseAgeIntervals", default: 0])")
+        XCTAssertGreaterThan(after["motionFrames", default: 0], before["motionFrames", default: 0], "No transition frames observed")
+        XCTAssertEqual(after["invalidSamples"], 0, "Uncertain clock samples cannot pass the timing gate")
+        XCTAssertEqual(after["staleFrames"], 0, "Native pose exceeded one display interval")
+        XCTAssertLessThanOrEqual(after["maxPoseAgeIntervals", default: .infinity], 1)
+        print("NATIVE_PANEL_WARM_CONTINUITY ten_profile_ten_history_edge_taps_single_host_no_web_duplicate")
     }
 
     func testLocalSessionNativeChatControlsRespectOverlayKeyboardAndSingleHost() throws {

@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-08.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-09.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -16,12 +16,14 @@ another navigation stack, WebView, session, or information store.
 ### Current candidate: retained controls and private dock
 
 This candidate extends NativeChrome **version 2** with capability-negotiated
-`retainedControls`. A suspended control is hidden, noninteractive and unavailable
-to accessibility; its owned popup must complete dismissal before suspension is
+`retainedControls`. In the legacy host, a suspended control is hidden. In the
+opt-in compositor it remains visible but noninteractive and unavailable to
+accessibility; its owned popup must complete dismissal before suspension is
 acknowledged. Reopening can reuse its hosting controller only with the same
 document, opaque owner epoch, family, immutable configuration and exact frame/
 viewport. It always receives a new action revision. Ownership, geometry or schema
-replacement and privacy/keyboard invalidation retain strict retirement. Uncertain
+replacement and privacy invalidation retain strict retirement. The public Chrome
+keyboard fence does not conceal the separate private dock. Uncertain
 retirement never exposes an interactive web duplicate. Older wrappers retain their
 existing path.
 
@@ -74,13 +76,28 @@ suspension/retirement, stale choices, editing-purpose fencing, one-shot draft
 consumption and actual host editor/selection retention. These source/simulator
 checks do not establish physical visual, speech or performance acceptance.
 
-Profile and History now share an opt-in stationary semantic frame and a separate
-motion body; their existing dialog and gesture owners remain authoritative.
-Profile's public Appearance/Accent controls use a stable slot outside both the
-scroller and stack transform. Header and preference action admission still ends
-on close, lock or ownership change. Other sheets keep their original motion.
+Profile and History translate their whole panels, including headers and
+Preferences, through their existing dialog and gesture owners. The stationary
+Preferences portal and split-body presentation have been removed. The opt-in
+`--hushh-native-compositor` container retains the same WebView and bridge. Base
+controls/dock use acknowledged apertures beneath it; drawer controls use bounded,
+clipped native groups above it. Pose transport is latest-wins with one in-flight
+and one pending value, sampled at most once per animation frame and only while
+presentation changes. Document, owner epoch, generation, sequence and privacy
+bind pose admission. Closing revokes interaction immediately but retains the
+presentation generation through the exit animation. Popup choices bind the exact
+pose at opening; movement dismisses the owned popup. No route or gesture decision
+is made by the native group.
 
-**Remaining:** physical stationary-header and Preferences acceptance. Complete dock
+App haptics uses the existing iOS native preference. Its one-time migration lets
+an explicit disabled native or legacy JSON value win; subsequent reads use the
+native value. The Settings service serializes writes and leaves unrelated
+preferences alone. Feedback is requested by authored, accepted interactions,
+not a route observer; expired, duplicate, inactive and privacy-stale requests
+do not play. Native tab feedback is not duplicated by React. This source work
+does not qualify tactile behavior on a device.
+
+**Remaining:** physical whole-panel composition and Preferences acceptance. Complete dock
 IME/paste/attachment/refusal and keyboard geometry journeys, ten warm cycles per
 family, VoiceOver/Dynamic Type/rotation/transparency, and three physical Release
 performance runs remain required. The current route inventory continues below;
@@ -89,7 +106,58 @@ multiselects, protected forms, scrolling controls and rich approval cards remain
 React deliberately. Rollback is capability denial/removal of the Debug arguments;
 fallback and strict retirement must still be verified before any family promotion.
 
-### Warm handoff corrections — 2026-10-08
+### Whole-panel compositor qualification — 2026-10-09
+
+The candidate is derived from `fe58d0e56e` on
+`feat/adk-orchestration-runtime`; it is an opt-in implementation, not a promoted
+native family. Profile and History translate their complete existing panel,
+including headers and Preferences. Their existing gesture writers remain the
+decision owners. Covered base controls retain presentation while admission and
+accessibility are revoked. This is distinct from privacy concealment.
+
+Local verification passes the canonical core mirror (2,015 seconds), 169 nearest
+frontend contracts, typecheck, static/plugin/design checks, final native export
+and sync, 48 native-support tests, and Android Debug unit tests. The signed iPhone build and its actual
+bundle assets pass. The installed App executable fingerprint is
+`6500502210f44c20c9968bed80eeaadc88ae573ac1028db6f4f8a4d9d6709630`;
+the packaged runtime is UAT, not production. Later test-runner-only diagnostics
+are not a second product-installation receipt. Exact-head CI is outstanding.
+
+The first installed composition exported one native editor at its expected
+frame, with no web editor, but neither editor nor dock was hittable. Its
+compositor journey stopped at `NATIVE_COMPOSITOR_REQUIRES_UNLOCKED_NATIVE_EDITOR`.
+DOM paint apertures do not establish UIKit accessibility ordering. The bounded
+container now traverses the native underlay after WK while keeping its
+[layer paint order](https://developer.apple.com/documentation/quartzcore/calayer/zposition)
+below WK. Explicit touch/admission routing remains unchanged. The nearest native
+contract rejects the earlier ordering and preserves the paint and stale-hit
+boundaries; all 48 tests pass after this change.
+
+On the separately installed corrected candidate, canonical reviewer admission
+and one normal whole-value passphrase unlock pass, including protected native
+Chat interaction. This supports the hierarchy correction; it does not qualify
+drawer motion. No reviewer reset, alternate account, forced privacy-uncover or
+repeated credential submission within that cold-preparation session is used.
+The first twenty-cycle batch exceeded its outer three-minute harness deadline
+without returning an assertion receipt. The revised runner sizes only that
+macro deadline for twenty interactions and emits bounded cycle counts. Individual
+action waits and pose-age limits are unchanged; the interrupted batch is not a
+motion pass.
+
+The opt-in numeric timing probe compares a pose's JavaScript epoch timestamp with
+the native target display interval, retaining only the latest pending sample
+per group. It records neither information nor actions and cannot admit a choice.
+Its clock precision and target-frame estimate do not prove visual alignment or
+absence of detachment. The unchanged gate requires zero stale/invalid samples
+and pose age at most one display interval. It has **not** passed on device.
+
+Expansion and release remain blocked by whole-panel composition
+(including nested-overlay paint occlusion), one-CSS-pixel
+rest alignment, interrupted drags, ten warm cycles per family, accessibility/
+theme/keyboard acceptance and three physical Release performance runs. iPad
+remains unqualified. Synthetic unit/layout results cannot replace these receipts.
+
+### Historical warm handoff corrections — 2026-10-08
 
 Compatible active History/Profile Back handoffs now take the existing replacement
 contract before suspension; they keep their native presentation while fresh action
@@ -132,7 +200,11 @@ VoiceOver/Dynamic Type, Release frame pacing or iPad. The existing complete pari
 report gate remains failed for incomplete/stale route evidence; no additional
 release or iPad family is enabled.
 
-### Remaining composition gap — Profile exit, 2026-10-08
+### Historical composition gap — Profile exit, 2026-10-08
+
+The observations below describe the pre-compositor source. The current candidate
+implements the bounded seam above but has not passed physical composition
+acceptance. These historical receipts must not qualify the new composition.
 
 Retaining a hosting controller does **not** retain its visible presentation behind
 a React sheet. Profile's overlay/content refs keep the shared native isolation

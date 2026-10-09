@@ -1,4 +1,5 @@
 "use client";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
@@ -162,6 +163,7 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
       settling = true;
       panel.dataset.profilePull = "exit";
       scrim.dataset.profilePull = "exit";
+      appHaptic("selection");
       owner.current.onClose(); // Once, through the existing controlled Sheet.
     };
     const click = (event: MouseEvent) => {

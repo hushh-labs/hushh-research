@@ -1,8 +1,73 @@
 import XCTest
 import SwiftUI
+import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testNativePanelPoseAndClippingDoNotGrantStaleOrOutsideHits() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web)
+        let control = UIButton(frame: CGRect(x: 10, y: 10, width: 44, height: 44))
+        let pose = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 1, privacyGeneration: 0, frame: CGRect(x: 100, y: 0, width: 100, height: 844),
+            offset: 0, opacity: 1, settled: true)
+        container.install(control, id: "profile-close", group: "profile")
+        XCTAssertTrue(container.apply(pose, group: "profile", privacy: 0))
+        container.setAdmission("profile-close", admitted: true)
+        XCTAssertTrue(web.superview === container)
+        XCTAssertTrue(container.subviews.first === web,
+            "WK's rectangle must not sit in front of native controls in UIKit traversal")
+        XCTAssertLessThan(container.underlay.layer.zPosition, web.layer.zPosition,
+            "Native accessibility ordering must not move glass above product paint")
+        XCTAssertTrue(container.hitTest(CGPoint(x: 120, y: 20), with: nil) === control)
+        control.frame.origin.x = -30 // Its bounds extend outside the clipped group.
+        XCTAssertFalse(container.hitTest(CGPoint(x: 85, y: 20), with: nil) === control)
+        XCTAssertFalse(container.apply(pose, group: "profile", privacy: 0), "Reordered pose cannot regain interaction")
+        control.frame.origin.x = 10
+        let originalHost = control.superview
+        let moving = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 2, privacyGeneration: 0, frame: pose.frame, offset: 30, opacity: 1, settled: false)
+        XCTAssertTrue(container.apply(moving, group: "profile", privacy: 0))
+        XCTAssertTrue(control.superview === originalHost, "Motion must preserve the native presentation")
+        XCTAssertFalse(control.isHidden, "Interaction suspension must not hide a moving control")
+        XCTAssertFalse(control.isUserInteractionEnabled)
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 150, y: 20), with: nil) === control,
+            "A moving native control cannot execute an action")
+        let transparent = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 3, privacyGeneration: 0, frame: pose.frame, offset: 0, opacity: 0, settled: true)
+        XCTAssertTrue(container.apply(transparent, group: "profile", privacy: 0))
+        container.setAdmission("profile-close", admitted: true)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 120, y: 20), with: nil) === control,
+            "Ancestor opacity must exclude a native hit even when its own view is visible")
+        XCTAssertTrue(container.retire(group: "profile", document: "synthetic", ownerEpoch: "epoch", generation: 1))
+        XCTAssertFalse(container.apply(pose, group: "profile", privacy: 0), "Retired presentation cannot resurrect")
+        container.conceal()
+        XCTAssertFalse(container.hitTest(CGPoint(x: 120, y: 20), with: nil) === control)
+    }
+
+    func testAppHapticMigrationUsesAnExplicitDisabledValueOnce() {
+        let name = "hushh-haptic-test-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(true, forKey: "hapticFeedback")
+        defaults.set("{\"hapticFeedback\":false,\"theme\":\"dark\"}", forKey: "CapacitorStorage.hushh_settings")
+        XCTAssertFalse(HushhAppHaptics.enabled(in: defaults))
+        defaults.set(true, forKey: "hapticFeedback")
+        XCTAssertTrue(HushhAppHaptics.enabled(in: defaults), "Legacy JSON cannot override the authoritative native value after migration")
+        XCTAssertNil(defaults.object(forKey: "theme"), "No unrelated setting is migrated")
+    }
+
+    func testAppHapticFeedbackCannotReplayOrQueueExpiredChoices() {
+        var state = HushhAppHapticFeedbackState()
+        XCTAssertTrue(state.consume("choice-1", issuedAt: 1000, now: 1001))
+        XCTAssertFalse(state.consume("choice-1", issuedAt: 1000, now: 1002), "One choice must not vibrate twice")
+        XCTAssertFalse(state.consume("expired", issuedAt: 1000, now: 1251), "Late feedback is dropped, not queued")
+        XCTAssertFalse(state.consume("future", issuedAt: 1100, now: 1000))
+        XCTAssertTrue(state.consume("choice-2", issuedAt: 1002, now: 1003), "A distinct current choice remains admitted")
+    }
+
     @MainActor
     func testDockFollowsKeyboardLayoutWithoutAnotherApplyAndVoiceReleasesTheLift() {
         let parent = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))

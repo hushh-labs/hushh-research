@@ -59,7 +59,7 @@ export type DockEvent = DockIdentity & {
   attachmentId?: string;
 };
 export interface HushhNativeDockPlugin {
-  getCapabilities(): Promise<{ contractVersion: number; supported: boolean }>;
+  getCapabilities(): Promise<{ contractVersion: number; supported: boolean; underlayPresentation?: boolean }>;
   apply(options: DockState): Promise<DockAcknowledgement>;
   retire(options: DockIdentity & { preserveDraft?: boolean }): Promise<DockAcknowledgement>;
   suspend(options: DockIdentity): Promise<DockAcknowledgement>;
@@ -71,7 +71,7 @@ export interface HushhNativeDockPlugin {
   addListener(eventName: "readmissionRequested", listener: () => void): Promise<PluginListenerHandle>;
 }
 export const nativeDock = registerPlugin<HushhNativeDockPlugin>("HushhNativeDock");
-let capability: { documentId: string; promise: Promise<{ contractVersion: number; supported: boolean } | null> } | undefined;
+let capability: { documentId: string; promise: Promise<{ contractVersion: number; supported: boolean; underlayPresentation?: boolean } | null> } | undefined;
 export function getNativeDockCapabilities() {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return Promise.resolve(null);
   const documentId = nativeDocumentId();

@@ -17,7 +17,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
-import { SidePanelMotionProvider } from "@/components/app-ui/side-panel-motion";
+import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 
 const selector =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -71,8 +71,6 @@ export function AgentConnectionsDrawer({
   onRestoreHistoryFocus?: () => void;
 }) {
   const drawer = useRef<HTMLDivElement>(null);
-  const historyBody = useRef<HTMLDivElement>(null);
-  const attachHistoryBody = useCallback((node: HTMLDivElement | null) => { historyBody.current = node; }, []);
   const scrim = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const [presentationReady, setPresentationReady] = useState(false);
@@ -91,6 +89,7 @@ export function AgentConnectionsDrawer({
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
   const historyOpen = open && mode === "chats";
+  const attachNativePanel = useNativePanelPresentation("history", presentationKey ?? null, drawer, historyOpen);
   const historyActive = useRef(historyOpen);
   useLayoutEffect(() => { historyActive.current = historyOpen; }, [historyOpen]);
   useNativeNavigationBlocked(historyOpen, "chat-history");
@@ -146,16 +145,16 @@ export function AgentConnectionsDrawer({
     let current = true;
     const initialFocus = document.activeElement;
     const frame = requestAnimationFrame(() => {
-      const body = historyBody.current;
-      // The semantic header is stationary, but this footer enters with the
-      // body. Focusing it while clipped can be refused (or scroll the panel).
+      const body = drawer.current;
+      // The whole panel translates. Focusing its footer while clipped can
+      // be refused (or scroll the panel).
       // Only finite entry motion owns this wait, never child loading spinners.
       const entry = body?.getAnimations().filter(animation =>
         (animation.effect as KeyframeEffect | null)?.target === body &&
         animation.effect?.getComputedTiming().iterations !== Infinity,
       ) ?? [];
       void Promise.allSettled(entry.map(animation => animation.finished)).then(() => {
-        if (!current || body !== historyBody.current || modalActive.current || drawer.current?.closest("[inert]") ||
+        if (!current || body !== drawer.current || modalActive.current || drawer.current?.closest("[inert]") ||
             document.activeElement !== initialFocus) return;
         drawer.current?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')
           ?.focus({ preventScroll: true });
@@ -235,7 +234,7 @@ export function AgentConnectionsDrawer({
         enabled={presentationReady && gestureEnabled && mode === "chats" && !externalModalOpen}
         open={historyOpen}
         presentationKey={presentationKey}
-        surfaceRef={gestureSurfaceRef} drawerRef={drawer} motionRef={historyBody} scrimRef={scrim}
+        surfaceRef={gestureSurfaceRef} drawerRef={drawer} motionRef={drawer} scrimRef={scrim}
         onOpen={onGestureOpen ?? (() => onOpenChange(true))}
         onClose={() => onOpenChange(false)} /> : null}
       {connectorHost && createPortal(connections, connectorHost)}
@@ -277,18 +276,18 @@ export function AgentConnectionsDrawer({
               "z-(--z-sheet-overlay) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
               "transition-[opacity,visibility] motion-reduce:transition-none",
               historyOpen
-                ? "pointer-events-auto visible opacity-100 duration-140 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                : "pointer-events-none invisible opacity-0 duration-100 ease-[cubic-bezier(0.4,0,1,1)]",
+                ? "pointer-events-auto visible opacity-100 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
+                : "pointer-events-none invisible opacity-0 duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}
             onClick={() => {
               if (!externalModalOpen) onOpenChange(false);
             }}
           />
           <div
-            ref={drawer}
+            ref={attachNativePanel}
             role="dialog"
             data-agent-history-drawer
-            data-stationary-history-frame
+            data-native-panel-group="history"
             aria-modal={externalModalOpen ? undefined : true}
             aria-label="Agent chat history"
             aria-hidden={!historyOpen || externalModalOpen}
@@ -301,11 +300,11 @@ export function AgentConnectionsDrawer({
               // get a nearly full-width panel that leaves a strip of scrim to tap
               // closed; from md up it keeps the drawer's 336px. Closed, it also
               // clears its own shadow. Motion uses the shared sheet tier.
-              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transition-[opacity,visibility] motion-reduce:transition-none",
+              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transform-gpu transition-[transform,visibility] motion-reduce:transition-none",
               "w-[min(88vw,360px)] md:w-[336px]",
               historyOpen
-                ? "visible opacity-100 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
-                : "invisible opacity-0 duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
+                ? "visible translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
+                : "invisible -translate-x-full duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}
           >
             <div
@@ -313,7 +312,7 @@ export function AgentConnectionsDrawer({
               inert={mode !== "chats"}
               className="pointer-events-auto h-full min-h-0"
             >
-              <SidePanelMotionProvider open={historyOpen} side="left" onMotionRef={attachHistoryBody}>{chats}</SidePanelMotionProvider>
+              {chats}
             </div>
           </div>
         </>,

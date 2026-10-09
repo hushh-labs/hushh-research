@@ -1,4 +1,44 @@
 import Capacitor
+import UIKit
+import CoreFoundation
+
+/// Bounded, best-effort feedback admission. It never queues or retries a cue.
+struct HushhAppHapticFeedbackState {
+    private var consumed = [String]()
+    mutating func consume(_ id: String, issuedAt: Double, now: Double) -> Bool {
+        guard !id.isEmpty, id.count <= 128, issuedAt.isFinite, now.isFinite,
+              now - issuedAt >= -50, now - issuedAt <= 250,
+              !consumed.contains(id) else { return false }
+        consumed.append(id)
+        if consumed.count > 256 { consumed.removeFirst() }
+        return true
+    }
+}
+
+/// One existing device preference; no account information or second store.
+enum HushhAppHaptics {
+    static func enabled(in defaults: UserDefaults = .standard) -> Bool {
+        if !defaults.bool(forKey: "hapticFeedbackMigrated.v1") {
+            let native = strictBool(defaults.object(forKey: "hapticFeedback"))
+            let legacy = defaults.string(forKey: "CapacitorStorage.hushh_settings")
+                .flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                .flatMap { strictBool($0["hapticFeedback"]) }
+            defaults.set(native != false && legacy != false, forKey: "hapticFeedback")
+            defaults.set(true, forKey: "hapticFeedbackMigrated.v1")
+        }
+        return strictBool(defaults.object(forKey: "hapticFeedback")) ?? true
+    }
+    private static func strictBool(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
+    }
+    static func play(_ kind: String) {
+        guard enabled() else { return }
+        if kind == "selection" { UISelectionFeedbackGenerator().selectionChanged() }
+        else if kind == "light" { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+    }
+}
 
 /**
  * HushhSettingsPlugin - App Settings Management (Capacitor 8)
@@ -43,7 +83,7 @@ public class HushhSettingsPlugin: CAPPlugin, CAPBridgedPlugin {
             "preferredLLMProvider": defaults.string(forKey: "preferredLLMProvider") ?? defaultSettings["preferredLLMProvider"] as! String,
             "requireBiometricUnlock": defaults.object(forKey: "requireBiometricUnlock") as? Bool ?? defaultSettings["requireBiometricUnlock"] as! Bool,
             "theme": defaults.string(forKey: "theme") ?? defaultSettings["theme"] as! String,
-            "hapticFeedback": defaults.object(forKey: "hapticFeedback") as? Bool ?? defaultSettings["hapticFeedback"] as! Bool,
+            "hapticFeedback": HushhAppHaptics.enabled(in: defaults),
             "showDebugInfo": defaults.object(forKey: "showDebugInfo") as? Bool ?? defaultSettings["showDebugInfo"] as! Bool,
             "verboseLogging": defaults.object(forKey: "verboseLogging") as? Bool ?? defaultSettings["verboseLogging"] as! Bool
         ])
@@ -70,6 +110,7 @@ public class HushhSettingsPlugin: CAPPlugin, CAPBridgedPlugin {
             defaults.set(value, forKey: "theme")
         }
         if let value = call.getBool("hapticFeedback") {
+            _ = HushhAppHaptics.enabled(in: defaults)
             defaults.set(value, forKey: "hapticFeedback")
         }
         if let value = call.getBool("showDebugInfo") {

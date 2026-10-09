@@ -4837,6 +4837,14 @@ body:has([data-testid="one-location-onboarding"])
     padding-right: env(safe-area-inset-right);
   }
 
+  /* Native compositor opt-in: only acknowledged base slots are cut from the
+     app paint owner. Body-level modal portals keep their own opaque surfaces. */
+  html.native-ios.native-compositor-apertures,
+  html.native-ios.native-compositor-apertures body,
+  html.native-ios.native-compositor-apertures.dark body {
+    background: transparent !important;
+  }
+
   /* The Capacitor Google Maps renderer is a native surface below the WebView.
  * Only the immersive Map route opts into this class, so its shell layers must
  * be transparent while the controls above remain regular web UI. Keeping the

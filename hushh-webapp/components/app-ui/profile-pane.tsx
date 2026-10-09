@@ -2,7 +2,8 @@
 
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { ProfilePaneDrag } from "@/components/app-ui/profile-pane-drag";
-import { SidePanelMotionBody, SidePanelMotionProvider } from "@/components/app-ui/side-panel-motion";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
+import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
 import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
 import { nativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
@@ -134,8 +135,8 @@ function ProfilePaneShell() {
  * after each close: every open starts from the shell, and a close (or a move
  * between panels while open) never shows it again.
  */
-function ProfilePaneBody({ location, nativeControlsEligible, stationaryPreferencesHost }: {
-  location: ProfilePaneLocation; nativeControlsEligible: boolean; stationaryPreferencesHost: HTMLDivElement | null;
+function ProfilePaneBody({ location, nativeControlsEligible }: {
+  location: ProfilePaneLocation; nativeControlsEligible: boolean;
 }) {
   const firstFramePainted = useProfilePaneFirstFramePainted();
   // Mounted once per open, inside the committed sheet content: the evidence a
@@ -147,8 +148,7 @@ function ProfilePaneBody({ location, nativeControlsEligible, stationaryPreferenc
     if (firstFramePainted) markProfilePane("hushh:profile-pane-content");
   }, [firstFramePainted]);
   if (!firstFramePainted) return <ProfilePaneShell />;
-  return <ProfilePage presentation="pane" paneLocation={location} nativeControlsEligible={nativeControlsEligible}
-    stationaryPreferencesHost={stationaryPreferencesHost} />;
+  return <ProfilePage presentation="pane" paneLocation={location} nativeControlsEligible={nativeControlsEligible} />;
 }
 
 type ProfilePaneProps = {
@@ -166,15 +166,17 @@ type ProfilePaneProps = {
 export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange, returnFocusRef }: ProfilePaneProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const semanticRef = useRef<HTMLDivElement>(null);
-  const [stationaryPreferencesHost, setStationaryPreferencesHost] = useState<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const previewScrimRef = useRef<HTMLDivElement>(null);
   const previewOffset = useRef<number | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const { isVaultUnlocked } = useVault();
+  const attachNativePanel = useNativePanelPresentation("profile", owner ?? null, panelRef, open && isVaultUnlocked);
   const attachPanel = useCallback((node: HTMLDivElement | null) => {
-    panelRef.current = node;
+    semanticRef.current = node;
+    attachNativePanel(node);
     if (node && previewOffset.current !== null) {
       node.style.setProperty("--profile-entry-offset", `${previewOffset.current}px`);
       previewOffset.current = null;
@@ -183,9 +185,8 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     } else if (node) {
       node.style.removeProperty("--profile-entry-offset");
     }
-  }, []);
+  }, [attachNativePanel]);
   const scrimRef = useRef<HTMLDivElement>(null);
-  const { isVaultUnlocked } = useVault();
   const focusOwner = useRef({ owner, open, isVaultUnlocked });
   useLayoutEffect(() => { focusOwner.current = { owner, open, isVaultUnlocked }; });
   useLayoutEffect(() => {
@@ -312,15 +313,16 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     <Sheet open={open} onOpenChange={onOpenChange} modal>
       <SheetContent
         nativeLayer="profile-pane"
-        stationaryChrome
         side="right"
         showCloseButton={false}
         contentDragDismiss={false}
-        contentRef={node => { semanticRef.current = node; }}
+        contentRef={attachPanel}
         overlayRef={scrimRef}
-        className="w-full max-w-none gap-0 overflow-hidden p-0 sm:w-[min(92vw,560px)] sm:max-w-[560px]"
+        overlayClassName="data-[state=open]:duration-(--motion-sheet-enter-duration) data-[state=closed]:duration-(--motion-sheet-exit-duration) data-[state=open]:ease-(--motion-sheet-enter-ease) data-[state=closed]:ease-(--motion-sheet-exit-ease)"
+        className="w-full max-w-none gap-0 overflow-hidden p-0 sm:w-[min(92vw,560px)] sm:max-w-[560px] data-[state=open]:duration-(--motion-sheet-enter-duration) data-[state=closed]:duration-(--motion-sheet-exit-duration) data-[state=open]:ease-(--motion-sheet-enter-ease) data-[state=closed]:ease-(--motion-sheet-exit-ease)"
         aria-label="Profile"
         data-testid="profile-pane"
+        data-native-panel-group="profile"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           // Name the modal before its content is ready; Close must not become
@@ -338,7 +340,6 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
               !nativeShellOverlayBlocked("profile-pane")) target.target.focus({ preventScroll: true });
         }}
       >
-        <SidePanelMotionProvider open={open} side="right" onMotionRef={attachPanel}>
         <ProfilePaneDrag open={open} presentationKey={JSON.stringify([owner, pathname, profilePaneLocationKey(location), isVaultUnlocked])} panelRef={panelRef} semanticRef={semanticRef} scrimRef={scrimRef} onClose={() => onOpenChange(false)} />
         <SheetHeader className="shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left">
           <div className="flex min-w-0 items-center gap-2">
@@ -357,7 +358,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
                   ref={backRef}
                   type="button"
                   aria-label="Back in Profile"
-                  onClick={() => popProfilePaneLocation(pathname, searchParams)}
+                  onClick={() => { appHaptic("light"); popProfilePaneLocation(pathname, searchParams); }}
                   className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                 >
                   <ArrowLeft className="h-5 w-5" />
@@ -394,24 +395,19 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
             ref={closeRef}
             type="button"
             aria-label="Close Profile"
+            onClick={() => appHaptic("light")}
             className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-muted-foreground transition-colors duration-100 hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           >
             <X className="h-4 w-4" />
           </button>
         </SheetClose>
         </NativeChatChrome>
-        <div ref={setStationaryPreferencesHost} data-profile-stationary-preferences
-          className="shrink-0 empty:hidden px-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))]" />
-        <SidePanelMotionBody>
         <div
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
-          <ProfilePaneBody location={location} nativeControlsEligible={open}
-            stationaryPreferencesHost={stationaryPreferencesHost} />
+          <ProfilePaneBody location={location} nativeControlsEligible={open} />
         </div>
-        </SidePanelMotionBody>
-        </SidePanelMotionProvider>
       </SheetContent>
     </Sheet>
     </>

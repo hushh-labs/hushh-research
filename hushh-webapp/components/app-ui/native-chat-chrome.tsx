@@ -1,5 +1,8 @@
 "use client";
 
+import { NATIVE_PANEL_LAYOUT_EVENT } from "@/lib/capacitor/native-panel-presentation";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
+
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { XIcon } from "@/components/icons";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
@@ -56,7 +59,8 @@ type Props = {
 export function NativeChatChrome(props: Props) {
   const { ref: handleRef, className, children } = props;
   const slot = useRef<HTMLDivElement>(null);
-  const kind = props.kind;
+  const kind = props.kind === "history" && props.expanded && peekNativeChromeCapabilities()?.panelPresentation
+    ? "history-close" as const : props.kind;
   const controlId = chromeControlId(kind);
   // Only the current authored History layer may own Close. Anonymous/nested
   // overlays and the active drag still block it; Close is not globally exempt.
@@ -296,7 +300,10 @@ export function NativeChatChrome(props: Props) {
           void active?.choose(event, () => lease.current === active && current.current.epoch === active.projection.ownerEpoch &&
             current.current.context === active.context && isCurrentNativeControlAppearance(active.projection, foreground) && canAct(), () => {
             const callback = current.current.props;
-            if (callback.kind === "history" || callback.kind === "close" || callback.kind === "profile-back") callback.onActivate();
+            if (callback.kind === "history" || callback.kind === "close" || callback.kind === "profile-back") {
+              appHaptic("light", `${event.ownerEpoch}:${event.controlId}:${event.revision}:${event.sequence}`);
+              callback.onActivate();
+            }
             else if (callback.kind === "agent-surface") { if (event.value === "one" || event.value === "puppy") callback.onValueChange(event.value); }
             else if (callback.kind === "appearance") { if (event.value === "light" || event.value === "dark" || event.value === "system") callback.onValueChange(event.value); }
             else if (callback.kind === "accent") { if (event.value === "blue" || event.value === "gold") callback.onValueChange(event.value); }
@@ -333,6 +340,7 @@ export function NativeChatChrome(props: Props) {
     node?.addEventListener("focusout", onFocusOut);
     document.addEventListener("visibilitychange", invalidate);
     window.addEventListener("resize", reconcileGeometry);
+    window.addEventListener(NATIVE_PANEL_LAYOUT_EVENT, reconcileGeometry);
     const observer = new ResizeObserver(reconcileGeometry);
     if (node) observer.observe(node);
     return () => {
@@ -343,6 +351,7 @@ export function NativeChatChrome(props: Props) {
       node?.removeEventListener("focusout", onFocusOut);
       document.removeEventListener("visibilitychange", invalidate);
       window.removeEventListener("resize", reconcileGeometry);
+      window.removeEventListener(NATIVE_PANEL_LAYOUT_EVENT, reconcileGeometry);
       setSupported(false);
     };
   }, [kind, controlId, foreground, canAct]);
@@ -358,7 +367,8 @@ export function NativeChatChrome(props: Props) {
     let timer = 0;
     const transitions = new Set<EventTarget>();
     const animations = new Map<EventTarget, Set<string>>();
-    const transformRunning = () => ancestors.some((ancestor) => ancestor.getAnimations?.().some((animation) =>
+    const mirrored = (ancestor: HTMLElement) => peekNativeChromeCapabilities()?.panelPresentation && ancestor.hasAttribute("data-native-panel-group");
+    const transformRunning = () => ancestors.some((ancestor) => !mirrored(ancestor) && ancestor.getAnimations?.().some((animation) =>
       animation.playState === "running" && animation.effect instanceof KeyframeEffect &&
       animation.effect.getKeyframes().some((frame) => "transform" in frame)));
     const settle = () => {
@@ -376,12 +386,14 @@ export function NativeChatChrome(props: Props) {
     };
     const transition = (event: TransitionEvent) => {
       if (event.target !== event.currentTarget || event.propertyName !== "transform") return;
+      if (mirrored(event.currentTarget as HTMLElement)) return;
       if (event.type === "transitionrun") transitions.add(event.currentTarget!);
       else transitions.delete(event.currentTarget!);
       move();
     };
     const animation = (event: AnimationEvent) => {
       if (event.target !== event.currentTarget || !event.currentTarget) return;
+      if (mirrored(event.currentTarget as HTMLElement)) return;
       // This owned frame changes opacity only. Its controls sit outside the
       // translated body, so revoking their geometry would recreate the swap.
       if (["stationary-side-frame-enter", "stationary-side-frame-exit"].includes(event.animationName)) return;
@@ -442,7 +454,7 @@ export function NativeChatChrome(props: Props) {
           !slot.current.contains(document.activeElement) ? measureNativeChromeGeometry(slot.current, kind) : null;
         const control: ChromeControl & { label: string } =
           props.kind === "close" || props.kind === "profile-back" ? { kind: props.kind, label: props.label } :
-          props.kind === "history" ? { kind: "history", expanded, label: "Chat history" } :
+          props.kind === "history" ? { kind: kind === "history-close" ? "history-close" : "history", expanded, label: props.expanded ? "Close chat history" : "Chat history" } :
           props.kind === "agent-surface" ? { kind: "agent-surface", value: props.value, label: "Agent" } :
           props.kind === "appearance" ? { kind: "appearance", value: props.value, label: "Appearance" } :
           props.kind === "accent" ? { kind: "accent", value: props.value, fullTrigger: props.fullTrigger, palette: props.palette, label: "App accent color" } :
@@ -455,7 +467,7 @@ export function NativeChatChrome(props: Props) {
         // an actually inactive surface, not a route/action revision change.
         // The native replacement contract fences interaction until activation.
         const replacing = !inactive && previous && theme && geometry && (
-          historyReplacement && props.kind === "history" &&
+          historyReplacement && kind === "history" && props.kind === "history" &&
             previous.canReplaceHistoryWith({ kind: "history", expanded, label: "Chat history", enabled: true, ...theme, ...geometry }, epoch, context) ||
           profileBackReplacement && props.kind === "profile-back" &&
             previous.canReplaceBackWith({ kind: "profile-back", label: props.label, enabled: true, ...theme, ...geometry }, epoch, context));
@@ -647,7 +659,7 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
     <ShellActionSurface variant="icon" id="one-chat-history-trigger" ref={focusRef}
       // Pointer entry may return to acknowledged native focus. Keyboard and
       // ambiguous activation retain the DOM focus target until explicit blur.
-      onClick={(event) => onActivate(event.detail > 0, event.currentTarget)}
+      onClick={(event) => { appHaptic("light"); onActivate(event.detail > 0, event.currentTarget); }}
       aria-label={`${label}${pendingAttention > 0 && !open
         ? `, ${pendingAttention} Drive ${pendingAttention === 1 ? "review needs" : "reviews need"} you` : ""}`}
       title={label} aria-expanded={open} className="relative z-[540]">
@@ -675,7 +687,7 @@ export function NativeHistoryClose({ owner, context, onClose, stationary = false
   }, [key]);
   return <NativeChatChrome kind="history" expanded pendingAttention={0} owner={owner} context={context}
     eligible={stationary || stationaryKey === key} onActivate={onClose} focusRef={focusRef} className="relative flex size-11 shrink-0 items-center justify-center">
-    <button ref={focusRef} type="button" aria-label="Close chat history" onClick={onClose}
+    <button ref={focusRef} type="button" aria-label="Close chat history" onClick={() => { appHaptic("light"); onClose(); }}
       className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted">
       <XIcon className="size-4" aria-hidden />
     </button>

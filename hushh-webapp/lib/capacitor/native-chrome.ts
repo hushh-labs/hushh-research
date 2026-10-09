@@ -3,15 +3,17 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
 import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import { nativePanelGeometry, type NativePanelPose, type NativePanelReceipt, type NativePanelIdentity } from "./native-panel-presentation";
+import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
-export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-toggle" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
-export type ChromeFamily = "back" | "profile-back" | "history" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
+export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-toggle" | "chat-history-close" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
+export type ChromeFamily = "back" | "profile-back" | "history" | "history-close" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
 export type ChromeAgentSurface = "one" | "puppy";
 export type ChromeOption = { value: string; label: string; disabled?: boolean };
 export type ChromeAccentPalette = { blue: string; gold: string };
-export type ChromeControl = { kind: "back" | "profile-back" | "close" } | { kind: "history"; expanded?: boolean } |
+export type ChromeControl = { kind: "back" | "profile-back" | "close" } | { kind: "history" | "history-close"; expanded?: boolean } |
   { kind: "agent-surface"; value: ChromeAgentSurface } |
   { kind: "appearance"; value: "light" | "dark" | "system" } |
   { kind: "accent"; value: "blue" | "gold"; fullTrigger?: boolean; palette?: ChromeAccentPalette } |
@@ -29,16 +31,19 @@ export type ChromeControlProjection = NativeControlAppearance & ChromeControl & 
   enabled: boolean;
   frame: ChromeFrame;
   viewport: { width: number; height: number };
+  presentationGroup?: "profile" | "history";
+  presentationOwnerEpoch?: string;
+  presentationGeneration?: number;
 };
 export type ChromeProjection = ChromeIdentity & ChromeControlProjection;
 export type ChromeAcknowledgement = ChromeIdentity & {
   phase: "prepared" | "active" | "suspended" | "retired";
   frame?: ChromeFrame;
 };
-export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string };
+export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string; presentationGeneration?: number; presentationSequence?: number };
 export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
 export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number };
-type ChromeGeometry = Pick<ChromeControlProjection, "frame" | "viewport">;
+type ChromeGeometry = Pick<ChromeControlProjection, "frame" | "viewport" | "presentationGroup" | "presentationOwnerEpoch" | "presentationGeneration">;
 export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean };
 export type NativeChromeCapabilities = {
   contractVersion: number; families: readonly ChromeFamily[]; canvasAppearance?: boolean;
@@ -51,9 +56,14 @@ export type NativeChromeCapabilities = {
   historyReplacement?: boolean;
   fullAccentTrigger?: boolean;
   retainedControls?: boolean;
+  panelPresentation?: boolean;
+  interactionFeedback?: boolean;
 };
 
 export interface HushhNativeChromePlugin {
+  interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;
+  applyPanelPose(options: NativePanelPose): Promise<NativePanelReceipt>;
+  retirePanel(options: NativePanelIdentity): Promise<NativePanelIdentity>;
   getCapabilities(): Promise<NativeChromeCapabilities>;
   restoreFocus(options: ChromeIdentity & { updateSequence: number; focusSequence: number }): Promise<ChromeFocusAcknowledgement>;
   update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number }): Promise<ChromeUpdateAcknowledgement>;
@@ -103,7 +113,12 @@ export function supportsNativeChrome(family: ChromeFamily): boolean {
  * its admitted geometry changed; clipping and inert ancestors still matter. */
 export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamily): ChromeGeometry | null {
   if (slot.closest("[inert]")) return null;
-  const frame = slot.getBoundingClientRect();
+  const bounds = slot.getBoundingClientRect();
+  const panel = nativePanelGeometry(slot);
+  if (peekNativeChromeCapabilities()?.panelPresentation && slot.closest("[data-native-panel-group]") && !panel) return null;
+  const frame = { x: bounds.x - (panel?.offset ?? 0), y: bounds.y,
+    width: bounds.width, height: bounds.height,
+    left: bounds.left - (panel?.offset ?? 0), right: bounds.right - (panel?.offset ?? 0), top: bounds.top, bottom: bounds.bottom };
   const viewport = { width: window.innerWidth, height: window.innerHeight };
   const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
   const widthAdmitted = kind === "agent-surface" || kind === "appearance"
@@ -117,10 +132,12 @@ export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamil
       const style = getComputedStyle(parent);
       const bounds = parent.getBoundingClientRect();
       if (/(auto|scroll|hidden|clip)/.test(style.overflowY) && (frame.top < bounds.top || frame.bottom > bounds.bottom) ||
-          /(auto|scroll|hidden|clip)/.test(style.overflowX) && (frame.left < bounds.left || frame.right > bounds.right)) return null;
+          /(auto|scroll|hidden|clip)/.test(style.overflowX) && (frame.left < bounds.left - (panel?.offset ?? 0) || frame.right > bounds.right - (panel?.offset ?? 0))) return null;
     }
   }
-  return { frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height }, viewport };
+  return { frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height }, viewport,
+    ...(panel ? { presentationGroup: panel.presentationGroup, presentationOwnerEpoch: panel.presentationOwnerEpoch,
+      presentationGeneration: panel.presentationGeneration } : {}) };
 }
 
 /** The existing CSS canvas is authoritative even when no native control is visible. */
@@ -193,6 +210,7 @@ export async function canResumeNativeChrome(projection: ChromeControlProjection,
   return suspended.get(id) === entry && outstanding.get(id)?.revision === entry.projection.revision;
 }
 export function chromeControlId(kind: ChromeFamily): ChromeControlId {
+  if (kind === "history-close") return "chat-history-close";
   if (kind === "profile-back") return "profile-back";
   if (kind === "history") return "chat-history-toggle";
   if (kind === "agent-surface") return "chat-agent-surface";
@@ -247,6 +265,7 @@ export async function retireNativeChrome(ownerEpoch: string, target?: ChromeIden
   if (!matches(ack, identity, "retired")) throw new Error("NATIVE_CHROME_RETIRE_UNCONFIRMED");
   const latest = outstanding.get(controlId);
   if (!latest || latest.revision <= identity.revision) {
+    if (pending) removeNativeBaseAperture(controlId, pending.revision);
     outstanding.delete(controlId);
     suspended.delete(controlId);
   }
@@ -318,7 +337,10 @@ export class NativeChromeLease {
     return this.current && this.layoutConfirmed && this.sameGeometry(geometry);
   }
   private sameGeometry(geometry: ChromeGeometry): boolean {
-    return (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).every((key) =>
+    return geometry.presentationGroup === this.projection.presentationGroup &&
+      geometry.presentationOwnerEpoch === this.projection.presentationOwnerEpoch &&
+      geometry.presentationGeneration === this.projection.presentationGeneration &&
+      (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).every((key) =>
         geometry.frame[key] === this.projection.frame[key]) &&
       geometry.viewport.width === this.projection.viewport.width && geometry.viewport.height === this.projection.viewport.height;
   }
@@ -329,6 +351,9 @@ export class NativeChromeLease {
       throw new Error("NATIVE_CHROME_LAYOUT_UNCONFIRMED");
     }
     this.layoutConfirmed = true;
+    if (peekNativeChromeCapabilities()?.panelPresentation && !this.projection.presentationGroup) {
+      setNativeBaseAperture(this.projection.controlId, this.projection.revision, this.projection.frame);
+    }
     return this.current;
   }
   async prepare(): Promise<boolean> {
@@ -429,6 +454,8 @@ export class NativeChromeLease {
       documentId: event.documentId, ownerEpoch: event.ownerEpoch, controlId: event.controlId,
       revision: event.revision, sequence: event.sequence, privacyGeneration: event.privacyGeneration,
       ...(this.inPlaceUpdates ? { updateSequence: event.updateSequence } : {}),
+      ...(event.presentationGeneration === undefined ? {} : { presentationGeneration: event.presentationGeneration }),
+      ...(event.presentationSequence === undefined ? {} : { presentationSequence: event.presentationSequence }),
       ...(event.value === undefined ? {} : { value: event.value }),
     }));
     if (valid && this.active && this.current && event.sequence === this.sequence &&

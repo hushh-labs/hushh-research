@@ -312,6 +312,9 @@ struct NativeAgentDockView: View {
                     NativeDockEditor(model: model)
                         .opacity(model.mode == "text" ? 1 : 0)
                         .accessibilityHidden(model.mode != "text")
+                        // SwiftUI's container identifier otherwise propagates
+                        // over the representable's UIKit editor identifier.
+                        .accessibilityIdentifier("native-dock-editor")
                         .allowsHitTesting(model.mode == "text")
                         .frame(maxWidth: model.mode == "text" ? .infinity : 0)
                         .frame(height: model.mode == "text" ? nil : 0)
@@ -359,7 +362,7 @@ struct NativeAgentDockView: View {
             .glassEffectID("agent-dock", in: glass)
         }
         .tint(Color(uiColor: model.accent))
-        .accessibilityIdentifier("native-agent-dock")
+        .accessibilityElement(children: .contain)
     }
     private func dockButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -400,6 +403,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     private var viewport = CGSize.zero
     private var observers = [NSObjectProtocol]()
     private var requestedVisible = false
+    private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     private var layoutState = NativeDockLayoutState()
     private lazy var model = NativeDockModel()
     private var admitted: Bool {
@@ -441,7 +445,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
-    @objc func getCapabilities(_ call: CAPPluginCall) { call.resolve(["contractVersion": 1, "supported": admitted]) }
+    @objc func getCapabilities(_ call: CAPPluginCall) { call.resolve(["contractVersion": 1, "supported": admitted, "underlayPresentation": compositor != nil]) }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, #available(iOS 26.0, *), self.admitted,
@@ -507,8 +511,16 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             if self.hosting == nil {
                 let host = NativeDockHostingController(rootView: NativeAgentDockView(model: self.model))
                 host.safeAreaRegions = []
-                parent.addChild(host); parent.view.addSubview(host.view); host.didMove(toParent: parent)
+                parent.addChild(host)
+                if let compositor = self.compositor { compositor.install(host.view, id: "agent-dock", group: nil) }
+                else { parent.view.addSubview(host.view) }
+                host.didMove(toParent: parent)
                 host.view.backgroundColor = .clear
+                // UIKit owns container identity; an ancestor SwiftUI ID can
+                // overwrite the represented editor's exported AX identity.
+                host.view.accessibilityIdentifier = "native-agent-dock"
+                host.view.isAccessibilityElement = false
+                host.view.accessibilityContainerType = .semanticGroup
                 self.hosting = host
                 self.placement = NativeDockPlacement(parent: parent.view, dock: host.view)
                 host.layoutChanged = { [weak self] in self?.publishLayout() }
@@ -519,6 +531,8 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             self.model.visible = self.requestedVisible && self.safe
             self.hosting?.view.isHidden = !self.model.visible
             self.hosting?.view.accessibilityElementsHidden = !self.model.visible
+            if self.model.visible { self.compositor?.revealUnderlay() }
+            self.compositor?.setAdmission("agent-dock", admitted: self.model.visible)
             self.layoutDock()
             // Commit actual native layout before transferring the web input.
             parent.view.layoutIfNeeded()
@@ -570,7 +584,9 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   #available(iOS 26.0, *) else { call.reject("NATIVE_DOCK_STALE"); return }
             self.requestedVisible = false; self.model.visible = false
             self.model.editor?.resignFirstResponder()
-            self.hosting?.view.isHidden = true; self.hosting?.view.accessibilityElementsHidden = true
+            self.hosting?.view.isHidden = self.compositor == nil || !self.safe
+            self.hosting?.view.accessibilityElementsHidden = true
+            self.compositor?.setAdmission("agent-dock", admitted: false)
             call.resolve(self.ack(identity, sequence: self.fence.update, phase: "active"))
         }
     }
@@ -587,6 +603,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 self.model.clear()
                 self.editorContext = ""
+                self.compositor?.remove("agent-dock")
                 self.hosting?.willMove(toParent: nil); self.hosting?.view.removeFromSuperview(); self.hosting?.removeFromParent(); self.hosting = nil
                 self.placement = nil
                 self.layoutState = NativeDockLayoutState()

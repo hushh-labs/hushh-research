@@ -11,6 +11,7 @@ import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
+import { NativePanelPoseWriter, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
 import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 
@@ -53,6 +54,42 @@ const projection = { kind: "back" as const, label: "Go back", enabled: true,
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: Error) => void;
   const promise = new Promise<T>((accept, fail) => { resolve = accept; reject = fail; }); return { promise, resolve, reject }; }
 function choice(lease: NativeChromeLease, sequence = 1) { return { ...lease.projection, sequence, privacyGeneration: 0 }; }
+
+describe("owned panel pose transport", () => {
+  const pose: NativePanelPose = { documentId: "synthetic", ownerEpoch: "epoch", group: "profile", generation: 1,
+    sequence: 1, privacyGeneration: 0, frame: { x: 0, y: 0, width: 390, height: 844 }, offset: 0, opacity: 1, settled: false };
+  it("bounds an in-flight drag to the newest pending pose and never replays a retired delivery", async () => {
+    const first = deferred<NativePanelPose>();
+    const send = vi.fn().mockImplementationOnce(() => first.promise).mockImplementation(async value => value);
+    const failed = vi.fn();
+    const writer = new NativePanelPoseWriter(send, failed);
+    writer.publish(pose);
+    for (let sequence = 2; sequence <= 20; sequence++) writer.publish({ ...pose, sequence, offset: sequence });
+    expect(send).toHaveBeenCalledTimes(1);
+    first.resolve(pose);
+    await first.promise; await Promise.resolve(); await Promise.resolve();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0].sequence).toBe(20);
+    writer.retire(); writer.publish({ ...pose, sequence: 21 });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(failed).not.toHaveBeenCalled();
+  });
+  it("quarantines mismatched ownership and uncertain receipts instead of resuming a stale panel", async () => {
+    const failed = vi.fn();
+    const writer = new NativePanelPoseWriter(async value => ({ ...value, ownerEpoch: "stale" }), failed);
+    writer.publish(pose);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(failed).toHaveBeenCalledOnce();
+    vi.useFakeTimers();
+    const hung = vi.fn(() => new Promise<NativePanelPose>(() => undefined));
+    const timeout = vi.fn();
+    const uncertain = new NativePanelPoseWriter(hung, timeout);
+    uncertain.publish(pose); uncertain.publish({ ...pose, sequence: 2 });
+    await vi.advanceTimersByTimeAsync(3001);
+    expect(timeout).toHaveBeenCalledOnce(); expect(hung).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+});
 
 describe("private dock event boundary", () => {
   const identity = { documentId: "dock-document", ownerEpoch: "dock-owner", revision: 1 };
@@ -191,6 +228,18 @@ describe("private dock asynchronous submission boundary", () => {
 });
 
 describe("native chrome presentation lease", () => {
+  it("forwards the captured panel generation and pose sequence to native confirmation", async () => {
+    bridge.prepare.mockImplementation(async identity => ({ ...identity, phase: "prepared", frame: identity.frame }));
+    bridge.activate.mockImplementation(async identity => ({ ...identity, phase: "active" }));
+    bridge.confirmChoice.mockImplementation(async event => ({ valid: event.presentationGeneration === 7 && event.presentationSequence === 12 }));
+    const lease = new NativeChromeLease({ ...projection, presentationGroup: "profile", presentationOwnerEpoch: "group-epoch", presentationGeneration: 7 }, "owner-a");
+    await lease.prepare(); await lease.activate();
+    const action = vi.fn();
+    await lease.choose({ ...choice(lease), presentationGeneration: 7, presentationSequence: 12 }, () => true, action);
+    expect(action).toHaveBeenCalledOnce();
+    await lease.choose({ ...choice(lease, 2), presentationGeneration: 7, presentationSequence: 11 }, () => true, action);
+    expect(action).toHaveBeenCalledOnce();
+  });
   beforeEach(async () => {
     window.localStorage.clear();
     document.documentElement.classList.remove("dark");

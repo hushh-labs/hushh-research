@@ -811,7 +811,8 @@ final class NativeVaultLayoutProbe {
             // Read UIKit's current docked-keyboard layout guide independently
             // of the Capacitor height event consumed by CSS. A hardware/floating
             // keyboard need not reserve a full-width inset.
-            payload["nativeGuideHeight"] = webView.keyboardLayoutGuide.layoutFrame.height
+            payload["nativeGuideHeight"] = (webView.superview as? NativePresentationContainer)?.keyboardLayoutGuide.layoutFrame.height
+                ?? webView.keyboardLayoutGuide.layoutFrame.height
             payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
             // Public Debug admission booleans, never process arguments or
             // private editor state. Activation alone need not apply new flags.

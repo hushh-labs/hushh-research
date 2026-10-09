@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   WarningIcon as AlertTriangle,
@@ -541,13 +540,11 @@ function ProfilePageContent({
   presentation = "route",
   paneLocation,
   nativeControlsEligible = true,
-  stationaryPreferencesHost,
 }: {
   presentation?: ProfilePagePresentation;
   /** Pane only: the location to show, when the host holds it (see ProfilePane). */
   paneLocation?: ProfilePaneLocation;
   nativeControlsEligible?: boolean;
-  stationaryPreferencesHost?: HTMLDivElement | null;
 }) {
   const isPanePresentation = presentation === "pane";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
@@ -3477,7 +3474,7 @@ function ProfilePageContent({
   const appearanceControls = <ProfileAppearanceControls value={appAccent} nativeContext={preferenceChrome} />;
   const preferencesContent = (
     <div className="space-y-4">
-      {!stationaryPreferencesHost ? appearanceControls : null}
+      {appearanceControls}
       <SettingsGroup>
         <SettingsRow
           leading={<GeminiLogo className="h-8 w-8" />}
@@ -4368,8 +4365,6 @@ function ProfilePageContent({
       }
     >
       <SettingsPresentationProvider density="compact">
-        {stationaryPreferencesHost && !routeBlockedByVault && activePanel === "preferences" && !activeDetail
-          ? createPortal(appearanceControls, stationaryPreferencesHost) : null}
         <ProfileStackNavigator
           rootContent={profileRootContent}
           entries={profileStackEntries}
@@ -4619,12 +4614,10 @@ export function ProfilePage({
   presentation = "route",
   paneLocation,
   nativeControlsEligible = true,
-  stationaryPreferencesHost,
 }: {
   presentation?: ProfilePagePresentation;
   paneLocation?: ProfilePaneLocation;
   nativeControlsEligible?: boolean;
-  stationaryPreferencesHost?: HTMLDivElement | null;
 }) {
   return (
     <Suspense fallback={null}>
@@ -4632,7 +4625,6 @@ export function ProfilePage({
         presentation={presentation}
         paneLocation={paneLocation}
         nativeControlsEligible={nativeControlsEligible}
-        stationaryPreferencesHost={stationaryPreferencesHost}
       />
     </Suspense>
   );

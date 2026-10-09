@@ -1,4 +1,5 @@
 "use client";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
@@ -112,6 +113,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
       settlingOpen = open;
       place(current, open ? current.width : 0, open ? "open" : "close");
       if (notify && open !== current.initialOpen) {
+        appHaptic("selection");
         // Existing state, focus, loading and isolation owner, once per release.
         if (open) action.current.onOpen(); else action.current.onClose();
       }
