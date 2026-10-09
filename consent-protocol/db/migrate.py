@@ -20,7 +20,6 @@ Environment:
 
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import sys
@@ -40,6 +39,7 @@ load_dotenv()
 
 # Use same DB_* as runtime (db/connection.py)
 from db.connection import get_database_ssl, get_database_url  # noqa: E402
+from db.dev_migration_manifest import deferred_release_migrations, load_dev_manifest  # noqa: E402
 from db.migration_authority import (  # noqa: E402
     MigrationAuthorityError,
     MigrationManifestEntryV2,
@@ -258,34 +258,7 @@ DEV_GCP_PROJECT_ID = "hushh-pda-dev"
 
 
 def _load_dev_manifest(path: Path) -> tuple[str, ...]:
-    """Load the dev-only parked migration order.
-
-    Loaded lazily (never at import time) so a deployed SHA that lacks this file —
-    or any non-dev environment that never reaches this lane — is entirely
-    unaffected by it.
-    """
-    if not path.exists():
-        raise FileNotFoundError(f"Dev migration manifest missing: {path}")
-
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    ordered = payload.get("ordered_migrations")
-
-    if not isinstance(ordered, list) or not ordered:
-        raise RuntimeError("dev_migration_manifest.json must define ordered_migrations")
-
-    ordered_tuple = tuple(str(item).strip() for item in ordered if str(item).strip())
-    if not ordered_tuple:
-        raise RuntimeError("dev_migration_manifest.json ordered_migrations is empty")
-
-    # Fail closed: the dev lane must never smuggle a release migration, which
-    # would apply release SQL outside the audited release manifest ordering.
-    overlap = set(ordered_tuple) & set(RELEASE_MIGRATION_FILES)
-    if overlap:
-        raise RuntimeError(
-            "dev_migration_manifest.json must not repeat release migrations: "
-            + ", ".join(sorted(overlap))
-        )
-    return ordered_tuple
+    return load_dev_manifest(path, RELEASE_MIGRATION_FILES)
 
 
 def dev_extra_active(*, explicit: bool = False, project_id: str | None = None) -> bool:
@@ -310,43 +283,15 @@ def dev_extra_active(*, explicit: bool = False, project_id: str | None = None) -
 
 
 def deferred_dev_release_migrations() -> tuple[str, ...]:
-    """Read the reviewed deferral only for the exact shared-dev workflow target.
-
-    This changes execution selection, never canonical identity, baseline hashes,
-    or receipts. Missing target markers grant no exemption.
-    """
-    if (
-        os.getenv("GCP_PROJECT_ID") != DEV_GCP_PROJECT_ID
-        or os.getenv("DEV_TARGET") != "shared-dev"
-        or os.getenv("DB_NAME") != "postgres"
-    ):
-        return ()
-    payload = json.loads(DEV_MANIFEST_PATH.read_text(encoding="utf-8"))
-    entries = payload.get("deferred_release_migrations")
-    if (
-        payload.get("target_gcp_project_id") != DEV_GCP_PROJECT_ID
-        or not isinstance(entries, list)
-        or not entries
-    ):
-        raise RuntimeError("Invalid shared-dev release deferral manifest")
-    deferred: list[str] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            raise RuntimeError("Invalid shared-dev release deferral entry")
-        filename = entry.get("filename")
-        if (
-            filename != "249_one_chat_history_legacy_cutover.sql"
-            or filename not in BASE_RELEASE_MIGRATION_FILES
-            or filename in deferred
-            or not isinstance(entry.get("reason"), str)
-            or not entry["reason"].strip()
-        ):
-            raise RuntimeError("Unreviewed shared-dev release deferral")
-        checksum = hashlib.sha256((MIGRATIONS_DIR / filename).read_bytes()).hexdigest()
-        if entry.get("checksum_sha256") != checksum:
-            raise RuntimeError("Shared-dev deferred migration checksum changed")
-        deferred.append(filename)
-    return tuple(deferred)
+    return deferred_release_migrations(
+        DEV_MANIFEST_PATH,
+        MIGRATIONS_DIR,
+        BASE_RELEASE_MIGRATION_FILES,
+        project_id=os.getenv("GCP_PROJECT_ID"),
+        target=os.getenv("DEV_TARGET"),
+        database=os.getenv("DB_NAME"),
+        expected_project=DEV_GCP_PROJECT_ID,
+    )
 
 
 # ============================================================================
