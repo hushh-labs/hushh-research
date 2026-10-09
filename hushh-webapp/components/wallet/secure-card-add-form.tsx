@@ -8,7 +8,17 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { CreditCard, User, Calendar, ShieldCheck, KeyRound, Globe, Landmark, Eye, EyeOff } from "@/components/icons";
+import {
+  ProfilePaneAccountIcon,
+  ProfilePaneCalendarIcon,
+  ProfilePaneCardIcon,
+  ProfilePaneCardNetworkIcon,
+  ProfilePaneGlobeIcon,
+  ProfilePaneKeyIcon,
+  ProfilePanePreviewIcon,
+  ProfilePanePreviewOffIcon,
+  ProfilePaneSecurityIcon,
+} from "@/components/profile/profile-pane-icons";
 
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
@@ -145,7 +155,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
       <fieldset disabled={submitting || !active} className={styles.fields}>
         <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p>
         <div className={cn(styles.field, styles.number)}>
-          <Label htmlFor={`${id}-number`}><CreditCard aria-hidden="true" className={styles.fieldIcon} />Card number</Label>
+          <Label htmlFor={`${id}-number`}><ProfilePaneCardIcon className={styles.fieldIcon} />Card number</Label>
           <Input
             id={`${id}-number`}
             dir="ltr"
@@ -162,7 +172,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
         </div>
         <div className={styles.row}>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-holder`}><User aria-hidden="true" className={styles.fieldIcon} />Name on card</Label>
+            <Label htmlFor={`${id}-holder`}><ProfilePaneAccountIcon className={styles.fieldIcon} />Name on card</Label>
             <Input
               id={`${id}-holder`}
               value={cardholderName}
@@ -174,7 +184,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             />
           </div>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-network`}><Landmark aria-hidden="true" className={styles.fieldIcon} />Card network (optional)</Label>
+            <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network (optional)</Label>
             <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || !active}>
               <SelectTrigger id={`${id}-network`} className={styles.selectTrigger} data-testid="secure-card-network-select" {...fieldErrors("brand_invalid")}>
                 <SelectValue />
@@ -188,7 +198,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
         </div>
         <div className={styles.row}>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-expiry`}><Calendar aria-hidden="true" className={styles.fieldIcon} />Expiry (MM/YY)</Label>
+            <Label htmlFor={`${id}-expiry`}><ProfilePaneCalendarIcon className={styles.fieldIcon} />Expiry (MM/YY)</Label>
             <Input
               id={`${id}-expiry`}
               value={expiry}
@@ -202,7 +212,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             />
           </div>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-cvv`}><ShieldCheck aria-hidden="true" className={styles.fieldIcon} />CVV</Label>
+            <Label htmlFor={`${id}-cvv`}><ProfilePaneSecurityIcon className={styles.fieldIcon} />CVV</Label>
             <Input
               id={`${id}-cvv`}
               type={revealSecrets ? "text" : "password"}
@@ -219,7 +229,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
         <div className={styles.row}>
           <div className={styles.field}>
             <div className={styles.secretLabel}>
-              <Label htmlFor={`${id}-pin`}><KeyRound aria-hidden="true" className={styles.fieldIcon} />PIN (optional)</Label>
+              <Label htmlFor={`${id}-pin`}><ProfilePaneKeyIcon className={styles.fieldIcon} />PIN (optional)</Label>
               <button
                 type="button"
                 className={styles.reveal}
@@ -228,7 +238,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
                 aria-label={revealSecrets ? "Hide CVV and PIN" : "Show CVV and PIN"}
                 data-testid="secure-card-toggle-secrets"
               >
-                {revealSecrets ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                {revealSecrets ? <ProfilePanePreviewOffIcon /> : <ProfilePanePreviewIcon />}
                 {revealSecrets ? "Hide" : "Show"}
               </button>
             </div>
@@ -245,7 +255,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             />
           </div>
           <div className={styles.field}>
-            <Label htmlFor={`${id}-region`}><Globe aria-hidden="true" className={styles.fieldIcon} />Issuing region (optional)</Label>
+            <Label htmlFor={`${id}-region`}><ProfilePaneGlobeIcon className={styles.fieldIcon} />Issuing region (optional)</Label>
             <Select value={issuingRegion || "none"} onValueChange={(value) => setIssuingRegion(value === "none" ? "" : value)} disabled={submitting || !active}>
               <SelectTrigger id={`${id}-region`} className={styles.selectTrigger} data-testid="secure-card-region-select" {...fieldErrors("issuing_region_invalid", "brand_region_mismatch")}>
                 <SelectValue />
