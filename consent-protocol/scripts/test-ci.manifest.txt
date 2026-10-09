@@ -484,6 +484,7 @@ tests/test_testflight_backend_provenance_runs_before_macos.py
 tests/test_information_sharing_lifecycle_e2e.py
 tests/test_specialist_turn_parity.py
 tests/test_health_review_mode.py
+tests/test_reviewer_operator_token.py
 tests/services/test_person_profile_service.py
 # Consent lifecycle C4 (2026-09-28), "One picks, the person confirms": the
 # label-and-synonym scope matcher with its synonym-off negative control, human
