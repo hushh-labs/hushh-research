@@ -149,6 +149,14 @@ describe("Drive rows in the Feed", () => {
     expect(presentFeedItem(item("document_share_payment_ready", {
       current_payment_status: "unavailable",
     })).description).toBe("Check document request");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_owner_payout_account_ready: false,
+    })).description).toBe("Waiting for owner payout setup");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_owner_payout_account_ready: true,
+    })).description).toBe("Payment due for your document request");
   });
 
   it("opens the Drive question card for question rows", () => {

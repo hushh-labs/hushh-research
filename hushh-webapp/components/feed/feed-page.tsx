@@ -42,6 +42,7 @@ import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-n
 import { FeedSoundControl } from "@/components/feed/feed-sound-control";
 import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
 import { DocumentRequestPriceSheet } from "@/components/consent/document-request-price-sheet";
+import { DocumentBankPayoutStatusCard } from "@/components/consent/document-payout-account";
 import { collapseConsentBundleRows } from "@/lib/feed/feed-consent-grouping";
 import { collapseDriveLifecycleRows } from "@/lib/feed/feed-drive-grouping";
 import {
@@ -108,6 +109,7 @@ const CLOSED_DOCUMENT_PRICE_PROMPT: DocumentPricePrompt = {
   open: false,
   requesterLabel: "",
   paymentRequired: false,
+  lockedAmountCents: null,
   purpose: null,
   recipientEmail: null,
   periodStart: null,
@@ -323,6 +325,7 @@ function FeedPageSession({
   );
   const [clearing, setClearing] = useState(false);
   const [clearArmed, setClearArmed] = useState(false);
+  const [hasBankPayout, setHasBankPayout] = useState(false);
 
   // Retire the legacy timestamp key on sight (it cannot be translated to an
   // id); a storage failure here changes nothing the initialiser decided.
@@ -779,9 +782,9 @@ function FeedPageSession({
     !clearWatermarkHydrated || loading || actionablesLoading || progressLoading;
   const hasRefreshError = Boolean(resourceError || actionablesError || progressError);
   const showEmpty =
-    !contentLoading && !hasActionables && !hasUpcomingEvents && !hasProgress && !hasHistory && !hasRefreshError;
+    !contentLoading && !hasActionables && !hasUpcomingEvents && !hasProgress && !hasHistory && !hasBankPayout && !hasRefreshError;
   const showColdError =
-    !contentLoading && !hasActionables && !hasUpcomingEvents && !hasProgress && !hasHistory && hasRefreshError;
+    !contentLoading && !hasActionables && !hasUpcomingEvents && !hasProgress && !hasHistory && !hasBankPayout && hasRefreshError;
   const showStaleWarning = hasRefreshError && (hasActionables || hasProgress || hasHistory);
   // The Clear affordance only makes sense when there is dismissable history
   // showing. Actionables ("Needs you") are otherwise deliberately NOT
@@ -793,7 +796,7 @@ function FeedPageSession({
     ? "loading"
     : showColdError
       ? "error"
-      : hasActionables || hasUpcomingEvents || hasProgress || hasHistory
+      : hasActionables || hasUpcomingEvents || hasProgress || hasHistory || hasBankPayout
         ? "loaded"
         : "empty-valid";
 
@@ -819,6 +822,7 @@ function FeedPageSession({
           <AppPageContentRegion>
             <FeedPushPrompt />
             <FeedPaymentReturnNotice />
+            <DocumentBankPayoutStatusCard compact refreshOnFeedChange onVisibleChange={setHasBankPayout} />
             {user ? <FeedSoundControl userId={user.uid} firstPageItems={data?.items ?? null} /> : null}
             {hasLiveActionables ? (
               <section aria-label="Live">
@@ -1036,6 +1040,7 @@ function FeedPageSession({
         periodEnd={documentPricePrompt.periodEnd}
         detailsPending={documentPricePrompt.detailsPending}
         paymentRequired={documentPricePrompt.paymentRequired}
+        lockedAmountCents={documentPricePrompt.lockedAmountCents}
         busy={documentPricePrompt.busy}
         error={documentPricePrompt.error}
         onSubmit={documentPricePrompt.submit}

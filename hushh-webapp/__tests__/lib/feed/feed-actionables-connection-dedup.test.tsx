@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   allow: vi.fn(),
   decide: vi.fn(),
   review: vi.fn(),
+  account: vi.fn(),
   consentMutated: vi.fn(),
 }));
 
@@ -60,6 +61,9 @@ vi.mock("@/lib/services/drive-sharing-service", async (importOriginal) => ({
     // Payment rows read private request text; these rows stay metadata-only.
     requesterContext: vi.fn().mockRejectedValue(new Error("not in this test")),
   },
+}));
+vi.mock("@/lib/services/document-payout-service", () => ({
+  DocumentPayoutService: { account: mocks.account },
 }));
 
 vi.mock("@/lib/services/cache-service", () => ({
@@ -161,6 +165,7 @@ vi.mock("@/lib/consent/consent-display", () => ({
 
 vi.mock("@/lib/navigation/routes", () => ({
   buildKaiMarketRoute: () => "/one/kai",
+  ROUTES: { PROFILE_MY_DATA: "/one/profile/my-data" },
 }));
 
 import {
@@ -198,6 +203,7 @@ beforeEach(() => {
   mocks.appTasks = [];
   mocks.pendingCount = 0;
   mocks.vaultToken = "vault-token";
+  mocks.account.mockResolvedValue({ account: null });
 });
 
 describe("useFeedActionables — connection request de-duplication", () => {
@@ -782,5 +788,70 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
       (row) => row.id === `drive-payment:${paymentId}`,
     );
     expect(payment?.actions.map((action) => action.label)).toEqual(["Pay $20"]);
+  });
+
+  it("shows payout setup as waiting without a requester Pay action", () => {
+    const paymentId = "44444444-4444-4444-8444-444444444444";
+    mocks.consentItems = [{
+      id: `document_share_request:${paymentId}`,
+      request_id: paymentId,
+      kind: "outgoing_request",
+      status: "pending",
+      action: "DOCUMENT_SHARE_REVIEW",
+      scope: null,
+      counterpart_type: "investor",
+      counterpart_label: "Meena Rao",
+      issued_at: 1790000000000,
+      metadata: {
+        request_source: "drive_document_share_request",
+        direction: "outgoing",
+        paymentStatus: "checkout_open",
+        paymentAmountCents: 2000,
+        paymentCurrency: "usd",
+        checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+        ownerPayoutAccountReady: false,
+      },
+    }];
+    const { result } = renderHook(() => useFeedActionables());
+    const payment = result.current.actionables.find(
+      (row) => row.id === `drive-payment:${paymentId}`,
+    );
+    expect(payment).toMatchObject({
+      title: "Waiting for owner payout setup",
+      actions: [],
+      chevron: true,
+      href: expect.stringContaining("requestId="),
+    });
+  });
+
+  it("shows one owner payout setup action when remote Stripe readiness is false, even if the DB hint is true", async () => {
+    mocks.account.mockResolvedValue({ account: { ready: false, status: "restricted" } });
+    const entries = [
+      documentEntry(DOC_ID, { ownerPayoutAccountReady: true,
+        owner_attention_required: false, owner_decision_available: false }),
+      documentEntry("33333333-3333-4333-8333-333333333333", {
+        ownerPayoutAccountReady: false, owner_attention_required: false, owner_decision_available: false,
+      }),
+    ];
+    const { result } = renderWith(...entries);
+    await waitFor(() => expect(result.current.actionables.find((row) => row.id === "drive-payout-setup"))
+      .toMatchObject({ title: "Set up US payouts" }));
+    expect(result.current.actionables.filter((row) => row.id === "drive-payout-setup")).toHaveLength(1);
+    expect(mocks.account).toHaveBeenCalledExactlyOnceWith("vault-token");
+    await act(async () => result.current.actionables.find((row) => row.id === "drive-payout-setup")!.actions[0].run());
+    expect(mocks.push).toHaveBeenCalledWith("/one/profile/my-data");
+  });
+
+  it("hides a stale setup hint when Stripe says the account is ready", async () => {
+    mocks.account.mockResolvedValue({ account: { ready: true, status: "ready" } });
+    const { result } = renderWith(documentEntry(DOC_ID, { ownerPayoutAccountReady: false }));
+    await waitFor(() => expect(mocks.account).toHaveBeenCalledExactlyOnceWith("vault-token"));
+    expect(result.current.actionables.find((row) => row.id === "drive-payout-setup")).toBeUndefined();
+  });
+
+  it("keeps legacy requests out of Connect setup discovery", () => {
+    const { result } = renderWith(documentEntry(DOC_ID));
+    expect(result.current.actionables.find((row) => row.id === "drive-payout-setup")).toBeUndefined();
+    expect(mocks.account).not.toHaveBeenCalled();
   });
 });

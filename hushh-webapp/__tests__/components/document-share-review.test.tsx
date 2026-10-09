@@ -53,6 +53,9 @@ vi.mock("@/components/consent/document-request-price-sheet", async (original) =>
     );
   },
 }));
+vi.mock("@/components/consent/document-payout-account", () => ({
+  DocumentPayoutAccountCard: () => <div data-testid="document-payout-account-card" />,
+}));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: state.uid, providerData: state.providers } }),
 }));
@@ -959,6 +962,61 @@ describe("exact-file document review", () => {
       expect(screen.queryByRole("button", { name: /Deny/ })).toBeNull();
       expect(screen.getByRole("status")).not.toHaveTextContent("Needs your decision");
     });
+  });
+
+  it("shows owner ledger status without claiming Stripe transfer reached a bank", async () => {
+    state.status.mockResolvedValue(initial());
+    state.review.mockResolvedValue({ ...review(), ownerPayout: {
+      requestId, currency: "usd", grossAmountCents: 1000,
+      retainedAmountCents: 700, platformFeeCents: 21,
+      processingFeeCents: 68, ownerEarningCents: 611,
+      status: "transferred",
+    } });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    const earnings = await screen.findByLabelText("Document earnings");
+    expect(earnings).toHaveTextContent("Sent to Stripe");
+    expect(earnings).toHaveTextContent("Your net earnings: $6.11");
+    expect(earnings).not.toHaveTextContent(/bank|deposited/i);
+  });
+
+  it("loads payout status for a completed owner request without a bulk share", async () => {
+    state.status.mockResolvedValue({ ...initial(), status: "completed" });
+    state.delivery.mockResolvedValue({ status: "completed", files: [] });
+    state.review.mockResolvedValue({ ...review(), ownerPayout: {
+      requestId, currency: "usd", grossAmountCents: 1000,
+      retainedAmountCents: null, platformFeeCents: null,
+      processingFeeCents: null, ownerEarningCents: null,
+      status: "awaiting_fee",
+    } });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    const earnings = await screen.findByLabelText("Document earnings");
+    expect(earnings).toHaveTextContent("Calculating processing fee");
+    expect(earnings).not.toHaveTextContent("Net $");
+    expect(state.review).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Share files" })).toBeNull();
+    expect(screen.queryByTestId("document-payout-account-card")).toBeNull();
+  });
+
+  it("offers payout setup while a paid document request awaits delivery", async () => {
+    state.status.mockResolvedValue(initial());
+    state.review.mockResolvedValue({ ...review(), ownerPayout: {
+      requestId, currency: "usd", grossAmountCents: 1000,
+      retainedAmountCents: null, platformFeeCents: null,
+      processingFeeCents: null, ownerEarningCents: null,
+      status: "awaiting_delivery",
+    } });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByTestId("document-payout-account-card")).toBeVisible();
+  });
+
+  it("keeps terminal delivery visible if an older owner review is unavailable", async () => {
+    state.status.mockResolvedValue({ ...initial(), status: "completed" });
+    state.delivery.mockResolvedValue({ status: "completed", files: [] });
+    state.review.mockRejectedValue(new DriveSharingError("request_unavailable", 404));
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    await waitFor(() => expect(state.review).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Sharing results"));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   describe("durable request search and bulk sharing", () => {

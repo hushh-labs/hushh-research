@@ -40,7 +40,14 @@ class DriveSharingService:
         return row["connection_generation"]
 
     async def create(
-        self, *, recipient, owner_user_id, client_request_id, purpose, request_time_zone=None
+        self,
+        *,
+        recipient,
+        owner_user_id,
+        client_request_id,
+        purpose,
+        request_time_zone=None,
+        expected_quote_version=None,
     ):
         result = await self.store.create_request(
             recipient=recipient,
@@ -48,10 +55,28 @@ class DriveSharingService:
             client_request_id=client_request_id,
             purpose=purpose,
             request_time_zone=request_time_zone,
+            expected_quote_version=expected_quote_version,
         )
         await wake_drive_work("suggestions")
         await wake_drive_work("sharing")
         return result
+
+    async def owner_pricing(self, *, user_id):
+        await self._require_owner()
+        return await self.store.owner_pricing(user_id=user_id)
+
+    async def update_owner_pricing(self, *, user_id, enabled, amount_cents, expected_version):
+        await self._require_owner()
+        return await self.store.update_owner_pricing(
+            user_id=user_id,
+            enabled=enabled,
+            amount_cents=amount_cents,
+            expected_version=expected_version,
+        )
+
+    async def request_quote(self, *, user_id, owner_user_id):
+        await self._require_owner()
+        return await self.store.request_quote(user_id=user_id, owner_user_id=owner_user_id)
 
     async def list_requests(self, **kwargs):
         return await self.store.list_requests(**kwargs)

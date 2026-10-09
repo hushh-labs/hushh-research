@@ -27,7 +27,9 @@ async def test_registry_handles_eager_and_lazy_rpc_off_loop_without_duplicate_up
         return SimpleNamespace(execute=result) if lazy else result()
 
     service = DomainRegistryService()
-    service._db = SimpleNamespace(rpc=rpc, table=Mock(side_effect=AssertionError("duplicate upsert")))
+    service._db = SimpleNamespace(
+        rpc=rpc, table=Mock(side_effect=AssertionError("duplicate upsert"))
+    )
     domain = await service.register_domain("example_business", description=None)
     assert domain.domain_key == "example_business"
     assert threads and all(thread != owner_thread for thread in threads)
@@ -89,9 +91,16 @@ async def test_idle_push_sweeps_back_off_reset_and_propagate_cancellation(monkey
     monkeypatch.setattr(module, name, dispatch)
     monkeypatch.setattr(module.asyncio, "sleep", sleep)
     if module is circle:
-        monkeypatch.setattr(circle, "get_db", lambda: SimpleNamespace(
-            engine=SimpleNamespace(pool=SimpleNamespace(size=lambda: 2))))
-    worker = module.run_circle_chat_push_worker if module is circle else module.run_direct_message_push_worker
+        monkeypatch.setattr(
+            circle,
+            "get_db",
+            lambda: SimpleNamespace(engine=SimpleNamespace(pool=SimpleNamespace(size=lambda: 2))),
+        )
+    worker = (
+        module.run_circle_chat_push_worker
+        if module is circle
+        else module.run_direct_message_push_worker
+    )
     with pytest.raises(asyncio.CancelledError):
         await worker()
     assert sleeps == [1, 2, 4, 5, 1, 1, 2, 4]

@@ -131,9 +131,9 @@ class DomainRegistryService:
                 continue
             try:
                 await self._execute(
-                    self.db.table("domain_registry").update({"parent_domain": expected_parent}).eq(
-                        "domain_key", domain_key
-                    )
+                    self.db.table("domain_registry")
+                    .update({"parent_domain": expected_parent})
+                    .eq("domain_key", domain_key)
                 )
             except Exception as update_error:
                 logger.warning(
@@ -148,8 +148,7 @@ class DomainRegistryService:
         referenced: set[str] = set()
         try:
             result = await self._execute(
-                self.db.table("pkm_index")
-                .select("available_domains,domain_summaries")
+                self.db.table("pkm_index").select("available_domains,domain_summaries")
             )
             rows = result.data or []
         except Exception as read_error:
@@ -183,9 +182,7 @@ class DomainRegistryService:
                 continue
             try:
                 await self._execute(
-                    self.db.table("domain_registry").delete().eq(
-                        "domain_key", normalized_retired
-                    )
+                    self.db.table("domain_registry").delete().eq("domain_key", normalized_retired)
                 )
             except Exception as delete_error:
                 logger.warning(
@@ -336,9 +333,9 @@ class DomainRegistryService:
                             patch_data["description"] = final_description
                         if patch_data:
                             await self._execute(
-                                self.db.table("domain_registry").update(patch_data).eq(
-                                    "domain_key", domain_key
-                                )
+                                self.db.table("domain_registry")
+                                .update(patch_data)
+                                .eq("domain_key", domain_key)
                             )
                     except Exception as patch_error:
                         logger.warning(
