@@ -12,19 +12,12 @@
  * brand for any region would refuse legitimately issued cards.
  */
 
-export type CardBrand =
-  | "visa"
-  | "mastercard"
-  | "amex"
-  | "discover"
-  | "diners"
-  | "jcb"
-  | "unionpay"
-  | "rupay"
-  | "mir"
-  | "elo"
-  | "verve"
-  | "other";
+export const CARD_BRANDS = [
+  "visa", "mastercard", "amex", "discover", "diners", "jcb",
+  "unionpay", "rupay", "mir", "elo", "verve", "other",
+] as const;
+
+export type CardBrand = (typeof CARD_BRANDS)[number];
 
 export const REGION_LOCKED_BRANDS: Readonly<Partial<Record<CardBrand, readonly string[]>>> = {
   rupay: ["IN"],
@@ -123,12 +116,15 @@ export function detectBrand(pan: string): CardBrand | null {
 
 export interface CardValidationInput {
   pan: string;
+  cardholderName: string;
+  /** The owner may select a network for overlapping or newer BIN ranges. */
+  brand?: CardBrand;
   cvv?: string;
   pin?: string;
   expiryMonth: number;
   expiryYear: number;
-  /** ISO-3166 alpha-2, e.g. "IN", "US". */
-  issuingRegion: string;
+  /** Optional ISO-3166 alpha-2, e.g. "IN", "US". */
+  issuingRegion?: string;
   /** Injectable clock for tests. */
   now?: Date;
 }
@@ -143,35 +139,42 @@ export interface CardValidationResult {
 export function validateCardForRegion(input: CardValidationInput): CardValidationResult {
   const errors: string[] = [];
   const digits = normalizePan(input.pan);
-  const brand = detectBrand(digits);
+  const selectedBrand = input.brand;
+  const validSelection = selectedBrand === undefined || CARD_BRANDS.includes(selectedBrand);
+  const brand = validSelection ? (selectedBrand ?? detectBrand(digits) ?? "other") : "other";
+  const cardholderName = String(input.cardholderName ?? "").trim();
+  if (!validSelection) errors.push("brand_invalid");
+  if (!cardholderName) {
+    errors.push("cardholder_name_required");
+  } else if (cardholderName.length > 80 || /[\u0000-\u001f\u007f]/.test(cardholderName)) {
+    errors.push("cardholder_name_invalid");
+  }
   const region = String(input.issuingRegion ?? "").trim().toUpperCase();
 
   if (!/^\d{13,19}$/.test(digits)) {
     errors.push("pan_length_invalid");
-  } else if (!luhnValid(digits)) {
+  } else if (/^(\d)\1+$/.test(digits) || !luhnValid(digits)) {
     errors.push("pan_checksum_invalid");
   }
 
-  if (brand === null) {
-    errors.push("brand_unrecognized");
-  } else if (/^\d{13,19}$/.test(digits) && !BRAND_PAN_LENGTHS[brand].includes(digits.length)) {
+  if (/^\d{13,19}$/.test(digits) && !BRAND_PAN_LENGTHS[brand].includes(digits.length)) {
     errors.push("pan_length_invalid_for_brand");
   }
 
-  if (!/^[A-Z]{2}$/.test(region)) {
+  if (region && !/^[A-Z]{2}$/.test(region)) {
     errors.push("issuing_region_invalid");
-  } else if (brand) {
+  } else if (region) {
     const locked = REGION_LOCKED_BRANDS[brand];
     if (locked && !locked.includes(region)) {
       errors.push("brand_region_mismatch");
     }
   }
 
-  if (input.cvv !== undefined && input.cvv !== "") {
-    const expectedCvvLength = brand === "amex" ? 4 : 3;
-    if (!new RegExp(`^\\d{${expectedCvvLength}}$`).test(input.cvv)) {
-      errors.push("cvv_invalid");
-    }
+  if (!input.cvv?.trim()) {
+    errors.push("cvv_required");
+  } else {
+    const cvvPattern = brand === "amex" ? /^\d{4}$/ : brand === "other" ? /^\d{3,4}$/ : /^\d{3}$/;
+    if (!cvvPattern.test(input.cvv)) errors.push("cvv_invalid");
   }
 
   if (input.pin !== undefined && input.pin !== "") {

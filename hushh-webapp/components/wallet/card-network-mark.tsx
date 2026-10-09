@@ -97,7 +97,7 @@ export function hasOfficialCardMark(brand: string | null | undefined): boolean {
 
 /**
  * The network as it appears on a card face: the official artwork when it is
- * recorded (unmodified), otherwise a plain white wordmark. No recognition
+ * recorded (unmodified), otherwise a wordmark in the face's ink. No recognition
  * tile, because the face already is the surface.
  */
 export function CardNetworkWordmark({
@@ -130,7 +130,7 @@ export function CardNetworkWordmark({
       aria-label={network.label}
       data-testid={`card-network-wordmark-${key}`}
       className={cn(
-        "shrink-0 text-[13px] font-bold leading-5 tracking-[0.08em] text-white",
+        "shrink-0 text-[13px] font-bold leading-5 tracking-[0.08em] text-current",
         className,
       )}
     >

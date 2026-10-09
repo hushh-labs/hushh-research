@@ -109,7 +109,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; locked?: boolean; delayMs?: number };
+type Scenario = { cards?: number; locked?: boolean; delayMs?: number; artworkGallery?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -325,12 +325,12 @@ test("Wallet tabs preserve a draft and cancel to the Cards collection", async ({
   await expect(page.getByTestId("wallet-add-layer-4242")).toBeVisible();
   await page.getByRole("tab", { name: "Add", exact: true }).click();
   await expect(page.getByTestId("secure-card-add-form")).toBeVisible();
-  await page.getByLabel("Nickname", { exact: true }).fill("Travel");
+  await page.getByLabel("Name on card", { exact: true }).fill("Travel");
   await page.getByRole("tab", { name: "Cards", exact: true }).click();
   await expect(page.getByTestId("wallet-add-layer-4242")).toBeVisible();
   await expect(page.locator("#top-shell-wallet-panel-add")).toHaveAttribute("inert", "");
   await page.getByRole("tab", { name: "Add", exact: true }).click();
-  await expect(page.getByLabel("Nickname", { exact: true })).toHaveValue("Travel");
+  await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("Travel");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("wallet-add-collection")).toBeVisible();
@@ -488,13 +488,14 @@ for (const width of [320, 393, 1440]) {
     await mount(page);
     await page.getByRole("tab", { name: "Add", exact: true }).click();
     const form = page.getByTestId("secure-card-add-form");
-    await expect(form.getByRole("button", { name: "Scan card", exact: true })).toBeVisible();
+    await expect(form.getByRole("button", { name: "Scan card", exact: true })).toHaveCount(0);
+    await expect(form.getByRole("button", { name: "Choose photo", exact: true })).toHaveCount(0);
     await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect.poll(async () => {
       const box = await form.boundingBox();
       return Boolean(box && box.x >= 0 && box.x + box.width <= width);
     }).toBe(true);
-    for (const label of ["Name on card", "Nickname", "Expiry (MM/YY)", "CVV", "PIN (optional)", "Issuing region"]) {
+    for (const label of ["Name on card", "Card network (optional)", "Expiry (MM/YY)", "CVV", "PIN (optional)", "Issuing region (optional)"]) {
       await expect(form.getByLabel(label, { exact: true })).toBeAttached();
     }
     await form.getByTestId("secure-card-save").scrollIntoViewIfNeeded();
@@ -516,6 +517,77 @@ test("typing replaces the card-number placeholder instead of appending to Xs", a
   await expect(input).toHaveValue("5555555555554444");
   await input.fill("");
   expect(await input.evaluate((node) => node.matches(":placeholder-shown"))).toBe(true);
+});
+
+test("Add saves typed card details, keeps optional fields empty, and preserves its finish after remount", async ({ page }) => {
+  const errors = await open(page, 320, "light", { cards: 0, delayMs: 40 }, { shell: true });
+  await mount(page);
+  await page.getByRole("tab", { name: "Add", exact: true }).click();
+  const form = page.getByTestId("secure-card-add-form");
+  await form.getByLabel("Card number", { exact: true }).fill("5555 5555 5555 4444");
+  await form.getByLabel("Name on card", { exact: true }).fill("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
+  await form.getByLabel("Card network (optional)", { exact: true }).selectOption("mastercard");
+  await form.getByLabel("Expiry (MM/YY)", { exact: true }).fill("09/32");
+  await form.getByLabel("CVV", { exact: true }).fill("321");
+  await form.getByRole("button", { name: "Save card", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  const selected = page.getByTestId("wallet-selected-card");
+  const face = selected.getByTestId("wallet-card-face");
+  await expect(face).toBeVisible();
+  await expect(face.locator('[data-slot="wallet-card-holder"]')).toContainText("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
+  await expect(face.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");
+  await expect(face.getByTestId("card-network-wordmark-mastercard")).toBeVisible();
+  await expect(face.locator('[data-slot="wallet-card-number"]')).toContainText("4444");
+  await expect(face).not.toContainText("5555555555554444");
+  await expect(face).toHaveAttribute("data-revealed", "false");
+  const artwork = await face.getAttribute("data-card-artwork");
+  await selected.getByRole("button", { name: "All cards", exact: true }).click();
+  const saved = page.locator('[data-gesture-card="card_saved_1"]');
+  await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
+  await expect(page.getByTestId("wallet-add-stack").locator("li:not([inert])")).toHaveCount(4);
+  await page.evaluate(() => window.__walletRemount!());
+  const next = page.getByRole("button", { name: "Continue", exact: true });
+  await expect(next).toBeVisible();
+  await next.click();
+  await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
+  await expect(saved.locator('[data-slot="wallet-card-holder"]')).toContainText("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
+  await expect(saved.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");
+  expect(await page.evaluate(() => window.__walletEvents)).toEqual(["add"]);
+  expect(errors).toEqual([]);
+});
+
+test("all twenty payment finishes fit long names and a revealed 19-digit number at 320px", async ({ page }) => {
+  const errors = await open(page, 320, "light", { artworkGallery: true });
+  await mount(page, false);
+  const faces = page.getByTestId("wallet-card-face");
+  await expect(faces).toHaveCount(40);
+  const measurements = await faces.evaluateAll((elements) => elements.map((face) => {
+    const box = (element: Element) => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+    };
+    const number = face.querySelector('[data-slot="wallet-card-number"]')!;
+    const fields = [...face.querySelectorAll('[data-slot="wallet-card-bottom"] > span')].map(box);
+    const text = [...number.querySelectorAll('[aria-hidden="true"]')].map(box);
+    return { artwork: face.getAttribute("data-card-artwork"), face: box(face), number: box(number), fields, text,
+      top: [...face.querySelector('[data-slot="wallet-card-top"]')!.children].map(box) };
+  }));
+  expect(new Set(measurements.map((entry) => entry.artwork)).size).toBe(20);
+  for (const entry of measurements) {
+    expect(Math.abs(entry.face.width / entry.face.height - ISO_RATIO)).toBeLessThan(0.01);
+    for (const part of [...entry.fields, ...entry.text, ...entry.top]) {
+      expect(part.left, `${entry.artwork} left edge`).toBeGreaterThanOrEqual(entry.face.left);
+      expect(part.right, `${entry.artwork} right edge`).toBeLessThanOrEqual(entry.face.right);
+      expect(part.bottom, `${entry.artwork} bottom edge`).toBeLessThanOrEqual(entry.face.bottom);
+    }
+    expect(entry.top[0]!.right).toBeLessThanOrEqual(entry.top[1]!.left);
+    for (let index = 1; index < entry.fields.length; index += 1) {
+      expect(entry.fields[index - 1]!.right).toBeLessThanOrEqual(entry.fields[index]!.left);
+    }
+    expect(entry.number.bottom).toBeLessThan(entry.fields[0]!.top);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
 });
 
 for (const width of [320, 390, 1440]) {
