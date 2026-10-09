@@ -43,5 +43,9 @@
         "docs/reference/one/one-voice-runtime-architecture.md"
       ]
     }
-  ]
+  ],
+  "search": {
+    "source_revision": "8e513a567fee1e6acf2df39ca30e3eb2749fa7667edac1f7eb50d5ee4dd4cf92",
+    "source_module_count": 1701
+  }
 }
