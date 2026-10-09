@@ -72,7 +72,8 @@ export function NativeChatChrome(props: Props) {
   const foreground = kind === "history" ? "secondary" : "accent";
   const theme = useNativeControlAppearance(foreground);
   const badgeAdmitted = props.kind !== "history" || props.pendingAttention === 0;
-  const allowed = badgeAdmitted && props.eligible && !!props.owner && !!theme && !overlay && !suppressed &&
+  const pilotCovered = peekNativeChromeCapabilities()?.contentBackedPresentation === true && props.kind === "history" && props.expanded;
+  const allowed = !pilotCovered && badgeAdmitted && props.eligible && !!props.owner && !!theme && !overlay && !suppressed &&
     surface?.interactionLayer?.blocksUnderlyingActions !== true;
   const [retainedControls, setRetainedControls] = useState(() => peekNativeChromeCapabilities()?.retainedControls === true);
   const epoch = useMemo(() => retainedControls ? chromeOwnerEpoch(props.owner, controlId) : crypto.randomUUID(), [props.owner, controlId, retainedControls]);
@@ -120,7 +121,7 @@ export function NativeChatChrome(props: Props) {
       focusInside: !!slot.current?.contains(document.activeElement), heldFocus: heldFocus.current,
       width: dimension(frame?.width), height: dimension(frame?.height),
       inViewport: !!frame && frame.left >= 0 && frame.top >= 0 && frame.right <= window.innerWidth && frame.bottom <= window.innerHeight }));
-  }, [kind, supported]);
+  }, [supported]);
 
   const canAct = useCallback(() => current.current.allowed && !nativeShellOverlayBlocked(current.current.owningLayer) &&
     !moving.current && !slot.current?.closest("[inert]") &&

@@ -370,7 +370,8 @@ struct NativeAgentDockView: View {
                 .font(.system(size: glyphSize, weight: .semibold))
                 .foregroundStyle(.tint)
                 .frame(width: actionSize, height: actionSize)
-                .glassEffect(.regular.interactive(), in: .circle)
+                // The dock owns the single glass material. Child actions
+                // remain compact plain controls, never glass on glass.
                 // Compact visible material; the entire 44-point slot still
                 // belongs to the button, including its transparent perimeter.
                 .frame(width: max(44, actionSize), height: max(44, actionSize))
@@ -445,7 +446,11 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
-    @objc func getCapabilities(_ call: CAPPluginCall) { call.resolve(["contractVersion": 1, "supported": admitted, "underlayPresentation": compositor != nil]) }
+    @objc func getCapabilities(_ call: CAPPluginCall) {
+        call.resolve(["contractVersion": 1, "supported": admitted,
+                      "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
+                      "contentBackedPresentation": compositor?.contentBackedPresentation == true])
+    }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, #available(iOS 26.0, *), self.admitted,
@@ -584,7 +589,10 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   #available(iOS 26.0, *) else { call.reject("NATIVE_DOCK_STALE"); return }
             self.requestedVisible = false; self.model.visible = false
             self.model.editor?.resignFirstResponder()
-            self.hosting?.view.isHidden = self.compositor == nil || !self.safe
+            // WK drawers cannot interleave with foreground UIKit controls.
+            // Retain the editor/host, but conceal the foreground pilot until
+            // the current React owner acknowledges fresh admission.
+            self.hosting?.view.isHidden = self.compositor == nil || self.compositor?.contentBackedPresentation == true || !self.safe
             self.hosting?.view.accessibilityElementsHidden = true
             self.compositor?.setAdmission("agent-dock", admitted: false)
             call.resolve(self.ack(identity, sequence: self.fence.update, phase: "active"))

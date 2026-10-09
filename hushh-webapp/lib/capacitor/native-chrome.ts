@@ -57,6 +57,7 @@ export type NativeChromeCapabilities = {
   fullAccentTrigger?: boolean;
   retainedControls?: boolean;
   panelPresentation?: boolean;
+  contentBackedPresentation?: boolean;
   interactionFeedback?: boolean;
 };
 
@@ -67,7 +68,7 @@ export interface HushhNativeChromePlugin {
   getCapabilities(): Promise<NativeChromeCapabilities>;
   restoreFocus(options: ChromeIdentity & { updateSequence: number; focusSequence: number }): Promise<ChromeFocusAcknowledgement>;
   update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number }): Promise<ChromeUpdateAcknowledgement>;
-  setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
+  setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string; appearance?: "light" | "dark" }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;
   prepareBackReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
   prepareHistoryReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
@@ -143,6 +144,7 @@ export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamil
 /** The existing CSS canvas is authoritative even when no native control is visible. */
 export async function syncNativeCanvasAppearance(): Promise<boolean> {
   const backgroundHex = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+  const appearance = document.documentElement.classList.contains("dark") ? "dark" as const : "light" as const;
   if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(backgroundHex)) return false;
   // Reserve ordering before discovery: a delayed older request must never
   // repaint a theme that React has already replaced.
@@ -150,8 +152,10 @@ export async function syncNativeCanvasAppearance(): Promise<boolean> {
   const capability = await getNativeChromeCapabilities();
   if (capability?.canvasAppearance !== true) return false; // Older wrappers retain their existing canvas.
   if (projection.revision !== canvasRevision ||
-      getComputedStyle(document.documentElement).getPropertyValue("--background").trim() !== backgroundHex) return false;
-  const ack = await bounded(nativeChrome.setCanvasAppearance(projection));
+      getComputedStyle(document.documentElement).getPropertyValue("--background").trim() !== backgroundHex ||
+      document.documentElement.classList.contains("dark") !== (appearance === "dark")) return false;
+  const ack = await bounded(nativeChrome.setCanvasAppearance({ ...projection,
+    ...(capability.contentBackedPresentation ? { appearance } : {}) }));
   if (ack.documentId !== projection.documentId || ack.revision !== projection.revision) {
     throw new Error("NATIVE_CANVAS_ACK_UNCONFIRMED");
   }
@@ -356,7 +360,8 @@ export class NativeChromeLease {
       throw new Error("NATIVE_CHROME_LAYOUT_UNCONFIRMED");
     }
     this.layoutConfirmed = true;
-    if (peekNativeChromeCapabilities()?.panelPresentation && !this.projection.presentationGroup) {
+    const capability = peekNativeChromeCapabilities();
+    if (capability?.panelPresentation && !capability.contentBackedPresentation && !this.projection.presentationGroup) {
       setNativeBaseAperture(this.projection.controlId, this.projection.revision, this.projection.frame);
     }
     return this.current;

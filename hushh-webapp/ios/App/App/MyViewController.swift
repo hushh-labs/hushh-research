@@ -207,7 +207,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
            ProcessInfo.processInfo.arguments.contains("--hushh-native-compositor"),
            let existing = webView, view === existing {
-            view = NativePresentationContainer(webView: existing)
+            let contentBacked = ProcessInfo.processInfo.arguments.contains("--hushh-native-content-backed")
+            view = NativePresentationContainer(webView: existing,
+                basePresentation: contentBacked ? .contentBacked : .underlay)
         }
         #endif
         

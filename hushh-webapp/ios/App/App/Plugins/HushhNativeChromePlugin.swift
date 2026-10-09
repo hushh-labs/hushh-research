@@ -126,7 +126,7 @@ struct HushhNativeChromeState {
 }
 
 @available(iOS 26.0, *)
-private struct NativeChromeButton: View {
+struct NativeChromeButton: View {
     let label: String
     let controlId: String
     var value: String? = nil
@@ -192,7 +192,7 @@ private struct NativeAccentTrigger: View {
 
 /// Transient presentation intent, never a route or operation. The plugin
 /// acknowledges assistive focus from UIKit's actual focused-element event.
-private final class ChromeFocusRequest: ObservableObject {
+final class ChromeFocusRequest: ObservableObject {
     @Published var sequence = 0
 }
 
@@ -462,21 +462,25 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
+            let contentBacked = self?.compositor?.contentBackedPresentation == true
             var families = [String]()
-            if self?.backAdmitted == true {
+            if contentBacked {
+                if self?.chatControlsAdmitted == true { families = ["history"] }
+            } else if self?.backAdmitted == true {
                 families.append("back")
                 if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "profile-back", "more", "selection", "date", "appearance", "accent"] }
             }
-            if self?.compositor != nil, self?.chatControlsAdmitted == true { families.append("history-close") }
+            if !contentBacked, self?.compositor != nil, self?.chatControlsAdmitted == true { families.append("history-close") }
             call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
                           "families": families, "canvasAppearance": true, "independentControls": true,
                           "inPlaceUpdates": true,
-                          "panelPresentation": self?.compositor != nil,
+                          "panelPresentation": self?.compositor != nil && !contentBacked,
+                          "contentBackedPresentation": contentBacked,
                           "interactionFeedback": true,
-                          "fullAccentTrigger": self?.chatControlsAdmitted == true,
+                          "fullAccentTrigger": !contentBacked && self?.chatControlsAdmitted == true,
                           "retainedControls": self?.chatControlsAdmitted == true,
-                          "backReplacement": self?.backAdmitted == true,
-                          "profileBackReplacement": self?.chatControlsAdmitted == true,
+                          "backReplacement": !contentBacked && self?.backAdmitted == true,
+                          "profileBackReplacement": !contentBacked && self?.chatControlsAdmitted == true,
                           "historyReplacement": self?.chatControlsAdmitted == true,
                           "focusReturn": true,
                           "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&
@@ -498,6 +502,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("NATIVE_CANVAS_INVALID_STATE"); return
             }
             let shield = HushhSessionPrivacyShield.shared
+            let appearance: UIUserInterfaceStyle?
+            if self.compositor?.contentBackedPresentation == true {
+                guard let value = call.getString("appearance"), ["light", "dark"].contains(value) else {
+                    call.reject("NATIVE_CANVAS_INVALID_STATE"); return
+                }
+                appearance = value == "dark" ? .dark : .light
+            } else { appearance = nil }
             shield.observeDocument(document)
             guard shield.acceptsDocument(document), !self.retiredDocuments.contains(document),
                   self.canvasState.prepare(.init(document: document, ownerEpoch: "app-canvas", revision: revision)) else {
@@ -506,7 +517,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             self.acceptDocument(document)
             // Capacitor's bridge root can be the WebView itself. In that case
             // respect the same transparency guard as its backing canvas.
-            if let compositor = self.compositor { compositor.setCanvas(color) }
+            if let compositor = self.compositor { compositor.setCanvas(color, appearance: appearance) }
             else if host !== webView { host.backgroundColor = color }
             // Google Maps may own a transparent WebView. Preserve that mode;
             // the opaque page's backing and overscroll canvas follow CSS.
@@ -525,6 +536,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
                   let parent = self.bridge?.viewController, let identity = self.identity(call),
                   let kind = call.getString("kind"), self.admits(kind, controlId: identity.controlId),
+                  self.compositor?.contentBackedPresentation != true ||
+                    (call.getString("presentationGroup") == nil && call.getBool("expanded") != true),
                   call.getBool("enabled") == true,
                   let label = call.getString("label"), !label.isEmpty, label.count <= 80,
                   let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"),
@@ -761,7 +774,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("NATIVE_CHROME_SUSPEND_REFUSED"); return
             }
             // Overlay isolation revokes interaction, not retained pixels.
-            slot.hosting?.view.isHidden = self.compositor == nil
+            slot.hosting?.view.isHidden = self.compositor == nil || self.compositor?.contentBackedPresentation == true
             self.compositor?.setAdmission(identity.controlId, admitted: false)
             slot.hosting?.view.isUserInteractionEnabled = false
             slot.hosting?.view.accessibilityElementsHidden = true
@@ -916,6 +929,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func applyPanelPose(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let compositor = self.compositor,
+                  !compositor.contentBackedPresentation,
                   let group = call.getString("group"), ["profile", "history"].contains(group),
                   let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
                   let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
@@ -1025,6 +1039,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         #endif
     }
     private func admits(_ kind: String, controlId: String) -> Bool {
+        if compositor?.contentBackedPresentation == true {
+            return chatControlsAdmitted && kind == "history" && controlId == "chat-history-toggle"
+        }
         if kind == "back" { return backAdmitted && controlId == "top-shell-back" }
         return chatControlsAdmitted && ((kind == "history" && controlId == "chat-history-toggle") ||
             (kind == "history-close" && compositor != nil && controlId == "chat-history-close") ||

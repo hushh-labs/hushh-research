@@ -44,10 +44,14 @@ struct NativePanelPoseFence {
     }
 }
 
-/// One WebView, retained native underlay, bounded overlay groups. The outer
+/// One WebView, retained native base plane, bounded overlay groups. The outer
 /// container routes only explicitly admitted hits; Maps keeps its WK hit path.
 final class NativePresentationContainer: UIView {
+    enum BasePresentation { case underlay, contentBacked }
     let webView: WKWebView
+    let basePresentation: BasePresentation
+    var contentBackedPresentation: Bool { basePresentation == .contentBacked }
+    // Retain the legacy name for the independently reversible underlay pilot.
     let underlay = UIView()
     private var groups: [String: UIView] = [:]
     private var fences: [String: NativePanelPoseFence] = [:]
@@ -56,11 +60,13 @@ final class NativePresentationContainer: UIView {
     private var continuity: NativePanelContinuityProbe?
     #endif
 
-    init(webView: WKWebView) {
+    init(webView: WKWebView, basePresentation: BasePresentation = .underlay) {
         self.webView = webView
+        self.basePresentation = basePresentation
         super.init(frame: webView.frame)
         backgroundColor = .systemBackground
         underlay.frame = bounds
+        underlay.isOpaque = false
         underlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         webView.removeFromSuperview()
         webView.frame = bounds
@@ -71,7 +77,7 @@ final class NativePresentationContainer: UIView {
         // sibling traversal from paint order instead of forcing focus or
         // bypassing the owning control's admission fence.
         addSubview(underlay)
-        underlay.layer.zPosition = -1
+        underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
         // DOM aperture ownership is explicit; this does not clear page CSS.
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -84,7 +90,13 @@ final class NativePresentationContainer: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
-    func setCanvas(_ color: UIColor) { backgroundColor = color; underlay.backgroundColor = color }
+    func setCanvas(_ color: UIColor, appearance: UIUserInterfaceStyle? = nil) {
+        backgroundColor = color
+        // Foreground glass must sample the actual WK page, not an opaque
+        // native canvas painted between the page and its material.
+        underlay.backgroundColor = contentBackedPresentation ? .clear : color
+        if let appearance { overrideUserInterfaceStyle = appearance }
+    }
 
     func install(_ view: UIView, id: String, group: String?) {
         if let group {
@@ -107,7 +119,7 @@ final class NativePresentationContainer: UIView {
     func groupPose(_ id: String) -> NativePanelPose? { fences[id]?.pose }
 
     func apply(_ pose: NativePanelPose, group: String, privacy: Int) -> Bool {
-        guard ["profile", "history"].contains(group) else { return false }
+        guard !contentBackedPresentation, ["profile", "history"].contains(group) else { return false }
         var fence = fences[group] ?? NativePanelPoseFence()
         guard fence.apply(pose, privacy: privacy) else { return false }
         fences[group] = fence

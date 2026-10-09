@@ -22,7 +22,7 @@ type NavigationState = NativeControlAppearance & {
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
@@ -186,7 +186,9 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
           }
         }));
         if (!cancelled) {
-          setInteractionIsolation(capability.interactionIsolation === true);
+          // Foreground glass cannot be covered by a DOM drawer/scrim. This
+          // bounded pilot retains the bar but conceals it during overlays.
+          setInteractionIsolation(capability.interactionIsolation === true && capability.contentBackedPresentation !== true);
           setSupported(true);
         }
       } catch { /* Old wrappers and non-iOS builds retain the existing web navigation. */ }

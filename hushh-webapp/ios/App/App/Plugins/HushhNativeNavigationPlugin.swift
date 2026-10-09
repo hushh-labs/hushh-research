@@ -115,7 +115,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             guard let self else { return }
             if #available(iOS 26.0, *) {
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "interactionIsolation": true,
-                              "underlayPresentation": self.compositor != nil, "supported": self.navigationItems != nil,
+                              "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
+                              "contentBackedPresentation": self.compositor?.contentBackedPresentation == true,
+                              "supported": self.navigationItems != nil,
                               "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
@@ -257,11 +259,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         #if DEBUG
         guard let bar = tabBar, let probe = presentationProbe else { return }
         // Public presentation only; never routes, owners, drafts or credentials.
-        let fields: [String: Any] = ["visible": !bar.isHidden, "interactive": bar.isUserInteractionEnabled,
+        var fields: [String: Any] = ["visible": !bar.isHidden, "interactive": bar.isUserInteractionEnabled,
                                     "accessibilityHidden": bar.accessibilityElementsHidden,
                                     "underlay": compositor.map { bar.superview === $0.underlay && $0.underlay.layer.zPosition < $0.webView.layer.zPosition } ?? false,
                                     "x": bar.frame.minX, "y": bar.frame.minY,
                                     "width": bar.frame.width, "height": bar.frame.height]
+        if compositor?.contentBackedPresentation == true { fields["contentBacked"] = true }
         if let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]),
            let status = String(data: data, encoding: .utf8) { probe.update(status: status) }
         #endif
