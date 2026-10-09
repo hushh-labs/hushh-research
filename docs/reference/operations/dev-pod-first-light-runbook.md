@@ -185,7 +185,8 @@ new tail and erasure on each request. Do not remove those fences to reduce laten
 Keep four receipts separate: the owner's enabled device grant, verified signed
 endpoint/binding, sealed WSS admission to that same pod, and a completed browser
 inference response. Registration or a heartbeat establishes none of the later
-receipts. Use the existing Hermes identity; a device session cannot approve another
+receipts. Independent loopback model generation is a diagnostic, not the browser
+response receipt. Use the existing Hermes identity; a device session cannot approve another
 device or initiate an app-role turn. Normal browser approval cannot be replaced by
 a review-minted session or by importing the device's token into the browser.
 
@@ -196,6 +197,15 @@ the idle measurement. A running device process, minimum-zero configuration, sock
 closure and an actual zero-replica observation are distinct facts. Record the
 platform scale-down tail separately from the ten-minute relay grace. Restart only
 the identified relay process, preserving its profile, grants and local model.
+
+Use the existing Hermes virtual environment for owner/device rehearsals. A different
+Python application can stall at native Keychain authorization even when the login
+Keychain is unlocked. Bound the rehearsal, stop only its process, and retain the
+failed receipt; never copy stored credentials or reset enrollment. Redacted relay
+logs separate admission, sealed transport setup and local-model first content.
+An admission-stage timeout does not identify the particular HTTP hop or prove a
+slow model. Correlate provider-zero evidence with owner activation before calling
+a reconnect cold; do not discard the first timeout when a retry succeeds.
 
 ### Isolated image recovery rehearsal safeguards
 
