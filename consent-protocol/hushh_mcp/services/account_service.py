@@ -13,6 +13,7 @@ from db.db_client import get_db, get_db_connection
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     _postgres_sqlstate,
+    account_deletion_phone_digest,
 )
 from hushh_mcp.services.account_deletion_provider_cleanup import (
     ProviderCredentialSnapshot,
@@ -2188,6 +2189,41 @@ class AccountService:
                     params=params,
                 )
                 results["actor_verified_email_aliases"] = True
+                # Fix #6809: Snapshot the verified phone number before the
+                # actor_identity_cache row is erased, so the linked Firebase
+                # phone identity can be cleaned up atomically in the same
+                # transaction. Without this, the orphaned phone UID floats in
+                # Firebase and reattaches to a new account on re-signup,
+                # violating the user's Right to be Forgotten.
+                if not backend_only and self._table_exists(conn, "actor_identity_cache"):
+                    identity_row = conn.execute(
+                        text(
+                            """
+                            SELECT phone_number
+                            FROM actor_identity_cache
+                            WHERE user_id = :user_id
+                              AND phone_number IS NOT NULL
+                              AND phone_verified = TRUE
+                            LIMIT 1
+                            """
+                        ),
+                        params,
+                    ).mappings().first()
+                    if identity_row is not None:
+                        verified_phone = str(identity_row["phone_number"]).strip()
+                        if verified_phone:
+                            phone_digest = account_deletion_phone_digest(verified_phone)
+                            AccountDeletionLifecycleService._insert_pending_in_transaction(
+                                conn,
+                                user_ids=(user_id,),
+                                intent_kind="phone_orphan",
+                                expected_phone_digest=phone_digest,
+                            )
+                            logger.info(
+                                "📵 Phone-orphan cleanup tombstone enrolled for %s",
+                                user_id,
+                            )
+                            results["phone_orphan_tombstone_enrolled"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="actor_identity_cache", params=params
                 )
