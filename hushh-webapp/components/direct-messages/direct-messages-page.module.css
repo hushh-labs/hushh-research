@@ -584,7 +584,11 @@ article[data-actions-visible="true"] .messageActions {
 .messageActionButton:hover,
 .messageActionButton:focus-visible {
   color: var(--foreground);
-  outline: 2px solid color-mix(in oklab, var(--app-accent) 45%, transparent);
+  outline: none;
+}
+
+.messageActionButton:focus-visible {
+  outline: 2px solid var(--muted-foreground);
   outline-offset: 1px;
 }
 
@@ -1340,3 +1344,23 @@ article[data-message-role="user"] .messageActions {
   box-shadow: none;
 }
 .reactionChip::after { inset: -9px -8px; }
+
+/* Keep emoji and menu controls together beside the bubble. */
+article[data-message-role] .messageActions {
+  top: 50%;
+  left: calc(100% + 4px);
+  right: auto;
+  flex-wrap: nowrap;
+  gap: 2px;
+  transform: translateY(-50%);
+}
+article[data-message-role="user"] .messageActions {
+  left: auto;
+  right: calc(100% + 4px);
+}
+
+/* Reserve the complete action strip, including the peer avatar gutter. */
+.messageCluster { max-width: min(86%, 38rem, calc(100% - 94px)); }
+article[data-message-role="peer"] .messageCluster {
+  max-width: min(86%, 38rem, calc(100% - 132px));
+}
