@@ -131,6 +131,39 @@ afterEach(() => {
 });
 
 describe("an Azure update approved from the profile pane", () => {
+  it.each([
+    ["user_azure", "op", "blocked", true],
+    ["user_gcp", "op", "blocked", false],
+    ["user_azure", null, "blocked", false],
+    ["user_azure", "op", "updating", false],
+    ["user_azure", "op", "verified", false],
+  ])("retains an existing update after refresh on %s/%s/%s without approving again", async (deploymentTarget, operationId, presentationState, retryExpected) => {
+    mocks.follow.mockReturnValue({
+      status: { ...recovering(), deploymentTarget },
+      update: { ...NO_UPDATE, failed: true, presentationState, phase: presentationState, operationId, releaseId: "rel_exact" },
+      refresh: mocks.refresh,
+    });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    expect(mocks.azureUpgrade).not.toHaveBeenCalled();
+    expect(mocks.approve).not.toHaveBeenCalled();
+    const retry = screen.queryByRole("button", { name: "Continue with Microsoft" });
+    if (!retryExpected) {
+      expect(retry).toBeNull();
+      return;
+    }
+    expect(retry).toBeInTheDocument();
+    fireEvent.click(retry!);
+    fireEvent.click(retry!);
+    await waitFor(() => expect(popup.location.assign).toHaveBeenCalledWith(SIGN_IN));
+    expect(mocks.azureUpgrade).toHaveBeenCalledOnce();
+    expect(mocks.approve).not.toHaveBeenCalled();
+    expect(mocks.assign).not.toHaveBeenCalled();
+    popup.closed = true;
+    expect(await screen.findByTestId("azure-update-closed", {}, { timeout: 3000 })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue with Microsoft" })).toBeEnabled();
+    expect(mocks.approve).not.toHaveBeenCalled();
+  });
+
   it("signs in beside the pane instead of leaving it", async () => {
     await approveFromPane();
     expect(window.open).toHaveBeenCalledWith("about:blank", "hussh-azure-sign-in", expect.stringContaining("popup"));

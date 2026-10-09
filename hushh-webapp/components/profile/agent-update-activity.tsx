@@ -21,14 +21,26 @@ import type { AzureUpdateProgressState } from "@/lib/one/use-azure-update-progre
 export function AgentUpdateActivity({
   update,
   awaitingMicrosoft,
+  retryWithMicrosoft = false,
   follow,
 }: {
   update: AgentUpdateStatus;
   awaitingMicrosoft: boolean;
+  retryWithMicrosoft?: boolean;
   follow: AzureUpdateProgressState;
 }) {
   const { progress } = follow;
+  const retrySignIn = <>
+    <Button disabled={follow.retrying} onClick={() => void follow.retry()}>
+      {follow.retrying ? "Opening Microsoft sign-in…" : "Continue with Microsoft"}
+    </Button>
+    {follow.signInError ? <p className="text-sm text-destructive" role="status">{follow.signInError}</p> : null}
+  </>;
   if (progress.kind === "idle") {
+    if (retryWithMicrosoft) return <div className="space-y-3">
+      <AgentUpdateProgress update={update} />
+      {retrySignIn}
+    </div>;
     return awaitingMicrosoft ? <AzureUpdateSignInPrompt /> : <AgentUpdateProgress update={update} />;
   }
   if (progress.kind === "signing_in") {
@@ -44,7 +56,7 @@ export function AgentUpdateActivity({
         <p className="text-sm text-muted-foreground" aria-live="polite">
           {UPDATE_POPUP_CLOSED_NOTICE}
         </p>
-        {awaitingMicrosoft ? <AzureUpdateSignInPrompt /> : null}
+        {awaitingMicrosoft ? <AzureUpdateSignInPrompt /> : retryWithMicrosoft ? retrySignIn : null}
       </div>
     );
   }

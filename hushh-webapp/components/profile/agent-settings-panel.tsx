@@ -394,7 +394,9 @@ export function AgentSettingsPanel({
         ) : null}
       </SettingsGroup>
 
-      {isPod ? <AgentUpdateActivity update={update} awaitingMicrosoft={awaitingMicrosoft} follow={azureUpdate} /> : null}
+      {isPod ? <AgentUpdateActivity update={update} awaitingMicrosoft={awaitingMicrosoft} follow={azureUpdate}
+        retryWithMicrosoft={ownerCloudProvider(status?.deploymentTarget) === "azure" && update.failed &&
+          update.presentationState === "blocked" && Boolean(update.operationId)} /> : null}
 
       {release && update.available ? (
         <details className="text-sm">
