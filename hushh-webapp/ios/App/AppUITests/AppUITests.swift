@@ -1045,6 +1045,66 @@ final class AppUITests: XCTestCase {
         print("NATIVE_DOCK_CONTINUITY ten_warm_routes_unicode_newline_keyboard_no_web_duplicate")
     }
 
+    func testLocalSessionNativeMaterialFoundationContainsReactOverlays() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_MATERIAL_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in content-backed material containment, not drawer continuity acceptance")
+        }
+        print("NATIVE_MATERIAL_TEST_BODY_ENTERED")
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("NATIVE_MATERIAL_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate()
+        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15))
+        XCTAssertFalse(web.buttons["Unlock"].exists, "NATIVE_MATERIAL_REQUIRES_NORMAL_UNLOCK")
+        let probe = app.buttons["native-navigation-presentation"].firstMatch
+        XCTAssertTrue(probe.waitForExistence(timeout: 10))
+        func packet() -> [String: Any]? {
+            guard let raw = probe.value as? String, let data = raw.data(using: .utf8),
+                  let fields = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  fields["contentBacked"] as? Bool == true,
+                  fields["underlay"] as? Bool == false else { return nil }
+            return fields
+        }
+        func admitted() -> Bool {
+            let state = packet()
+            return state?["visible"] as? Bool == true && state?["interactive"] as? Bool == true
+        }
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        XCTAssertTrue(waitForAdmittedControl(editor), "NATIVE_MATERIAL_EDITOR_NOT_ADMITTED")
+        XCTAssertTrue(admitted(), "NATIVE_MATERIAL_NOT_CONTENT_BACKED")
+        let profile = app.buttons["Open Profile"].firstMatch
+        let history = app.buttons["chat-history-toggle"].firstMatch
+        let profileClose = app.buttons["Close Profile"].firstMatch
+        let historyClose = app.buttons["Close chat history"].firstMatch
+        defer {
+            if profileClose.exists && profileClose.isHittable { profileClose.tap() }
+            if historyClose.exists && historyClose.isHittable { historyClose.tap() }
+        }
+        for (opener, close, family) in [(profile, profileClose, "profile"), (history, historyClose, "history")] {
+            for cycle in 0..<10 {
+                XCTAssertTrue(waitForAdmittedControl(opener), "NATIVE_MATERIAL_OPENER_NOT_ADMITTED")
+                opener.tap()
+                XCTAssertTrue(waitForAdmittedControl(close), "NATIVE_MATERIAL_REACT_CLOSE_NOT_ADMITTED")
+                let covered = packet()
+                XCTAssertEqual(covered?["visible"] as? Bool, false, "NATIVE_MATERIAL_COVERS_REACT_DRAWER")
+                XCTAssertEqual(covered?["interactive"] as? Bool, false, "NATIVE_MATERIAL_COVERED_ACTION_ADMITTED")
+                XCTAssertEqual(covered?["accessibilityHidden"] as? Bool, true)
+                XCTAssertFalse(editor.exists && editor.isHittable, "NATIVE_MATERIAL_COVERED_EDITOR_ADMITTED")
+                close.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    admitted() && editor.exists && editor.isHittable && opener.exists && opener.isHittable
+                }, object: probe)
+                XCTAssertEqual(XCTWaiter.wait(for: [returned], timeout: 10), .completed, "NATIVE_MATERIAL_WARM_RETURN_FAILED")
+                XCTAssertEqual(hosts.count, 1)
+                XCTAssertFalse(web.textViews["Message One"].firstMatch.isHittable)
+                print("NATIVE_MATERIAL_CYCLE family=\(family) completed=\(cycle + 1)")
+            }
+        }
+        print("NATIVE_MATERIAL_CONTAINMENT_CONFIRMED")
+    }
+
     func testLocalSessionNativeNavigationDrawerContinuity() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_NAVIGATION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in bottom-navigation drawer regression")

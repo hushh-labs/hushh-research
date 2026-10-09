@@ -380,6 +380,31 @@ describe("native chrome presentation lease", () => {
     await lease.choose(choice(lease), () => true, action);
     expect(action).toHaveBeenCalledOnce();
   });
+  it("projects committed foreground traits with the canvas and never cuts an aperture for page-backed glass", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,
+      contentBackedPresentation: true, canvasAppearance: true, panelPresentation: true });
+    const shell = document.createElement("main");
+    shell.dataset.appShellRoot = "true";
+    document.body.appendChild(shell);
+    document.documentElement.style.setProperty("--background", "#f2f2f7");
+    document.documentElement.classList.remove("dark");
+    const lease = new NativeChromeLease(projection, "owner-a");
+    try {
+      expect(await syncNativeCanvasAppearance()).toBe(true);
+      expect(bridge.setCanvasAppearance.mock.calls.at(-1)![0]).toMatchObject({ appearance: "light", backgroundHex: "#f2f2f7" });
+      document.documentElement.classList.add("dark");
+      document.documentElement.style.setProperty("--background", "#0e0e10");
+      expect(await syncNativeCanvasAppearance()).toBe(true);
+      expect(bridge.setCanvasAppearance.mock.calls.at(-1)![0]).toMatchObject({ appearance: "dark", backgroundHex: "#0e0e10" });
+      await lease.prepare(); await lease.activate();
+      expect(shell.style.clipPath).toBe("");
+      expect(document.documentElement.classList.contains("native-compositor-apertures")).toBe(false);
+    } finally {
+      lease.invalidate(); await retireOwnedNativeChrome(lease.projection); shell.remove();
+      document.documentElement.classList.remove("dark");
+      document.documentElement.style.removeProperty("--background");
+    }
+  });
   it("fences choices across reordered in-place snapshots without replacing the lease", async () => {
     const lease = new NativeChromeLease(projection, "owner-a", "context", true);
     await lease.prepare(); await lease.activate();

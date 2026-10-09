@@ -13,11 +13,67 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Material foundation pilot — 2026-10-09
+
+The source baseline is `44eff92efd` on `feat/adk-orchestration-runtime`.
+The requested visual baseline preserves Hussh's web geometry and icons while
+native glass samples actual page content. The underlay experiment below cannot
+provide that backdrop: its canvas is beneath the WebView. Interaction receipts
+from that experiment are not material or visual acceptance.
+
+The additional Debug/iPhone flag `--hushh-native-content-backed`, together with
+`--hushh-native-compositor`, selects the bounded foreground base plane. The
+same WebView, bridge and Maps hit path remain. Chrome/navigation stay version 2;
+NativeDock stays version 1. All negotiate `contentBackedPresentation`; this mode
+denies underlay apertures and keeps existing DOM geometry reservations. Canvas
+appearance and the committed light/dark trait travel in one ordered receipt.
+The dock has one regular glass surface, with plain child actions, not nested
+glass. Standard UITabBar and the existing navigation artwork remain.
+
+This pilot admits the dock, bottom navigation and stationary History opener
+only. Other Chrome families and native panel-pose presentations are denied in
+this mode. React Profile and History remain unchanged. Covered foreground
+controls are concealed, noninteractive and accessibility-hidden; retained hosts
+receive fresh owner-fenced admission after dismissal. **This is temporary
+containment, not successful drawer continuity.** UIKit siblings cannot sit
+between page, scrim and drawer content inside one WebView. No second scrim,
+snapshot, WebView or native drawer content bridge is introduced.
+
+The iPhone baseline admission reached unlocked Chat on 1.4.0 (69), iOS 27.2
+(24B5089g), before candidate preparation. The signed candidate builds locally,
+but the device subsequently became unavailable before tests entered; its native
+test attempt exits with a destination failure, not a vault rejection. Installation,
+physical visual/accessibility/performance acceptance and warm candidate journeys
+remain unverified. The observed earlier drawer timing failure remains a release
+blocker. Broader adoption, Release, iPad and deployment are not enabled.
+
+Focused frontend contracts cover ordered canvas/trait updates, no foreground
+aperture and stale/covered navigation actions. Native support adds foreground
+paint/hit isolation and extends the isolated synthetic-window capture to all
+three materials, light/dark, Blue/Molten Gold and text/voice. Only public synthetic
+window images may be retained; reviewer journey results are discarded. The
+dedicated warm material test checks twenty React-overlay containment cycles;
+it intentionally does not replace or weaken the existing drawer-continuity gate.
+Rollback removes the content-backed Debug argument and retains the legacy path.
+
+Verification for this source change: canonical local core passed; typecheck,
+104 focused bridge tests, 42 native contract checks, 49 simulator native support
+tests, device/simulator build-for-testing and Android unit build passed. The
+synthetic capture test passed separately and produced eight public images on an
+iPhone 16e simulator running iOS 26.5. All eight were inspected: page color is
+visible through the dock and navigation, the hamburger follows the committed
+appearance, and both accents are reflected. The deliberately overlapping page
+text also shows interference beneath the editor; these images prove backdrop
+composition, **not legibility or full-app geometry acceptance**. They do not
+replace the web/native same-viewport comparison, System/accessibility material
+settings, physical transition frames, editor identity journeys or performance
+measurements. No candidate installation, push or deployment is claimed.
+
 ### Current candidate: retained controls and private dock
 
 This candidate extends NativeChrome **version 2** with capability-negotiated
 `retainedControls`. In the legacy host, a suspended control is hidden. In the
-opt-in compositor it remains visible but noninteractive and unavailable to
+legacy underlay compositor it remains visible but noninteractive and unavailable to
 accessibility; its owned popup must complete dismissal before suspension is
 acknowledged. Reopening can reuse its hosting controller only with the same
 document, opaque owner epoch, family, immutable configuration and exact frame/

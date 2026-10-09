@@ -185,6 +185,35 @@ describe("native navigation presentation boundary", () => {
     view.unmount();
   });
 
+  it("keeps page paint intact and conceals content-backed navigation during a React overlay", async () => {
+    const shell = document.createElement("main");
+    shell.dataset.appShellRoot = "true";
+    document.body.appendChild(shell);
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, interactionIsolation: true,
+      contentBackedPresentation: true, underlayPresentation: false, supported: true, contentHeight: 49, bottomInset: 34 });
+    const onSelect = vi.fn();
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect }));
+    let overlay: ReturnType<typeof render> | undefined;
+    try {
+      await waitFor(() => expect(view.result.current.ready).toBe(true));
+      expect(lastState().visible).toBe(true);
+      expect(shell.style.clipPath).toBe("");
+      expect(document.documentElement.classList.contains("native-compositor-apertures")).toBe(false);
+      const before = lastState();
+      overlay = render(<Overlay />);
+      select(before);
+      expect(onSelect).not.toHaveBeenCalled();
+      await waitFor(() => expect(lastState()).toMatchObject({ visible: false, interactionEnabled: false }));
+      overlay.unmount(); overlay = undefined;
+      await waitFor(() => expect(lastState().visible).toBe(true));
+      select(before);
+      expect(onSelect).not.toHaveBeenCalled();
+      select(lastState());
+      await waitFor(() => expect(onSelect).toHaveBeenCalledOnce());
+      expect(shell.style.clipPath).toBe("");
+    } finally { overlay?.unmount(); view.unmount(); shell.remove(); }
+  });
+
   it("exposes only acknowledged underlay geometry and rejects stale layout after hiding", async () => {
     const shell = document.createElement("main");
     shell.dataset.appShellRoot = "true";

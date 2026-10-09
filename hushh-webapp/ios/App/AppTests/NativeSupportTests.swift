@@ -5,6 +5,35 @@ import WebKit
 
 final class NativeSupportTests: XCTestCase {
     @MainActor
+    func testContentBackedBaseHasNoCanvasBetweenGlassAndPageAndPreservesHitIsolation() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .contentBacked)
+        let control = UIButton(frame: CGRect(x: 10, y: 10, width: 44, height: 44))
+        container.setCanvas(.black, appearance: .light)
+        container.install(control, id: "chat-history-toggle", group: nil)
+        XCTAssertTrue(web.superview === container)
+        XCTAssertTrue(container.contentBackedPresentation)
+        XCTAssertGreaterThan(container.subviews.firstIndex(of: container.underlay)!, container.subviews.firstIndex(of: web)!)
+        XCTAssertGreaterThanOrEqual(container.underlay.layer.zPosition, web.layer.zPosition)
+        XCTAssertEqual(container.underlay.backgroundColor, .clear, "An opaque native plane would destroy the page-backed material")
+        XCTAssertEqual(container.overrideUserInterfaceStyle, .light)
+        let unsupportedPose = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 1, privacyGeneration: 0, frame: container.bounds, offset: 0, opacity: 0.5, settled: true)
+        XCTAssertFalse(container.apply(unsupportedPose, group: "profile", privacy: 0),
+            "The material-only pilot must not accidentally adopt an alpha-composited native drawer")
+        container.setAdmission("chat-history-toggle", admitted: true)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 100, y: 100), with: nil)?.isDescendant(of: control) == true)
+        container.setAdmission("chat-history-toggle", admitted: false)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+        let retained = control.superview
+        container.conceal()
+        XCTAssertTrue(control.superview === retained)
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+    }
+
+    @MainActor
     func testNativePanelPoseAndClippingDoNotGrantStaleOrOutsideHits() {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let container = NativePresentationContainer(webView: web)
@@ -127,6 +156,7 @@ final class NativeSupportTests: XCTestCase {
         model.placeholder = "Message One"
         let host = UIHostingController(rootView: NativeAgentDockView(model: model))
         host.safeAreaRegions = []
+        host.view.backgroundColor = .clear
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let parent = UIViewController(); parent.view.backgroundColor = .systemBackground
         window.rootViewController = parent; window.isHidden = false
@@ -148,26 +178,66 @@ final class NativeSupportTests: XCTestCase {
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
             let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
             window.windowScene = scene
+            let web = WKWebView(frame: window.bounds)
+            let composition = NativePresentationContainer(webView: web, basePresentation: .contentBacked)
+            parent.view = composition
+            composition.install(host.view, id: "agent-dock", group: nil)
+            let bar = UITabBar(frame: CGRect(x: 0, y: 761, width: 390, height: 83))
+            bar.items = try XCTUnwrap(HushhNativeNavigationArtwork.items())
+            bar.selectedItem = bar.items?.first
+            composition.install(bar, id: "bottom-navigation", group: nil)
+            let button = UIHostingController(rootView: NativeChromeButton(label: "Open chat history",
+                controlId: "chat-history-toggle", symbol: "line.3.horizontal",
+                theme: HushhNativeControlAppearance(appearance: "light", accentHex: "#007aff", foregroundHex: "#222222")!,
+                action: {}, layout: { _ in }, focus: ChromeFocusRequest()))
+            button.safeAreaRegions = []; button.view.backgroundColor = .clear
+            parent.addChild(button)
+            composition.install(button.view, id: "chat-history-toggle", group: nil)
+            button.didMove(toParent: parent)
+            button.view.frame = CGRect(x: 16, y: 64, width: 44, height: 44)
             window.makeKeyAndVisible()
-            defer { window.isHidden = true; previousKeyWindow?.makeKeyAndVisible() }
+            defer {
+                button.willMove(toParent: nil); button.view.removeFromSuperview(); button.removeFromParent()
+                window.isHidden = true; previousKeyWindow?.makeKeyAndVisible()
+            }
             host.view.frame.size.height = 52
             for style in [UIUserInterfaceStyle.light, .dark] {
                 parent.overrideUserInterfaceStyle = style
                 host.overrideUserInterfaceStyle = style
-                for mode in ["text", "voice"] {
-                    model.mode = mode
-                    model.placeholder = mode == "text" ? "Message One" : "Talk to One"
-                    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
-                    host.view.layoutIfNeeded()
-                    var rendered = false
-                    let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
-                        rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                button.overrideUserInterfaceStyle = style; bar.overrideUserInterfaceStyle = style
+                let dark = style == .dark
+                composition.setCanvas(dark ? UIColor(red: 0.055, green: 0.055, blue: 0.063, alpha: 1) : .systemGroupedBackground, appearance: style)
+                // Opaque, synthetic page content only. Capturing the entire
+                // attached test window includes the effect's real backdrop.
+                web.loadHTMLString("""
+                    <meta name="viewport" content="width=device-width,initial-scale=1"><style>
+                    body{margin:0;background:\(dark ? "#0e0e10" : "#f2f2f7");color:\(dark ? "#f5f5f7" : "#222");font:16px -apple-system}
+                    main{padding:128px 16px 0}h1{font-size:28px}section{height:160px;border-radius:20px;padding:16px;background:linear-gradient(135deg,#64c7f0,#8f7aef);margin:16px 0}
+                    </style><main><h1>Native material study</h1><p>Synthetic public content</p><section>Page-backed glass</section><section>Shared Hussh geometry</section><section>Content continues beneath the dock</section></main>
+                    """, baseURL: nil)
+                let loaded = expectation(for: NSPredicate { _, _ in !web.isLoading }, evaluatedWith: web)
+                wait(for: [loaded], timeout: 5)
+                for accent in ["#007aff", "#d4a574"] {
+                    let theme = HushhNativeControlAppearance(appearance: dark ? "dark" : "light",
+                        accentHex: accent, foregroundHex: dark ? "#f5f5f7" : "#222222")!
+                    model.accent = theme.accent; bar.tintColor = theme.accent; bar.unselectedItemTintColor = .label
+                    button.rootView = NativeChromeButton(label: "Open chat history", controlId: "chat-history-toggle",
+                        symbol: "line.3.horizontal", theme: theme, action: {}, layout: { _ in }, focus: ChromeFocusRequest())
+                    for mode in ["text", "voice"] {
+                        model.mode = mode
+                        model.placeholder = mode == "text" ? "Message One" : "Talk to One"
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+                        host.view.layoutIfNeeded()
+                        var rendered = false
+                        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                            rendered = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                        }
+                        XCTAssertTrue(rendered, "Synthetic visual capture must reach an attached native presentation")
+                        let attachment = XCTAttachment(image: image)
+                        attachment.name = "synthetic-material-\(dark ? "dark" : "light")-\(accent == "#007aff" ? "blue" : "gold")-\(mode)"
+                        attachment.lifetime = .keepAlways
+                        add(attachment)
                     }
-                    XCTAssertTrue(rendered, "Synthetic visual capture must reach an attached native presentation")
-                    let attachment = XCTAttachment(image: image)
-                    attachment.name = "synthetic-dock-\(style == .dark ? "dark" : "light")-\(mode)"
-                    attachment.lifetime = .keepAlways
-                    add(attachment)
                 }
             }
             model.mode = "text"; model.placeholder = "Message One"
