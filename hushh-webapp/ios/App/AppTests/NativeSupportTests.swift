@@ -20,6 +20,16 @@ final class NativeSupportTests: XCTestCase {
             "WK's rectangle must not sit in front of native controls in UIKit traversal")
         XCTAssertLessThan(container.underlay.layer.zPosition, web.layer.zPosition,
             "Native accessibility ordering must not move glass above product paint")
+        let navigation = UITabBar(frame: CGRect(x: 0, y: 761, width: 390, height: 83))
+        container.install(navigation, id: "bottom-navigation", group: nil)
+        container.setAdmission("bottom-navigation", admitted: true)
+        XCTAssertTrue(navigation.superview === container.underlay,
+            "The retained bar must paint beneath the WebView's drawer scrim, not over product rows")
+        container.setAdmission("bottom-navigation", admitted: false)
+        XCTAssertFalse(navigation.isHidden)
+        XCTAssertFalse(navigation.isUserInteractionEnabled)
+        XCTAssertTrue(navigation.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 120, y: 800), with: nil)?.isDescendant(of: navigation) == true)
         XCTAssertTrue(container.hitTest(CGPoint(x: 120, y: 20), with: nil) === control)
         control.frame.origin.x = -30 // Its bounds extend outside the clipped group.
         XCTAssertFalse(container.hitTest(CGPoint(x: 85, y: 20), with: nil) === control)

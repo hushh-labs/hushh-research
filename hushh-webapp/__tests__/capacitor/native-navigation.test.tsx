@@ -184,4 +184,31 @@ describe("native navigation presentation boundary", () => {
     history.unmount();
     view.unmount();
   });
+
+  it("exposes only acknowledged underlay geometry and rejects stale layout after hiding", async () => {
+    const shell = document.createElement("main");
+    shell.dataset.appShellRoot = "true";
+    document.body.appendChild(shell);
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, interactionIsolation: true, underlayPresentation: true,
+      supported: true, contentHeight: 49, bottomInset: 34 });
+    bridge.setState.mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34,
+      frame: { x: 0, y: 400, width: 300, height: 83 } });
+    const view = renderHook(({ visible }) => useNativeNavigation({ ...options, visible, onSelect: vi.fn() }), {
+      initialProps: { visible: true },
+    });
+    try {
+      await waitFor(() => expect(view.result.current.ready).toBe(true));
+      expect(shell.style.clipPath).toContain("M0 400h300v83");
+      const original = lastState();
+      act(() => bridge.callbacks.get("geometryChanged")?.({ ...original,
+        frame: { x: 0, y: 380, width: 310, height: 83 }, contentHeight: 49, bottomInset: 34 }));
+      expect(shell.style.clipPath).toContain("M0 380h310v83");
+      view.rerender({ visible: false });
+      await waitFor(() => expect(shell.style.clipPath).toBe(""));
+      act(() => bridge.callbacks.get("geometryChanged")?.({ ...original,
+        frame: { x: 0, y: 400, width: 300, height: 83 }, contentHeight: 2, bottomInset: 0 }));
+      expect(shell.style.clipPath).toBe("");
+      expect(view.result.current.height).toBe(49);
+    } finally { view.unmount(); shell.remove(); }
+  });
 });

@@ -84,6 +84,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var confirmedSequence = 0
     private var retiredRestartGeneration = -1
     private lazy var navigationItems = HushhNativeNavigationArtwork.items()
+    private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     #if DEBUG
     private var presentationProbe: NativeTestStatusLabel?
     #endif
@@ -113,7 +114,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "interactionIsolation": true, "supported": self.navigationItems != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "interactionIsolation": true,
+                              "underlayPresentation": self.compositor != nil, "supported": self.navigationItems != nil,
+                              "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
             }
@@ -153,7 +156,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             self.tabBar?.tintColor = theme.accent
             self.updatePresentation()
             self.layoutTabBar()
-            call.resolve(["supported": self.tabBar != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+            call.resolve(self.geometryReceipt())
         }
     }
 
@@ -185,7 +188,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         bar.unselectedItemTintColor = .label
         bar.items = items
         // A shield installed before the bridge call must remain above native controls.
-        if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
+        if let compositor {
+            compositor.install(bar, id: "bottom-navigation", group: nil)
+        } else if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
             host.insertSubview(bar, belowSubview: shield)
         } else {
             host.addSubview(bar)
@@ -203,16 +208,17 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
 
     func layoutTabBar() {
         guard let bar = tabBar, let host = bridge?.viewController?.view else { return }
+        let previousFrame = bar.frame
         let inset = host.safeAreaInsets.bottom
         let height = bar.sizeThatFits(CGSize(width: host.bounds.width, height: 0)).height
         // UITabBar's fitting height includes its own safe-area inset once attached.
         let fullHeight = max(height, 49 + inset)
         bar.frame = CGRect(x: 0, y: host.bounds.height - fullHeight, width: host.bounds.width, height: fullHeight)
         let next = fullHeight - inset
-        if abs(next - contentHeight) > 0.5 || abs(inset - bottomInset) > 0.5 {
+        if abs(next - contentHeight) > 0.5 || abs(inset - bottomInset) > 0.5 || previousFrame != bar.frame {
             contentHeight = next
             bottomInset = inset
-            notifyListeners("geometryChanged", data: ["contentHeight": contentHeight, "bottomInset": bottomInset])
+            notifyListeners("geometryChanged", data: geometryReceipt())
         }
         publishPresentationProbe()
     }
@@ -230,10 +236,21 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         tabBar?.isHidden = !show
         tabBar?.isUserInteractionEnabled = interactive
         tabBar?.accessibilityElementsHidden = !interactive
+        if show { compositor?.revealUnderlay() }
+        compositor?.setAdmission("bottom-navigation", admitted: interactive)
         tabBar?.selectedItem = tabBar?.items?.first(where: {
             HushhNativeNavigationState.tabs[$0.tag] == state.selected
         })
         publishPresentationProbe()
+    }
+
+    private func geometryReceipt() -> [String: Any] {
+        var receipt: [String: Any] = ["supported": tabBar != nil, "contentHeight": contentHeight, "bottomInset": bottomInset,
+                                      "documentId": state.documentId ?? "", "revision": state.revision]
+        if let bar = tabBar, compositor != nil {
+            receipt["frame"] = ["x": bar.frame.minX, "y": bar.frame.minY, "width": bar.frame.width, "height": bar.frame.height]
+        }
+        return receipt
     }
 
     private func publishPresentationProbe() {
@@ -242,6 +259,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         // Public presentation only; never routes, owners, drafts or credentials.
         let fields: [String: Any] = ["visible": !bar.isHidden, "interactive": bar.isUserInteractionEnabled,
                                     "accessibilityHidden": bar.accessibilityElementsHidden,
+                                    "underlay": compositor.map { bar.superview === $0.underlay && $0.underlay.layer.zPosition < $0.webView.layer.zPosition } ?? false,
                                     "x": bar.frame.minX, "y": bar.frame.minY,
                                     "width": bar.frame.width, "height": bar.frame.height]
         if let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]),

@@ -55,6 +55,35 @@ final class AppUITests: XCTestCase {
     private var perfGateStop = false
     private var activeUiFlowRunId = ""
 
+    private func printNativeControlStatuses(_ web: XCUIElement) {
+        for control in ["chat-history-toggle", "chat-history-close", "profile-close"] {
+            let status = web.staticTexts["native-control-status-\(control)"].firstMatch
+            guard status.exists, status.label.hasPrefix("NATIVE_SELECTOR_STATUS ") else { continue }
+            let raw = String(status.label.dropFirst("NATIVE_SELECTOR_STATUS ".count))
+            guard raw.utf8.count <= 1024, let data = raw.data(using: .utf8),
+                  let fields = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            let stage = fields["stage"] as? String ?? "other", outcome = fields["outcome"] as? String ?? "other"
+            guard ["skip", "retire", "prepare", "activate", "update"].contains(stage),
+                  ["pending", "acknowledged", "rejected"].contains(outcome) else { continue }
+            let knownCodes = ["none", "other", "not-admitted", "focused", "geometry",
+                "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_PREPARE_REFUSED",
+                "NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE", "NATIVE_CHROME_OVERLAPPING_CONTROLS",
+                "NATIVE_CHROME_OPTIONS_INVALID", "NATIVE_CHROME_LAYOUT_UNCONFIRMED", "NATIVE_CHROME_LAYOUT_RETIRED",
+                "NATIVE_CHROME_ACTIVATE_REFUSED", "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED",
+                "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED"]
+            let code = fields["code"] as? String ?? "other"
+            guard knownCodes.contains(code) else { continue }
+            print("NATIVE_CONTROL_STAGE control=\(control.replacingOccurrences(of: "-", with: "_")) stage=\(stage) outcome=\(outcome) code=\(code) eligible=\(fields["eligible"] as? Bool ?? false) allowed=\(fields["allowed"] as? Bool ?? false) focused=\(fields["focusInside"] as? Bool ?? false) held=\(fields["heldFocus"] as? Bool ?? false) in_viewport=\(fields["inViewport"] as? Bool ?? false)")
+        }
+    }
+
+    private func waitForAdmittedControl(_ control: XCUIElement) -> Bool {
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            control.exists && control.isHittable && control.isEnabled
+        }, object: control)
+        return XCTWaiter.wait(for: [ready], timeout: 10) == .completed
+    }
+
     struct RouteCase {
         let name: String
         let initialRoute: String
@@ -85,6 +114,7 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
         XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
         let web = hosts.firstMatch
+        printNativeControlStatuses(web)
         for identifier in ["native-dock-editor", "chat-history-toggle", "chat-history-close", "profile-close"] {
             let control = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
             print("NATIVE_CONTROL_ADMISSION control=\(identifier.replacingOccurrences(of: "-", with: "_")) present=\(control.exists) hittable=\(control.exists && control.isHittable)")
@@ -1029,7 +1059,7 @@ final class AppUITests: XCTestCase {
         func packet() -> [String: Any]? {
             guard let raw = probe.value as? String, let data = raw.data(using: .utf8),
                   let fields = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  Set(fields.keys) == Set(["visible", "interactive", "accessibilityHidden", "x", "y", "width", "height"]) else { return nil }
+                  Set(fields.keys) == Set(["visible", "interactive", "accessibilityHidden", "underlay", "x", "y", "width", "height"]) else { return nil }
             return fields
         }
         func matches(interactive: Bool) -> Bool {
@@ -1048,13 +1078,16 @@ final class AppUITests: XCTestCase {
             if historyClose.exists && historyClose.isHittable { historyClose.tap() }
         }
         guard matches(interactive: true), let baseline = packet() else { XCTFail("NATIVE_NAVIGATION_BASE_NOT_ADMITTED"); return }
+        let usesNativeEditor = app.textViews["native-dock-editor"].firstMatch.exists
+        if usesNativeEditor { XCTAssertEqual(baseline["underlay"] as? Bool, true, "NATIVE_NAVIGATION_WRONG_PAINT_OWNER") }
         for (opener, close, family) in [(profile, profileClose, "profile"), (history, historyClose, "history")] {
             for cycle in 0..<10 {
-                guard opener.waitForExistence(timeout: 10), opener.isHittable else { XCTFail("NATIVE_PANEL_OPENER_UNAVAILABLE"); return }
+                guard waitForAdmittedControl(opener) else { printNativeControlStatuses(app.webViews["native-webview"].firstMatch); XCTFail("NATIVE_PANEL_OPENER_UNAVAILABLE"); return }
                 opener.tap()
-                guard close.waitForExistence(timeout: 10), close.isHittable else { XCTFail("NATIVE_PANEL_CLOSE_NOT_ADMITTED"); return }
+                guard waitForAdmittedControl(close) else { printNativeControlStatuses(app.webViews["native-webview"].firstMatch); XCTFail("NATIVE_PANEL_CLOSE_NOT_ADMITTED"); return }
                 XCTAssertTrue(matches(interactive: false), "NATIVE_NAVIGATION_COVERED_PRESENTATION_LOST")
                 if let current = packet() {
+                    XCTAssertEqual(current["underlay"] as? Bool, baseline["underlay"] as? Bool, "NATIVE_NAVIGATION_PAINT_OWNER_CHANGED")
                     for key in ["x", "y", "width", "height"] {
                         XCTAssertEqual((current[key] as? NSNumber)?.doubleValue ?? -.infinity,
                                        (baseline[key] as? NSNumber)?.doubleValue ?? .infinity, accuracy: 1,
@@ -1117,11 +1150,13 @@ final class AppUITests: XCTestCase {
         }
         for (opener, close, fallbackLabel) in [(profile, profileClose, "Close Profile"), (history, historyClose, "Close chat history")] {
             for cycle in 0..<10 {
-                guard opener.waitForExistence(timeout: 10), opener.isHittable else {
+                guard waitForAdmittedControl(opener) else {
+                    printNativeControlStatuses(web)
                     XCTFail("NATIVE_PANEL_OPENER_UNAVAILABLE"); return
                 }
                 opener.tap()
-                guard close.waitForExistence(timeout: 10), close.isHittable else {
+                guard waitForAdmittedControl(close) else {
+                    printNativeControlStatuses(web)
                     XCTFail("NATIVE_PANEL_CLOSE_NOT_ADMITTED"); return
                 }
                 XCTAssertFalse(editor.isHittable, "Covered dock must not acquire interaction")
@@ -1136,6 +1171,7 @@ final class AppUITests: XCTestCase {
                     editor.exists && editor.isHittable && opener.exists && opener.isHittable
                 }, object: editor)
                 guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    printNativeControlStatuses(web)
                     print("NATIVE_PANEL_RETURN editor_present=\(editor.exists) editor_hittable=\(editor.exists && editor.isHittable) opener_present=\(opener.exists) opener_hittable=\(opener.exists && opener.isHittable) close_present=\(close.exists) close_hittable=\(close.exists && close.isHittable)")
                     XCTFail("NATIVE_PANEL_WARM_RETURN_UNCONFIRMED"); return
                 }
@@ -1245,7 +1281,7 @@ final class AppUITests: XCTestCase {
             "One, your cloud agent", "Puppy One, on your machine, with its own conversation"
         ]))
         print("NATIVE_CHAT_SELECTOR_PROBE roots=\(selectorRoots.count) role=\(selectorRoots.firstMatch.exists ? selectorRoots.firstMatch.elementType.rawValue : 0) fallback_names=\(fallbackNames.count)")
-        let status = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "NATIVE_SELECTOR_STATUS ")).firstMatch
+        let status = web.staticTexts["native-selector-rehearsal-status"].firstMatch
         if status.exists {
             let fields = String(status.label.dropFirst("NATIVE_SELECTOR_STATUS ".count))
             if fields.utf8.count <= 1024,

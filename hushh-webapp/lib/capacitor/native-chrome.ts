@@ -336,6 +336,11 @@ export class NativeChromeLease {
   matchesGeometry(geometry: ChromeGeometry): boolean {
     return this.current && this.layoutConfirmed && this.sameGeometry(geometry);
   }
+  /** A return request may wait on this reserved admission, never enable it.
+   * Actual focus still requires confirmed layout, activation and update receipt. */
+  canAwaitFocusAt(geometry: ChromeGeometry): boolean {
+    return this.current && !this.focusReady && this.ownsInstallation && this.sameGeometry(geometry);
+  }
   private sameGeometry(geometry: ChromeGeometry): boolean {
     return geometry.presentationGroup === this.projection.presentationGroup &&
       geometry.presentationOwnerEpoch === this.projection.presentationOwnerEpoch &&

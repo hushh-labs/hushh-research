@@ -32,7 +32,8 @@ export class NativePanelPoseWriter {
   private sending = false;
   private retired = false;
   constructor(private readonly send: (pose: NativePanelPose) => Promise<NativePanelReceipt>,
-    private readonly failed: () => void, private readonly receipt?: (roundTripMs: number) => void) {}
+    private readonly failed: () => void, private readonly receipt?: (roundTripMs: number) => void,
+    private readonly refresh?: () => void) {}
   publish(pose: NativePanelPose) {
     if (this.retired) return;
     this.pending = pose;
@@ -57,7 +58,15 @@ export class NativePanelPoseWriter {
       }
       this.receipt?.(performance.now() - started);
     } catch { if (!this.retired) { this.retire(); this.failed(); } }
-    finally { this.sending = false; if (!this.retired) void this.flush(); }
+    finally {
+      this.sending = false;
+      if (!this.retired && this.pending && this.refresh) {
+        // Read geometry and its timestamp together at the next owned frame.
+        // Never stamp an old queued transform as though it were fresh.
+        this.pending = undefined;
+        this.refresh();
+      } else if (!this.retired) void this.flush();
+    }
   }
 }
 
@@ -144,7 +153,7 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
           }
           panel.dataset.nativePanelMaxRoundTripMs = String(Math.round(Math.max(age,
             Number(panel.dataset.nativePanelMaxRoundTripMs) || 0) * 100) / 100);
-        });
+        }, () => { previous = ""; wake(); });
         wake();
       } catch { if (!cancelled) fail(); }
     })();

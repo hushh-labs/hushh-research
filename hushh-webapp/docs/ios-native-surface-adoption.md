@@ -142,6 +142,62 @@ branch's package scripts; reconcile that owning workflow before promotion.
 This is a local candidate installation, not a UAT service deployment or native
 distribution receipt.
 
+### Retained underlay and admission-bound focus repair — 2026-10-09
+
+The next local Debug candidate is built from `df90c69dee` plus the bounded
+navigation/focus/pose repair in this change. Its installed executable fingerprint
+is `e917fb52c1290f55e85f097da7ac234b2215c2a3b2f212e46243855144384e9e`.
+It targets UAT; installation is not a service deployment or distribution receipt.
+The ordinary wrapper remains unchanged. In the explicitly enabled compositor,
+navigation now belongs to the retained native underlay beneath WK paint, rather
+than a direct host child above drawer scrims. Current document/revision layout
+receipts reserve its base aperture; stale receipts cannot move the aperture or
+overwrite its height. Rotation publishes changed frames even at equal height.
+Covered navigation remains mounted, noninteractive and accessibility-hidden.
+
+History focus return can wait for its exact current reserved admission rather
+than retiring a lease still being prepared/activated. A covered return cannot
+retire anything. Waiting does not grant focus or action authority: confirmed
+layout, activation, update and current-owner checks still apply. Delayed pose
+delivery resamples geometry and its timestamp together through the existing RAF
+owner, not by retimestamping an old pending transform.
+
+Typecheck/export/sync, signed product assets, static/plugin/design checks,
+102 focused frontend contracts and 48 native-support tests pass. One normal
+canonical-reviewer passphrase unlock admits protected Chat. A physical iPhone
+attach-only batch passes ten Profile and ten History cycles, retaining the
+navigation frame within one logical point, confirming underlay paint ownership,
+rejecting covered interaction/accessibility and restoring admission after Close.
+The first compositor batch stopped after four completed Profile cycles with
+`NATIVE_PANEL_CLOSE_NOT_ADMITTED`. The harness previously waited for existence
+before reading hittability; a retained control can exist during noninteractive
+movement. Readiness now waits on exists/hittable/enabled within the same
+ten-second action bound. This does not prove the original failure's cause,
+change the separate pose-age gate or qualify rendered motion.
+
+Credential-free Debug lifecycle probes now cover authored History and Profile
+Close slots as well as the selector. They expose allowlisted stages/codes,
+booleans and bounded geometry only; no identity, content or provider errors.
+Private runner results are discarded. No resets, sign-outs or route injection
+occur within the warm batches. Whole-panel timing, rendered alignment,
+accessibility and Release performance remain unqualified until their separate
+acceptance receipts pass. No new family or Release host is enabled here.
+
+The separate compositor batch completes ten Profile and ten History edge-tap
+cycles, retaining a single WebView/editor, rejecting interactive DOM Close
+duplicates and returning to current native controls. Its final architecture
+assertion **fails**: 564 observed motion samples, 564 stale samples, zero invalid
+samples, maximum target-frame pose age 46.6174 ms / 2.7957 display intervals.
+Completed interactions are not a passing compositor test. Resampling has not
+qualified timing. The estimate's next-callback phase and uncalibrated wall-clock
+pair do not establish rendered-pixel lag; neither permits subtracting a frame,
+changing the threshold or declaring this environmental. Next evidence must
+correlate bounded native acceptance/presentation timing and actual alignment
+through `mobile-parity-check` before expanding or promoting the compositor.
+The iPhone remains on the installed, unlocked Debug candidate at Chat; iPad,
+Release performance, full accessibility, combined core and exact-head CI remain
+outstanding. No merge, push, UAT deployment or native distribution is performed.
+
 ### Whole-panel compositor qualification — 2026-10-09
 
 The candidate is derived from `fe58d0e56e` on

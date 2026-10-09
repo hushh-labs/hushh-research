@@ -111,7 +111,7 @@ export function NativeChatChrome(props: Props) {
   // no owner/document/context, protected content, response bodies or raw errors.
   const reportRehearsal = useCallback((stage: "skip" | "retire" | "prepare" | "activate" | "update",
     outcome: "pending" | "acknowledged" | "rejected", code = "none") => {
-    if (!rehearsalDiagnostics.current || kind !== "agent-surface") return;
+    if (!rehearsalDiagnostics.current) return;
     const frame = slot.current?.getBoundingClientRect();
     const dimension = (value: number | undefined) => value !== undefined && Number.isFinite(value)
       ? Math.max(0, Math.min(10000, Math.round(value))) : 0;
@@ -196,6 +196,9 @@ export function NativeChatChrome(props: Props) {
     const attempt = ++focusAttempt.current;
     const isCurrentAttempt = () => mounted.current && focusAttempt.current === attempt &&
       current.current.epoch === request.epoch && current.current.context === request.context;
+    // Focus is not authority to retire a covered or moving presentation.
+    // The owning admission effect reconciles it after the overlay releases.
+    if (!canAct()) return false;
     const active = lease.current;
     const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
     if (preferNative && supported && nativeFocusReturn && canAct() && !heldFocus.current &&
@@ -209,6 +212,14 @@ export function NativeChatChrome(props: Props) {
       void restoreNativeFocus(active);
       return result;
     }
+    if (preferNative && supported && nativeFocusReturn && !heldFocus.current &&
+        !slot.current?.contains(document.activeElement) && active && geometry &&
+        active.projection.ownerEpoch === request.epoch && active.context === request.context &&
+        active.canAwaitFocusAt(geometry) && isCurrentNativeControlAppearance(active.projection, foreground)) {
+      // Preparation/activation already owns this exact slot. Do not invalidate
+      // it just because Close's focus callback ran before its receipt.
+      return new Promise<boolean>((resolve) => { nativeFocusPending.current = { attempt, binding: null, resolve }; });
+    }
     heldFocus.current = true;
     lease.current?.invalidate();
     try {
@@ -219,7 +230,10 @@ export function NativeChatChrome(props: Props) {
         await retireNativeChrome(request.epoch, undefined, controlId);
       }
       if (!isCurrentAttempt() || !canAct()) {
-        if (isCurrentAttempt()) { heldFocus.current = false; focusPending.current = false; }
+        if (isCurrentAttempt()) {
+          heldFocus.current = false; focusPending.current = false;
+          remeasure((count) => count + 1);
+        }
         return false;
       }
       if (preferNative && supported && nativeFocusReturn && canAct()) {
@@ -639,7 +653,8 @@ export function NativeChatChrome(props: Props) {
 
   return <div ref={slot} className={className} style={props.style} data-native-chrome-slot={controlId}>
     <div inert={hidden} aria-hidden={hidden || undefined} style={{ visibility: hidden ? "hidden" : undefined }}>{children}</div>
-    {rehearsalStatus && <span id="native-selector-rehearsal-status" className="sr-only" role="status" aria-live="off" data-testid="native-selector-rehearsal-status">NATIVE_SELECTOR_STATUS {rehearsalStatus}</span>}
+    {rehearsalStatus && <span id={kind === "agent-surface" ? "native-selector-rehearsal-status" : `native-control-status-${controlId}`}
+      className="sr-only" role="status" aria-live="off" data-testid={kind === "agent-surface" ? "native-selector-rehearsal-status" : `native-control-status-${controlId}`}>NATIVE_SELECTOR_STATUS {rehearsalStatus}</span>}
   </div>;
 }
 

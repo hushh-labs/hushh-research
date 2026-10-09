@@ -4,10 +4,12 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
+import type { ChromeFrame } from "./native-chrome";
 
 export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
-type Geometry = { supported: boolean; contentHeight: number; bottomInset: number };
+type Geometry = { supported: boolean; contentHeight: number; bottomInset: number; frame?: ChromeFrame };
 type Selection = { documentId: string; interactionEpoch: number; privacyGeneration: number; sequence: number; tab: NativeNavigationTab };
 type NavigationState = NativeControlAppearance & {
   documentId: string;
@@ -20,11 +22,11 @@ type NavigationState = NativeControlAppearance & {
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "geometryChanged", listener: (event: { contentHeight: number; bottomInset: number }) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "geometryChanged", listener: (event: Geometry & { documentId?: string; revision?: number }) => void): Promise<PluginListenerHandle>;
 }
 
 const nativeNavigation = registerPlugin<HushhNativeNavigationPlugin>("HushhNativeNavigation");
@@ -117,6 +119,24 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
   const current = useRef<NavigationState | null>(null);
   const select = useRef(onSelect);
   const lastSelection = useRef(0);
+  const underlayPresentation = useRef(false);
+  const apertureRevision = useRef<number | undefined>(undefined);
+  const applyAperture = useCallback((geometry: Geometry, state: NavigationState) => {
+    if (!underlayPresentation.current) return;
+    if (!state.visible) {
+      if (apertureRevision.current !== undefined) removeNativeBaseAperture("bottom-navigation", apertureRevision.current);
+      apertureRevision.current = undefined;
+      return;
+    }
+    const frame = geometry.frame;
+    if (!frame || ![frame.x, frame.y, frame.width, frame.height].every(Number.isFinite) ||
+        frame.x < 0 || frame.y < 0 || frame.width <= 0 || frame.height <= 0 ||
+        frame.x + frame.width > window.innerWidth + 1 || frame.y + frame.height > window.innerHeight + 1) {
+      throw new Error("NATIVE_NAVIGATION_GEOMETRY_INVALID");
+    }
+    setNativeBaseAperture("bottom-navigation", state.revision, frame);
+    apertureRevision.current = state.revision;
+  }, []);
   select.current = onSelect;
 
   useEffect(() => {
@@ -134,6 +154,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       try {
         const capability = await nativeNavigation.getCapabilities();
         if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || cancelled) return;
+        underlayPresentation.current = capability.underlayPresentation === true;
         documentId ??= nativeDocumentId();
         await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
         await retain(nativeNavigation.addListener("selectionRequested", (event) => {
@@ -154,9 +175,12 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
         await retain(nativeNavigation.addListener("geometryChanged", (event) => {
           if (!cancelled) {
             try {
+              const state = current.current;
+              if (underlayPresentation.current && (!state || event.documentId !== state.documentId || event.revision !== state.revision)) return;
               const contentHeight = checkedHeight(event.contentHeight);
               nativeBottomInset = checkedHeight(event.bottomInset);
               setHeight(contentHeight);
+              if (state && event.documentId === state.documentId && event.revision === state.revision) applyAperture(event, state);
               publish();
             } catch { /* Retain the last valid reservation. */ }
           }
@@ -173,10 +197,12 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       handles.forEach((handle) => { void handle.remove(); });
       const state = current.current;
       current.current = null;
+      if (apertureRevision.current !== undefined) removeNativeBaseAperture("bottom-navigation", apertureRevision.current);
+      apertureRevision.current = undefined;
       if (state) void sendState({ ...state, visible: false, interactionEnabled: false, revision: ++revision }).catch(() => undefined);
       setInstalled(false);
     };
-  }, [enabled]);
+  }, [enabled, applyAperture]);
 
   useLayoutEffect(() => {
     if (!supported || !documentId) return;
@@ -196,6 +222,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       if (cancelled || current.current !== state || !result.supported) return;
       setHeight(checkedHeight(result.contentHeight));
       nativeBottomInset = checkedHeight(result.bottomInset);
+      applyAperture(result, state);
       setReady(true);
       setInstalled(true);
       publish();
@@ -205,7 +232,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex]);
+  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex, applyAperture]);
 
   return { ready, height };
 }

@@ -89,6 +89,32 @@ describe("owned panel pose transport", () => {
     expect(timeout).toHaveBeenCalledOnce(); expect(hung).toHaveBeenCalledOnce();
     vi.useRealTimers();
   });
+  it("resamples queued geometry with its own timestamp after delivery without replaying a retired frame", async () => {
+    const first = deferred<NativePanelPose>();
+    const send = vi.fn().mockImplementationOnce(() => first.promise).mockImplementation(async value => value);
+    const failed = vi.fn();
+    const fresh = { ...pose, sequence: 3, offset: 0, settled: true, sampledAtMs: 102 };
+    const refresh = vi.fn(() => writer.publish(fresh));
+    const writer = new NativePanelPoseWriter(send, failed, undefined, refresh);
+    writer.publish({ ...pose, sampledAtMs: 100 });
+    writer.publish({ ...pose, sequence: 2, offset: 80, sampledAtMs: 101 });
+    first.resolve(pose);
+    await first.promise; await Promise.resolve(); await Promise.resolve();
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0]).toEqual(fresh); // Includes latest terminal intent, not the aged transform.
+    writer.retire();
+    writer.publish({ ...fresh, sequence: 4 });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(failed).not.toHaveBeenCalled();
+    const delayed = deferred<NativePanelPose>();
+    const nextRefresh = vi.fn();
+    const retired = new NativePanelPoseWriter(() => delayed.promise, failed, undefined, nextRefresh);
+    retired.publish(pose); retired.publish({ ...pose, sequence: 2 }); retired.retire();
+    delayed.resolve(pose);
+    await delayed.promise; await Promise.resolve(); await Promise.resolve();
+    expect(nextRefresh).not.toHaveBeenCalled();
+  });
 });
 
 describe("private dock event boundary", () => {
@@ -737,22 +763,24 @@ describe("native chrome presentation lease", () => {
       else Reflect.deleteProperty(globalThis, "KeyframeEffect");
     }
   });
-  it("exposes only allowlisted public rehearsal status with explicit Debug capability", async () => {
-    const capability = { contractVersion: 2, families: ["agent-surface"], independentControls: true };
+  it.each(["agent-surface", "history"] as const)("exposes only allowlisted public %s rehearsal status with explicit Debug capability", async (kind) => {
+    const capability = { contractVersion: 2, families: [kind], independentControls: true };
+    const statusId = kind === "agent-surface" ? "native-selector-rehearsal-status" : "native-control-status-chat-history-toggle";
+    const width = kind === "agent-surface" ? 116 : 44;
     bridge.getCapabilities.mockResolvedValue(capability);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-      x: 2, y: 60, width: 116, height: 44, top: 60, left: 2, right: 118, bottom: 104, toJSON: () => ({}),
+      x: 2, y: 60, width, height: 44, top: 60, left: 2, right: 2 + width, bottom: 104, toJSON: () => ({}),
     });
     bridge.prepare.mockRejectedValue(new Error("synthetic-private-response-must-not-appear"));
-    const ordinary = render(<ChatHarness kind="agent-surface" />);
+    const ordinary = render(<ChatHarness kind={kind} />);
     await waitFor(() => expect(bridge.prepare).toHaveBeenCalled());
-    expect(ordinary.queryByTestId("native-selector-rehearsal-status")).toBeNull();
+    expect(ordinary.queryByTestId(statusId)).toBeNull();
     ordinary.unmount();
     bridge.documentId = crypto.randomUUID();
     bridge.getCapabilities.mockResolvedValue({ ...capability, rehearsalDiagnostics: true });
-    const rehearsal = render(<ChatHarness kind="agent-surface" />);
-    await waitFor(() => expect(rehearsal.getByTestId("native-selector-rehearsal-status")).toHaveTextContent('"outcome":"rejected"'));
-    const status = rehearsal.getByTestId("native-selector-rehearsal-status").textContent!;
+    const rehearsal = render(<ChatHarness kind={kind} />);
+    await waitFor(() => expect(rehearsal.getByTestId(statusId)).toHaveTextContent('"outcome":"rejected"'));
+    const status = rehearsal.getByTestId(statusId).textContent!;
     expect(status).toContain('"code":"other"');
     expect(status).not.toContain("synthetic-private-response");
     expect(status).not.toContain("synthetic-owner");
@@ -940,6 +968,37 @@ describe("native chrome presentation lease", () => {
     expect(action).not.toHaveBeenCalled();
     expect(view.getByText("Authored history")).not.toHaveFocus();
     await waitFor(() => expect(view.getByText("Authored history").parentElement).toHaveAttribute("inert"));
+  });
+
+  it("waits for current History admission instead of retiring it for focus, and rejects covered focus", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      inPlaceUpdates: true, focusReturn: true, retainedControls: true });
+    const preparation = deferred<ChromeAcknowledgement>();
+    bridge.prepare.mockReturnValueOnce(preparation.promise);
+    const handle = createRef<NativeChatChromeHandle>();
+    function Blocker({ open }: { open: boolean }) { useNativeNavigationBlocked(open); return null; }
+    const view = render(<><ChatHarness handle={handle} /><Blocker open={false} /></>);
+    await waitFor(() => expect(bridge.prepare).toHaveBeenCalledOnce());
+    const projection = bridge.prepare.mock.calls[0][0];
+    const retirements = bridge.retire.mock.calls.length;
+    let focus!: Promise<boolean>;
+    act(() => { focus = handle.current!.restoreFocus(true); });
+    expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+    expect(bridge.restoreFocus).not.toHaveBeenCalled();
+    await act(async () => { preparation.resolve({ ...projection, phase: "prepared", frame: projection.frame }); });
+    await waitFor(() => expect(bridge.restoreFocus).toHaveBeenCalledOnce());
+    expect(await focus).toBe(true);
+    expect(bridge.prepare).toHaveBeenCalledOnce();
+    expect(view.getByText("Authored history")).not.toBeVisible();
+    view.rerender(<><ChatHarness handle={handle} /><Blocker open /></>);
+    await waitFor(() => expect(bridge.suspend).toHaveBeenCalled());
+    const coveredRetirements = bridge.retire.mock.calls.length;
+    await act(async () => { expect(await handle.current!.restoreFocus(true)).toBe(false); });
+    expect(bridge.retire).toHaveBeenCalledTimes(coveredRetirements);
+    view.rerender(<><ChatHarness handle={handle} /><Blocker open={false} /></>);
+    await waitFor(() => expect(bridge.activate.mock.calls.length).toBeGreaterThan(1));
+    expect(view.getByText("Authored history")).not.toBeVisible();
   });
 
   it("returns native History focus without latching DOM fallback and rejects stale owner focus", async () => {
