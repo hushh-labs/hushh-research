@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => {
       listReceipts: receiptScan,
       scanReceipts: receiptScan,
       getReceiptDetail: vi.fn(),
+      resolveReceiptActionLink: vi.fn(),
       listNudges: vi.fn(),
       startConnect: vi.fn(),
       startNativeConnect: vi.fn(),
@@ -75,6 +76,11 @@ const mocks = vi.hoisted(() => {
     },
     receiptMemorySave: {
       saveReceiptCanonicalIndexToMemory: vi.fn(),
+      resetReceiptCanonicalIndexInMemory: vi.fn(),
+    },
+    agentPkm: {
+      warmAgentPkmContext: vi.fn(),
+      peekReceiptMemoryIndex: vi.fn(),
     },
     personalKnowledgeModelService: {
       validatePreparedDomainStore: vi.fn(),
@@ -118,6 +124,7 @@ vi.mock("@/lib/services/gmail-receipts-service", async (importOriginal) => {
     GmailReceiptRequestError: actual.GmailReceiptRequestError,
     isRetryableReceiptScanPageError: actual.isRetryableReceiptScanPageError,
     isReceiptConnectionLostError: actual.isReceiptConnectionLostError,
+    receiptActionFailure: actual.receiptActionFailure,
     isReceiptScanInProgressError: (error: unknown) =>
       Boolean(
         error &&
@@ -282,7 +289,8 @@ vi.mock("@/lib/navigation/routes", () => ({
   },
 }));
 
-vi.mock("@/lib/utils/browser-navigation", () => ({
+vi.mock("@/lib/utils/browser-navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/utils/browser-navigation")>()),
   assignWindowLocation: mocks.assignWindowLocation,
 }));
 
@@ -347,6 +355,15 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 vi.mock("@/lib/profile/gmail-receipt-memory-save", () => ({
   saveReceiptCanonicalIndexToMemory:
     mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory,
+  resetReceiptCanonicalIndexInMemory:
+    mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory,
+}));
+
+// What private memory holds is controlled per test; reading it never scans Mail.
+vi.mock("@/lib/agent/agent-pkm-memory", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/agent/agent-pkm-memory")>()),
+  warmAgentPkmContext: mocks.agentPkm.warmAgentPkmContext,
+  peekReceiptMemoryIndex: mocks.agentPkm.peekReceiptMemoryIndex,
 }));
 
 vi.mock("@/lib/services/gmail-receipt-memory-service", () => ({
@@ -483,6 +500,8 @@ import {
   GmailReceiptsService,
 } from "@/lib/services/gmail-receipts-service";
 import { GmailReceiptMemoryService } from "@/lib/services/gmail-receipt-memory-service";
+import { buildReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
+import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 
 function makeReceipt(id: number, merchant: string) {
@@ -647,6 +666,9 @@ describe("ProfileReceiptsPage", () => {
     mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory.mockResolvedValue({
       count: 1,
     });
+    mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory.mockResolvedValue(undefined);
+    mocks.agentPkm.warmAgentPkmContext.mockResolvedValue(undefined);
+    mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(null);
     mocks.pkmWriteCoordinator.savePreparedDomain.mockResolvedValue({
       success: true,
       conflict: false,
@@ -803,7 +825,7 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.toast.error).not.toHaveBeenCalled();
   });
 
-  it("keeps known rows visible while one manual sync refreshes them in place", async () => {
+  it("keeps known rows visible while one Sync again refreshes them in place", async () => {
     primeCachedGmailReceipts({
       userId: "user-123",
       accountKey: "akshat@example.com",
@@ -824,14 +846,16 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
     expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
-    const start = screen.getByRole("button", { name: "Start sync" });
+    // With receipts on screen the hero is gone; Sync again sits below the list.
+    expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
+    const again = screen.getByRole("button", { name: "Sync again" });
     // Two activations before React re-renders still start one provider scan.
     act(() => {
-      start.click();
-      start.click();
+      again.click();
+      again.click();
     });
 
-    expect(await screen.findByRole("button", { name: "Scanning" })).toBeDisabled();
+    await waitFor(() => expect(again).toBeDisabled());
     expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
     expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
@@ -846,7 +870,7 @@ describe("ProfileReceiptsPage", () => {
     expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
     // A completed pass replaces the list exactly with what it read.
     await waitFor(() => expect(screen.queryByText("Myntra")).toBeNull());
-    expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
+    expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
     expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
   });
 
@@ -1046,6 +1070,354 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
     // The owner is never asked to save: there is no control for it.
     expect(screen.queryByRole("button", { name: /private memory/i })).toBeNull();
+  });
+
+  describe("saved receipts", () => {
+    const ACCOUNT = "akshat@example.com";
+    async function savedIndex(merchants: string[], accountKey = ACCOUNT) {
+      const records = merchants.map((merchant, position) => ({
+        ...makeReceipt(position + 1, merchant),
+        status: position === 0 ? ("overdue" as const) : ("paid" as const),
+        identifiers: [{ kind: "invoice" as const, value: `INV-${position + 1}` }],
+      }));
+      return buildReceiptCanonicalIndex({
+        rows: buildRecentReceiptRows(records, accountKey),
+        accountKey,
+        now: new Date("2026-10-09T10:00:00.000Z"),
+      });
+    }
+
+    it("shows the saved receipts straight away after a refresh, with no scan and no hero", async () => {
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra", "Amazon"]));
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+      expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Amazon").length).toBeGreaterThan(0);
+      expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
+      expect(screen.getByRole("button", { name: "Sync again" })).toBeEnabled();
+      // Reading private memory is not a Mail scan, now or later.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(GmailReceiptsService.scanReceipts).not.toHaveBeenCalled();
+      expect(mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory).not.toHaveBeenCalled();
+    });
+
+    it("scans nothing when the page is left and opened again", async () => {
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra"]));
+      const first = render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+      first.unmount();
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+      expect(GmailReceiptsService.scanReceipts).not.toHaveBeenCalled();
+    });
+
+    it("keeps the Start sync hero until something is saved or scanned", async () => {
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect(await screen.findByTestId("receipt-sync-hero")).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Sync again" })).toBeNull();
+    });
+
+    it("never shows another Mail account's saved receipts", async () => {
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(
+        await savedIndex(["Myntra"], "someone-else@example.com"),
+      );
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect(await screen.findByTestId("receipt-sync-hero")).toBeVisible();
+      expect(screen.queryByText("Myntra")).toBeNull();
+    });
+
+    it("opens a saved receipt from its saved record without reading Mail", async () => {
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra"]));
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      fireEvent.click((await screen.findAllByTestId("receipt-row"))[0]!);
+      const detail = await screen.findByTestId("receipt-detail");
+      expect(within(detail).getByText("INV-1")).toBeTruthy();
+      expect(GmailReceiptsService.getReceiptDetail).not.toHaveBeenCalled();
+    });
+
+    describe("verified receipt action", () => {
+      const REF = `ra1.${"Q".repeat(48)}`;
+      const URL_TEXT = "https://invoice.stripe.com/i/acct_1/live_secret";
+
+      async function overdueWithAction(action: { kind: string; ref: string } | null) {
+        const records = [
+          {
+            ...makeReceipt(1, "Myntra"),
+            status: "overdue" as const,
+            identifiers: [{ kind: "invoice" as const, value: "INV-1" }],
+            action: action as never,
+          },
+        ];
+        return buildReceiptCanonicalIndex({
+          rows: buildRecentReceiptRows(records, ACCOUNT),
+          accountKey: ACCOUNT,
+          now: new Date("2026-10-09T10:00:00.000Z"),
+        });
+      }
+
+      function fakeTab() {
+        const tab = { opener: window as unknown, closed: false, location: { replace: vi.fn() }, close: vi.fn() };
+        tab.close.mockImplementation(() => {
+          tab.closed = true;
+        });
+        return tab;
+      }
+
+      it("opens the verified link from the owner's click, resolving it only then and never showing it", async () => {
+        mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(
+          await overdueWithAction({ kind: "pay_due", ref: REF }),
+        );
+        const tab = fakeTab();
+        const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+        mocks.gmailReceiptsService.resolveReceiptActionLink.mockResolvedValue({ kind: "pay_due", url: URL_TEXT });
+        render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+        fireEvent.click((await screen.findAllByTestId("receipt-row"))[0]!);
+        const action = await screen.findByTestId("receipt-action");
+        // Nothing is resolved just by opening the receipt.
+        expect(mocks.gmailReceiptsService.resolveReceiptActionLink).not.toHaveBeenCalled();
+        expect(document.body.textContent).not.toContain("https://");
+
+        fireEvent.click(within(action).getByRole("button", { name: "Resolve payment" }));
+        await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith(URL_TEXT));
+        expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+        expect(mocks.gmailReceiptsService.resolveReceiptActionLink).toHaveBeenCalledOnce();
+        expect(mocks.gmailReceiptsService.resolveReceiptActionLink.mock.calls[0]![0]).toMatchObject({
+          userId: "user-123",
+          action: { kind: "pay_due", ref: REF },
+        });
+        // The link was opened, never rendered or kept.
+        expect(document.body.textContent).not.toContain("stripe.com");
+        open.mockRestore();
+      });
+
+      it("explains an unavailable link, closes the tab it opened, and offers a way forward", async () => {
+        mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(
+          await overdueWithAction({ kind: "view_invoice", ref: REF }),
+        );
+        const tab = fakeTab();
+        vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+        mocks.gmailReceiptsService.resolveReceiptActionLink.mockRejectedValue(
+          new Error("This receipt's link is no longer available."),
+        );
+        render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+        fireEvent.click((await screen.findAllByTestId("receipt-row"))[0]!);
+        fireEvent.click(await screen.findByRole("button", { name: "View invoice" }));
+        // Only this action waits; the receipt and its detail stay.
+        expect(await screen.findByText("Sync again to refresh this link")).toBeVisible();
+        expect(screen.getByRole("button", { name: "View invoice" })).toBeDisabled();
+        expect(screen.getByTestId("receipt-detail")).toBeVisible();
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(tab.close).toHaveBeenCalledOnce();
+        expect(tab.location.replace).not.toHaveBeenCalled();
+      });
+
+      it("shows no action for a receipt that has no verified link", async () => {
+        mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await overdueWithAction(null));
+        render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+        fireEvent.click((await screen.findAllByTestId("receipt-row"))[0]!);
+        await screen.findByTestId("receipt-detail");
+        expect(screen.queryByTestId("receipt-action")).toBeNull();
+        expect(screen.queryByRole("button", { name: /view receipt|view invoice|resolve payment/i })).toBeNull();
+      });
+    });
+
+    describe("when Mail is disconnected or needs reconnecting", () => {
+      function mailUnavailable(state: "disconnected" | "needs_reauthentication") {
+        mocks.useGmailConnectorStatus.mockReturnValue(
+          makeGmailView({
+            status: {
+              configured: true,
+              connected: false,
+              status: "disconnected",
+              scope_csv: "gmail.readonly",
+              last_sync_status: "completed",
+              auto_sync_enabled: false,
+              revoked: state === "needs_reauthentication",
+              needs_reauth: state === "needs_reauthentication",
+              latest_run: null,
+              google_email: null,
+            },
+            presentation: {
+              state,
+              badgeLabel: state === "disconnected" ? "Not connected" : "Reconnect Mail",
+              description: "Reconnect Mail to continue syncing your receipts.",
+              latestSyncText: "No sync has run yet.",
+              latestSyncBadge: null,
+              isConnected: false,
+            },
+          }),
+        );
+      }
+
+      it.each(["disconnected", "needs_reauthentication"] as const)(
+        "keeps the saved receipts visible and read-only when Mail is %s, with no scan",
+        async (state) => {
+          mailUnavailable(state);
+          mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra", "Amazon"]));
+          render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+          expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+          expect(screen.getAllByText("Amazon").length).toBeGreaterThan(0);
+          expect(
+            screen.getByText("Showing your last saved receipts. Reconnect Mail to sync updates."),
+          ).toBeVisible();
+          // Never the empty Start sync screen, and only Sync again needs Mail.
+          expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
+          expect(screen.getByRole("button", { name: "Sync again" })).toBeDisabled();
+          expect(screen.getByRole("button", { name: "Reset" })).toBeEnabled();
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+          expect(GmailReceiptsService.scanReceipts).not.toHaveBeenCalled();
+          expect(mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory).not.toHaveBeenCalled();
+          expect(mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory).not.toHaveBeenCalled();
+        },
+      );
+
+      it("opens a saved receipt, and waits on its action until Mail is reconnected and synced", async () => {
+        mailUnavailable("needs_reauthentication");
+        const index = await savedIndex(["Myntra"]);
+        index.transactions[0]!.action = { kind: "pay_due", ref: `ra1.${"Q".repeat(48)}` };
+        mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(index);
+        render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+        fireEvent.click((await screen.findAllByTestId("receipt-row"))[0]!);
+        const detail = await screen.findByTestId("receipt-detail");
+        expect(within(detail).getByText("INV-1")).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Resolve payment" })).toBeDisabled();
+        expect(
+          screen.getByText("Reconnect Mail, then sync again to refresh this link"),
+        ).toBeVisible();
+        expect(mocks.gmailReceiptsService.resolveReceiptActionLink).not.toHaveBeenCalled();
+      });
+
+      it("can still reset the saved receipts, after confirming", async () => {
+        mailUnavailable("disconnected");
+        mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra"]));
+        render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+        expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+        fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+        expect(mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory).not.toHaveBeenCalled();
+        fireEvent.click(await screen.findByRole("button", { name: "Reset receipts" }));
+        await waitFor(() =>
+          expect(mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory).toHaveBeenCalledTimes(1),
+        );
+        await waitFor(() => expect(screen.queryByText("Myntra")).toBeNull());
+      });
+
+      it("shows a saved set when no connected account can contradict it", async () => {
+        mailUnavailable("disconnected");
+        const other = await savedIndex(["Myntra"], "someone-else@example.com");
+        mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(other);
+        render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+        expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+      });
+    });
+
+    it("shows saved receipts that were saved before they carried an account reference", async () => {
+      const index = await savedIndex(["Myntra"]);
+      index.account_ref = null;
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(index);
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+      expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
+    });
+
+    it("Sync again scans once, keeps the saved list meanwhile, and saves the result once", async () => {
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra"]));
+      let resolveScan: ((value: unknown) => void) | null = null;
+      vi.mocked(GmailReceiptsService.scanReceipts).mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveScan = resolve;
+        }) as never,
+      );
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Sync again" }));
+      await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1));
+      expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+      expect(mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory).not.toHaveBeenCalled();
+
+      resolveScan?.({
+        items: [makeReceipt(5, "Amazon")],
+        page: 1,
+        per_page: 6,
+        total: 1,
+        has_more: false,
+      });
+      expect((await screen.findAllByText("Amazon")).length).toBeGreaterThan(0);
+      await waitFor(() => expect(screen.queryByText("Myntra")).toBeNull());
+      await waitFor(() =>
+        expect(mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory).toHaveBeenCalledOnce(),
+      );
+      expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
+    });
+
+    it("a failed Sync again leaves the saved receipts on screen and saves nothing", async () => {
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra"]));
+      vi.mocked(GmailReceiptsService.scanReceipts).mockRejectedValueOnce(new Error("unavailable"));
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+      fireEvent.click(screen.getByRole("button", { name: "Sync again" }));
+      await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+      expect(mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
+
+    it("removes the saved receipts only after the owner confirms a reset", async () => {
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra"]));
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+      const dialog = await screen.findByRole("alertdialog");
+      // Nothing is removed by opening the dialog, or by keeping the receipts.
+      expect(mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory).not.toHaveBeenCalled();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Keep receipts" }));
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+      expect(mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory).not.toHaveBeenCalled();
+      expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+      fireEvent.click(
+        within(await screen.findByRole("alertdialog")).getByRole("button", {
+          name: "Reset receipts",
+        }),
+      );
+      await waitFor(() =>
+        expect(mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory).toHaveBeenCalledOnce(),
+      );
+      await waitFor(() => expect(screen.queryByText("Myntra")).toBeNull());
+      expect(await screen.findByTestId("receipt-sync-hero")).toBeVisible();
+      expect(GmailReceiptsService.scanReceipts).not.toHaveBeenCalled();
+    });
+
+    it("keeps the receipts when a reset cannot be saved", async () => {
+      mocks.agentPkm.peekReceiptMemoryIndex.mockReturnValue(await savedIndex(["Myntra"]));
+      mocks.receiptMemorySave.resetReceiptCanonicalIndexInMemory.mockRejectedValueOnce(
+        new Error("Failed to save receipt memory."),
+      );
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+      expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
+      fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+      fireEvent.click(
+        within(await screen.findByRole("alertdialog")).getByRole("button", {
+          name: "Reset receipts",
+        }),
+      );
+      await waitFor(() => expect(mocks.toast.error).toHaveBeenCalled());
+      expect(screen.getAllByText("Myntra").length).toBeGreaterThan(0);
+      consoleError.mockRestore();
+    });
   });
 
   it("holds sealed receipts behind vault unlock when the vault is locked", async () => {
@@ -1674,7 +2046,7 @@ describe("ProfileReceiptsPage", () => {
 
     expect((await screen.findAllByText("Myntra")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/10 mail messages checked/i)).toBeNull();
-    expect(screen.getByTestId("receipt-sync-hero")).toBeVisible();
+    expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
     expect(screen.getByTestId("recent-receipts")).toBeVisible();
 
     await waitFor(() => {

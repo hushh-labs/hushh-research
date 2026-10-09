@@ -592,6 +592,27 @@ async def test_scan_caps_page_size_and_extraction_concurrency():
     assert peak == 6
 
 
+def test_reviewed_merchants_come_from_the_shared_contract_and_only_by_sender_domain():
+    from hushh_mcp.services import gmail_live_receipts_service as live
+
+    assert len(live._MERCHANT_RULES) >= 50
+    # A reviewed brand beyond the original four, including a subdomain sender.
+    rule = live._verified_merchant("mail.supabase.io")
+    assert rule is not None and rule.name == "Supabase"
+    assert rule.merchant_domain == "supabase.com"
+    # Look-alikes and unreviewed senders never select a brand.
+    for sender in (
+        "evil-amazon.com",
+        "amazon.com.evil.example",
+        "amazon.evil.example",
+        "stripe.com",
+    ):
+        assert live._verified_merchant(sender) is None
+    # A fulfilment role subdomain is evidence about the sender, not the merchant.
+    assert live._verified_merchant("delivery.amazon.in") is None
+    assert live._verified_merchant(None) is None
+
+
 async def test_valid_myntra_receipt_uses_domain_mapping_and_preferred_total():
     message = _message(
         "msg-myntra",
@@ -1452,3 +1473,207 @@ async def test_detail_is_account_bound_and_returns_only_labelled_bounded_excerpt
             require_access=_allowed,
         )
     assert caught.value.code == "GMAIL_RECEIPT_NOT_FOUND"
+
+
+# --- Verified receipt action links ---------------------------------------------------
+
+_ACTION_HTML = (
+    "<p>Your invoice is overdue.</p><p>Amount Due USD 50.00</p>"
+    '<a href="https://invoice.stripe.com/i/acct_1/live_abc">  Pay   invoice </a>'
+    '<a href="https://billing.example.test/invoices/INV-77">View invoice</a>'
+    '<a href="https://billing.example.test/unsubscribe?u=1">Unsubscribe</a>'
+    '<a href="https://click.example.test/track?x=1">Track</a>'
+    '<a href="javascript:alert(1)">Pay now</a>'
+)
+
+
+def _action_message(identity: str = "action-msg", html: str = _ACTION_HTML) -> dict:
+    message = _message(
+        identity,
+        subject="Invoice INV-77 is overdue",
+        sender="Example Billing <billing@example.test>",
+        body="Your invoice is overdue. Invoice number INV-77. Amount Due USD 50.00",
+    )
+    message["payload"] = {
+        "mimeType": "multipart/alternative",
+        "headers": message["payload"]["headers"],
+        "parts": [
+            {
+                "mimeType": "text/plain",
+                "body": {"data": _b64("Your invoice is overdue. Amount Due USD 50.00")},
+            },
+            {"mimeType": "text/html", "body": {"data": _b64(html)}},
+        ],
+    }
+    return message
+
+
+def _action_model(payload: dict, **action) -> dict:
+    return {
+        **_model_for(payload),
+        "status": "overdue",
+        "status_evidence": "Your invoice is overdue",
+        "action_kind": action.get("kind"),
+        "action_link_id": action.get("link_id"),
+    }
+
+
+def _ids(payload: dict) -> dict[str, str]:
+    return {item["host"]: item["id"] for item in payload["link_candidates"]}
+
+
+async def test_the_model_sees_safe_link_labels_and_hosts_but_never_a_url():
+    seen: list[dict] = []
+
+    async def extract(payload, _user, _token):
+        seen.append(payload)
+        return _action_model(payload)
+
+    service = _service([_action_message()])
+    service._extractor = extract
+    await _scan(service)
+
+    candidates = seen[0]["link_candidates"]
+    assert [item["host"] for item in candidates] == [
+        "invoice.stripe.com",
+        "billing.example.test",
+    ]
+    assert [item["label"] for item in candidates] == ["Pay invoice", "View invoice"]
+    assert all(set(item) == {"id", "label", "host"} for item in candidates)
+    assert "https://" not in json.dumps(candidates) and "unsubscribe" not in json.dumps(candidates)
+
+
+async def test_a_chosen_link_becomes_a_sealed_reference_that_holds_no_url_or_message_id():
+    async def extract(payload, _user, _token):
+        return _action_model(payload, kind="pay_due", link_id=_ids(payload)["invoice.stripe.com"])
+
+    service = _service([_action_message("gmail-msg-id-123")])
+    service._extractor = extract
+    first = (await _scan(service))["items"][0]
+    again = (await _scan(service))["items"][0]
+
+    action = first["action"]
+    assert action["kind"] == "pay_due" and action["ref"].startswith("ra1.")
+    body = action["ref"][4:]
+    raw = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))
+    for secret in (b"gmail-msg-id-123", b"invoice.stripe.com", b"https", b"owner@example.com"):
+        assert secret not in raw and secret.decode() not in action["ref"]
+    # An unchanged receipt seals to the same reference, so saving it again changes nothing.
+    assert again["action"] == action
+
+
+async def test_pay_due_is_dropped_unless_the_receipt_is_found_unpaid():
+    async def extract(payload, _user, _token):
+        return {
+            **_action_model(payload, kind="pay_due", link_id=_ids(payload)["invoice.stripe.com"]),
+            "status": None,
+            "status_evidence": None,
+        }
+
+    service = _service([_action_message()])
+    service._extractor = extract
+    item = (await _scan(service))["items"][0]
+    # The receipt stays; only the unsupported action is dropped.
+    assert item["source_id"] and item["action"] is None
+
+
+@pytest.mark.parametrize(
+    "choice",
+    [
+        {"kind": "view_invoice", "link_id": "link:99"},  # not a candidate
+        {"kind": "view_invoice", "link_id": None},
+        {"kind": None, "link_id": "link:0"},
+        {"kind": "delete_account", "link_id": "link:0"},  # not an action kind
+        {"kind": ["view_invoice"], "link_id": "link:0"},
+        {"kind": "view_invoice", "link_id": ["link:0"]},
+    ],
+)
+async def test_an_invalid_action_choice_is_dropped_and_never_fails_the_scan(choice):
+    async def extract(payload, _user, _token):
+        return _action_model(payload, **choice)
+
+    service = _service([_action_message()])
+    service._extractor = extract
+    result = await _scan(service)
+    assert len(result["items"]) == 1 and result["items"][0]["action"] is None
+
+
+async def test_unsafe_links_are_never_candidates_so_they_can_never_be_chosen():
+    async def extract(payload, _user, _token):
+        hosts = {item["host"] for item in payload["link_candidates"]}
+        assert "click.example.test" not in hosts
+        # Even a model that names an unsafe link's position cannot reach it.
+        return _action_model(payload, kind="view_invoice", link_id="link:2")
+
+    service = _service([_action_message()])
+    service._extractor = extract
+    assert (await _scan(service))["items"][0]["action"] is None
+
+
+async def _sealed_action(service) -> str:
+    async def extract(payload, _user, _token):
+        return _action_model(
+            payload, kind="view_invoice", link_id=_ids(payload)["billing.example.test"]
+        )
+
+    service._extractor = extract
+    return (await _scan(service))["items"][0]["action"]["ref"]
+
+
+async def test_resolving_a_reference_derives_the_link_again_without_calling_it():
+    calls: list[httpx.Request] = []
+    service = _service([_action_message()], calls)
+    ref = await _sealed_action(service)
+    calls.clear()
+
+    resolved = await service.resolve_action(user_id="owner", ref=ref, require_access=_allowed)
+    assert resolved == {
+        "kind": "view_invoice",
+        "url": "https://billing.example.test/invoices/INV-77",
+    }
+    # Only Gmail's API was read; the link itself was never requested.
+    assert calls and all(call.url.host == "gmail.googleapis.com" for call in calls)
+
+
+async def test_a_reference_only_works_for_the_owner_and_connection_that_saved_it():
+    service = _service([_action_message()])
+    ref = await _sealed_action(service)
+
+    # Another deployment secret (or tampering) can never open it.
+    other = GmailLiveReceiptsService(
+        gmail=_Gmail(),
+        transport=service._transport,
+        source_secret=b"x" * 32,
+        extractor=_extractor,
+    )
+    tampered = ref[:-3] + ("AAA" if not ref.endswith("AAA") else "BBB")
+    for candidate_service, candidate in (
+        (other, ref),
+        (service, tampered),
+        (service, "ra1.AAAA"),
+        (service, "nope"),
+    ):
+        with pytest.raises(GmailApiError) as raised:
+            await candidate_service.resolve_action(
+                user_id="owner", ref=candidate, require_access=_allowed
+            )
+        assert raised.value.code == "GMAIL_RECEIPT_ACTION_UNAVAILABLE"
+
+    # A different Gmail connection (reconnect, or another account) voids it.
+    service._gmail.row["connected_at"] = "2026-10-09T00:00:00+00:00"
+    with pytest.raises(GmailApiError) as raised:
+        await service.resolve_action(user_id="owner", ref=ref, require_access=_allowed)
+    assert raised.value.code == "GMAIL_RECEIPT_ACTION_UNAVAILABLE"
+
+
+async def test_a_link_that_left_the_email_or_turned_unsafe_is_unavailable_not_guessed():
+    service = _service([_action_message()])
+    ref = await _sealed_action(service)
+
+    changed = _service(
+        [_action_message(html='<a href="https://billing.example.test/other">View</a>')]
+    )
+    changed._source_secret = service._source_secret
+    with pytest.raises(GmailApiError) as raised:
+        await changed.resolve_action(user_id="owner", ref=ref, require_access=_allowed)
+    assert raised.value.code == "GMAIL_RECEIPT_ACTION_UNAVAILABLE"

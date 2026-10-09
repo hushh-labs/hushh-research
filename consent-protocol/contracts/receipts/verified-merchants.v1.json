@@ -1,0 +1,663 @@
+{
+  "$comment": "Reviewed merchant brands for Mail > Receipts. A receipt's sender domain, never its text, selects a brand and its logo domain, so a logo can only ever be looked up by a domain written here. Payment processors and mail platforms that send receipts for other merchants (for example Stripe, Razorpay, SendGrid) are deliberately absent. Rules are matched in order; every sender domain also matches its subdomains. Read by hushh-webapp/lib/mail/receipt-merchant-registry.ts and consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py; the copies under consent-protocol/contracts/receipts and hushh-webapp/contracts/receipts must stay byte-identical to this file.",
+  "version": 1,
+  "merchants": [
+    {
+      "id": "myntra",
+      "name": "Myntra",
+      "logo_domain": "myntra.com",
+      "sender_domains": [
+        "myntra.com"
+      ]
+    },
+    {
+      "id": "amazon",
+      "name": "Amazon",
+      "logo_domain": "amazon.com",
+      "sender_domains": [
+        "amazon.com",
+        "amazon.in",
+        "amazon.co.in"
+      ]
+    },
+    {
+      "id": "apple",
+      "name": "Apple",
+      "logo_domain": "apple.com",
+      "sender_domains": [
+        "apple.com"
+      ]
+    },
+    {
+      "id": "paypal",
+      "name": "PayPal",
+      "logo_domain": "paypal.com",
+      "sender_domains": [
+        "paypal.com"
+      ]
+    },
+    {
+      "id": "flipkart",
+      "name": "Flipkart",
+      "logo_domain": "flipkart.com",
+      "sender_domains": [
+        "flipkart.com"
+      ]
+    },
+    {
+      "id": "ajio",
+      "name": "AJIO",
+      "logo_domain": "ajio.com",
+      "sender_domains": [
+        "ajio.com"
+      ]
+    },
+    {
+      "id": "nykaa",
+      "name": "Nykaa",
+      "logo_domain": "nykaa.com",
+      "sender_domains": [
+        "nykaa.com"
+      ]
+    },
+    {
+      "id": "meesho",
+      "name": "Meesho",
+      "logo_domain": "meesho.com",
+      "sender_domains": [
+        "meesho.com"
+      ]
+    },
+    {
+      "id": "tata-cliq",
+      "name": "Tata CLiQ",
+      "logo_domain": "tatacliq.com",
+      "sender_domains": [
+        "tatacliq.com"
+      ]
+    },
+    {
+      "id": "croma",
+      "name": "Croma",
+      "logo_domain": "croma.com",
+      "sender_domains": [
+        "croma.com"
+      ]
+    },
+    {
+      "id": "ikea",
+      "name": "IKEA",
+      "logo_domain": "ikea.com",
+      "sender_domains": [
+        "ikea.com"
+      ]
+    },
+    {
+      "id": "walmart",
+      "name": "Walmart",
+      "logo_domain": "walmart.com",
+      "sender_domains": [
+        "walmart.com"
+      ]
+    },
+    {
+      "id": "target",
+      "name": "Target",
+      "logo_domain": "target.com",
+      "sender_domains": [
+        "target.com"
+      ]
+    },
+    {
+      "id": "best-buy",
+      "name": "Best Buy",
+      "logo_domain": "bestbuy.com",
+      "sender_domains": [
+        "bestbuy.com"
+      ]
+    },
+    {
+      "id": "ebay",
+      "name": "eBay",
+      "logo_domain": "ebay.com",
+      "sender_domains": [
+        "ebay.com"
+      ]
+    },
+    {
+      "id": "etsy",
+      "name": "Etsy",
+      "logo_domain": "etsy.com",
+      "sender_domains": [
+        "etsy.com"
+      ]
+    },
+    {
+      "id": "decathlon",
+      "name": "Decathlon",
+      "logo_domain": "decathlon.com",
+      "sender_domains": [
+        "decathlon.com",
+        "decathlon.in"
+      ]
+    },
+    {
+      "id": "nike",
+      "name": "Nike",
+      "logo_domain": "nike.com",
+      "sender_domains": [
+        "nike.com"
+      ]
+    },
+    {
+      "id": "adidas",
+      "name": "Adidas",
+      "logo_domain": "adidas.com",
+      "sender_domains": [
+        "adidas.com"
+      ]
+    },
+    {
+      "id": "swiggy",
+      "name": "Swiggy",
+      "logo_domain": "swiggy.in",
+      "sender_domains": [
+        "swiggy.in",
+        "swiggy.com"
+      ]
+    },
+    {
+      "id": "zomato",
+      "name": "Zomato",
+      "logo_domain": "zomato.com",
+      "sender_domains": [
+        "zomato.com"
+      ]
+    },
+    {
+      "id": "blinkit",
+      "name": "Blinkit",
+      "logo_domain": "blinkit.com",
+      "sender_domains": [
+        "blinkit.com"
+      ]
+    },
+    {
+      "id": "zepto",
+      "name": "Zepto",
+      "logo_domain": "zeptonow.com",
+      "sender_domains": [
+        "zeptonow.com"
+      ]
+    },
+    {
+      "id": "bigbasket",
+      "name": "BigBasket",
+      "logo_domain": "bigbasket.com",
+      "sender_domains": [
+        "bigbasket.com"
+      ]
+    },
+    {
+      "id": "dominos",
+      "name": "Domino's",
+      "logo_domain": "dominos.com",
+      "sender_domains": [
+        "dominos.com",
+        "dominos.co.in"
+      ]
+    },
+    {
+      "id": "starbucks",
+      "name": "Starbucks",
+      "logo_domain": "starbucks.com",
+      "sender_domains": [
+        "starbucks.com"
+      ]
+    },
+    {
+      "id": "doordash",
+      "name": "DoorDash",
+      "logo_domain": "doordash.com",
+      "sender_domains": [
+        "doordash.com"
+      ]
+    },
+    {
+      "id": "instacart",
+      "name": "Instacart",
+      "logo_domain": "instacart.com",
+      "sender_domains": [
+        "instacart.com"
+      ]
+    },
+    {
+      "id": "grubhub",
+      "name": "Grubhub",
+      "logo_domain": "grubhub.com",
+      "sender_domains": [
+        "grubhub.com"
+      ]
+    },
+    {
+      "id": "uber",
+      "name": "Uber",
+      "logo_domain": "uber.com",
+      "sender_domains": [
+        "uber.com"
+      ]
+    },
+    {
+      "id": "ola",
+      "name": "Ola",
+      "logo_domain": "olacabs.com",
+      "sender_domains": [
+        "olacabs.com"
+      ]
+    },
+    {
+      "id": "rapido",
+      "name": "Rapido",
+      "logo_domain": "rapido.bike",
+      "sender_domains": [
+        "rapido.bike"
+      ]
+    },
+    {
+      "id": "lyft",
+      "name": "Lyft",
+      "logo_domain": "lyft.com",
+      "sender_domains": [
+        "lyft.com"
+      ]
+    },
+    {
+      "id": "makemytrip",
+      "name": "MakeMyTrip",
+      "logo_domain": "makemytrip.com",
+      "sender_domains": [
+        "makemytrip.com"
+      ]
+    },
+    {
+      "id": "goibibo",
+      "name": "Goibibo",
+      "logo_domain": "goibibo.com",
+      "sender_domains": [
+        "goibibo.com"
+      ]
+    },
+    {
+      "id": "cleartrip",
+      "name": "Cleartrip",
+      "logo_domain": "cleartrip.com",
+      "sender_domains": [
+        "cleartrip.com"
+      ]
+    },
+    {
+      "id": "ixigo",
+      "name": "ixigo",
+      "logo_domain": "ixigo.com",
+      "sender_domains": [
+        "ixigo.com"
+      ]
+    },
+    {
+      "id": "irctc",
+      "name": "IRCTC",
+      "logo_domain": "irctc.co.in",
+      "sender_domains": [
+        "irctc.co.in"
+      ]
+    },
+    {
+      "id": "redbus",
+      "name": "redBus",
+      "logo_domain": "redbus.in",
+      "sender_domains": [
+        "redbus.in"
+      ]
+    },
+    {
+      "id": "indigo",
+      "name": "IndiGo",
+      "logo_domain": "goindigo.in",
+      "sender_domains": [
+        "goindigo.in"
+      ]
+    },
+    {
+      "id": "air-india",
+      "name": "Air India",
+      "logo_domain": "airindia.com",
+      "sender_domains": [
+        "airindia.com",
+        "airindia.in"
+      ]
+    },
+    {
+      "id": "vistara",
+      "name": "Vistara",
+      "logo_domain": "airvistara.com",
+      "sender_domains": [
+        "airvistara.com"
+      ]
+    },
+    {
+      "id": "spicejet",
+      "name": "SpiceJet",
+      "logo_domain": "spicejet.com",
+      "sender_domains": [
+        "spicejet.com"
+      ]
+    },
+    {
+      "id": "emirates",
+      "name": "Emirates",
+      "logo_domain": "emirates.com",
+      "sender_domains": [
+        "emirates.com"
+      ]
+    },
+    {
+      "id": "delta",
+      "name": "Delta",
+      "logo_domain": "delta.com",
+      "sender_domains": [
+        "delta.com"
+      ]
+    },
+    {
+      "id": "united",
+      "name": "United Airlines",
+      "logo_domain": "united.com",
+      "sender_domains": [
+        "united.com"
+      ]
+    },
+    {
+      "id": "american-airlines",
+      "name": "American Airlines",
+      "logo_domain": "aa.com",
+      "sender_domains": [
+        "aa.com"
+      ]
+    },
+    {
+      "id": "southwest",
+      "name": "Southwest Airlines",
+      "logo_domain": "southwest.com",
+      "sender_domains": [
+        "southwest.com"
+      ]
+    },
+    {
+      "id": "airbnb",
+      "name": "Airbnb",
+      "logo_domain": "airbnb.com",
+      "sender_domains": [
+        "airbnb.com"
+      ]
+    },
+    {
+      "id": "booking",
+      "name": "Booking.com",
+      "logo_domain": "booking.com",
+      "sender_domains": [
+        "booking.com"
+      ]
+    },
+    {
+      "id": "expedia",
+      "name": "Expedia",
+      "logo_domain": "expedia.com",
+      "sender_domains": [
+        "expedia.com"
+      ]
+    },
+    {
+      "id": "agoda",
+      "name": "Agoda",
+      "logo_domain": "agoda.com",
+      "sender_domains": [
+        "agoda.com"
+      ]
+    },
+    {
+      "id": "spotify",
+      "name": "Spotify",
+      "logo_domain": "spotify.com",
+      "sender_domains": [
+        "spotify.com"
+      ]
+    },
+    {
+      "id": "netflix",
+      "name": "Netflix",
+      "logo_domain": "netflix.com",
+      "sender_domains": [
+        "netflix.com"
+      ]
+    },
+    {
+      "id": "youtube",
+      "name": "YouTube",
+      "logo_domain": "youtube.com",
+      "sender_domains": [
+        "youtube.com"
+      ]
+    },
+    {
+      "id": "disney-plus",
+      "name": "Disney+",
+      "logo_domain": "disneyplus.com",
+      "sender_domains": [
+        "disneyplus.com",
+        "hotstar.com"
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "logo_domain": "google.com",
+      "sender_domains": [
+        "google.com"
+      ]
+    },
+    {
+      "id": "microsoft",
+      "name": "Microsoft",
+      "logo_domain": "microsoft.com",
+      "sender_domains": [
+        "microsoft.com"
+      ]
+    },
+    {
+      "id": "adobe",
+      "name": "Adobe",
+      "logo_domain": "adobe.com",
+      "sender_domains": [
+        "adobe.com"
+      ]
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "logo_domain": "notion.so",
+      "sender_domains": [
+        "notion.so",
+        "makenotion.com"
+      ]
+    },
+    {
+      "id": "figma",
+      "name": "Figma",
+      "logo_domain": "figma.com",
+      "sender_domains": [
+        "figma.com"
+      ]
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "logo_domain": "slack.com",
+      "sender_domains": [
+        "slack.com"
+      ]
+    },
+    {
+      "id": "zoom",
+      "name": "Zoom",
+      "logo_domain": "zoom.us",
+      "sender_domains": [
+        "zoom.us"
+      ]
+    },
+    {
+      "id": "dropbox",
+      "name": "Dropbox",
+      "logo_domain": "dropbox.com",
+      "sender_domains": [
+        "dropbox.com"
+      ]
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "logo_domain": "github.com",
+      "sender_domains": [
+        "github.com"
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "logo_domain": "openai.com",
+      "sender_domains": [
+        "openai.com"
+      ]
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "logo_domain": "anthropic.com",
+      "sender_domains": [
+        "anthropic.com"
+      ]
+    },
+    {
+      "id": "atlassian",
+      "name": "Atlassian",
+      "logo_domain": "atlassian.com",
+      "sender_domains": [
+        "atlassian.com"
+      ]
+    },
+    {
+      "id": "canva",
+      "name": "Canva",
+      "logo_domain": "canva.com",
+      "sender_domains": [
+        "canva.com"
+      ]
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "logo_domain": "linear.app",
+      "sender_domains": [
+        "linear.app"
+      ]
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel",
+      "logo_domain": "vercel.com",
+      "sender_domains": [
+        "vercel.com"
+      ]
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase",
+      "logo_domain": "supabase.com",
+      "sender_domains": [
+        "supabase.com",
+        "supabase.io"
+      ]
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "logo_domain": "cloudflare.com",
+      "sender_domains": [
+        "cloudflare.com"
+      ]
+    },
+    {
+      "id": "digitalocean",
+      "name": "DigitalOcean",
+      "logo_domain": "digitalocean.com",
+      "sender_domains": [
+        "digitalocean.com"
+      ]
+    },
+    {
+      "id": "godaddy",
+      "name": "GoDaddy",
+      "logo_domain": "godaddy.com",
+      "sender_domains": [
+        "godaddy.com"
+      ]
+    },
+    {
+      "id": "namecheap",
+      "name": "Namecheap",
+      "logo_domain": "namecheap.com",
+      "sender_domains": [
+        "namecheap.com"
+      ]
+    },
+    {
+      "id": "linkedin",
+      "name": "LinkedIn",
+      "logo_domain": "linkedin.com",
+      "sender_domains": [
+        "linkedin.com"
+      ]
+    },
+    {
+      "id": "grammarly",
+      "name": "Grammarly",
+      "logo_domain": "grammarly.com",
+      "sender_domains": [
+        "grammarly.com"
+      ]
+    },
+    {
+      "id": "1password",
+      "name": "1Password",
+      "logo_domain": "1password.com",
+      "sender_domains": [
+        "1password.com"
+      ]
+    },
+    {
+      "id": "airtel",
+      "name": "Airtel",
+      "logo_domain": "airtel.in",
+      "sender_domains": [
+        "airtel.in"
+      ]
+    },
+    {
+      "id": "jio",
+      "name": "Jio",
+      "logo_domain": "jio.com",
+      "sender_domains": [
+        "jio.com"
+      ]
+    }
+  ]
+}

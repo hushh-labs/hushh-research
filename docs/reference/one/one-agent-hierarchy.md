@@ -229,8 +229,9 @@ never from an inbox search: the owner's device decrypts the bounded canonical
 index in `shopping.receipts_memory` (saved only by the owner-confirmed
 `gmail_receipt_memory_save_button`) and sends it beside that one typed turn, the
 Email hop filters, pages and formats it with no model and no Gmail call, and a
-missing or stale memory answers "not ready" with the generated Open Receipts
-action. A request to find emails that mention receipts stays `search_inbox`. See
+missing or empty memory answers "not ready" with the generated Open Receipts
+action, and an old save is still answered from, with a note saying when it was
+last synced. A request to find emails that mention receipts stays `search_inbox`. See
 the "Email receipts read from saved receipt memory" declaration in
 [Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
 Reviewed mailbox changes (archive, labels, read state, Trash) go through One's

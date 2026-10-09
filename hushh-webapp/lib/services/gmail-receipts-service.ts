@@ -1,3 +1,11 @@
+import {
+  isReceiptAction,
+  RECEIPT_ACTION_KINDS,
+  type ReceiptAction,
+  type ReceiptActionKind,
+} from "@/lib/profile/gmail-receipt-action";
+
+export type { ReceiptAction, ReceiptActionKind };
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -170,6 +178,8 @@ export interface ReceiptListItem {
   identifiers?: Array<{ kind: "order" | "invoice" | "receipt" | "pnr" | "payment"; value: string }>;
   /** Validated passages from the scan's single extraction, reused by detail. */
   source_evidence?: GmailReceiptSourceEvidence[];
+  /** The one verified link this receipt can offer, as a sealed reference. */
+  action?: ReceiptAction | null;
   category?: ReceiptCategory | null;
   category_confidence?: number | null;
   merchant_domain?: string | null;
@@ -346,6 +356,8 @@ interface ErrorEnvelope {
   error?: string;
 }
 
+const RECEIPT_ACTION_UNAVAILABLE_MESSAGE = "This receipt's link is no longer available.";
+
 export class GmailReceiptRequestError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -408,6 +420,34 @@ export function isReceiptConnectionLostError(
   );
 }
 
+/**
+ * Why a receipt action could not be opened, so the screen can say the true
+ * next step: `expired` (the saved reference no longer names a link: sync again),
+ * `reconnect` (Mail's login was rejected: reconnect, then sync again) or
+ * `failed` (anything else, which may succeed on another try).
+ */
+export type ReceiptActionFailure = "expired" | "reconnect" | "failed";
+
+const EXPIRED_RECEIPT_ACTION_CODES = new Set([
+  "GMAIL_RECEIPT_ACTION_UNAVAILABLE",
+  "GMAIL_RECEIPT_NOT_FOUND",
+  "GMAIL_CONNECTION_CHANGED",
+]);
+
+export function receiptActionFailure(error: unknown): ReceiptActionFailure {
+  if (isReceiptConnectionLostError(error)) return "reconnect";
+  if (
+    error instanceof GmailReceiptRequestError &&
+    EXPIRED_RECEIPT_ACTION_CODES.has(String(error.code))
+  ) {
+    return "expired";
+  }
+  // A malformed or missing saved reference is rejected before any request.
+  return error instanceof Error && error.message === RECEIPT_ACTION_UNAVAILABLE_MESSAGE
+    ? "expired"
+    : "failed";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -457,9 +497,44 @@ function isSourceEvidenceList(value: unknown): value is GmailReceiptSourceEviden
   );
 }
 
+/** The browser's own check that the server's answer is a plain HTTPS link. */
+export function parseReceiptActionLink(value: unknown): {
+  kind: ReceiptActionKind;
+  url: string;
+} {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 2 ||
+    typeof value.kind !== "string" ||
+    !(RECEIPT_ACTION_KINDS as readonly string[]).includes(value.kind) ||
+    typeof value.url !== "string" ||
+    value.url.length > 1600
+  ) {
+    throw new Error("This receipt's link is no longer available.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value.url);
+  } catch {
+    throw new Error("This receipt's link is no longer available.");
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username ||
+    parsed.password ||
+    (parsed.port !== "" && parsed.port !== "443")
+  ) {
+    throw new Error("This receipt's link is no longer available.");
+  }
+  return { kind: value.kind as ReceiptActionKind, url: parsed.toString() };
+}
+
 function parseLiveReceiptItem(value: unknown): GmailLiveReceiptItem {
   if (!isRecord(value)) throw invalidLiveReceiptResponse();
   if (value.source_evidence != null && !isSourceEvidenceList(value.source_evidence)) {
+    throw invalidLiveReceiptResponse();
+  }
+  if (value.action != null && !isReceiptAction(value.action)) {
     throw invalidLiveReceiptResponse();
   }
   if (
@@ -1247,6 +1322,43 @@ export class GmailReceiptsService {
     }
     const payload: unknown = await response.json();
     return parseLiveReceiptDetailResponse(payload, sourceId);
+  }
+
+  /**
+   * Resolves one saved receipt action to its verified HTTPS link, only when the
+   * owner clicks it. The link is never stored, cached or shown as text.
+   */
+  static async resolveReceiptActionLink(params: {
+    idToken: string;
+    vaultOwnerToken: string;
+    userId: string;
+    action: ReceiptAction;
+    signal?: AbortSignal;
+  }): Promise<{ kind: ReceiptActionKind; url: string }> {
+    if (!isReceiptAction(params.action)) {
+      throw new Error(RECEIPT_ACTION_UNAVAILABLE_MESSAGE);
+    }
+    const response = await ApiService.apiFetch(
+      GMAIL_RECEIPTS_API_TEMPLATES.receiptActionLink,
+      {
+        method: "POST",
+        cache: "no-store",
+        signal: params.signal,
+        headers: {
+          ...buildSealedHeaders(params.idToken, params.vaultOwnerToken),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: params.userId, ref: params.action.ref }),
+      },
+    );
+    if (!response.ok) {
+      throw await extractLiveReceiptError(
+        response,
+        "We couldn't open that receipt link. Please try again.",
+      );
+    }
+    const payload: unknown = await response.json();
+    return parseReceiptActionLink(payload);
   }
 
   static async listReceipts(params: {

@@ -15,6 +15,12 @@ import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
 import GmailInformationRequestsSection from "@/components/gmail/gmail-information-requests-section";
 import { GmailRecentReceipts } from "@/components/gmail/gmail-recent-receipts";
 import { GmailReceiptMemorySave } from "@/components/gmail/gmail-receipt-memory-save";
+import { peekReceiptMemoryIndex, warmAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { receiptAccountRef, type ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
+import { resetReceiptCanonicalIndexInMemory } from "@/lib/profile/gmail-receipt-memory-save";
+import { savedReceiptView } from "@/lib/profile/gmail-saved-receipts";
+import type { ReceiptAction } from "@/lib/profile/gmail-receipt-action";
+import { openExternalUrlWhenResolved } from "@/lib/utils/browser-navigation";
 import { GmailVerificationOnboarding } from "@/components/gmail/gmail-verification-onboarding";
 import { GmailReceiptOnboardingHero } from "@/components/gmail/gmail-receipt-onboarding-hero";
 import {
@@ -58,6 +64,7 @@ import {
 } from "@/lib/profile/gmail-receipt-memory-pkm";
 import {
   cachedGmailReceiptDisplayItems,
+  clearCachedGmailReceipts,
   getGmailReceiptCacheRevision,
   getCachedGmailReceipts,
   isCachedGmailReceiptScanResumable,
@@ -158,6 +165,8 @@ function waitForReceiptScanRetry(signal: AbortSignal): Promise<void> {
   });
 }
 const RECEIPT_PLACEHOLDER_ROWS = 8;
+const SAVED_RECEIPTS_READ_ONLY_NOTICE =
+  "Showing your last saved receipts. Reconnect Mail to sync updates.";
 const SHOW_RECEIPT_MEMORY_SUMMARY_ON_LANDING = false;
 
 function ReceiptListSkeleton() {
@@ -362,6 +371,12 @@ export default function GmailReceiptsPage({
   // records which are already covered, across the control's own remounts.
   const [receiptSyncCompletion, setReceiptSyncCompletion] = useState(0);
   const receiptMemorySavedCompletionRef = useRef(0);
+  // The receipts saved to private memory by the last sync: what opening this
+  // page shows before any scan, and what Chat with One answers from.
+  const [savedReceiptIndex, setSavedReceiptIndex] = useState<ReceiptCanonicalIndex | null>(null);
+  const [savedReceiptsLoad, setSavedReceiptsLoad] = useState<"idle" | "loading" | "done">("idle");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resettingReceipts, setResettingReceipts] = useState(false);
   const [receiptScanReachedLimit, setReceiptScanReachedLimit] = useState(false);
   const [receiptScanInProgress, setReceiptScanInProgress] = useState(false);
   const [receiptScanProgress, setReceiptScanProgress] = useState<{
@@ -741,6 +756,8 @@ export default function GmailReceiptsPage({
     setReceiptListError(null);
     receiptConnectionLostRef.current = false;
     setReceiptConnectionLost(false);
+    setSavedReceiptIndex(null);
+    setSavedReceiptsLoad("idle");
     setReceiptSyncFeedback(null);
   }, [receiptDisplayScope]);
 
@@ -910,6 +927,30 @@ export default function GmailReceiptsPage({
     gmail.status?.receipt_storage_mode === "legacy_read_only";
   const receiptSyncAvailable = Boolean(isConnected && hasSealedReceiptAccess);
   const oauthCompletionPending = gmail.oauthCompletionPending;
+  const savedView = useMemo(() => savedReceiptView(savedReceiptIndex), [savedReceiptIndex]);
+  // Saved receipts stay on screen until a finished scan replaces them, and
+  // come back if that scan stops early: a half-read list never replaces them.
+  const showSavedView =
+    savedView !== null &&
+    (visibleReceipts.length === 0 ||
+      loadingReceipts ||
+      Boolean(receiptListError) ||
+      receiptConnectionLost);
+  const hasAnyReceipts = visibleReceipts.length > 0 || savedView !== null;
+  // True from the first render that could read saved receipts until that read
+  // finishes, so the Start sync hero never flashes in front of receipts.
+  const savedReceiptsLoading =
+    Boolean(
+      user?.uid &&
+        vaultKey &&
+        vaultOwnerToken &&
+        isVaultUnlocked &&
+        !loadingStatus &&
+        receiptsWorkspaceActive,
+    ) &&
+    savedReceiptsLoad !== "done" &&
+    visibleReceipts.length === 0 &&
+    savedView === null;
   // Known rows are never covered: the skeleton appears only while a scan is
   // actually reading with nothing to show yet (or setup's first read).
   const showReceiptPlaceholders =
@@ -917,7 +958,9 @@ export default function GmailReceiptsPage({
     hasSealedReceiptAccess &&
     !loadingStatus &&
     visibleReceipts.length === 0 &&
+    savedView === null &&
     (loadingReceipts ||
+      savedReceiptsLoading ||
       (!receiptListReady && journeyVariant === "onboarding"));
   const connectorState = gmail.presentation.state;
   const latestSyncText = gmail.presentation.latestSyncText;
@@ -927,6 +970,104 @@ export default function GmailReceiptsPage({
 
   const refreshGmailStatus = gmail.refreshStatus;
   refreshGmailStatusRef.current = gmail.refreshStatus;
+
+  // Reads the saved receipts from private memory. It only reads: it never
+  // starts a Mail scan, and it needs no Mail connection, so saved receipts stay
+  // on screen while Mail is disconnected or needs reconnecting. Only a receipt
+  // set known to come from a different Mail account than the connected one is
+  // left out.
+  useEffect(() => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken || !isVaultUnlocked) return;
+    if (loadingStatus || !receiptsWorkspaceActive) return;
+    const ownerId = user.uid;
+    const accountKey = receiptAccountKey;
+    let cancelled = false;
+    // A re-run after the first read never hides what is already shown.
+    setSavedReceiptsLoad((current) => (current === "done" ? "done" : "loading"));
+    void (async () => {
+      try {
+        await warmAgentPkmContext({ userId: ownerId, vaultOwnerToken, vaultKey });
+        const [index, accountRef] = [
+          peekReceiptMemoryIndex({ userId: ownerId }),
+          accountKey ? await receiptAccountRef(accountKey) : null,
+        ];
+        if (cancelled) return;
+        const otherAccount = Boolean(
+          index?.account_ref && accountRef && index.account_ref !== accountRef,
+        );
+        setSavedReceiptIndex(index && !otherAccount ? index : null);
+      } catch (error) {
+        console.error("[ProfileReceiptsPage] Failed to read saved receipts:", error);
+        if (!cancelled) setSavedReceiptIndex(null);
+      } finally {
+        if (!cancelled) setSavedReceiptsLoad("done");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isVaultUnlocked,
+    loadingStatus,
+    receiptAccountKey,
+    receiptsWorkspaceActive,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  // Resolves a receipt's verified link at the moment of the click and opens it.
+  // The link is never stored, shown or logged.
+  const handleOpenReceiptAction = useCallback(
+    async (action: ReceiptAction) => {
+      if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked) {
+        throw new Error("Open your private vault to open this receipt.");
+      }
+      const ownerId = user.uid;
+      await openExternalUrlWhenResolved(async () => {
+        const idToken = await user.getIdToken();
+        const resolved = await GmailReceiptsService.resolveReceiptActionLink({
+          idToken,
+          vaultOwnerToken,
+          userId: ownerId,
+          action,
+        });
+        return resolved.url;
+      });
+    },
+    [isVaultUnlocked, user, vaultOwnerToken],
+  );
+
+  const handleResetReceipts = useCallback(async () => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken || !isVaultUnlocked) return;
+    if (receiptScanAbortRef.current || resettingReceipts) return;
+    setResettingReceipts(true);
+    try {
+      await resetReceiptCanonicalIndexInMemory({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      clearCachedGmailReceipts(user.uid);
+      receiptsRef.current = [];
+      setReceipts([]);
+      setPage(1);
+      setHasMore(false);
+      setTotal(0);
+      setReceiptScanReachedLimit(false);
+      setReceiptListReady(false);
+      setReceiptListError(null);
+      setReceiptSyncFeedback(null);
+      setSavedReceiptIndex(null);
+      setShowResetConfirm(false);
+      toast.success("Saved receipts removed");
+    } catch (error) {
+      console.error("[ProfileReceiptsPage] Failed to reset saved receipts:", error);
+      toast.error("We couldn't remove your saved receipts. Please try again.");
+    } finally {
+      setResettingReceipts(false);
+    }
+  }, [isVaultUnlocked, resettingReceipts, user?.uid, vaultKey, vaultOwnerToken]);
 
   // A new connection (a different connected_at) replaces the rejected one.
   useEffect(() => {
@@ -2256,7 +2397,10 @@ export default function GmailReceiptsPage({
   const receiptsPanel = (
     <div className="space-y-4">
       {journeyVariant === "workspace" && !isConnected ? mailStatusPanel : null}
-      {journeyVariant === "workspace" && isConnected ? (
+      {journeyVariant === "workspace" &&
+      isConnected &&
+      !hasAnyReceipts &&
+      !savedReceiptsLoading ? (
         <GmailReceiptOnboardingHero
           onStartReceiptSync={() => void handleSyncNow()}
           progressPercent={progressPercent}
@@ -2319,7 +2463,7 @@ export default function GmailReceiptsPage({
         </SurfaceInset>
       ) : null}
 
-      {receiptsWorkspaceActive && isConnected ? (
+      {receiptsWorkspaceActive && (isConnected || (hasSealedReceiptAccess && savedView !== null)) ? (
         <section
           aria-labelledby="recent-receipts-title"
           className="space-y-3"
@@ -2343,10 +2487,23 @@ export default function GmailReceiptsPage({
 
           {showReceiptPlaceholders ? <ReceiptListSkeleton /> : null}
 
+          {hasSealedReceiptAccess && savedView !== null && !isConnected ? (
+            // Mail is disconnected or its login expired. The status panel above
+            // already offers the reconnect, so this only says what is shown.
+            <SurfaceInset className="px-4 py-3 text-sm" data-testid="saved-receipts-notice">
+              <p className="text-muted-foreground">{SAVED_RECEIPTS_READ_ONLY_NOTICE}</p>
+            </SurfaceInset>
+          ) : null}
+
           {isConnected && hasSealedReceiptAccess && receiptConnectionLost ? (
-            <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm">
+            <SurfaceInset
+              className="flex flex-col items-start gap-3 px-4 py-4 text-sm"
+              data-testid="saved-receipts-notice"
+            >
               <p className="text-muted-foreground">
-                Mail needs to be reconnected before it can sync your receipts.
+                {savedView !== null
+                  ? SAVED_RECEIPTS_READ_ONLY_NOTICE
+                  : "Mail needs to be reconnected before it can sync your receipts."}
               </p>
               <Button
                 variant="none"
@@ -2383,6 +2540,8 @@ export default function GmailReceiptsPage({
           !showReceiptPlaceholders &&
           !receiptListError &&
           visibleReceipts.length === 0 &&
+          savedView === null &&
+          !savedReceiptsLoading &&
           !visibleHasMore &&
           !loadingStatus ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
@@ -2416,13 +2575,16 @@ export default function GmailReceiptsPage({
             </SurfaceInset>
           ) : null}
 
-          {isConnected && hasSealedReceiptAccess && visibleReceipts.length > 0 ? (
+          {hasSealedReceiptAccess && hasAnyReceipts ? (
             <GmailRecentReceipts
+              saved={showSavedView ? savedView : null}
+              actionsAvailable={isConnected && !receiptConnectionLost}
               accountKey={
                 gmail.status?.google_sub || gmail.status?.google_email || null
               }
               loadReceiptDetail={loadReceiptDetail}
               onReceiptDetailLoaded={handleReceiptDetailLoaded}
+              onOpenAction={handleOpenReceiptAction}
               receipts={visibleReceipts}
             />
           ) : null}
@@ -2446,6 +2608,54 @@ export default function GmailReceiptsPage({
                   ? "Load older receipts"
                   : "Check older Mail"}
               </Button>
+            </div>
+          ) : null}
+
+          {hasSealedReceiptAccess && hasAnyReceipts ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 pt-1"
+              data-testid="receipt-list-actions"
+            >
+              <p aria-live="polite" className="min-w-0 text-xs text-muted-foreground">
+                {receiptSyncInProgress || loadingReceipts
+                  ? progressPercent !== null
+                    ? `Syncing ${progressPercent}%…`
+                    : "Syncing…"
+                  : receiptSyncInlineFeedback?.tone === "error"
+                    ? receiptSyncInlineFeedback.message
+                    : null}
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  onClick={() => void handleSyncNow()}
+                  disabled={
+                    receiptSyncInProgress ||
+                    loadingReceipts ||
+                    !receiptSyncAvailable ||
+                    gmailActionBusy !== null
+                  }
+                >
+                  {receiptSyncInProgress || loadingReceipts ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Sync again
+                </Button>
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => setShowResetConfirm(true)}
+                  disabled={receiptSyncInProgress || loadingReceipts || resettingReceipts}
+                >
+                  Reset
+                </Button>
+              </div>
             </div>
           ) : null}
         </section>
@@ -2685,6 +2895,33 @@ export default function GmailReceiptsPage({
           }}
         />
       ) : null}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset saved receipts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Removes the receipts saved to your private memory, so this page
+              and Chat with One stop showing them until you sync again. Your
+              Mail is not changed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel disabled={resettingReceipts}>Keep receipts</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              className={`${roleSolid("danger").fill} ${roleSolid("danger").fg} hover:bg-[color:var(--app-destructive)] hover:opacity-90`}
+              disabled={resettingReceipts}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleResetReceipts();
+              }}
+            >
+              {resettingReceipts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Reset receipts
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={showDisconnectConfirm}
         onOpenChange={setShowDisconnectConfirm}

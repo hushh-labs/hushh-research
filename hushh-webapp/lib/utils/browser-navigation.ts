@@ -40,6 +40,32 @@ export function openExternalUrl(url: string): void {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+/**
+ * Opens a link that is only known after an async lookup, from a click.
+ *
+ * A browser allows a new tab only straight from the click, so the tab is opened
+ * first and pointed at the link once it resolves. If the lookup fails the tab is
+ * closed again and the error is handed back; the link is never shown or kept.
+ */
+export async function openExternalUrlWhenResolved(
+  resolveUrl: () => Promise<string>,
+): Promise<void> {
+  if (!canUseWindow()) return;
+  const tab = window.open("about:blank", "_blank");
+  if (tab) tab.opener = null;
+  try {
+    const url = await resolveUrl();
+    if (tab && !tab.closed) {
+      tab.location.replace(url);
+    } else {
+      openExternalUrl(url);
+    }
+  } catch (error) {
+    if (tab && !tab.closed) tab.close();
+    throw error;
+  }
+}
+
 export function requestInternalAppNavigation(
   detail: InternalAppNavigationRequest,
 ): boolean {

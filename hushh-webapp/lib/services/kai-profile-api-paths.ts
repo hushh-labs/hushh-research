@@ -11,6 +11,7 @@ export const GMAIL_RECEIPTS_API_TEMPLATES = {
   receipts: "/api/kai/gmail/receipts/{user_id}",
   receiptsScan: "/api/kai/gmail/receipts/scan",
   receiptDetail: "/api/kai/gmail/receipts/detail",
+  receiptActionLink: "/api/kai/gmail/receipts/action-link",
   nudges: "/api/kai/gmail/nudges/{user_id}",
   receiptsMemoryPreview: "/api/kai/gmail/receipts-memory/preview",
   receiptsMemoryArtifact: "/api/kai/gmail/receipts-memory/artifacts/{artifact_id}",

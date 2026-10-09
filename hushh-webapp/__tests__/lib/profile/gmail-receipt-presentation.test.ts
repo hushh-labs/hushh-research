@@ -32,6 +32,50 @@ function receipt(
 }
 
 describe("Gmail receipt presentation", () => {
+  describe("receipt action", () => {
+    const ref = (tag: string) => `ra1.${tag.repeat(12)}`;
+
+    it("offers the most useful verified action across a transaction's emails, from what the backend sent", () => {
+      const rows = buildRecentReceiptRows(
+        [
+          receipt(1, {
+            document_kind: "receipt",
+            identifiers: [{ kind: "invoice", value: "INV-9" }],
+            receipt_date: "2026-10-01T00:00:00Z",
+            action: { kind: "view_receipt", ref: ref("a") },
+          }),
+          receipt(2, {
+            document_kind: "invoice",
+            identifiers: [{ kind: "invoice", value: "INV-9" }],
+            receipt_date: "2026-10-02T00:00:00Z",
+            action: { kind: "pay_due", ref: ref("b") },
+          }),
+          receipt(3, { identifiers: [{ kind: "order", value: "NO-ACTION" }] }),
+        ],
+        "owner",
+      );
+      expect(rows).toHaveLength(2);
+      // Paying what is due beats viewing a receipt, whichever email came first.
+      expect(rows.find((row) => row.identifiers.some((item) => item.value === "INV-9"))!.action).toEqual({
+        kind: "pay_due",
+        ref: ref("b"),
+      });
+      // No action is invented where the backend verified none.
+      expect(rows.find((row) => row.identifiers.some((item) => item.value === "NO-ACTION"))!.action).toBeNull();
+    });
+
+    it("prefers the newest email when two actions are equally useful", () => {
+      const rows = buildRecentReceiptRows(
+        [
+          receipt(1, { identifiers: [{ kind: "invoice", value: "INV-1" }], receipt_date: "2026-10-01T00:00:00Z", action: { kind: "view_invoice", ref: ref("a") } }),
+          receipt(2, { identifiers: [{ kind: "invoice", value: "INV-1" }], receipt_date: "2026-10-05T00:00:00Z", action: { kind: "view_invoice", ref: ref("c") } }),
+        ],
+        "owner",
+      );
+      expect(rows[0]!.action).toEqual({ kind: "view_invoice", ref: ref("c") });
+    });
+  });
+
   it("selects an invoice over fulfillment and merges typed identifiers without changing sources", () => {
     const records = [
       receipt(1, { document_kind: "fulfillment", event_type: "fulfillment", identifiers: [{ kind: "order", value: "A-10" }] }),

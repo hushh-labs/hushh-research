@@ -594,6 +594,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/gmail/receipts/detail",
   },
   {
+    regex: /^\/api\/kai\/gmail\/receipts\/action-link(?:\?.*)?$/i,
+    template: "/api/kai/gmail/receipts/action-link",
+  },
+  {
     regex: /^\/api\/kai\/gmail\/receipts\/[^/?]+(?:\?.*)?$/i,
     template: "/api/kai/gmail/receipts/{user_id}",
   },

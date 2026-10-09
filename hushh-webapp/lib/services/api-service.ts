@@ -511,7 +511,8 @@ function isLiveGmailReceiptPath(path: string): boolean {
   const pathname = path.split("?", 1)[0] ?? "";
   return (
     pathname === "/api/kai/gmail/receipts/scan" ||
-    pathname === "/api/kai/gmail/receipts/detail"
+    pathname === "/api/kai/gmail/receipts/detail" ||
+    pathname === "/api/kai/gmail/receipts/action-link"
   );
 }
 

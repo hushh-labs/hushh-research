@@ -1,3 +1,4 @@
+import type { ReceiptAction } from "@/lib/profile/gmail-receipt-action";
 import type {
   ReceiptCategory,
   ReceiptAttentionReason,
@@ -52,6 +53,8 @@ export type RecentReceiptRow = {
   documentKind: ReceiptListItem["document_kind"];
   receiptDate: string | null;
   confidence: number | null;
+  /** The one verified link this receipt can offer, as a sealed reference. */
+  action: ReceiptAction | null;
   eventTimeline: readonly ReceiptTimelineEvent[];
 };
 
@@ -417,6 +420,34 @@ function canonicalAttention(candidates: readonly ReceiptCandidate[]): {
   };
 }
 
+const ACTION_PRIORITY: Readonly<Record<ReceiptAction["kind"], number>> = {
+  pay_due: 3,
+  view_invoice: 2,
+  view_receipt: 1,
+};
+
+/**
+ * One action for a canonical row: the most useful kind found on any of its
+ * emails (paying what is due beats viewing), newest email first on a tie. It
+ * is only ever taken from what the backend already verified.
+ */
+function canonicalAction(candidates: readonly ReceiptCandidate[]): ReceiptAction | null {
+  let best: { action: ReceiptAction; time: number } | null = null;
+  for (const { receipt } of candidates) {
+    const action = receipt.action;
+    if (!action) continue;
+    const time = receiptEventTimestamp(receipt);
+    if (
+      !best ||
+      ACTION_PRIORITY[action.kind] > ACTION_PRIORITY[best.action.kind] ||
+      (ACTION_PRIORITY[action.kind] === ACTION_PRIORITY[best.action.kind] && time > best.time)
+    ) {
+      best = { action: { kind: action.kind, ref: action.ref }, time };
+    }
+  }
+  return best?.action ?? null;
+}
+
 function canonicalRecurrence(candidates: readonly ReceiptCandidate[]): ReceiptRecurrence {
   if (candidates.some(({ receipt }) => receipt.recurrence === "recurring")) return "recurring";
   if (candidates.some(({ receipt }) => receipt.recurrence === "one_time")) return "one_time";
@@ -599,6 +630,7 @@ function toRecentReceiptRow(
     confidence: typeof representative.receipt.classification_confidence === "number"
       ? representative.receipt.classification_confidence
       : null,
+    action: canonicalAction(candidates),
     eventTimeline: buildEventTimeline(candidates),
   };
 }

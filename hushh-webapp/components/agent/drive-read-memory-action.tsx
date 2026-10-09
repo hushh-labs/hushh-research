@@ -16,7 +16,7 @@ export function canReviewDriveMemory(status: string | undefined, answer: string,
   const reads = experiences.filter((item): item is ConnectorReadExperience => item.type === "one.connector_read.v1");
   return status === "done" && !!answer.trim() && reads.some(read =>
     read.connector === "drive" && read.status === "ok" && read.metadataOnly === false && Array.isArray(read.sourceRefs) && read.sourceRefs.length > 0,
-  ) && !reads.some(read => read.connector === "mail");
+  ) && reads.every(read => read.connector === "drive");
 }
 
 type Context = { ownerId: string; vaultKey: string; vaultOwnerToken: string; answer: string; scopeId: string };

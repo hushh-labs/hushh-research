@@ -12,6 +12,7 @@
 import {
   buildReceiptCanonicalIndex,
   receiptIndexDigest,
+  type ReceiptCanonicalIndex,
 } from "@/lib/profile/gmail-receipt-memory-index";
 import {
   buildShoppingReceiptCanonicalIndexPreparedDomain,
@@ -29,26 +30,14 @@ export type ReceiptMemorySaveOutcome = {
   count: number;
 };
 
-export async function saveReceiptCanonicalIndexToMemory(params: {
+async function writeReceiptIndex(params: {
   userId: string;
   vaultKey: string;
   vaultOwnerToken: string;
-  receipts: readonly ReceiptListItem[];
-  accountKey: string | null | undefined;
-  now?: Date;
-}): Promise<ReceiptMemorySaveOutcome> {
-  const now = params.now ?? new Date();
-  // The very call Mail > Receipts renders from, so memory never disagrees with the page.
-  const rows = buildRecentReceiptRows(params.receipts, params.accountKey);
-  if (rows.length === 0) {
-    throw new Error("There are no receipts to save yet.");
-  }
-  const index = await buildReceiptCanonicalIndex({
-    rows,
-    accountKey: String(params.accountKey ?? "").trim(),
-    now,
-  });
-  const digest = await receiptIndexDigest(index);
+  index: ReceiptCanonicalIndex;
+  now: Date;
+}): Promise<void> {
+  const digest = await receiptIndexDigest(params.index);
 
   // Always written, even when the content is unchanged: the owner's sync is the
   // confirmation that the memory is current, and `generated_at` is how
@@ -67,9 +56,9 @@ export async function saveReceiptCanonicalIndexToMemory(params: {
       const prepared = buildShoppingReceiptCanonicalIndexPreparedDomain({
         currentDomainData: context.currentDomainData,
         currentManifest: context.currentManifest,
-        index,
+        index: params.index,
         digest,
-        now,
+        now: params.now,
       });
       const validation = await PersonalKnowledgeModelService.validatePreparedDomainStore({
         userId: params.userId,
@@ -90,5 +79,43 @@ export async function saveReceiptCanonicalIndexToMemory(params: {
     },
   });
   if (!result.success) throw new Error("Failed to save receipt memory.");
+}
+
+export async function saveReceiptCanonicalIndexToMemory(params: {
+  userId: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+  receipts: readonly ReceiptListItem[];
+  accountKey: string | null | undefined;
+  now?: Date;
+}): Promise<ReceiptMemorySaveOutcome> {
+  const now = params.now ?? new Date();
+  // The very call Mail > Receipts renders from, so memory never disagrees with the page.
+  const rows = buildRecentReceiptRows(params.receipts, params.accountKey);
+  if (rows.length === 0) {
+    throw new Error("There are no receipts to save yet.");
+  }
+  const index = await buildReceiptCanonicalIndex({
+    rows,
+    accountKey: String(params.accountKey ?? "").trim(),
+    now,
+  });
+  await writeReceiptIndex({ ...params, index, now });
   return { count: index.total_transactions };
+}
+
+/**
+ * Resets the saved receipts: the same governed writer saves an empty index,
+ * which the page and Chat with One both read as "nothing saved". It runs only
+ * after the owner confirms a reset (or disconnects Mail).
+ */
+export async function resetReceiptCanonicalIndexInMemory(params: {
+  userId: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+  now?: Date;
+}): Promise<void> {
+  const now = params.now ?? new Date();
+  const index = await buildReceiptCanonicalIndex({ rows: [], accountKey: "", now });
+  await writeReceiptIndex({ ...params, index, now });
 }

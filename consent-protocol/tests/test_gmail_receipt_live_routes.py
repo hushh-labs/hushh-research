@@ -265,3 +265,108 @@ def test_live_receipt_errors_do_not_echo_provider_or_mailbox_values(monkeypatch,
         "private-body",
     ):
         assert private_value not in rendered
+
+
+_REF = "ra1." + "A" * 60
+
+
+def test_action_link_requires_three_way_owner_and_vault_authorization(monkeypatch):
+    service = MagicMock()
+    service.resolve_action = AsyncMock(
+        return_value={"kind": "view_invoice", "url": "https://a.example/x"}
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    body = {"user_id": "owner", "ref": _REF}
+    assert (
+        TestClient(_app(firebase_uid="other"))
+        .post("/gmail/receipts/action-link", json=body)
+        .status_code
+        == 403
+    )
+    assert (
+        TestClient(_app(vault_owner="other"))
+        .post("/gmail/receipts/action-link", json=body)
+        .status_code
+        == 403
+    )
+    assert (
+        TestClient(_app(vault_owner=None), raise_server_exceptions=False)
+        .post("/gmail/receipts/action-link", json=body)
+        .status_code
+        == 401
+    )
+    service.resolve_action.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "ref",
+    ["", "short", "ra1.", "ra1.has space", "https://evil.example/x", "ra1." + "A" * 700, "x" * 40],
+)
+def test_action_link_rejects_a_malformed_reference_before_the_service(monkeypatch, ref):
+    service = MagicMock()
+    service.resolve_action = AsyncMock()
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    response = TestClient(_app()).post(
+        "/gmail/receipts/action-link", json={"user_id": "owner", "ref": ref}
+    )
+    assert response.status_code == 422
+    service.resolve_action.assert_not_awaited()
+
+
+def test_action_link_returns_only_the_verified_https_link_and_is_never_cached(monkeypatch):
+    service = MagicMock()
+    service.resolve_action = AsyncMock(
+        return_value={"kind": "pay_due", "url": "https://invoice.stripe.com/i/acct_1/live_abc"}
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    response = TestClient(_app()).post(
+        "/gmail/receipts/action-link", json={"user_id": "owner", "ref": _REF}
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "kind": "pay_due",
+        "url": "https://invoice.stripe.com/i/acct_1/live_abc",
+    }
+    assert "no-store" in response.headers["cache-control"]
+    assert service.resolve_action.await_args.kwargs["user_id"] == "owner"
+    assert service.resolve_action.await_args.kwargs["ref"] == _REF
+
+
+def test_action_link_refuses_a_service_answer_that_is_not_https(monkeypatch):
+    service = MagicMock()
+    service.resolve_action = AsyncMock(
+        return_value={"kind": "view_receipt", "url": "http://a.example/x"}
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    response = TestClient(_app(), raise_server_exceptions=False).post(
+        "/gmail/receipts/action-link", json={"user_id": "owner", "ref": _REF}
+    )
+    assert response.status_code >= 500
+
+
+def test_an_unavailable_action_answers_a_safe_typed_error_without_echoing_anything(
+    monkeypatch, caplog
+):
+    service = MagicMock()
+    service.resolve_action = AsyncMock(
+        side_effect=GmailApiError(
+            "secret provider text https://evil.example",
+            status_code=404,
+            code="GMAIL_RECEIPT_ACTION_UNAVAILABLE",
+        )
+    )
+    monkeypatch.setattr(gmail, "_live_receipts_service", lambda: service)
+
+    response = TestClient(_app()).post(
+        "/gmail/receipts/action-link", json={"user_id": "owner", "ref": _REF}
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "GMAIL_RECEIPT_ACTION_UNAVAILABLE",
+        "message": "This receipt's link is no longer available.",
+    }
+    assert "evil.example" not in response.text and "evil.example" not in caplog.text

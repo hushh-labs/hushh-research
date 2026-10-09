@@ -18,10 +18,15 @@
  * packet. Only the owner's device reads it, to send it with a typed chat turn.
  */
 
+import { isReceiptAction, type ReceiptAction } from "@/lib/profile/gmail-receipt-action";
 import type {
   ReceiptCategory,
   ReceiptLifecycleStatus,
 } from "@/lib/services/gmail-receipts-service";
+import {
+  isVerifiedReceiptLogoDomain,
+  normalizeReceiptSenderDomain,
+} from "@/lib/mail/receipt-merchant-registry";
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 import { sha256Hex } from "@/lib/personal-knowledge-model/mutation-plan";
 
@@ -45,6 +50,28 @@ const IDENTIFIER_VALUE = /^[A-Za-z0-9][A-Za-z0-9._\-/#: ]{0,99}$/;
 // A leading list or heading marker would turn a one-line detail into structure.
 const LEADING_MARKER = /^(?:[-+•·]+\s*|\d+[.)]\s+|#+\s*)+/;
 const REF = /^txn_[0-9a-f]{16,64}$/;
+const ACCOUNT_REF = /^acct_[0-9a-f]{16,64}$/;
+const TRANSACTION_KEYS: ReadonlySet<string> = new Set([
+  "ref",
+  "merchant",
+  "amount",
+  "currency",
+  "category",
+  "status",
+  "transaction_date",
+  "identifiers",
+  "detail",
+  "logo_domain",
+  "action",
+]);
+const INDEX_KEYS: ReadonlySet<string> = new Set([
+  "schema",
+  "generated_at",
+  "total_transactions",
+  "truncated",
+  "transactions",
+  "account_ref",
+]);
 
 export type ReceiptIndexIdentifierKind = "order" | "invoice" | "receipt" | "pnr";
 
@@ -66,6 +93,17 @@ export type ReceiptIndexTransaction = {
   identifiers: ReceiptIndexIdentifier[];
   /** One short grounded detail the backend extractor already validated. */
   detail: string | null;
+  /**
+   * A canonical domain from the reviewed merchant registry, never merchant
+   * text: the only thing a logo is ever looked up by. Null when unreviewed.
+   */
+  logo_domain?: string | null;
+  /**
+   * The receipt's one verified link, as a sealed reference that holds no URL
+   * and no Gmail id. It is for the owner's device only: it is removed before a
+   * chat turn leaves the device, and the link is resolved only on a click.
+   */
+  action?: ReceiptAction | null;
 };
 
 export type ReceiptCanonicalIndex = {
@@ -76,7 +114,21 @@ export type ReceiptCanonicalIndex = {
   total_transactions: number;
   truncated: boolean;
   transactions: ReceiptIndexTransaction[];
+  /**
+   * A one-way reference to the Mail account these receipts came from. Saved
+   * receipts are shown only for the account that produced them.
+   */
+  account_ref?: string | null;
 };
+
+/** The one-way account reference stored beside the transactions, or null without an account. */
+export async function receiptAccountRef(
+  accountKey: string | null | undefined,
+): Promise<string | null> {
+  const key = String(accountKey ?? "").trim();
+  if (!key) return null;
+  return `acct_${(await sha256Hex(`receipt-account:${key}`)).slice(0, 24)}`;
+}
 
 const IDENTIFIER_KINDS: ReadonlySet<string> = new Set([
   "order",
@@ -152,6 +204,12 @@ function indexCategory(row: RecentReceiptRow): ReceiptCategory | null {
   const category = row.category;
   if (!category || category === "Other" || category === "Uncategorized") return null;
   return category === "Subscription" ? "Software & Subscriptions" : category;
+}
+
+function indexLogoDomain(row: RecentReceiptRow): string | null {
+  if (row.displayKind !== "merchant") return null;
+  const domain = normalizeReceiptSenderDomain(String(row.logoDomain ?? ""));
+  return domain && isVerifiedReceiptLogoDomain(domain) ? domain : null;
 }
 
 function indexIdentifiers(row: RecentReceiptRow): ReceiptIndexIdentifier[] {
@@ -233,6 +291,8 @@ async function indexTransaction(
     transaction_date: normalizeTransactionDate(row.receiptDate),
     identifiers: indexIdentifiers(row),
     detail: indexDetail(row),
+    logo_domain: indexLogoDomain(row),
+    action: row.action ? { kind: row.action.kind, ref: row.action.ref } : null,
   };
 }
 
@@ -264,6 +324,7 @@ export async function buildReceiptCanonicalIndex(params: {
     total_transactions: transactions.length,
     truncated: transactions.length > stored.length,
     transactions: stored,
+    account_ref: await receiptAccountRef(params.accountKey),
   };
 }
 
@@ -290,7 +351,8 @@ const isString = (value: unknown): value is string => typeof value === "string";
 function isTransaction(value: unknown): value is ReceiptIndexTransaction {
   if (!isRecord(value)) return false;
   const keys = Object.keys(value);
-  if (keys.length !== 9) return false;
+  // The nine original keys are required; `logo_domain` is optional.
+  if (keys.length < 9 || keys.some((key) => !TRANSACTION_KEYS.has(key))) return false;
   return (
     isString(value.ref) &&
     REF.test(value.ref) &&
@@ -302,6 +364,10 @@ function isTransaction(value: unknown): value is ReceiptIndexTransaction {
     (value.status === null || (isString(value.status) && LIFECYCLE_STATUSES.has(value.status))) &&
     isNullable(value.transaction_date, isString) &&
     isNullable(value.detail, isString) &&
+    (value.logo_domain === undefined ||
+      value.logo_domain === null ||
+      (isString(value.logo_domain) && isVerifiedReceiptLogoDomain(value.logo_domain))) &&
+    (value.action === undefined || value.action === null || isReceiptAction(value.action)) &&
     Array.isArray(value.identifiers) &&
     value.identifiers.length <= MAX_IDENTIFIERS &&
     value.identifiers.every(
@@ -323,8 +389,8 @@ function isTransaction(value: unknown): value is ReceiptIndexTransaction {
  * device from sending something that can never be read.
  */
 export function parseReceiptCanonicalIndex(value: unknown): ReceiptCanonicalIndex | null {
-  if (!isRecord(value) || Object.keys(value).length !== 5) return null;
-  const { schema, generated_at, total_transactions, truncated, transactions } = value;
+  if (!isRecord(value) || Object.keys(value).some((key) => !INDEX_KEYS.has(key))) return null;
+  const { schema, generated_at, total_transactions, truncated, transactions, account_ref } = value;
   if (
     schema !== RECEIPT_INDEX_SCHEMA ||
     !isString(generated_at) ||
@@ -337,12 +403,42 @@ export function parseReceiptCanonicalIndex(value: unknown): ReceiptCanonicalInde
     transactions.length > RECEIPT_INDEX_MAX_TRANSACTIONS ||
     total_transactions < transactions.length ||
     truncated !== total_transactions > transactions.length ||
+    !(account_ref === undefined || account_ref === null || (isString(account_ref) && ACCOUNT_REF.test(account_ref))) ||
     !transactions.every(isTransaction) ||
     new Set(transactions.map((item) => item.ref)).size !== transactions.length
   ) {
     return null;
   }
   return value as ReceiptCanonicalIndex;
+}
+
+/**
+ * What a chat turn may carry: the answer fields only. The sealed action
+ * references, logo domains and account reference are for this device's own
+ * pages, so they never leave it, and the backend's closed schema has no place
+ * for them.
+ */
+export function receiptIndexForChat(
+  index: ReceiptCanonicalIndex | null,
+): ReceiptCanonicalIndex | null {
+  if (!index) return null;
+  return {
+    schema: index.schema,
+    generated_at: index.generated_at,
+    total_transactions: index.total_transactions,
+    truncated: index.truncated,
+    transactions: index.transactions.map((transaction) => ({
+      ref: transaction.ref,
+      merchant: transaction.merchant,
+      amount: transaction.amount,
+      currency: transaction.currency,
+      category: transaction.category,
+      status: transaction.status,
+      transaction_date: transaction.transaction_date,
+      identifiers: transaction.identifiers,
+      detail: transaction.detail,
+    })),
+  };
 }
 
 /** The saved index inside decrypted `shopping` domain data, if any. */
@@ -355,6 +451,9 @@ export function readReceiptCanonicalIndex(
 }
 
 type ReceiptsMemoryRecord = Record<string, unknown>;
+
+/** Marks the minimal summary this module writes, so it alone is regenerated. */
+const SUMMARY_GENERATOR = "receipt_canonical_index";
 
 function topMerchants(index: ReceiptCanonicalIndex, limit: number): string[] {
   const counts = new Map<string, number>();
@@ -384,17 +483,26 @@ export function mergeReceiptsMemoryWithIndex(params: {
     : {};
   const merchants = topMerchants(params.index, 3);
   const existingSummary = isRecord(existing.readable_summary) ? existing.readable_summary : null;
-  const readableSummary =
-    existingSummary && isString(existingSummary.text) && existingSummary.text.trim()
-      ? existingSummary
-      : {
-          text: `Saved ${params.index.total_transactions} ${
-            params.index.total_transactions === 1 ? "receipt" : "receipts"
-          } from your Mail.`,
-          highlights: merchants.length ? [`Top merchants: ${merchants.join(", ")}`] : [],
-          updated_at: nowIso,
-          source_label: "Gmail receipts",
-        };
+  // A summary written by an earlier artifact is kept as it is. The minimal one
+  // written here describes the saved list, so it is rewritten with each save.
+  const keepExistingSummary =
+    existingSummary !== null &&
+    existingSummary.generated_by !== SUMMARY_GENERATOR &&
+    isString(existingSummary.text) &&
+    existingSummary.text.trim().length > 0;
+  const total = params.index.total_transactions;
+  const readableSummary = keepExistingSummary
+    ? existingSummary
+    : {
+        text:
+          total === 0
+            ? "No receipts are saved."
+            : `Saved ${total} ${total === 1 ? "receipt" : "receipts"} from your Mail.`,
+        highlights: merchants.length ? [`Top merchants: ${merchants.join(", ")}`] : [],
+        updated_at: nowIso,
+        source_label: "Gmail receipts",
+        generated_by: SUMMARY_GENERATOR,
+      };
   const provenance = isRecord(existing.provenance) ? existing.provenance : {};
   return {
     ...existing,

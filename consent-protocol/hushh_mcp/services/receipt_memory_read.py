@@ -42,12 +42,10 @@ RECEIPT_INDEX_SCHEMA: Final = "receipt_canonical_index.v1"
 RECEIPT_INDEX_MAX_TRANSACTIONS: Final = 100
 # Serialized ceiling for one device-supplied index; admission refuses above it.
 RECEIPT_INDEX_MAX_BYTES: Final = 96_000
-# A saved index older than this is treated as not ready. It mirrors the
-# 7-day freshness the retired receipt-memory artifact already published to the
-# app (``stale_after_days``), so the product states one number.
+# Saved receipts persist until the owner resets them, so an old index is still
+# answered from. Past this age the answer says when the receipts were last
+# synced, rather than refusing or presenting them as current.
 RECEIPT_INDEX_STALE_AFTER_DAYS: Final = 7
-# A device clock this far ahead of the server is not a fresh save.
-_FUTURE_SKEW = timedelta(days=1)
 RECEIPT_PAGE_SIZE: Final = 10
 RECEIPT_CURSOR_TTL_SECONDS: Final = 30 * 60
 
@@ -212,6 +210,12 @@ class ReceiptTransaction(BaseModel):
     transaction_date: str | None = Field(default=None, max_length=40)
     identifiers: list[ReceiptIdentifier] = Field(default_factory=list, max_length=3)
     detail: str | None = Field(default=None, max_length=400)
+    # A canonical domain from the device's reviewed merchant registry. The
+    # server never uses it; it is accepted so the device's own copy stays one
+    # shape.
+    logo_domain: str | None = Field(
+        default=None, max_length=253, pattern=r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$"
+    )
 
     @field_validator("merchant", mode="after")
     @classmethod
@@ -253,6 +257,9 @@ class ReceiptMemoryIndex(BaseModel):
     transactions: list[ReceiptTransaction] = Field(
         default_factory=list, max_length=RECEIPT_INDEX_MAX_TRANSACTIONS
     )
+    # A one-way reference to the Mail account the receipts came from; the device
+    # uses it to show saved receipts only for that account.
+    account_ref: str | None = Field(default=None, pattern=r"^acct_[0-9a-f]{16,64}$")
 
     @field_validator("generated_at", mode="after")
     @classmethod
@@ -315,21 +322,29 @@ def index_digest(index: ReceiptMemoryIndex) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
-MemoryState = Literal["ready", "missing", "empty", "stale"]
+MemoryState = Literal["ready", "missing", "empty"]
 
 
-def memory_state(index: ReceiptMemoryIndex | None, *, now: datetime) -> MemoryState:
+def memory_state(index: ReceiptMemoryIndex | None) -> MemoryState:
+    """Whether there is saved memory to answer from. Age never makes it unreadable."""
     if index is None:
         return "missing"
     if not index.transactions:
         return "empty"
-    generated = index.generated_instant
-    current = now.astimezone(UTC)
-    if generated > current + _FUTURE_SKEW:
-        return "stale"
-    if current - generated > timedelta(days=RECEIPT_INDEX_STALE_AFTER_DAYS):
-        return "stale"
     return "ready"
+
+
+def _freshness_note(index: ReceiptMemoryIndex, now: datetime, zone: ZoneInfo) -> str | None:
+    """When an old save is answered from, say when it was last synced."""
+    age = now.astimezone(UTC) - index.generated_instant
+    if age <= timedelta(days=RECEIPT_INDEX_STALE_AFTER_DAYS):
+        return None
+    today = now.astimezone(zone).date()
+    synced = index.generated_instant.astimezone(zone).date()
+    return (
+        f"These receipts were last synced on {_format_day(synced, today)}. "
+        "Sync again in Mail to refresh them."
+    )
 
 
 @dataclass(frozen=True)
@@ -680,6 +695,8 @@ class ReceiptReadOutcome:
     # Ask One to open Mail > Receipts through the generated gateway action.
     propose_open_receipts: bool = False
     drift: tuple[str, ...] = field(default_factory=tuple)
+    # The opaque saved references of the receipts on this page, in order.
+    shown_refs: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _not_ready(state: MemoryState) -> ReceiptReadOutcome:
@@ -702,7 +719,7 @@ def read_receipt_memory(
 ) -> ReceiptReadOutcome:
     """Answer a planned receipts question from the saved index, or say it is not ready."""
     index = parse_receipt_index(index_raw)
-    state = memory_state(index, now=now)
+    state = memory_state(index)
     if index is None or state != "ready":
         return _not_ready(state)
     today = now.astimezone(zone).date()
@@ -735,6 +752,9 @@ def read_receipt_memory(
     selection = select_receipts(index, query, zone)
     total = len(selection.matches)
     notes = _coverage_notes(index, query, selection)
+    freshness = _freshness_note(index, now, zone)
+    if freshness:
+        notes.append(freshness)
     coverage: dict[str, Any] = {
         "operation": "read_receipts",
         "source": "receipt_memory",
@@ -745,6 +765,7 @@ def read_receipt_memory(
         "plan_source": "planner",
         "memory_generated_at": index.generated_at,
         "memory_truncated": index.truncated,
+        "memory_old": freshness is not None,
     }
 
     if total == 0:
@@ -804,6 +825,7 @@ def read_receipt_memory(
         cursor_action="set" if cursor_text else "clear",
         cursor=cursor_text,
         has_more=has_more,
+        shown_refs=tuple(entry.transaction.ref for entry in page),
     )
 
 

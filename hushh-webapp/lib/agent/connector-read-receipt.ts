@@ -16,7 +16,7 @@ const STATUSES = [
 
 export type ConnectorReadExperience = {
   type: typeof CONNECTOR_READ_EXPERIENCE_TYPE;
-  connector: "mail" | "drive";
+  connector: "mail" | "drive" | "receipts";
   status: (typeof STATUSES)[number];
   sourceRefs: string[];
   truncated: boolean;
@@ -200,7 +200,7 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     new TextEncoder().encode(ownerCompileQuery).byteLength <= 2_048 &&
     !/[\x00-\x1f\x7f]/.test(ownerCompileQuery);
   const validWindow = parseDriveOwnerCompileWindow(ownerCompileWindow);
-  if (input.schema_version !== "specialist_read.v1" || !["mail", "drive"].includes(input.connector as string) ||
+  if (input.schema_version !== "specialist_read.v1" || !["mail", "drive", "receipts"].includes(input.connector as string) ||
     !STATUSES.includes(input.status as ConnectorReadExperience["status"]) ||
     typeof input.metadata_only !== "boolean" ||
     typeof input.truncated !== "boolean" ||
@@ -220,7 +220,13 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     const source = record(value);
     if (!source || Object.keys(source).some((key) => !["source_ref", "kind", "label", "page"].includes(key)) ||
       typeof source.source_ref !== "string") return null;
-    if (input.connector === "mail") {
+    if (input.connector === "receipts") {
+      // An answer from the owner's saved receipts cites them by opaque saved
+      // references only; whatever the references stand for stays on the device.
+      if (source.kind !== "receipt" || source.label !== "Receipt" ||
+        !/^receipt:txn_[0-9a-f]{16,64}$/.test(source.source_ref) || source.page != null ||
+        input.metadata_only !== true) return null;
+    } else if (input.connector === "mail") {
       // Message and thread reads carry readable text, so the backend labels
       // their sources "message"; listings and searches stay "metadata". The
       // kind must agree with metadata_only so a receipt cannot mislabel scope.
@@ -236,7 +242,7 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
   }
   if (new Set(refs).size !== refs.length || (input.status !== "ok" && refs.length)) return null;
   return {
-    type: CONNECTOR_READ_EXPERIENCE_TYPE, connector: input.connector as "mail" | "drive",
+    type: CONNECTOR_READ_EXPERIENCE_TYPE, connector: input.connector as ConnectorReadExperience["connector"],
     status: input.status as ConnectorReadExperience["status"], sourceRefs: refs,
     truncated: input.truncated, metadataOnly: input.metadata_only,
     ...(input.connector === "drive" ? { sourcePages: pages } : {}),

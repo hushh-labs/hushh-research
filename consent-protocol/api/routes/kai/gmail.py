@@ -87,6 +87,31 @@ class GmailLiveReceiptDetailRequest(BaseModel):
     source_id: str = Field(min_length=1, max_length=340)
 
 
+class GmailLiveReceiptActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(min_length=1, max_length=128)
+    ref: str = Field(min_length=8, max_length=600, pattern=r"^ra1\.[A-Za-z0-9_-]+$")
+
+
+class GmailLiveReceiptActionLink(BaseModel):
+    """The one verified link a saved receipt reference names. Never persisted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["view_receipt", "view_invoice", "pay_due"]
+    url: str = Field(min_length=12, max_length=1_600, pattern=r"^https://")
+
+
+class GmailLiveReceiptAction(BaseModel):
+    """A receipt's single action. The reference is sealed and holds no URL or message id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["view_receipt", "view_invoice", "pay_due"]
+    ref: str = Field(min_length=8, max_length=600, pattern=r"^ra1\.[A-Za-z0-9_-]+$")
+
+
 class GmailReceiptIdentifier(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["order", "invoice", "receipt", "pnr", "payment"]
@@ -184,6 +209,7 @@ class GmailLiveReceiptItem(BaseModel):
     source_evidence: list[GmailLiveReceiptSourceEvidence] = Field(
         default_factory=list, max_length=8
     )
+    action: GmailLiveReceiptAction | None = None
 
 
 class GmailLiveReceiptRejectionCounts(BaseModel):
@@ -350,6 +376,7 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
                 "A receipt scan is already running for this account."
             ),
             "GMAIL_RECEIPT_NOT_FOUND": "The selected receipt is not available.",
+            "GMAIL_RECEIPT_ACTION_UNAVAILABLE": "This receipt's link is no longer available.",
             "GMAIL_RECEIPT_VAULT_REQUIRED": ("Open your private vault before loading receipts."),
             "GMAIL_RECEIPT_SCAN_TIMEOUT": ("The Gmail receipt scan timed out. Please try again."),
             "GMAIL_RECEIPT_DETAIL_TIMEOUT": (
@@ -787,6 +814,55 @@ async def gmail_live_receipt_detail(
     except Exception as exc:
         logger.warning("kai.gmail.live_receipt_detail_failed error=%s", type(exc).__name__)
         raise _live_receipt_http_error(exc) from None
+
+
+@router.post("/gmail/receipts/action-link", response_model=GmailLiveReceiptActionLink)
+async def gmail_live_receipt_action_link(
+    payload: GmailLiveReceiptActionRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Resolve one saved receipt's verified link, only for the owner who saved it.
+
+    The reference holds no URL: the link is derived again from the message in the
+    owner's connected Gmail account and must pass the safety rules again. The
+    response is never cached and the link is never logged.
+    """
+
+    owner = _live_receipt_owner(
+        firebase_uid=firebase_uid,
+        token_data=token_data,
+        requested_user_id=payload.user_id,
+    )
+    _no_store(response)
+    access_check_count = 0
+
+    async def require_current_access() -> None:
+        nonlocal access_check_count
+        access_check_count += 1
+        if access_check_count == 1:
+            return
+        await _revalidate_live_receipt_access(token_data=token_data, owner=owner)
+
+    try:
+        result = await _live_receipts_service().resolve_action(
+            user_id=owner,
+            ref=payload.ref,
+            require_access=require_current_access,
+        )
+        logger.info("kai.gmail.live_receipt_action_resolved kind=%s", result.get("kind"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        safe_error = _live_receipt_http_error(exc)
+        logger.warning(
+            "kai.gmail.live_receipt_action_failed error=%s code=%s",
+            type(exc).__name__,
+            safe_error.detail["code"],
+        )
+        raise safe_error from None
 
 
 @router.get("/gmail/nudges/{user_id}")

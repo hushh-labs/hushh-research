@@ -17,6 +17,7 @@ import type {
   WorkspaceConnectorSetupExperience,
 } from "@/lib/agent/connector-read-receipt";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
+import { SavedReceiptsReadReceipt } from "@/components/agent/saved-receipts-read-receipt";
 
 const STATUS_TEXT: Record<ConnectorReadExperience["status"], string> = {
   ok: "Mail metadata checked",
@@ -59,6 +60,8 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
 }) {
+  // An answer read from the owner's saved receipts is not a Mail or Drive read.
+  if (experience.connector === "receipts") return <SavedReceiptsReadReceipt experience={experience} />;
   const needsConnection = ["connect_required", "reconnect_required", "permission_denied"].includes(experience.status);
   const drive = experience.connector === "drive";
   return (

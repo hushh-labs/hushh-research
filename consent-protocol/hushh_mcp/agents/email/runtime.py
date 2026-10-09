@@ -240,6 +240,14 @@ EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA: dict[str, Any] = {
         "identifier_evidence": {"type": "STRING", "nullable": True},
         "short_detail": {"type": "STRING", "nullable": True},
         "cleaned_preview": {"type": "STRING", "nullable": True},
+        # The receipt's single useful action, chosen among safe link candidates by
+        # id. The service validates both and never shows the model a full URL.
+        "action_kind": {
+            "type": "STRING",
+            "nullable": True,
+            "enum": ["view_receipt", "view_invoice", "pay_due"],
+        },
+        "action_link_id": {"type": "STRING", "nullable": True},
     },
     "required": [
         "is_receipt",
@@ -274,6 +282,8 @@ EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA: dict[str, Any] = {
         "identifier_evidence",
         "short_detail",
         "cleaned_preview",
+        "action_kind",
+        "action_link_id",
     ],
 }
 

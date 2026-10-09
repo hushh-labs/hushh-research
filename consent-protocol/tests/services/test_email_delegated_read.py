@@ -1194,8 +1194,16 @@ async def test_a_receipt_question_is_answered_from_receipt_memory_not_the_inbox(
         "  Claude Pro subscription."
     )
     structured = result["structured"]
-    assert structured["status"] == "ok" and structured["connector"] == "mail"
-    assert structured["sources"] == [] and structured["metadata_only"] is True
+    # No mailbox was read, so the receipt says so: it cites the saved receipts it
+    # showed, by their opaque saved references, never as Mail.
+    assert structured["status"] == "ok" and structured["connector"] == "receipts"
+    assert structured["metadata_only"] is True
+    # Newest first, exactly the receipts shown.
+    assert [source["source_ref"] for source in structured["sources"]] == [
+        "receipt:txn_" + "a" * 16,
+        "receipt:txn_" + "b" * 16,
+    ]
+    assert {(s["kind"], s["label"]) for s in structured["sources"]} == {("receipt", "Receipt")}
     assert result["coverage"]["source"] == "receipt_memory"
     assert result["receipt_cursor"] == {"action": "clear", "value": None}
     assert "directive" not in result
@@ -1243,8 +1251,8 @@ async def test_ordinary_mail_requests_still_read_the_inbox_even_with_receipt_mem
     assert "receipt_cursor" not in result and "directive" not in result
 
 
-@pytest.mark.parametrize("memory", [None, _receipt_memory("2026-09-01T09:00:00Z"), {"schema": "x"}])
-async def test_missing_or_stale_memory_is_not_ready_and_proposes_open_receipts(memory):
+@pytest.mark.parametrize("memory", [None, {"schema": "x"}])
+async def test_missing_or_malformed_memory_is_not_ready_and_proposes_open_receipts(memory):
     result, _ = await _receipts_turn({"operation": "read_receipts"}, memory)
     assert result["response"] == (
         "Your receipt memory is not ready yet. Sync and save your receipts in Mail."
