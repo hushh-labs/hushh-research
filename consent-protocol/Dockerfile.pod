@@ -24,6 +24,12 @@ ENV VIRTUAL_ENV=/opt/venv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project --active --compile-bytecode
 
+# Private command retrieval and Drive use the same pinned local embedding
+# model as the hub. Fetch and exercise it at build time, never on an owner turn.
+COPY hushh_mcp/services/embedding_client_leaf.py hushh_mcp/services/embedding_client_leaf.py
+COPY scripts/ops/bake_drive_embedding_model.py scripts/ops/bake_drive_embedding_model.py
+RUN python -m scripts.ops.bake_drive_embedding_model
+
 # Stage 2: production runtime
 FROM python:3.13-slim
 # The build tag, baked in so the running process can say which build it is
@@ -31,16 +37,19 @@ FROM python:3.13-slim
 # built outside Cloud Build; the pod then reports nothing rather than a guess.
 ARG POD_IMAGE_TAG=""
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/hushh/models /opt/hushh/models
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH \
+    HUSHH_DRIVE_EMBEDDING_MODEL_DIR=/opt/hushh/models/multilingual-e5-small \
     HUSSH_POD_MODE=1 \
     HUSSH_POD_IMAGE_TAG=${POD_IMAGE_TAG}
 COPY . .
+# Bake against this image's generated catalog. The existing bake verifies its
+# output with the runtime reader and fails if the catalog is absent or invalid.
+RUN HF_HUB_OFFLINE=1 python -m scripts.ops.bake_action_catalog_vectors
 RUN python -m compileall -q .
 # Non-root, least-privilege (FedRAMP CM-6 / SC-2).
 RUN useradd --system --uid 10001 --home-dir /app appuser

@@ -39,6 +39,11 @@ service. Shared-project service inventory does not prove an owner has no pod.
 
 Build `consent-protocol/Dockerfile.pod` for the deployment platform with generated
 contracts staged by the existing build recipe. Set `POD_IMAGE_TAG=dev-<full-source-sha>`.
+The pod recipe bakes the pinned local embedding model and this image's action
+catalog vectors through the existing hub build helpers. A failed offline bake
+blocks the build; an owner command must not depend on a first-use model download.
+Measure image pull and first-turn latency separately before claiming a cold-start
+improvement: these assets increase the image size.
 Record source commit, immutable source digest, copied owner-project digest,
 Cloud Run revision and `/pod/info` imageTag separately. Never treat `latest`, an
 image version variable, or Cloud Run Ready as proof of the serving application.
