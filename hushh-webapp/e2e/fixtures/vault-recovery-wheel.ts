@@ -39,9 +39,17 @@ export async function verifyRecoveryWheelAccess(page: Page, content: Locator, re
     await page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     }));
-    await pointInsideScrollport();
-    await page.mouse.wheel(0, 1000);
-    await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    await expect(content).toHaveCSS("overflow-y", "auto");
+    expect(await content.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
+    // Keep retrying real user input within the existing assertion timeout.
+    // An unprocessed first wheel must not stand in for persistent suppression.
+    await expect.poll(async () => {
+      const top = await content.evaluate(node => node.scrollTop);
+      if (top > 0) return top;
+      await pointInsideScrollport();
+      await page.mouse.wheel(0, 1000);
+      return content.evaluate((node) => node.scrollTop);
+    }).toBeGreaterThan(0);
     await expect.poll(async () => (await recoveryGeometry()).contained).toBe(true);
   } finally {
     await content.evaluate((node, original) => {
