@@ -33,6 +33,20 @@ exist and be enabled. The real Firebase Admin token carries `hushh_review_mint=u
 this is environment containment, not proof of service-level isolation. No backend
 mint response is intercepted or manufactured.
 
+The shared Dev rehearsal may explicitly select the same private pipe at
+`https://dev.one.hushh.ai`. It reads only Dev's unprefixed runtime configuration
+and Firebase credential binding. Admission requires the approved two-reviewer
+Sandbox policy, account `acct_1UNyyyLsJU9ZDBZX`, test mode, the exact Dev frontend
+and backend origins, and a ready backend revision serving 100% of traffic with
+`ENVIRONMENT=dev` and `APP_REVIEW_MODE=true`. Its token carries
+`hushh_review_mint=dev`; neither preview nor production claims are substituted.
+The serving revision must bind the approved Dev policy and Firebase secret names;
+the issuer reads their mounted versions and rejects a production runtime profile.
+The Firebase certificate must belong to the approved `hushh-pda` project.
+Both Firebase subjects must remain enabled and match the private UID-only binding.
+Passphrases remain in process/browser memory. This admission leaves ordinary vault
+setup, unlock, legal, phone, consent and exact financial confirmations in place.
+
 The private pipe adapter defaults to a 55-second issuance budget. Operators may
 select an explicit `timeoutMs` up to 180 seconds when measured local or provider
 latency requires it; it remains a finite deadline with no retry or authentication
