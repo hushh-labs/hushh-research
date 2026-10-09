@@ -72,6 +72,30 @@ def isolation_evidence(value: dict[str, Any], account_id: str) -> str:
     return value["source"]
 
 
+def shared_dev_webhook_destination(args: Any, evidence: dict[str, Any], config: Any) -> bool:
+    """Admit only the shared Dev commerce mounts at its attested service callback."""
+    import re
+
+    names = {
+        "platform": "SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
+        "connect": "SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
+    }
+    backend = evidence.get("backend_origin", "")
+    project = "hushh-pda-dev"
+    return bool(
+        args.secret_name == names.get(args.webhook_scope)
+        and args.secret_project == evidence.get("secret_project") == project
+        and evidence.get("source") == "dashboard_general_sandbox"
+        and config.sandbox_policy_required
+        and config.frontend_origin == evidence.get("app_origin") == "https://dev.one.hushh.ai"
+        and evidence.get("backend_service")
+        == "projects/hushh-pda-dev/locations/us-central1/services/consent-protocol"
+        and isinstance(backend, str)
+        and re.fullmatch(r"https://consent-protocol-[a-z0-9]+-uc\.a\.run\.app", backend)
+        and getattr(args, "webhook_url", None) == backend + "/api/payments/scope-commerce/webhook"
+    )
+
+
 def validate_topup(
     topup: dict[str, Any], *, operation_id: str | None = None, amount: int | None = None
 ) -> None:

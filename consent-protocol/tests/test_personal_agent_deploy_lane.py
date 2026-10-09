@@ -206,6 +206,18 @@ def test_dev_carries_the_personal_agent_block(dev, name, value):
     assert dev.get(name) == value
 
 
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_counterpart_reviewer_credentials_are_mounted_only_on_shared_dev(tmp_path, environment):
+    argv = _run(tmp_path, _DEPLOY_ENV=environment)
+    flag = next(value for value in argv if value.startswith("--set-secrets="))
+    bindings = dict(pair.split("=", 1) for pair in flag.removeprefix("--set-secrets=").split(","))
+    for name in ("REVIEWER_COUNTERPART_UID", "REVIEWER_COUNTERPART_VAULT_PASSPHRASE"):
+        if environment == "dev":
+            assert bindings[name] == name + ":latest"
+        else:
+            assert name not in bindings
+
+
 def test_the_hub_is_the_only_member_that_may_invoke_a_pod(dev):
     """Non-targetability is the pod's security property. This names ONE caller, and
     `set_invoker_binding` independently refuses allUsers/allAuthenticatedUsers."""

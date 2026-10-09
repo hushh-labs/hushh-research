@@ -57,7 +57,7 @@ class SandboxPolicy:
             or self.platform_account_id != account_id
             or "production" in runtime_environments
             or not runtime_environments.intersection(
-                {"sandbox", "test", "uat", "local", "development"}
+                {"sandbox", "test", "uat", "local", "dev", "development"}
             )
         ):
             raise CommerceProviderError("provider_sandbox_environment_mismatch")
