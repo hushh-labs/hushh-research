@@ -8,13 +8,11 @@ import type { ApiService } from "@/lib/services/api-service";
  *
  * Two records speak about an Azure update. The setup job is the work the
  * owner's Microsoft sign-in started; the agent status is what actually runs.
- * They can disagree: on 2026-10-05 the replace succeeded, the job failed
- * because the new revision was not ready yet, and the hub's read-only recovery
- * recorded the new release about 40 seconds later. The app then said the
- * update did not finish while the agent ran the new version. So the agent
- * status wins: the approved release installed means updated, whatever the job
- * says. A failed job is a failure only when its code is definitive, or once the
- * hub has stopped recovering without the release installed.
+ * They can disagree: on 2026-10-05 recovery confirmed an installation after
+ * the setup job failed. Completion therefore requires the hub's verified
+ * receipt for the exact followed operation and installed digest. Labels and
+ * job completion do not prove recovery. A later offer cannot change which
+ * operation is followed. Definitive provider failures remain failures.
  */
 
 type AgentStatus = Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>;
@@ -71,9 +69,15 @@ export function hubStillRecovering(status: AgentStatus): boolean {
   return Boolean(status.updateFailed) && status.update?.presentationState === "blocked";
 }
 
-/** The hub verified the approved operation it projects (its receipt binds release and digest). */
-function hubVerified(status: AgentStatus | null): boolean {
-  return status?.update?.presentationState === "verified";
+/** Version labels and terminal jobs cannot establish installation or recovery. */
+function verifiedCompletion(status: AgentStatus | null, operationId?: string | null, releaseId?: string | null) {
+  const receipt = status?.completedUpdate;
+  if (!operationId || !releaseId || status?.installedReleaseVerified !== true || !receipt) return null;
+  if (receipt.operationId !== operationId || receipt.releaseId !== releaseId ||
+      !receipt.podIncarnation?.trim() || !receipt.verifiedAt || !Number.isFinite(Date.parse(receipt.verifiedAt)) ||
+      !/^sha256:[a-f0-9]{64}$/.test(receipt.imageDigest) ||
+      receipt.imageDigest !== status.installedRelease?.imageDigest) return null;
+  return receipt;
 }
 
 /**
@@ -110,31 +114,23 @@ function failedJobVerdict(job: SetupStatus, status: AgentStatus | null): AzureUp
 }
 
 /**
- * Updated once the agent reports the approved release installed. A failed job
- * is final only with a definitive code; otherwise it stays "confirming" while
- * the hub still moves or recovers, and fails only once the hub has settled
- * without the release. Callers bound the wait (`AZURE_UPDATE_FOLLOW_CEILING_MS`).
+ * Updated only from the verified receipt for this operation. Missing identity
+ * or installation evidence remains unconfirmed. Callers bound the wait with
+ * `AZURE_UPDATE_FOLLOW_CEILING_MS`.
  */
 export function azureUpdateVerdict(input: {
-  approvedVersion: string | null;
+  /** Retained for older callers; a display label never authorizes completion. */
+  approvedVersion?: string | null;
+  operationId?: string | null;
+  releaseId?: string | null;
   status: AgentStatus | null;
   /** This update's own job record, or `null` when unread or not yet visible. */
   job: SetupStatus | null;
 }): AzureUpdateVerdict {
   const { job, status } = input;
-  const installed = status?.installedRelease?.version ?? null;
-  if (installed !== null && installed === input.approvedVersion) {
-    return { kind: "updated", version: installed };
-  }
+  const receipt = verifiedCompletion(status, input.operationId, input.releaseId);
+  if (receipt) return { kind: "updated", version: receipt.version ?? status?.installedRelease?.version ?? null };
   const jobFailed = job !== null && (job.status === "failed" || job.stale);
-  // A settled job whose release the status has not named yet is a status
-  // lagging by a read, unless the hub already calls this update verified.
-  if ((job?.status === "recorded" || jobFailed) && hubVerified(status)) {
-    return { kind: "updated", version: installed };
-  }
-  if (job?.status === "recorded" && input.approvedVersion === null) {
-    return { kind: "updated", version: installed };
-  }
   if (jobFailed) return failedJobVerdict(job, status);
-  return { kind: "updating", confirming: false };
+  return { kind: "updating", confirming: job?.status === "recorded" };
 }

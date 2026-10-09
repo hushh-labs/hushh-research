@@ -96,6 +96,20 @@ flowchart TB
 
 ---
 
+## Azure software-update continuation
+
+An `upgrade_started` result from the existing Azure authorization-completion
+route includes the launched `jobId` and, when available, the approved
+`operationId` and `releaseId`. Clients retain that tuple through popup handback
+and status following. Older responses without the tuple remain readable but
+cannot establish verified completion.
+
+Completion requires `installedReleaseVerified` and a `completedUpdate` receipt
+matching the followed operation, release and installed image digest, with a
+verified pod incarnation and timestamp. A recorded job, version label or newer
+available offer is insufficient. See the
+[existing-pod update runbook](../operations/dev-pod-first-light-runbook.md).
+
 ## Consumer scope commerce
 
 `/api/scope-commerce` uses Firebase identity for account, tariff, quote, human

@@ -75,6 +75,14 @@ function agent(installed: string) {
   };
 }
 
+function verifiedAgent(installed: string) {
+  const digest = "sha256:" + "a".repeat(64);
+  return { ...agent(installed), installedReleaseVerified: true,
+    installedRelease: { version: installed, imageDigest: digest },
+    completedUpdate: { operationId: "op", releaseId: "rel_exact", podIncarnation: "pod-7", imageDigest: digest,
+      verifiedAt: "2026-10-05T12:01:00Z", version: installed, releasedAt: "2026-10-05T12:00:00Z" } };
+}
+
 /** The hub kept the lease and recovery continues (`pod_update_presentation._blocked_update`). */
 const RECOVERING = {
   updateFailed: true,
@@ -86,9 +94,16 @@ const RECOVERING = {
 };
 
 describe("the Microsoft sign-in return for an approved update", () => {
+  it("does not report a recorded job as updated without a verified receipt", async () => {
+    setupStatus.mockResolvedValue(job({ status: "recorded" }));
+    agentStatus.mockResolvedValue(agent("2026.10-dev.7"));
+    render(<AzureCloudReturnPage />);
+    expect(await screen.findByTestId("azure-upgrade-confirming")).toBeTruthy();
+    expect(screen.queryByTestId("azure-upgrade-done")).toBeNull();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
-    complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2" });
+    complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2", operationId: "op", releaseId: "rel_exact" });
     agentStatus.mockResolvedValue({ state: null });
   });
   afterEach(() => {
@@ -111,7 +126,7 @@ describe("the Microsoft sign-in return for an approved update", () => {
         "Your agent is being updated. You can close this window",
       );
       expect(screen.getByRole("heading", { name: "Updating your agent" })).toBeTruthy();
-      expect(heard).toEqual([{ type: "azure-setup-started", kind: "upgrade", jobId: "job-2" }]);
+      expect(heard).toEqual([{ type: "azure-setup-started", kind: "upgrade", jobId: "job-2", operationId: "op", releaseId: "rel_exact" }]);
       expect(close).toHaveBeenCalled();
       // The progress is followed in the approving tab, not polled from the popup.
       expect(setupStatus).not.toHaveBeenCalled();
@@ -137,7 +152,7 @@ describe("the Microsoft sign-in return for an approved update", () => {
     setupStatus.mockResolvedValue(
       job({ status: "failed", errorMessage: "Something unexpected stopped the setup. (RuntimeError)" }),
     );
-    agentStatus.mockResolvedValue(agent("2026.10-dev.7"));
+    agentStatus.mockResolvedValue(verifiedAgent("2026.10-dev.7"));
     render(<AzureCloudReturnPage />);
     await waitFor(() =>
       expect(screen.getByTestId("azure-upgrade-done")).toHaveTextContent("Updated to 05.10.26 · Dev 7"),
@@ -161,7 +176,7 @@ describe("the Microsoft sign-in return for an approved update", () => {
         await vi.advanceTimersByTimeAsync(15_000);
       });
       expect(screen.queryByTestId("azure-upgrade-failed")).toBeNull();
-      agentStatus.mockResolvedValue(agent("2026.10-dev.7"));
+      agentStatus.mockResolvedValue(verifiedAgent("2026.10-dev.7"));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5_000);
       });

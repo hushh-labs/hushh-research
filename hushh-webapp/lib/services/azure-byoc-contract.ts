@@ -45,7 +45,7 @@ const SUBSCRIPTION_REASONS: readonly AzureSubscriptionReason[] = [
 
 export type AzureAuthorizeCompletion =
   | { status: "setup_started"; jobId: string }
-  | { status: "upgrade_started"; jobId: string }
+  | { status: "upgrade_started"; jobId: string; operationId?: string; releaseId?: string }
   /** The account was identified; sign in again in its own directory for Azure. */
   | { status: "continue"; authorizationUrl: string }
   | {
@@ -188,6 +188,13 @@ export function parseAzureAuthorizeCompletion(payload: unknown): AzureAuthorizeC
   if (status === "setup_started" || status === "upgrade_started") {
     const { jobId } = payload;
     if (typeof jobId !== "string" || !jobId.trim()) throw invalidResponse();
+    if (status === "upgrade_started" && (payload.operationId != null || payload.releaseId != null)) {
+      const { operationId, releaseId } = payload;
+      const identifier = (value: unknown): value is string =>
+        typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+      if (!identifier(operationId) || !identifier(releaseId)) throw invalidResponse();
+      return { status, jobId, operationId, releaseId };
+    }
     return { status, jobId };
   }
   if (status === "continue") {

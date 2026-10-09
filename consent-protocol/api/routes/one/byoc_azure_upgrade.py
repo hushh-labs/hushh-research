@@ -42,4 +42,10 @@ async def start_upgrade(
                 **({"resume_files_queue_operation": continuation} if continuation else {}),
             )
         )
-    return authority.AzureAuthorizeCompleteResponse(status="upgrade_started", jobId=job_id)
+    approval = (row.get("backend_metadata") or {}).get("upgradeApproval") or {}
+    return authority.AzureAuthorizeCompleteResponse(
+        status="upgrade_started",
+        jobId=job_id,
+        operationId=approval.get("operationId"),
+        releaseId=approval.get("releaseId"),
+    )

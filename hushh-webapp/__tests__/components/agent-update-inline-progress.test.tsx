@@ -68,6 +68,14 @@ function agent(installed: string, update: Record<string, unknown> = {}) {
   };
 }
 
+function verifiedAgent(installed: string, update: Record<string, unknown> = {}) {
+  const digest = "sha256:" + "a".repeat(64);
+  return { ...agent(installed, update), installedReleaseVerified: true,
+    installedRelease: { version: installed, imageDigest: digest },
+    completedUpdate: { operationId: "op", releaseId: "rel_exact", podIncarnation: "pod-7", imageDigest: digest,
+      verifiedAt: "2026-10-05T12:01:00Z", version: installed, releasedAt: "2026-10-05T12:00:00Z" } };
+}
+
 /** The hub kept the lease and recovery continues (`pod_update_presentation._blocked_update`). */
 function recovering() {
   const summary = "The update outcome could not be verified. Check again while recovery continues.";
@@ -95,7 +103,7 @@ let popup: ReturnType<typeof fakePopup>;
 let microsoftWindow: BroadcastChannel;
 
 function handBack(jobId = "job-7") {
-  microsoftWindow.postMessage({ type: "azure-setup-started", kind: "upgrade", jobId });
+  microsoftWindow.postMessage({ type: "azure-setup-started", kind: "upgrade", jobId, operationId: "op", releaseId: "rel_exact" });
 }
 
 async function approveFromPane() {
@@ -181,7 +189,7 @@ describe("an Azure update approved from the profile pane", () => {
     expect(await screen.findByTestId("azure-update-updating")).toHaveTextContent("Updating your agent");
     expect(mocks.setupStatus).toHaveBeenCalled();
 
-    mocks.getStatus.mockResolvedValue(agent(APPROVED, { presentationState: "verified", phase: "verified" }));
+    mocks.getStatus.mockResolvedValue(verifiedAgent(APPROVED, { presentationState: "verified", phase: "verified" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
@@ -194,7 +202,7 @@ describe("an Azure update approved from the profile pane", () => {
     mocks.setupStatus.mockResolvedValue(
       job("failed", { errorMessage: "Something unexpected stopped the setup. (RuntimeError)" }),
     );
-    mocks.getStatus.mockResolvedValue(agent(APPROVED, { presentationState: "verified", phase: "verified" }));
+    mocks.getStatus.mockResolvedValue(verifiedAgent(APPROVED, { presentationState: "verified", phase: "verified" }));
     await approveFromPane();
     handBack();
     expect(await screen.findByTestId("azure-update-updated")).toHaveTextContent("Updated to");
@@ -211,7 +219,7 @@ describe("an Azure update approved from the profile pane", () => {
     expect(await screen.findByText("Confirming the new version with your agent…")).toBeTruthy();
     expect(screen.queryByTestId("azure-update-failed")).toBeNull();
 
-    mocks.getStatus.mockResolvedValue(agent(APPROVED, { presentationState: "verified", phase: "verified" }));
+    mocks.getStatus.mockResolvedValue(verifiedAgent(APPROVED, { presentationState: "verified", phase: "verified" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
@@ -237,7 +245,7 @@ describe("an Azure update approved from the profile pane", () => {
     expect(screen.queryByText(/did not finish/)).toBeNull();
 
     // Recovery records the approved release about 40 seconds in.
-    mocks.getStatus.mockResolvedValue(agent(APPROVED, { presentationState: "verified", phase: "verified" }));
+    mocks.getStatus.mockResolvedValue(verifiedAgent(APPROVED, { presentationState: "verified", phase: "verified" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(25_000);
     });

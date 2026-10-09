@@ -17,6 +17,8 @@ import {
   isUpdateJobRecord,
 } from "@/lib/one/azure-update-outcome";
 
+const FOLLOW = { operationId: "op-7", releaseId: "rel-7" };
+const DIGEST = "sha256:" + "a".repeat(64);
 const APPROVED = "2026.10-dev.7";
 const RUNNING = "2026.10-dev.6";
 const INCIDENT_ERROR =
@@ -48,16 +50,39 @@ function agent(installed: string, update: Record<string, unknown> = {}, extra: R
   };
 }
 
+function verifiedAgent(installed = APPROVED) {
+  return { ...agent(installed), installedReleaseVerified: true,
+    installedRelease: { version: installed, imageDigest: DIGEST },
+    completedUpdate: { ...FOLLOW, podIncarnation: "pod-7", imageDigest: DIGEST,
+      verifiedAt: "2026-10-05T12:01:00Z", version: installed, releasedAt: "2026-10-05T12:00:00Z" } };
+}
+
 describe("an approved Azure update's outcome", () => {
+  it.each([
+    ["matching label only", agent(APPROVED)],
+    ["unreadable status", null],
+    ["wrong operation", { ...verifiedAgent(), completedUpdate: { ...verifiedAgent().completedUpdate, operationId: "old-op" } }],
+    ["wrong release", { ...verifiedAgent(), completedUpdate: { ...verifiedAgent().completedUpdate, releaseId: "old-release" } }],
+    ["different installed bytes", { ...verifiedAgent(), installedRelease: { version: APPROVED, imageDigest: "sha256:" + "b".repeat(64) } }],
+    ["missing recovery incarnation", { ...verifiedAgent(), completedUpdate: { ...verifiedAgent().completedUpdate, podIncarnation: "" } }],
+    ["missing verification", { ...verifiedAgent(), installedReleaseVerified: false }],
+  ])("does not finish a recorded job from %s", (_label, status) => {
+    expect(azureUpdateVerdict({ ...FOLLOW, approvedVersion: APPROVED, status, job: job("recorded") })).toEqual({ kind: "updating", confirming: true });
+  });
+  it("reports the exact completed operation when a later offer is available", () => {
+    const status = { ...verifiedAgent(), availableRelease: { ...agent(APPROVED).availableRelease, version: "2026.10-dev.8" } };
+    expect(azureUpdateVerdict({ ...FOLLOW, status, job: job("recorded") })).toEqual({ kind: "updated", version: APPROVED });
+    expect(azureUpdateVerdict({ status, job: job("recorded") })).toEqual({ kind: "updating", confirming: true });
+  });
   it("reads a failed job as updated once the agent reports the approved release installed", () => {
     expect(
-      azureUpdateVerdict({ approvedVersion: APPROVED, status: agent(APPROVED), job: job("failed") }),
+      azureUpdateVerdict({ ...FOLLOW, approvedVersion: APPROVED, status: verifiedAgent(APPROVED), job: job("failed") }),
     ).toEqual({ kind: "updated", version: APPROVED });
   });
 
   it("keeps confirming, not failing, while the hub still reports the update in flight", () => {
     expect(
-      azureUpdateVerdict({ approvedVersion: APPROVED, status: agent(RUNNING), job: job("failed") }),
+      azureUpdateVerdict({ ...FOLLOW, approvedVersion: APPROVED, status: agent(RUNNING), job: job("failed") }),
     ).toEqual({ kind: "updating", confirming: true });
   });
 
@@ -68,12 +93,12 @@ describe("an approved Azure update's outcome", () => {
     ["a restarted job", job("running", { stale: true })],
   ])("keeps confirming %s while the hub holds the update for recovery", (_label, record) => {
     expect(
-      azureUpdateVerdict({ approvedVersion: APPROVED, status: { ...agent(RUNNING), ...RECOVERING }, job: record }),
+      azureUpdateVerdict({ ...FOLLOW, approvedVersion: APPROVED, status: { ...agent(RUNNING), ...RECOVERING }, job: record }),
     ).toEqual({ kind: "updating", confirming: true });
   });
 
   it("keeps confirming a failed job while the agent's status is unreadable", () => {
-    expect(azureUpdateVerdict({ approvedVersion: APPROVED, status: null, job: job("failed") })).toEqual({
+    expect(azureUpdateVerdict({ ...FOLLOW, approvedVersion: APPROVED, status: null, job: job("failed") })).toEqual({
       kind: "updating",
       confirming: true,
     });
@@ -84,7 +109,7 @@ describe("an approved Azure update's outcome", () => {
     (errorCode) => {
       const record = job("failed", { errorCode, errorMessage: "The new version did not start." });
       expect(
-        azureUpdateVerdict({ approvedVersion: APPROVED, status: { ...agent(RUNNING), ...RECOVERING }, job: record }),
+        azureUpdateVerdict({ ...FOLLOW, approvedVersion: APPROVED, status: { ...agent(RUNNING), ...RECOVERING }, job: record }),
       ).toEqual({ kind: "failed", message: "The new version did not start." });
     },
   );
@@ -95,7 +120,7 @@ describe("an approved Azure update's outcome", () => {
       errorMessage: "We could not confirm the update yet. It is being checked; you do not need to do anything.",
     });
     expect(
-      azureUpdateVerdict({
+      azureUpdateVerdict({ ...FOLLOW,
         approvedVersion: APPROVED,
         status: agent(RUNNING, { presentationState: "ready", phase: undefined }),
         job: record,
@@ -105,7 +130,7 @@ describe("an approved Azure update's outcome", () => {
 
   it("calls a failed job failed at once when the approval never started", () => {
     expect(
-      azureUpdateVerdict({
+      azureUpdateVerdict({ ...FOLLOW,
         approvedVersion: APPROVED,
         status: agent(RUNNING, { presentationState: "scheduled", phase: "scheduled" }),
         job: job("failed"),
@@ -115,16 +140,16 @@ describe("an approved Azure update's outcome", () => {
 
   it("reads a failed job as updated once the hub verifies the update, whatever the version label", () => {
     expect(
-      azureUpdateVerdict({
+      azureUpdateVerdict({ ...FOLLOW,
         approvedVersion: APPROVED,
-        status: agent("sha-3a7bb679", { presentationState: "verified", phase: "verified" }),
+        status: verifiedAgent("sha-3a7bb679"),
         job: job("failed", { errorCode: "UPGRADE_UNCONFIRMED" }),
       }),
     ).toEqual({ kind: "updated", version: "sha-3a7bb679" });
   });
 
   it("treats a restarted (stale) job as stopped partway once the hub has settled", () => {
-    const verdict = azureUpdateVerdict({
+    const verdict = azureUpdateVerdict({ ...FOLLOW,
       approvedVersion: APPROVED,
       status: agent(RUNNING, { presentationState: "scheduled", phase: "scheduled" }),
       job: job("running", { stale: true }),
@@ -134,29 +159,29 @@ describe("an approved Azure update's outcome", () => {
 
   it("keeps updating while the job runs", () => {
     expect(
-      azureUpdateVerdict({ approvedVersion: APPROVED, status: agent(RUNNING), job: job("running") }),
+      azureUpdateVerdict({ ...FOLLOW, approvedVersion: APPROVED, status: agent(RUNNING), job: job("running") }),
     ).toEqual({ kind: "updating", confirming: false });
   });
 
   it("waits a read for the status after a finished job, unless the hub calls it verified", () => {
     expect(
-      azureUpdateVerdict({ approvedVersion: APPROVED, status: agent(RUNNING), job: job("recorded") }),
-    ).toEqual({ kind: "updating", confirming: false });
+      azureUpdateVerdict({ ...FOLLOW, approvedVersion: APPROVED, status: agent(RUNNING), job: job("recorded") }),
+    ).toEqual({ kind: "updating", confirming: true });
     expect(
-      azureUpdateVerdict({
+      azureUpdateVerdict({ ...FOLLOW,
         approvedVersion: APPROVED,
-        status: agent(RUNNING, { presentationState: "verified", phase: "verified" }),
+        status: verifiedAgent(RUNNING),
         job: job("recorded"),
       }),
     ).toEqual({ kind: "updated", version: RUNNING });
     expect(
-      azureUpdateVerdict({ approvedVersion: null, status: null, job: job("recorded") }),
-    ).toEqual({ kind: "updated", version: null });
+      azureUpdateVerdict({ ...FOLLOW, approvedVersion: null, status: null, job: job("recorded") }),
+    ).toEqual({ kind: "updating", confirming: true });
   });
 
   it("never claims updated without the approved release or a finished job", () => {
     expect(
-      azureUpdateVerdict({ approvedVersion: null, status: agent(RUNNING), job: null }),
+      azureUpdateVerdict({ ...FOLLOW, approvedVersion: null, status: agent(RUNNING), job: null }),
     ).toEqual({ kind: "updating", confirming: false });
   });
 

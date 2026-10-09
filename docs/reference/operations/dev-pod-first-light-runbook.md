@@ -276,6 +276,14 @@ not generic recovery. Verify digest, recovery, Files custody and byte-exact
 transfer before reporting success. October 9 source checks establish the repair;
 the owner operation is not yet completed live.
 
+The existing authorization completion response carries the approved operation
+and release IDs beside its job ID. Popup and standalone update views follow
+that frozen identity. Completion requires `installedReleaseVerified` and the
+matching `completedUpdate` receipt, installed digest, incarnation and verified
+timestamp. A matching version label, recorded job or later available release
+cannot establish completion. Older responses without operation identity remain
+unconfirmed and offer the existing Settings path.
+
 ### Recovering a denied Files queue creation
 
 For a blocked Files activation, retain its existing approval, lease, successful

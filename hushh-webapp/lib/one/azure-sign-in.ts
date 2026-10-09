@@ -52,11 +52,11 @@ const POPUP_WIDTH = 520;
 const POPUP_HEIGHT = 720;
 
 type AzureSignInMessage =
-  | { type: "azure-setup-started"; kind?: "upgrade"; jobId?: string }
+  | { type: "azure-setup-started"; kind?: "upgrade"; jobId?: string; operationId?: string; releaseId?: string }
   | { type: "azure-setup-ack" };
 
 /** What the opening tab learns when the popup hands back: which sign-in, and its job. */
-export type AzureSignInStarted = { kind: AzureSignInKind; jobId: string | null };
+export type AzureSignInStarted = { kind: AzureSignInKind; jobId: string | null; operationId?: string; releaseId?: string };
 
 /**
  * Opened synchronously inside the tap, before the hub is asked for the address,
@@ -129,13 +129,16 @@ export const ANNOUNCE_WAIT_MS = 8000;
 export function announceAzureSetupStarted({
   timeoutMs = ANNOUNCE_WAIT_MS,
   upgradeJobId,
-}: { timeoutMs?: number; upgradeJobId?: string } = {}): Promise<boolean> {
+  operationId,
+  releaseId,
+}: { timeoutMs?: number; upgradeJobId?: string; operationId?: string; releaseId?: string } = {}): Promise<boolean> {
   const channel = signInChannel();
   if (!channel) return Promise.resolve(false);
   const message: AzureSignInMessage =
     upgradeJobId === undefined
       ? { type: "azure-setup-started" }
-      : { type: "azure-setup-started", kind: "upgrade", jobId: upgradeJobId };
+      : { type: "azure-setup-started", kind: "upgrade", jobId: upgradeJobId,
+          ...(operationId && releaseId ? { operationId, releaseId } : {}) };
   return new Promise((resolve) => {
     const announce = () => channel.postMessage(message);
     const done = (acked: boolean) => {
@@ -200,7 +203,9 @@ export function useAzureSetupStartedSignal(
       if (event.data?.type !== "azure-setup-started") return;
       const started: AzureSignInStarted =
         event.data.kind === "upgrade"
-          ? { kind: "upgrade", jobId: event.data.jobId ?? null }
+          ? { kind: "upgrade", jobId: event.data.jobId ?? null,
+              ...(event.data.operationId && event.data.releaseId
+                ? { operationId: event.data.operationId, releaseId: event.data.releaseId } : {}) }
           : { kind: "setup", jobId: null };
       if (only && started.kind !== only) return;
       // Acknowledge every repeat (the popup closes on the first it hears) but act once.

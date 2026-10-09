@@ -157,6 +157,10 @@ describe("Connect Azure contract parsing", () => {
   });
 
   it("reads each completion outcome", () => {
+    expect(parseAzureAuthorizeCompletion({ status: "upgrade_started", jobId: "j", operationId: "op", releaseId: "rel" })).toEqual({
+      status: "upgrade_started", jobId: "j", operationId: "op", releaseId: "rel",
+    });
+    expect(() => parseAzureAuthorizeCompletion({ status: "upgrade_started", jobId: "j", operationId: "op" })).toThrow(AzureByocError);
     expect(parseAzureAuthorizeCompletion({ status: "upgrade_started", jobId: "j" })).toEqual({
       status: "upgrade_started",
       jobId: "j",

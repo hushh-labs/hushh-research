@@ -74,6 +74,8 @@ class AzureAuthorizeCompleteResponse(BaseModel):
     #: (its own directory) for Azure. Microsoft usually completes that without asking.
     status: Literal["setup_started", "needs_subscription", "upgrade_started", "continue"]
     jobId: Optional[str] = None
+    operationId: Optional[str] = None
+    releaseId: Optional[str] = None
     authorizationUrl: Optional[str] = None
     subscriptions: Optional[list[AzureSubscription]] = None
     #: Only with needs_subscription: choose_subscription | no_enabled_subscription |

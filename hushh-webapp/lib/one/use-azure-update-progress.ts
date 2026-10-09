@@ -37,7 +37,8 @@ export type AzureUpdateOutcome =
 
 export type AzureUpdateFollow = {
   jobId: string | null;
-  approvedVersion: string | null;
+  operationId?: string | null;
+  releaseId?: string | null;
   /**
    * This update's job, already read to its end (failed or stale) by the caller:
    * used as it is and never read again, so only the agent's status is polled.
@@ -64,8 +65,7 @@ function settledOutcome(
   status: AgentStatus | null,
 ): AzureUpdateOutcome {
   if (verdict.kind !== "updated") return verdict;
-  const offered = status?.availableRelease;
-  return { ...verdict, releasedAt: offered?.version === verdict.version ? offered.releasedAt : null };
+  return { ...verdict, releasedAt: status?.completedUpdate?.releasedAt ?? null };
 }
 
 /**
@@ -88,14 +88,11 @@ export function useAzureUpdateOutcome(
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const startedAt = Date.now();
-    let approvedVersion = follow.approvedVersion;
     const show = (value: AzureUpdateOutcome) => setOutcome({ follow, value });
     const read = async () => {
       const { status, job } = await readUpdate(follow);
       if (cancelled) return;
-      // Without the release the person approved, the one on offer is it.
-      approvedVersion ??= status?.availableRelease?.version ?? null;
-      const verdict = azureUpdateVerdict({ approvedVersion, status, job });
+      const verdict = azureUpdateVerdict({ operationId: follow.operationId, releaseId: follow.releaseId, status, job });
       if (verdict.kind !== "updating") {
         show(settledOutcome(verdict, status));
         settled.current?.();
@@ -130,7 +127,7 @@ type ApprovingAgent =
   | null
   | undefined;
 
-type WatchSignIn = (popup: Window, version: string | null) => void;
+type WatchSignIn = (popup: Window) => void;
 
 /**
  * Notices a Microsoft popup closed before its hand-back. `markHandedOff` ends the
@@ -190,7 +187,7 @@ function useApproveInPlace(watchSignIn: WatchSignIn) {
         popup,
       });
       if (popup && approval === "signing_in_popup") {
-        watchSignIn(popup, input.agent?.availableRelease?.version ?? null);
+        watchSignIn(popup);
       }
       return approval;
     },
@@ -211,7 +208,7 @@ function useRetryInPlace(watchSignIn: WatchSignIn, showError: (message: string |
     const popup = isAzureSignInAvailable() ? openSignInPopup() : null;
     try {
       const where = await startAzureSignIn("upgrade", undefined, popup);
-      if (popup && where === "popup") watchSignIn(popup, null);
+      if (popup && where === "popup") watchSignIn(popup);
     } catch (cause) {
       popup?.close();
       showError(azureSignInErrorMessage(cause, "upgrade"));
@@ -236,7 +233,6 @@ export function useAzureUpdateProgress({ onSettled }: { onSettled?: () => void }
   const [phase, setPhase] = useState<AzureUpdateProgress>(IDLE);
   const [follow, setFollow] = useState<AzureUpdateFollow | null>(null);
   const [signInError, setSignInError] = useState<string | null>(null);
-  const approvedVersion = useRef<string | null>(null);
   // The job being followed. A ref, because the popup repeats its hand-back
   // faster than a render can land.
   const followedJob = useRef<string | null | undefined>(undefined);
@@ -245,9 +241,8 @@ export function useAzureUpdateProgress({ onSettled }: { onSettled?: () => void }
   const { start: startWatch, stop: stopWatch, markHandedOff } = usePopupCloseWatch(showClosed);
 
   const watchSignIn = useCallback<WatchSignIn>(
-    (popup, version) => {
+    (popup) => {
       followedJob.current = undefined;
-      if (version !== null) approvedVersion.current = version;
       setSignInError(null);
       setFollow(null);
       setPhase({ kind: "signing_in" });
@@ -263,7 +258,7 @@ export function useAzureUpdateProgress({ onSettled }: { onSettled?: () => void }
     markHandedOff();
     setSignInError(null);
     setPhase({ kind: "updating", confirming: false });
-    setFollow({ jobId: started.jobId, approvedVersion: approvedVersion.current });
+    setFollow({ jobId: started.jobId, operationId: started.operationId, releaseId: started.releaseId });
   }, "upgrade");
 
   const approve = useApproveInPlace(watchSignIn);

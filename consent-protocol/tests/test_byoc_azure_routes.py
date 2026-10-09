@@ -355,12 +355,20 @@ def test_upgrade_needs_an_approved_digest_first(spawned):
 
 def test_an_upgrade_sign_in_starts_the_update_job(spawned, monkeypatch):
     _Registry.row = _provisioned()
+    _Registry.row["backend_metadata"]["upgradeApproval"].update(
+        operationId="op-existing", releaseId="rel-existing"
+    )
     _redeems_as(monkeypatch)
     response = _client().post(
         _COMPLETE,
         json={"code": "c", "state": _state(kind="upgrade", subscription=_SUB, authority=_TENANT)},
     )
-    assert response.json() == {"status": "upgrade_started", "jobId": "job-azure-1"}
+    assert response.json() == {
+        "status": "upgrade_started",
+        "jobId": "job-azure-1",
+        "operationId": "op-existing",
+        "releaseId": "rel-existing",
+    }
     kind, kwargs = spawned[0]
     assert kind == "upgrade" and kwargs["target_image"] == "img@sha256:" + "d" * 64
 

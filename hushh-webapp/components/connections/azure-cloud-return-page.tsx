@@ -55,7 +55,7 @@ type ReturnView =
       reason?: AzureSubscriptionReason;
       filesEnabled?: boolean;
     }
-  | { kind: "upgrading"; jobId: string }
+  | { kind: "upgrading"; jobId: string; operationId?: string; releaseId?: string }
   | { kind: "error"; message: string };
 
 const RETURN_MESSAGES = {
@@ -93,7 +93,7 @@ function returnLinkProblem(input: {
 function viewForCompletion(result: AzureAuthorizeCompletion): ReturnView {
   if (result.status === "continue") return { kind: "continuing", authorizationUrl: result.authorizationUrl };
   if (result.status === "setup_started") return { kind: "redirecting" };
-  if (result.status === "upgrade_started") return { kind: "upgrading", jobId: result.jobId };
+  if (result.status === "upgrade_started") return { ...result, kind: "upgrading" };
   return {
     kind: "needs_subscription",
     subscriptions: result.subscriptions,
@@ -197,6 +197,8 @@ function useReturnHandBack(view: ReturnView) {
   // Announced once per sign-in: a re-render must not start a second announcement.
   const announced = useRef<Promise<boolean> | null>(null);
   const upgradeJobId = view.kind === "upgrading" ? view.jobId : undefined;
+  const operationId = view.kind === "upgrading" ? view.operationId : undefined;
+  const releaseId = view.kind === "upgrading" ? view.releaseId : undefined;
   useEffect(() => {
     if (view.kind !== "redirecting" && upgradeJobId === undefined) return;
     // In the person's own tab (the popup was blocked) there is no other tab to
@@ -206,7 +208,7 @@ function useReturnHandBack(view: ReturnView) {
       else setKeptHere(true);
       return;
     }
-    announced.current ??= announceAzureSetupStarted({ upgradeJobId });
+    announced.current ??= announceAzureSetupStarted({ upgradeJobId, operationId, releaseId });
     let current = true;
     void announced.current.then((acked) => {
       if (!current) return;
@@ -223,7 +225,7 @@ function useReturnHandBack(view: ReturnView) {
     return () => {
       current = false;
     };
-  }, [view.kind, upgradeJobId, router]);
+  }, [view.kind, upgradeJobId, operationId, releaseId, router]);
   return { handedOff, keptHere, upgradeJobId };
 }
 
@@ -278,6 +280,8 @@ export function AzureCloudReturnPage() {
           keptHere ? (
             <AzureUpgradeProgress
               jobId={view.jobId}
+              operationId={view.operationId}
+              releaseId={view.releaseId}
               onRetry={() => start("upgrade")}
               retrying={signIn.starting}
             />

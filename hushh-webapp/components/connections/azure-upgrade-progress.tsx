@@ -72,17 +72,17 @@ function useAzureUpgradeJob(jobId: string): { job: SetupStatus | null; unreadabl
 }
 
 /**
- * A job read to failed or stale is not yet the update's outcome: the hub's
+ * A recorded, failed or stale job is not yet the update's outcome: the hub's
  * recovery may still record the new release (2026-10-05: the job failed on a
  * revision that was not ready, and the release was recorded about 40 seconds
  * later). From then on the agent's status decides, by the same rule the
  * profile pane and the Feed use (`azureUpdateVerdict`). The job is not re-read.
  */
-function useFailedJobOutcome(jobId: string, job: SetupStatus | null): AzureUpdateOutcome | null {
-  const settledJob = job && (job.status === "failed" || job.stale) ? job : null;
+function useSettledJobOutcome(jobId: string, job: SetupStatus | null, operationId?: string, releaseId?: string): AzureUpdateOutcome | null {
+  const settledJob = job && (job.status === "recorded" || job.status === "failed" || job.stale) ? job : null;
   const follow = useMemo(
-    () => (settledJob ? { jobId, approvedVersion: null, settledJob } : null),
-    [jobId, settledJob],
+    () => (settledJob ? { jobId, operationId, releaseId, settledJob } : null),
+    [jobId, operationId, releaseId, settledJob],
   );
   return useAzureUpdateOutcome(follow);
 }
@@ -136,8 +136,8 @@ function UpgradeFailed({
   );
 }
 
-/** The failed or stale job's outcome, once the agent's status has spoken. */
-function FailedJobOutcome({
+/** A settled job's outcome, once the exact verified receipt has spoken. */
+function SettledJobOutcome({
   outcome,
   onRetry,
   retrying,
@@ -176,15 +176,19 @@ function FailedJobOutcome({
  */
 export function AzureUpgradeProgress({
   jobId,
+  operationId,
+  releaseId,
   onRetry,
   retrying = false,
 }: {
   jobId: string;
+  operationId?: string;
+  releaseId?: string;
   onRetry: () => void | Promise<void>;
   retrying?: boolean;
 }) {
   const { job, unreadable } = useAzureUpgradeJob(jobId);
-  const failedOutcome = useFailedJobOutcome(jobId, job);
+  const settledOutcome = useSettledJobOutcome(jobId, job, operationId, releaseId);
 
   if (unreadable) {
     return (
@@ -198,9 +202,8 @@ export function AzureUpgradeProgress({
     );
   }
   if (!job) return <HushhLoader label="Checking your update…" variant="inline" />;
-  if (job.status === "recorded") return <UpgradeDone label="Your agent is updated" />;
-  if (job.status === "failed" || job.stale) {
-    return <FailedJobOutcome outcome={failedOutcome} onRetry={onRetry} retrying={retrying} />;
+  if (job.status === "recorded" || job.status === "failed" || job.stale) {
+    return <SettledJobOutcome outcome={settledOutcome} onRetry={onRetry} retrying={retrying} />;
   }
   return (
     <SetupStageChecklist
