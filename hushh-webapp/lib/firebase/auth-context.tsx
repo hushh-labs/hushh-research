@@ -1242,7 +1242,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const invalidatedUserId = eventUserId || currentUserId;
       if (
         invalidatedUserId &&
-        (code === "account_not_found" || code === "account_deleted")
+        (code === "account_not_found" || code === "account_deleted" || code === "account_deleted_ready_to_start_fresh" || code === "account_deletion_finishing")
       ) {
         // The backend or Firebase confirmed this account is gone (never an
         // uncertain outcome or a disabled account), so the device key material

@@ -61,6 +61,24 @@ describe("auth session invalidation contract", () => {
     });
   });
 
+  it("offers a fresh start only after Firebase identity removal is confirmed", () => {
+    const route = buildLoginRouteWithAuthSessionNotice("account_deleted_ready_to_start_fresh");
+    const params = new URL(route, "https://one.hushh.ai").searchParams;
+    expect(readAuthSessionLandingNotice(params)).toMatchObject({
+      code: "account_deleted_ready_to_start_fresh",
+      message: expect.stringContaining("start fresh"),
+    });
+  });
+
+  it("keeps fresh start pending until the old sign-in account is removed", () => {
+    const route = buildLoginRouteWithAuthSessionNotice("account_deletion_finishing");
+    const params = new URL(route, "https://one.hushh.ai").searchParams;
+    expect(readAuthSessionLandingNotice(params)).toMatchObject({
+      code: "account_deletion_finishing",
+      message: expect.stringContaining("finishing account removal"),
+    });
+  });
+
   it("builds an explicit fail-closed notice for an uncertain deletion outcome", () => {
     const route = buildLoginRouteWithAuthSessionNotice(
       "account_deletion_uncertain",
