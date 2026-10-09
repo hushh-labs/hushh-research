@@ -756,6 +756,7 @@ export function PkmNaturalPanel({
     };
   }, [
     pkmChangeRevision,
+    refreshNonce,
     user,
     vaultOwnerToken,
     visibleMetadataDomains,
@@ -1767,6 +1768,7 @@ export function PkmNaturalPanel({
           <PkmSavedSharing userId={user?.uid || ""} active={workspaceTab === "browse"}
             domains={visibleMetadataDomains} sharingManifests={sharingManifests}
             sharingManifestsLoading={sharingManifestsLoading} sharingActionKey={sharingActionKey}
+            retrySharing={() => setRefreshNonce(value => value + 1)}
             isVaultUnlocked={isVaultUnlocked} exportBusy={exportBusy} exportStatus={exportStatus}
             exportError={exportError} handleExportMemory={handleExportMemory} updateSharingBundles={updateSharingBundles} />
           </div>

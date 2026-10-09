@@ -14,6 +14,7 @@ type Props = {
   domains: ReadonlyArray<{ key: string; displayName: string }>;
   sharingManifests: Record<string, DomainManifest | null>;
   sharingManifestsLoading: boolean;
+  retrySharing: () => void;
   sharingActionKey: string | null;
   isVaultUnlocked: boolean;
   exportBusy: boolean;
@@ -24,7 +25,8 @@ type Props = {
 };
 
 /** Saved section controls reuse the existing exact-scope owner mutations. */
-export function PkmSavedSharing({ userId, active, domains, sharingManifests, sharingManifestsLoading, sharingActionKey, isVaultUnlocked, exportBusy, exportStatus, exportError, handleExportMemory, updateSharingBundles }: Props) {
+export function PkmSavedSharing({ userId, active, domains, sharingManifests, sharingManifestsLoading, retrySharing, sharingActionKey, isVaultUnlocked, exportBusy, exportStatus, exportError, handleExportMemory, updateSharingBundles }: Props) {
+  const sharingUnavailable = domains.some(domain => !sharingManifests[domain.key]);
   return (
           <div className="space-y-4 pb-1 pr-px" data-pkm-memory-sharing="true">
             <p className="px-1 text-sm text-muted-foreground">Sharing and prices apply to each section below. Every requester still needs your approval.</p>
@@ -145,7 +147,14 @@ export function PkmSavedSharing({ userId, active, domains, sharingManifests, sha
                 );
               })}
 
-            {!sharingManifestsLoading &&
+            {!sharingManifestsLoading && sharingUnavailable ? (
+              <div className="px-1 text-sm text-muted-foreground" role="status">
+                <p>Some sharing settings could not be checked. Try again before changing access.</p>
+                <button type="button" className="min-h-11 underline" onClick={retrySharing}>Retry sharing settings</button>
+              </div>
+            ) : null}
+
+            {!sharingManifestsLoading && !sharingUnavailable &&
             domains.length > 0 &&
             Object.values(sharingManifests).every(
               (manifest) => buildPkmShareBundles(manifest).length === 0,

@@ -1173,6 +1173,18 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.queryByText(/shared/i)).toBeNull();
   });
 
+  it("distinguishes unavailable scope manifests from empty sharing and retries in place", async () => {
+    vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockRejectedValue(new Error("manifest unavailable"));
+    await openMainScreen();
+    expect(await screen.findByText("Some sharing settings could not be checked. Try again before changing access.")).toBeVisible();
+    expect(screen.queryByText("Nothing to share yet.")).toBeNull();
+    vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockResolvedValue(financialManifest("consent_required") as never);
+    fireEvent.click(screen.getByRole("button", { name: "Retry sharing settings" }));
+    await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry sharing settings" })).toBeNull());
+    expect(push).not.toHaveBeenCalled();
+  });
+
   // ── Issue #6307: item sharing acts in place, never opens the Consent Center ──
   describe("memory item sharing — in place, no Consent Center redirect", () => {
     async function openRiskProfileSharing() {

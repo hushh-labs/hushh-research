@@ -154,6 +154,8 @@ link opens Account; missing seller setup leads to Connect onboarding there. Chec
 funds buyer balances. Stripe MCP owner OAuth remains a separate read-tool connection.
 The Memory and PKM Structure agent manifests describe these boundaries; organizing
 information never sets a tariff, authorizes refresh or activates information access.
+Unavailable section manifests show an explicit sharing-check failure with an
+in-place retry; they never imply that the owner has no shareable information.
 
 Account has Purchases, Sales and Transactions filters with counterpart, readable
 scope, gross price, costs, net, refunds, term/maturity and next required action.
