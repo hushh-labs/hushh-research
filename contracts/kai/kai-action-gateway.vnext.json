@@ -66,8 +66,8 @@
         "speaker_persona": "one"
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -94,8 +94,8 @@
         "speaker_persona": "one"
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -123,8 +123,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -150,8 +150,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -176,8 +176,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -209,8 +209,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510,
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511,
         "subview_action_boost": {
           "": [
             "location.pause_updates",
@@ -292,8 +292,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -319,8 +319,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -351,8 +351,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -380,8 +380,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -409,8 +409,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -438,8 +438,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -466,8 +466,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -498,8 +498,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -529,8 +529,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -563,8 +563,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -592,8 +592,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -625,8 +625,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -654,8 +654,8 @@
         "speaker_persona": "one"
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -683,8 +683,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -715,8 +715,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -741,8 +741,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -767,8 +767,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -793,8 +793,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -819,8 +819,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -849,8 +849,8 @@
           "source": "kai",
           "category": "top-picks"
         },
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -875,8 +875,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -901,8 +901,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -927,8 +927,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -953,8 +953,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -993,8 +993,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1032,8 +1032,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1059,8 +1059,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1094,8 +1094,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1121,8 +1121,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510,
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511,
         "legacy_control_exemptions": {
           "add_holding": "Existing control outside the current Search action catalog; retained as explicit legacy coverage debt.",
           "analysis_retry_save": "Existing control outside the current Search action catalog; retained as explicit legacy coverage debt.",
@@ -1177,8 +1177,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1203,8 +1203,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1229,8 +1229,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1255,8 +1255,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1287,8 +1287,8 @@
         ]
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1313,8 +1313,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1339,8 +1339,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,
@@ -1365,8 +1365,8 @@
         }
       },
       "search": {
-        "source_revision": "ac40939b8bd33cb168797a311ae3e986e83a08d9cb36f873a2fafb6650a15475",
-        "source_module_count": 1510
+        "source_revision": "01d07981290d8806ca7106512fabebabe7551ee4976ca85ddc8e194ebf733639",
+        "source_module_count": 1511
       },
       "orchestration": {
         "instruction_id": null,

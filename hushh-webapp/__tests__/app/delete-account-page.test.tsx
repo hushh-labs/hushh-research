@@ -27,7 +27,7 @@ describe("Public account deletion page (Google Play Delete account URL)", () => 
     expect(
       screen.getByRole("heading", { level: 1, name: "Delete your account" }),
     ).toBeTruthy();
-    expect(screen.getByText(/Tap Delete account/)).toBeTruthy();
+    expect(screen.getByText(/Delete account and start fresh on the locked-vault screen/)).toBeTruthy();
 
     const request = screen.getByRole("link", { name: "support@hushh.ai" });
     expect(request.getAttribute("href")).toBe(

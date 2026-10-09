@@ -27,6 +27,8 @@ Hussh uses a code-owned route contract plus docs/runtime checks to keep the decl
 - Capacitor TypeScript, iOS, and Android plugin surfaces
 - mobile parity guidance for the visible page tree
 
+The lost-vault deletion journey is a state inside the existing locked-vault view, not a new app page. Its `GET /api/account/delete-lost-vault/options` and `POST /api/account/delete-lost-vault` calls use the account API proxy on web and the existing platform-aware API transport on native. A native client that cannot mint fresh provider and linked-phone proof shows the web/support route instead of offering a weaker deletion path. See [Lost vault access](../one/lost-vault-account-deletion.md).
+
 For One Voice onboarding, middleware remains route protection and static
 redirect infrastructure only. It cannot be the mutable journey planner because
 it cannot reliably observe Firebase callback settlement or browser-local UI

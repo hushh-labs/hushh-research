@@ -30,8 +30,6 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import {
-  PieChart,
-  Pie,
   Cell,
   BarChart,
   Bar,
@@ -39,7 +37,6 @@ import {
   XAxis,
   YAxis,
   LabelList, // Added LabelList
-  Label,
 } from "recharts";
 import {
   ChartContainer,
