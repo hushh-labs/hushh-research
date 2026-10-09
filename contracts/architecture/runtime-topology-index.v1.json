@@ -6020,7 +6020,7 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "05273c47c17aeaed1c58fbe7aeb66395d49b78a9d5adcaad37d1edd45acb9443",
-    "agent_registry": "c4909d23e5661ffa69ea8d68255fff1139934e22c187b19a256bdab362be0c54",
+    "agent_registry": "1d0e6106e53c660bde8376dcb6bebe5cff2a4ed37cd6a53e7fce892c3b6337ab",
     "cache_manifest": "5eff3c647e67b8c7f2a50fdc079673ef4bb2282806b0d99276857309c0d9db8f",
     "data_plane": "0876455ccead7d57371aed67914ae878686daa4856fb06409c7e8949ac74ecaf",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",

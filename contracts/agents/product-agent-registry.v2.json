@@ -3219,7 +3219,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "110c5a92afbbc683ce1585e09fd681c2700c9a6d7096410eef3a910c9264766c",
+      "system_instruction_sha256": "d0a45b23e29cbd1a1b6638849d78b9a5c1a51697b80d27ab3b84dfc740017f9a",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -4420,7 +4420,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "fe91fcfeb33506fc978e9766ab7701fe1c8f7763580a6b84ef6653f6565a638b",
+      "system_instruction_sha256": "b93d0da95de570de0ba491d542e1b9ed805ca0f75b9d93cdf4938412d114275f",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
