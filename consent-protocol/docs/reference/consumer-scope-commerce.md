@@ -1820,3 +1820,19 @@ coding agent operates the devices. Continue both reviewers' authorized web
 stories using synthetic, normally encrypted information, signed Stripe receipts
 and the existing exact-action confirmation contract. Simulated provider tests
 remain separate from hosted transaction and payout acceptance.
+
+The approved Sandbox SDK binding and reviewer policy are staged in shared Dev's
+Secret Manager configuration, with both new-activity flags still off. Unrelated
+runtime settings remain preserved. Headless admission verifies the serving Dev
+revision, its mounted policy/Firebase secret versions, the exact approved reviewer
+pair and `hushh-pda` Firebase authority; it rejects production runtime profiles.
+Cloud Run's legacy service origin and its exact numbered Dev alias are supported.
+Passphrases remain in browser/process memory and normal setup/unlock still applies.
+
+Revocation now retains the exact server timestamp used to calculate the refund.
+The browser rehearsal checks that timestamp with microsecond precision and whole
+unused seconds, rather than a client-clock tolerance. Focused local verification
+passed 108 authentication, delivery and financial cases against isolated PostgreSQL
+and 15 harness controls. Expiry denies all four encrypted retrieval surfaces before
+an earnings worker settles the term. Full CI, deployed reviewer stories, signed
+Sandbox transaction receipts and old preview retirement remain outstanding.

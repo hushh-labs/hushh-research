@@ -43,6 +43,9 @@ def test_shared_dev_admission_requires_exact_sandbox_policy(issuer):
     backend = "https://consent-protocol-synthetic-uc.a.run.app"
     policy = dev_policy()
     assert issuer.shared_dev_reviewer_ids(policy, origin, backend) == {"primary", "counterpart"}
+    assert issuer.shared_dev_reviewer_ids(
+        policy, origin, "https://consent-protocol-621416509462.us-central1.run.app"
+    ) == {"primary", "counterpart"}
     for field, value in (
         ("environment", "production"),
         ("scope_commerce_frontend_origin", "https://one.hushh.ai"),
@@ -65,9 +68,8 @@ def test_shared_dev_admission_requires_exact_sandbox_policy(issuer):
         issuer.shared_dev_reviewer_ids(wrong, origin, backend)
 
 
-def test_shared_dev_admission_requires_serving_runtime_and_secret_binding(issuer):
-    from copy import deepcopy
-
+@pytest.fixture
+def dev_runtime():
     backend = "https://consent-protocol-synthetic-uc.a.run.app"
     service = {
         "status": {
@@ -98,14 +100,24 @@ def test_shared_dev_admission_requires_serving_runtime_and_secret_binding(issuer
         },
         "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     }
-    records = {
+    return {
         "services/consent-protocol": service,
         "revisions/consent-protocol-synthetic": revision,
     }
+
+
+def test_shared_dev_admission_requires_serving_runtime_and_secret_binding(issuer, dev_runtime):
+    from copy import deepcopy
+
+    backend = "https://consent-protocol-synthetic-uc.a.run.app"
+    records = dev_runtime
     assert issuer.verify_shared_dev_runtime(records.__getitem__, backend) == {
         "BACKEND_RUNTIME_CONFIG_JSON": "7",
         "FIREBASE_ADMIN_CREDENTIALS_JSON": "7",
     }
+    issuer.verify_shared_dev_runtime(
+        records.__getitem__, "https://consent-protocol-621416509462.us-central1.run.app"
+    )
     for target, update in (
         ("service", {"url": "https://foreign.example"}),
         ("service", {"traffic": [{"percent": 50}]}),

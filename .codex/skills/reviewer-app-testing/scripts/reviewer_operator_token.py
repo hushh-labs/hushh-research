@@ -63,6 +63,7 @@ def shared_dev_reviewer_ids(policy: dict, origin: str, backend: str) -> set[str]
         or not re.fullmatch(
             r"https://consent-protocol-[a-z0-9]+-uc\.a\.run\.app", backend
         )
+        and backend != "https://consent-protocol-621416509462.us-central1.run.app"
         or policy.get("environment") != "dev"
         or policy.get("scope_commerce_frontend_origin") != origin
         or policy.get("scope_commerce_sandbox_policy_required") is not True
@@ -87,7 +88,11 @@ def verify_shared_dev_runtime(read, backend: str) -> dict[str, str]:
         if item.get("percent", 0) > 0
     ]
     if (
-        service.get("status", {}).get("url") != backend
+        backend
+        not in {
+            service.get("status", {}).get("url"),
+            "https://consent-protocol-621416509462.us-central1.run.app",
+        }
         or len(traffic) != 1
         or traffic[0].get("percent") != 100
     ):

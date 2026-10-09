@@ -161,6 +161,7 @@ def public(row: Any) -> dict[str, Any]:
         "export_revision",
         "refunded_cents",
         "earnings_settled_at",
+        "revoked_at",
         "fee_policy",
         "request_deadline",
     }

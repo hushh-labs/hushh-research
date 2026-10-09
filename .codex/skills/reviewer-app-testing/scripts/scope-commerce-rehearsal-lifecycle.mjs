@@ -187,9 +187,8 @@ async function verifyRevocationReceipt(runtime, record) {
   const buyer = runtime.actors[record.buyer];
   const state = await requestState(runtime, record);
   const refund = state.purchase.refunded_cents;
-  const low = unusedCalendarRefund(record.priceCents, record.activationMs, record.expiryMs, record.revokedAfterMs + 1000);
-  const high = unusedCalendarRefund(record.priceCents, record.activationMs, record.expiryMs, record.revokedBeforeMs - 1000);
-  commerceEvidence(state.purchase.status === "revoked" && Number.isSafeInteger(refund) && refund >= low && refund <= high &&
+  const expected = unusedCalendarRefund(record.priceCents, record.activationMs, record.expiryMs, state.purchase.revoked_at);
+  commerceEvidence(state.purchase.status === "revoked" && Number.isSafeInteger(refund) && refund === expected &&
     refund > 0 && refund < record.priceCents, "UNUSED_CALENDAR_PARTIAL_REFUND_MISMATCH");
   const current = await checkedCall(buyer.session, "/api/scope-commerce/account");
   commerceEvidence(Number.isSafeInteger(record.buyerBalanceBeforeRevocation) &&

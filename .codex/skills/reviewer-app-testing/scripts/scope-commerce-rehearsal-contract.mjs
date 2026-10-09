@@ -116,8 +116,21 @@ export function unusedCalendarRefund(priceCents, activationMs, expiryMs, revoked
   commerceEvidence(Number.isSafeInteger(priceCents) && priceCents >= 1 &&
     expiryMs - activationMs === COMMERCE_REHEARSAL.durationSeconds * 1000,
   "REFUND_TERM_INVALID");
-  const remaining = Math.max(0, Math.min(expiryMs - activationMs, expiryMs - revokedMs));
-  return Math.min(priceCents, Math.floor(priceCents * remaining / (expiryMs - activationMs) + 0.5));
+  const duration = BigInt(COMMERCE_REHEARSAL.durationSeconds);
+  const revoked = timestampMicroseconds(revokedMs);
+  const remaining = BigInt(expiryMs) * 1000n - revoked;
+  const seconds = remaining <= 0n ? 0n : remaining / 1_000_000n;
+  const bounded = seconds > duration ? duration : seconds;
+  return Number((2n * BigInt(priceCents) * bounded + duration) / (2n * duration));
+}
+
+function timestampMicroseconds(value) {
+  if (Number.isSafeInteger(value)) return BigInt(value) * 1000n;
+  commerceEvidence(typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(value), "REFUND_TIMESTAMP_INVALID");
+  const millis = Date.parse(value);
+  commerceEvidence(Number.isSafeInteger(millis), "REFUND_TIMESTAMP_INVALID");
+  const fraction = value.match(/\.(\d{1,6})/)?.[1] || "";
+  return BigInt(millis) * 1000n + BigInt(fraction.slice(3).padEnd(3, "0"));
 }
 
 export function safeCommerceFailure(error) {
