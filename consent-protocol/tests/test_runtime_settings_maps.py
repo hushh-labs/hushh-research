@@ -257,6 +257,12 @@ def test_sandbox_pause_preserves_caps_and_rejects_cross_environment_overlay(tmp_
     monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(merged))
     runtime_settings.hydrate_runtime_environment()
     assert json.loads(os.environ["SCOPE_COMMERCE_SANDBOX_POLICY_JSON"]) == sandbox
+    from hushh_mcp.runtime_environment import scope_commerce_test_pin_environment
+
+    assert scope_commerce_test_pin_environment(os.environ) == [
+        {"name": "SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "value": "acct_sandbox"},
+        {"name": "SCOPE_COMMERCE_STRIPE_LIVEMODE", "value": "false"},
+    ]
     for replacement in (
         {"scope_commerce_stripe_livemode": True},
         {"scope_commerce_stripe_account_id": "acct_other"},

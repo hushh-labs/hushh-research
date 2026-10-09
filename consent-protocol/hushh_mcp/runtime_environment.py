@@ -1,6 +1,8 @@
 """Import-safe structured runtime policy mapping and environment serialization."""
 
 import json
+import re
+from collections.abc import Mapping
 from typing import Any
 
 SCOPE_COMMERCE_ENV_MAP: dict[str, str] = {
@@ -38,3 +40,15 @@ def render_env_value(value: Any) -> str:
     if isinstance(value, dict):
         return json.dumps(value, separators=(",", ":"), sort_keys=True)
     return str(value).strip()
+
+
+def scope_commerce_test_pin_environment(environment: Mapping[str, str]) -> list[dict[str, str]]:
+    """Export only the configured MCP test pin; OAuth receipts still prove authority."""
+    account = environment.get("SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "")
+    mode = environment.get("SCOPE_COMMERCE_STRIPE_LIVEMODE", "").lower()
+    if mode != "false" or re.fullmatch(r"acct_[A-Za-z0-9]+", account) is None:
+        return []
+    return [
+        {"name": "SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "value": account},
+        {"name": "SCOPE_COMMERCE_STRIPE_LIVEMODE", "value": "false"},
+    ]

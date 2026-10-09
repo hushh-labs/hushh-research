@@ -106,6 +106,46 @@ _BACKENDS: list[tuple[str, Callable[[], Any], Callable[[dict], Capabilities]]] =
 _IDS = [b[0] for b in _BACKENDS]
 
 
+@pytest.mark.parametrize(("name", "build", "extract"), _BACKENDS, ids=_IDS)
+@pytest.mark.parametrize(
+    ("account", "mode", "admitted"),
+    [
+        ("acct_synthetic", "false", True),
+        ("acct_synthetic", "true", False),
+        ("invalid", "false", False),
+        ("acct_synthetic", "", False),
+    ],
+)
+def test_stripe_mcp_pin_is_public_test_only(
+    name, build, extract, account, mode, admitted, monkeypatch
+):
+    monkeypatch.setenv("SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", account)
+    monkeypatch.setenv("SCOPE_COMMERCE_STRIPE_LIVEMODE", mode)
+    monkeypatch.setenv("SCOPE_COMMERCE_STRIPE_SECRET_KEY", "synthetic-provider-credential")
+    monkeypatch.setenv("SCOPE_COMMERCE_ENABLED", "true")
+    capabilities = extract(build().render_deploy_config(_spec()))
+    pin = {
+        key: value
+        for key, value in capabilities.properties.items()
+        if key in {"SCOPE_COMMERCE_STRIPE_ACCOUNT_ID", "SCOPE_COMMERCE_STRIPE_LIVEMODE"}
+    }
+    assert pin == (
+        {"SCOPE_COMMERCE_STRIPE_ACCOUNT_ID": account, "SCOPE_COMMERCE_STRIPE_LIVEMODE": "false"}
+        if admitted
+        else {}
+    ), name
+    assert not (
+        {
+            "SCOPE_COMMERCE_STRIPE_SECRET_KEY",
+            "BACKEND_RUNTIME_CONFIG_JSON",
+            "SCOPE_COMMERCE_ENABLED",
+            "SCOPE_COMMERCE_PROVIDER_ENABLED",
+        }
+        & (capabilities.properties.keys() | capabilities.by_reference)
+    )
+    assert "synthetic-provider-credential" not in capabilities.blob
+
+
 def _spec() -> PodSpec:
     return PodSpec(
         hushh_id="HA1PARITY",
