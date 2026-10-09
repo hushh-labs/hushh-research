@@ -2,6 +2,22 @@ import Foundation
 import XCTest
 
 final class AppUITests: XCTestCase {
+    /// Use the authored software-keyboard interruption, not an unqualified
+    /// hardware Escape injection. This does not reset or navigate the session.
+    private func dismissDockKeyboardThroughProfile(_ app: XCUIApplication) -> Bool {
+        guard softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app) else { return true }
+        let profile = app.buttons["Open Profile"].firstMatch
+        guard waitForAdmittedControl(profile) else { return false }
+        profile.tap()
+        let close = app.buttons["Close Profile"].firstMatch
+        guard waitForAdmittedControl(close) else { return false }
+        close.tap()
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            !self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)
+        }, object: app)
+        return XCTWaiter.wait(for: [hidden], timeout: 5) == .completed
+    }
+
     private static func softwareKeyboardIsOnscreen(exists: Bool, frame: CGRect, window: CGRect) -> Bool {
         let coordinates = [frame.minX, frame.minY, frame.width, frame.height,
                            window.minX, window.minY, window.width, window.height]
@@ -1030,7 +1046,7 @@ final class AppUITests: XCTestCase {
             returnToRehearsalChat(app)
             if editor.exists && (editor.value as? String) == draft {
                 editor.tap(); editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.utf16.count))
-                editor.typeKey(.escape, modifierFlags: [])
+                XCTAssertTrue(dismissDockKeyboardThroughProfile(app), "NATIVE_DOCK_CLEANUP_KEYBOARD_DISMISS_FAILED")
             }
         }
         editor.tap()
@@ -1043,16 +1059,7 @@ final class AppUITests: XCTestCase {
         // delivery is a separate, currently unqualified device acceptance gate.
         // Public NativeChrome controls retire while the keyboard is visible;
         // the existing React Profile opener remains the authored touch path.
-        let profile = app.buttons["Open Profile"].firstMatch
-        XCTAssertTrue(waitForAdmittedControl(profile), "NATIVE_DOCK_KEYBOARD_PROFILE_UNAVAILABLE")
-        profile.tap()
-        let profileClose = app.buttons["Close Profile"].firstMatch
-        XCTAssertTrue(waitForAdmittedControl(profileClose), "NATIVE_DOCK_KEYBOARD_PROFILE_CLOSE_UNAVAILABLE")
-        profileClose.tap()
-        let hiddenKeyboard = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            !self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)
-        }, object: app)
-        XCTAssertEqual(XCTWaiter.wait(for: [hiddenKeyboard], timeout: 5), .completed, "NATIVE_DOCK_KEYBOARD_DISMISS_FAILED")
+        XCTAssertTrue(dismissDockKeyboardThroughProfile(app), "NATIVE_DOCK_KEYBOARD_DISMISS_FAILED")
         for _ in 0..<10 {
             perfTapNav(app, label: "One")
             let dock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
@@ -1080,6 +1087,10 @@ final class AppUITests: XCTestCase {
         let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         XCTAssertFalse(web.buttons["Unlock"].exists, "NATIVE_MATERIAL_REQUIRES_NORMAL_UNLOCK")
+        print("NATIVE_MATERIAL_PREFLIGHT keyboard_onscreen=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
+        guard dismissDockKeyboardThroughProfile(app) else {
+            XCTFail("NATIVE_MATERIAL_KEYBOARD_DISMISS_FAILED"); return
+        }
         let probe = app.buttons["native-navigation-presentation"].firstMatch
         XCTAssertTrue(probe.waitForExistence(timeout: 10))
         func packet() -> [String: Any]? {
