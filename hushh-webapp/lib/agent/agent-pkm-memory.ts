@@ -204,19 +204,19 @@ function titleize(value: string | null | undefined): string {
  * that markup here, the one client step every preview passes through, so the
  * review title and the value that is encrypted into Memory are both plain.
  */
-function withPlainMemoryText(card: AgentPkmPreviewCard): AgentPkmPreviewCard {
+function withPlainMemoryText(card: AgentPkmPreviewCard, preserveValues = false): AgentPkmPreviewCard {
   return {
     ...card,
     source_quote: card.source_quote ?? String(card.source_text || ""),
     source_text: toPlainMemoryText(String(card.source_text || "")),
     ...(card.candidate_payload
-      ? { candidate_payload: toPlainMemoryValue(card.candidate_payload) }
+      ? { candidate_payload: preserveValues ? card.candidate_payload : toPlainMemoryValue(card.candidate_payload) }
       : {}),
   };
 }
 
-function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
-  return rawPreviewCards(response).map(withPlainMemoryText);
+function normalizePreviewCards(response: AgentPkmPreviewResponse, preserveValues = false): AgentPkmPreviewCard[] {
+  return rawPreviewCards(response).map(card => withPlainMemoryText(card, preserveValues));
 }
 
 function rawPreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
@@ -403,7 +403,9 @@ export async function previewAgentPkmMemory(params: {
   const payload = (await response.json()) as AgentPkmPreviewResponse;
   return {
     ...payload,
-    cards: normalizePreviewCards(payload).map((card, index) => ({
+    // Business listing values are an exact contract, not pasted-note markup.
+    // Formatting them before validation changes legitimate names/descriptions.
+    cards: normalizePreviewCards(payload, params.memoryProfile === "business_directory_v1").map((card, index) => ({
       ...card,
       card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
       source_text: card.source_text || toPlainMemoryText(params.message),

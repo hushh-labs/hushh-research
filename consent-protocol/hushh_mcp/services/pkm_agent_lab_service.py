@@ -33,7 +33,12 @@ from hushh_mcp.runtime_providers import (
     build_managed_runtime_client,
 )
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
-from hushh_mcp.services.business_directory_profile import valid_business_preview
+from hushh_mcp.services.business_directory_profile import (
+    business_merge_schema,
+    business_structure_schema,
+    valid_business_preview,
+    valid_business_source,
+)
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
@@ -282,6 +287,7 @@ _STRUCTURAL_SCOPE_TOKENS = {
 # composed into each memory agent's system instruction by its manifest's
 # prompt_reference. Worked examples live once, in this versioned few-shot set.
 _PKM_FEW_SHOT_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "pkm_memory_few_shot.v1.json"
+_BUSINESS_FEW_SHOT_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "pkm_business_few_shot.v1.json"
 _FEW_SHOT_HEADER = (
     "Worked examples (other inputs shown with the answer this contract expects; "
     "never part of this request):"
@@ -2048,18 +2054,23 @@ class PKMAgentLabService:
 
     @staticmethod
     @lru_cache(maxsize=1)
-    def _few_shot_examples() -> tuple[dict[str, Any], ...]:
-        payload = json.loads(_PKM_FEW_SHOT_PATH.read_text(encoding="utf-8"))
+    def _few_shot_examples(memory_profile: str = "general") -> tuple[dict[str, Any], ...]:
+        path = (
+            _BUSINESS_FEW_SHOT_PATH
+            if memory_profile == "business_directory_v1"
+            else _PKM_FEW_SHOT_PATH
+        )
+        payload = json.loads(path.read_text(encoding="utf-8"))
         return tuple(payload.get("examples") or ())
 
     @classmethod
-    def _few_shot_block(cls, agent_id: str) -> str:
+    def _few_shot_block(cls, agent_id: str, memory_profile: str = "general") -> str:
         """This agent's worked examples from the versioned set, or nothing."""
 
         rows = [
             f"Input: {cls._compact_json(example['input'])}\n"
             f"Answer: {cls._compact_json(example['answer'])}"
-            for example in cls._few_shot_examples()
+            for example in cls._few_shot_examples(memory_profile)
             if example.get("agent") == agent_id
         ]
         return f"{_FEW_SHOT_HEADER}\n" + "\n".join(rows) + "\n\n" if rows else ""
@@ -2079,7 +2090,7 @@ class PKMAgentLabService:
 
         agent_id = str(getattr(manifest, "id", "") or "")
         body = {key: value for key, value in request.items() if value not in (None, [], "")}
-        return f"{cls._few_shot_block(agent_id)}Request: {cls._compact_json(body)}"
+        return f"{cls._few_shot_block(agent_id, request.get('memory_profile', 'general'))}Request: {cls._compact_json(body)}"
 
     @classmethod
     def _existing_entities(
@@ -2404,6 +2415,7 @@ class PKMAgentLabService:
         fallback: dict[str, Any],
         registry_choices: list[dict[str, Any]],
         current_domains: list[str],
+        memory_profile: str = "general",
     ) -> dict[str, Any]:
         """Take the intent agent's frame, falling back only where it did not speak.
 
@@ -2537,7 +2549,9 @@ class PKMAgentLabService:
                 frame["confidence"] = max(
                     float(frame.get("confidence") or 0.0), fallback_confidence
                 )
-        if cls._looks_opaque_or_nonsense(message):
+        if cls._looks_opaque_or_nonsense(message) and not (
+            memory_profile == "business_directory_v1" and valid_business_source(message)
+        ):
             frame["save_class"] = "ephemeral"
             frame["intent_class"] = "ambiguous"
             frame["mutation_intent"] = "no_op"
@@ -2861,19 +2875,27 @@ class PKMAgentLabService:
         return False
 
     @classmethod
-    def _strip_internal_metadata(cls, value: Any) -> tuple[Any, bool]:
+    def _strip_internal_metadata(
+        cls, value: Any, *, business_profile: bool = False, path: tuple[str, ...] = ()
+    ) -> tuple[Any, bool]:
         if isinstance(value, dict):
             stripped: dict[str, Any] = {}
             removed = False
             for key, child in value.items():
                 normalized_key = cls._normalize_segment(str(key))
                 key_tokens = {token for token in re.split(r"[._\-\s]+", normalized_key) if token}
-                if normalized_key in _INTERNAL_METADATA_SCOPE_TOKENS or (
-                    key_tokens & _INTERNAL_METADATA_SCOPE_TOKENS
+                # An entity identifier is an opaque map key, not a fact name.
+                # E.g. raw_hotel must not erase an otherwise valid listing.
+                entity_identifier = business_profile and path == ("businesses", "entities")
+                if not entity_identifier and (
+                    normalized_key in _INTERNAL_METADATA_SCOPE_TOKENS
+                    or (key_tokens & _INTERNAL_METADATA_SCOPE_TOKENS)
                 ):
                     removed = True
                     continue
-                stripped_child, child_removed = cls._strip_internal_metadata(child)
+                stripped_child, child_removed = cls._strip_internal_metadata(
+                    child, business_profile=business_profile, path=(*path, str(key))
+                )
                 stripped[key] = stripped_child
                 removed = removed or child_removed
             return stripped, removed
@@ -2881,7 +2903,9 @@ class PKMAgentLabService:
             next_items = []
             removed = False
             for item in value:
-                stripped_item, item_removed = cls._strip_internal_metadata(item)
+                stripped_item, item_removed = cls._strip_internal_metadata(
+                    item, business_profile=business_profile, path=path
+                )
                 next_items.append(stripped_item)
                 removed = removed or item_removed
             return next_items, removed
@@ -4131,7 +4155,8 @@ class PKMAgentLabService:
             validation_hints.append("custom_domain_pending_owner_confirmation")
 
         if (
-            intent_frame.get("intent_class") != "financial_event"
+            memory_profile != "business_directory_v1"
+            and intent_frame.get("intent_class") != "financial_event"
             and target_domain != "financial"
             and cls._payload_financial_signature(candidate_payload)
         ):
@@ -4224,7 +4249,9 @@ class PKMAgentLabService:
                 else:
                     reserved_blocked = blocked
 
-        candidate_payload, metadata_removed = cls._strip_internal_metadata(candidate_payload)
+        candidate_payload, metadata_removed = cls._strip_internal_metadata(
+            candidate_payload, business_profile=memory_profile == "business_directory_v1"
+        )
         if metadata_removed:
             validation_hints.append("internal_metadata_blocked")
 
@@ -4288,7 +4315,9 @@ class PKMAgentLabService:
         if intent_frame.get("save_class") == "ephemeral":
             write_mode = "do_not_save"
             validation_hints.append("ephemeral_request_not_saved")
-        if cls._looks_opaque_or_nonsense(message):
+        if cls._looks_opaque_or_nonsense(message) and not (
+            memory_profile == "business_directory_v1" and valid_business_source(message)
+        ):
             write_mode = "do_not_save"
             validation_hints.append("nonsense_or_opaque_input")
         elif (
@@ -5343,6 +5372,7 @@ class PKMAgentLabService:
             fallback=fallback_intent,
             registry_choices=registry_choices,
             current_domains=normalized_domains,
+            memory_profile=memory_profile,
         )
 
         merge_fallback = self._fallback_merge_decision(
@@ -5366,7 +5396,9 @@ class PKMAgentLabService:
                     strict_small_model=strict_small_model,
                     memory_profile=memory_profile,
                 ),
-                response_schema=_MERGE_DECISION_SCHEMA,
+                response_schema=business_merge_schema(_MERGE_DECISION_SCHEMA)
+                if memory_profile == "business_directory_v1"
+                else _MERGE_DECISION_SCHEMA,
                 model_override=model_override,
                 timeout_seconds=self._remaining_preview_budget_seconds(deadline),
                 execution_trace=execution_trace,
@@ -5415,7 +5447,11 @@ class PKMAgentLabService:
                     context_quotes=context_quotes,
                     memory_profile=memory_profile,
                 ),
-                response_schema=_STRUCTURE_PREVIEW_SCHEMA,
+                response_schema=business_structure_schema(
+                    message, _STRUCTURE_PREVIEW_SCHEMA, merge_raw
+                )
+                if memory_profile == "business_directory_v1"
+                else _STRUCTURE_PREVIEW_SCHEMA,
                 model_override=model_override,
                 timeout_seconds=self._remaining_preview_budget_seconds(deadline),
                 execution_trace=execution_trace,
@@ -5552,6 +5588,8 @@ class PKMAgentLabService:
         for relative_path in (
             "services/pkm_agent_lab_service.py",
             "services/business_directory_profile.py",
+            "agents/pkm_memory_few_shot.v1.json",
+            "agents/pkm_business_few_shot.v1.json",
             "services/pkm_preview_continuation.py",
             "services/domain_contracts.py",
             "hushh_adk/single_turn.py",

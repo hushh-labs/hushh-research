@@ -1,3 +1,4 @@
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -30,6 +31,16 @@ class _Query:
         self.calls.append(("order", (column, desc)))
         return self
 
+    def limit(self, value):
+        return self
+
+    def offset(self, value):
+        return self
+
+    def gt(self, column, value):
+        self.calls.append(("gt", (column, value)))
+        return self
+
     def execute(self):
         return SimpleNamespace(data=self.rows)
 
@@ -41,6 +52,40 @@ class _DB:
     def table(self, name: str):
         assert name == "consent_audit"
         return self.query
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("get_pending_requests", ("subject",)),
+        ("get_audit_log", ("subject",)),
+        ("get_request_statuses", ("subject", ["req-1"])),
+        ("list_internal_request_events", (["req-1"],)),
+        ("get_recent_consent_events", ("subject", 0)),
+        ("get_active_internal_tokens", ("subject",)),
+        ("get_internal_activity_summary", ("subject",)),
+        ("get_pending_notification_candidates", ()),
+        ("get_timed_out_requests", ()),
+        ("fetch_expired_consents", ()),
+    ],
+)
+async def test_consent_cold_entry_reads_execute_off_the_api_loop(method, args):
+    loop_thread = threading.get_ident()
+    executions = []
+    query = _Query([])
+
+    def execute():
+        executions.append(threading.get_ident())
+        return SimpleNamespace(data=[], count=0)
+
+    query.execute = execute
+    service = ConsentDBService()
+    service._get_db = lambda: SimpleNamespace(table=lambda _name: query)
+    await getattr(service, method)(*args)
+    assert executions and all(thread != loop_thread for thread in executions)
+    if args and method != "list_internal_request_events":
+        assert ("eq", ("user_id", "subject")) in query.calls
 
 
 def _row(request_id: str, action: str, issued_at: int, *, agent_id: str = "one_person:viewer"):

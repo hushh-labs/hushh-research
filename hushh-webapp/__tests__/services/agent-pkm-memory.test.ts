@@ -120,6 +120,45 @@ const METADATA = {
 let pkmBlob: Record<string, unknown>;
 
 describe("agent PKM memory helpers", () => {
+  it("an explicit Review recovers from a rejected warm-up without retrying across lock", async () => {
+    let rejectWarm!: (error: Error) => void;
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectWarm = reject; }));
+    const params = { userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" };
+    const warm = AgentPkmContextStore.load(params).catch(() => null);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledOnce());
+    const review = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    rejectWarm(new Error("optional warm-up unavailable"));
+    await warm;
+    expect(await review).not.toBeNull();
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(2);
+    expect(pkmGetManyStaleFirstMock.mock.calls[1]![0]).toMatchObject({ forceRefresh: true });
+
+    clearAgentPkmContext();
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectWarm = reject; }));
+    const oldWarm = AgentPkmContextStore.load(params).catch(() => null);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(3));
+    const oldReview = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    clearAgentPkmContext();
+    rejectWarm(new Error("warm-up failed after lock"));
+    await oldWarm;
+    expect(await oldReview).toBeNull();
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(3);
+  });
+  it("a forced Review waits for warm-up then performs an authoritative complete read", async () => {
+    let finishWarm!: (value: unknown) => void;
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise(resolve => { finishWarm = resolve; }));
+    const params = { userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" };
+    const warm = AgentPkmContextStore.load(params);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledOnce());
+    const review = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    finishWarm({ snapshots: {}, failedDomains: ["preferences"] });
+    await warm;
+    await review;
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(2);
+    expect(pkmGetManyStaleFirstMock.mock.calls[1]![0]).toMatchObject({ forceRefresh: true });
+    expect(pkmGetMetadataMock.mock.calls[1]).toEqual(["user_1", true, "test-token", { allowStaleFallback: false }]);
+    expect(AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "not-stored" })).toEqual([]);
+  });
   it("indexes current businesses by exact UID without sharing origin bookkeeping or other owners", async () => {
     pkmGetMetadataMock.mockResolvedValue({ ...METADATA, domains: [{ key: "professional" }] });
     pkmBlob = { professional: { businesses: { entities: {

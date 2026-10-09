@@ -649,7 +649,8 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
 
         db = get_db()
         if request_id:
-            result = db.execute_raw(
+            result = await asyncio.to_thread(
+                db.execute_raw,
                 """
                 SELECT scope_description, metadata, poll_timeout_at, expires_at, agent_id
                 FROM consent_audit
@@ -661,7 +662,8 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
                 {"user_id": user_id, "request_id": request_id},
             )
         else:
-            result = db.execute_raw(
+            result = await asyncio.to_thread(
+                db.execute_raw,
                 """
                 SELECT scope_description, metadata, poll_timeout_at, expires_at, agent_id
                 FROM consent_audit
@@ -878,6 +880,10 @@ def build_consent_push_content(
 
 
 async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
+    await asyncio.to_thread(_send_fcm_for_user_sync, user_id, data)
+
+
+def _send_fcm_for_user_sync(user_id: str, data: Dict[str, Any]):
     """Fetch tokens from user_push_tokens and send FCM data message."""
     try:
         from db.db_client import get_db
