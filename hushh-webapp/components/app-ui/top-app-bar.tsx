@@ -1434,7 +1434,7 @@ function OnboardingRouteActions() {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="overflow-hidden rounded-[14px] p-1"
+          className="overflow-hidden rounded-[14px] border-0 bg-transparent p-0 shadow-none"
         >
           <DropdownMenuItem
             onClick={() => void handleSignOut()}
