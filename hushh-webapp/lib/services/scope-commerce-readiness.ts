@@ -42,13 +42,14 @@ export function commerceReadinessCopy(readiness?: CommerceReadiness): string {
     case "disabled": return "New paid purchases and funding are paused. Free sharing still requires your approval.";
     case "unconfigured": return "Payments are not set up for this app yet. Free sharing does not require Stripe.";
     case "unverified": return "Paid sharing is unavailable until payment setup is verified. Free sharing does not require Stripe.";
-    case "ready": return readiness.seller.status === "eligible" ? "Paid sharing is available. Every purchase needs a separate price confirmation." : "You can share for free. Complete payout setup in Account before setting a paid price.";
+    case "ready": return !readiness.capabilities.start_onboarding && !readiness.capabilities.start_funding ? "Paid sharing is not enabled for this account. Free sharing still requires your approval." : readiness.seller.status === "eligible" ? "Paid sharing is available. Every purchase needs a separate price confirmation." : "You can share for free. Complete payout setup in Account before setting a paid price.";
   }
 }
 
 const ACTION_ERRORS: Record<string, string> = {
   ...Object.fromEntries(PLATFORM_REASONS.map(code => [code, "Paid sharing is unavailable. Review payment availability in Account; free sharing does not require Stripe."])),
   ...Object.fromEntries(SELLER_REASONS.map(code => [code, "Review payout setup in Account before continuing with paid sharing."])),
+  provider_sandbox_reviewer_required: "Paid sharing is limited to the approved Sandbox reviewers. Free sharing still requires your approval.",
   seller_onboarding_required: "Complete payout setup in Account before charging for information.",
   seller_not_eligible: "Check payout setup in Account before continuing with paid sharing.",
   provider_configuration_invalid: "Payments are not available for this app yet. Free sharing does not require Stripe.",

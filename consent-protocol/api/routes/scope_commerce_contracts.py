@@ -71,6 +71,7 @@ def _error(error: Exception) -> HTTPException:
         "provider_webhooks_required": 503,
         "provider_connect_webhook_configuration_required": 503,
         "provider_sandbox_policy_required": 503,
+        "provider_sandbox_reviewer_required": 403,
         "commerce_environment_mismatch": 409,
         "commerce_environment_unbound": 503,
         "commerce_unavailable": 503,

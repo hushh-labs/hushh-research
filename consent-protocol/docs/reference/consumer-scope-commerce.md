@@ -147,6 +147,14 @@ cost/net earnings in micro-USD precision, including negative net earnings. Accou
 withdrawal history distinguishes transfer to a connected account from confirmed
 bank payout; pending, failed or uncertain status never becomes a success message.
 
+Memory has two workspace tabs: Saved and Add. Saved combines browsable memories,
+exact-section sharing switches, saved tariff values and a canonical earnings summary.
+Prices apply to the authored section scope, not just one opened memory. Its wallet
+link opens Account; missing seller setup leads to Connect onboarding there. Checkout
+funds buyer balances. Stripe MCP owner OAuth remains a separate read-tool connection.
+The Memory and PKM Structure agent manifests describe these boundaries; organizing
+information never sets a tariff, authorizes refresh or activates information access.
+
 Account has Purchases, Sales and Transactions filters with counterpart, readable
 scope, gross price, costs, net, refunds, term/maturity and next required action.
 Consent shows the recipient/application, available balance/shortfall, fulfillment
@@ -185,6 +193,13 @@ The versioned readiness response separates `free`, `platform`, `seller` and
 stored account evidence, not a fresh provider availability probe. Clients use
 these capabilities and safe reason codes for setup guidance rather than treating
 the legacy `enabled` flag as permission to purchase.
+
+When the bounded Sandbox policy is present, only its two reviewers can start
+onboarding, funding, positive tariffs, quotes, owner approval or reservations.
+Both stored seller and payer identities must pass admission for a paid purchase.
+Caller readiness disables new paid capabilities for everyone else while preserving
+truthful platform status and free controls. Policy changes do not block existing
+consent enforcement, preparation of reserved terms, refunds or reconciliation.
 
 A positive saved tariff stays positive when provider setup is missing. Quotes,
 paid approval, reservations and funding fail closed; the client never exports

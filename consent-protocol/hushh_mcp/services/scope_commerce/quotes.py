@@ -126,10 +126,14 @@ class ImmutableQuotes:
         if old:
             if old["request_hash"] != digest:
                 raise CommerceError("idempotency_conflict")
+            if old["price_cents"]:
+                self._admit_actors(owner_user_id, payer_user_id)
             return await self._quote_public(c, old)
         tariff, price = await self._quote_tariff(
             c, owner_user_id, scope_handle, machine_scope, duration_seconds
         )
+        if price:
+            self._admit_actors(owner_user_id, payer_user_id)
         row = await self._persist_quote(
             c,
             request_id,
@@ -276,6 +280,8 @@ class QuoteApproval:
             )
             if not quote:
                 raise CommerceError("quote_unavailable")
+            if quote["price_cents"]:
+                self._admit_actors(quote["owner_user_id"], quote["payer_user_id"])
             old = await self._row(
                 c, "SELECT * FROM scope_commerce_purchases WHERE quote_id=$1", quote["quote_id"]
             )

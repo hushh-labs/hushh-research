@@ -152,6 +152,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       recent_activity: [],
     } as never);
     vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    vi.spyOn(ScopeCommerceService, "account").mockRejectedValue(new Error("Payments unavailable"));
+    vi.spyOn(ScopeCommerceService, "tariff").mockResolvedValue(null);
+    vi.spyOn(ScopeCommerceService, "readiness").mockRejectedValue(new Error("Payments unavailable"));
     vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue(
       FULL_BLOB.financial as never,
     );
@@ -394,7 +397,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.getByText("Categories")).toBeTruthy();
 
     // Tab viewport tracks the active pane's height (no frozen tallest-pane
-    // height leaving dead space under shorter tabs like Sharing).
+    // height leaving dead space under the shorter Add pane).
     expect(
       document.querySelector("[data-swipe-views-height-mode]")?.getAttribute("data-swipe-views-height-mode"),
     ).toBe("active");
@@ -413,13 +416,21 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
   });
 
-  it("keeps Add reachable between Saved and Sharing", async () => {
+  it("keeps only Saved and Add, with exact-scope sharing and price controls in Saved", async () => {
+    vi.mocked(PersonalKnowledgeModelService.getDomainManifest).mockImplementation(async (_owner, domain) => domain === "financial" ? financialManifest("consent_required") as never : null);
+    vi.mocked(ScopeCommerceService.tariff).mockResolvedValue({ scope_handle: "financial.profile", machine_scope: "attr.financial.profile.*", price_cents: 1, base_duration_seconds: 3600, tariff_revision: 1 });
     await openMainScreen();
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("textbox", { name: "Memory note" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Sharing" }));
-    expect(screen.getByRole("tab", { name: "Sharing" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Saved", "Add"]);
+    expect(screen.getByRole("tab", { name: "Saved" })).toHaveAttribute("aria-selected", "true");
+    const price = await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
+    await waitFor(() => expect(price).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
+    expect(ScopeCommerceService.tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*");
+    expect(screen.getByRole("switch", { name: "Make private Profile" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View wallet and transactions in Account" })).toHaveAttribute("href", "/one/profile/account");
     expect(screen.getByRole("button", { name: "Download Memory" })).toBeTruthy();
     expect(screen.getByText("Readable file. Keep it private.")).toBeTruthy();
     expect(screen.getAllByText("Download Memory")).toHaveLength(1);

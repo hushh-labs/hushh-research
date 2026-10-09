@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import importlib
 import json
+from dataclasses import replace
 from uuid import uuid4
 
 import pytest
 
 from hushh_mcp.consent import paid_admission
 from hushh_mcp.consent.export_envelope import scope_handle_for_machine_scope
+from hushh_mcp.services.scope_commerce.provider_sandbox import SandboxPolicy
 from tests import scope_commerce_contract_fixtures as fixtures
 from tests.scope_commerce_contract_harness import (
     HANDLE,
@@ -362,13 +364,27 @@ async def test_commerce_readiness_account_are_read_only_and_free_survives_setup_
     paid_contract: PaidContract, monkeypatch: pytest.MonkeyPatch
 ):
     ctx = paid_contract
+    ctx.service.provider_config = replace(
+        ctx.service.provider_config,
+        sandbox_policy=SandboxPolicy(
+            ctx.service.provider_config.platform_account_id, ("owner", "payer")
+        ),
+    )
     response = await ctx.get("/readiness", "owner")
     assert response.status_code == 200 and response.headers["cache-control"] == "private, no-store"
     assert response.json()["platform"]["status"] == "ready"
     assert response.json()["seller"]["status"] == "eligible"
     unknown = (await ctx.get("/readiness", "stranger")).json()
     assert unknown["seller"]["status"] == "not_onboarded"
-    assert not unknown["capabilities"]["set_paid_tariff"]
+    assert unknown["platform"]["status"] == "ready"
+    assert unknown["capabilities"] == {
+        "set_free_tariff": True,
+        "set_paid_tariff": False,
+        "approve_paid_request": False,
+        "reserve_paid_purchase": False,
+        "start_funding": False,
+        "start_onboarding": False,
+    }
     account = await ctx.get("/account", "stranger")
     assert account.json()["readiness"] == unknown
     assert account.json()["balance"]["available_cents"] == 0

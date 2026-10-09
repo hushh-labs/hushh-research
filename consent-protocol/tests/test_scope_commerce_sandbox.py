@@ -358,6 +358,7 @@ async def test_onboarding_refresh_requires_authenticated_fresh_attempt_and_never
         adapter=adapter,
         config=ScopeCommerceProviderConfig(
             frontend_origin="https://example.test",
+            sandbox_policy=SandboxPolicy("acct_fixture", ("owner", "other")),
             countries={
                 "US": CountryPayoutPolicy(1, 90, 0, 0),
                 "CA": CountryPayoutPolicy(1, 90, 0, 0),
@@ -406,6 +407,16 @@ async def test_onboarding_refresh_requires_authenticated_fresh_attempt_and_never
     assert adapter.created == 1
     await service.onboarding(user_id="owner", country="US", operation_id=str(uuid4()))
     assert adapter.created == 2
+    operation_count = len(store.operations)
+    with pytest.raises(CommerceProviderError, match="provider_sandbox_reviewer_required"):
+        await service.onboarding(user_id="outsider", country="US", operation_id=str(uuid4()))
+    assert adapter.created == 2 and len(store.operations) == operation_count
+    from api.routes.scope_commerce_contracts import _error
+
+    denial = _error(CommerceProviderError("provider_sandbox_reviewer_required"))
+    assert denial.status_code == 403 and denial.detail == {
+        "code": "provider_sandbox_reviewer_required"
+    }
 
 
 @pytest.mark.parametrize(

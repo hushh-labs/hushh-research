@@ -33,6 +33,10 @@ class ScopeCommerceProviderConfig:
     sandbox_policy: SandboxPolicy | None = None
     sandbox_policy_required: bool = False
 
+    def allows_actor(self, user_id: str) -> bool:
+        """Sandbox admission bounds new commerce, never historical obligations."""
+        return self.sandbox_policy is None or user_id in self.sandbox_policy.reviewer_user_ids
+
     @classmethod
     def from_env(cls) -> ScopeCommerceProviderConfig:
         """A missing provider configuration disables new purchases, not reconciliation."""
