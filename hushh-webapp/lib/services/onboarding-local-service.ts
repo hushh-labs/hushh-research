@@ -11,6 +11,29 @@ const ONBOARDING_MARKETING_SEEN_KEY = "onboarding_marketing_seen_v1";
 const ONBOARDING_FORCE_INTRO_ONCE_KEY = "onboarding_force_intro_once_v1";
 
 export class OnboardingLocalService {
+  /** Device/account-scoped welcome only; never grants setup, consent, or referral credit. */
+  static async hasSeenReferralIntroduction(ownerId: string): Promise<boolean> {
+    const key = `referral_introduction_seen_v1:${ownerId}`;
+    if (getLocalItem(key) === "true") return true;
+    try {
+      const { value } = await Preferences.get({ key });
+      if (value === "true") setLocalItem(key, "true");
+      return value === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  static async markReferralIntroductionSeen(ownerId: string): Promise<void> {
+    const key = `referral_introduction_seen_v1:${ownerId}`;
+    setLocalItem(key, "true");
+    try {
+      await Preferences.set({ key, value: "true" });
+    } catch {
+      // This cosmetic preference retains the browser fallback on native failure.
+    }
+  }
+
   static async hasSeenWalletSwipeHint(ownerId: string): Promise<boolean> {
     const key = `wallet_swipe_hint_seen_v2:${ownerId}`;
     if (getLocalItem(key) === "true") return true;

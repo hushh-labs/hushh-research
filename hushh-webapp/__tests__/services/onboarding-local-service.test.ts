@@ -154,6 +154,34 @@ describe("OnboardingLocalService", () => {
 });
 
 
+describe("Referral introduction preference", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGetLocalItem.mockReturnValue(null);
+    mockPreferences.get.mockResolvedValue({ value: null });
+    mockPreferences.set.mockResolvedValue(undefined);
+  });
+
+  it("keeps dismissal scoped to the account without completing account setup", async () => {
+    const stored = new Map<string, string>();
+    mockPreferences.get.mockImplementation(async ({ key }) => ({ value: stored.get(key) ?? null }));
+    mockPreferences.set.mockImplementation(async ({ key, value }) => { stored.set(key, value); });
+    expect(await OnboardingLocalService.hasSeenReferralIntroduction("owner-a")).toBe(false);
+    await OnboardingLocalService.markReferralIntroductionSeen("owner-a");
+    expect(await OnboardingLocalService.hasSeenReferralIntroduction("owner-a")).toBe(true);
+    expect(await OnboardingLocalService.hasSeenReferralIntroduction("owner-b")).toBe(false);
+    expect([...stored.keys()]).toEqual(["referral_introduction_seen_v1:owner-a"]);
+  });
+
+  it("can continue with the browser fallback when native preference writes fail", async () => {
+    mockPreferences.set.mockRejectedValue(new Error("Unavailable"));
+    await expect(OnboardingLocalService.markReferralIntroductionSeen("owner-a")).resolves.toBeUndefined();
+    expect(mockSetLocalItem).toHaveBeenCalledWith("referral_introduction_seen_v1:owner-a", "true");
+    mockGetLocalItem.mockReturnValue("true");
+    expect(await OnboardingLocalService.hasSeenReferralIntroduction("owner-a")).toBe(true);
+  });
+});
+
 describe("Wallet introduction preference", () => {
   beforeEach(() => {
     vi.resetAllMocks();
