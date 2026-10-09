@@ -9,6 +9,8 @@ import {
   ListIcon,
   SearchIcon,
 } from "@/components/icons/ui";
+import { AGENT_ICON_MAP } from "@/components/icons/agents";
+import { MessageSquareIcon } from "@/components/icons/ui";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -265,29 +267,26 @@ function useCachedAgentMetrics(
 }
 
 const ROSTER_DISPLAY_ORDER: readonly string[] = [
+  "finance",
+  "wallet",
+  "location",
+  "ria",
   "gmail",
   "calendar",
-  "location",
-  "finance",
-  "ria",
-  "wallet",
   "pkm",
   "consent",
 ];
 
-// These assets belong to the One roster only. Other capability surfaces keep
-// their existing icon treatment and the capability catalog keeps its order.
-const ROSTER_ICON_SRC_BY_ID: Readonly<Record<string, string>> = {
-  gmail: "/icons/one-roster/mail.svg",
-  calendar: "/icons/one-roster/calendar.svg",
-  location: "/icons/one-roster/location.svg",
-  finance: "/icons/one-roster/finance.svg",
-  ria: "/icons/one-roster/advisor.svg",
-  wallet: "/icons/one-roster/wallet.svg",
-  pkm: "/icons/one-roster/memory.svg",
-  consent: "/icons/one-roster/consent.svg",
-  messages: "/icons/one-roster/messages.svg",
-};
+// Outline icons belong to the One roster only; other surfaces keep their defaults.
+function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
+  const Icon = AGENT_ICON_MAP[mode.id as keyof typeof AGENT_ICON_MAP];
+  return {
+    kind: "custom",
+    component: (props) => Icon
+      ? <Icon {...props} weight="regular" color={mode.id === "location" ? "#FF3B30" : undefined} />
+      : <MessageSquareIcon {...props} weight="regular" color="var(--app-accent)" />,
+  };
+}
 
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
@@ -299,7 +298,6 @@ function buildModes(
       capability.isVisibleOnRoster !== false &&
       isOneCapabilityEnabled(capability),
   ).map((capability, paletteIndex) => {
-    const iconSrc = ROSTER_ICON_SRC_BY_ID[capability.id];
     const setupCapability = getOneSetupCapability(capability.id);
     const status = statusById[capability.id];
     const copy = setupCapability
@@ -346,9 +344,7 @@ function buildModes(
           ? `${buildOneSetupCapabilityRoute(capability.id)}?from=${encodeURIComponent(ROUTES.ONE_HOME)}`
           : buildOneSetupCapabilityRoute(capability.id)
         : capability.href,
-      icon: iconSrc
-        ? { kind: "image" as const, src: iconSrc, alt: "" }
-        : capability.icon,
+      icon: capability.icon,
       statusTone: display.tone,
       isOnboarded: isCapabilityOnboarded(status),
       primaryMetric,
@@ -547,14 +543,14 @@ function AgentGridItem({
     >
       <AgentSectionIcon
         id={mode.id}
-        icon={mode.icon}
+        icon={rosterIcon(mode)}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
         // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
         // own comment. Icons stay full color regardless of setup state.
         isActive
         size="roster-lg"
-        treatment={mode.icon.kind === "image" ? "default" : "app"}
+        treatment="profile"
         glyphContrast="default"
         className="relative z-10"
       />
@@ -590,12 +586,12 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       <span className="relative z-10 flex items-center justify-center">
         <AgentSectionIcon
           id={mode.id}
-          icon={mode.icon}
+          icon={rosterIcon(mode)}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
           isActive
           size="roster"
-          treatment={mode.icon.kind === "image" ? "default" : "app"}
+          treatment="profile"
           glyphContrast="default"
         />
       </span>
