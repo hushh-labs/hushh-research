@@ -284,3 +284,21 @@ describe("curated connector popup boundary", () => {
     expect(target.close).toHaveBeenCalledOnce();
   });
 });
+
+it("reconciles a closed curated popup promptly and releases its timers", async () => {
+  vi.useFakeTimers();
+  const target = { closed: false, close: vi.fn() } as unknown as Window;
+  const controller = new AbortController();
+  const current = createCuratedPopupAttempt("notion", "synthetic-attempt-id");
+  let finished = false;
+  const result = waitForCuratedPopup(target, current, controller.signal).then(() => { finished = true; });
+  Object.assign(target, { closed: true });
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(finished).toBe(false);
+  await vi.advanceTimersByTimeAsync(1000);
+  await result;
+  expect(finished).toBe(true);
+  expect(target.close).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+  vi.useRealTimers();
+});

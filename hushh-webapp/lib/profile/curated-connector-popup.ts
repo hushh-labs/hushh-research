@@ -231,6 +231,7 @@ export function waitForCuratedPopup(
     popup,
     signal,
     cancelSignal,
+    observeClose: true,
     expiresAt: attempt.expiresAt,
     matches: (value) =>
       isCuratedPopupSettlement(value) &&
