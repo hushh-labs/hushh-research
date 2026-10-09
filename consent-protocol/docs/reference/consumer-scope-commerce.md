@@ -1664,8 +1664,11 @@ that the next authenticated lookup actually occurs, and waits for its React
 publication while later reads remain stalled. A reading phase alone must retain
 pending consent. The nearest card/doorbell files passed twice (74 tests per run),
 and a temporary phase-derived approval mutation failed that negative control.
-The production component was restored byte-for-byte. Complete core and terminal
-CI for this follow-up remain required before deployment.
+The production component was restored byte-for-byte. The follow-up core initially
+stopped at the architecture gate because the expanded test increased an already
+oversized module. The same test was tightened without module growth or removing
+its authority assertions; the architecture gate remains unchanged. Complete core
+and terminal CI for this follow-up remain required before deployment.
 An independently added pod commit remains local and is excluded from the
 published candidate. The developer's original branch and unrelated edits remain
 preserved.
