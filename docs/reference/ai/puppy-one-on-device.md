@@ -3,6 +3,12 @@
 **Status:** implemented and measured on real hardware, 2026-08-28; status and
 toggle wiring audited and repaired 2026-09-02 (see the last section).
 
+The measurements below concern local execution. Dev also has a bounded remote
+inference path through the owner's BYOC pod and sealed device relay; the loopback
+bridge described here remains local-only. See the
+[canonical relay view](../architecture/views/deployment.md#dynamic-view-puppy-inference-through-the-owners-byoc-relay)
+and [current acceptance evidence](../quality/adk-orchestration-docs-audit.md).
+
 ## Visual Map
 
 ```mermaid

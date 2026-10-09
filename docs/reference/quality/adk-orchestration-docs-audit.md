@@ -8,7 +8,7 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 ## Decision — 2026-10-08
 
-Measurement snapshot: **2026-10-09 02:06 UTC** (October 8 locally). Cold cohorts are unchanged; placement and owner-offer evidence were refreshed read-only.
+Measurement snapshot: **2026-10-09 05:15 UTC** (October 8 locally). Cold cohorts are unchanged. Owner activation, sealed Puppy admission, idle socket release, zero replicas and on-demand reconnection were verified; normal browser inference and Settings approval remain separate.
 
 **Production rollout is withheld. Dev application and isolated Files journeys
 work on both clouds; release acceptance still needs cold latency and normal-owner
@@ -32,11 +32,11 @@ automatic owner upgrade is authorized by these results.
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
-| Local continuation | `e2bafb58e626484f87585196709e184bc5f88c09`: placement persistence, one-time legacy Shared continuity and migration recovery fences | Focused verification only; not pushed, deployed or applied. Hermes companion `f47d1750e1` is committed locally and its existing dev relay is waiting for activation. |
+| Local continuation | `0eeb3cc1dc`: reuse fresh, identity-bound direct admission instead of a redundant browser wake probe; preserve the existing endpoint facade | 61 focused checks, typecheck, lint and architecture ratchet pass. Not deployed. Hermes `dc0f776fb3` records verified sealed admission without private payloads. |
 | Verified candidate | `f026ba9eaf54782fcf3d09fd9578a68af1c4ad3f`; local core and [hosted CI 37846374234](https://github.com/hushh-labs/hushh-research/actions/runs/37846374234) passed | Not deployed. Frozen ADK `31932bb01ae9`; later unrelated ADK changes belong to the next cycle. |
 | Serving source | `e30732de37f21759e86b95027252163319de3d60`; [hosted CI 37828524953](https://github.com/hushh-labs/hushh-research/actions/runs/37828524953) passed | Source and serving evidence remain separate. |
 | Dev application | [Deployment 37832290957](https://github.com/hushh-labs/hushh-research/actions/runs/37832290957) succeeded; backend `00151-9x6`, frontend `00129-bn5`, exact source/run and 100% traffic independently read back | Rollback targets: backend `00150-slh`, frontend `00128-8m7`. |
-| Serving schema | Version 284; all 55 entries in the serving dev manifest match | Local 958 adds legacy Shared continuity and stricter placement-reader checks; not applied. Fresh main head is 286, so final integration must reconcile release contracts before rollout. |
+| Serving schema | Version 284; all 55 entries in the serving dev manifest match | Source-only 287 adds explicit Shared choice fields; parked 958 captures legacy continuity. These changes were not applied by this task; final integration must reconcile release contracts before rollout. |
 | Pod release | `2026.10-dev.12+caaa5a82fd9c.e213acf2`; digest `sha256:e213acf2468179177371709fb2651eb622439ec8c2a2df3d11394d23867ffa1e` | Published dev-only offer admits only exact predecessor `ace34069` after recovery passed on both clouds. Reused image retains source `caaa5a82` and its original provenance. Publication does not approve an owner installation. |
 | Isolated pods | Google `00010-r7q`; Azure warm/soak `--q30f41b62764c`, registry-locality comparison `--ql04f3fe9a92`; all run `e213acf2` with verified Files/key recovery | Synthetic owners; not evidence of a normal Settings approval or fresh Azure environment. |
 
@@ -54,7 +54,7 @@ The archived release descriptor and independent serving readback match the run. 
 | Recovery / updates | Exact `ace34069` → `e213acf2` transition passed on both clouds: identity, keys, selected configuration and encrypted history retained. Google file bytes matched; separate current-image fixtures on both clouds also retain Files. | Normal Settings approval during active work, refresh/reconnect and one durable operation. Qualification is at 1 vCPU / 2 GiB, not capacity proof for every existing owner configuration. |
 | Chat / runtime | Current `e213acf2`: 20 warm and 20 genuine-cold chats per cloud complete; one/two/four overlapping chat/Files/status pass; ten-minute soak settles 20 operations per cloud. | Cold target fails; normal-browser cold timing, real Puppy overlap and full-workload resource peaks remain unverified. Genuine scale-to-zero observed on the current image. |
 | Headless reviewer / owner APIs | Deployed dev: canonical reviewer authentication, visible locked-vault challenge, unlock, Hosting/Updates and same-session continuity pass. Existing owner-approved Hermes session returns active Azure BYOC, an installable `.12` update and HTTP 200 Files plan, with unchanged owner/device claims; content analysis remains off. | Bounded browser rehearsal still fails on unsolicited enrollment; local guard and negative control pass. No browser import of the device session, new enrollment, Files approval, update approval or installation occurred. |
-| Puppy | Existing identity/grant retained. Hermes `f47d1750e1` restarts the dev profile; temporary readiness/expiry/grant refusals return to authorized activation. Signature/identity failures still refuse. | Fresh inference/reconnect and independent active internet. Activation polling uses current registry placement; an online device does not keep the paid pod awake. |
+| Puppy | Existing grant enabled; signed Azure endpoint and inference-only binding v9 verified. Sealed WSS admission reports epoch 32 and 600-second grace. Its direct socket closed by 05:06:53 UTC; Azure reported zero replicas at 05:13:30. Owner activation reconnected the same identity at epoch 33 by 05:15:15. | Browser inference, cancellation, withdrawal/re-enable and independent active internet. Cold relay rehearsal took about 52 seconds with one transient reconnect; not a first-token result. |
 | Setup / billing | Durable retry and pending/assigned preservation. New authorization refuses an unrecorded setup; malformed detach history cannot revive Shared. One-time legacy continuity is locally qualified. | New and existing owner setup, billing/policy return without duplicate resources. Azure trial refuses a second environment and new OpenAI S0 resource. |
 | Connectors / commands | Sealed native Google authorization, scoped pod tools, exact approval/resume, refresh/restart fencing, notification coalescing and bounded durable jobs. | Real provider sign-in, native iOS/Android, scope upgrades, recorded commands, notification delivery and verified legacy hub cleanup. |
 | Computer Use | Task/preview/takeover ports, consented PKM exports and encrypted opt-in site sessions are source-backed. | Separately gated on both clouds; no owner information admitted to an unqualified executor. |
@@ -174,7 +174,22 @@ lint pass. All **182 Mermaid figures** render; the revised cloud-move figure als
 passes visual review. Maintained-document checks pass, but the overall docs command
 still reports **71 scratch/source-copy link findings** under the concurrent
 classification change. No gate was weakened; all eight unrelated edit hashes remain
-unchanged. These source checks do not establish cloud-move or fresh Puppy acceptance.
+unchanged. These source checks do not establish cloud-move or complete Puppy acceptance.
+The browser correction adds **61 focused checks**, typecheck, changed-file lint and
+an unchanged architecture ratchet. Its delayed-persistence negative control fails
+when the observation timestamp is moved after storage. Reachability evidence is
+memory-only and cannot authorize a turn; ambiguous chat submissions remain single-send.
+
+The personal Azure pod still runs installed digest `ace34069` on the same revision,
+with its selected **0.5 vCPU / 1 GiB, minimum zero and maximum one**. No image or
+configuration changed. Activation-to-binding readback took **11.137 seconds** on an
+already warm pod; this is neither a cold-turn nor first-token measurement. Sealed
+relay admission and idle socket release passed. Azure then reported zero replicas
+at 05:13:30; the scale-down tail is bracketed separately from socket closure. A new
+owner activation reconnected the same identity at epoch 33. Rehearsal start to sealed
+admission took **52.139 seconds**, including preflight and one transient reconnect
+whose cause is not established. No model request was sent; browser inference remains
+separate.
 
 Operational owners: [Files](../operations/private-files-library.md),
 [dev pod runbook](../operations/dev-pod-first-light-runbook.md),

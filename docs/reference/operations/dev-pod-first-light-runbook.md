@@ -180,6 +180,23 @@ it does not bound total historical scan work. Memory replay retains only sealed
 records, binds owner/incarnation/storage, resolves custody afresh and verifies the
 new tail and erasure on each request. Do not remove those fences to reduce latency.
 
+### Puppy admission and idle verification
+
+Keep four receipts separate: the owner's enabled device grant, verified signed
+endpoint/binding, sealed WSS admission to that same pod, and a completed browser
+inference response. Registration or a heartbeat establishes none of the later
+receipts. Use the existing Hermes identity; a device session cannot approve another
+device or initiate an app-role turn. Normal browser approval cannot be replaced by
+a review-minted session or by importing the device's token into the browser.
+
+After work settles, verify the direct socket closes after its configured grace and
+stays closed without another owner activation. Observe local sockets and provider
+replicas through their control planes; probing the pod would wake it and invalidate
+the idle measurement. A running device process, minimum-zero configuration, socket
+closure and an actual zero-replica observation are distinct facts. Record the
+platform scale-down tail separately from the ten-minute relay grace. Restart only
+the identified relay process, preserving its profile, grants and local model.
+
 ### Isolated image recovery rehearsal safeguards
 
 When constructing a fixture `PodSpec`, retain its registry `billing_space_id`
