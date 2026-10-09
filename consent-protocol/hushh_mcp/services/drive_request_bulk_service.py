@@ -252,26 +252,9 @@ class DriveRequestBulkService:
     async def review_context(self, *, user_id, request_id):
         context = await self._context(user_id, request_id)
         if not context["searchStarted"]:
-            return {
-                "search": None,
-                "bulkShare": None,
-                "batches": [],
-                "batchCount": 0,
-                "claimedPositions": [],
-                "recoverablePositions": [],
-                "aggregateCounts": {
-                    "total": 0,
-                    "processed": 0,
-                    "shared": 0,
-                    "alreadyShared": 0,
-                    "skipped": 0,
-                    "failed": 0,
-                    "needsReview": 0,
-                    "unknown": 0,
-                    "pending": 0,
-                },
-                "progressiveAllowed": True,
-            }
+            # Batch fields exist only with a search. The owner's review parser
+            # rejects them without one, so a new request would never load.
+            return {"search": None, "bulkShare": None}
         search = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)
         if search is not None and search["status"] == "completed":
             await self.bulk.refresh_request(user_id=user_id, request_id=request_id)

@@ -9,6 +9,10 @@ import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  SEMANTIC_ROLE_CLASSES,
+  SEMANTIC_ROLE_SOLID,
+} from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
@@ -17,6 +21,28 @@ import type {
   FeedActionButton,
   FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
+
+/**
+ * A resting danger action reads red before anyone taps it: the role's legible
+ * red on its own light wash. Armed, it becomes the solid destructive button.
+ */
+const DANGER_REST_CLASS = cn(
+  SEMANTIC_ROLE_CLASSES.danger.tile,
+  SEMANTIC_ROLE_CLASSES.danger.glyph,
+  "hover:bg-[color:var(--app-destructive-surface)]",
+);
+
+/** A green fill with the role's dark, accessible label (not white on green). */
+const SUCCESS_CLASS = cn(
+  SEMANTIC_ROLE_SOLID.success.fill,
+  SEMANTIC_ROLE_SOLID.success.fg,
+  "hover:bg-[color:color-mix(in_srgb,var(--app-success)_88%,black_12%)]",
+);
+
+/** Success is a decision's positive answer, so it takes the primary slot too. */
+function isPrimaryTone(action: FeedActionButton): boolean {
+  return action.tone === "primary" || action.tone === "success";
+}
 
 function ActionButton({
   action,
@@ -58,7 +84,7 @@ function ActionButton({
       variant={
         showConfirm
           ? "destructive"
-          : action.tone === "primary"
+          : isPrimaryTone(action)
             ? "default"
             : "secondary"
       }
@@ -83,9 +109,8 @@ function ActionButton({
         // Below 375px the row itself opens the same Details (see onSelect),
         // so the icon steps aside and the two decisions keep one line.
         action.phoneIcon && "min-w-11 px-0 max-[374px]:hidden sm:px-4",
-        action.tone === "danger" &&
-          !showConfirm &&
-          "text-destructive hover:bg-destructive/10",
+        action.tone === "danger" && !showConfirm && DANGER_REST_CLASS,
+        action.tone === "success" && SUCCESS_CLASS,
       )}
     >
       {isRunning ? (
@@ -123,16 +148,12 @@ function ActionButton({
 
 function mobileDecisionLabel(action: FeedActionButton): string | undefined {
   const label = action.label.toLowerCase();
-  if (
-    action.tone === "danger" &&
-    /\b(deny|decline|reject)\b/.test(label)
-  ) {
+  // "Deny" is already short and pairs with "Allow"; only the longer refusals
+  // fold to "Decline" on a phone.
+  if (action.tone === "danger" && /\b(decline|reject)\b/.test(label)) {
     return "Decline";
   }
-  if (
-    action.tone === "primary" &&
-    /\b(accept|approve|confirm)\b/.test(label)
-  ) {
+  if (isPrimaryTone(action) && /\b(accept|approve|confirm)\b/.test(label)) {
     if (/\buntil you stop\b/.test(label)) {
       return "Accept · Until off";
     }
@@ -190,9 +211,7 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
   );
 
   if (actions.length <= 2) {
-    const primary =
-      actions.find((action) => action.tone === "primary") ??
-      actions[actions.length - 1]!;
+    const primary = actions.find(isPrimaryTone) ?? actions[actions.length - 1]!;
     const secondary = actions.find((action) => action !== primary);
     return (
       <div

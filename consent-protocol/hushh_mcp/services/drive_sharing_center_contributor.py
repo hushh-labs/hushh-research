@@ -50,14 +50,18 @@ WITH participants AS (
     {payment_reconciliation_required} AS payment_reconciliation_required,
     {payment_link_expired} AS payment_link_expired,
     {checkout_expires_at} AS checkout_expires_at,
-    drive_share_requests.access_stop_requested_at IS NOT NULL AS access_stopped
+    drive_share_requests.access_stop_requested_at IS NOT NULL AS access_stopped,
+    {owner_decision_ready} AS owner_decision_ready,
+    {payment_required} AS payment_required,
+    {owner_allowed} AS owner_allowed
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
     OR drive_share_requests.recipient_user_id=:user
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
+    FALSE,FALSE,FALSE
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -119,7 +123,8 @@ _QUERIES = """
         AND decided_at < now() - interval '300 seconds' THEN 'expired'
       WHEN status='running' THEN 'pending'
       ELSE status END,
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
+    FALSE,FALSE,FALSE
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -137,7 +142,10 @@ _TRUSTED_AUTHORITY_READY = """EXISTS (
     AND c.verified_policy_hash=:live_policy_hash
     AND (pref.user_id IS NULL OR (pref.background_enabled=TRUE
       AND pref.disclosure_version=:background_disclosure))
-    AND EXISTS (
+    AND {recipient_authority}
+)"""
+
+_TRUSTED_RECIPIENT = """EXISTS (
       SELECT 1 FROM connections conn
       JOIN connection_origins origin ON origin.connection_id=conn.id
         AND origin.status='active'
@@ -155,8 +163,47 @@ _TRUSTED_AUTHORITY_READY = """EXISTS (
             AND member.user_id=drive_share_requests.recipient_user_id
             AND member.status='active'
         )
-    )
-)"""
+    )"""
+
+_ACTIVE_CONNECTION = """EXISTS (
+    SELECT 1 FROM connections conn
+    WHERE conn.status='active'
+      AND ((conn.user_a_id=drive_share_requests.user_id
+            AND conn.user_b_id=drive_share_requests.recipient_user_id)
+        OR (conn.user_b_id=drive_share_requests.user_id
+            AND conn.user_a_id=drive_share_requests.recipient_user_id))
+  )"""
+
+# The owner's Allow is per-request authority over any active connection. The
+# timestamp is a plaintext hint; the sealed request marker remains authority.
+# A disconnect clears the timestamp, which ends the Allow for good.
+_OWNER_ALLOWED_RECIPIENT = (
+    "(drive_share_requests.owner_allowed_at IS NOT NULL AND " + _ACTIVE_CONNECTION + ")"
+)
+
+# Allow/Deny is offered only for a fresh requester-driven request that no
+# automatic, manual or paid flow has claimed, from someone outside the owner's
+# Trusted circle, while the pair is connected and the owner's Drive is live. A
+# current Trusted member keeps the Trusted path. The Allow route rechecks the
+# complete state, including the sealed request.
+_OWNER_DECISION_READY = """(drive_share_requests.preparation_error_code IS NULL
+  AND drive_share_requests.owner_allowed_at IS NULL
+  AND drive_share_requests.bulk_search_started_at IS NULL
+  AND drive_share_requests.preparation_next_at<drive_share_requests.expires_at
+  AND {no_payment_order}
+  AND {active_connection}
+  AND NOT {trusted_recipient}
+  AND EXISTS (
+    SELECT 1 FROM user_external_connector_connections c
+    WHERE c.user_id=drive_share_requests.user_id AND c.connector_id='google_drive'
+      AND c.status='connected' AND c.validation_state='verified'
+      AND c.verified_policy_hash=:live_policy_hash
+  ))"""
+
+_NO_PAYMENT_ORDER = """NOT EXISTS (
+    SELECT 1 FROM drive_request_payment_orders pay
+    WHERE pay.request_id=drive_share_requests.request_id
+  )"""
 
 _TRUSTED_BATCH_SEEN = """EXISTS (
   SELECT 1 FROM drive_bulk_shares b
@@ -215,6 +262,25 @@ _IDENTITY_JOINS = """LEFT JOIN actor_identity_cache owner_identity
     ON recipient_identity.user_id=drive_share_requests.recipient_user_id"""
 
 
+def _trusted_authority_ready(owner_allowed: bool) -> str:
+    recipient = (
+        "(" + _TRUSTED_RECIPIENT + " OR " + _OWNER_ALLOWED_RECIPIENT + ")"
+        if owner_allowed
+        else _TRUSTED_RECIPIENT
+    )
+    return _TRUSTED_AUTHORITY_READY.replace("{recipient_authority}", recipient)
+
+
+def _owner_decision_ready(payments: bool) -> str:
+    return (
+        _OWNER_DECISION_READY.replace(
+            "{no_payment_order}", _NO_PAYMENT_ORDER if payments else "TRUE"
+        )
+        .replace("{active_connection}", _ACTIVE_CONNECTION)
+        .replace("{trusted_recipient}", _TRUSTED_RECIPIENT)
+    )
+
+
 def _projection(
     queries: bool,
     owner_search: bool,
@@ -222,6 +288,7 @@ def _projection(
     background: bool,
     payments: bool,
     identity_cache: bool,
+    owner_allowed: bool,
 ) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
     projection = projection.replace("{identity_joins}", _IDENTITY_JOINS if identity_cache else "")
@@ -231,7 +298,9 @@ def _projection(
     )
     for name, expression in {
         "owner_search_state": _OWNER_SEARCH_STATE if owner_search else "'unavailable'::text",
-        "trusted_authority_ready": _TRUSTED_AUTHORITY_READY if background else "FALSE",
+        "trusted_authority_ready": _trusted_authority_ready(owner_allowed)
+        if background
+        else "FALSE",
         "trusted_batch_seen": _TRUSTED_BATCH_SEEN if bulk else "FALSE",
         "trusted_work_active": _TRUSTED_WORK_ACTIVE if bulk and owner_search else "FALSE",
         "trusted_recovery_needed": _TRUSTED_RECOVERY_NEEDED if bulk else "FALSE",
@@ -269,6 +338,12 @@ def _projection(
             AND drive_share_requests.recipient_user_id=:user)"""
         if payments
         else "NULL::timestamptz",
+        # Without migration 291 no request can be allowed, so none is offered.
+        "owner_decision_ready": _owner_decision_ready(payments) if owner_allowed else "FALSE",
+        "payment_required": "drive_share_requests.payment_required" if payments else "FALSE",
+        "owner_allowed": "drive_share_requests.owner_allowed_at IS NOT NULL"
+        if owner_allowed
+        else "FALSE",
     }.items():
         projection = projection.replace("{" + name + "}", expression)
     return projection
@@ -333,6 +408,14 @@ def entry(row: Any) -> dict[str, Any]:
         if automatic_progressing
         else None
     )
+    # Allow/Deny belongs only to the owner's own open request task.
+    owner_decision_available = bool(
+        row["direction"] == "incoming"
+        and row["bucket"] == "incoming_requests"
+        and row["state"] == "pending"
+        and not row.get("access_stopped")
+        and row.get("owner_decision_ready") is True
+    )
     return {
         "id": row["id"],
         "request_id": str(row["request_id"]),
@@ -375,6 +458,13 @@ def entry(row: Any) -> dict[str, Any]:
             and not row.get("access_stopped")
             and not automatic_progressing
             and not owner_payment_blocked,
+            "owner_decision_available": owner_decision_available,
+            "owner_allowed": row.get("owner_allowed") is True,
+            **(
+                {"payment_required": row.get("payment_required") is True}
+                if row["direction"] == "incoming"
+                else {}
+            ),
             **({"payment_waiting_for_requester": True} if owner_payment_waiting else {}),
             **(
                 {
@@ -480,6 +570,18 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _owner_allowed_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS (
+                  SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='owner_allowed_at' AND NOT attisdropped
+                )""")
+            ).scalar_one()
+        )
+
+    @staticmethod
     def _identity_cache_installed(connection) -> bool:
         # Test fixtures and rolling deployments can predate the optional
         # identity cache. Keep the metadata projection available with its
@@ -531,6 +633,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._background_installed(connection),
                         self._payments_installed(connection),
                         self._identity_cache_installed(connection),
+                        self._owner_allowed_installed(connection),
                     )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
@@ -566,6 +669,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             self._background_installed(connection),
                             self._payments_installed(connection),
                             self._identity_cache_installed(connection),
+                            self._owner_allowed_installed(connection),
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -616,6 +720,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._background_installed(connection),
                         self._payments_installed(connection),
                         self._identity_cache_installed(connection),
+                        self._owner_allowed_installed(connection),
                     )  # nosec B608
                     + """
                     , ranked AS (

@@ -1,14 +1,22 @@
-"""Database authority for one request-bound Drive payment."""
+"""Database authority for one request-bound Drive payment.
+
+An order's amount is fixed when the order is created: the owner's price from
+an owner Allow, otherwise the default price. Checkout, settlement and refunds
+all bind to that stored amount.
+"""
 
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
-from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.drive_owner_allowed import DEFAULT_PRICE_CENTS, owner_allowed_price_cents
+from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 
 
@@ -21,6 +29,20 @@ def _request_id(value: object) -> str:
 
 def _payer_ref(request_id: str, requester_user_id: str) -> str:
     return hashlib.sha256(f"{request_id}:{requester_user_id}".encode()).hexdigest()
+
+
+def _order_amount_cents(private: Mapping[str, Any]) -> int:
+    """The price a new order is created at: the owner's Allow price, else the default."""
+    return owner_allowed_price_cents(private) or DEFAULT_PRICE_CENTS
+
+
+def _quoted_amount_cents(order: Mapping[str, Any] | None, private: Mapping[str, Any] | None) -> int:
+    """The stored order amount; before an order exists, the price it would be created at."""
+    if order is not None:
+        return int(order["amount_cents"])
+    if private is None:
+        return DEFAULT_PRICE_CENTS
+    return _order_amount_cents(private)
 
 
 class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
@@ -176,19 +198,28 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         Non-trusted requests intentionally keep the owner's consent boundary:
         approval creates the order, while the permission worker remains
         blocked until Stripe confirms payment. The ready event is emitted
-        only after a Checkout session with a fixed deadline is bound.
+        only after a Checkout session with a fixed deadline is bound. A request
+        the owner allowed keeps the owner's price; a legacy manual approval
+        uses the default price.
         """
         if not request["payment_required"]:
             return False
+        private = DriveSharingCipher().open(
+            request["request_envelope"],
+            user_id=request["user_id"],
+            resource_id=str(request["request_id"]),
+            purpose="request",
+        )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id)
-              VALUES (:request,:owner,:requester)
+              (request_id,user_id,requester_user_id,amount_cents)
+              VALUES (:request,:owner,:requester,:amount)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request["request_id"],
                 "owner": request["user_id"],
                 "requester": request["recipient_user_id"],
+                "amount": _order_amount_cents(private),
             },
         )
         order = (
@@ -269,7 +300,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             raise DriveSharingError("payment_not_ready")
         if existing is not None:
             return request, existing, False
-        # This is an explicit worker command for the Trusted path. An owner
+        # This is an explicit worker command for the automatic path: a Trusted
+        # request, or one the owner allowed at their price. A manual owner
         # approval creates the non-trusted order in the approval transaction;
         # an unapproved review must never create a payment obligation here.
         batch = self._row(
@@ -300,13 +332,14 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             return request, None, False
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id)
-              VALUES (:request,:owner,:requester)
+              (request_id,user_id,requester_user_id,amount_cents)
+              VALUES (:request,:owner,:requester,:amount)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request["request_id"],
                 "owner": user_id,
                 "requester": request["recipient_user_id"],
+                "amount": _order_amount_cents(private),
             },
         )
         order = self._row(
@@ -370,6 +403,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             missing_dates = False
             approved = False
+            private: dict[str, Any] | None = None
             if not request_expired:
                 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 
@@ -408,8 +442,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 status = order["status"]
             return {
                 "status": status,
-                "amountCents": 1000,
-                "currency": "usd",
+                "amountCents": _quoted_amount_cents(order, private),
+                "currency": order["currency"] if order is not None else "usd",
                 "paymentLinkExpired": checkout_expired and not request_expired,
                 "checkoutExpiresAt": (
                     order["stripe_checkout_expires_at"].isoformat()
@@ -494,6 +528,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     continue
                 private = sharing._open_request(request)
                 purpose = private.get("purpose", {})
+                # Trusted creation and an owner's Allow both seal trusted_auto.
                 authorized = (
                     private.get("trusted_auto") is True
                     or request["status"] in {"approved", "partial"}
