@@ -89,14 +89,14 @@ const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
  * `/one`.
  */
 function readPersistedRosterView(): AgentRosterView {
-  if (typeof window === "undefined") return "list";
+  if (typeof window === "undefined") return "grid";
   try {
     const persisted = window.localStorage.getItem(
       AGENT_ROSTER_VIEW_STORAGE_KEY,
     );
-    return persisted === "grid" ? "grid" : "list";
+    return persisted === "list" ? "list" : "grid";
   } catch {
-    return "list";
+    return "grid";
   }
 }
 
@@ -275,6 +275,20 @@ const ROSTER_DISPLAY_ORDER: readonly string[] = [
   "consent",
 ];
 
+// These assets belong to the One roster only. Other capability surfaces keep
+// their existing icon treatment and the capability catalog keeps its order.
+const ROSTER_ICON_SRC_BY_ID: Readonly<Record<string, string>> = {
+  gmail: "/icons/one-roster/mail.svg",
+  calendar: "/icons/one-roster/calendar.svg",
+  location: "/icons/one-roster/location.svg",
+  finance: "/icons/one-roster/finance.svg",
+  ria: "/icons/one-roster/advisor.svg",
+  wallet: "/icons/one-roster/wallet.svg",
+  pkm: "/icons/one-roster/memory.svg",
+  consent: "/icons/one-roster/consent.svg",
+  messages: "/icons/one-roster/messages.svg",
+};
+
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
   cachedMetrics: Record<string, AgentMetric>,
@@ -285,6 +299,7 @@ function buildModes(
       capability.isVisibleOnRoster !== false &&
       isOneCapabilityEnabled(capability),
   ).map((capability, paletteIndex) => {
+    const iconSrc = ROSTER_ICON_SRC_BY_ID[capability.id];
     const setupCapability = getOneSetupCapability(capability.id);
     const status = statusById[capability.id];
     const copy = setupCapability
@@ -331,7 +346,9 @@ function buildModes(
           ? `${buildOneSetupCapabilityRoute(capability.id)}?from=${encodeURIComponent(ROUTES.ONE_HOME)}`
           : buildOneSetupCapabilityRoute(capability.id)
         : capability.href,
-      icon: capability.icon,
+      icon: iconSrc
+        ? { kind: "image" as const, src: iconSrc, alt: "" }
+        : capability.icon,
       statusTone: display.tone,
       isOnboarded: isCapabilityOnboarded(status),
       primaryMetric,
@@ -537,7 +554,7 @@ function AgentGridItem({
         // own comment. Icons stay full color regardless of setup state.
         isActive
         size="roster-lg"
-        treatment="app"
+        treatment={mode.icon.kind === "image" ? "default" : "app"}
         glyphContrast="default"
         className="relative z-10"
       />
@@ -578,7 +595,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           paletteIndex={mode.paletteIndex}
           isActive
           size="roster"
-          treatment="app"
+          treatment={mode.icon.kind === "image" ? "default" : "app"}
           glyphContrast="default"
         />
       </span>
