@@ -4604,10 +4604,8 @@ class OneLocationAgentService:
         statement, for the same reason the matching is -- see below.
 
         A named, active profile with a current enabled auth account is eligible
-        when EITHER it holds a ``vault_keys`` row whose ``vault_status`` is
-        ``'active'`` and an ``environment_enrolled_at`` stamp (the person has
-        unlocked that vault in THIS environment, so a vault copied in from
-        another environment's database does not count) OR the
+        when EITHER its active ``vault_keys`` row has ``environment_enrolled_at``
+        (an unlock in this environment; copied vaults do not count), OR the
         viewer already has a relationship with it: an active ``connections``
         edge, a ``'pending'`` ``connection_requests`` row, or an active
         ``trusted_connections`` edge, each in either direction. So the vault
@@ -4786,8 +4784,7 @@ class OneLocationAgentService:
                     SELECT 1
                     FROM vault_keys vault
                     WHERE vault.user_id = profile.user_id
-                      AND vault.vault_status = 'active'
-                      AND vault.environment_enrolled_at IS NOT NULL
+                      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
                   )
                   OR EXISTS (
                     SELECT 1
