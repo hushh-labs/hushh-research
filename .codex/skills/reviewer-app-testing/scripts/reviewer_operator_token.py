@@ -64,7 +64,9 @@ def shared_dev_reviewer_ids(policy: dict, origin: str, backend: str) -> set[str]
             r"https://consent-protocol-[a-z0-9]+-uc\.a\.run\.app", backend
         )
         and backend != "https://consent-protocol-621416509462.us-central1.run.app"
-        or policy.get("environment") != "dev"
+        # The hosted secret synchronizer still emits the UAT compatibility
+        # value; the verified serving revision owns shared Dev's auth lane.
+        or policy.get("environment") not in {"dev", "uat"}
         or policy.get("scope_commerce_frontend_origin") != origin
         or policy.get("scope_commerce_sandbox_policy_required") is not True
         or policy.get("scope_commerce_stripe_livemode") is not False
@@ -104,6 +106,7 @@ def verify_shared_dev_runtime(read, backend: str) -> dict[str, str]:
     env = {name: entry.get("value") for name, entry in entries.items()}
     if (
         env.get("ENVIRONMENT") != "dev"
+        or env.get("HUSHH_DEPLOY_ENV") != "dev"
         or env.get("APP_REVIEW_MODE") != "true"
         or str(env.get("APP_RUNTIME_PROFILE") or "").strip().lower() == "production"
         or not any(
@@ -128,7 +131,8 @@ def runtime_reviewer_binding(secret, config: dict, read) -> tuple[set[str], str,
         raise ValueError("isolated_reviewer_runtime_required")
     backend = secret("BACKEND_URL")
     versions = {}
-    if config["app_origin"] == "https://dev.one.hushh.ai":
+    shared_dev = config["app_origin"] == "https://dev.one.hushh.ai"
+    if shared_dev:
         versions = verify_shared_dev_runtime(read, backend)
         policy = json.loads(
             secret(
@@ -147,7 +151,7 @@ def runtime_reviewer_binding(secret, config: dict, read) -> tuple[set[str], str,
             )
         )["PreviewTarget"]()
         configured_ids = target.validate_policy(policy, config["app_origin"], backend)
-    return set(configured_ids), policy["environment"], versions
+    return set(configured_ids), "dev" if shared_dev else policy["environment"], versions
 
 
 def firebase_certificate(secret, versions: dict) -> dict:

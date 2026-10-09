@@ -1925,3 +1925,32 @@ was weakened. These two safety fixes need canonical main alignment before a
 shared Dev baseline is frozen; no accepted receipt may be rewritten. Common
 141/262 SQL now matches the inspected main history, including the Drive event
 allowlist's superset guard.
+
+### Shared Dev release and coherent recovery qualification — 2026-10-09
+
+Combined [Dev release 38000722312](https://github.com/hushh-labs/hushh-research/actions/runs/38000722312)
+completed successfully. Backend `consent-protocol-00152-x5w` and frontend
+`hushh-webapp-00130-dzb` serve
+`6d64de03b78e78a02683fc5121de355e2b75d8ba` with 100% traffic. This deploys Memory
+Saved/Add, integrated sharing/pricing, Memory earnings, Account activity and the
+Memory/Structure agent boundaries. Payment admission remains disabled; the
+serving SDK secret/account policy is pinned to the approved test account, but
+platform/Connect webhook mounts, the persistent ledger pin, onboarding and
+financial acceptance remain outstanding. Physical native acceptance is deferred
+while the separately authorized device session is active.
+
+The fresh coherent v3 backup restored under PostgreSQL 15.18/pgvector 0.8.1 with
+exact catalog and full-information parity and zero orphan violations. Canonical
+284–294 replayed twice on that task-owned restored clone without changing its
+catalog or information. These are local recovery/idempotence proofs, not source
+preservation under a write freeze or a shared Dev baseline. Preserve the immutable
+backup, both failed earlier comparisons and the exact clone reconstruction recipe.
+
+The portable capture candidate `798fc563e272d9c45c04e7af0b971dc23c52d6da` passed
+the full local core bundle. The Saved manifest-read failure/retry candidate
+`a052c14d44446639f7a95bf3e431e5d842842525` also passed core and is undergoing
+full hosted CI; its later changes are not included in the serving release above.
+The reviewer operator harness now accepts the synchronizer's serialized UAT
+compatibility value while minting only the verified serving Dev authentication
+lane. Cross-lane and production admission remain refused; focused authority
+and application auth tests pass, with the previous issuer failing the regression.

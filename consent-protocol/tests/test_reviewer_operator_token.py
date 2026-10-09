@@ -94,6 +94,7 @@ def dev_runtime():
                                 "FIREBASE_ADMIN_CREDENTIALS_JSON",
                             )
                         ),
+                        {"name": "HUSHH_DEPLOY_ENV", "value": "dev"},
                     ]
                 }
             ]
@@ -107,6 +108,7 @@ def dev_runtime():
 
 
 def test_shared_dev_admission_requires_serving_runtime_and_secret_binding(issuer, dev_runtime):
+    import json
     from copy import deepcopy
 
     backend = "https://consent-protocol-synthetic-uc.a.run.app"
@@ -118,6 +120,23 @@ def test_shared_dev_admission_requires_serving_runtime_and_secret_binding(issuer
     issuer.verify_shared_dev_runtime(
         records.__getitem__, "https://consent-protocol-621416509462.us-central1.run.app"
     )
+    calls = []
+    policy = {**dev_policy(), "environment": "uat"}
+
+    def secret(name, version="latest"):
+        calls.append((name, version))
+        return {
+            "APP_FRONTEND_ORIGIN": "https://dev.one.hushh.ai",
+            "BACKEND_URL": backend,
+            "BACKEND_RUNTIME_CONFIG_JSON": json.dumps(policy),
+        }[name]
+
+    ids, lane, versions = issuer.runtime_reviewer_binding(
+        secret, {"app_origin": "https://dev.one.hushh.ai"}, records.__getitem__
+    )
+    assert ids == {"primary", "counterpart"} and lane == "dev"
+    assert ("BACKEND_RUNTIME_CONFIG_JSON", "7") in calls
+    assert versions["FIREBASE_ADMIN_CREDENTIALS_JSON"] == "7"
     for target, update in (
         ("service", {"url": "https://foreign.example"}),
         ("service", {"traffic": [{"percent": 50}]}),
@@ -149,7 +168,13 @@ def test_shared_dev_admission_requires_serving_runtime_and_secret_binding(issuer
         with pytest.raises(ValueError):
             issuer.verify_shared_dev_runtime(wrong.__getitem__, backend)
 
-    for name, value in (("ENVIRONMENT", "uat"), ("APP_REVIEW_MODE", "false")):
+    for name, value in (
+        ("ENVIRONMENT", "uat"),
+        ("ENVIRONMENT", "production"),
+        ("HUSHH_DEPLOY_ENV", "uat"),
+        ("HUSHH_DEPLOY_ENV", "production"),
+        ("APP_REVIEW_MODE", "false"),
+    ):
         wrong = deepcopy(records)
         for env in wrong["revisions/consent-protocol-synthetic"]["spec"]["containers"][0]["env"]:
             if env["name"] == name:
