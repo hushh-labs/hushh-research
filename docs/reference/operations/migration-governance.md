@@ -152,6 +152,9 @@ Verify the complete canonical release history before recording its baseline;
 parked migration receipts do not prove a release prefix. Preserve divergent
 preview SQL and receipts without relabeling accepted history. A Dev baseline
 requires the same backup, restored-clone, source-preservation and readback proof.
+The current CLI help still says UAT/local; the enforced environment allowlist
+also includes Dev. That help correction belongs to the migration CLI owner;
+it does not change baseline authorization or permit production use.
 
 Before establishing a UAT baseline:
 

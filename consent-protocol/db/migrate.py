@@ -1507,7 +1507,7 @@ async def establish_release_baseline(
     *,
     release_environment: str = "production",
 ) -> None:
-    """Record a verified nonproduction baseline without replaying historical SQL."""
+    """Record an explicit UAT/local baseline without replaying historical SQL."""
     release_environment = assert_uat_release_target(release_environment)
     evidence = load_preservation_evidence(evidence_path)
     entries = build_manifest_entries(MIGRATIONS_DIR, release_migration_files(release_environment))
@@ -1749,7 +1749,7 @@ Examples:
         type=Path,
         metavar="PRESERVATION_REPORT",
         help=(
-            "Dev/UAT/local only: record a release baseline from a fresh status=ok preservation "
+            "UAT/local only: record a release baseline from a fresh status=ok preservation "
             "report without executing historical migrations."
         ),
     )
