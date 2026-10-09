@@ -43,6 +43,7 @@ function HomeContent() {
     signOut,
   } = useAuth();
   const { isVaultUnlocked } = useVault();
+  const [hydrated, setHydrated] = useState(false);
   const [routingError, setRoutingError] = useState(false);
   const [routingAttempt, setRoutingAttempt] = useState(0);
   const [authenticatedRootReady, setAuthenticatedRootReady] = useState(false);
@@ -58,6 +59,13 @@ function HomeContent() {
   const canRenderAuthenticatedChatImmediately = Boolean(
     user && isVaultUnlocked && !hasExplicitRedirect,
   );
+
+  // Keep the first client render identical to the server Suspense fallback.
+  // Auth and vault providers resolve from browser-only state, so rendering
+  // the beacon/intro immediately can replace the server loader during hydrate.
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   // Debug helper opens the public introduction with the One invitation context.
   useEffect(() => {
@@ -142,7 +150,7 @@ function HomeContent() {
     user?.uid,
   ]);
 
-  if (loading) {
+  if (!hydrated || loading) {
     return (
       <HushhLoader
         stage="session"

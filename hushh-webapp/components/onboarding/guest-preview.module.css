@@ -248,6 +248,57 @@
   display: block;
   text-align: center;
 }
+.agentStory { width: 100%; }
+.agentCardList { overflow: hidden; border: 1px solid color-mix(in oklab, var(--app-separator) 70%, transparent); border-radius: var(--app-card-radius-feature); background: var(--app-card-surface-default-solid); box-shadow: var(--app-card-shadow-standard); text-align: left; }
+.agentItem { display: grid; grid-template-columns: 2.375rem 6rem minmax(0, 1fr); align-items: center; gap: 1rem; min-height: 4.5rem; padding: .875rem 1.5rem; border-top: 1px solid var(--app-separator); }
+.agentItem:first-child { border-top: 0; }
+.agentIcon { display: grid; width: 2.375rem; height: 2.375rem; place-items: center; border-radius: 999px; background: var(--app-accent-tint); color: var(--app-accent-strong); }
+.agentIcon svg { width: 1.25rem; height: 1.25rem; }
+.agentName { color: var(--foreground); font-weight: 700; }
+.agentDesc { color: var(--app-secondary-label); font-size: .9375rem; }
+@media (max-width: 639px) { .agentItem { grid-template-columns: 2.25rem minmax(0, 1fr); gap: .75rem; padding-inline: 1rem; } .agentDesc { grid-column: 2; margin-top: -.5rem; } }
+@media (min-width: 640px) {
+  .content[data-step="1"] { grid-template-columns: minmax(0, 1fr) minmax(32rem, 35rem); gap: 5rem; padding-block: 2rem; }
+  .content[data-step="1"] .heading { margin: 0; text-align: left; }
+  .content[data-step="1"] .title { max-width: 10ch; font-size: clamp(3rem, 4.2vw, 3.625rem); line-height: 1.05; }
+  .content[data-step="1"] .subtitle { max-width: 29rem; }
+  .content[data-step="1"] .stage { max-width: 35rem; margin: 0; }
+  .content[data-step="1"] .agentCardList { border-radius: 1.75rem; box-shadow: 0 14px 40px rgb(60 40 120 / 9%); }
+  .content[data-step="1"] .agentItem { min-height: 3.9rem; padding: .875rem 1.5rem; grid-template-columns: 2.375rem 6rem minmax(0, 1fr); }
+  .content[data-step="1"] .agentIcon { width: 2.375rem; height: 2.375rem; }
+  .content[data-step="1"] .agentName { font-size: 1.0625rem; }
+}
+.stepBadge {
+  display: inline-flex;
+  padding: .45rem .8rem;
+  border-radius: 999px;
+  background: #e5edfc;
+  color: #1f4fb0 !important;
+  font-size: .625rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.referenceActions { display: flex; align-items: center; gap: 1rem; margin-top: 1.75rem; }
+.referenceActions > button { min-height: 2.75rem; padding-inline: 1.35rem; border-radius: 999px; font-size: .75rem; white-space: nowrap; }
+.referenceProgress { display: flex; align-items: center; gap: .45rem; }
+.referenceProgress span { width: 1.25rem; height: .25rem; border-radius: 999px; background: #cfccdc; }
+.referenceProgress span.active { background: #2f6be0; }
+.referenceProgress small { margin-left: .2rem; color: #4a4a58; font-size: .625rem; font-weight: 600; }
+.hiddenReferenceFooter { display: none; }
+@media (min-width: 640px) and (max-width: 800px) {
+  .content[data-step="1"] { gap: 1.5rem; }
+  .content[data-step="1"] .title { max-width: 14ch; font-size: 2.25rem; }
+  .content[data-step="1"] .agentItem { grid-template-columns: 2rem 4rem minmax(0, 1fr); gap: .625rem; min-height: 2.45rem; padding: .35rem .75rem; }
+  .content[data-step="1"] .agentIcon { width: 2rem; height: 2rem; }
+  .content[data-step="1"] .agentIcon svg { width: 1rem; height: 1rem; }
+  .content[data-step="1"] .agentName { font-size: .75rem; }
+  .content[data-step="1"] .stage { min-width: 0; }
+  .content[data-step="1"] .agentDesc { overflow: hidden; font-size: .625rem; white-space: nowrap; text-overflow: ellipsis; }
+  .referenceActions { gap: .75rem; margin-top: 1.25rem; }
+  .referenceActions > button { min-height: 2.25rem; padding-inline: 1rem; }
+}
 .agents {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -294,6 +345,102 @@
 }
 .invitation {
   text-align: center;
+}
+.chatStep {
+  width: 100%;
+}
+.chatCardExact {
+  width: 100%;
+  padding: 1.75rem;
+  border: 1px solid #282834;
+  border-radius: 2rem;
+  background: #16161d;
+  color: #ededf5;
+  box-shadow: 0 24px 60px rgb(22 22 29 / 28%);
+  text-align: left;
+}
+.chatExampleLabel {
+  margin-bottom: 1.375rem;
+  color: #a9a9b8;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.chatUserMessage {
+  width: fit-content;
+  max-width: 90%;
+  margin-left: auto;
+  padding: 0.9375rem 1.25rem;
+  border-radius: 1.375rem 1.375rem 0.375rem 1.375rem;
+  background: #2f6be0;
+  color: #fff;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.45;
+  box-shadow: 0 6px 16px rgb(47 107 224 / 30%);
+}
+.chatChecked {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 1.25rem 0 0.875rem;
+  color: #a9a9b8;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.chatChecked span {
+  color: #75a6ff;
+  font-size: 1.125rem;
+}
+.chatResponse {
+  max-width: 30rem;
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+.chatContext {
+  margin: 1rem 0 1.625rem;
+  padding: 1rem 1.125rem;
+  border: 1px solid #3a3a48;
+  border-radius: 1rem;
+  background: #262633;
+  color: #c9c9d6;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+.chatPrompt {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.5rem 0.5rem 1.375rem;
+  border: 1px solid #323240;
+  border-radius: 999px;
+  background: #23232d;
+  color: #a9a9b8;
+  font-size: 1rem;
+}
+.chatPrompt > span {
+  flex: 1;
+}
+.chatPrompt svg {
+  color: #2f6be0;
+}
+.chatMic {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #2f6be0;
+  color: #fff;
+}
+.chatMic svg {
+  width: 1.375rem;
+  height: 1.375rem;
+  color: currentColor;
 }
 .conversation {
   position: relative;
@@ -471,6 +618,14 @@
 .progress [aria-current="step"] span {
   background: var(--app-accent);
 }
+.footer.hiddenReferenceFooter { display: none; }
+.progressText {
+  align-self: center;
+  margin-left: .25rem;
+  color: var(--app-secondary-label);
+  font-size: .75rem;
+  font-weight: 600;
+}
 .publicLinks {
   display: none;
 }
@@ -536,6 +691,23 @@
     display: inline-flex;
     align-items: center;
     min-height: 2.75rem;
+  }
+}
+@media (min-width: 801px) {
+  .content[data-step="1"] { position: relative; left: -2rem; }
+  .content[data-step="1"] .title { max-width: 8ch; font-size: 3.6rem; }
+}
+@media (max-width: 639px) {
+  .chatCardExact {
+    padding: 1.25rem;
+    border-radius: 1.5rem;
+  }
+  .chatUserMessage {
+    max-width: 100%;
+    font-size: 1rem;
+  }
+  .chatResponse {
+    font-size: 1rem;
   }
 }
 @media (max-height: 740px) and (max-width: 767px) {
@@ -755,3 +927,4 @@
     }
   }
 }
+
