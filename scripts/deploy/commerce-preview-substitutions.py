@@ -25,7 +25,9 @@ def substitutions(value: str, kind: str) -> str:
             "_BUILD_POD_IMAGE": "false",
             "_CLOUD_RUN_MAX_INSTANCES": "1",
             "_CLOUD_RUN_MIN_INSTANCES": "1",
-            "_GENAI_PROJECT_ID": TARGET["PROJECT"],
+            # Model processing uses the governed bridge; application resources
+            # and the runtime identity remain in the dedicated native project.
+            "_GENAI_PROJECT_ID": "hushh-vertex-personal54",
             "_DRIVE_WORK_DRAIN_ENABLED": "false",
             "_DRIVE_REQUEST_PAYMENTS_ENABLED": "false",
         }

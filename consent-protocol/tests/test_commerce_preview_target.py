@@ -74,10 +74,12 @@ def test_preview_rejects_shared_identity_database_origin_and_ingestion():
         target.service_origin(service, target.frontend)
 
 
-def test_preview_substitutions_preserve_single_delimiter_and_namespace():
+@pytest.mark.parametrize("model_project", ["hushh-pda-dev", "unapproved-project"])
+def test_preview_substitutions_preserve_single_delimiter_and_namespace(model_project):
     module = _preview_module("commerce-preview-substitutions.py")
     output = module["substitutions"](
-        "_DEPLOY_ENV=dev##_GMAIL_OAUTH_CLIENT_ID_SECRET=shared", "backend"
+        f"_DEPLOY_ENV=dev##_GMAIL_OAUTH_CLIENT_ID_SECRET=shared##_GENAI_PROJECT_ID={model_project}",
+        "backend",
     )
     assert not output.startswith("^")
     pairs = dict(row.split("=", 1) for row in output.split("##"))
@@ -87,6 +89,12 @@ def test_preview_substitutions_preserve_single_delimiter_and_namespace():
     assert pairs["_CLOUD_RUN_MAX_INSTANCES"] == "1"
     assert pairs["_CLOUD_RUN_MIN_INSTANCES"] == "1"
     assert pairs["_GMAIL_OAUTH_CLIENT_ID_SECRET"] == ""
+    assert pairs["_GENAI_PROJECT_ID"] == "hushh-vertex-personal54"
+    assert module["TARGET"]["PROJECT"] == "hushh-pda-dev"
+    assert pairs["_RUNTIME_SERVICE_ACCOUNT"] == (
+        "commerce-sandbox-runtime@hushh-pda-dev.iam.gserviceaccount.com"
+    )
+    assert pairs["_CLOUDSQL_INSTANCES"] == "hushh-pda-dev:us-central1:hushh-dev-pg"
     with pytest.raises(ValueError, match="preview_candidate_interface_missing"):
         module["substitutions"]("_UNDECLARED=unsafe", "backend")
 
