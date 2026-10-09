@@ -7,6 +7,9 @@ vi.mock("@/lib/services/api-service", () => ({
 import {
   EmailDeliveryError,
   EmailDeliveryService,
+  forgetPendingEmailSendAction,
+  pendingEmailSendActionIds,
+  rememberPendingEmailSendAction,
 } from "@/lib/services/email-delivery-service";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -31,7 +34,57 @@ function requestBody(call: number): Record<string, unknown> {
 }
 
 describe("EmailDeliveryService", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  it("reads a send status through both owner credentials without provider or mail content", async () => {
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      action_id: ACTION_ID,
+      state: "sent",
+      gmail_message_id: "must-not-leak",
+    }), { status: 200 }));
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: ACTION_ID }))
+      .resolves.toEqual({ actionId: ACTION_ID, state: "sent" });
+    expect(ApiService.apiFetch).toHaveBeenCalledWith(
+      `/api/one/email/send/status/${ACTION_ID}`,
+      { method: "GET", headers: expect.objectContaining({
+        Authorization: "Bearer firebase-token",
+        "X-Hushh-Consent": "Bearer vault-owner-token",
+      }) },
+    );
+  });
+
+  it("keeps only same-owner opaque send action IDs across reload and forgets settled attempts", () => {
+    rememberPendingEmailSendAction("owner-1", ACTION_ID);
+    expect(pendingEmailSendActionIds("owner-1")).toEqual([ACTION_ID]);
+    expect(pendingEmailSendActionIds("owner-2")).toEqual([]);
+    const stored = sessionStorage.getItem("one-email-pending-send-actions:v1:owner-1") ?? "";
+    expect(stored).toContain(ACTION_ID);
+    expect(stored).not.toContain("firebase-token");
+    expect(stored).not.toContain("vault-owner-token");
+    forgetPendingEmailSendAction("owner-1", ACTION_ID);
+    expect(pendingEmailSendActionIds("owner-1")).toEqual([]);
+  });
+
+  it("does not turn partial or uncertain mailbox changes into completed actions", async () => {
+    vi.mocked(ApiService.apiFetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: "partially_executed", action: "trash", count: 1, total: 3,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: "outcome_unknown", action: "trash", count: 0, total: 3,
+      }), { status: 200 }));
+    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId: "gmod_1" }))
+      .rejects.toMatchObject({
+        code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
+        message: "Gmail confirmed 1 of 3 changes. The remaining result is uncertain. Check Gmail before making this change again.",
+      });
+    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId: "gmod_1" }))
+      .rejects.toMatchObject({ code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN" });
+    expect(ApiService.apiFetch).toHaveBeenCalledTimes(2);
+  });
 
   it("keeps explicit draft fields and both short-lived auth credentials at the delivery boundary", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(

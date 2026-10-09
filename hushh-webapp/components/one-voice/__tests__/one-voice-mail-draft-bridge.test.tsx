@@ -9,6 +9,7 @@ import { ConnectionsService } from "@/lib/services/connections-service";
 import {
   EmailDeliveryError,
   EmailDeliveryService,
+  pendingEmailSendActionIds,
   type EmailDraft,
   type PreparedEmailSend,
   type SentEmailResult,
@@ -44,6 +45,7 @@ vi.mock("@/lib/services/email-delivery-service", async (importOriginal) => ({
     draft: vi.fn(),
     prepare: vi.fn(),
     send: vi.fn(),
+    sendStatus: vi.fn(),
     saveGmailDraft: vi.fn(),
   },
 }));
@@ -182,6 +184,7 @@ function openDraft(input: Record<string, unknown> = payload(), stepId = "mail-st
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   harness.user = { uid: "owner", getIdToken: vi.fn(async () => "firebase-token") };
   harness.vaultUnlocked = true;
   harness.vaultToken = "vault-token";
@@ -193,6 +196,7 @@ beforeEach(() => {
   harness.voice = { reportMailDelivery, reportMailDraftChange };
   vi.mocked(EmailDeliveryService.prepare).mockReset();
   vi.mocked(EmailDeliveryService.send).mockReset();
+  vi.mocked(EmailDeliveryService.sendStatus).mockReset();
   vi.mocked(EmailDeliveryService.saveGmailDraft).mockReset();
   act(() => useVoiceSessionStore.getState().reset());
 });
@@ -696,6 +700,33 @@ describe("OneVoiceMailDraftBridge", () => {
     );
     // No send response arrived; the relay re-reads the action the card prepared.
     expect(reportMailDelivery).toHaveBeenCalledExactlyOnceWith(DELIVERY_REF, "compose-action-1");
+  });
+
+  it("recovers the same voice send action after reload without saving the draft or resending", async () => {
+    enableRealCard();
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({
+      actionId: "compose-action-reload", expiresAt: null,
+    });
+    vi.mocked(EmailDeliveryService.send).mockRejectedValue(new TypeError("response lost"));
+    vi.mocked(EmailDeliveryService.sendStatus)
+      .mockResolvedValueOnce({ actionId: "compose-action-reload", state: "outcome_unknown" })
+      .mockResolvedValueOnce({ actionId: "compose-action-reload", state: "sent" });
+    const first = render(<OneVoiceMailDraftBridge />);
+    openDraft({ ...payload(), delivery_ref: DELIVERY_REF });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(screen.getByTestId("one-voice-mail-delivery"))
+      .toHaveTextContent("Check Sent Mail before trying again"));
+    expect(pendingEmailSendActionIds("owner", "voice")).toEqual(["compose-action-reload"]);
+    expect(pendingEmailSendActionIds("owner", "chat")).toEqual([]);
+    expect(window.sessionStorage.getItem("one-email-pending-send-actions:v1:owner"))
+      .not.toContain(payload().draft.body);
+
+    first.unmount();
+    render(<OneVoiceMailDraftBridge />);
+    await waitFor(() => expect(screen.getByTestId("one-voice-mail-recovered-status"))
+      .toHaveTextContent("Earlier mail sent"));
+    expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1);
+    expect(pendingEmailSendActionIds("owner", "voice")).toEqual([]);
   });
 
   it("sends an old-shape compose step unchanged and never reports a Send without a delivery ref", async () => {

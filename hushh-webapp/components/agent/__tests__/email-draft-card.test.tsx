@@ -19,6 +19,7 @@ vi.mock("@/lib/services/email-delivery-service", async () => {
       draft: vi.fn(),
       prepare: vi.fn(),
       send: vi.fn(),
+      sendStatus: vi.fn(),
       saveGmailDraft: vi.fn(),
     },
   };
@@ -35,6 +36,7 @@ describe("EmailDraftCard", () => {
     vi.mocked(EmailDeliveryService.draft).mockReset();
     vi.mocked(EmailDeliveryService.prepare).mockReset();
     vi.mocked(EmailDeliveryService.send).mockReset();
+    vi.mocked(EmailDeliveryService.sendStatus).mockReset();
     vi.mocked(EmailDeliveryService.saveGmailDraft).mockReset();
     getAuth.mockResolvedValue({
       firebaseIdToken: "firebase-token",
@@ -213,6 +215,60 @@ describe("EmailDraftCard", () => {
     expect(onSendFailed).toHaveBeenCalledWith(
       expect.objectContaining({ code: "EMAIL_ACTION_OUTCOME_UNKNOWN" }),
       null,
+    );
+    expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a lost Send acknowledgement from the same ledger action without sending again", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "prepared-action", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockRejectedValue(new TypeError("response lost"));
+    vi.mocked(EmailDeliveryService.sendStatus).mockResolvedValue({
+      actionId: "prepared-action", state: "sent",
+    });
+    const onSent = vi.fn();
+    const onSendFailed = vi.fn();
+    render(
+      <EmailDraftCard
+        initialInstruction=""
+        initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Demo", body: "Hello" }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={onSent}
+        onSendFailed={onSendFailed}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+    await waitFor(() => expect(onSent).toHaveBeenCalledTimes(1));
+    expect(EmailDeliveryService.sendStatus).toHaveBeenCalledWith(expect.objectContaining({
+      actionId: "prepared-action",
+    }));
+    expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1);
+    expect(onSendFailed).not.toHaveBeenCalled();
+  });
+
+  it("reports a confirmed failed action after response loss without retrying the provider", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "prepared-action", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockRejectedValue(new TypeError("response lost"));
+    vi.mocked(EmailDeliveryService.sendStatus).mockResolvedValue({
+      actionId: "prepared-action", state: "failed",
+    });
+    const onSendFailed = vi.fn();
+    render(
+      <EmailDraftCard
+        initialInstruction=""
+        initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Demo", body: "Hello" }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+        onSendFailed={onSendFailed}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+    await waitFor(() => expect(onSendFailed).toHaveBeenCalledTimes(1));
+    expect(onSendFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EMAIL_ACTION_NOT_SENT" }), null,
     );
     expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1);
   });

@@ -12,6 +12,10 @@ export type EmailDeliveryHistoryItem = {
   instruction: string;
   draft: EmailDraft;
   status: "sending" | "sent" | "failed" | "outcome_unknown";
+  /** Opaque server action retained to reconcile this exact send attempt. */
+  actionId?: string | null;
+  /** Restored from action metadata after reload; no draft or mail content is stored. */
+  restoredOnly?: boolean;
   /** Present only when this is a source-bound Gmail KYC reply. */
   sourceBoundWorkflowId?: string | null;
   errorCode?: string | null;
@@ -31,6 +35,8 @@ type EmailDeliveryHistoryCardProps = {
   /** Closes this item's Google sign-in window; ends quietly. */
   onCancelEnableGmailSend?: () => void;
   onRetry?: (item: EmailDeliveryHistoryItem) => void;
+  onCheckStatus?: (item: EmailDeliveryHistoryItem) => void;
+  checkingStatus?: boolean;
 };
 
 function statusCopy(item: EmailDeliveryHistoryItem): string {
@@ -40,7 +46,7 @@ function statusCopy(item: EmailDeliveryHistoryItem): string {
     case "sent":
       return "Mail sent";
     case "outcome_unknown":
-      return "Delivery status needs checking";
+      return item.errorMessage || "Gmail delivery is not confirmed";
     default:
       return item.errorMessage || "Mail could not be sent.";
   }
@@ -57,8 +63,10 @@ export function EmailDeliveryHistoryCard({
   enablingGmailSend = false,
   onCancelEnableGmailSend,
   onRetry,
+  onCheckStatus,
+  checkingStatus = false,
 }: EmailDeliveryHistoryCardProps) {
-  const canRetry = item.status === "failed";
+  const canRetry = item.status === "failed" && !item.restoredOnly;
   const needsGmailReconnect =
     item.errorCode === "GMAIL_SEND_DISABLED" ||
     item.errorCode === "GMAIL_SEND_PERMISSION_REQUIRED";
@@ -96,7 +104,17 @@ export function EmailDeliveryHistoryCard({
       </summary>
 
       <div className="space-y-3 border-t border-border/60 px-4 py-4 text-sm">
-        <div>
+        {item.restoredOnly ? (
+          <p className="text-muted-foreground">
+            {item.status === "sent"
+              ? "Gmail confirmed this earlier send. Draft details are not saved here."
+              : item.status === "failed"
+                ? "Gmail did not send this email. Draft details are not saved here."
+                : "This earlier send attempt has no draft saved here. Check Gmail Sent Mail before sending it again."}
+          </p>
+        ) : (
+          <>
+            <div>
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Your request
           </p>
@@ -147,7 +165,26 @@ export function EmailDeliveryHistoryCard({
           ) : (
             <p className="mt-1 text-foreground">—</p>
           )}
-        </div>
+            </div>
+          </>
+        )}
+        {item.status === "outcome_unknown" && !item.restoredOnly ? (
+          <p className="text-muted-foreground">
+            We cannot confirm whether Gmail sent it. Check Sent Mail before sending again.
+          </p>
+        ) : null}
+        {(item.status === "outcome_unknown" || item.status === "sending") &&
+          item.actionId && onCheckStatus ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={checkingStatus}
+              onClick={() => onCheckStatus(item)}
+            >
+              {checkingStatus ? "Checking…" : "Check status"}
+            </Button>
+          ) : null}
         {canRetry ? (
           <div className="flex flex-wrap gap-2">
             {needsGmailReconnect ? (
