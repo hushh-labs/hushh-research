@@ -8,13 +8,13 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 ## Decision — 2026-10-08
 
-Measurement snapshot: **2026-10-09 00:07 UTC** (October 8 locally). Later samples require a dated refresh.
+Measurement snapshot: **2026-10-09 00:31 UTC** (October 8 locally). Later samples require a dated refresh.
 
 **The dev application and isolated Files journeys work on both clouds. Release
 acceptance is held on cold latency and normal-owner journeys.** The corrected image
 serves dev and passes exact-predecessor recovery on both clouds. Current cold
 responses remain above the 30-second target. Azure's complete 20-sample cold cohort
-has p95 **71.304 seconds**; Google has 17/20 samples and continues. These are
+has p95 **71.304 seconds**; Google has 18/20 samples and continues. These are
 operator-bootstrap measurements, not browser timing. Slow samples and original failures
 remain recorded. Current-image warm and bounded concurrent journeys pass.
 
@@ -50,7 +50,7 @@ The archived release descriptor and independent serving readback match the run. 
 | Files | Dedicated `agent_files` and `/one/files` explorer. Both clouds: resumable 4 MiB + 1 KiB transfer, duplicate chunks, byte-exact download, folder move/rename/undo, trash/restore. | Normal owner browser, exact Files configuration offer and installation. |
 | Organization | Google authenticated Cloud Tasks and Azure managed-identity Storage Queue consumer both complete opted-in synthetic organization. Exclusions refuse dispatch; cancellation preserves originals. Analysis switched off afterward. | Normal owner experience and production IAM/queue qualification. |
 | Recovery / updates | Exact `ace34069` → `e213acf2` transition passed on both clouds: identity, keys, selected configuration and encrypted history retained. Google file bytes matched; separate current-image fixtures on both clouds also retain Files. | Normal Settings approval during active work, refresh/reconnect and one durable operation. Qualification is at 1 vCPU / 2 GiB, not capacity proof for every existing owner configuration. |
-| Chat / runtime | Current `e213acf2`: 20 warm chats and one/two/four overlapping chat/Files/status pass; ten-minute soak settles 20 operations per cloud. Azure's 20 cold samples complete; Google 14/20. | Cold target fails; normal-browser cold timing, real Puppy overlap and full-workload resource peaks remain unverified. Genuine scale-to-zero observed on the current image. |
+| Chat / runtime | Current `e213acf2`: 20 warm chats and one/two/four overlapping chat/Files/status pass; ten-minute soak settles 20 operations per cloud. Azure's 20 cold samples complete; Google 18/20. | Cold target fails; normal-browser cold timing, real Puppy overlap and full-workload resource peaks remain unverified. Genuine scale-to-zero observed on the current image. |
 | Headless reviewer | Deployed dev: canonical reviewer authentication, visible locked-vault challenge, unlock, Hosting/Updates and same-session continuity pass. | Overall rehearsal fails on automatic self-enrollment during bounded reads. Local guard and focused negative control pass; no new device enrolled. This session does not establish personal-owner approval. |
 | Puppy | Existing Hermes identity and signed direct stream retained; prior grant/withdrawal, response and cancellation receipts. | Fresh response/reconnect on qualified image and independent active internet. Heartbeat alone is not inference. |
 | Setup / billing | Durable retry, explicit Shared/`unplaced`, pending/assigned preservation, owner identity/IAM/CORS/admission gates. | New and existing owner setup, billing/policy return without duplicate resources. Azure trial refuses a second environment and new OpenAI S0 resource. |
@@ -64,11 +64,11 @@ The archived release descriptor and independent serving readback match the run. 
 | Google new-image warm chat | 20/20; first-text p50 **6.611 s**, p95 **7.700 s** | `e213acf2`; approved dev bridge. First post-install turn was 24.821 s, separate from this warm series. Cold wake requires independent platform-zero evidence. |
 | Google previous-image cold | Admission **50.958 s**, first text **129.795 s**, complete **134.314 s** | Target failed. Stopped after one sample to fix the measured replay cost; original failure retained. |
 | Azure new-image warm chat | 20/20; first-text p50 **10.703 s**, p95 **13.389 s** | Previous image p95 was 29.018 s on the same fixture. First post-install turn was 25.643 s. Existing environment and cross-region custody remain qualification limits. |
-| Current-image cold | Google **17/20**, range **29.455–71.721 s**; Azure **20/20**, p50 **60.035 s**, p95 **71.304 s** | Fresh platform zero before each sample. Operator-bootstrap admission is included; this is not normal-browser timing. Azure target failed. Original Google 129.795 s and Azure 90 s admission timeout retained. |
+| Current-image cold | Google **18/20**, range **29.455–71.721 s**; Azure **20/20**, p50 **60.035 s**, p95 **71.304 s** | Fresh platform zero before each sample. Operator-bootstrap admission is included; this is not normal-browser timing. Azure target failed. Original Google 129.795 s and Azure 90 s admission timeout retained. |
 | Azure cold phases | Image pull **26.048 s**; startup recovery **3.251 s** | Same-image EastUS2 registry comparison preserves identity, ingress, keys and file bytes; 20-sample cohort complete. Original registry and custody are WestUS2 while compute is EastUS2. |
 | Azure transport probe | Six bounded reads/path: median **289 ms → 70 ms** with existing pooled transport | Same-resource microbenchmark; no response cache. A same-resource microbenchmark does not establish end-to-end improvement. |
 | Gemini 3.8 | Native exchange 2/3; third response 504, including the one allowed transient retry | Not qualified as default. Corrected mailbox trace follows authored acknowledgement then Email delegation; strict first-tool score alone was misleading. |
-| Gemini 3.5 Flash | Three correct first-tool results at LOW; fourth request returned 429 | Six-case measurement incomplete; remaining cases and native round trips unperformed. No retry amplification or default promotion. |
+| Gemini 3.5 Flash | LOW: native tools 3/3; strict first-tool selection 5/6 | The mailbox case acknowledges then delegates to Email in a bounded two-step trace, matching authored behavior. Initial 429 retained and one permitted retry used. No connector executed or default promotion. |
 | Gemini 3.5 Flash-Lite | Native tools 3/3; baseline and MEDIUM first-tool runs each missed two workflows | Baseline receipt records no thinking level, so it does not establish LOW behavior. Separate model from plain Flash; neither result clears One's default-model gate. |
 | Azure GPT-6 Luna | 3/3 native tool round trips and 6/6 representative first-tool cases; 3.0–6.6 s/native exchange | Actual pod identity, temporary scoped Responses-only deployment. No 429 at configured capacity; earlier capacity-one 429 and its retry remain failures. Small sample is not quota capacity. |
 
@@ -78,15 +78,14 @@ Current official global input/output rates per million tokens are $1.50/$9 for
 plain 3.5 Flash, $0.30/$2.50 for Flash-Lite, and introductory $0.75/$3.75 for
 3.8 Flash through December 31 ([provider rates](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing)). LOW changes observed reasoning usage, not token
 prices; output includes reasoning ([thinking contract](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/thinking)). The conservative qualification accounting is
-$1.79798935 of the $2 ceiling, including a reserved failed request; it is not an invoice.
+$1.92854485 of the $2 ceiling, including a reserved failed request; it is not an invoice.
 
 During bounded overlap/soak, Azure sampled maximum working set was **0.500 GiB**
 and CPU **0.092 cores**. Google maximum one-minute p95 memory was **20.95%** of
 2 GiB and CPU **31.95%**. Different provider aggregations are not comparable peaks
 or full-workload capacity proof. Both observations retained at most one instance.
 
-Initial model qualification totals **$1.66458985 against the $2 ceiling**; runtime
-journeys are separately bounded. Governed Google defaults remain unchanged. The
+Runtime journeys are separately bounded. Governed Google defaults remain unchanged. The
 Azure personal owner's original model/resource was not modified by qualification.
 
 The published `2026.10-dev.12` descriptor adds only predecessor `ace34069` after
