@@ -8466,7 +8466,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     generatedDriveSearchDraftRef.current = false;
     setInput(prompt);
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
-  }, []);
+  }, [setInput]);
   const toggleHistoryDrawer = useCallback(() => {
     const next = transitionConnectionsDrawer(
       { open: isHistoryDrawerOpen, mode: drawerMode },
