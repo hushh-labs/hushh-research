@@ -25,7 +25,7 @@ function collectSourceFiles(directory: string): string[] {
 }
 
 function isCanonicalIconImplementation(path: string): boolean {
-  return path.includes("/components/icons/");
+  return path.replaceAll("\\", "/").includes("/components/icons/");
 }
 
 function findDirectIconLibraryImports(webappRoot: string): string[] {
@@ -39,7 +39,7 @@ function findDirectIconLibraryImports(webappRoot: string): string[] {
     return files.flatMap((path) => {
       if (isCanonicalIconImplementation(path)) return [];
       return ICON_LIBRARY_IMPORT.test(readFileSync(path, "utf8"))
-        ? [relative(webappRoot, path)]
+        ? [relative(webappRoot, path).replaceAll("\\", "/")]
         : [];
     });
   });
@@ -90,7 +90,7 @@ function findSparkleReferences(webappRoot: string): string[] {
     }
     return files.flatMap((path) =>
       SPARKLE_GLYPH.test(readFileSync(path, "utf8"))
-        ? [relative(webappRoot, path)]
+        ? [relative(webappRoot, path).replaceAll("\\", "/")]
         : [],
     );
   });
@@ -201,7 +201,7 @@ describe("application icon and motion contracts", () => {
     const withHeaderWell = files.filter((path) =>
       readFileSync(path, "utf8").includes('data-slot="card-header-icon"'),
     );
-    expect(withHeaderWell.map((path) => relative(process.cwd(), path)).sort()).toEqual([
+    expect(withHeaderWell.map((path) => relative(process.cwd(), path).replaceAll("\\", "/")).sort()).toEqual([
       "components/agent/agent-structured-experience.tsx",
       "components/agent/consent/ask-proposal-card.tsx",
       "components/agent/specialist-directive-card.tsx",
@@ -315,7 +315,7 @@ describe("application icon and motion contracts", () => {
     const uiIcons = readFileSync(
       join(process.cwd(), "components/icons/ui/ui-icons.tsx"),
       "utf8",
-    );
+    ).replaceAll("\r\n", "\n");
     const detailIcons = readFileSync(
       join(process.cwd(), "components/icons/ui/detail-icons.tsx"),
       "utf8",
