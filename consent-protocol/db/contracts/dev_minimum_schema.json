@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 290,
+  "expected_migration_version": 294,
   "migration_version_policy": "minimum",
   "required_functions": [
     "publish_personal_agent_notification_checkpoint",
@@ -56,6 +56,10 @@
     "pkm_spend_credits",
     "bump_gmail_send_grant_generation",
     "notify_document_request_feed_changed",
+    "queue_direct_message_push",
+    "reconcile_legacy_push_owner",
+    "erase_tombstoned_push_registrations",
+    "restore_legacy_push_projection",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -181,6 +185,14 @@
       "created_at",
       "updated_at"
     ],
+    "chat_push_device_deliveries": [
+      "event_id",
+      "device_id",
+      "recipient_user_id",
+      "direct_message_id",
+      "circle_message_id",
+      "accepted_at"
+    ],
     "circle_chat_messages": [
       "original_recipient_count",
       "id",
@@ -193,7 +205,8 @@
       "image_ciphertext",
       "image_iv",
       "request_digest",
-      "created_at"
+      "created_at",
+      "notification_previews"
     ],
     "circle_chat_preferences": [
       "circle_id",
@@ -452,6 +465,13 @@
       "blocker_user_id",
       "blocked_user_id",
       "created_at"
+    ],
+    "direct_message_push_outbox": [
+      "message_id",
+      "recipient_user_id",
+      "status",
+      "attempts",
+      "due_at"
     ],
     "direct_message_reactions": [
       "message_id",
@@ -830,7 +850,8 @@
       "created_at",
       "updated_at",
       "expires_at",
-      "access_stop_requested_at"
+      "access_stop_requested_at",
+      "owner_allowed_at"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -2285,6 +2306,26 @@
       "verified_at",
       "revocation_outcome",
       "revocation_pending_until"
+    ],
+    "user_push_installations": [
+      "id",
+      "user_id",
+      "token",
+      "platform",
+      "device_id",
+      "preview_key_id",
+      "preview_public_key",
+      "created_at",
+      "updated_at"
+    ],
+    "user_push_tokens": [
+      "id",
+      "user_id",
+      "token",
+      "platform",
+      "device_id",
+      "preview_key_id",
+      "preview_public_key"
     ],
     "vault_keys": [
       "user_id",

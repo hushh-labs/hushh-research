@@ -41,7 +41,7 @@ stateDiagram-v2
 
   replay --> observe: HUSHH_MIGRATION_MODE set to observe
   observe --> baselineGate: bounded write-freeze, evidence captured
-  baselineGate --> ledger: baseline recorded, local/test/UAT only
+  baselineGate --> ledger: baseline recorded, local/test/Dev/UAT only
   baselineGate --> failClosed: incomplete or unverified preservation evidence
   ledger --> ledger: re-run executes zero bodies
   observe --> failClosed: an accepted checksum changed
@@ -126,6 +126,12 @@ while the statement waits. It never reads another session's query text.
 
 ## UAT Zero-Loss Baseline Gate
 
+The same preservation authority supports an explicitly authorized Dev cutover.
+Verify the complete canonical release history before recording its baseline;
+parked migration receipts do not prove a release prefix. Preserve divergent
+preview SQL and receipts without relabeling accepted history. A Dev baseline
+requires the same backup, restored-clone, source-preservation and readback proof.
+
 Before establishing a UAT baseline:
 
 1. capture the read-only preservation manifest with
@@ -147,7 +153,7 @@ operators set `PG_RESTORE_BIN` explicitly when the host default differs.
 Reports remain under ignored `tmp/` and never contain plaintext protected
 information.
 
-This logical dump/restore procedure is a **UAT baseline tool only**. It is not the
+This logical dump/restore procedure is a **nonproduction baseline tool**. It is not the
 production recovery path: production recovery is Cloud SQL automated backups plus
 PITR, described in
 [production-db-backup-and-recovery.md](./production-db-backup-and-recovery.md).

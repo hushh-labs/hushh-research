@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive paid-scope database readiness contracts from migration 289.
+"""Derive paid-scope database readiness contracts from the registered scope-commerce migration.
 
 SQL owns table shape; the release manifest owns environment heads. Preserve
 other owned projections and reject schema drift with ``--check``.
@@ -15,7 +15,7 @@ from pathlib import Path
 from generate_location_onboarding_runtime_schema_contracts import table_columns
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "289_consumer_scope_commerce.sql"
+MIGRATION_NAME = "292_consumer_scope_commerce.sql"
 MANIFEST_PATH = ROOT / "db" / "release_migration_manifest.json"
 CONTRACT_LANES = {
     "prod_core_schema.json": "base",

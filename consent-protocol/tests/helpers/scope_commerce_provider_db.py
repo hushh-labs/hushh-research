@@ -62,7 +62,7 @@ async def provider_postgres():
         async with pool.acquire() as conn:
             migration = (
                 Path(__file__).resolve().parents[2]
-                / "db/migrations/289_consumer_scope_commerce.sql"
+                / "db/migrations/292_consumer_scope_commerce.sql"
             )
             await conn.execute(
                 "CREATE TABLE pkm_manifests(user_id TEXT,domain TEXT,manifest_version INT)"

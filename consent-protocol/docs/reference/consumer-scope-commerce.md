@@ -65,7 +65,7 @@ consent flow; missing pricing means free and still requires approval.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/289_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/292_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -380,7 +380,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/289_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/292_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 
@@ -1851,3 +1851,35 @@ passed 108 authentication, delivery and financial cases against isolated Postgre
 and 15 harness controls. Expiry denies all four encrypted retrieval surfaces before
 an earnings worker settles the term. Full CI, deployed reviewer stories, signed
 Sandbox transaction receipts and old preview retirement remain outstanding.
+
+
+## Shared Dev migration lineage reconciliation — 2026-10-09
+
+The source review against main `c9168bb1debbf613c5ff247931a6bcc570d5adb5`
+found collisions at 249, 289 and 290. The release manifest now preserves main's
+complete ordered registrations through 291 and registers scope commerce at
+292, the explicit Shared choice at 293, and the additive public-profile bridge
+at 294. These registrations preserve their SQL and rollback bodies. Exact
+prior branch copies, including historical preservation edits, remain under
+`db/legacy/scope-commerce-preview-600b975f`; retired preview receipts and images
+retain their original identities. No database receipt is renamed or fabricated.
+
+Shared Dev readback at 21:46Z found 58 applied parked receipts, no release
+baseline, and zero records in the six inspected commercial tables. Replay does
+not establish release receipts. A verified backup, restored clone, source
+preservation comparison and canonical release-effect checks remain required
+before ledger cutover and paid acceptance. Restoring canonical historical source
+is not permission to replay seed updates, delete chat history, or deduplicate
+registrations solely to manufacture readiness. The existing chat-push runtime
+and its installation/outbox families accompany the canonical schema declarations.
+
+The Memory/Account changes remain source-verified; shared Dev deployment and
+reviewer Stripe transactions remain unverified. Payment admission stays disabled.
+
+The existing 056/057 replay-preservation guards remain in the active source.
+A negative-control rehearsal against main's older seed bodies failed both
+bootstrap replay stability and refreshed/curated-profile preservation. No test
+was weakened. These two safety fixes need canonical main alignment before a
+shared Dev baseline is frozen; no accepted receipt may be rewritten. Common
+141/262 SQL now matches the inspected main history, including the Drive event
+allowlist's superset guard.

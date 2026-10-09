@@ -683,7 +683,7 @@ async def establish_baseline(
     )
     if environment not in _ALLOWED_BASELINE_ENVIRONMENTS:
         raise MigrationAuthorityError(
-            "Baseline establishment is prohibited outside local/test/UAT environments"
+            "Baseline establishment is prohibited outside local/test/Dev/UAT environments"
         )
     versions = [entry.numeric_version for entry in entries if entry.numeric_version is not None]
     if not versions:

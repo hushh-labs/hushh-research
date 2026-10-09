@@ -52,7 +52,12 @@ async def test_sandbox_readiness_refuses_actor_origin_mode_and_unbound_pin(
     # The actual route must prove the release lane, never the larger parked tail.
     assert (await ctx.get(path)).json()["schema_head"] == max(e.numeric_version for e in entries)
     async with ctx.pool.acquire() as c:
-        await c.execute("DELETE FROM schema_migrations WHERE migration_id='289'")
+        commerce_id = next(
+            entry.migration_id
+            for entry in entries
+            if entry.filename.endswith("_consumer_scope_commerce.sql")
+        )
+        await c.execute("DELETE FROM schema_migrations WHERE migration_id=$1", commerce_id)
     assert (await ctx.get(path)).json()["schema_head"] is None
     monkeypatch.setenv("SCOPE_COMMERCE_ENABLED", "false")
     paused = await ctx.get(path)

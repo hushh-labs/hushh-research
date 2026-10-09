@@ -220,7 +220,7 @@
     "246_drive_feed_projection.sql",
     "247_private_mcp_registration.sql",
     "248_adk_chat_action_authority.sql",
-    "249_public_profile_bridge.sql",
+    "249_one_chat_history_legacy_cutover.sql",
     "250_gmail_mailbox_action_proposals.sql",
     "251_drive_owner_search_jobs.sql",
     "252_calendar_mail_feed_projection.sql",
@@ -260,8 +260,12 @@
     "286_one_referral_link_open_notify.sql",
     "287_drive_request_access_stop.sql",
     "288_drive_request_feed_stream.sql",
-    "289_consumer_scope_commerce.sql",
-    "290_one_shared_hosting_choice.sql"
+    "289_one_referral_program_settings_v2.sql",
+    "290_chat_push_delivery.sql",
+    "291_drive_request_owner_allowed.sql",
+    "292_consumer_scope_commerce.sql",
+    "293_one_shared_hosting_choice.sql",
+    "294_public_profile_bridge.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -477,7 +481,7 @@
     "255_account_legal_acceptances.sql": "rollback/255_account_legal_acceptances.rollback.sql",
     "253_kai_run_state.sql": "rollback/253_kai_run_state.rollback.sql",
     "252_calendar_mail_feed_projection.sql": "rollback/252_calendar_mail_feed_projection.rollback.sql",
-    "249_public_profile_bridge.sql": "rollback/249_public_profile_bridge.rollback.sql",
+    "249_one_chat_history_legacy_cutover.sql": "rollback/249_one_chat_history_legacy_cutover.rollback.sql",
     "250_gmail_mailbox_action_proposals.sql": "rollback/250_gmail_mailbox_action_proposals.rollback.sql",
     "238_gmail_personal_information_request_classifier_policy_version.sql": "rollback/238_gmail_personal_information_request_classifier_policy_version.rollback.sql",
     "237_gmail_personal_information_request_incremental_backfill.sql": "rollback/237_gmail_personal_information_request_incremental_backfill.rollback.sql",
@@ -540,13 +544,15 @@
     "282_direct_message_actions.sql": "rollback/282_direct_message_actions.rollback.sql",
     "283_gmail_send_grant_generation.sql": "rollback/283_gmail_send_grant_generation.rollback.sql",
     "284_direct_message_multiple_reactions.sql": "rollback/284_direct_message_multiple_reactions.rollback.sql",
+    "289_one_referral_program_settings_v2.sql": "rollback/289_one_referral_program_settings_v2.rollback.sql",
     "285_one_wallet_card_auto_provision.sql": "rollback/285_one_wallet_card_auto_provision.rollback.sql",
     "286_one_referral_link_open_notify.sql": "rollback/286_one_referral_link_open_notify.rollback.sql",
     "287_drive_request_access_stop.sql": "rollback/287_drive_request_access_stop.rollback.sql",
     "288_drive_request_feed_stream.sql": "rollback/288_drive_request_feed_stream.rollback.sql",
-    "240_public_profile_discovery.sql": "rollback/240_public_profile_discovery.rollback.sql",
-    "249_public_profile_bridge.sql": "rollback/249_public_profile_bridge.rollback.sql",
-    "289_consumer_scope_commerce.sql": "rollback/289_consumer_scope_commerce.rollback.sql",
-    "290_one_shared_hosting_choice.sql": "rollback/290_one_shared_hosting_choice.rollback.sql"
+    "290_chat_push_delivery.sql": "rollback/290_chat_push_delivery.rollback.sql",
+    "291_drive_request_owner_allowed.sql": "rollback/291_drive_request_owner_allowed.rollback.sql",
+    "294_public_profile_bridge.sql": "rollback/294_public_profile_bridge.rollback.sql",
+    "292_consumer_scope_commerce.sql": "rollback/292_consumer_scope_commerce.rollback.sql",
+    "293_one_shared_hosting_choice.sql": "rollback/293_one_shared_hosting_choice.rollback.sql"
   }
 }

@@ -84,7 +84,7 @@ async def commerce_db():
                 "088_consent_export_envelope_v2.sql",
             ):
                 await c.execute((MIGRATIONS / migration).read_text())
-            await c.execute((MIGRATIONS / "289_consumer_scope_commerce.sql").read_text())
+            await c.execute((MIGRATIONS / "292_consumer_scope_commerce.sql").read_text())
             await c.execute(
                 "CREATE TABLE developer_apps(app_id TEXT PRIMARY KEY,owner_firebase_uid TEXT,status TEXT)"
             )

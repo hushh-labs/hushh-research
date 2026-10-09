@@ -175,9 +175,6 @@ CREATE INDEX IF NOT EXISTS drive_request_payment_refunds_due
 
 -- Replay-all deployments should not take an ACCESS EXCLUSIVE lock once the
 -- event allowlist is installed. Compare the catalog's allowed event literals.
--- Later migrations may add event types (288 adds document_share_request_sent).
--- Preserve an installed superset: narrowing it during replay would reject
--- existing events before the later migration can restore their allowed type.
 DO $$
 DECLARE installed TEXT[];
 BEGIN
@@ -187,12 +184,12 @@ BEGIN
   FROM pg_constraint c
   WHERE c.conrelid='drive_share_events'::regclass
     AND c.conname='drive_share_events_event_type_check';
-  IF NOT COALESCE(installed @> ARRAY[
+  IF installed IS DISTINCT FROM ARRAY[
     'document_share_decided','document_share_outcome',
     'document_share_payment_confirmed','document_share_payment_ready',
     'document_share_payment_refunded','document_share_request',
     'document_share_review_ready','document_share_revocation_outcome',
-    'document_share_revoked']::TEXT[], FALSE) THEN
+    'document_share_revoked']::TEXT[] THEN
     ALTER TABLE drive_share_events DROP CONSTRAINT IF EXISTS drive_share_events_event_type_check;
     ALTER TABLE drive_share_events ADD CONSTRAINT drive_share_events_event_type_check
       CHECK (event_type IN (

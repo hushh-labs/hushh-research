@@ -123,7 +123,8 @@
         "actor_identity_cache",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens"
+        "user_push_tokens",
+        "user_push_installations"
       ],
       "primary_access_path": "account, persona, notification, verified email alias, and identity-cache services",
       "retention_policy": "Retain while account exists; refresh from authoritative identity sources where possible.",
@@ -1742,6 +1743,23 @@
       "trust_boundary": "Integer money and balanced append-only entries use PostgreSQL transactions and reservations; caller receipts and Checkout redirects are not payment evidence. Owner-approved immutable quotes bind exact scope, duration, app and recipient key, with separate human payer confirmation. Only a future fixed-time owner-encrypted export activates paid access; payment never broadens consent or refresh. Stripe receives opaque financial references, never decrypted information, private keys or request purpose.",
       "plaintext_posture": "financial_and_consent_metadata_with_transient_ciphertext_only",
       "expected_row_growth": "medium_per_purchase_funding_and_settlement"
+    },
+    {
+      "id": "chat_push_delivery",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "chat_push_device_deliveries",
+        "direct_message_push_outbox"
+      ],
+      "primary_access_path": "Transactional direct-message outbox and shared Circle/direct device delivery workers; source eligibility is rechecked before FCM acceptance.",
+      "retention_policy": "Message history keeps its existing policy. Push sources expire after one day or five attempts; delivery records deduplicate retries for the source lifetime.",
+      "deletion_behavior": "Source deletion cascades to its outbox and delivery records. Account erasure cascades recipient-owned records; tombstones suppress further sends. Installation unregister removes preview keys and token registrations.",
+      "utilization_policy": "Delivery metadata is used only for eligible recipient alerts and retry deduplication.",
+      "plaintext_posture": "opaque_source_device_and_recipient_delivery_metadata",
+      "expected_row_growth": "one_outbox_per_direct_message_and_one_acceptance_per_recipient_installation",
+      "trust_boundary": "Verified recipient, active connection/current Circle membership, block/mute/read/deletion checks, installation owner/key lifecycle fences. No plaintext message or avatar persists in these tables."
     }
   ]
 }

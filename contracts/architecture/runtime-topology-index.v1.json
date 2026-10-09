@@ -746,7 +746,8 @@
         "actor_identity_cache",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens"
+        "user_push_tokens",
+        "user_push_installations"
       ],
       "id": "actor_identity_state",
       "lifecycle_status": "current",
@@ -775,6 +776,17 @@
       "lifecycle_status": "dev_only",
       "owner": "backend-agents-operons",
       "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "chat_push_device_deliveries",
+        "direct_message_push_outbox"
+      ],
+      "id": "chat_push_delivery",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Transactional direct-message outbox and shared Circle/direct device delivery workers; source eligibility is rechecked before FCM acceptance."
     },
     {
       "data_class": "personal_encrypted",
@@ -6391,7 +6403,7 @@
     "action_gateway": "0a0a69fc935609762f7b8a782492900ab0ce99a9d3ba2a64b4d3eeedca51234e",
     "agent_registry": "39fccd758b05033a07ce46f89e7a36fa006f51e284836264ed72e66ff658428d",
     "cache_manifest": "df8bcd02aa12938a199ba389dccabd3ba0b5173beea69ae5b3e1b640462a8f70",
-    "data_plane": "de264fc0b35d89fbe55ea02e3e7022b09c2537cab280a45a6af363091b3006b5",
+    "data_plane": "6e644c0e1ca7b27d46e2f06d8cef0ebc57afc54075987c6503876a2f6380484a",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
     "route_index": "20d422a49c4c98ad150545ad1fde4b442ee8217ce25235fb394de7dd896e13b1",
@@ -6410,6 +6422,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 151,
     "semantic_routes": 17,
-    "table_families": 100
+    "table_families": 101
   }
 }
