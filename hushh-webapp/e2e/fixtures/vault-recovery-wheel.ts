@@ -14,8 +14,19 @@ export async function verifyRecoveryWheelAccess(page: Page, content: Locator, re
     node.scrollTop = 0;
     return original;
   });
+  const pointInsideScrollport = async () => {
+    const point = await content.evaluate(node => {
+      const r = node.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = Math.max(r.top, 0) + (Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)) / 2;
+      return { x, y, containsHit: node.contains(document.elementFromPoint(x, y)) };
+    });
+    expect(point.containsHit).toBe(true);
+    await page.mouse.move(point.x, point.y);
+  };
   try {
     await expect.poll(async () => (await recoveryGeometry()).contained).toBe(false);
+    await pointInsideScrollport();
     await page.mouse.wheel(0, 1000);
     await page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -28,6 +39,7 @@ export async function verifyRecoveryWheelAccess(page: Page, content: Locator, re
     await page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     }));
+    await pointInsideScrollport();
     await page.mouse.wheel(0, 1000);
     await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
     await expect.poll(async () => (await recoveryGeometry()).contained).toBe(true);

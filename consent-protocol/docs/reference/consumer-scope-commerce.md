@@ -1790,3 +1790,13 @@ and audit history are preserved. Refresh the financial proof before mutation and
 verify exact resource absence afterward. Deploy/readback and retirement receipts
 are required before describing consolidation as complete. Live payments and full
 financial/native/MCP acceptance remain unverified and issue #7587 stays In Progress.
+
+CI run 37974311685 passed the three full web-test shards, web core, protocol,
+Android and generated-contract checks but exposed browser failures. Recovery
+wheel checks now hit the resized scrollport; secure Wallet fixtures retain the
+same-owner completed introduction after remount. A production Wallet fit defect
+captured the entrance animation's 8px translation, then grew the six-card deck
+on return. Fit now uses unscrolled layout coordinates including parent borders.
+The unchanged scroll-tail bound fails before the source fix and passes after it.
+All eight affected Chromium/WebKit checks passed, including a repeat run; full
+CI and Dev deployment remain required. No tolerance or real gate was weakened.
