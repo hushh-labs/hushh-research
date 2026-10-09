@@ -172,29 +172,35 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
 }));
 
 /** Route remounts use the existing session authority, not a mirrored draft.
- * Embedded chats remain local. A withdrawn owner reads no retained contents. */
+ * Embedded and pre-vault intro chats remain local. A withdrawn owner reads no
+ * retained contents; local intro editing never admits a native private editor. */
 export function useOneComposerDraft(canonical: boolean, unlockedOwnerId: string | null) {
   const retained = useOneConversationSession(state => state.composerDraft);
   const [local, setLocal] = useState(() => emptyComposerDraft("embedded"));
   const owned = canonical && retained?.ownerId === unlockedOwnerId ? retained : null;
   useLayoutEffect(() => {
     if (!canonical) return;
+    setLocal(emptyComposerDraft("embedded"));
     const session = useOneConversationSession.getState();
     if (unlockedOwnerId) session.ensureComposerDraft(unlockedOwnerId);
     else session.clearComposerDraft();
     // Route unmount does not retire the authenticated vault session.
   }, [canonical, unlockedOwnerId]);
-  const context = canonical ? owned?.context : local.context;
+  const retainsOwnerDraft = canonical && !!unlockedOwnerId;
+  const context = retainsOwnerDraft ? owned?.context : local.context;
   const change = useCallback(<K extends "input" | "attachment" | "expanded">(key: K, value: SetStateAction<OneComposerDraft[K]>) => {
     const update = (draft: OneComposerDraft): OneComposerDraft => ({ ...draft,
       [key]: typeof value === "function" ? (value as (previous: OneComposerDraft[K]) => OneComposerDraft[K])(draft[key]) : value });
-    if (!canonical) { setLocal(update); return; }
+    if (!canonical || !unlockedOwnerId) {
+      setLocal(previous => previous.context === context ? update(previous) : previous);
+      return;
+    }
     if (unlockedOwnerId && context) useOneConversationSession.getState().updateComposerDraft(unlockedOwnerId, context, update);
   }, [canonical, unlockedOwnerId, context]);
   const setInput = useCallback((value: SetStateAction<string>) => change("input", value), [change]);
   const setAttachment = useCallback((value: SetStateAction<PendingTextAttachment | null>) => change("attachment", value), [change]);
   const setExpanded = useCallback((value: SetStateAction<boolean>) => change("expanded", value), [change]);
-  const draft = canonical ? owned : local;
+  const draft = retainsOwnerDraft ? owned : local;
   return { ready: !canonical || !!owned, context, input: draft?.input ?? "", setInput,
     attachment: draft?.attachment ?? null, setAttachment, expanded: draft?.expanded ?? false, setExpanded };
 }

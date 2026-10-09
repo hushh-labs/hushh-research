@@ -72,4 +72,23 @@ describe("One conversation session entry welcome", () => {
     expect(useOneConversationSession.getState().composerDraft).toBeNull();
     view.unmount();
   });
+
+  it("allows intro editing without admitting or retaining a protected owner draft", () => {
+    const view = renderHook(({ owner }) => useOneComposerDraft(true, owner), {
+      initialProps: { owner: null as string | null },
+    });
+    const introEdit = view.result.current.setInput;
+    act(() => introEdit("Synthetic introduction"));
+    expect(view.result.current.input).toBe("Synthetic introduction");
+    expect(view.result.current.ready).toBe(false);
+    expect(useOneConversationSession.getState().composerDraft).toBeNull();
+    view.rerender({ owner: "owner-a" });
+    act(() => introEdit("Delayed intro callback"));
+    expect(view.result.current.ready).toBe(true);
+    expect(view.result.current.input).toBe("");
+    view.rerender({ owner: null });
+    expect(view.result.current.input).toBe("");
+    expect(useOneConversationSession.getState().composerDraft).toBeNull();
+    view.unmount();
+  });
 });
