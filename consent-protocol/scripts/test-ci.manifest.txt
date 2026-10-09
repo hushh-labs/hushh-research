@@ -162,6 +162,7 @@ tests/test_onboarding_contract.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
 tests/services/test_connect_directory_postgres.py
+tests/test_environment_enrollment.py
 tests/test_one_capability_runtime_router_mount.py
 tests/services/test_location_brain_semantic_retrieval.py
 tests/services/test_location_circle_direct_executor.py

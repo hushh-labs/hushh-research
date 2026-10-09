@@ -86,7 +86,8 @@ CREATE TABLE one_location_recipient_keys (
 CREATE TABLE vault_keys (
   user_id TEXT PRIMARY KEY,
   vault_status TEXT NOT NULL DEFAULT 'active'
-    CHECK (vault_status IN ('placeholder', 'active'))
+    CHECK (vault_status IN ('placeholder', 'active')),
+  environment_enrolled_at TIMESTAMPTZ
 );
 """
 
@@ -136,6 +137,7 @@ def _person(
     vault: str | None = "active",
     discoverable: bool | None = None,
     trusted_by_owner: bool = False,
+    enrolled: bool = True,
 ) -> None:
     params = {"uid": user_id, "name": name, "discoverable": discoverable}
     conn.execute(text("INSERT INTO actor_profiles (user_id) VALUES (:uid)"), params)
@@ -153,8 +155,11 @@ def _person(
         )
     if vault is not None:
         conn.execute(
-            text("INSERT INTO vault_keys (user_id, vault_status) VALUES (:uid, :status)"),
-            {"uid": user_id, "status": vault},
+            text(
+                "INSERT INTO vault_keys (user_id, vault_status, environment_enrolled_at)"
+                " VALUES (:uid, :status, CASE WHEN :enrolled THEN NOW() END)"
+            ),
+            {"uid": user_id, "status": vault, "enrolled": enrolled},
         )
     if trusted_by_owner:
         _trusted(conn, OWNER, user_id)
@@ -262,6 +267,33 @@ def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
         if service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id=uid)
     }
     assert visible == {"active", "connected", "asked-them", "asked-me", "connected-hidden"}
+
+
+def test_a_vault_copied_from_another_environment_does_not_list_a_stranger(
+    connection: Connection,
+) -> None:
+    """Dev began as a UAT copy (2026-07-10), production as a UAT restore (2026-07-28).
+
+    Their active vaults look like real sign-ups; only a first unlock in THIS
+    environment stamps ``environment_enrolled_at``. People the viewer already
+    knows stay listed either way.
+    """
+    _person(connection, OWNER, "Owen Owner")
+    _person(connection, "used-here", "Una Usedhere")
+    _person(connection, "copied-in", "Cole Copied", enrolled=False)
+    _person(connection, "copied-friend", "Faye Friend", enrolled=False)
+    _connected(connection, "copied-friend")
+    service = _Directory(connection)
+
+    listed = service.search_directory_candidates(owner_user_id=OWNER, limit=50)
+
+    assert {item["userId"] for item in listed["items"]} == {"used-here", "copied-friend"}
+    assert not service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id="copied-in")
+    # The first unlock here makes them discoverable with no other change.
+    connection.execute(
+        text("UPDATE vault_keys SET environment_enrolled_at = NOW() WHERE user_id = 'copied-in'")
+    )
+    assert service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id="copied-in")
 
 
 @pytest.mark.parametrize("query", ["", "member"])

@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 294,
+  "expected_migration_version": 295,
   "migration_version_policy": "minimum",
   "required_functions": [
     "publish_personal_agent_notification_checkpoint",
@@ -2342,6 +2342,7 @@
       "updated_at",
       "one_hosting_choice",
       "one_hosting_choice_at",
+      "environment_enrolled_at",
       "one_hosting_legacy_shared_at"
     ]
   }

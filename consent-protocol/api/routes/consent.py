@@ -65,6 +65,7 @@ from hushh_mcp.services.consent_lifecycle_service import (
     identifier_filter_kwargs,
     owned_consent_identifiers,
 )
+from hushh_mcp.services.environment_enrollment import stamp_environment_enrollment
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -1388,6 +1389,9 @@ async def _issue_or_reuse_vault_owner_token(
 ) -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
     service = ConsentDBService()
+    if agent_id == "self" or agent_id.startswith("device:"):
+        # Unlocking here is what makes a person discoverable in THIS environment.
+        await stamp_environment_enrollment(user_id)
     active_tokens = await service.get_active_internal_tokens(
         user_id,
         agent_id=agent_id,

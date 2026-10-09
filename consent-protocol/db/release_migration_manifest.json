@@ -265,7 +265,8 @@
     "291_drive_request_owner_allowed.sql",
     "292_consumer_scope_commerce.sql",
     "293_one_shared_hosting_choice.sql",
-    "294_public_profile_bridge.sql"
+    "294_public_profile_bridge.sql",
+    "295_vault_environment_enrollment.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -553,6 +554,7 @@
     "291_drive_request_owner_allowed.sql": "rollback/291_drive_request_owner_allowed.rollback.sql",
     "294_public_profile_bridge.sql": "rollback/294_public_profile_bridge.rollback.sql",
     "292_consumer_scope_commerce.sql": "rollback/292_consumer_scope_commerce.rollback.sql",
-    "293_one_shared_hosting_choice.sql": "rollback/293_one_shared_hosting_choice.rollback.sql"
+    "293_one_shared_hosting_choice.sql": "rollback/293_one_shared_hosting_choice.rollback.sql",
+    "295_vault_environment_enrollment.sql": "rollback/295_vault_environment_enrollment.rollback.sql"
   }
 }
