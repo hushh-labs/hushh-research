@@ -89,7 +89,6 @@ describe("ReferralDashboardPage", () => {
       ],
     });
     await act(async () => { render(<ReferralDashboardPage />); });
-    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(await screen.findByText("Rewards policy unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Current program reward")).toBeNull();
     expect(screen.queryByText("42 referrals")).toBeNull();
@@ -112,12 +111,11 @@ describe("ReferralDashboardPage", () => {
     expect(mocks.getPoints).toHaveBeenCalledTimes(2);
   });
 
-  it("opens Rules independently of a pending summary and navigates back to One", async () => {
+  it("shows rules independently of a pending summary and navigates back to One", async () => {
     mocks.getSummary.mockReturnValue(neverResolves());
     render(<ReferralDashboardPage />);
-    fireEvent.click(screen.getByRole("tab", { name: "Rules" }));
     expect(await screen.findByText("100 points")).toBeInTheDocument();
-    expect(screen.queryByText("Loading your referrals…")).toBeNull();
+    expect(screen.getByText("Loading your referrals…")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to One home" }));
     expect(mocks.push).toHaveBeenCalledWith("/one");
   });
@@ -126,11 +124,9 @@ describe("ReferralDashboardPage", () => {
     mocks.getPolicy.mockResolvedValue({ version: 3, points: { qualified_referral_points: 123, flash_window_total_points: 246 }, streak_rules: { run_length_days: 3, bonus_points: 17 }, challenge_duration_days: 7, weekly_prizes_enabled: false });
     render(<ReferralDashboardPage />);
     await screen.findByText("Weekly challenge ends in");
-    fireEvent.click(screen.getByRole("tab", { name: "Rules" }));
     expect(await screen.findByText("123 points")).toBeInTheDocument();
     expect(screen.getByText("+17 points")).toBeInTheDocument();
     expect(screen.getByText("246 total")).toBeInTheDocument();
-    expect(screen.getByText("7 days")).toBeInTheDocument();
   });
 
   it.each([
@@ -151,8 +147,7 @@ describe("ReferralDashboardPage", () => {
     });
     render(<ReferralDashboardPage />);
     await screen.findByText("Weekly challenge ends in");
-    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
-    expect(screen.getAllByRole("heading", { level: 4 })).toHaveLength(4);
+    expect(within(screen.getByRole("region", { name: "Rewards" })).getAllByRole("heading", { level: 4 })).toHaveLength(4);
     if (title && threshold) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeInTheDocument();
       expect(screen.getByRole("progressbar", { name: `${title} milestone` })).toHaveAttribute(
@@ -160,7 +155,7 @@ describe("ReferralDashboardPage", () => {
       );
     } else {
       expect(screen.getByText("All rewards unlocked")).toBeInTheDocument();
-      expect(screen.queryByRole("progressbar")).toBeNull();
+      expect(within(screen.getByRole("region", { name: "Rewards" })).queryByRole("progressbar")).toBeNull();
     }
     expect(screen.queryByText("hushh_tee")).toBeNull();
   });
@@ -303,8 +298,7 @@ describe("ReferralDashboardPage", () => {
 
     render(<ReferralDashboardPage />);
 
-    const dayStreakLabel = await screen.findByText("Day streak");
-    const cell = dayStreakLabel.parentElement as HTMLElement;
+    const cell = await screen.findByRole("region", { name: "Referral streak" });
     expect(within(cell).getByText("—")).toBeInTheDocument();
     expect(within(cell).queryByText("0")).toBeNull();
     expect(within(cell).queryByRole("img")).toBeNull();
