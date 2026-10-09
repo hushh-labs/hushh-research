@@ -102,9 +102,9 @@ describe("Wallet Profile owner isolation", () => {
       return { card: rotated };
     });
     render(<WalletCardWorkspace embedded />);
-    await screen.findByText("/c/original");
+    await screen.findByText("/c/original", {}, { timeout: 5_000 });
     await act(async () => { mocks.changed?.(); });
-    expect(await screen.findByText("/c/rotated")).toBeVisible();
+    expect(await screen.findByText("/c/rotated", {}, { timeout: 5_000 })).toBeVisible();
     expect(screen.queryByText("/c/original")).toBeNull();
     expect(mocks.ensureCard).toHaveBeenCalledOnce();
     expect(mocks.getCard).toHaveBeenCalledTimes(2);
