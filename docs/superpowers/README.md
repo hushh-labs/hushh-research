@@ -18,10 +18,10 @@ This directory is the archive for scoped agentic planning artifacts generated
 for implementation work. It is not the canonical source of truth for shipped
 behavior.
 
-Status: 13 date-stamped artifacts are retained here (6 plans, 7 specs, listed
-below). None of them is maintained knowledge, and none should be cited as
-current behavior. They are kept for traceability until step 5 of the promotion
-rule runs against each one.
+Status: 14 date-stamped artifacts are retained here (1 active plan, 6 historical
+plans, 7 historical specs, listed below). The active plan is an execution
+proposal; historical artifacts remain for traceability until step 5 of the
+promotion rule runs against each one.
 
 Use this home for:
 
@@ -47,7 +47,11 @@ Promotion rule:
 
 ## Retained Artifacts
 
-Historical only. Verify anything here against current code before acting on it.
+### Active plan
+
+- [plans/2026-10-09-one-email-reliability-plan.md](./plans/2026-10-09-one-email-reliability-plan.md) — personal Gmail reliability work and deferred legacy receipt-sync hardening; see the [current graph](../reference/one/one-email-knowledge-graph.md).
+
+Historical artifacts below are not current behavior. Verify them against code before acting.
 
 ### Plans
 

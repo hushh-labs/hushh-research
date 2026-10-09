@@ -16,6 +16,7 @@ import {
   resolveGmailConnectionPresentation,
   sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
+import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 
 const STORAGE_KEY = "kai_gmail_connector_cache_v1";
 const STATUS_TTL_MS = 5 * 60 * 1000;
@@ -105,6 +106,7 @@ type Listener = () => void;
 
 const listeners = new Set<Listener>();
 const entries = new Map<string, GmailConnectorEntry>();
+const connectorStatusEpochs = new Map<string, number>();
 const connectorViewCache = new Map<
   string,
   {
@@ -606,6 +608,12 @@ async function fetchStatusFromNetwork(params: {
   }
 
   const entry = getOrCreateEntry(normalizedUserId);
+  // updateEntry replaces entry objects during normal refresh. A generation
+  // fence changes only when clearConnectorStatus invalidates an old request.
+  const requestEpoch = connectorStatusEpochs.get(normalizedUserId) || 0;
+  const requestIsCurrent = () =>
+    (connectorStatusEpochs.get(normalizedUserId) || 0) === requestEpoch &&
+    (!params.isCurrent || params.isCurrent());
   if (isStatusFresh(entry, Boolean(params.force))) {
     const activeRun = entry.syncRun || entry.status?.latest_run || null;
     if (
@@ -648,7 +656,7 @@ async function fetchStatusFromNetwork(params: {
     ? GmailReceiptsService.reconcile(statusParams)
     : GmailReceiptsService.getStatus({ ...statusParams, force: params.force }))
     .then((status) => {
-      if (params.isCurrent && !params.isCurrent()) return null;
+      if (!requestIsCurrent()) return null;
       primeConnectorStatus({
         userId: normalizedUserId,
         status,
@@ -663,7 +671,7 @@ async function fetchStatusFromNetwork(params: {
       return status;
     })
     .catch(async (error) => {
-      if (params.isCurrent && !params.isCurrent()) return null;
+      if (!requestIsCurrent()) return null;
       if (shouldReconcile) {
         try {
           const fallbackStatus = await GmailReceiptsService.getStatus({
@@ -671,7 +679,7 @@ async function fetchStatusFromNetwork(params: {
             userId: normalizedUserId,
             force: params.force,
           });
-          if (params.isCurrent && !params.isCurrent()) return null;
+          if (!requestIsCurrent()) return null;
           primeConnectorStatus({
             userId: normalizedUserId,
             status: fallbackStatus,
@@ -689,7 +697,7 @@ async function fetchStatusFromNetwork(params: {
         }
       }
 
-      if (params.isCurrent && !params.isCurrent()) return null;
+      if (!requestIsCurrent()) return null;
 
       console.error(
         "[gmail-connector-store] Failed to refresh Gmail status:",
@@ -708,7 +716,7 @@ async function fetchStatusFromNetwork(params: {
     .finally(() => {
       if (inflightStatusRequests.get(normalizedUserId) === request) {
         inflightStatusRequests.delete(normalizedUserId);
-        if (!params.isCurrent || params.isCurrent()) {
+        if (requestIsCurrent()) {
           updateEntry(normalizedUserId, { isRefreshing: false });
         }
       }
@@ -1097,6 +1105,10 @@ export function primeConnectorStatus(params: {
   const normalizedUserId = String(params.userId || "").trim();
   if (!normalizedUserId) return;
 
+  if (params.status.connected === false && params.status.status === "disconnected") {
+    clearCachedGmailReceipts(normalizedUserId);
+  }
+
   const currentEntry = getOrCreateEntry(normalizedUserId);
   const latestRun = mergeSameRunProgress(
     currentEntry.syncRun,
@@ -1231,6 +1243,10 @@ export function failGmailOAuthCompletion(userId: string, message: string): void 
 export function clearConnectorStatus(userId: string): void {
   const normalizedUserId = String(userId || "").trim();
   if (!normalizedUserId) return;
+  connectorStatusEpochs.set(
+    normalizedUserId,
+    (connectorStatusEpochs.get(normalizedUserId) || 0) + 1,
+  );
   entries.delete(normalizedUserId);
   connectorViewCache.delete(normalizedUserId);
   inflightStatusRequests.delete(normalizedUserId);

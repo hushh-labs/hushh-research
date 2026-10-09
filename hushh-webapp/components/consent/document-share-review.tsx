@@ -426,6 +426,14 @@ function UnlockedDocumentReview({
           throw cause;
         }
       };
+      const pendingOwnerDelivery = async (review: SharingReview): Promise<SharingDelivery | undefined> => {
+        if (!review.bulkShare) return undefined;
+        const delivery = await DriveSharingService.delivery(token, requestId, guard);
+        guard();
+        return delivery.canStopAccess || delivery.accessStopStatus || delivery.bulkShareId
+          ? delivery
+          : undefined;
+      };
       if (status.direction !== "incoming")
         return { status, delivery: await optionalOutgoingDelivery() };
       if (!UNDECIDED.has(status.status)) {
@@ -438,7 +446,10 @@ function UnlockedDocumentReview({
       let review = await DriveSharingService.review(token, requestId, guard);
       guard();
       if (isDurableReview(review)) {
-        if (isAutomaticSharingActive(review)) return { status, review };
+        if (isAutomaticSharingActive(review)) {
+          const delivery = await pendingOwnerDelivery(review);
+          return delivery ? { status, review, delivery } : { status, review };
+        }
         const legacyJob = review.search?.status === "completed" &&
           review.search.coverage?.shareabilityVerified !== true ? review.search.jobId : null;
         if ((status.status === "pending" || status.status === "review_ready") &&
@@ -464,7 +475,8 @@ function UnlockedDocumentReview({
           review = await DriveSharingService.review(token, requestId, guard);
           guard();
         }
-        return { status, review };
+        const delivery = await pendingOwnerDelivery(review);
+        return delivery ? { status, review, delivery } : { status, review };
       }
       // Worker-held, ready, or already tried for this revision: no search.
       if (
@@ -1692,7 +1704,7 @@ function UnlockedDocumentReview({
                 />
               ))}
             </SettingsGroup>
-          ) : outgoingOpen ? null : (
+          ) : outgoingOpen || delivery.canStopAccess || delivery.accessStopStatus ? null : (
             <BodyText>Nothing was shared.</BodyText>
           )}
 
@@ -1745,6 +1757,24 @@ function UnlockedDocumentReview({
                     onClick={prepareRemoval}
                   />
                 ) : null}
+                {delivery.canStopAccess ? (
+                  <SettingsRow
+                    title="Stop access"
+                    ariaLabel="Stop access"
+                    description="Prevent pending files from being shared."
+                    tone="destructive"
+                    disabled={locked}
+                    onClick={prepareRemoval}
+                  />
+                ) : delivery.accessStopStatus && delivery.files.length === 0 ? (
+                  <SettingsRow
+                    title={delivery.accessStopStatus === "pending"
+                      ? "Stopping access"
+                      : delivery.accessStopStatus === "removed"
+                        ? "Sharing stopped"
+                        : "Check remaining access"}
+                  />
+                ) : null}
               </SettingsGroup>
               <HelperText>
                 Disconnecting Drive doesn&apos;t remove Google access. Other
@@ -1791,20 +1821,69 @@ function UnlockedDocumentReview({
         </>
       ) : null}
 
+      {delivery?.bulkShareId && !outgoing && !removal ? (
+        <SettingsGroup embedded title="Shared files" {...groupSurface}>
+          <SettingsRow
+            title={delivery.accessStopStatus === "pending"
+              ? "Stopping access"
+              : delivery.accessStopStatus === "removed"
+                ? "Access removed"
+                : delivery.accessStopStatus === "needs_attention"
+                  ? "Some access needs review"
+                  : `${(delivery.sharedCount ?? 0).toLocaleString()} files shared`}
+            description={delivery.accessStopStatus === "pending"
+              ? "Checking Google Drive permissions…"
+              : delivery.accessStopStatus === "removed"
+                ? "One's Viewer access was removed."
+                : delivery.accessStopStatus === "needs_attention"
+                  ? "Check remaining access in Google Drive."
+                  : "You can stop access anytime."}
+          />
+          {delivery.accessStopStatus === "needs_attention" ? (
+            <SettingsRow asChild title="Manage in Google Drive" trailing={<ExternalLink aria-hidden="true" className="h-4 w-4 text-[color:var(--app-tertiary-label)]" />}>
+              <a href="https://drive.google.com" target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" />
+            </SettingsRow>
+          ) : null}
+          {!delivery.accessStopStatus ? (
+            <SettingsRow
+              title="Review removal"
+              tone="destructive"
+              disabled={locked}
+              onClick={prepareRemoval}
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+
       {removal ? (
         <>
-          <ul aria-label="Exact access to remove" className={HAIRLINES}>
-            {removal.files.map((file) => (
-              <li key={file.grantId} className="py-2.5">
-                <MediumRowLabel as="p" className="[overflow-wrap:anywhere]">
-                  {file.name}
-                </MediumRowLabel>
-                <HelperText className="[overflow-wrap:anywhere]">
-                  {file.recipientEmail}
-                </HelperText>
-              </li>
-            ))}
-          </ul>
+          {removal.files.length ? (
+            <ul aria-label="Exact access to remove" className={HAIRLINES}>
+              {removal.files.map((file) => (
+                <li key={file.grantId} className="py-2.5">
+                  <MediumRowLabel as="p" className="[overflow-wrap:anywhere]">
+                    {file.name}
+                  </MediumRowLabel>
+                  <HelperText className="[overflow-wrap:anywhere]">
+                    {file.recipientEmail}
+                  </HelperText>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <BodyText>
+              {removal.affectedCount
+                ? `Stop this request and check ${removal.affectedCount.toLocaleString()} file permissions.`
+                : removal.pendingCount
+                  ? "Stop this request and check pending file permissions."
+                  : "Stop this request before files are shared."}
+            </BodyText>
+          )}
+          {(removal.pendingCount ?? 0) > 0 ? (
+            <HelperText>
+              {removal.pendingCount?.toLocaleString()} {removal.pendingCount === 1 ? "grant is" : "grants are"} still settling.
+            </HelperText>
+          ) : null}
           <HelperText>
             Removes only the recorded Viewer access. Other permissions may still
             give access.
@@ -1828,7 +1907,7 @@ function UnlockedDocumentReview({
                   )
                 }
               >
-                Remove access
+                Stop access
               </Button>
             }
             secondary={

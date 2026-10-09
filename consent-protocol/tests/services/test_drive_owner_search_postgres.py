@@ -739,14 +739,21 @@ async def test_search_telemetry_contains_only_opaque_id_closed_states_and_counts
     messages = [
         record.getMessage() for record in caplog.records if record.name == "drive_owner_search"
     ]
-    assert len(messages) == 2
+    pages = [message for message in messages if message.startswith("drive_search.page ")]
+    slices = [message for message in messages if message.startswith("drive_search.slice ")]
+    assert len(pages) == len(slices) == 1
+    assert all(f"drive_op={correlation_tag(state['jobId'])}" in message for message in messages)
+    assert "phase=user status=received files=1" in pages[0] and "elapsed_ms=" in pages[0]
+    assert "status=queued pages=1 matched=1" in slices[0] and "elapsed_ms=" in slices[0]
+    for stage in ("search_claim", "search_authority", "search_commit"):
+        assert any(
+            f"drive_stage.timing stage={stage} outcome=ok duration_ms=" in message
+            for message in messages
+        )
     assert all(
-        f"drive_op={correlation_tag(state['jobId'])}" in message and "elapsed_ms=" in message
+        "Synthetic" not in message and "file-1" not in message and state["jobId"] not in message
         for message in messages
     )
-    assert "phase=user status=received files=1" in messages[0]
-    assert "status=queued pages=1 matched=1" in messages[1]
-    assert all("Synthetic" not in message and "file-1" not in message for message in messages)
 
 
 async def test_search_reads_never_write_a_connection_row_without_a_catalog_row(store):

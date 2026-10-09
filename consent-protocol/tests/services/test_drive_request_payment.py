@@ -23,6 +23,9 @@ from hushh_mcp.runtime_settings import clear_runtime_settings_caches
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
+from hushh_mcp.services.drive_request_payment_checkout_worker import (
+    DriveRequestPaymentCheckoutWorker,
+)
 from hushh_mcp.services.drive_request_payment_refunds import (
     _REFUND_CANDIDATES_SQL,
     _claim_refunds,
@@ -119,14 +122,11 @@ def test_paid_grant_guard_blocks_reconciliation_hold():
     DriveRequestPaymentStore.require_paid_if_required(connection, request_row)
 
 
-def test_non_trusted_approval_creates_one_payment_order_and_notification():
+def test_non_trusted_approval_creates_order_without_premature_pay_notification():
     insert_result = Mock()
     selected_result = Mock()
     selected_result.mappings.return_value.first.return_value = {"status": "awaiting_payment"}
-    event_result = Mock(rowcount=1)
-    connection = SimpleNamespace(
-        execute=Mock(side_effect=[insert_result, selected_result, event_result])
-    )
+    connection = SimpleNamespace(execute=Mock(side_effect=[insert_result, selected_result]))
     request_row = {
         "request_id": str(uuid4()),
         "user_id": "owner",
@@ -136,10 +136,48 @@ def test_non_trusted_approval_creates_one_payment_order_and_notification():
     }
 
     assert DriveRequestPaymentStore.ensure_order_for_approved_request(connection, request_row)
-    assert connection.execute.call_count == 3
+    assert connection.execute.call_count == 2
     assert "ON CONFLICT (request_id) DO NOTHING" in str(
         connection.execute.call_args_list[0].args[0]
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved,expected", [(False, "preparing"), (True, "awaiting_payment")])
+async def test_payment_status_read_never_creates_unapproved_order_or_event(
+    monkeypatch, approved, expected
+):
+    request = {
+        "request_id": str(uuid4()),
+        "user_id": "owner",
+        "recipient_user_id": "recipient",
+        "revision": 1,
+        "payment_required": True,
+        "status": "pending",
+        "access_stop_requested_at": None,
+        "expires_at": datetime.now(UTC) + timedelta(hours=1),
+    }
+    order = {"status": "awaiting_payment", "reconciliation_required": False}
+    store = DriveRequestPaymentStore(db=object())
+    store._row = Mock(side_effect=[request, order])
+    store.owner_approved_progressive_batch = Mock(return_value=approved)
+    store._event = Mock()
+    monkeypatch.setattr(
+        DriveSharingStore,
+        "_open_request",
+        lambda self, row: {"purpose": {"periodStart": "2026-10-01", "periodEnd": "2026-10-09"}},
+    )
+    connection = SimpleNamespace(execute=Mock())
+
+    async def transaction(operation):
+        return operation(connection)
+
+    store._transaction = transaction
+    assert (
+        await store.payment_state(requester_user_id="recipient", request_id=request["request_id"])
+    )["status"] == expected
+    connection.execute.assert_not_called()
+    store._event.assert_not_called()
 
 
 def test_new_request_payment_boundary_is_after_consent_for_non_trusted_requests():
@@ -199,6 +237,13 @@ def test_payment_identity_writes_lock_graph_before_request_and_order():
         ensure.index("lock_connection_graph_users(")
         < ensure.index("AND user_id=:user FOR UPDATE")
         < ensure.index("INSERT INTO drive_request_payment_orders")
+    )
+
+    defer = inspect.getsource(DriveRequestPaymentStore.defer_unready_checkout_order)
+    assert (
+        defer.index("lock_connection_graph_users(")
+        < defer.index("recipient_user_id=:requester FOR UPDATE")
+        < defer.index("UPDATE drive_request_payment_orders")
     )
 
     finish = inspect.getsource(_finish_refund)
@@ -265,6 +310,7 @@ def test_closed_request_does_not_requeue_payment_ready(status, expired):
         **participant,
         "payment_required": True,
         "status": status,
+        "access_stop_requested_at": None,
         "expires_at": datetime.now(UTC) + timedelta(hours=-1 if expired else 1),
     }
     order = {"status": "awaiting_payment"}
@@ -906,6 +952,7 @@ def _checkout_fixture(monkeypatch, provider_create):
         "checkout_attempt_id": attempt_id,
         "stripe_checkout_url": None,
         "stripe_checkout_session_id": None,
+        "stripe_checkout_expires_at": datetime.fromtimestamp(int(time.time()) + 31 * 60, UTC),
     }
     service = DriveRequestPaymentService(
         db=object(),
@@ -914,7 +961,9 @@ def _checkout_fixture(monkeypatch, provider_create):
         ),
     )
     service.payment_state = AsyncMock(return_value={"status": "awaiting_payment"})
-    service._current_checkout_authority = Mock()
+    service._current_checkout_authority = Mock(
+        return_value={"request_id": request_id, "recipient_user_id": "recipient", "revision": 1}
+    )
     service._row = Mock(side_effect=lambda *args, **kwargs: order.copy())
     connection = SimpleNamespace(execute=Mock())
 
@@ -937,7 +986,7 @@ def _checkout_sdk_response(params, session_id="cs_test_checkout_regression"):
             "livemode": False,
             "metadata": params["metadata"],
             "url": f"https://checkout.stripe.com/c/pay/{session_id}",
-            "expires_at": int(time.time()) + 1800,
+            "expires_at": params["expires_at"],
         },
         params["api_key"],
     )
@@ -976,10 +1025,23 @@ async def test_checkout_uses_supported_stripe_parameters_and_binds_sdk_session(m
     }
     create.assert_called_once()
     assert service._current_checkout_authority.call_count == 2
-    binding = connection.execute.call_args.args[1]
+    binding = next(
+        call.args[1]
+        for call in connection.execute.call_args_list
+        if "SET status='checkout_open'" in str(call.args[0])
+    )
     assert binding["request"] == request_id
     assert binding["session"] == "cs_test_checkout_regression"
     assert binding["url"] == result["checkoutUrl"]
+    calls = connection.execute.call_args_list
+    assert next(
+        i for i, call in enumerate(calls) if "SET status='checkout_open'" in str(call.args[0])
+    ) < next(
+        i
+        for i, call in enumerate(calls)
+        if call.args[1].get("type") == "document_share_payment_ready"
+    )
+    assert create.call_args.kwargs["expires_at"] == binding["expires"]
 
 
 @pytest.mark.asyncio
@@ -1002,7 +1064,13 @@ async def test_checkout_recovers_rejected_legacy_attempt_with_stable_retry_key(m
     original_key = f"drive-request-{request_id}-{attempt_id}"
     # The provider succeeds, but the database bind is interrupted. Retrying the
     # same order must replay the same fallback key instead of opening a new order.
-    connection.execute.side_effect = [None, RuntimeError("bind interrupted"), None, None]
+    connection.execute.side_effect = [
+        None,
+        RuntimeError("bind interrupted"),
+        None,
+        None,
+        Mock(rowcount=1),
+    ]
     with pytest.raises(RuntimeError, match="bind interrupted"):
         await service.checkout(requester_user_id="recipient", request_id=request_id)
     result = await service.checkout(requester_user_id="recipient", request_id=request_id)
@@ -1019,7 +1087,10 @@ async def test_checkout_recovers_rejected_legacy_attempt_with_stable_retry_key(m
     assert calls[1] == {**calls[0], "payment_method_types": ["card"]}
     assert calls[2] == {**calls[0], "idempotency_key": original_key + "-dynamic-methods-v1"}
     assert calls[:3] == calls[3:]
-    assert connection.execute.call_args.args[1]["session"] == "cs_test_checkout_regression"
+    assert any(
+        call.args[1].get("session") == "cs_test_checkout_regression"
+        for call in connection.execute.call_args_list
+    )
 
 
 @pytest.mark.asyncio
@@ -1038,7 +1109,10 @@ async def test_checkout_binds_cached_legacy_success_without_creating_another_ses
     assert {call.kwargs["idempotency_key"] for call in create.call_args_list} == {
         f"drive-request-{request_id}-{attempt_id}"
     }
-    assert connection.execute.call_args.args[1]["session"] == "cs_test_existing_legacy"
+    assert any(
+        call.args[1].get("session") == "cs_test_existing_legacy"
+        for call in connection.execute.call_args_list
+    )
 
 
 @pytest.mark.asyncio
@@ -1087,6 +1161,136 @@ async def test_checkout_does_not_replay_or_rotate_an_in_progress_idempotency_key
 
 
 @pytest.mark.asyncio
+async def test_expired_bound_checkout_cannot_open_another_payment_window(monkeypatch):
+    create = Mock(side_effect=AssertionError("expired Checkout must not rotate"))
+    service, request_id, _, connection = _checkout_fixture(monkeypatch, create)
+    service.payment_state = AsyncMock(
+        return_value={"status": "expired", "paymentLinkExpired": True}
+    )
+
+    with pytest.raises(DriveSharingError, match="payment_checkout_expired"):
+        await service.checkout(requester_user_id="recipient", request_id=request_id)
+
+    create.assert_not_called()
+    connection.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unbound_reservation_expiry_is_not_an_actionable_pay_deadline(monkeypatch):
+    request_id = str(uuid4())
+    request_row = {
+        "request_id": request_id,
+        "user_id": "owner",
+        "recipient_user_id": "recipient",
+        "payment_required": True,
+        "status": "approved",
+        "expires_at": datetime.now(UTC) + timedelta(hours=1),
+        "access_stop_requested_at": None,
+    }
+    order = {
+        "status": "awaiting_payment",
+        "reconciliation_required": False,
+        "stripe_checkout_session_id": None,
+        "stripe_checkout_expires_at": datetime.now(UTC) - timedelta(minutes=1),
+    }
+    store = DriveRequestPaymentStore(db=object())
+    store._row = Mock(side_effect=[request_row, order])
+    monkeypatch.setattr(DriveSharingStore, "_open_request", lambda *_: {"trusted_auto": False})
+
+    async def transaction(operation):
+        return operation(SimpleNamespace())
+
+    store._transaction = transaction
+    state = await store.payment_state(requester_user_id="recipient", request_id=request_id)
+    assert state["status"] == "awaiting_payment"
+    assert state["paymentLinkExpired"] is False
+    assert state["checkoutExpiresAt"] is None
+
+
+@pytest.mark.asyncio
+async def test_checkout_preparation_is_bounded_and_does_not_announce_failed_payment(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_local_only_synthetic")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_payment_test_secret")
+    first, second = str(uuid4()), str(uuid4())
+    service = SimpleNamespace(
+        due_checkout_orders=AsyncMock(
+            return_value=[
+                {"request_id": first, "requester_user_id": "recipient"},
+                {"request_id": second, "requester_user_id": "recipient"},
+            ]
+        ),
+        checkout=AsyncMock(
+            side_effect=[
+                DriveSharingError("payment_not_ready"),
+                {"checkoutUrl": "https://checkout.stripe.com/test"},
+            ]
+        ),
+        defer_unready_checkout_order=AsyncMock(),
+    )
+    result = await DriveRequestPaymentCheckoutWorker(service).run(max_jobs=2, deadline_seconds=20)
+    assert result == {"outcomes": {"not_ready": 1, "ready": 1}}
+    assert service.checkout.await_count == 2
+    service.defer_unready_checkout_order.assert_awaited_once_with(
+        request_id=first, requester_user_id="recipient"
+    )
+    service.due_checkout_orders.assert_awaited_once_with(limit=10)
+
+
+@pytest.mark.asyncio
+async def test_four_stale_orders_do_not_consume_four_provider_slots(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_local_only_synthetic")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_payment_test_secret")
+    ids = [str(uuid4()) for _ in range(5)]
+    service = SimpleNamespace(
+        due_checkout_orders=AsyncMock(
+            return_value=[
+                {"request_id": request_id, "requester_user_id": "recipient"} for request_id in ids
+            ]
+        ),
+        checkout=AsyncMock(
+            side_effect=[
+                *[DriveSharingError("payment_not_ready") for _ in range(4)],
+                {"checkoutUrl": "https://checkout.stripe.com/test"},
+            ]
+        ),
+        defer_unready_checkout_order=AsyncMock(),
+    )
+
+    result = await DriveRequestPaymentCheckoutWorker(service).run(max_jobs=4, deadline_seconds=20)
+
+    assert result == {"outcomes": {"not_ready": 4, "ready": 1}}
+    assert service.checkout.await_count == 5
+    assert service.defer_unready_checkout_order.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_checkout_candidates_exclude_pending_without_approved_or_frozen_batch(sharing):
+    stale = [(await request(sharing))["requestId"] for _ in range(4)]
+    approved = (await request(sharing))["requestId"]
+    with sharing.db.engine.begin() as connection:
+        for request_id in [*stale, approved]:
+            connection.execute(
+                text("""UPDATE drive_share_requests SET payment_required=TRUE
+                  WHERE request_id=:request"""),
+                {"request": request_id},
+            )
+            connection.execute(
+                text("""INSERT INTO drive_request_payment_orders
+                  (request_id,user_id,requester_user_id)
+                  VALUES (:request,'owner','recipient')"""),
+                {"request": request_id},
+            )
+        connection.execute(
+            text("""UPDATE drive_share_requests SET status='approved'
+              WHERE request_id=:request"""),
+            {"request": approved},
+        )
+
+    due = await DriveRequestPaymentStore(db=sharing.db).due_checkout_orders(limit=4)
+    assert [row["request_id"] for row in due] == [approved]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "order", [None, {"status": "awaiting_payment", "reconciliation_required": False}]
 )
@@ -1100,8 +1304,7 @@ async def test_no_match_request_closes_unpaid_payment_state(order):
         "expires_at": datetime.now(UTC) + timedelta(hours=1),
     }
     store = DriveRequestPaymentStore(db=object())
-    store._row = Mock(return_value=request)
-    store._ensure_ready = Mock(return_value=(request, order, False))
+    store._row = Mock(side_effect=[request, order])
 
     async def transaction(operation):
         return operation(SimpleNamespace())
@@ -1111,7 +1314,7 @@ async def test_no_match_request_closes_unpaid_payment_state(order):
         requester_user_id="recipient", request_id=request["request_id"]
     )
     assert state["status"] == "expired"
-    store._ensure_ready.assert_called_once()
+    assert store._row.call_count == 2
 
 
 def _make_legacy_undated_paid_request(sharing, connection, request_id):
@@ -1195,6 +1398,16 @@ async def test_paid_undated_request_stays_visible_and_enters_refund_reconciliati
     state = await service.payment_state(requester_user_id="recipient", request_id=request_id)
     assert state["status"] == "paid"
     assert state["reconciliationRequired"] is True
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("""SELECT reconciliation_required FROM drive_request_payment_orders
+              WHERE request_id=:request"""),
+                {"request": request_id},
+            ).scalar_one()
+            is False
+        )
+    assert await service.repair_paid_request_authority(limit=64) == 1
     with sharing.db.engine.begin() as connection:
         claims = _claim_refunds(service, connection, limit=1)
     assert len(claims) == 1

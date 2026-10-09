@@ -77,23 +77,29 @@ describe("projectFeedDriveProgress", () => {
     expect(rows).toEqual([]);
   });
 
-  it("moves only the requester payment into Needs you, with no sharing progress claim", () => {
+  it("shows Pay only after a Checkout session has a deadline", () => {
     const payment = entry({ kind: "outgoing_request", metadata: {
       ...entry().metadata, direction: "outgoing", paymentStatus: "awaiting_payment",
       paymentAmountCents: 1000, paymentCurrency: "usd", file_names: ["private.pdf"],
     } });
     expect(projectFeedDriveProgress([payment])).toEqual([]);
-    const rows = projectFeedDrivePayments([payment]);
+    expect(projectFeedDrivePayments([payment])).toEqual([]);
+    const checkout = entry({ ...payment, metadata: {
+      ...payment.metadata,
+      paymentStatus: "checkout_open",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+    } });
+    const rows = projectFeedDrivePayments([checkout]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       status: "ready",
       title: "Pay $10 for your document request",
-      description: "Sharing starts after payment.",
+      description: expect.stringContaining("Requested "),
     });
     expect(JSON.stringify(rows)).not.toContain("private.pdf");
-    expect(projectFeedDrivePayments([entry({ metadata: payment.metadata })])).toEqual([]);
+    expect(projectFeedDrivePayments([entry({ metadata: checkout.metadata })])).toEqual([]);
     expect(projectFeedDrivePayments([entry({ kind: "outgoing_request", metadata: {
-      ...payment.metadata, paymentStatus: "paid",
+      ...checkout.metadata, paymentStatus: "paid",
     } })])).toEqual([]);
   });
 
@@ -101,6 +107,7 @@ describe("projectFeedDriveProgress", () => {
     const payment = entry({ kind: "outgoing_request", metadata: {
       ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
       paymentAmountCents: 1000, paymentCurrency: "usd",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
     } });
     expect(projectFeedDrivePayments([payment])).toHaveLength(1);
     expect(projectFeedDriveProgress([payment])).toEqual([]);
@@ -120,13 +127,13 @@ describe("projectFeedDriveProgress", () => {
     expect(row).toMatchObject({
       status: "ready",
       expiresAt: now + 299_000,
-      description: "5m left to pay.",
+      description: expect.stringMatching(/Requested .+ · 5m left/),
     });
-    expect(describeFeedDrivePayment(row!, now + 298_500).description).toBe("1s left to pay.");
+    expect(describeFeedDrivePayment(row!, now + 298_500).description).toMatch(/ · 1s left$/);
     expect(formatPaymentRemaining(0)).toBe("0s left");
   });
 
-  it("switches to a renewable link immediately when the local deadline passes", () => {
+  it("marks the bound link expired immediately when the local deadline passes", () => {
     const now = Date.parse("2026-09-29T10:00:00Z");
     const payment = entry({ kind: "outgoing_request", metadata: {
       ...entry().metadata,
@@ -145,20 +152,22 @@ describe("projectFeedDriveProgress", () => {
 
   it("names the file owner without exposing file names", () => {
     const payment = entry({ kind: "outgoing_request", counterpart_label: "V", metadata: {
-      ...entry().metadata, direction: "outgoing", paymentStatus: "awaiting_payment",
+      ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       paymentAmountCents: 1000, paymentCurrency: "usd", file_names: ["private.pdf"],
     } });
     const row = projectFeedDrivePayments([payment])[0];
     expect(row).toMatchObject({
       title: "Pay $10 for files from V",
-      description: "You requested files from V. Pay to continue.",
+      description: expect.stringContaining("Requested "),
     });
     expect(JSON.stringify(row)).not.toContain("private.pdf");
   });
 
   it("falls back to concise generic copy for technical identity labels", () => {
     const payment = entry({ kind: "outgoing_request", counterpart_label: "123e4567-e89b-12d3-a456-426614174000", metadata: {
-      ...entry().metadata, direction: "outgoing", paymentStatus: "awaiting_payment",
+      ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       paymentAmountCents: 1000, paymentCurrency: "usd",
     } });
     expect(projectFeedDrivePayments([payment])[0]?.title).toBe("Pay $10 for your document request");
@@ -181,28 +190,31 @@ describe("projectFeedDriveProgress", () => {
     expect(row).toMatchObject({
       status: "expired",
       title: "Document request expired",
-      description: "Your request for files from V expired before payment.",
+      description: expect.stringMatching(/From V · Requested /),
     });
     expect(row?.href).toContain("tab=previous");
   });
 
-  it("marks an expired Stripe link separately so it can be recreated", () => {
+  it("marks an expired Stripe link as terminal", () => {
     const payment = entry({ kind: "outgoing_request", metadata: {
       ...entry().metadata,
       direction: "outgoing",
       paymentStatus: "checkout_open",
       paymentLinkExpired: true,
+      checkoutExpiresAt: new Date(Date.now() - 60_000).toISOString(),
       paymentAmountCents: 1000,
       paymentCurrency: "usd",
     } });
-    expect(projectFeedDrivePayments([payment])[0]).toMatchObject({
+    const expiredLink = projectFeedDrivePayments([payment])[0];
+    expect(expiredLink).toMatchObject({
       status: "link_expired",
       title: "Payment link expired",
-      description: "The $10 link expired. Create a new link to continue.",
+      description: expect.stringContaining("Requested "),
     });
+    expect(expiredLink?.href).toContain("requestView=sent");
   });
 
-  it("treats a legacy expired payment status as a renewable link while pending", () => {
+  it("treats a legacy expired payment status as a terminal link while pending", () => {
     const payment = entry({ kind: "outgoing_request", metadata: {
       ...entry().metadata,
       direction: "outgoing",
@@ -228,7 +240,8 @@ describe("projectFeedDriveProgress", () => {
 
   it("does not resurrect an older payment row beside a settled duplicate", () => {
     const awaiting = entry({ kind: "outgoing_request", metadata: {
-      ...entry().metadata, direction: "outgoing", paymentStatus: "awaiting_payment",
+      ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       paymentAmountCents: 1000, paymentCurrency: "usd",
     } });
     const paid = entry({ kind: "outgoing_request", metadata: {
@@ -241,14 +254,51 @@ describe("projectFeedDriveProgress", () => {
 
   it("keeps one concise payment row per request", () => {
     const first = entry({ id: "document_share_request:11111111-1111-4111-8111-111111111111", kind: "outgoing_request", metadata: {
-      ...entry().metadata, direction: "outgoing", paymentStatus: "awaiting_payment",
+      ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       paymentAmountCents: 1000, paymentCurrency: "usd",
     } });
     const second = entry({ id: "document_share_request:22222222-2222-4222-8222-222222222222", kind: "outgoing_request", metadata: {
-      ...entry().metadata, direction: "outgoing", paymentStatus: "awaiting_payment",
+      ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       paymentAmountCents: 1000, paymentCurrency: "usd",
     } });
     expect(projectFeedDrivePayments([first, second])).toHaveLength(2);
+    expect(projectFeedDrivePayments([entry({
+      ...first,
+      metadata: { ...first.metadata, accessStopped: true },
+    }), second])).toHaveLength(1);
+  });
+
+  it("distinguishes two same-owner payments with only the requester-authored purpose", () => {
+    const now = Date.parse("2026-09-29T10:00:00Z");
+    const payment = projectFeedDrivePayments([entry({
+      kind: "outgoing_request", counterpart_label: "V", metadata: {
+        ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+        paymentAmountCents: 1000, paymentCurrency: "usd",
+        checkoutExpiresAt: new Date(now + 300_000).toISOString(),
+        purpose: "Untrusted projection text", file_names: ["private.pdf"],
+      },
+    })], now)[0]!;
+    const context = { requestId: payment.requestId, purpose: {
+      purpose: "Standup notes", periodStart: "2026-09-01", periodEnd: "2026-09-08",
+    } };
+    const first = describeFeedDrivePayment(payment, now, context);
+    const second = describeFeedDrivePayment(payment, now, {
+      ...context, purpose: { ...context.purpose, purpose: "Project budget" },
+    });
+    expect(first.title).toBe("Pay $10 · Standup notes");
+    expect(second.title).toBe("Pay $10 · Project budget");
+    expect(first.description).toMatch(/^From V · .+2026.+ · 5m left$/);
+    const expired = describeFeedDrivePayment(payment, now + 300_001, context);
+    expect(expired.title).toBe("Payment link expired");
+    expect(expired.description).toContain("Standup notes · From V");
+    expect(JSON.stringify([first, second, expired])).not.toMatch(/private.pdf|Untrusted projection/);
+    const long = describeFeedDrivePayment(payment, now, {
+      ...context, purpose: { ...context.purpose, purpose: "long ".repeat(80) },
+    });
+    expect(long.title.length).toBeLessThanOrEqual(82);
+    expect(long.title).toMatch(/…$/);
   });
 
   it("does not claim sharing progress during paid payment reconciliation", () => {

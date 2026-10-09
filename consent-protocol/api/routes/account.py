@@ -12,12 +12,15 @@ Routes:
     GET /api/account/email-aliases - List verified/pending account email aliases
     POST /api/account/email-aliases/verification/start - Start alias verification
     POST /api/account/email-aliases/verification/confirm - Confirm alias verification
-    DELETE /api/account/delete - Delete account and user-owned data
+    DELETE /api/account/delete - Delete account and user-owned data after vault unlock
+    POST /api/account/delete-lost-vault - Delete after fresh identity and linked-phone proof
     GET /api/account/export - Export encrypted account data bundle
 
 Security:
     Identity refresh and phone claim require Firebase auth.
-    Email aliases, delete, and export require VAULT_OWNER token.
+    Email aliases, ordinary delete, and export require VAULT_OWNER token.
+    Lost-vault deletion requires fresh federated reauthentication and, when a
+    verified phone was linked before the request, a matching fresh phone proof.
 """
 
 import asyncio
@@ -41,6 +44,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from api.middleware import (
     require_firebase_auth,
+    require_firebase_auth_read_only,
     require_vault_owner_token,
 )
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
@@ -143,6 +147,10 @@ _FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS = 9.0
 _LOCAL_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS = 20.0
 _CLEANUP_OIDC_HTTP_TIMEOUT_SECONDS = 4.0
 _CLEANUP_OIDC_VERIFY_TIMEOUT_SECONDS = 5.0
+_LOST_VAULT_REAUTH_MAX_AGE_SECONDS = 300
+_LOST_VAULT_REAUTH_FUTURE_SKEW_SECONDS = 60
+_LOST_VAULT_IDENTITY_TIMEOUT_SECONDS = 9.0
+_LOST_VAULT_PROVIDER_IDS = frozenset({"google.com", "apple.com"})
 
 
 def _session_status_auth_timeout_seconds() -> float:
@@ -1419,6 +1427,11 @@ class DeleteAccountRequest(BaseModel):
     )
 
 
+class LostVaultDeleteRequest(BaseModel):
+    method: Literal["phone", "provider"]
+    phone_id_token: str | None = Field(default=None, min_length=1, max_length=20_000)
+
+
 class EmailAliasVerificationStartRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
@@ -1941,23 +1954,188 @@ async def confirm_uat_test_phone_verification(
     }
 
 
+def _recent_federated_claims(authorization: str | None, expected_uid: str) -> dict[str, Any]:
+    """Require a fresh Google/Apple reauthentication of the current Firebase actor."""
+    token = str(authorization or "").removeprefix("Bearer ").strip()
+    if (
+        not authorization
+        or not authorization.startswith("Bearer ")
+        or not token
+        or len(token) > 20_000
+    ):
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"})
+
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        claims = firebase_auth.verify_id_token(
+            token,
+            app=get_firebase_auth_app(),
+            check_revoked=False,  # require_firebase_auth_read_only already checked this exact bearer.
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"}
+        ) from None
+
+    firebase_claims = claims.get("firebase")
+    provider = (
+        str(firebase_claims.get("sign_in_provider") or "").strip()
+        if isinstance(firebase_claims, dict)
+        else ""
+    )
+    now = int(time.time())
+    auth_time = claims.get("auth_time")
+    if (
+        refuse_foreign_review_mint(claims)
+        or str(claims.get("uid") or claims.get("sub") or "") != expected_uid
+        or provider not in _LOST_VAULT_PROVIDER_IDS
+        or isinstance(auth_time, bool)
+        or not isinstance(auth_time, (int, float))
+        or auth_time < now - _LOST_VAULT_REAUTH_MAX_AGE_SECONDS
+        or auth_time > now + _LOST_VAULT_REAUTH_FUTURE_SKEW_SECONDS
+    ):
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"})
+    return cast(dict[str, Any], claims)
+
+
+async def _lost_vault_deletion_options(user_id: str) -> tuple[str | None, list[str]]:
+    """Read the phone binding that existed before deletion; never accept a client number."""
+    try:
+        identities = await ActorIdentityService().get_many([user_id])
+        identity = identities.get(user_id) or {}
+        phone = (
+            str(identity.get("phone_number") or "").strip()
+            if identity.get("phone_verified") is True
+            else ""
+        )
+
+        from firebase_admin import auth as firebase_auth
+
+        firebase_user = await asyncio.wait_for(
+            run_in_threadpool(firebase_auth.get_user, user_id, app=get_firebase_auth_app()),
+            timeout=_LOST_VAULT_IDENTITY_TIMEOUT_SECONDS,
+        )
+        firebase_phone = str(getattr(firebase_user, "phone_number", None) or "").strip()
+        if phone and firebase_phone and not hmac.compare_digest(phone, firebase_phone):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "ACCOUNT_DELETE_PHONE_BINDING_CONFLICT"},
+            )
+        providers = sorted(_firebase_user_provider_ids(firebase_user) & _LOST_VAULT_PROVIDER_IDS)
+        return phone or firebase_phone or None, providers
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("account.lost_vault_options_unavailable error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE"},
+        ) from None
+
+
+async def _verify_lost_vault_phone_proof(token: str, expected_phone: str) -> None:
+    """A fresh Firebase phone sign-in proves control of the already-linked number."""
+    normalized_token = str(token or "").strip()
+    if not normalized_token or len(normalized_token) > 20_000:
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED"})
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        claims = await asyncio.wait_for(
+            run_in_threadpool(
+                firebase_auth.verify_id_token,
+                normalized_token,
+                app=get_firebase_auth_app(),
+                check_revoked=True,
+            ),
+            timeout=_LOST_VAULT_IDENTITY_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=401, detail={"code": "ACCOUNT_DELETE_PHONE_PROOF_INVALID"}
+        ) from None
+
+    firebase_claims = claims.get("firebase")
+    provider = (
+        str(firebase_claims.get("sign_in_provider") or "").strip()
+        if isinstance(firebase_claims, dict)
+        else ""
+    )
+    now = int(time.time())
+    auth_time = claims.get("auth_time")
+    actual_phone = str(claims.get("phone_number") or "").strip()
+    if (
+        refuse_foreign_review_mint(claims)
+        or provider != "phone"
+        or not actual_phone
+        or not hmac.compare_digest(actual_phone, expected_phone)
+        or isinstance(auth_time, bool)
+        or not isinstance(auth_time, (int, float))
+        or auth_time < now - _LOST_VAULT_REAUTH_MAX_AGE_SECONDS
+        or auth_time > now + _LOST_VAULT_REAUTH_FUTURE_SKEW_SECONDS
+    ):
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_PHONE_PROOF_INVALID"})
+
+
+@router.get("/delete-lost-vault/options")
+async def get_lost_vault_deletion_options(
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth_read_only),
+):
+    """Tell a signed-in owner which proofs are required without vault access."""
+    response.headers["Cache-Control"] = "private, no-store"
+    phone, providers = await _lost_vault_deletion_options(firebase_uid)
+    return {
+        "phone_available": phone is not None,
+        "phone_hint": f"••{phone[-2:]}" if phone else None,
+        "providers": providers,
+    }
+
+
+@router.post("/delete-lost-vault")
+async def delete_lost_vault_account(
+    payload: LostVaultDeleteRequest,
+    authorization: str | None = Header(None),
+    firebase_uid: str = Depends(require_firebase_auth_read_only),
+):
+    """Erase the entire account after fresh identity proof without unlocking the vault."""
+    claims = _recent_federated_claims(authorization, firebase_uid)
+    phone, providers = await _lost_vault_deletion_options(firebase_uid)
+    provider = str((claims.get("firebase") or {}).get("sign_in_provider") or "")
+    if provider not in providers:
+        raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"})
+    if phone:
+        if payload.method != "phone" or not payload.phone_id_token:
+            raise HTTPException(
+                status_code=403, detail={"code": "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED"}
+            )
+        await _verify_lost_vault_phone_proof(payload.phone_id_token, phone)
+    elif payload.method != "provider" or payload.phone_id_token:
+        raise HTTPException(status_code=403, detail={"code": "ACCOUNT_DELETE_METHOD_UNAVAILABLE"})
+    result = await _perform_account_deletion(firebase_uid, target="both")
+    if isinstance(result, dict) and result.get("account_deleted") is True:
+        details = result.get("details") or {}
+        result["ready_to_start_fresh"] = details.get("firebase_auth_user") in {
+            "deleted",
+            "not_found",
+        }
+    return result
+
+
 @router.delete("/delete")
 async def delete_account(
     payload: DeleteAccountRequest | None = Body(default=None),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    """
-    Delete the logged-in user's account and user-owned data.
-
-    Regulated or append-only security evidence follows its separately approved
-    retention/redaction policy; the response must not imply that those records
-    were removed by an incidental cascade.
-
-    Requires VAULT_OWNER token (Unlock to Delete).
-    This action is irreversible.
-    """
+    """Delete an account or persona after vault unlock (VAULT_OWNER authority)."""
     user_id = token_data["user_id"]
     target = payload.target if payload else "both"
+    return await _perform_account_deletion(user_id, target=target)
+
+
+async def _perform_account_deletion(user_id: str, *, target: str):
+    """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
     service = AccountService()
     try:

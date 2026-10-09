@@ -116,6 +116,43 @@ class RetentionSafetyTest(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.UnsafeState, "timeout unavailable"):
             MODULE.required_drain_seconds(state, revisions, plan, 120)
 
+    def test_tags_only_retires_tag_without_sleeping_or_deleting(self):
+        current = revision(3)["metadata"]["name"]
+        state = service(
+            {"revisionName": current, "percent": 100},
+            {"revisionName": revision(1)["metadata"]["name"], "percent": 0, "tag": "old"},
+        )
+        untagged = service({"revisionName": current, "percent": 100})
+        state["spec"]["template"]["spec"]["timeoutSeconds"] = 3600
+        with (
+            mock.patch.object(MODULE, "service_state", side_effect=[state, state, untagged, untagged]),
+            mock.patch.object(MODULE, "revision_state", return_value=[revision(1), revision(2), revision(3)]),
+            mock.patch.object(MODULE, "gcloud") as cloud,
+            mock.patch.object(MODULE.time, "sleep") as sleep,
+            mock.patch.object(sys, "argv", ["retention", "consent-protocol", "us-central1", "1", "--apply", "--healthy", "--tags-only"]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(MODULE.main(), 0)
+        sleep.assert_not_called()
+        self.assertEqual(cloud.call_count, 1)
+        self.assertEqual(cloud.call_args.args[0], ["services", "update-traffic", "consent-protocol", "--remove-tags=old"])
+
+    def test_full_cleanup_still_waits_for_maximum_request_lifetime(self):
+        current = revision(3)["metadata"]["name"]
+        state = service({"revisionName": current, "percent": 100})
+        state["spec"]["template"]["spec"]["timeoutSeconds"] = 3600
+        with (
+            mock.patch.object(MODULE, "service_state", return_value=state),
+            mock.patch.object(MODULE, "revision_state", return_value=[revision(1), revision(2), revision(3)]),
+            mock.patch.object(MODULE, "gcloud") as cloud,
+            mock.patch.object(MODULE.time, "sleep") as sleep,
+            mock.patch.object(sys, "argv", ["retention", "consent-protocol", "us-central1", "1", "--apply", "--healthy"]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(MODULE.main(), 0)
+        sleep.assert_called_once_with(3660)
+        self.assertEqual(cloud.call_args.args[0], ["revisions", "delete", revision(1)["metadata"]["name"]])
+
 
 if __name__ == "__main__":
     unittest.main()

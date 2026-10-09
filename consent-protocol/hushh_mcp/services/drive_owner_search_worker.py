@@ -4,8 +4,11 @@ import asyncio
 from collections import Counter
 
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.drive_work_wake import wake_drive_work
+
+logger = drive_logger(__name__)
 
 
 class DriveOwnerSearchWorker:
@@ -37,19 +40,23 @@ class DriveOwnerSearchWorker:
                 # still waiting for approval. Drain them before the next
                 # provider page can spend the whole search slice.
                 async with asyncio.timeout(20):
-                    await self.trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
+                    with drive_stage(logger, "worker_batches"):
+                        await self.trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
             except Exception:
                 counts["unavailable"] += 1
         if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 20:
             try:
-                started = await self.trusted_auto.start_pending(
-                    max_jobs=min(max_jobs, 2), deadline_at=deadline
-                )
+                with drive_stage(logger, "worker_prepare"):
+                    started = await self.trusted_auto.start_pending(
+                        max_jobs=min(max_jobs, 2), deadline_at=deadline
+                    )
                 counts["queued"] += started["started"]
                 counts["unavailable"] += started["deferred"]
             except Exception:
                 counts["unavailable"] += 1
-        for job in await self.service.store.due(limit=max_jobs):
+        with drive_stage(logger, "worker_due"):
+            jobs = await self.service.store.due(limit=max_jobs)
+        for job in jobs:
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining < 1:
                 counts["deadline"] += 1

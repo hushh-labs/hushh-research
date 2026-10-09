@@ -69,7 +69,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
     WalletService: {
       ...actual.WalletService,
       isEnabled: () => true,
-      listCardSummaries: serviceMock.listCardSummaries,
+      listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
       addCard: serviceMock.addCard,

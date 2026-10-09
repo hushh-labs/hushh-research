@@ -4,6 +4,7 @@ import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
+import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import {
   buildGmailNudgesPath,
   buildGmailReceiptsPath,
@@ -21,6 +22,7 @@ const MAX_LIVE_RECEIPTS_PER_PAGE = 6;
 // seconds don't each trigger their own network round trip.
 const gmailStatusCacheKey = (userId: string) =>
   `gmail_connection_status_${userId}`;
+const gmailStatusCacheGenerations = new Map<string, number>();
 
 function trackGmailEventForOwner(
   userId: string,
@@ -769,6 +771,7 @@ export class GmailReceiptsService {
     }
     const cache = CacheService.getInstance();
     const cacheKey = gmailStatusCacheKey(params.userId);
+    const cacheGeneration = gmailStatusCacheGenerations.get(cacheKey) || 0;
     if (!params.force) {
       const cached = cache.get<GmailConnectionStatus>(cacheKey);
       if (cached) return cached;
@@ -791,7 +794,9 @@ export class GmailReceiptsService {
     }
 
     const status = (await response.json()) as GmailConnectionStatus;
-    cache.set(cacheKey, status, CACHE_TTL.SHORT);
+    if ((gmailStatusCacheGenerations.get(cacheKey) || 0) === cacheGeneration) {
+      cache.set(cacheKey, status, CACHE_TTL.SHORT);
+    }
     return status;
   }
 
@@ -1030,8 +1035,23 @@ export class GmailReceiptsService {
       );
     }
 
+    const status = (await response.json()) as GmailConnectionStatus;
+    if (status.connected !== false) {
+      trackGmailEventForOwner(params.userId, "gmail_disconnect_result", { result: "error" });
+      throw new Error("Mail could not be disconnected. Check and retry.");
+    }
+
+    // Every disconnect entry point uses this service. Clear both caches only
+    // after the backend confirms it removed the connection and receipt rows.
+    const cacheKey = gmailStatusCacheKey(params.userId);
+    gmailStatusCacheGenerations.set(
+      cacheKey,
+      (gmailStatusCacheGenerations.get(cacheKey) || 0) + 1,
+    );
+    CacheService.getInstance().invalidate(cacheKey);
+    clearCachedGmailReceipts(params.userId);
     trackGmailEventForOwner(params.userId, "gmail_disconnect_result", { result: "success" });
-    return (await response.json()) as GmailConnectionStatus;
+    return status;
   }
 
   static async reconcile(params: {

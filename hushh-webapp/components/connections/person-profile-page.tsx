@@ -12,7 +12,7 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon, MessageCircle } from "@/components/icons";
+import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon } from "@/components/icons";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
@@ -56,7 +56,6 @@ import {
   type PersonRequestHistoryPage,
 } from "@/lib/services/person-profile-service";
 import {
-  buildDirectMessageRoute,
   resolvePersonRefFromProfilePathname,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -794,24 +793,6 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             </Button>
             {viewerProfile ? (
               <>
-                {viewerProfile.relationship.status === "connected" ? (
-                  <Button
-                    type="button"
-                    variant="blue-gradient"
-                    effect="fill"
-                    className={styles.message}
-                    onClick={() =>
-                      router.push(
-                        buildDirectMessageRoute({
-                          personRef: resolvedPersonRef,
-                        }),
-                      )
-                    }
-                  >
-                    <MessageCircle className="h-5 w-5" aria-hidden="true" />
-                    Message
-                  </Button>
-                ) : null}
                 <Button type="button" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
                   <Settings className="h-5 w-5" aria-hidden="true" />
                   Manage access

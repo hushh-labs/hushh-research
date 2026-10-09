@@ -235,6 +235,12 @@ async def test_owner_email_prepare_keeps_exact_terms_until_one_confirmation(agen
     again = client.post(f"/api/one/pod/actions/{proposal}/confirm", headers=OWNER_SESSION)
     assert first.status_code == 200, first.text
     assert again.status_code == 409
+    receipt = client.get(f"/api/one/pod/actions/{proposal}/status", headers=OWNER_SESSION)
+    assert receipt.json() == {"proposalId": proposal, "kind": "gmail_mailbox", "state": "sent"}
+    refused = client.get(
+        f"/api/one/pod/actions/{proposal}/status", headers={"X-Consent-Token": "hub-consent"}
+    )
+    assert refused.status_code == 403
     assert len(google.calls("POST", f"{h.GMAIL}/messages/send")) == 1
 
 
@@ -377,6 +383,8 @@ async def test_email_review_refuses_reconnect_and_unknown_delivery_never_retries
     pid = proposal["proposal_id"]
     first = _client().post(f"/api/one/pod/actions/{pid}/confirm", headers=OWNER_SESSION)
     assert first.status_code == 502 and "OUTCOME_UNKNOWN" in first.text
+    receipt = _client().get(f"/api/one/pod/actions/{pid}/status", headers=OWNER_SESSION)
+    assert receipt.json()["state"] == "outcome_unknown"
     again = _client().post(f"/api/one/pod/actions/{pid}/confirm", headers=OWNER_SESSION)
     assert again.status_code == 409 and len(google.calls("POST", f"{h.GMAIL}/messages/send")) == 1
     second = await prepare()
@@ -394,3 +402,16 @@ async def test_email_review_refuses_reconnect_and_unknown_delivery_never_retries
     )
     assert changed.status_code == 409
     assert len(google.calls("POST", f"{h.GMAIL}/messages/send")) == 1
+
+
+def test_send_status_keeps_neighboring_ingress_routes_closed():
+    from api.middlewares.pod_ingress import is_app_surface
+
+    assert is_app_surface("/api/one/pod/actions/gmod_abcdefghijklmnop/status")
+    for path in (
+        "gcal_abcdefghijklmnop/status",
+        "gmod_short/status",
+        "gmod_abcdefghijklmnop/status/provider",
+        "gmod_abcdefghijklmnop/retry",
+    ):
+        assert not is_app_surface(f"/api/one/pod/actions/{path}")

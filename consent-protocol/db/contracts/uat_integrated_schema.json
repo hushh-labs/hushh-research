@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 287,
+  "expected_migration_version": 290,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -56,6 +56,7 @@
     "pkm_grant_credits",
     "pkm_spend_credits",
     "bump_gmail_send_grant_generation",
+    "notify_document_request_feed_changed",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -871,6 +872,23 @@
       "notification_error_code",
       "notification_settled_at"
     ],
+    "drive_request_bulk_removals": [
+      "removal_id",
+      "request_id",
+      "user_id",
+      "share_id",
+      "position",
+      "recipient_user_id",
+      "plan_envelope",
+      "state",
+      "lease_id",
+      "lease_expires_at",
+      "attempts",
+      "next_at",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
+    ],
     "drive_request_payment_obligations": [
       "request_id",
       "payer_ref",
@@ -1009,7 +1027,8 @@
       "bulk_search_started_at",
       "created_at",
       "updated_at",
-      "expires_at"
+      "expires_at",
+      "access_stop_requested_at"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -2100,6 +2119,7 @@
       "user_id",
       "pass_serial",
       "share_token_hash",
+      "share_token_envelope",
       "share_token_version",
       "status",
       "card_payload",

@@ -149,6 +149,41 @@ def test_owner_waits_for_requester_payment_without_approval_task(payment_status)
     assert entry(row)["scope_description"] == "Google Drive files"
 
 
+def test_access_stop_is_not_an_owner_task_or_payment_prompt():
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "history",
+        "status": "stopped",
+        "issued_at": 0,
+        "direction": "incoming",
+        "state": "pending",
+        "revision": 1,
+        "preparation_error_code": None,
+        "owner_search_state": "running",
+        "trusted_authority_ready": True,
+        "trusted_batch_seen": True,
+        "trusted_work_active": True,
+        "trusted_recovery_needed": False,
+        "payment_status": "awaiting_payment",
+        "payment_amount_cents": 1000,
+        "payment_currency": "usd",
+        "payment_reconciliation_required": False,
+        "payment_link_expired": False,
+        "checkout_expires_at": None,
+        "access_stopped": True,
+    }
+    owner = entry(row)
+    assert owner["metadata"]["accessStopped"] is True
+    assert owner["metadata"]["owner_attention_required"] is False
+    assert "payment_waiting_for_requester" not in owner["metadata"]
+    row["direction"] = "outgoing"
+    requester = entry(row)
+    assert requester["metadata"]["accessStopped"] is True
+    assert requester["metadata"]["paymentStatus"] == "awaiting_payment"
+
+
 @pytest.mark.asyncio
 async def test_legacy_sqlite_has_no_drive_projection_or_postgres_transaction():
     engine = create_engine("sqlite://")

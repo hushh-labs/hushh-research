@@ -22,11 +22,7 @@ import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from db.db_client import get_db
-from hushh_mcp.services.gmail_metadata_reader import (
-    GmailMetadataReader,
-    RequireAccess,
-    in_listing_order,
-)
+from hushh_mcp.services.gmail_metadata_reader import GmailMetadataReader, RequireAccess
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
@@ -39,6 +35,7 @@ MAILBOX_ACTIONS: frozenset[str] = frozenset(get_args(MailboxAction))
 LABEL_ACTIONS = frozenset({"add_label", "remove_label"})
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _TTL = timedelta(minutes=10)
+_TRASH_TIMEOUT_SECONDS = 20
 # (addLabelIds, removeLabelIds) for the actions whose labels are fixed.
 _FIXED_LABEL_CHANGES: dict[str, tuple[list[str], list[str]]] = {
     "archive": ([], ["INBOX"]),
@@ -179,7 +176,7 @@ class GmailMailboxActions:
             token = await self._gmail.get_modify_access_token(
                 user_id=user_id, expected_google_sub=proposal["google_sub"]
             )
-            await self._apply(
+            outcome = await self._apply(
                 token, proposal["action"], [str(i) for i in message_ids], proposal["label_id"]
             )
         except httpx.TransportError:
@@ -192,6 +189,10 @@ class GmailMailboxActions:
             with suppress(Exception):
                 await self._mark_failed(user_id, proposal_id)
             raise
+        if outcome["status"] != "executed":
+            # The executing claim is intentionally retained: a provider POST
+            # may have succeeded, so this exact review must never be replayed.
+            return {"action": proposal["action"], "total": len(message_ids), **outcome}
         # A receipt/cleanup outage must not turn provider success into a
         # retryable write. The consumed proposal remains unavailable until TTL.
         try:
@@ -219,7 +220,7 @@ class GmailMailboxActions:
 
     async def _apply(
         self, token: str, action: str, message_ids: list[str], label_id: str | None
-    ) -> None:
+    ) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {token}"}
         async with httpx.AsyncClient(
             transport=self._transport, timeout=15, follow_redirects=False
@@ -227,31 +228,65 @@ class GmailMailboxActions:
             # HTTPX spans would otherwise record message IDs from the URL.
             with suppress_instrumentation():
                 if action == "trash":
+                    # Gmail has no batch Trash endpoint. Bound fanout and the
+                    # whole operation: each result is recorded separately, and
+                    # a timed-out POST is unknown even if the local task stopped.
+                    semaphore = asyncio.Semaphore(4)
 
-                    async def trash(message_id: str) -> dict[str, Any]:
-                        response = await client.post(
-                            f"{_BASE}/messages/{message_id}/trash", headers=headers
-                        )
-                        _check(response)
-                        return {}
+                    async def trash(message_id: str) -> tuple[str, GmailApiError | None]:
+                        async with semaphore:
+                            try:
+                                response = await client.post(
+                                    f"{_BASE}/messages/{message_id}/trash", headers=headers
+                                )
+                                _check(response)
+                                return "confirmed", None
+                            except GmailApiError as exc:
+                                return ("unknown" if exc.status_code >= 500 else "rejected"), exc
+                            except Exception as exc:
+                                logger.warning(
+                                    "gmail_mailbox_trash_unconfirmed error=%s", type(exc).__name__
+                                )
+                                return "unknown", None
 
+                    tasks = [asyncio.create_task(trash(message_id)) for message_id in message_ids]
                     try:
-                        await in_listing_order(message_ids, trash)
-                    except Exception:
-                        # Siblings may already have completed, including when
-                        # another request lost permission. Never claim no effect.
-                        raise _unknown_outcome() from None
-                    return
+                        await asyncio.wait_for(
+                            asyncio.gather(*tasks), timeout=_TRASH_TIMEOUT_SECONDS
+                        )
+                    except TimeoutError:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                    outcomes = [
+                        task.result() if task.done() and not task.cancelled() else ("unknown", None)
+                        for task in tasks
+                    ]
+                    confirmed = sum(state == "confirmed" for state, _ in outcomes)
+                    if confirmed == len(message_ids):
+                        return {"status": "executed", "count": confirmed}
+                    if any(state == "unknown" for state, _ in outcomes):
+                        return {"status": "outcome_unknown", "count": confirmed}
+                    if confirmed:
+                        return {"status": "partially_executed", "count": confirmed}
+                    rejection = next(error for _, error in outcomes if error is not None)
+                    raise rejection
                 if action in LABEL_ACTIONS:
                     add, remove = ([label_id], []) if action == "add_label" else ([], [label_id])
                 else:
                     add, remove = _FIXED_LABEL_CHANGES[action]
-                response = await client.post(
-                    f"{_BASE}/messages/batchModify",
-                    headers=headers,
-                    json={"ids": message_ids, "addLabelIds": add, "removeLabelIds": remove},
-                )
-                _check(response)
+                try:
+                    response = await client.post(
+                        f"{_BASE}/messages/batchModify",
+                        headers=headers,
+                        json={"ids": message_ids, "addLabelIds": add, "removeLabelIds": remove},
+                    )
+                    _check(response)
+                except GmailApiError as exc:
+                    if exc.status_code < 500:
+                        raise
+                    return {"status": "outcome_unknown", "count": 0}
+                except httpx.RequestError:
+                    return {"status": "outcome_unknown", "count": 0}
+                return {"status": "executed", "count": len(message_ids)}
 
 
 def _check(response: httpx.Response) -> None:

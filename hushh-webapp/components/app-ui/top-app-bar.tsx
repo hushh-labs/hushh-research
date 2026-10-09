@@ -1131,7 +1131,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       : "justify-center",
                   )}
                 >
-                  {pathname === ROUTES.ONE_HOME && showOneHomeBrand ? (
+                  {model.mode === "bar-with-tabs" && model.tabs.id === "public" ? null : pathname === ROUTES.ONE_HOME && showOneHomeBrand ? (
                     <OneAgentPresence compact />
                   ) : hasBreadcrumbTrail ? (
                     <TopShellBreadcrumbTrail items={breadcrumbTrailItems} />

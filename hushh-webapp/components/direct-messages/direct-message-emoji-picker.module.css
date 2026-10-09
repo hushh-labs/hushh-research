@@ -36,12 +36,19 @@
 }
 
 .content {
+  position: relative;
+  z-index: var(--z-popover, 420);
+  isolation: isolate;
+  display: grid;
+  max-height: min(24rem, calc(100dvh - 7rem));
+  grid-template-rows: auto auto minmax(0, 1fr);
   width: min(22rem, calc(100vw - 1rem));
   padding: 0.625rem;
   border: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
   border-radius: 1.125rem;
-  background: color-mix(in oklab, var(--one-chat-raised) 96%, transparent);
+  background: var(--one-chat-raised);
   box-shadow: 0 18px 48px rgb(0 0 0 / 0.16), 0 3px 10px rgb(0 0 0 / 0.08);
+  overflow: hidden;
 }
 
 .search {
@@ -121,6 +128,7 @@
   max-height: min(18rem, 42vh);
   padding-right: 0.125rem;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .emojiButton {
@@ -154,6 +162,7 @@
 
 @media (max-width: 28rem) {
   .content {
+    max-height: min(22rem, calc(100svh - 8rem));
     width: min(20rem, calc(100vw - 0.75rem));
   }
 

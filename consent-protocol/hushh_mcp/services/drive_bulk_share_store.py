@@ -294,11 +294,15 @@ class DriveBulkShareStore(DriveLivePreferences):
         request = self._row(
             connection,
             """SELECT recipient_user_id,status,revision,expires_at,request_envelope,
-            preparation_error_code
+            preparation_error_code,access_stop_requested_at
             FROM drive_share_requests WHERE request_id=:request AND user_id=:owner""",
             {"request": share["origin_request_id"], "owner": owner},
         )
-        if not request or request["recipient_user_id"] != recipient:
+        if (
+            not request
+            or request["recipient_user_id"] != recipient
+            or request["access_stop_requested_at"] is not None
+        ):
             return False
         allowed_status = (
             share["progressive_batch"] is True
@@ -701,6 +705,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                     request_row is None
                     or request_row["bulk_search_started_at"] is None
                     or request_row["status"] != "pending"
+                    or request_row["access_stop_requested_at"] is not None
                     or request_row["expires_at"]
                     <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
                     or len(cleaned) != 1
@@ -1111,7 +1116,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                   AND expires_at>clock_timestamp()""",
                 {"request": request, "user": user_id},
             )
-            if origin is None or origin["status"] != "pending":
+            if (
+                origin is None
+                or origin["status"] != "pending"
+                or origin["access_stop_requested_at"] is not None
+            ):
                 raise DriveSharingError("request_changed")
             source = self._row(
                 connection,
@@ -1363,6 +1372,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 if (
                     origin is None
                     or origin["status"] != "pending"
+                    or origin["access_stop_requested_at"] is not None
                     or origin["revision"] != row["origin_request_revision"]
                     or origin["expires_at"]
                     <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
@@ -1479,6 +1489,22 @@ class DriveBulkShareStore(DriveLivePreferences):
                 updated_at=clock_timestamp() WHERE share_id=:share RETURNING *""",
                 {"share": share, "approval_source": approval_source},
             )
+            if (
+                origin is not None
+                and row["progressive_batch"]
+                and approval_source == "owner"
+                and private.get("trusted_auto") is not True
+                and row["file_count"] > 0
+            ):
+                # Progressive requests remain pending while later batches are
+                # reviewed. This approved batch, not the request-wide status,
+                # is the payment authority. Commit the one order and Feed
+                # event atomically with its explicit owner approval.
+                from hushh_mcp.services.drive_request_payment_store import (
+                    DriveRequestPaymentStore,
+                )
+
+                DriveRequestPaymentStore.ensure_order_for_approved_request(connection, origin)
             if origin is not None and not row["progressive_batch"]:
                 request = origin
                 request = self._row(
@@ -1546,6 +1572,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 if (
                     origin is None
+                    or origin["access_stop_requested_at"] is not None
                     or origin["status"]
                     not in ({"pending", "partial"} if row["progressive_batch"] else {"partial"})
                     or origin["revision"] != row["origin_request_revision"]
@@ -1791,7 +1818,11 @@ class DriveBulkShareStore(DriveLivePreferences):
             WHERE request_id=:request FOR UPDATE""",
             {"request": request_id},
         )
-        if request is None or request["status"] != "pending":
+        if (
+            request is None
+            or request["status"] != "pending"
+            or request["access_stop_requested_at"] is not None
+        ):
             return
         source = self._row(
             connection,
@@ -1800,6 +1831,21 @@ class DriveBulkShareStore(DriveLivePreferences):
             {"user": request["user_id"], "request": request_id},
         )
         if source is None or source["status"] != "completed" or source["incomplete_search"]:
+            return
+        checkpoint = self._open(
+            source["checkpoint_envelope"],
+            user_id=request["user_id"],
+            resource_id=str(source["job_id"]),
+            purpose="owner-search-checkpoint",
+        )
+        if (
+            checkpoint.get("request_origin_id") != str(request_id)
+            or checkpoint.get("request_revision") != request["revision"]
+            or checkpoint.get("request_shareability_version") != 1
+        ):
+            # A client ID alone does not bind a search to this request's
+            # current scope. Mirror the review/claim fence before publishing
+            # any terminal result, especially an empty stale search's no_match.
             return
         legacy = connection.execute(
             text("""SELECT EXISTS(SELECT 1 FROM drive_bulk_shares
@@ -2025,16 +2071,25 @@ class DriveBulkShareStore(DriveLivePreferences):
                     connection, user_id=user_id, generation=row["connection_generation"]
                 )
             except DriveReadError:
+                # A provider POST may have succeeded just before the issuer
+                # disconnected. Preserve that uncertainty for reconciliation;
+                # calling it failed would incorrectly allow a no-delivery refund.
                 connection.execute(
                     text("""UPDATE drive_bulk_share_effects SET state=:state,
-                    safe_error_code='connection_changed',lease_id=NULL,lease_expires_at=NULL,
+                    safe_error_code=:error_code,lease_id=NULL,lease_expires_at=NULL,
+                    next_at=clock_timestamp()+INTERVAL '1 minute',
                     updated_at=clock_timestamp()
                     WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient"""),
                     {
                         "share": share,
                         "position": position,
                         "recipient": recipient_user_id,
-                        "state": "failed" if effect["state"] != "queued" else "skipped",
+                        "state": "unknown" if effect["state"] != "queued" else "skipped",
+                        "error_code": (
+                            "permission_outcome_unknown"
+                            if effect["state"] != "queued"
+                            else "connection_changed"
+                        ),
                     },
                 )
                 self._finalize(connection, share)

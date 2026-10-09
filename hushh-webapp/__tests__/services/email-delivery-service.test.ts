@@ -12,6 +12,9 @@ vi.mock('@/lib/services/auth-service', () => ({ AuthService: { getCurrentUser: (
 import {
   EmailDeliveryError,
   EmailDeliveryService,
+  forgetPendingEmailSendAction,
+  pendingEmailSendActionIds,
+  rememberPendingEmailSendAction,
 } from "@/lib/services/email-delivery-service";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -36,7 +39,7 @@ function requestBody(call: number): Record<string, unknown> {
 }
 
 describe("EmailDeliveryService", () => {
-  beforeEach(() => { placement.mockResolvedValue(false); vi.clearAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); placement.mockResolvedValue(false); sessionStorage.clear(); });
 
   it('binds private sends to the exact reviewed proposal and refuses changed drafts or a hub fallback', async () => {
     placement.mockResolvedValue(true);
@@ -51,6 +54,53 @@ describe("EmailDeliveryService", () => {
     expect(ApiService.ownerPodRequest).toHaveBeenLastCalledWith(`actions/${proposal}/confirm`, { method: 'POST' });
     await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft })).rejects.toMatchObject({ code: 'PRIVATE_EMAIL_REVIEW_REQUIRED' });
     expect(ApiService.apiFetch).not.toHaveBeenCalled();
+  });
+
+  it("reads a send status through both owner credentials without provider or mail content", async () => {
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      action_id: ACTION_ID,
+      state: "sent",
+      gmail_message_id: "must-not-leak",
+    }), { status: 200 }));
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: ACTION_ID }))
+      .resolves.toEqual({ actionId: ACTION_ID, state: "sent" });
+    expect(ApiService.apiFetch).toHaveBeenCalledWith(
+      `/api/one/email/send/status/${ACTION_ID}`,
+      { method: "GET", headers: expect.objectContaining({
+        Authorization: "Bearer firebase-token",
+        "X-Hushh-Consent": "Bearer vault-owner-token",
+      }) },
+    );
+  });
+
+  it("keeps only same-owner opaque send action IDs across reload and forgets settled attempts", () => {
+    rememberPendingEmailSendAction("owner-1", ACTION_ID);
+    expect(pendingEmailSendActionIds("owner-1")).toEqual([ACTION_ID]);
+    expect(pendingEmailSendActionIds("owner-2")).toEqual([]);
+    const stored = sessionStorage.getItem("one-email-pending-send-actions:v1:owner-1") ?? "";
+    expect(stored).toContain(ACTION_ID);
+    expect(stored).not.toContain("firebase-token");
+    expect(stored).not.toContain("vault-owner-token");
+    forgetPendingEmailSendAction("owner-1", ACTION_ID);
+    expect(pendingEmailSendActionIds("owner-1")).toEqual([]);
+  });
+
+  it("does not turn partial or uncertain mailbox changes into completed actions", async () => {
+    vi.mocked(ApiService.apiFetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: "partially_executed", action: "trash", count: 1, total: 3,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: "outcome_unknown", action: "trash", count: 0, total: 3,
+      }), { status: 200 }));
+    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId: "gmod_1" }))
+      .rejects.toMatchObject({
+        code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
+        message: "Gmail confirmed 1 of 3 changes. The remaining result is uncertain. Check Gmail before making this change again.",
+      });
+    await expect(EmailDeliveryService.executeMailboxProposal({ ...AUTH, proposalId: "gmod_1" }))
+      .rejects.toMatchObject({ code: "GMAIL_MAILBOX_OUTCOME_UNKNOWN" });
+    expect(ApiService.apiFetch).toHaveBeenCalledTimes(2);
   });
 
   it("keeps explicit draft fields and both short-lived auth credentials at the delivery boundary", async () => {
@@ -373,4 +423,25 @@ describe("EmailDeliveryService", () => {
     })).rejects.toMatchObject({ code: "GMAIL_MAILBOX_CONNECTION_CHANGED", status: 409 });
   });
 
+});
+
+
+describe("private send recovery", () => {
+  it("retains the opaque proposal and reads only pod settlement evidence", async () => {
+    vi.clearAllMocks(); sessionStorage.clear(); placement.mockResolvedValue(true);
+    const proposal = "gmod_abcdefghijklmnop";
+    rememberPendingEmailSendAction("owner", proposal);
+    expect(pendingEmailSendActionIds("owner")).toEqual([proposal]);
+    expect(pendingEmailSendActionIds("foreign")).toEqual([]);
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ proposalId: proposal, kind: "gmail_mailbox", state: "outcome_unknown" })));
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: proposal })).resolves.toEqual({ actionId: proposal, state: "outcome_unknown" });
+    expect(ApiService.ownerPodRequest).toHaveBeenCalledWith(`actions/${proposal}/status`, { method: "GET" });
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ proposalId: "gmod_wrongwrongwrong", kind: "gmail_mailbox", state: "sent" })));
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: proposal })).rejects.toMatchObject({ code: "EMAIL_ACTION_OUTCOME_UNKNOWN" });
+    vi.mocked(ApiService.ownerPodRequest).mockRejectedValueOnce(new Error("pod offline"));
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: proposal })).rejects.toThrow("pod offline");
+    placement.mockResolvedValue(false);
+    await expect(EmailDeliveryService.sendStatus({ ...AUTH, actionId: proposal })).rejects.toMatchObject({ code: "ACTION_NOT_FOUND" });
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
+  });
 });

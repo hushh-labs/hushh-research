@@ -1,5 +1,5 @@
 
-import { type LucideIcon } from "@/components/icons";
+import { MessageCircle, type LucideIcon } from "@/components/icons";
 
 import {
   FinanceAgentIcon,
@@ -55,7 +55,8 @@ export type OneCapabilityTone =
   | "location"
   | "pkm"
   | "consent"
-  | "connected";
+  | "connected"
+  | "messages";
 
 export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
@@ -144,6 +145,17 @@ export interface OneCapability {
  * Canonical, ordered list of One's capabilities. Order mirrors the dashboard.
  */
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
+  {
+    id: "messages",
+    agentId: null,
+    title: "Messages",
+    description: "Message your connections in one place.",
+    href: ROUTES.ONE_MESSAGES,
+    icon: lucideCapabilityIcon(MessageCircle),
+    tone: "messages",
+    group: "workflow",
+  },
+
   {
     id: "finance",
     setupActionId: "setup.open_finance",

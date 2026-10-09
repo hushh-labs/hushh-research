@@ -41,6 +41,32 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
   stream body arrive. Cold pod admission retains its separate HTTP deadline;
   admission is not a silent model stream. Cancellation invalidates the run so
   late admission cannot dispatch a cancelled turn or restart its watchdog.
+- Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
+
+### Document request Feed wake-ups
+
+`GET /api/consent/document-feed/{user_id}` is a separate Firebase-bearer-authenticated
+SSE channel for an open web Feed. A committed `drive_share_events` insert projects
+the durable Feed row and sends one PostgreSQL `one_user_state_changed` doorbell.
+The doorbell contains only the addressed user ID, opaque request ID and event
+UUID. The SSE endpoint strips even the user ID and emits `feed_changed` with
+`id: <event UUID>` and `data: {"request_id":"<UUID>"}`. It emits `feed_reset`
+immediately on every connection. The client treats both as reread signals;
+neither authorizes payment, consent, file access or a user-facing state label.
+
+The reset is the recovery path when a tab or backend instance missed NOTIFY:
+subscribe first, then tell the client to fetch the authenticated Feed and
+Consent Center snapshots, then drain queued changes. FCM and the visible
+Feed's periodic/focus refresh remain fallbacks. No filenames, request reason,
+provider identifiers, Stripe data, counterpart identity or secret material
+may enter the stream. The legacy consent SSE fallback switch does not govern
+this dedicated Feed endpoint.
+
+The first owner Stop access transition updates the request row rather than
+writing a Drive outbox event. Its transaction sends the same opaque doorbell
+to both participants, using the request UUID as its one-shot event ID. The
+client rereads current access state; later removal outcomes follow the usual
+durable Drive event path.
 
 ### Private connector events
 

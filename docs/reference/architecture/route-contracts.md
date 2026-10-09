@@ -27,6 +27,8 @@ Hussh uses a code-owned route contract plus docs/runtime checks to keep the decl
 - Capacitor TypeScript, iOS, and Android plugin surfaces
 - mobile parity guidance for the visible page tree
 
+The lost-vault deletion journey is a state inside the existing locked-vault view, not a new app page. Its `GET /api/account/delete-lost-vault/options` and `POST /api/account/delete-lost-vault` calls use the account API proxy on web and the existing platform-aware API transport on native. A native client that cannot mint fresh provider and linked-phone proof shows the web/support route instead of offering a weaker deletion path. See [Lost vault access](../one/lost-vault-account-deletion.md).
+
 For One Voice onboarding, middleware remains route protection and static
 redirect infrastructure only. It cannot be the mutable journey planner because
 it cannot reliably observe Firebase callback settlement or browser-local UI
@@ -130,6 +132,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/calendar`
 - `/one/files` — encrypted BYOC Files; direct admitted pod transport, initially web-only
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
+- `/one/wallet-card` (Wallet Profile management; also composed inside Profile/NWS card details in Wallet, with automatic owner-session provisioning)
 - `/one/pkm/recent`
 - `/one/pkm/location` — readable saved places, visits and Location memory details
 - `/one/pkm/location/detail?memory=<opaque-selector>` — existing actions for a current Location memory field; Back returns to Location memory
@@ -219,6 +222,16 @@ contract is added.
 The access manager is the One-owned `/one/consent` workspace. Legacy
 `/consents` links redirect there while preserving transient query state such as
 the selected review tab and request identifier.
+
+## Hierarchical Back verification
+
+The runtime parent authority remains `resolveTopShellBackAction`. Shell Back and iOS edge gestures call `navigateTopShellBack`; Android calls the same owner after overlay and feature handling. Precedence is top overlay, deepest matching feature layer, route parent, then native root minimise. An overlay refusing Escape consumes Back. A same-path query climb uses replace/contextual navigation.
+
+Memory registers card, nested path and category unwind without putting private details or queries in URLs. Wallet closes edit, preview or success before the selected card, then returns to all cards; inactive panes release their layers and busy card mutations consume Back. Location Share/Ask unwind their selection steps before leaving the flow; Share also clears its consent-review flag. SMS Circle retains Settings/SOS origin. Circle-owned tasks retain their Circle parent. Profile keeps a validated origin through detail, panel and root.
+
+`backVerification` in the existing route layout contract is verification metadata, not a second runtime router. Its cases exercise production parent resolution, canonical targets, query replacements and eventual root reachability. Every physical route needs coverage, every Location action needs cases for Now/People/Links, and new history bypasses fail. Existing entry, redirect and hidden surfaces explicitly describe their shell boundary; this gate does not invent a parent for them.
+
+After reviewing changed behavior and updating cases, run `npm run build:back-contracts`. It runs the shared hierarchy regressions before stamping the source revision. CI runs `npm run verify:back-contracts` read-only, including stale-source checks, mutation controls, Memory integration and native gesture regressions. Both Preflight Gate and CI Status Gate require success, including on documentation-only PRs. Authenticated browser and physical-device certification remains a separate release check.
 
 ## Shell and navigation
 
@@ -329,3 +342,27 @@ private vault and saves the encrypted key through the existing settings route.
 - [api-contracts.md](./api-contracts.md) describes the API surface itself.
 - `hushh-webapp/lib/navigation/routes.ts` is the code-owned navigation source of truth.
 - [../mobile/capacitor-parity-audit.md](../mobile/capacitor-parity-audit.md) defines the stricter mobile release gate layered on top of route contracts.
+
+
+### Search contract gate
+
+Search consumes the authored voice action gateway and generated route index. Do not maintain a separate Search action list. Declare labels, aliases, reachability, execution targets and public query defaults in the owning web voice action contract. RIA Picks declares `source` and `category` defaults; partial route targets compare only the dimensions they change.
+
+Every PR runs **Search Web Contracts**, independently of changed-path filtering. The required **CI Status Gate** requires Search success and rejects skips. The read-only gate checks route coverage, source revisions, all generated gateway mirrors and route-index freshness. UI revisions include pages, layouts, templates and their transitive local modules and authored JSON, normalized across Windows/Linux line endings. Generated contracts are excluded from their own source digest.
+
+After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit the authored contracts and generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. The global source revision deliberately refreshes all surface contracts for shared UI changes. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, while Search derives its catalog automatically. New route coverage and generated reachability validation remain mandatory.
+
+The gate also validates literal `data-voice-control-id` values against authored action `control_ids`. New controls require action coverage before regeneration succeeds. Existing 28 uncovered controls are explicitly listed as legacy coverage debt in the global command-bar contract. Dynamic or unannotated interactions still require author review; the checker cannot infer their meaning. Suggestion subview priorities live in authored `search.subview_action_boost` metadata rather than a Search source-code map.
+
+### Messages workspace layout
+
+The `/one/messages` workspace uses the standard shared header and persistent
+bottom navigation, with no route-specific footer styling. Its white two-pane
+message area sits below the shared header, and its composer remains in normal
+flow inside the conversation. The shell reserves space for the footer on both panes;
+active global commands and voice controls remain available and measured. On
+mobile, a selected conversation replaces the inbox and Back to chats restores
+it. Inbox filtering matches contact names and message previews; an empty inbox
+links to the existing Connect entry point. Browser selection restoration uses
+the authenticated encrypted-token contract described in
+[API Contracts](./api-contracts.md).

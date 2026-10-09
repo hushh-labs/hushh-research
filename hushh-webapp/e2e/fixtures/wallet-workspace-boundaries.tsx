@@ -4,6 +4,7 @@
 // `window.__walletScenario`, set by the spec before the fixture script runs.
 import React from "react";
 import type { WalletCardPayload } from "../../lib/services/wallet-card-service";
+import { detectBrand } from "../../lib/wallet/card-validation";
 
 type FixtureCard = {
   cardId: string;
@@ -26,6 +27,7 @@ type Scenario = {
   delayMs?: number;
   error?: boolean;
   profile?: WalletCardPayload;
+  artworkGallery?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -39,6 +41,7 @@ declare global {
   interface Window {
     __walletScenario?: Scenario;
     __walletEvents?: string[];
+    __walletRemount?: () => void;
   }
 }
 
@@ -79,6 +82,11 @@ export class WalletService {
     if (scenario().error) throw new Error("Your cards could not be loaded.");
     return cards().map(summaryOf);
   }
+  static async listCardPresentations() {
+    await wait();
+    if (scenario().error) throw new Error("Your cards could not be loaded.");
+    return cards().map((card) => ({ summary: summaryOf(card), cardholderName: card.cardholderName }));
+  }
   static async getCard({ cardId }: { cardId: string }) {
     record(`reveal:${cardId}`);
     const card = cards().find((entry) => entry.cardId === cardId);
@@ -92,9 +100,23 @@ export class WalletService {
     record(`delete:${cardId}`);
     store = cards().filter((card) => card.cardId !== cardId);
   }
-  static async addCard() {
+  static async addCard({ card }: { card: {
+    nickname: string; brand?: string; pan: string; cardholderName: string;
+    cvv: string; pin?: string; expiryMonth: number; expiryYear: number; issuingRegion?: string;
+  } }) {
+    await wait();
     record("add");
-    return { cardId: "card_new", summary: summaryOf(SYNTHETIC[0]!) };
+    const saved: FixtureCard = {
+      ...card,
+      cardId: `card_saved_${cards().length + 1}`,
+      brand: card.brand || detectBrand(card.pan) || "other",
+      last4: card.pan.slice(-4),
+      issuingRegion: card.issuingRegion || "",
+      pin: card.pin || "",
+      createdAt: "2026-10-09T00:00:00.000Z",
+    };
+    cards().push(saved);
+    return { cardId: saved.cardId, summary: summaryOf(saved), cardholderName: saved.cardholderName };
   }
   static matchesQuery(card: { nickname: string; brand: string; last4: string; issuingRegion: string }, query: string) {
     const q = query.trim().toLowerCase();
@@ -102,17 +124,6 @@ export class WalletService {
     return [card.nickname, card.brand, card.last4, card.issuingRegion].some((value) =>
       String(value || "").toLowerCase().includes(q),
     );
-  }
-}
-
-// Public profile artwork is a different boundary from private payment-card
-// reveals. Exercise its overlay without network or real profile information.
-export class WalletCardService {
-  static async getCard() {
-    return {
-      card: { cardPayload: { full_name: "Alex Rivera", ...scenario().profile } },
-      shareUrl: "https://example.com/profile/alex",
-    };
   }
 }
 
@@ -146,11 +157,14 @@ export const usePathname = () => "/one/wallet";
 export const useSearchParams = () => params;
 
 // Auth and vault.
-const user = { uid: "fixture-owner", getIdToken: async () => "fixture-token" };
+const user = { uid: "fixture-owner", displayName: "Alex Rivera", metadata: { creationTime: "2026-01-01T00:00:00Z" }, getIdToken: async () => "fixture-token" };
+export const useEffectiveAvatarUrl = () => null;
+export const useReferralStream = () => ({ connected: true });
 export const useAuth = () => ({ user, loading: false });
 export const useVault = () => ({
   vaultKey: scenario().locked ? null : "fixture-vault-key",
   isVaultUnlocked: !scenario().locked,
+  vaultOwnerToken: scenario().locked ? null : "fixture-owner-token",
   getVaultOwnerToken: () => (scenario().locked ? null : "fixture-owner-token"),
 });
 
@@ -161,7 +175,49 @@ export function VaultUnlockDialog({ open, title }: { open: boolean; title?: stri
 }
 
 export const trackEvent = () => undefined;
+// The wallet fixture aliases the observability boundary so layout tests never
+// initialize analytics adapters. Keep the API-service surface complete while
+// recording no external events.
+export const toDurationBucket = (durationMs: number) => {
+  if (durationMs < 100) return "lt_100ms";
+  if (durationMs < 300) return "100ms_300ms";
+  if (durationMs < 1000) return "300ms_1s";
+  if (durationMs < 3000) return "1s_3s";
+  if (durationMs < 10000) return "3s_10s";
+  return "gte_10s";
+};
+export const trackApiRequestCompleted = () => undefined;
 export const NativeTestBeacon = () => null;
+
+// The production Wallet Card service imports ApiService through the shared
+// client. Keep that transport inert in this fixture so a layout test never
+// initializes Firebase or performs a network request just to load an empty
+// card state.
+export const ApiService = {
+  getDirectBackendUrl: () => "",
+  apiFetch: async (requestPath: string) => {
+    // Production profile/referral views keep their rendering; only network
+    // responses are synthetic. No live profile, visitor, or payment is touched.
+    const payload = requestPath.startsWith("/api/one/referrals/summary") ? {
+      slug: "fixture-referral", link: "https://example.test/r/fixture-referral",
+      link_open_count: 7, last_opened_at: "2026-09-01T10:00:00Z",
+      qualified_count: 2, in_progress_count: 1, under_review_count: 0,
+      required_active_minutes: 15, new_users_only: true, referrals: [],
+    } : requestPath.startsWith("/api/one/wallet-card") ? {
+      card: {
+        pass_serial: "fixture-wallet-0001", status: "active", share_token_version: 1,
+        card_payload: { full_name: "Alex Rivera", username: "alex.rivera", ...scenario().profile },
+        display_name: "Alex Rivera", created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-09-01T10:00:00Z", scan_count: 3,
+        last_scanned_at: "2026-09-01T09:00:00Z",
+      },
+      share_token: "fixture-wallet-share-token-000001", share_url: "https://example.test/c/fixture-wallet-share-token-000001",
+    } : {};
+    return new Response(JSON.stringify(payload), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  },
+};
 
 export class ConsentCenterService {
   static async listEntries({ surface, page }: { surface: string; page: number }) {

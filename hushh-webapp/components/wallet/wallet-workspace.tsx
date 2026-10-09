@@ -60,6 +60,7 @@ import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handof
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
+import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
@@ -73,6 +74,8 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
+import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
+import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { CARD_CORNER_RADIUS_RATIO } from "@/lib/wallet/wallet-card-presentation";
@@ -277,11 +280,20 @@ export function WalletWorkspace() {
       }
     }
   };
+  const [cardDockHost, setCardDockHost] = useState<HTMLDivElement | null>(null);
   const [selectedDeckCardId, setSelectedDeckCardId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
   const ready = view.kind === "list" || view.kind === "add" || view.kind === "reveal";
   const activeTab = view.kind === "add" ? "add" : tab;
-  const [cards, setCards] = useState<WalletCardSummary[]>([]);
+  const cardReadRevision = useRef(0);
+  const [cardSnapshot, setCardSnapshot] = useState<{
+    ownerId: string;
+    cards: WalletCardSummary[];
+    cardholderNames: Record<string, string>;
+  } | null>(null);
+  const ownedSnapshot = vaultKey && cardSnapshot?.ownerId === renderedOwnerId ? cardSnapshot : null;
+  const cards = useMemo(() => ownedSnapshot?.cards ?? [], [ownedSnapshot]);
+  const cardholderNames = ownedSnapshot?.cardholderNames ?? {};
   const [busyCardId, setBusyCardId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<WalletCardSummary | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
@@ -298,6 +310,7 @@ export function WalletWorkspace() {
       setTab("cards");
       setFiling(null);
       setOfferNickname(null);
+      setCardSnapshot(null);
     }
   }, [ready, view.kind]);
 
@@ -344,7 +357,10 @@ export function WalletWorkspace() {
     }
     let cancelled = false;
     let requestSequence = 0;
+    let loading = false;
+    const recoveryAttempts = new Set<number | null>();
     const load = async () => {
+      if (cancelled || loading || document.visibilityState === "hidden") return;
       const sequence = ++requestSequence;
       const token = getVaultOwnerTokenRef.current();
       if (!token) {
@@ -356,26 +372,79 @@ export function WalletWorkspace() {
         profileVisitRef.current === profileVisit &&
         activeOwnerIdRef.current === ownerId &&
         getVaultOwnerTokenRef.current() === token;
+      loading = true;
       try {
         const state = await WalletCardService.getCard({ userId: ownerId, vaultOwnerToken: token });
         if (!isCurrent()) return;
         const payloadName = state.card?.cardPayload.full_name?.trim() || null;
-        setLoadedProfile({
-          visit: profileVisit,
-          profile: {
-            displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
-            shareUrl: state.shareUrl,
-            cardPayload: state.card?.cardPayload ?? null,
-          },
-        });
-      } catch {
-        if (isCurrent()) setLoadedProfile({ visit: profileVisit, profile: { displayName: fallbackName, shareUrl: null, cardPayload: null } });
-      }
+        setLoadedProfile({ visit: profileVisit, profile: {
+          displayName: payloadName || state.card?.displayName?.trim() || fallbackName,
+          shareUrl: state.card?.status === "active" ? state.shareUrl : null,
+          cardPayload: state.card?.cardPayload ?? null,
+          memberSince: user?.metadata?.creationTime,
+          walletId: state.card?.passSerial,
+          shareToken: WalletCardService.readShareLink(ownerId, state.card)?.shareToken ?? null,
+        } });
+        if (state.card && state.card.status !== "revoked" && !WalletCardService.readShareLink(ownerId, state.card)) {
+          const version = state.card.shareTokenVersion ?? null;
+          if (!recoveryAttempts.has(version)) {
+            recoveryAttempts.add(version);
+            const recovered = await WalletCardService.ensureCard({ userId: ownerId, vaultOwnerToken: token });
+            if (!isCurrent()) return;
+            const link = WalletCardService.readShareLink(ownerId, recovered.card);
+            setLoadedProfile({ visit: profileVisit, profile: {
+              displayName: recovered.card.cardPayload.full_name?.trim() || recovered.card.displayName?.trim() || fallbackName,
+              shareUrl: recovered.card.status === "active" ? link?.shareUrl ?? null : null,
+              cardPayload: recovered.card.cardPayload,
+              memberSince: user?.metadata?.creationTime,
+              walletId: recovered.card.passSerial,
+              shareToken: link?.shareToken ?? null,
+            } });
+          }
+        }
+      } catch { /* Preserve the last authorized snapshot on transient failure. */ }
+      finally { loading = false; }
     };
     void load();
     const timer = window.setInterval(load, 15000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [profileVisit, fallbackName]);
+    const refreshVisible = () => void load();
+    const unsubscribe = WalletCardService.subscribe(ownerId, refreshVisible);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      unsubscribe();
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [profileVisit, fallbackName, user?.metadata?.creationTime]);
+  const [referralState, setReferralState] = useState<{ ownerId: string; summary: ReferralSummary } | null>(null);
+  const [referralErrorOwnerId, setReferralErrorOwnerId] = useState<string | null>(null);
+  const loadReferral = useCallback(async () => {
+    if (!user) return;
+    const ownerId = user.uid;
+    setReferralErrorOwnerId(null);
+    try {
+      const idToken = await user.getIdToken();
+      const summary = await ReferralService.getSummary({ idToken });
+      if (activeOwnerIdRef.current === ownerId) setReferralState({ ownerId, summary });
+    } catch {
+      // Preserve a confirmed summary, but make a failed first load actionable.
+      if (activeOwnerIdRef.current === ownerId) setReferralErrorOwnerId(ownerId);
+    }
+  }, [user]);
+  useEffect(() => { void loadReferral(); }, [loadReferral]);
+  const { connected: referralConnected } = useReferralStream(user, loadReferral);
+  useEffect(() => {
+    if (!user || referralConnected) return;
+    const visible = () => { if (document.visibilityState !== "hidden") void loadReferral(); };
+    const timer = window.setInterval(visible, 30000);
+    window.addEventListener("focus", visible);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", visible); };
+  }, [user, referralConnected, loadReferral]);
+  const referralSummary = referralState?.ownerId === renderedOwnerId ? referralState.summary : null;
+  const walletIdentity = demoProfile ? { ...demoProfile, referralUrl: referralSummary?.link ?? null } : null;
   // Decryption is asynchronous; whether the vault is still open is re-read
   // from the latest render when it settles, never from the tap that began it.
   const vaultContextRef = useRef(vaultContext);
@@ -387,6 +456,7 @@ export function WalletWorkspace() {
         dispatch({ type: "disabled" });
         return;
       }
+      const readRevision = ++cardReadRevision.current;
       const context = vaultContext();
       if (!context) {
         dispatch({ type: "vault_unavailable" });
@@ -394,18 +464,20 @@ export function WalletWorkspace() {
       }
       if (!options?.quiet) dispatch({ type: "load_started" });
       try {
-        const summaries = await WalletService.listCardSummaries(context);
-        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        setCards(summaries);
+        const presentations = await WalletService.listCardPresentations(context);
+        const summaries = presentations.map((card) => card.summary);
+        if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+        setCardSnapshot({
+          ownerId: context.userId,
+          cards: summaries,
+          cardholderNames: Object.fromEntries(presentations.map((card) => [card.summary.cardId, card.cardholderName])),
+        });
         dispatch({ type: "load_succeeded", cardIds: summaries.map((card) => card.cardId) });
-      } catch (error) {
-        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+      } catch {
+        if (readRevision !== cardReadRevision.current || activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         dispatch({
           type: "load_failed",
-          message:
-            error instanceof Error && error.message
-              ? error.message
-              : "Your cards could not be loaded.",
+          message: "Your cards could not be loaded. Please try again.",
         });
       }
     },
@@ -518,6 +590,13 @@ export function WalletWorkspace() {
           ? cards[index + 1]?.cardId ?? cards[index - 1]?.cardId ?? null
           : current);
       }
+      cardReadRevision.current += 1;
+      setCardSnapshot((previous) => {
+        if (previous?.ownerId !== context.userId) return previous;
+        const names = { ...previous.cardholderNames };
+        delete names[cardId];
+        return { ...previous, cards: previous.cards.filter((card) => card.cardId !== cardId), cardholderNames: names };
+      });
       dispatch({ type: "unfocus" });
       await refresh({ quiet: true });
       setRemovingCardId(null);
@@ -759,9 +838,10 @@ export function WalletWorkspace() {
 
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
-            <WalletCardBrowser demoProfile={demoProfile} ownerId={renderedOwnerId || undefined}
+            <WalletCardBrowser dockHost={cardDockHost} demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
               key={renderedOwnerId}
               cards={cards}
+              cardholderNames={cardholderNames}
               selectedCardId={selectedDeckCardId}
               onSelect={selectCard}
               onOverview={() => dispatch({ type: "unfocus" })}
@@ -778,7 +858,6 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[820px] py-4">
               <SecureCardAddForm
-                scanEnabled
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
                 initialNickname={offerNickname ?? undefined}
@@ -795,7 +874,16 @@ export function WalletWorkspace() {
                     });
                     const current = vaultContextRef.current();
                     if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;
-                    setCards((existing) => [...existing.filter((item) => item.cardId !== saved.cardId), saved.summary]);
+                    // A list request begun before this receipt cannot remove the new card.
+                    cardReadRevision.current += 1;
+                    setCardSnapshot((previous) => {
+                      const owned = previous?.ownerId === context.userId ? previous : null;
+                      return {
+                        ownerId: context.userId,
+                        cards: [...(owned?.cards ?? []).filter((item) => item.cardId !== saved.cardId), saved.summary],
+                        cardholderNames: { ...owned?.cardholderNames, [saved.cardId]: saved.cardholderName },
+                      };
+                    });
                     setSelectedDeckCardId(saved.cardId);
                     if (activeOwnerIdRef.current === context.userId) {
                       trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
@@ -873,6 +961,7 @@ export function WalletWorkspace() {
             allowVaultCreation={false}
           />
         ) : null}
+        <div ref={setCardDockHost} hidden={introductionOpen || !ready || activeTab !== "cards" || Boolean(searchOpen && deferredQuery)} className={cn(browserStyles.dockHost, "sticky bottom-0 z-20 mx-auto h-0 w-full max-w-[820px] overflow-hidden bg-transparent p-0")} data-testid="wallet-card-dock-host" />
       </AppPageContentRegion>
     </AppPageShell>
   );

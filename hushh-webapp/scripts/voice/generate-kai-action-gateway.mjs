@@ -893,6 +893,13 @@ function normalizeSurface(contractPath, raw) {
       `${toRelativeRepoPath(contractPath)}: invalid orchestration.delegation_policy`,
     );
   }
+  if (raw.search?.query_defaults) {
+    for (const [key, value] of Object.entries(raw.search.query_defaults)) {
+      if (!key || typeof value !== "string" || /token|code|state|secret/i.test(key)) {
+        throw new Error(`${surfaceId}: search query defaults must be public string dimensions`);
+      }
+    }
+  }
   const surface = {
     schema_version:
       cleanString(raw.schema_version) || "kai.local_action_contract.v1",
@@ -901,6 +908,7 @@ function normalizeSurface(contractPath, raw) {
     docs_references: docsReferences,
     contract_file: toRelativeRepoPath(contractPath),
     defaults,
+    search: raw.search || {},
     orchestration: {
       instruction_id: cleanString(orchestrationRaw.instruction_id),
       context_policy: contextPolicy,
@@ -977,6 +985,20 @@ async function readContracts() {
     }
   }
 
+  const defaultsByRoute = new Map();
+  for (const surface of surfaces) {
+    const defaults = surface.search.query_defaults || {};
+    const routes = actions.filter(action => action.surface_id === surface.surface_id).flatMap(action => action.reachability.routes);
+    for (const route of routes) {
+      const pathname = route.split("?")[0];
+      const current = defaultsByRoute.get(pathname) || {};
+      for (const [key, value] of Object.entries(defaults)) {
+        if (key in current && current[key] !== value) throw new Error(`${pathname}: conflicting search default for ${key}`);
+        current[key] = value;
+      }
+      defaultsByRoute.set(pathname, current);
+    }
+  }
   return {
     surfaces,
     actions,

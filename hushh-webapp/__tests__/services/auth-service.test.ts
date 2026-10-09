@@ -787,6 +787,30 @@ describe("AuthService.restoreNativeSession", () => {
     });
   });
 
+  it("sends deletion proof to an already-linked phone without changing its binding", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockResolvedValue("delete-verification-id");
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return { verifyPhoneNumber };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: "+16505550100",
+    } as any;
+    const verifier = {} as any;
+
+    const verificationId = await AuthService.startPhoneDeletionVerification(
+      "+16505550100",
+      verifier,
+    );
+
+    expect(verificationId).toBe("delete-verification-id");
+    expect(verifyPhoneNumber).toHaveBeenCalledWith("+16505550100", verifier);
+    expect(mockUpdatePhoneNumber).not.toHaveBeenCalled();
+    expect(mockLinkWithCredential).not.toHaveBeenCalled();
+    expect(mockFirebaseAuthentication.unlink).not.toHaveBeenCalled();
+  });
+
   it("starts local dev phone verification without calling Firebase for the configured test phone", async () => {
     enableLocalDevPhoneTest();
     mockCapacitor.isNativePlatform.mockReturnValue(false);

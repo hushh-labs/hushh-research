@@ -42,6 +42,7 @@ import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-n
 import { FeedSoundControl } from "@/components/feed/feed-sound-control";
 import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
 import { collapseConsentBundleRows } from "@/lib/feed/feed-consent-grouping";
+import { collapseDriveLifecycleRows } from "@/lib/feed/feed-drive-grouping";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
@@ -52,6 +53,7 @@ import {
 } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
@@ -248,6 +250,7 @@ function FeedPageSession({
   user: User | null;
   authLoading: boolean;
 }) {
+  useDocumentFeedStream(user);
   const router = useRouter();
   const [pagination, setPagination] = useState(createFeedPaginationState);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -494,6 +497,28 @@ function FeedPageSession({
     Boolean(user?.uid),
   );
 
+  // Stripe and request deadlines are server-owned. Schedule one local wake at
+  // the next known deadline so an open Feed stops showing a live instruction
+  // without a manual refresh, even when no webhook event is emitted at expiry.
+  useEffect(() => {
+    if (!user?.uid) return;
+    const now = Date.now();
+    const deadlines = (data?.items ?? [])
+      .filter((item) => item.event_type === "document_share_payment_ready")
+      .flatMap((item) => [
+        item.metadata?.current_checkout_expires_at,
+        item.metadata?.current_request_expires_at,
+      ])
+      .map((value) => typeof value === "string" ? Date.parse(value) : NaN)
+      .filter((value) => Number.isFinite(value) && value > now);
+    if (deadlines.length === 0) return;
+    const next = Math.min(...deadlines);
+    const timer = window.setTimeout(() => {
+      void refresh({ force: true });
+    }, Math.min(next - now + 50, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [data?.items, refresh, user?.uid]);
+
   useEffect(() => {
     if (!data) return;
     setPagination((current) => reconcileFeedFirstPage(current, data));
@@ -604,7 +629,7 @@ function FeedPageSession({
     previousItemsRef.current = new Map(merged.map((item) => [item.id, item]));
     // One request is one row in history too: per-item consent rows that share
     // a bundle fold into the newest of them.
-    return collapseConsentBundleRows(merged);
+    return collapseDriveLifecycleRows(collapseConsentBundleRows(merged));
   }, [
     data,
     pagination.additionalItems,

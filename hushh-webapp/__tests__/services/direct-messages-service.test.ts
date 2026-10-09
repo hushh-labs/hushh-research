@@ -233,3 +233,12 @@ describe("DirectMessagesService", () => {
     })).rejects.toThrow("The deleted message could not be verified.");
   });
 });
+
+
+describe("encrypted selection navigation", () => {
+  it("puts only the server token in the browser href", async () => {
+    apiFetch.mockResolvedValue(Response.json({ token: "dm1.opaque", kind: "conversation", ref: "internal-id" }));
+    expect(await DirectMessagesService.routeHref({ idToken: "auth", conversationId: "internal-id" })).toBe("/one/messages?token=dm1.opaque");
+    expect(apiFetch).toHaveBeenLastCalledWith("/api/one/messages/route-token", expect.objectContaining({ method: "POST", body: JSON.stringify({ conversationId: "internal-id" }), cache: "no-store" }));
+  });
+});

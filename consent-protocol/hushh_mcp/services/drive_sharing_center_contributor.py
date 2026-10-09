@@ -49,19 +49,21 @@ WITH participants AS (
     {payment_currency} AS payment_currency,
     {payment_reconciliation_required} AS payment_reconciliation_required,
     {payment_link_expired} AS payment_link_expired,
-    {checkout_expires_at} AS checkout_expires_at
+    {checkout_expires_at} AS checkout_expires_at,
+    drive_share_requests.access_stop_requested_at IS NOT NULL AS access_stopped
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
     OR drive_share_requests.recipient_user_id=:user
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
   SELECT p.*,
-    CASE WHEN EXISTS (
+    CASE WHEN p.access_stopped THEN 'history'
+    WHEN EXISTS (
       SELECT 1 FROM drive_share_permission_operations g
       WHERE g.request_id=p.request_id AND g.kind='grant'
         AND g.state IN ('succeeded','preexisting','present_unattributed')
@@ -82,7 +84,8 @@ WITH participants AS (
   FROM participants p
 ), entries AS (
   SELECT *, floor(extract(epoch FROM created_at)*1000)::bigint AS issued_at,
-    CASE WHEN bucket='active_grants' THEN 'active'
+    CASE WHEN access_stopped THEN 'stopped'
+         WHEN bucket='active_grants' THEN 'active'
          WHEN bucket IN ('incoming_requests','outgoing_requests') THEN 'pending'
          ELSE state END AS status,
     CASE WHEN source='query' THEN 'drive_query_request:' ELSE 'document_share_request:' END
@@ -116,7 +119,7 @@ _QUERIES = """
         AND decided_at < now() - interval '300 seconds' THEN 'expired'
       WHEN status='running' THEN 'pending'
       ELSE status END,
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -251,6 +254,7 @@ def _projection(
         if payments
         else "NULL::boolean",
         "payment_link_expired": """(SELECT (pay.status NOT IN ('paid','refunded')
+          AND pay.stripe_checkout_session_id IS NOT NULL
           AND pay.stripe_checkout_expires_at IS NOT NULL
           AND pay.stripe_checkout_expires_at <= clock_timestamp())
           FROM drive_request_payment_orders pay
@@ -258,7 +262,8 @@ def _projection(
             AND drive_share_requests.recipient_user_id=:user)"""
         if payments
         else "FALSE",
-        "checkout_expires_at": """(SELECT pay.stripe_checkout_expires_at
+        "checkout_expires_at": """(SELECT CASE WHEN pay.stripe_checkout_session_id IS NOT NULL
+            THEN pay.stripe_checkout_expires_at END
           FROM drive_request_payment_orders pay
           WHERE pay.request_id=drive_share_requests.request_id
             AND drive_share_requests.recipient_user_id=:user)"""
@@ -277,11 +282,16 @@ def entry(row: Any) -> dict[str, Any]:
     search_state = row.get("owner_search_state")
     # Once the first Google grant succeeds, the same still-running request
     # moves to active_grants for access management. Keep its progress metadata.
-    request_open = row["state"] == "pending" and row["bucket"] in {
-        "incoming_requests",
-        "outgoing_requests",
-        "active_grants",
-    }
+    request_open = (
+        not row.get("access_stopped")
+        and row["state"] == "pending"
+        and row["bucket"]
+        in {
+            "incoming_requests",
+            "outgoing_requests",
+            "active_grants",
+        }
+    )
     owner_payment_waiting = (
         request_open
         and row["direction"] == "incoming"
@@ -356,11 +366,13 @@ def entry(row: Any) -> dict[str, Any]:
             "recorded_outcome_only": True,
             "automatic_progress_active": automatic_progressing,
             "automatic_progress_stage": automatic_stage,
+            "accessStopped": row.get("access_stopped") is True,
             # A Trusted Circle request stays pending while automatic search and
             # sharing run. Only the sharing authority can distinguish that
             # progress from an owner task or a paused/manual recovery.
             "owner_attention_required": row["state"] == "pending"
             and row["bucket"] == "incoming_requests"
+            and not row.get("access_stopped")
             and not automatic_progressing
             and not owner_payment_blocked,
             **({"payment_waiting_for_requester": True} if owner_payment_waiting else {}),

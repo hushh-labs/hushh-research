@@ -19,9 +19,11 @@ export function createAgentStreamLiveness(
   transport: (init: RequestInit | undefined) => Promise<Response>,
   onSilent: () => void,
   onBytes: () => void = () => undefined,
+  onCleanEof: () => void = onSilent,
 ) {
   let lastBytesAtMs = Date.now();
   let timer: ReturnType<typeof setInterval> | null = null;
+  let eofTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
   let active = false;
   let runAbort = new AbortController();
@@ -34,6 +36,8 @@ export function createAgentStreamLiveness(
     runAbort.abort();
     if (timer !== null) clearInterval(timer);
     timer = null;
+    if (eofTimer !== null) clearTimeout(eofTimer);
+    eofTimer = null;
   };
   return {
     fetch: async (init: RequestInit | undefined): Promise<Response> => {
@@ -82,6 +86,13 @@ export function createAgentStreamLiveness(
             onBytes();
           }
           controller.enqueue(chunk);
+        },
+        flush() {
+          // Let already-received terminal events settle before reporting loss.
+          if (!current()) return;
+          eofTimer = setTimeout(() => {
+            if (current()) onCleanEof();
+          }, 500);
         },
       }), { signal: init?.signal ?? undefined });
       return new Response(body, {

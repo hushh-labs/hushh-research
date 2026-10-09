@@ -25,6 +25,10 @@ export type DocumentRequestDraft = {
     periodEnd: string | null;
   };
 };
+export type SharingRequestContext = {
+  requestId: string;
+  purpose: DocumentRequestDraft["purpose"];
+};
 
 export function validDocumentRequestPeriod(
   start: string | null,
@@ -114,6 +118,8 @@ function preparationError(value: unknown): SharingPreparationError | null {
 }
 export type SharingDelivery = {
   status: string;
+  accessStopStatus?: "pending" | "removed" | "needs_attention" | null;
+  canStopAccess?: boolean;
   files: SharingDeliveryFile[];
   fileCount?: number;
   sharedCount?: number;
@@ -122,6 +128,14 @@ export type SharingDelivery = {
   counts?: DriveBulkShareCounts;
   issues?: DriveBulkShareIssue[];
 };
+function accessStopStatus(value: unknown): NonNullable<SharingDelivery["accessStopStatus"]> {
+  if (value === "pending" || value === "removed" || value === "needs_attention") return value;
+  throw new DriveSharingError("invalid_response");
+}
+function canStopAccess(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  throw new DriveSharingError("invalid_response");
+}
 export type SharingDeliveryFile = {
     name: string;
     status: string;
@@ -141,6 +155,8 @@ export type SharingRevocationReview = {
   reviewDigest: string;
   expiresAt: string;
   files: { grantId: string; name: string; recipientEmail: string }[];
+  affectedCount?: number;
+  pendingCount?: number;
 };
 export type TrustedDocumentRule = {
   ruleId: string;
@@ -949,6 +965,25 @@ export class DriveSharingService {
     return result.status === "draft" ? null : id(result.requestId);
   }
 
+  static async requesterContext(
+    token: string,
+    requestId: string,
+    guard: SharingSessionGuard,
+  ): Promise<SharingRequestContext> {
+    const result = await this.request(token, requestId, guard, "/context");
+    if (id(result.requestId) !== requestId)
+      throw new DriveSharingError("invalid_response");
+    const raw = record(result.purpose);
+    const purpose = {
+      purpose: string(raw.purpose, 2000),
+      periodStart: raw.periodStart == null ? null : string(raw.periodStart, 10),
+      periodEnd: raw.periodEnd == null ? null : string(raw.periodEnd, 10),
+    };
+    if (!purpose.purpose.trim() || !validDocumentRequestPeriod(purpose.periodStart, purpose.periodEnd))
+      throw new DriveSharingError("invalid_response");
+    return { requestId, purpose };
+  }
+
   static async listRules(token: string, guard: SharingSessionGuard): Promise<TrustedDocumentRule[]> {
     guard();
     const response = await ApiService.apiFetch("/api/connectors/google_drive/sharing/rules", {
@@ -1205,6 +1240,12 @@ export class DriveSharingService {
       throw new DriveSharingError("invalid_response");
     return {
       status: string(result.status, 80),
+      ...(result.accessStopStatus == null ? {} : {
+        accessStopStatus: accessStopStatus(result.accessStopStatus),
+      }),
+      ...(result.canStopAccess === undefined ? {} : {
+        canStopAccess: canStopAccess(result.canStopAccess),
+      }),
       files: files(result.files, parseDeliveryFile),
       ...(result.bulkShareId == null ? {} : {
         bulkShareId: id(result.bulkShareId),
@@ -1437,6 +1478,8 @@ export class DriveSharingService {
         name: string(file.name, 1024),
         recipientEmail: string(file.recipientEmail, 320),
       })),
+      ...(result.affectedCount == null ? {} : { affectedCount: bulkCount(result.affectedCount, 10_000) }),
+      ...(result.pendingCount == null ? {} : { pendingCount: bulkCount(result.pendingCount, 10_000) }),
     };
   }
   static revoke(

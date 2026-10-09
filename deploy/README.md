@@ -53,6 +53,26 @@ Production is a separate explicit authority transition. UAT success does not
 authorize it, and UAT credentials or runtime identities must never be reused in
 production.
 
+## UAT revision maintenance
+
+A healthy UAT deploy retires zero-traffic revision tags and verifies the
+connection budget before finishing. It preserves every revision and does not
+wait for request draining. The existing
+[Capacity Maintenance workflow](../.github/workflows/capacity-maintenance.yml)
+then handles full drain and deletion after a successful main UAT deploy. It
+validates the originating repository, workflow and governed actor, reads that
+run's healthy release artifact, and requires its final revisions to match live
+traffic. Successful no-op runs have no release artifact and skip maintenance
+before entering a cloud environment.
+
+Maintenance retains serving and rollback revisions and waits for the longest
+relevant request timeout plus 60 seconds before deleting older revisions. A
+3,600-second timeout therefore still requires a 61-minute drain. Deploy and
+maintenance share the same environment concurrency lock; a later deploy can
+queue while cleanup drains. Cleanup has its own terminal result and does not
+delay the completed deploy result. The manual UAT and production dry-run/apply
+path remains available with an exact successful healthy release run ID.
+
 ## What lives here
 
 | Path | Purpose |

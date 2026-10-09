@@ -18,6 +18,7 @@ const STUBBED = [
   "@/hooks/use-auth",
   "@/lib/vault/vault-context",
   "@/lib/firebase/config",
+  "@/lib/services/direct-messages-service",
   "@/lib/services/connections-service",
   "@/lib/services/cache-service",
   "@/lib/cache/cache-sync-service",
@@ -138,7 +139,7 @@ async function open(
   await page.addScriptTag({ content: script });
 }
 
-async function settle(page: Page) {
+async function settle(page: Page, _width: number) {
   const group = page.getByTestId("connect-my-connections-group");
   // The page bundle is large; its first commit can take a few seconds under
   // parallel workers before the timed network even starts.
@@ -147,6 +148,10 @@ async function settle(page: Page) {
   await expect(page.getByRole("tab", { name: "Connections", exact: true })).toHaveAttribute("aria-selected", "true");
   // Circle discovery belongs to Circles, never the Connections panel.
   await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeHidden();
+  // Circles now lives in an inactive pager pane, including desktop; it must
+  // not expose off-screen controls while the Connections pane is selected.
+  await expect(page.locator('[data-connect-surface="circles"]').getByText("Your Trusted Circle", { exact: true })).toHaveCount(1);
+  await expect(page.locator('[data-connect-surface="circles"]').locator('..')).toHaveAttribute("aria-hidden", "true");
   await expect
     .poll(() =>
       page.evaluate(
@@ -209,8 +214,9 @@ for (const dark of [false, true]) {
       await messageButtons.first().click();
       await expect(page.locator("body")).toHaveAttribute(
         "data-last-navigation",
-        "/one/messages?person=person_0",
+        "/one/messages?token=dm1.fixture",
       );
+      await expect(page.locator("body")).toHaveAttribute("data-message-recipient", "person_0");
       const geometry = await cards.evaluateAll((nodes) => nodes.map((node) => {
         const r = node.getBoundingClientRect();
         return { left: r.left, top: r.top, right: r.right, width: r.width };

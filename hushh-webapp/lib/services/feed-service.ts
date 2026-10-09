@@ -103,6 +103,7 @@ export type FeedEventType =
   | "drive_search_limited"
   | "drive_search_failed"
   | "drive_search_stopped"
+  | "document_share_request_sent"
   | "drive_share_succeeded"
   | "drive_share_failed"
   | "drive_share_unconfirmed"

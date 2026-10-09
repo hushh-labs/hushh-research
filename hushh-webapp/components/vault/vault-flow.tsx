@@ -7,6 +7,8 @@ import {
   useCallback,
   useRef,
   useLayoutEffect,
+  lazy,
+  Suspense,
 } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Button, Card } from "@/lib/morphy-ux/morphy";
@@ -21,7 +23,6 @@ import {
   Fingerprint,
   Eye,
   EyeOff,
-  UserRound,
   type LucideIcon,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -41,7 +42,7 @@ import { User } from "firebase/auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { useHostname } from "@/lib/hooks/use-hostname";
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
@@ -76,6 +77,11 @@ type VaultStep =
   | "recovery"
   | "method";
 type VaultMode = "passphrase" | GeneratedVaultKeyMode;
+const LostVaultDeletePanel = lazy(() =>
+  import("@/components/vault/lost-vault-delete-panel").then((module) => ({
+    default: module.LostVaultDeletePanel,
+  })),
+);
 type VaultUnlockAttempt = { controller: AbortController; userId: string; requestId: string; generatedMode?: GeneratedVaultKeyMode };
 
 interface VaultFlowProps {
@@ -297,9 +303,6 @@ function VaultFlowHeader({
   // Presentation only: the current authenticated owner supplies the identity.
   // Email/provider presence never authorizes unlock or infers a vault method.
   const providerId = user.providerData?.[0]?.providerId;
-  const providerLabel = providerId === "google.com"
-    ? "Google account"
-    : providerId === "apple.com" ? "Apple account" : "Signed-in account";
   return (
     <div data-vault-flow-header className="text-center">
       <div
@@ -324,11 +327,7 @@ function VaultFlowHeader({
         data-vault-account-identity
         className="mx-auto mt-3 flex max-w-[21rem] items-center justify-center gap-2 type-footnote text-muted-foreground"
       >
-        <span role="img" aria-label={providerLabel} className="inline-flex shrink-0 text-foreground">
-          {providerId === "google.com" ? <GoogleIcon size={17} />
-            : providerId === "apple.com" ? <AppleIcon size={17} />
-              : <Icon icon={UserRound} size={17} />}
-        </span>
+        <EmailIdentityMark email={user.email} providerId={providerId} />
         <span className="min-w-0 break-all">
           {user.email || user.phoneNumber || user.displayName || "Signed-in account"}
         </span>
@@ -353,6 +352,7 @@ export function VaultFlow({
   onSignOut,
 }: VaultFlowProps) {
   const [step, setStep] = useState<VaultStep>("checking");
+  const [showLostVaultDeletion, setShowLostVaultDeletion] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
@@ -1549,6 +1549,20 @@ export function VaultFlow({
       {signOutEscape}
     </div>
   ) : null;
+  const lostVaultDeleteEscape = onSignOut ? (
+    <div className="mx-auto max-w-[21rem] space-y-1 pt-[var(--app-form-section-gap)] text-center type-footnote">
+      <p className="text-muted-foreground">Lost every way in?</p>
+      <button
+        type="button"
+        data-testid="vault-delete-and-start-fresh"
+        className="min-h-11 font-semibold text-[color:var(--app-destructive)] underline-offset-2 hover:underline focus-visible:rounded-[var(--app-radius-sm)]"
+        onClick={() => setShowLostVaultDeletion(true)}
+        disabled={isSigningOut}
+      >
+        Delete account and start fresh
+      </button>
+    </div>
+  ) : null;
   const hasUnlockMethodAlternative =
     showVaultKeyAlternative || showPasskeyFallbackAlternative;
   const hasUnlockRecoveryAlternative = Boolean(recoveryKeyEscapeAction);
@@ -1749,6 +1763,14 @@ export function VaultFlow({
             : toInvestorLoading("VAULT")
         }
       />
+    );
+  }
+
+  if (showLostVaultDeletion && onSignOut && (step === "unlock" || (step === "recovery" && !recoveryKey))) {
+    return (
+      <Suspense fallback={<HushhLoader label="Opening deletion options…" />}>
+        <LostVaultDeletePanel user={user} onBack={() => setShowLostVaultDeletion(false)} />
+      </Suspense>
     );
   }
 
@@ -2050,6 +2072,7 @@ export function VaultFlow({
                 )}
 
                 {unlockSecondaryActions}
+                {lostVaultDeleteEscape}
               </div>
             </div>
           )}
@@ -2098,6 +2121,7 @@ export function VaultFlow({
                   )}
                 </Button>
                 {recoverySecondaryActions}
+                {lostVaultDeleteEscape}
               </div>
             </div>
           )}

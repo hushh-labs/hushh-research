@@ -100,9 +100,11 @@ def verified_contacts(
     phone = phone or getattr(record, "phone_number", None)
     if not isinstance(phone, str) or not re.fullmatch(r"\+1[2-9]\d{9}", phone):
         phone = None
+    # Consumer domains cannot prove a business through website-domain
+    # matching, but an exact owner-email evidence row is still a valid,
+    # owner-bound directory signal. Keep the verified email so the directory
+    # can distinguish that exact row without falling back to a fixture.
     email = email.lower() if email else None
-    if email and email.split("@")[1] in _CONSUMER_DOMAINS:
-        email = None
     return (email, phone) if email or phone else None
 
 

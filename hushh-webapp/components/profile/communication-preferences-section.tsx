@@ -24,6 +24,7 @@ import {
 } from "@/lib/agent/owner-style-settings";
 import { saveOwnerStyleSettings } from "@/lib/agent/owner-style-settings-writer";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import paneStyles from "./communication-preferences-pane.module.css";
 
 function sameSettings(left: OwnerStyleSettings, right: OwnerStyleSettings): boolean {
   return JSON.stringify(ownerStyleFromBranch(left)) === JSON.stringify(ownerStyleFromBranch(right));
@@ -97,7 +98,7 @@ export function CommunicationPreferencesSection({
 
   if (!unlocked) {
     return (
-      <SettingsGroup title="How One writes to you" testId="style-settings-group">
+      <SettingsGroup title="How One writes to you" className={paneStyles.paneTypography} testId="style-settings-group">
         <SettingsRow
           icon={LockedRowIcon}
           iconTone="capability"

@@ -741,6 +741,9 @@ test("progressive 25-file review and automatic Drive setup fit at 390px", async 
         aggregateCounts: mode === "preview" ? counts : undefined,
       }),
     };
+    if (url.pathname.endsWith("/delivery")) result = {
+      requestId: reviewId, status: "pending", files: [], canStopAccess: false,
+    };
     if (url.pathname.endsWith("/search/files")) result = { jobId, revision: 3, matched: 25,
       files: positions.map(position => ({ position, id: `drive-${position}`,
         name: `Onboarding document ${position} ${"very-long-title".repeat(7)}`,

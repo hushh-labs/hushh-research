@@ -321,7 +321,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
         contentDragDismiss={false}
         contentRef={attachPanel}
         overlayRef={scrimRef}
-        className="w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,560px)] sm:max-w-[560px]"
+        className="profile-pane-sheet w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,430px)] sm:max-w-[430px]"
         aria-label="Profile"
         data-testid="profile-pane"
         onOpenAutoFocus={(event) => {
@@ -403,7 +403,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
         </SheetClose>
         </NativeChatChrome>
         <div
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+          className="profile-pane-scroll-root min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
           <ProfilePaneBody location={location} nativeControlsEligible={open && stationaryKey === presentationKey} />

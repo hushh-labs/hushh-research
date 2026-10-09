@@ -424,7 +424,12 @@ async def test_late_refresh_result_cannot_overwrite_changed_connection(
         started.set()
         await release.wait()
         if provider_fails:
-            raise GmailApiError("synthetic old grant refused", status_code=401)
+            raise GmailApiError(
+                "synthetic old grant refused",
+                status_code=401,
+                payload={"error": "invalid_grant"},
+                provider_status_code=400,
+            )
         return {"access_token": "late-access", "refresh_token": "late-refresh"}
 
     monkeypatch.setattr(connected_gmail, "_refresh_access_token", refresh)
@@ -485,7 +490,12 @@ async def test_current_refresh_persists_success_or_requires_reauth(
 ):
     async def refresh(**kwargs):
         if provider_fails:
-            raise GmailApiError("synthetic current grant refused", status_code=401)
+            raise GmailApiError(
+                "synthetic current grant refused",
+                status_code=401,
+                payload={"error": "invalid_grant"},
+                provider_status_code=400,
+            )
         return {"access_token": "new-access", "refresh_token": "new-refresh"}
 
     monkeypatch.setattr(connected_gmail, "_refresh_access_token", refresh)
@@ -506,6 +516,29 @@ async def test_current_refresh_persists_success_or_requires_reauth(
         assert row["access_token_ciphertext"] == "sealed-new-access"
         assert row["refresh_token_ciphertext"] == "sealed-new-refresh"
         assert row["status"] == "connected" and row["revoked"] is False
+
+
+@pytest.mark.asyncio
+async def test_transient_refresh_failure_preserves_connected_grant(connected_gmail, monkeypatch):
+    before = connected_gmail._fetch_connection_row(user_id="owner-a")
+
+    async def rate_limited(**_kwargs):
+        raise GmailApiError(
+            "private provider detail",
+            status_code=502,
+            payload={"error": "rateLimitExceeded"},
+            provider_status_code=429,
+        )
+
+    monkeypatch.setattr(connected_gmail, "_refresh_access_token", rate_limited)
+
+    with pytest.raises(GmailApiError) as error:
+        await connected_gmail._ensure_access_token(user_id="owner-a")
+
+    assert error.value.status_code == 503
+    assert error.value.code == "GMAIL_PROVIDER_UNAVAILABLE"
+    assert "private provider detail" not in str(error.value)
+    assert connected_gmail._fetch_connection_row(user_id="owner-a") == before
 
 
 @pytest.mark.asyncio

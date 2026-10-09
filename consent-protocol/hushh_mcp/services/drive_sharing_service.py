@@ -29,6 +29,16 @@ class DriveSharingService:
             raise DriveSharingError("reconnect_required")
         return row["connection_generation"]
 
+    async def _management_generation(self, user_id):
+        # Owner consent to stop sharing does not require a live Drive token.
+        # Google deletion remains queued until the original issuer reconnects.
+        row = await self.oauth.lifecycle.read(
+            user_id=user_id, connector_id="google_drive", purge=False
+        )
+        if not row or not isinstance(row.get("connection_generation"), int):
+            raise DriveSharingError("reconnect_required")
+        return row["connection_generation"]
+
     async def create(
         self, *, recipient, owner_user_id, client_request_id, purpose, request_time_zone=None
     ):
@@ -51,6 +61,9 @@ class DriveSharingService:
 
     async def lookup_client(self, **kwargs):
         return await self.store.lookup_client_request(**kwargs)
+
+    async def requester_context(self, **kwargs):
+        return await self.store.requester_context(**kwargs)
 
     async def review(self, **kwargs):
         return await self.store.owner_review(**kwargs)
@@ -77,6 +90,8 @@ class DriveSharingService:
         current = await self.store.delivery_snapshot(user_id=user_id, request_id=request_id)
         if current["recipient"] != recipient:
             raise DriveSharingError("recipient_changed")
+        if current["result"].get("accessStopStatus") is not None:
+            return {"requestId": request_id, "files": [], "nextCursor": None}
         share_id = current["result"].get("bulkShareId")
         if share_id is None:
             raise DriveSharingError("bulk_not_found")
@@ -101,6 +116,9 @@ class DriveSharingService:
                 cursor=cursor,
                 limit=25,
             )
+        after = await self.store.delivery_snapshot(user_id=user_id, request_id=request_id)
+        if after["result"].get("accessStopStatus") is not None:
+            return {"requestId": request_id, "files": [], "nextCursor": None}
         return {"requestId": request_id, **page}
 
     async def approve(self, *, user_id, **kwargs):
@@ -136,13 +154,17 @@ class DriveSharingService:
         return result
 
     async def prepare_revocation(self, *, user_id, request_id):
-        generation = await self._generation(user_id)
+        generation = await self._management_generation(user_id)
         await self._require_owner()
         return await self.store.prepare_revocation(
             user_id=user_id, generation=generation, request_id=request_id
         )
 
     async def revoke(self, *, user_id, **kwargs):
-        generation = await self._generation(user_id)
+        generation = await self._management_generation(user_id)
         await self._require_owner()
-        return await self.store.confirm_revocation(user_id=user_id, generation=generation, **kwargs)
+        result = await self.store.confirm_revocation(
+            user_id=user_id, generation=generation, **kwargs
+        )
+        await wake_drive_work("sharing")
+        return result

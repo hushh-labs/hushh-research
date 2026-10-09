@@ -16,9 +16,11 @@ const BOTTOM_SHELL_HEIGHT_PX = 132;
 const BOUNDARY_MODULES = [
   "next/navigation",
   "@/hooks/use-auth",
+  "@/hooks/use-effective-avatar-url",
+  "@/lib/referral/use-referral-stream",
   "@/lib/vault/vault-context",
   "@/lib/services/wallet-service",
-  "@/lib/services/wallet-card-service",
+  "@/lib/services/api-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
   "@/lib/pkm/secrets-vault-service",
@@ -30,6 +32,8 @@ const BOUNDARY_MODULES = [
 let css = "";
 let script = "";
 let walletHero: Buffer;
+
+test.use({ hasTouch: true });
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -199,8 +203,15 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
-    if (["/wallet/agent-one-card-profile.html", "/wallet/agent-one-card-referral.html", "/wallet/agent-one-card-nws.html"].includes(assetPath)) {
-      await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "text/html" });
+    if (/^\/wallet\/artwork\/(profile|referral|nws)-v1\.svg$/.test(assetPath)) {
+      await route.fulfill({ body:fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType:"image/svg+xml", headers:{ "Access-Control-Allow-Origin":"*" } });
+      return;
+    }
+    if (/^\/wallet\/agent-one-card-(profile|referral|nws)\.html$/.test(assetPath)) {
+      await route.fulfill({
+        body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)),
+        contentType: "text/html",
+      });
       return;
     }
     await route.abort();
@@ -222,13 +233,16 @@ async function mount(page: Page, enter = true) {
 }
 
 
-for (const viewport of [{ width:390, height:844 }, { width:900, height:600 }]) {
-test(`Wallet scroll reveals lower cards and a left swipe opens the touched card ${viewport.width}`, async ({ page }) => {
-  await open(page, viewport.width, "light", { cards: 0 }, { height: viewport.height, shell: true });
+for (const viewport of [{ width:390, height:844 }, { width:900, height:600 }, { width:1366, height:768, savedCards:5 }, { width:900, height:1200 }]) {
+test(`Wallet scroll reveals lower cards and a left swipe opens the touched card ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  await open(page, viewport.width, "light", { cards: viewport.savedCards ?? 0 }, { height: viewport.height, shell: true });
   await mount(page);
-  const stack = page.getByTestId("wallet-preview-stack");
+  const stack = page.getByTestId("wallet-add-stack");
   await expect(stack).toBeVisible();
+  await expect(stack.locator('[data-agent-card][data-artwork-ready="true"]')).toHaveCount(3);
+  const scrollRoot = page.locator('[data-app-scroll-root="true"]');
   const layers = stack.locator("li");
+
   await expect.poll(async () => {
     const boxes = await layers.evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().top));
     return boxes[1] - boxes[0];
@@ -239,7 +253,7 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   }).toBeLessThan(35);
   await expect(page.getByText("Swipe left to see card controls")).toBeVisible();
   await expect.poll(async () => {
-    const face = await layers.first().locator('[data-demo-card]').boundingBox();
+    const face = await layers.first().locator('[data-agent-card]').boundingBox();
     const chrome = await page.locator("[data-bottom-chrome]").boundingBox();
     return Boolean(face && chrome && face.y + face.height <= chrome.y);
   }).toBe(true);
@@ -247,19 +261,53 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect.poll(() => page.locator('[data-swipe-views-root="true"]').evaluate(el => Math.abs(el.getBoundingClientRect().height - document.querySelector('#top-shell-wallet-panel-cards')!.getBoundingClientRect().height))).toBeLessThan(1);
   // Let the initial short-window positioning finish before simulating user scroll.
   await page.waitForTimeout(400);
-  await page.locator("[data-app-scroll-root]").evaluate(root => {
-    const stack = root.querySelector('[data-testid="wallet-preview-stack"]')!;
-    root.scrollTop += stack.getBoundingClientRect().top - root.getBoundingClientRect().top + 350;
+  const initialGeometry = await layers.evaluateAll(nodes => {
+    const first = nodes[0].querySelector('[data-agent-card]')!.getBoundingClientRect();
+    const edges = nodes.slice(1, 3).map(node => {
+      const box = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.top + 6);
+      return { top:box.top, hitOwnCard:hit?.closest('[data-gesture-card]') === node };
+    });
+    return { first:{ top:first.top, bottom:first.bottom, width:first.width }, edges,
+      dockTop:document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
+      zoom:window.visualViewport?.scale ?? 1 };
   });
+  expect(initialGeometry.zoom).toBe(1);
+  expect(initialGeometry.first.width).toBeGreaterThanOrEqual(260);
+  expect(initialGeometry.first.bottom).toBeLessThan(initialGeometry.dockTop - 8);
+  expect(initialGeometry.edges[0].top - initialGeometry.first.bottom).toBeGreaterThanOrEqual(44);
+  expect(initialGeometry.edges[1].top - initialGeometry.edges[0].top).toBeGreaterThanOrEqual(11.9);
+  expect(initialGeometry.edges[1].top + 12).toBeLessThanOrEqual(initialGeometry.dockTop - 7);
+  expect(initialGeometry.edges.every(edge => edge.hitOwnCard)).toBe(true);
+  const geometryPath = test.info().outputPath("initial-deck-geometry.json");
+  fs.writeFileSync(geometryPath, JSON.stringify(initialGeometry, null, 2));
+  await test.info().attach("initial-deck-geometry", { path:geometryPath, contentType:"application/json" });
+  const firstFace = await layers.first().locator('[data-agent-card]').boundingBox();
+  if (!firstFace) throw new Error("Featured card bounds missing");
+  const previousScroll = await scrollRoot.evaluate(root => root.scrollTop);
+  await page.mouse.move(firstFace.x + firstFace.width / 2, firstFace.y + firstFace.height / 2);
+  await page.mouse.wheel(0, 220);
+  await expect.poll(() => scrollRoot.evaluate(root => root.scrollTop)).toBeGreaterThan(previousScroll);
+  // Continue over the surrounding gutter: native scrolling owns both surfaces.
+  const rootBox = await scrollRoot.boundingBox();
+  if (!rootBox) throw new Error("Scroll root bounds missing");
+  await page.mouse.move(rootBox.x + 8, rootBox.y + rootBox.height / 2);
+  await page.mouse.wheel(0, 2000);
   await expect(stack).toHaveAttribute("data-unfolded", "true");
+  await expect(page.getByRole("tab", { name:"Cards", exact:true })).toHaveAttribute("aria-selected","true");
   await expect.poll(() => layers.evaluateAll(nodes => {
     const boxes = nodes.map(n => n.getBoundingClientRect());
-    return boxes.slice(1).every((box,i) => box.top >= boxes[i].bottom + 15);
+    return boxes.slice(1).every((box,i) => box.top >= boxes[i].bottom + 15 && Math.abs(box.left - boxes[0].left) < 1 && Math.abs(box.right - boxes[0].right) < 1);
   })).toBe(true);
+  expect(await scrollRoot.evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true);
+  // WebKit can report 43.99997 after transform composition; CSS still owns 44px.
+  expect(await stack.locator('[data-stack-details] button').evaluateAll(buttons => buttons.every(button => parseFloat(getComputedStyle(button).height) >= 44 && Math.round(button.getBoundingClientRect().height) >= 44))).toBe(true);
+  await expect(stack.locator('[data-card-details-label]')).toHaveCount(3 + (viewport.savedCards ?? 0));
+  expect(await stack.locator('[data-card-details-label]').evaluateAll(labels => labels.every(label => label.getBoundingClientRect().height <= 28))).toBe(true);
+  await page.screenshot({ path: test.info().outputPath("wallet-unfolded.png") });
   const card = layers.nth(1);
   await card.scrollIntoViewIfNeeded();
-  const face = card.locator('[data-demo-card]').first();
-  await expect(face.locator("iframe").contentFrame().locator("body")).not.toBeEmpty();
+  const face = card.locator('[data-agent-card]').first();
   const box = await face.boundingBox();
   if (!box) throw new Error("Card bounds missing");
   await page.mouse.move(box.x + box.width - 25, box.y + 80);
@@ -283,10 +331,51 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect(card.locator('[data-controls-open="false"]')).toBeVisible();
   await page.mouse.wheel(170, 0);
   await expect(card.locator('[data-controls-open="true"]')).toBeVisible();
-  await card.getByRole("button", { name:"View card details", exact:true }).click();
-  await expect(page.getByTestId("wallet-demo-details")).toContainText("Travel card");
+  await expect(card.locator('[data-card-controls]').getByText("Username", { exact:true })).toBeVisible();
+  await expect(card.locator('[data-card-controls]').getByRole("button", { name:"View details", exact:true })).toHaveCount(0);
+  await card.getByRole("button", { name:"Back to card", exact:true }).click();
+  await card.getByRole("button", { name:"View details for Agent One Referral", exact:true }).click();
+  await expect(page.getByRole("region", { name: "Referral card details" })).toBeVisible();
+  expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
   await page.getByRole("button", { name:"All cards", exact:true }).click();
   await expect(stack).toBeInViewport();
+  await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
 });
 
 }
+
+test("A native vertical touch pan scrolls the deck without opening details", async ({ page, context, browserName }) => {
+  test.skip(browserName !== "chromium", "Native touch injection uses the Chromium input protocol.");
+  await open(page, 390, "light", { cards: 0 }, { height: 844, shell: true });
+  await mount(page);
+  const root = page.locator('[data-app-scroll-root="true"]');
+  await page.waitForTimeout(400);
+  const before = await root.evaluate(element => element.scrollTop);
+  const face = await page.locator('[data-agent-card="profile"]').boundingBox();
+  if (!face) throw new Error("Featured card bounds missing");
+  const cdp = await context.newCDPSession(page);
+  const x = face.x + face.width / 2;
+  const y = face.y + face.height - 20;
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+  for (let step = 1; step <= 8; step++) {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y - step * 24 }] });
+    await page.waitForTimeout(16);
+  }
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect.poll(() => root.evaluate(element => element.scrollTop)).toBeGreaterThan(before);
+  await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  await cdp.detach();
+});
+
+test("Reduced motion shows an accessible vertical list without requiring a gesture", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await open(page, 390, "dark", { cards: 0 }, { height: 844, shell: true });
+  await mount(page);
+  const stack = page.getByTestId("wallet-add-stack");
+  await expect(stack).toHaveAttribute("data-unfolded", "true");
+  await expect.poll(() => stack.locator("li").evaluateAll(nodes => {
+    const boxes = nodes.map(node => node.getBoundingClientRect());
+    return boxes.slice(1).every((box, index) => box.top >= boxes[index].bottom + 15);
+  })).toBe(true);
+});

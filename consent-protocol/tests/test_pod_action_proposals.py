@@ -80,3 +80,41 @@ async def test_unknown_kinds_and_statuses_are_refused(log):
         await book.issue(kind="payments", owner_id="uid", payload={})
     with pytest.raises(ValueError):
         await book.settle(proposal_id="gcal_x", status="pending")
+
+
+async def test_email_receipts_are_owner_scoped_read_only_and_recoverable(log, monkeypatch):
+    now = [1000.0]
+    book = PodActionProposalStore(log_resolver=lambda: log, clock=lambda: now[0])
+    issued = await book.issue(
+        kind="gmail_mailbox", owner_id="uid", payload={"action": "send_email"}
+    )
+    pid = issued["proposal_id"]
+
+    async def read(owner="uid"):
+        return await PodActionProposalStore(
+            log_resolver=lambda: log, clock=lambda: now[0]
+        ).email_send_status(proposal_id=pid, owner_id=owner)
+
+    assert await read("foreign") is None
+    assert (await read())["state"] == "prepared"
+    await book.claim(proposal_id=pid, owner_id="uid", kind="gmail_mailbox")
+    assert (await read())["state"] == "outcome_unknown"
+    await book.settle(proposal_id=pid, status="failed")
+    assert (await read())["state"] == "outcome_unknown"
+    await book.settle(proposal_id=pid, status="executed")
+    receipt = await read()
+    assert receipt == {"proposalId": pid, "kind": "gmail_mailbox", "state": "sent"}
+    sequence = len(await log.replay())
+    assert await read() == receipt
+    assert len(await log.replay()) == sequence
+    draft = await book.issue(kind="gmail_mailbox", owner_id="uid", payload={"action": "save_draft"})
+    assert await book.email_send_status(proposal_id=draft["proposal_id"], owner_id="uid") is None
+    expired = await book.issue(
+        kind="gmail_mailbox", owner_id="uid", payload={"action": "send_email"}, ttl_s=1
+    )
+    now[0] += 2
+    assert (await book.email_send_status(proposal_id=expired["proposal_id"], owner_id="uid"))[
+        "state"
+    ] == "expired"
+    monkeypatch.setenv("HUSSH_ID", "foreign_pod")
+    assert await read() is None

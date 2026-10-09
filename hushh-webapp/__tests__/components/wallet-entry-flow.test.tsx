@@ -50,9 +50,12 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
-vi.mock("@/lib/services/wallet-card-service", () => ({
-  WalletCardService: { getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }) },
-}));
+vi.mock("@/lib/services/wallet-card-service", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/services/wallet-card-service")>("@/lib/services/wallet-card-service");
+  return { ...actual, WalletCardService: class extends actual.WalletCardService {
+    static getCard = vi.fn().mockResolvedValue({ card: null, shareUrl: null });
+  } };
+});
 
 vi.mock("@/lib/services/wallet-service", async () => {
   const actual = await vi.importActual<typeof import("@/lib/services/wallet-service")>(
@@ -63,7 +66,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
     WalletService: {
       ...actual.WalletService,
       isEnabled: () => true,
-      listCardSummaries: serviceMock.listCardSummaries,
+      listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
       addCard: serviceMock.addCard,
@@ -71,6 +74,10 @@ vi.mock("@/lib/services/wallet-service", async () => {
     },
   };
 });
+
+vi.mock("@/components/wallet/wallet-referral-card-details", () => ({
+  WalletReferralCardDetails: () => <section>Live referral controls</section>,
+}));
 
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
 
@@ -107,8 +114,12 @@ describe("Wallet visit introduction", () => {
     expect(await screen.findByTestId("one-wallet-empty-art")).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "Cards" })).toBeNull();
     await enter();
-    expect(screen.getByTestId("wallet-preview-collection")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Travel", exact: true }));
+    expect(screen.getByTestId("wallet-add-collection")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Agent One Profile" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Agent One NWS" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Agent One Referral" }));
+    expect(screen.getByText("Live referral controls")).toBeVisible();
+    expect(screen.queryByTestId("wallet-demo-activity")).toBeNull();
     expect(serviceMock.addCard).not.toHaveBeenCalled();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     expect(serviceMock.deleteCard).not.toHaveBeenCalled();
@@ -125,17 +136,17 @@ describe("Wallet visit introduction", () => {
     render(<WalletWorkspace />);
     await enter();
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "Travel" } });
+    fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Travel" } });
     fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
     fireEvent.click(screen.getByRole("button", { name: "Show CVV and PIN" }));
     fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    expect(screen.getByLabelText("Nickname")).toHaveValue("Travel");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("Travel");
     expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    expect(screen.getByLabelText("Nickname")).toHaveValue("");
+    expect(screen.getByLabelText("Name on card")).toHaveValue("");
   });
   it("keeps real cards behind Continue and retains explicit secure reveal", async () => {
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(2));
@@ -144,23 +155,26 @@ describe("Wallet visit introduction", () => {
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
     expect(screen.getByTestId("wallet-add-layer-1000")).toBeTruthy();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", exact: true }));
     expect(screen.getByRole("button", { name: "Show card details" })).toBeTruthy();
   });
-  it("returns a saved real card to Cards without mixing in demos", async () => {
+  it("returns a saved payment card to Cards while retaining the three system cards", async () => {
     const summary = { ...makeCards(1)[0], cardId: "saved", nickname: "New card", last4: "4242" };
     serviceMock.addCard.mockResolvedValue({ cardId: "saved", summary });
     render(<WalletWorkspace />);
     await enter();
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
-    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "New card" } });
+    fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "New card" } });
     fireEvent.change(screen.getByLabelText(/Card number/), { target: { value: "4242424242424242" } });
+    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
-    fireEvent.change(screen.getByLabelText("Issuing region"), { target: { value: "IN" } });
+    fireEvent.change(screen.getByLabelText("Issuing region (optional)"), { target: { value: "IN" } });
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true"));
     await screen.findByTestId("wallet-selected-card");
-    expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("New card");
+    expect(screen.getByRole("button", { name: "Open New card, ending 4242" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Open Agent One Profile" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "All (4)" })).toBeEnabled();
     expect(screen.getByTestId("one-wallet-reveal-4242")).toBeEnabled();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
   });

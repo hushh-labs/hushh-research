@@ -29,6 +29,12 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const messageMocks = vi.hoisted(() => ({ push: vi.fn(), resolve: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: messageMocks.push }) }));
+vi.mock("@/lib/direct-messages/navigate-direct-message", () => ({
+  resolveDirectMessageHref: messageMocks.resolve,
+}));
+
 import {
   CircleMemberActionsMenu,
   MEMBER_ACTIONS_MENU_CONTEXT_TESTID,
@@ -240,8 +246,12 @@ describe("CircleMemberActionsMenu on a phone", () => {
     const message = await screen.findByRole("menuitem", { name: "Message" });
     expect(message).toHaveAttribute(
       "href",
-      "/one/messages?person=person-public-ref",
+      "/one/messages",
     );
+    messageMocks.resolve.mockResolvedValue("/one/messages?token=opaque-circle-token");
+    fireEvent.click(message);
+    await waitFor(() => expect(messageMocks.push).toHaveBeenCalledWith("/one/messages?token=opaque-circle-token"));
+    expect(messageMocks.resolve).toHaveBeenCalledWith({ conversationId: null, personRef: "person-public-ref" });
   });
 });
 

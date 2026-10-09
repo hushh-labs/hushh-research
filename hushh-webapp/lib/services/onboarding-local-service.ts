@@ -56,12 +56,12 @@ export class OnboardingLocalService {
   }
 
   static async hasSeenWalletSwipeHint(ownerId: string): Promise<boolean> {
-    const key = `wallet_swipe_hint_seen_v1:${ownerId}`;
+    const key = `wallet_swipe_hint_seen_v2:${ownerId}`;
     if (getLocalItem(key) === "true") return true;
     try { return (await Preferences.get({ key })).value === "true"; } catch { return false; }
   }
   static async markWalletSwipeHintSeen(ownerId: string): Promise<void> {
-    const key = `wallet_swipe_hint_seen_v1:${ownerId}`;
+    const key = `wallet_swipe_hint_seen_v2:${ownerId}`;
     setLocalItem(key, "true");
     try { await Preferences.set({ key, value: "true" }); } catch { /* Cosmetic preference has a browser fallback. */ }
   }

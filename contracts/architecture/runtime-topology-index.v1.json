@@ -941,12 +941,13 @@
         "drive_bulk_share_files",
         "drive_bulk_share_recipients",
         "drive_bulk_share_effects",
-        "drive_bulk_share_notifications"
+        "drive_bulk_share_notifications",
+        "drive_request_bulk_removals"
       ],
       "id": "drive_bulk_share",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Vault-owner preview and explicit approval of a frozen completed Drive search; bounded Drive sharing worker creates or reconciles Google permissions for each exact file and verified Trusted recipient. The owner can stop remaining work. Recipients see only confirmed grants through their authenticated Shared with you collection; one generic push is attempted after their grants settle."
+      "primary_access_path": "Vault-owner preview and approval of a frozen Drive search; bounded workers create and reconcile Google permissions for exact files, then remove app-created direct permissions after the owner confirms Stop access. Recipients see only confirmed grants through their authenticated Shared with you collection."
     },
     {
       "data_class": "personal_encrypted",
@@ -1513,7 +1514,7 @@
       "id": "one_wallet_card",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
+      "primary_access_path": "Vault-owner session bootstrap ensures a missing Wallet Profile from account basics, and owner controls edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
     },
     {
       "data_class": "workflow_state",
@@ -6387,14 +6388,14 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "9f022d8c7acf93d12e8dc96f8b39ff61c12e74f5c26f9a1ca9c62bd3bfdcc558",
+    "action_gateway": "63d9c732c7c501afe3c57a71118e9e593118122804db823a1664b057052ed5b3",
     "agent_registry": "f39677c975a982267939a4e90f803cb992ac2a7d54b008b1500e228b8c38d416",
     "cache_manifest": "df8bcd02aa12938a199ba389dccabd3ba0b5173beea69ae5b3e1b640462a8f70",
-    "data_plane": "db3ca23d49c0fdd096cf97a25943d6bcb1d809af7f8a2782c0c77c682c9c8f75",
+    "data_plane": "de264fc0b35d89fbe55ea02e3e7022b09c2537cab280a45a6af363091b3006b5",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
     "route_index": "20d422a49c4c98ad150545ad1fde4b442ee8217ce25235fb394de7dd896e13b1",
-    "route_layout": "c5b99c3467712432a6dc966d9d908ba1a5a1a4a95685151d4feb9ddbb7654bcf",
+    "route_layout": "ea43e80ccfe6e8a6c61148b92c436737038d0d10ef8efc9eb44b4f6e373b6407",
     "surface_map": "95532960a4c5b7e0a52aacbaf53a8b124ade01c20992d690f4fcf06ed1e3b9a2",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"

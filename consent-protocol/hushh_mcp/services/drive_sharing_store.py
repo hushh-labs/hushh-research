@@ -201,6 +201,7 @@ class DriveSharingStore(DriveDocumentStore):
         order = (
             connection.execute(
                 text("""SELECT status,amount_cents,currency,reconciliation_required,
+                    stripe_checkout_session_id,
                     stripe_checkout_expires_at
                 FROM drive_request_payment_orders WHERE request_id=:request"""),
                 {"request": request_id},
@@ -216,12 +217,14 @@ class DriveSharingStore(DriveDocumentStore):
                 "paymentReconciliationRequired": order["reconciliation_required"] is True,
                 "paymentLinkExpired": bool(
                     order["status"] not in {"paid", "refunded"}
+                    and order["stripe_checkout_session_id"] is not None
                     and order["stripe_checkout_expires_at"] is not None
                     and order["stripe_checkout_expires_at"] <= datetime.now(UTC)
                 ),
                 "checkoutExpiresAt": (
                     order["stripe_checkout_expires_at"].isoformat()
-                    if order["stripe_checkout_expires_at"] is not None
+                    if order["stripe_checkout_session_id"] is not None
+                    and order["stripe_checkout_expires_at"] is not None
                     else None
                 ),
             }
@@ -258,6 +261,7 @@ class DriveSharingStore(DriveDocumentStore):
             row = self._related_request(connection, user_id, identity)
             if (
                 row["status"] != "pending"
+                or row["access_stop_requested_at"] is not None
                 or row["preparation_error_code"] == "manual_search_active"
                 or row["expires_at"]
                 <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
@@ -340,13 +344,19 @@ class DriveSharingStore(DriveDocumentStore):
                   SELECT r.request_id FROM drive_share_requests r
                   JOIN drive_owner_search_jobs j ON j.user_id=r.user_id
                     AND j.client_request_id=r.request_id
+                  LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
                   WHERE r.status='pending' AND r.bulk_search_started_at IS NOT NULL
                     AND r.preparation_error_code IN
                       ('trusted_auto_active','background_preparation_required')
                     AND r.preparation_next_at<=clock_timestamp()
                     AND r.expires_at>clock_timestamp()
                     AND j.status IN ('queued','running','completed')
-                  ORDER BY r.preparation_inspected_at,r.created_at,r.request_id
+                    AND (NOT r.payment_required OR o.request_id IS NULL
+                      OR (o.status='paid' AND o.paid_at IS NOT NULL
+                        AND o.reconciliation_required=FALSE))
+                  ORDER BY CASE WHEN r.payment_required AND o.status='paid'
+                    THEN 0 ELSE 1 END,
+                    r.preparation_inspected_at,r.created_at,r.request_id
                   LIMIT :limit FOR UPDATE OF r SKIP LOCKED
                 )
                 UPDATE drive_share_requests r SET preparation_inspected_at=clock_timestamp()
@@ -502,6 +512,8 @@ class DriveSharingStore(DriveDocumentStore):
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if row["expires_at"] <= now or row["status"] in {"cancelled", "declined", "expired"}:
                 raise DriveSharingError("request_unavailable")
+            if start and row["access_stop_requested_at"] is not None:
+                raise DriveSharingError("request_changed")
             if start and row["status"] in {"approved", "completed", "partial", "no_match"}:
                 raise DriveSharingError("request_changed")
             if start and row["bulk_search_started_at"] is None:
@@ -531,6 +543,7 @@ class DriveSharingStore(DriveDocumentStore):
                 "recipientUserId": row["recipient_user_id"],
                 "recipientBinding": row["recipient_binding"],
                 "searchStarted": row["bulk_search_started_at"] is not None,
+                "accessStopRequested": row["access_stop_requested_at"] is not None,
             }
 
         return cast(dict, await self._transaction(operation))
@@ -684,8 +697,17 @@ class DriveSharingStore(DriveDocumentStore):
                     """,
                         {"id": request_id},
                     )
-                elif not trusted_auto:
+                else:
+                    # Both participants get one durable request milestone.
+                    # Repeated client UUIDs return the existing row above and
+                    # cannot duplicate either event.
                     self._event(connection, row, owner_user_id, "document_share_request")
+                    self._event(
+                        connection,
+                        row,
+                        row["recipient_user_id"],
+                        "document_share_request_sent",
+                    )
             return self._summary(row, recipient=True)
 
         return cast(dict, await self._transaction(operation))
@@ -1553,6 +1575,29 @@ class DriveSharingStore(DriveDocumentStore):
                 {"user": user_id, "client": str(UUID(client_request_id))},
             )
             return self._summary(row, recipient=True) if row else {"status": "draft"}
+
+        return cast(dict, await self._transaction(operation))
+
+    async def requester_context(self, *, user_id: str, request_id: str) -> dict:
+        """The payer's own request text, never owner matches or review contents.
+
+        The caller requires current Vault Owner authority. Keep this separate
+        from the metadata-only status/projection, which can be cached. A paid
+        request was authored by its recipient; owner-initiated shares are free.
+        """
+
+        def operation(connection):
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests
+                   WHERE request_id=:id AND recipient_user_id=:user
+                     AND payment_required=TRUE""",
+                {"id": str(UUID(request_id)), "user": user_id},
+            )
+            if not row:
+                raise DriveSharingError("request_unavailable")
+            purpose = ShareRequestPurpose.model_validate(self._open_request(row)["purpose"])
+            return {"requestId": str(row["request_id"]), "purpose": purpose.model_dump()}
 
         return cast(dict, await self._transaction(operation))
 

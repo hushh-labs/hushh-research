@@ -48,6 +48,10 @@ _USER_STATE_NOTIFY_MAX_BYTES = 7_500
 
 def _is_user_state_event_type(event_type: str) -> bool:
     return event_type.startswith("location_circle_") or event_type in {
+        # A committed Drive outbox event wakes authenticated readers. Its
+        # payload contains only opaque ids; the Feed and Consent Center remain
+        # the authorities for the current request state.
+        "document_share_feed_changed",
         "location_settings_changed",
         "location_pkm_changed",
         "connection_request",

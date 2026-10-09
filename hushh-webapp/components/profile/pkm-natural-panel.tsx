@@ -87,6 +87,7 @@ import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { useVault } from "@/lib/vault/vault-context";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 type DomainDetailState = {
   session?: MemoryReadSession;
@@ -231,6 +232,28 @@ export function PkmNaturalPanel({
   }), [canBrowseLocation, domainDetail, memoryReadSession]);
   const locationField = view === "location-detail" ? resolveLocationMemoryField(locationPresentation, locationMemoryId) : null;
   const selectedCard = locationView ? locationField?.card ?? null : localSelectedCard;
+  const unwindMemory = useCallback(() => {
+    if (localSelectedCard) {
+      setSelectedCard(null);
+      setMemoryActionError(null);
+      setMemorySharingError(null);
+      return true;
+    }
+    if (pathStack.length > 0) {
+      setPathStack(stack => stack.slice(0, -1));
+      return true;
+    }
+    if (localDomainKey) {
+      setSelectedDomainKey(null);
+      return true;
+    }
+    return false;
+  }, [localSelectedCard, pathStack.length, localDomainKey]);
+  useBackLayer(
+    view === "recent" ? ROUTES.PKM_RECENT : ROUTES.PKM,
+    locationView || !isVaultUnlocked || !user ? 0 : (localDomainKey ? 1 : 0) + pathStack.length + (localSelectedCard ? 1 : 0),
+    unwindMemory,
+  );
   const [memoryCardsNonce, setMemoryCardsNonce] = useState(0);
   const [memoryActionState, setMemoryActionState] = useState<{ session: MemoryReadSession; id: string | null } | null>(null);
   const memoryActionId = memoryActionState?.session === memoryReadSession ? memoryActionState.id : null;
@@ -1533,9 +1556,7 @@ export function PkmNaturalPanel({
           actionError={memoryActionError}
           onBack={() => {
             if (locationView) router.push(ROUTES.PKM_LOCATION);
-            setSelectedCard(null);
-            setMemoryActionError(null);
-            setMemorySharingError(null);
+            else unwindMemory();
           }}
           onSharingChange={(nextPosture) =>
             void updateMemoryScopeSharing(selectedCard, nextPosture)
@@ -1572,13 +1593,7 @@ export function PkmNaturalPanel({
             null
           }
           onDrill={(segment) => setPathStack((stack) => [...stack, segment])}
-          onBack={() => {
-            if (pathStack.length === 0) {
-              setSelectedDomainKey(null);
-              return;
-            }
-            setPathStack((stack) => stack.slice(0, -1));
-          }}
+          onBack={unwindMemory}
           onOpenLeaf={openMemory}
         />
       </>

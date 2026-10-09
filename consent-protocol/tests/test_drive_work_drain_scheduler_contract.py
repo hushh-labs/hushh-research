@@ -35,12 +35,19 @@ def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime
     assert '--message-body="{\\"stage\\":\\"${STAGE}\\"}"' in source
     for name, stage, cron in (
         ("drive-work-drain-uat", "documents", "*/4 * * * *"),
-        ("drive-work-suggestions-uat", "suggestions", "2-59/4 * * * *"),
+        ("drive-work-suggestions-uat", "suggestions", "* * * * *"),
         ("drive-work-sharing-uat", "sharing", "* * * * *"),
     ):
         assert f'"${{JOB_NAME}}" == "{name}"' in source
         assert f'"${{STAGE}}" == "{stage}"' in source
         assert f'"${{CRON}}" == "{cron}"' in source
+    assert "2-59/4 * * * *" not in source
+
+    production_source = (ROOT / "deploy/drive/setup_work_drain_scheduler_prod.sh").read_text(
+        encoding="utf-8"
+    )
+    assert '"${CRON}" == "* * * * *"' in production_source
+    assert "2-59/4 * * * *" not in production_source
     assert "base64.b64decode(body, validate=True) != expected" in source
     assert "--oidc-service-account-email" in source
     assert "--oidc-token-audience" in source

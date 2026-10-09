@@ -65,7 +65,7 @@ consent flow; missing pricing means free and still requires approval.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/284_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/289_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -365,7 +365,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/284_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/289_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 
@@ -1631,3 +1631,12 @@ vault state. Canonical reviewer checks passed 15/15, independent source review
 found no material blocker, and the foreign-origin negative control fails when
 those fences are removed. These harness checks do not prove a payment or waive
 owner confirmation, onboarding, vault admission or provider readiness.
+
+## Canonical migration lineage after main integration
+
+The integrated release registers commerce as migration 289 and explicit Shared
+selection as 290. Their SQL remains unchanged. The original branch-only 284/287
+files are retained under `db/legacy/` for dated preview provenance. Existing
+preview ledgers using those earlier IDs must remain on their pinned lineage
+until separately reconciled; they cannot replay this release as a renaming.
+The shared dev ledger was inspected on 2026-10-09 and contains neither old ID.

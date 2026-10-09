@@ -292,3 +292,13 @@ When a new numbered migration lands:
 7. run `./bin/hushh codex data-model-audit` before claiming the migration is production-ready
 
 Every new table must have a declared owner, data class, primary access path, expected row-growth posture, retention policy, deletion behavior, and plaintext/ciphertext posture. Prefer adding the table to an existing family. Create a new family only when the table cannot honestly fit an existing bounded context.
+
+### Infrastructure integration lineage (2026-10-09)
+
+Main migrations 284–288 retain their canonical identities. The infrastructure
+branch's commerce and explicit Shared-choice SQL is registered unchanged as 289
+and 290. Original branch-only 284/287 files and rollbacks remain in `db/legacy/`
+as historical preview evidence, outside the release manifest. Never relabel an
+applied ledger row or replay this lineage on a preview that recorded the old IDs.
+The shared dev ledger readback contained neither old ID; recheck the target ledger
+and recovery immediately before any governed deployment.

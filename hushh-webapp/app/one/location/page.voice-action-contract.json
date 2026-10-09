@@ -3950,5 +3950,64 @@
         "review_route": "/one/setup/location"
       }
     }
-  ]
+  ],
+  "search": {
+    "source_revision": "9a6161a4c83e979ab0f234542dbfece7f680b37e11d40331e99b25a9263c036e",
+    "source_module_count": 1517,
+    "subview_action_boost": {
+      "": [
+        "location.pause_updates",
+        "location.resume_updates",
+        "location.stop_share",
+        "location.approve_request",
+        "location.decline_request",
+        "location.refresh"
+      ],
+      "create-circle": [
+        "location.create_circle"
+      ],
+      "share": [
+        "location.select_share_recipient",
+        "location.share_selected",
+        "location.change_share_duration",
+        "location.set_auto_share"
+      ],
+      "ask": [
+        "location.select_ask_recipient",
+        "location.send_request"
+      ],
+      "active-shares": [
+        "location.stop_share",
+        "location.change_share_duration"
+      ],
+      "needs-review": [
+        "location.approve_request",
+        "location.decline_request"
+      ],
+      "shared-with-me": [
+        "location.change_share_duration"
+      ],
+      "settings": [
+        "location.pause_updates",
+        "location.resume_updates",
+        "location.set_auto_share",
+        "location.add_emergency_contact",
+        "location.remove_emergency_contact"
+      ],
+      "sos": [
+        "location.trigger_sos",
+        "location.stop_sos",
+        "location.sos_default"
+      ],
+      "people": [
+        "location.add_to_circle",
+        "location.remove_from_circle",
+        "location.rename_circle",
+        "location.leave_circle",
+        "location.delete_circle",
+        "location.accept_circle_invite",
+        "location.decline_circle_invite"
+      ]
+    }
+  }
 }

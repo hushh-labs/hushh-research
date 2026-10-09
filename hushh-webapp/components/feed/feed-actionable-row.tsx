@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { DirectMessageLink } from "@/components/direct-messages/direct-message-link";
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "@/components/icons";
 
@@ -314,10 +315,11 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   // scoped connections the explicit Review action owns navigation; for an
   // imperative row SettingsRow renders the primary action and trailing actions
   // as siblings. Both shapes avoid invalid button-in-link/button DOM.
+  const NavigationLink = item.href?.startsWith("/one/messages?") ? DirectMessageLink : Link;
   const row =
     item.href && !hasActions ? (
       <SettingsRow asChild {...shared} chevron={item.chevron}>
-        <Link
+        <NavigationLink
           href={item.href}
           prefetch={false}
           aria-label={`${item.title}. ${item.description}`}

@@ -36,3 +36,13 @@ a158b1561d7e8342f00611c15d6904596405e520:consent-protocol/tests/test_personal_ag
 
 # Public JSON-schema description of consent state, not a credential. Exact reviewed historical finding.
 18c3db9ab3b03e07d070eeba70e0031ff74f3059:consent-protocol/mcp_modules/commercial_contract.py:generic-api-key:49
+# Generated location_workflow_api_contract source digests (SHA-256), not credentials; PR #7644.
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:consent-protocol/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
+1c814a3dbd6a6f7cf978e602e2644298a4bb890a:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599

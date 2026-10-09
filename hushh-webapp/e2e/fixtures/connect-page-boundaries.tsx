@@ -4,7 +4,7 @@
 // network are replaced, and the network answers on a timer the spec controls
 // through <html data-*> attributes, so the page loads in the same order it
 // does for a person: shell first, then connections, then circles.
-import React, { createContext, useEffect, useSyncExternalStore } from "react";
+import React, { createContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import { ConnectCirclesTab as ProductionCirclesTab } from "../../components/connect/circles/connect-circles-tab";
 
 const noop = () => {};
@@ -17,24 +17,26 @@ const after = <T,>(ms: number, value: T) =>
   new Promise<T>((resolve) => window.setTimeout(() => resolve(value), ms));
 
 // ---- routing ----------------------------------------------------------------
-function subscribeToRoute(listener: () => void) {
-  window.addEventListener("popstate", listener);
-  return () => window.removeEventListener("popstate", listener);
-}
-function navigate(href: string) {
+let currentQuery = "";
+const routeListeners = new Set<() => void>();
+const navigate = (href: string) => {
   document.body.dataset.lastNavigation = href;
-  window.history.pushState({}, "", href);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-const router = { replace: noop, push: navigate, prefetch: noop, back: noop, refresh: noop };
+  const destination = new URL(href, "http://localhost");
+  if (destination.pathname !== "/connect" && destination.pathname !== "/one/connect") return;
+  currentQuery = destination.search;
+  routeListeners.forEach((listener) => listener());
+};
+const router = { replace: navigate, push: navigate, prefetch: noop, back: noop, refresh: noop };
 export const useRouter = () => router;
 export const usePathname = () => "/one/connect";
-export function useSearchParams() {
-  // The production tab owner reads ?tab=. A signal-only router cannot test
-  // its real Connections/Circles selection or inactive-pane accessibility.
-  const search = useSyncExternalStore(subscribeToRoute, () => window.location.search, () => "");
-  return new URLSearchParams(search);
-}
+const subscribeRoute = (listener: () => void) => {
+  routeListeners.add(listener);
+  return () => { routeListeners.delete(listener); };
+};
+export const useSearchParams = () => {
+  const query = useSyncExternalStore(subscribeRoute, () => currentQuery);
+  return useMemo(() => new URLSearchParams(query), [query]);
+};
 
 // ---- identity ---------------------------------------------------------------
 const user = {
@@ -209,7 +211,13 @@ export const useOptionalOneLocationInteractionSurface = () => null;
 // Firebase initialises at import time against a project this fixture has no
 // key for. Nothing here signs in; the page reads identity from useRequireAuth.
 export const app = null;
-export const auth = null;
+export const auth = { currentUser: user };
+export const DirectMessagesService = {
+  routeHref: async (input: { personRef: string }) => {
+    document.body.dataset.messageRecipient = input.personRef;
+    return "/one/messages?token=dm1.fixture";
+  },
+};
 export const getRecaptchaVerifier = noop;
 export const prepareRecaptchaVerifier = async () => null;
 export const resetRecaptcha = noop;

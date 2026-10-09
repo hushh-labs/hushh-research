@@ -36,6 +36,7 @@ import {
   type RuntimeCredentialMode,
 } from "@/lib/services/personal-knowledge-model-service";
 import type { OneRuntimeSetupChoice } from "@/lib/services/pre-vault-user-state-service";
+import detailStyles from "@/components/profile/profile-preference-details.module.css";
 
 type GeminiRuntimeSettingsCardProps = {
   userId?: string | null;
@@ -723,7 +724,7 @@ function OwnerRuntimeSettingsCard({
   };
 
   return (
-    <div className={requiresExplicitSelection ? "space-y-6" : "contents"}>
+    <div className={cn(requiresExplicitSelection ? "space-y-6" : "contents", detailStyles.geminiRoot)}>
       {agentOutcome ? (
         <p
           role="status"

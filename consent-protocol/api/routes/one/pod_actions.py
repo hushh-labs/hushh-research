@@ -200,6 +200,53 @@ async def run_action_confirm(
     return {"proposalId": proposal_id, "kind": kind, "result": result}
 
 
+async def run_email_send_status(
+    proposal_id: str,
+    *,
+    consent_token: str,
+    verifier: Any = None,
+    session: Optional[dict] = None,
+    store: Any = None,
+) -> dict:
+    """Read this owner's existing send receipt; never infer safe redispatch."""
+    from hushh_mcp.services.pod_action_proposals import pod_action_proposals
+    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+
+    if not owner_cloud_agent():
+        raise HTTPException(404, detail="not found")
+    claims = await admit_owner_local(
+        consent_token, verifier=verifier, session=session, scope=SCOPE_POD_ACT
+    )
+    owner = str(claims.get("user_id") or "")
+    if not owner or owner != pod_owner_user_id():
+        raise _refused(403, "OWNER_MISMATCH")
+    if not re.fullmatch(r"gmod_[A-Za-z0-9_-]{16,64}", proposal_id or ""):
+        raise _refused(404, "ACTION_UNKNOWN")
+    try:
+        result = await (store if store is not None else pod_action_proposals()).email_send_status(
+            proposal_id=proposal_id, owner_id=owner
+        )
+    except Exception as exc:
+        raise _explain(exc) from None
+    if result is None:
+        raise _refused(404, "ACTION_UNKNOWN")
+    return result
+
+
+@router.get("/actions/{proposal_id}/status")
+async def pod_email_send_status_route(
+    proposal_id: str,
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+
+    if not owner_cloud_agent():
+        raise HTTPException(404, detail="not found")
+    door = await owner_local_door(x_consent_token, authorization, scope=SCOPE_POD_ACT, held=True)
+    return await run_email_send_status(proposal_id, **door)
+
+
 @router.post("/actions/{proposal_id}/confirm")
 async def pod_action_confirm_route(
     proposal_id: str,

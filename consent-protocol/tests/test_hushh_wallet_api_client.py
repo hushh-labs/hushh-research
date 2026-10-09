@@ -258,3 +258,15 @@ def test_the_request_body_is_json_serialisable() -> None:
     # as a 503 in production rather than as a failure here.
     encoded = json.dumps(client.build_pass_request(_content()))
     assert json.loads(encoded)["passType"] == "generic"
+
+
+def test_referral_pass_service_request_has_variant_copy_and_correct_qr():
+    from dataclasses import replace
+
+    content = replace(
+        _content(variant="referral"), public_card_url="https://uat.one.hushh.ai/r/ada"
+    )
+    body = client.build_pass_request(content)
+    assert body["description"] == "Agent One Referral"
+    assert body["barcode"]["message"] == "https://uat.one.hushh.ai/r/ada"
+    assert body["backFields"][0]["label"] == "Referral link"

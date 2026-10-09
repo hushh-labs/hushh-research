@@ -11,6 +11,7 @@ const mockTransport = vi.hoisted(() => ({
   // Mirrors @ag-ui/client 0.0.59 when the body ends with no RUN_FINISHED or
   // RUN_ERROR (read from its source): the run completes with no callback.
   endWithoutTerminal: false,
+  hangAfterBodyEof: false,
   // Read the response body through the client's own `fetch` until it ends or
   // the run is aborted, as the real transport does.
   readBody: false,
@@ -20,11 +21,13 @@ vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
     private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     private abortController = new AbortController();
+    private releaseAfterEof: (() => void) | null = null;
     constructor(public config: { fetch?: (url: string, init: RequestInit) => Promise<Response> }) {}
     abortRun() {
       mockTransport.aborted = true;
       this.abortController.abort();
       void this.reader?.cancel();
+      this.releaseAfterEof?.();
     }
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
       this.abortController = new AbortController();
@@ -38,6 +41,9 @@ vi.mock("@ag-ui/client", () => ({
         const response = await this.config.fetch!("/api/one/agent-chat", { signal: this.abortController.signal });
         this.reader = response.body!.getReader();
         while (!(await this.reader.read()).done) { /* keep reading */ }
+        if (mockTransport.hangAfterBodyEof) {
+          await new Promise<void>((resolve) => { this.releaseAfterEof = resolve; });
+        }
         // The real client reports its own abort to the subscriber, then swallows it.
         if (mockTransport.aborted) {
           subscriber.onRunFailed?.({ error: new DOMException("Aborted", "AbortError") });
@@ -99,6 +105,7 @@ vi.mock("@/lib/services/api-service", () => ({
 
 import {
   AGENT_CHAT_STREAM_LOST_ERROR,
+  AGENT_CHAT_STREAM_IDLE_MS,
   AgentChatStreamLostError,
   formatAgentChatErrorMessage,
   findInformationRequestConversation,
@@ -1638,6 +1645,8 @@ describe("a turn the app stops reading keeps running server-side", () => {
 describe("a chat turn never waits forever", () => {
   beforeEach(() => {
     publishValidatedAuthSessionOwner("user-1");
+    noteChatKeyAccepted();
+    vi.mocked(ApiService.agentChatRequest).mockReset();
     mockTransport.aborted = false;
     mockTransport.outcome = "success";
     mockTransport.emitEvents = null;
@@ -1647,6 +1656,7 @@ describe("a chat turn never waits forever", () => {
   afterEach(() => {
     mockTransport.endWithoutTerminal = false;
     mockTransport.readBody = false;
+    mockTransport.hangAfterBodyEof = false;
     vi.useRealTimers();
   });
 
@@ -1671,6 +1681,80 @@ describe("a chat turn never waits forever", () => {
     expect(introError).toHaveBeenCalledTimes(1);
   });
 
+  it("settles a clean EOF even when the transport waits for a missing terminal event", async () => {
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(
+      new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+    mockTransport.readBody = true;
+    mockTransport.hangAfterBodyEof = true;
+    const onError = vi.fn();
+    const onComplete = vi.fn();
+
+    await expect(streamAgentChat({
+      vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Find my mail",
+      conversationId: "thread-eof", vaultOwnerToken: "owner-token",
+      handlers: { onError, onComplete },
+    })).rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(mockTransport.aborted).toBe(true);
+  });
+
+  it("reports one terminal outcome when the transport emits a late failure", async () => {
+    mockTransport.endWithoutTerminal = true;
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onRunFinishedEvent?.({ event: { type: "RUN_FINISHED" }, outcome: "success" });
+      subscriber.onRunFailed?.({ error: new Error("late transport failure") });
+    };
+    const onComplete = vi.fn();
+    const onError = vi.fn();
+
+    await expect(streamAgentChat({
+      vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Find my mail",
+      conversationId: "thread-terminal", vaultOwnerToken: "owner-token",
+      handlers: { onComplete, onError },
+    })).resolves.toMatchObject({ conversationId: "thread-terminal" });
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("fails a silent stream after the idle window, while keep-alive bytes hold it open", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    const encoder = new TextEncoder();
+    let push!: (frame: string) => void;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = (frame) => controller.enqueue(encoder.encode(frame));
+      },
+    });
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(
+      new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    );
+    mockTransport.readBody = true;
+    const onError = vi.fn();
+    const settled = vi.fn();
+    const turn = streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "what can we do here",
+      conversationId: "thread-silent", vaultOwnerToken: "owner-token", handlers: { onError } });
+    turn.then(settled, settled);
+    await vi.waitFor(() => expect(ApiService.agentChatRequest).toHaveBeenCalled());
+
+    // A slow model: three minutes of the server's 15 s keep-alive, no content.
+    for (let elapsed = 0; elapsed < 180_000; elapsed += 15_000) {
+      push(": ping\n\n");
+      await vi.advanceTimersByTimeAsync(15_000);
+    }
+    expect(settled).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+
+    // The instance is gone: no bytes at all.
+    await vi.advanceTimersByTimeAsync(AGENT_CHAT_STREAM_IDLE_MS + 5_000);
+    await expect(turn).rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(onError).toHaveBeenCalledTimes(1); // the abort that follows is not a second error
+    expect(mockTransport.aborted).toBe(true);
+  });
 
 
 

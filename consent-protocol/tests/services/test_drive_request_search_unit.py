@@ -99,6 +99,32 @@ def test_request_plan_keeps_all_candidate_file_dates_and_shortcut_mime():
     assert period == {"start": start, "end": end, "timezone": "UTC"}
 
 
+@pytest.mark.parametrize(
+    "extra,expected_order",
+    [
+        ({}, "modifiedTime desc"),
+        ({"exact_title": "Quarterly report"}, "modifiedTime desc"),
+        (
+            {"time_intent": "file_activity", "file_time_field": "createdTime"},
+            "createdTime desc",
+        ),
+    ],
+)
+def test_request_discovery_order_avoids_creation_sort_unless_explicit(extra, expected_order):
+    queries, period = compile_request_queries(
+        {"mode": "find", "file_kind": "document", **extra},
+        {"purpose": "Quarterly documents", "periodStart": "2026-01-01", "periodEnd": "2026-03-31"},
+        "UTC",
+    )
+    arguments = queries[0]["arguments"]
+    assert arguments["orderBy"] == expected_order
+    assert "createdTime" not in arguments["query"]
+    assert "modifiedTime" not in arguments["query"]
+    assert period == {"start": "2026-01-01", "end": "2026-03-31", "timezone": "UTC"}
+    if "exact_title" in extra:
+        assert "name = 'Quarterly report'" in arguments["query"]
+
+
 def test_relative_standup_request_requires_dates_before_searching_historical_files():
     plan = {"mode": "find", "terms": ["standup"], "file_kind": "document"}
     purpose = {"purpose": "last 3 days standup notes"}
@@ -557,6 +583,30 @@ def _provider_file(identity, name, mime="application/vnd.google-apps.document", 
 
 def _request_candidate(identity, name, mime="application/vnd.google-apps.document", **changes):
     return {**_provider_file(identity, name, mime, **changes), "title": name}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("order", ["modifiedTime desc", "createdTime desc"])
+async def test_folder_continuation_keeps_its_saved_provider_order(order):
+    checkpoint = _checkpoint()
+    checkpoint.update(
+        phase="folder_files",
+        page_token="saved-folder-page",  # noqa: S106 - synthetic provider cursor
+        folder_queue=[{"id": "matching-folder"}],
+    )
+    checkpoint["arguments"]["orderBy"] = order
+    reader = AsyncMock(
+        return_value=ExternalMcpToolResult(
+            is_error=False,
+            payload={"files": [], "nextPageToken": "following-page", "incompleteSearch": False},
+            truncated=False,
+        )
+    )
+    service = DriveOwnerSearchService(transport=SimpleNamespace(read_tool=reader))
+    await service._page({"user_id": "owner", "checkpoint": checkpoint})
+    arguments = reader.await_args.kwargs["arguments"]
+    assert arguments["orderBy"] == order
+    assert arguments["pageToken"] == "saved-folder-page"
 
 
 @pytest.mark.asyncio

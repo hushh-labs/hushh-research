@@ -166,11 +166,12 @@ def install(monkeypatch, tmp_path, *, connectors: dict[str, store.ConnectorCrede
     google = FakeGoogle()
     real = httpx.AsyncClient
 
-    def client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
-        kwargs["transport"] = httpx.MockTransport(google)
-        return real(*args, **kwargs)
+    class MockGoogleClient(real):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["transport"] = httpx.MockTransport(google)
+            super().__init__(*args, **kwargs)
 
-    monkeypatch.setattr(httpx, "AsyncClient", client)
+    monkeypatch.setattr(httpx, "AsyncClient", MockGoogleClient)
     return log, tokens, google
 
 

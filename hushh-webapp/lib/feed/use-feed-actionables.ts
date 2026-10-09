@@ -58,6 +58,7 @@ import {
   projectFeedDrivePayments,
 } from "@/lib/feed/drive-request-payment";
 import { useFeedPaymentClock } from "@/lib/feed/use-feed-payment-clock";
+import { useFeedPaymentContext } from "@/lib/feed/use-feed-payment-context";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
 import { driveSharingSelectionId, isDriveSharingEntry } from "@/lib/consent/drive-query-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
@@ -687,6 +688,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
     () => projectFeedDrivePayments(sentProgressItems ?? []),
     [sentProgressItems],
   );
+  const paymentContexts = useFeedPaymentContext(
+    userId, vaultOwnerToken, sentPayments.map((payment) => payment.requestId),
+  );
   const hasLivePaymentDeadline = sentPayments.some(
     (payment) =>
       payment.status === "ready" &&
@@ -831,14 +835,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
     if (agentUpdateCard) items.push({ ...agentUpdateCard, sortAt: firstSeenAt(agentUpdateCard.id) });
 
     for (const payment of sentPayments) {
-      const displayPayment = describeFeedDrivePayment(payment, paymentClockNow);
-      const paymentIsExpired = displayPayment.status === "expired";
+      const displayPayment = describeFeedDrivePayment(payment, paymentClockNow, paymentContexts[payment.requestId]);
+      const paymentIsExpired = displayPayment.status !== "ready";
       const paymentAction = paymentIsExpired
         ? []
         : [
             {
-              key: displayPayment.status === "link_expired" ? "renew" : "pay",
-              label: displayPayment.status === "link_expired" ? "Create new link" : "Pay $10",
+              key: "pay",
+              label: "Pay $10",
               tone: "primary" as const,
               run: async () => {
                 try {
@@ -1447,6 +1451,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     openAnalysis,
     pendingConsentCount,
     paymentClockNow,
+    paymentContexts,
     router,
     user,
     userId,

@@ -129,5 +129,9 @@
       ],
       "speaker_persona": "kai"
     }
-  ]
+  ],
+  "search": {
+    "source_revision": "9a6161a4c83e979ab0f234542dbfece7f680b37e11d40331e99b25a9263c036e",
+    "source_module_count": 1517
+  }
 }

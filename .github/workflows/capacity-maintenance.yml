@@ -1,6 +1,10 @@
 name: Capacity Maintenance
 
 on:
+  workflow_run:
+    workflows: [Deploy to UAT]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
@@ -26,20 +30,84 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-${{ inputs.environment }}
+  group: deploy-${{ github.event_name == 'workflow_run' && 'uat' || inputs.environment }}
   cancel-in-progress: false
 
 jobs:
-  cleanup:
-    name: Verify and retire old Cloud Run revisions
+  select-release:
+    name: Verify cleanup authority and healthy release
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 180
-    environment: ${{ inputs.environment }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     env:
-      GCP_PROJECT_ID: ${{ inputs.environment == 'uat' && 'hushh-pda-uat' || 'hushh-pda' }}
-      GCP_REGION: us-central1
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      environment: ${{ steps.authority.outputs.environment }}
+      apply: ${{ steps.authority.outputs.apply }}
+      cleanup_ready: ${{ steps.release.outputs.cleanup_ready }}
+      backend_revision: ${{ steps.release.outputs.backend_revision }}
+      frontend_revision: ${{ steps.release.outputs.frontend_revision }}
+      backend_rollback: ${{ steps.release.outputs.backend_rollback }}
+      frontend_rollback: ${{ steps.release.outputs.frontend_rollback }}
     steps:
+      - name: Resolve and validate cleanup authority
+        id: authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = main
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          if event_name == "workflow_run":
+              run = event.get("workflow_run") or {}
+              repository = os.environ["GITHUB_REPOSITORY"]
+              workflow_path = run.get("path") or (event.get("workflow") or {}).get("path")
+              if not (
+                  run.get("name") == "Deploy to UAT"
+                  and workflow_path == ".github/workflows/deploy-uat.yml"
+                  and run.get("event") == "workflow_dispatch"
+                  and run.get("status") == "completed"
+                  and run.get("conclusion") == "success"
+                  and run.get("head_branch") == "main"
+                  and (run.get("repository") or {}).get("full_name") == repository
+                  and (run.get("head_repository") or {}).get("full_name") == repository
+              ):
+                  raise SystemExit("Upstream run does not authorize UAT cleanup")
+              environment = "uat"
+              release_run_id = str(run.get("id") or "")
+              actor = (run.get("actor") or {}).get("login") or ""
+              apply = "true"
+          elif event_name == "workflow_dispatch":
+              inputs = event.get("inputs") or {}
+              environment = inputs.get("environment")
+              release_run_id = str(inputs.get("healthy_release_run_id") or "")
+              actor = os.environ["GITHUB_ACTOR"]
+              apply = str(inputs.get("apply", False)).lower()
+          else:
+              raise SystemExit("Unsupported cleanup trigger")
+          if environment not in {"uat", "production"} or apply not in {"true", "false"}:
+              raise SystemExit("Invalid cleanup environment or apply mode")
+          if not re.fullmatch(r"[1-9][0-9]*", release_run_id):
+              raise SystemExit("Invalid release run ID")
+          if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", actor):
+              raise SystemExit("Invalid cleanup actor")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              for key, value in (
+                  ("environment", environment), ("release_run_id", release_run_id),
+                  ("actor", actor), ("apply", apply),
+              ):
+                  print(f"{key}={value}", file=output)
+          PY
+
       - name: Checkout current release tooling
         uses: actions/checkout@v6
         with:
@@ -48,17 +116,20 @@ jobs:
 
       - name: Require main and governed actor
         shell: bash
+        env:
+          RELEASE_ENV: ${{ steps.authority.outputs.environment }}
+          CLEANUP_ACTOR: ${{ steps.authority.outputs.actor }}
         run: |
           set -euo pipefail
           test "${GITHUB_REF_NAME}" = main
-          python3 scripts/ci/assert-governed-actor.py --surface "${{ inputs.environment }}" --actor "${GITHUB_ACTOR}"
+          python3 scripts/ci/assert-governed-actor.py --surface "$RELEASE_ENV" --actor "$CLEANUP_ACTOR"
 
       - name: Require a successful healthy release artifact
         id: release
         shell: bash
         env:
-          RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
-          RELEASE_ENV: ${{ inputs.environment }}
+          RELEASE_RUN_ID: ${{ steps.authority.outputs.release_run_id }}
+          RELEASE_ENV: ${{ steps.authority.outputs.environment }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid release run ID" >&2; exit 1; }
@@ -70,14 +141,30 @@ jobs:
             artifact_name="prod-release-${RELEASE_RUN_ID}"
             status_file="prod-release-status.json"
           fi
-          gh run view "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion,workflowName \
+          gh run view "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion,workflowName,headBranch,event \
             | jq -e --arg workflow "$expected_workflow" \
-              '.conclusion == "success" and .workflowName == $workflow' >/dev/null
+              '.conclusion == "success" and .workflowName == $workflow and .headBranch == "main" and .event == "workflow_dispatch"' >/dev/null
+          # A successful UAT NO_OP has no release artifact and grants no cleanup.
+          # Resolve this before entering an environment or minting cloud credentials.
+          if [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+            artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID/artifacts" --paginate --slurp)"
+            if jq -e --arg name "$artifact_name" \
+              '[.[].artifacts[] | select(.name == $name)] | length == 0' \
+              <<<"$artifacts" >/dev/null; then
+              echo "No release artifact; no automatic cleanup is authorized."
+              echo "cleanup_ready=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            jq -e --arg name "$artifact_name" \
+              '[.[].artifacts[] | select(.name == $name)] | length == 1 and .[0].expired == false' \
+              <<<"$artifacts" >/dev/null
+          fi
           mkdir -p "$RUNNER_TEMP/capacity-release"
           gh run download "$RELEASE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name "$artifact_name" --dir "$RUNNER_TEMP/capacity-release"
           python3 - "$RUNNER_TEMP/capacity-release/$status_file" "$GITHUB_OUTPUT" <<'PY'
           import json
+          import re
           import sys
           from pathlib import Path
 
@@ -86,9 +173,13 @@ jobs:
               raise SystemExit("Release artifact is not healthy")
           final = payload.get("final") or {}
           predeploy = payload.get("predeploy") or {}
-          for key in ("backend_revision", "frontend_revision"):
-              if not final.get(key):
-                  raise SystemExit(f"Healthy artifact lacks {key}")
+          for key, service in (("backend_revision", "consent-protocol"), ("frontend_revision", "hushh-webapp")):
+              pattern = rf"{service}-[a-z0-9-]+"
+              if not isinstance(final.get(key), str) or not re.fullmatch(pattern, final[key]):
+                  raise SystemExit(f"Healthy artifact lacks a valid {key}")
+              rollback = predeploy.get(key) or ""
+              if rollback and (not isinstance(rollback, str) or not re.fullmatch(pattern, rollback)):
+                  raise SystemExit(f"Healthy artifact has an invalid rollback {key}")
           with Path(sys.argv[2]).open("a", encoding="utf-8") as output:
               for label, value in (
                   ("backend_revision", final["backend_revision"]),
@@ -98,6 +189,25 @@ jobs:
               ):
                   print(f"{label}={value}", file=output)
           PY
+          echo "cleanup_ready=true" >> "$GITHUB_OUTPUT"
+
+  cleanup:
+    name: Verify and retire old Cloud Run revisions
+    needs: select-release
+    if: needs.select-release.outputs.cleanup_ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: ${{ needs.select-release.outputs.environment }}
+    env:
+      RELEASE_ENV: ${{ needs.select-release.outputs.environment }}
+      GCP_PROJECT_ID: ${{ needs.select-release.outputs.environment == 'uat' && 'hushh-pda-uat' || 'hushh-pda' }}
+      GCP_REGION: us-central1
+    steps:
+      - name: Checkout current release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
 
       - name: Authenticate to the selected Google Cloud environment
         uses: google-github-actions/auth@v2
@@ -117,9 +227,8 @@ jobs:
       - name: Verify live service identity and traffic
         shell: bash
         env:
-          BACKEND_EXPECTED: ${{ steps.release.outputs.backend_revision }}
-          FRONTEND_EXPECTED: ${{ steps.release.outputs.frontend_revision }}
-          RELEASE_ENV: ${{ inputs.environment }}
+          BACKEND_EXPECTED: ${{ needs.select-release.outputs.backend_revision }}
+          FRONTEND_EXPECTED: ${{ needs.select-release.outputs.frontend_revision }}
         run: |
           set -euo pipefail
           test "$(gcloud config get-value project 2>/dev/null)" = "$GCP_PROJECT_ID"
@@ -139,19 +248,18 @@ jobs:
       - name: Inspect or apply bounded revision cleanup
         shell: bash
         env:
-          APPLY: ${{ inputs.apply }}
-          RELEASE_ENV: ${{ inputs.environment }}
-          BACKEND_CURRENT: ${{ steps.release.outputs.backend_revision }}
-          FRONTEND_CURRENT: ${{ steps.release.outputs.frontend_revision }}
-          BACKEND_ROLLBACK: ${{ steps.release.outputs.backend_rollback }}
-          FRONTEND_ROLLBACK: ${{ steps.release.outputs.frontend_rollback }}
+          APPLY: ${{ needs.select-release.outputs.apply }}
+          BACKEND_CURRENT: ${{ needs.select-release.outputs.backend_revision }}
+          FRONTEND_CURRENT: ${{ needs.select-release.outputs.frontend_revision }}
+          BACKEND_ROLLBACK: ${{ needs.select-release.outputs.backend_rollback }}
+          FRONTEND_ROLLBACK: ${{ needs.select-release.outputs.frontend_rollback }}
         run: |
           set -euo pipefail
           cleanup_flags=()
           if [ "$APPLY" = true ]; then cleanup_flags=(--apply --healthy); fi
           if [ "$RELEASE_ENV" = uat ]; then
-            # Retire the large set of old worker tags before the backend's
-            # one-hour request drain begins.
+            # The deploy already retired zero-traffic tags; this lane owns full
+            # timeout-derived draining and deletion under the same deploy lock.
             bash scripts/ci/cloudrun-retention.sh consent-protocol-drive-worker "$GCP_REGION" 2 \
               "${cleanup_flags[@]}"
           fi
@@ -163,5 +271,5 @@ jobs:
             --last-known-good-revision "$FRONTEND_CURRENT" "${cleanup_flags[@]}"
 
       - name: Report post-cleanup connection budget
-        if: inputs.apply
-        run: python3 scripts/ci/runtime-capacity-budget.py --environment "${{ inputs.environment }}"
+        if: needs.select-release.outputs.apply == 'true'
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment "$RELEASE_ENV"

@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  messageSelection: vi.fn(),
   searchDirectory: vi.fn(),
   listConnections: vi.fn(),
   listConnectionsPage: vi.fn(),
@@ -94,6 +95,13 @@ vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
       onRetry: vi.fn(),
     },
   }),
+}));
+
+vi.mock("@/lib/direct-messages/navigate-direct-message", () => ({
+  navigateDirectMessage: (router: { push: (href: string) => void }, selection: unknown) => {
+    mocks.messageSelection(selection);
+    router.push("/one/messages?token=opaque-test-token");
+  },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -2725,8 +2733,9 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(mocks.toastInfo).not.toHaveBeenCalled();
     expect(mocks.removeConnection).not.toHaveBeenCalled();
     expect(mocks.routerPush).toHaveBeenCalledWith(
-      "/one/messages?person=person-ref-rashid",
+      "/one/messages?token=opaque-test-token",
     );
+    expect(mocks.messageSelection).toHaveBeenCalledWith({ personRef: "person-ref-rashid" });
 
     // Whole class tokens, not substrings: this wrapper already carries
     // `max-w-full`, which contains "w-full" and would make a `toContain` check

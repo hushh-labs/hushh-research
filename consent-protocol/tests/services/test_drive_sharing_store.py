@@ -88,10 +88,22 @@ async def sharing(documents, monkeypatch):
             "259_drive_progressive_request_batches.sql",
             "262_drive_request_payments.sql",
             "263_drive_request_no_match.sql",
+            "287_drive_request_access_stop.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
             connection.exec_driver_sql((MIGRATIONS / name).read_text().replace("%", "%%"))
+        # This compact fixture has no Feed tables, so migration 288's
+        # projection/notification portion runs in the Feed fixture instead.
+        # Apply its real event vocabulary here: payment and request services
+        # emit these events even when a test does not materialize Feed rows.
+        stream_sql, marker, _ = (
+            (MIGRATIONS / "288_drive_request_feed_stream.sql").read_text().partition("END $$;")
+        )
+        assert marker and "drive_share_events_event_type_check" in stream_sql, (
+            "Drive Feed migration event constraint section is missing"
+        )
+        connection.exec_driver_sql((stream_sql + marker + "\nCOMMIT;").replace("%", "%%"))
         connection.commit()
     return DriveSharingStore(db=documents.db, authority_key="synthetic-ledger-key")
 
@@ -214,7 +226,12 @@ async def test_request_is_private_idempotent_and_does_not_share(sharing):
     first = await request(sharing, client)
     assert await request(sharing, client) == first
     assert len(rows(sharing, "drive_share_requests")) == 1
-    assert len(rows(sharing, "drive_share_events")) == 1
+    assert sorted(
+        (event["event_type"], event["user_id"]) for event in rows(sharing, "drive_share_events")
+    ) == [
+        ("document_share_request", "owner"),
+        ("document_share_request_sent", "recipient"),
+    ]
     assert rows(sharing, "drive_share_permission_operations") == []
     stored = rows(sharing, "drive_share_requests")[0]
     for private in ("Private six-month", "recipient@example.invalid", "1234567"):
@@ -262,7 +279,12 @@ async def test_concurrent_identical_request_retries_return_one_request(sharing):
     results = await asyncio.gather(*(request(sharing, client) for _ in range(4)))
     assert all(result == results[0] for result in results)
     assert len(rows(sharing, "drive_share_requests")) == 1
-    assert len(rows(sharing, "drive_share_events")) == 1
+    assert sorted(
+        (event["event_type"], event["user_id"]) for event in rows(sharing, "drive_share_events")
+    ) == [
+        ("document_share_request", "owner"),
+        ("document_share_request_sent", "recipient"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -319,6 +341,39 @@ async def test_recipient_sees_status_not_private_suggestions(sharing):
     private = await sharing.owner_review(user_id="owner", request_id=prepared["requestId"])
     assert len(private["files"]) == 2
     assert private["recipientEmail"] == "recipient@example.invalid"
+
+
+@pytest.mark.asyncio
+async def test_payment_context_is_only_the_requesters_own_text(sharing, monkeypatch):
+    created = await request(sharing)
+    request_id = created["requestId"]
+    # Free/owner-initiated shares must not expose owner-authored context.
+    with pytest.raises(DriveSharingError, match="request_unavailable"):
+        await sharing.requester_context(user_id="recipient", request_id=request_id)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
+            {"id": request_id},
+        )
+    context = await sharing.requester_context(user_id="recipient", request_id=request_id)
+    assert context == {
+        "requestId": request_id,
+        "purpose": {
+            "purpose": "Private six-month statements",
+            "periodStart": "2026-01-01",
+            "periodEnd": "2026-06-30",
+        },
+    }
+    # Authorization fails before private-envelope decryption, identically for
+    # the file owner, an unrelated viewer, and an unknown request.
+    monkeypatch.setattr(sharing, "_open_request", lambda _: pytest.fail("unauthorized decrypt"))
+    for viewer, target in (
+        ("owner", request_id),
+        ("other", request_id),
+        ("recipient", str(uuid4())),
+    ):
+        with pytest.raises(DriveSharingError, match="request_unavailable"):
+            await sharing.requester_context(user_id=viewer, request_id=target)
 
 
 @pytest.mark.asyncio

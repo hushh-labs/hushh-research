@@ -1123,6 +1123,8 @@ class DirectMessagesService:
         # metadata-only Postgres doorbell.  Wake the sender's other tabs here
         # after commit; the recipient alone receives an OS push.
         event_time = message["createdAt"] or ""
+        from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
         try:
             self._event_notifier(
                 sender,
@@ -1132,8 +1134,8 @@ class DirectMessagesService:
                     "conversation_id": conversation_id,
                     "direct_message_id": message_id,
                     "at": event_time,
-                    "deep_link": f"/one/messages?conversationId={conversation_id}",
-                    "request_url": f"/one/messages?conversationId={conversation_id}",
+                    "deep_link": f"/one/messages?token={DirectMessageRouteCipher().seal(sender, 'conversation', conversation_id)}",
+                    "request_url": f"/one/messages?token={DirectMessageRouteCipher().seal(sender, 'conversation', conversation_id)}",
                 },
             )
         except Exception as exc:  # noqa: BLE001 - a committed message must remain sent
@@ -1170,6 +1172,8 @@ class DirectMessagesService:
         message_id = str(row.get("id") or "").strip()
         if not conversation_id or not message_id:
             return
+        from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
         for participant in {
             str(row.get("participant_a_user_id") or "").strip(),
             str(row.get("participant_b_user_id") or "").strip(),
@@ -1186,8 +1190,8 @@ class DirectMessagesService:
                         "conversation_id": conversation_id,
                         "direct_message_id": message_id,
                         "at": _iso(datetime.now()) or "",
-                        "deep_link": f"/one/messages?conversationId={conversation_id}",
-                        "request_url": f"/one/messages?conversationId={conversation_id}",
+                        "deep_link": f"/one/messages?token={DirectMessageRouteCipher().seal(participant, 'conversation', conversation_id)}",
+                        "request_url": f"/one/messages?token={DirectMessageRouteCipher().seal(participant, 'conversation', conversation_id)}",
                     },
                 )
             except Exception as exc:  # noqa: BLE001 - persistence is authoritative
@@ -1398,14 +1402,16 @@ class DirectMessagesService:
                         "A deleted message cannot be reacted to.",
                         status_code=409,
                     )
+                # PUT is intentionally idempotent: a retry after a lost
+                # response must not remove a reaction that was already saved.
+                # The widened key lets the same participant add other emojis.
                 self._execute_one(
                     """
                     INSERT INTO direct_message_reactions (
                       message_id, user_id, emoji, created_at, updated_at
                     )
                     VALUES (CAST(:message_id AS UUID), :viewer_user_id, :emoji, NOW(), NOW())
-                    ON CONFLICT (message_id, user_id)
-                    DO UPDATE SET emoji = EXCLUDED.emoji, updated_at = NOW()
+                    ON CONFLICT (message_id, user_id, emoji) DO NOTHING
                     RETURNING message_id
                     """,
                     {

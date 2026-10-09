@@ -11,6 +11,7 @@ vi.mock("@/lib/agent/business-profile-review", () => ({
   loadBusinessReview: mocks.load, saveBusinessReview: mocks.save, decideBusinessReview: mocks.decide,
   createBusinessReviewJob: mocks.create, attachBusinessOrigin: mocks.attach,
   buildSyntheticBusinessPreview: mocks.syntheticPreview,
+  businessCandidateSnapshot: (candidate: unknown) => JSON.stringify(candidate),
   businessDraftMessage: (_candidate: unknown, name: string, website: string) => `${name}\n${website}`,
 }));
 vi.mock("@/lib/agent/connector-memory-review", () => ({ prepareConnectorMemoryReview: mocks.prepare,
@@ -33,6 +34,18 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
 describe("post-onboarding business suggestion", () => {
+  it("retries an unreadable checkpoint without preparing or replacing the pending review", async () => {
+    mocks.load.mockRejectedValueOnce(new Error("Cache unavailable"));
+    render(<BusinessProfileSuggestion {...props} />);
+    const retry = await screen.findByRole("button", { name: "Retry saved review" });
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(mocks.decide).not.toHaveBeenCalled();
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: "Review details", exact: true })).toBeTruthy();
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
   it("offers multiple businesses separately; rejecting one keeps the other available", async () => {
     const second = { ...candidate, businessUid: "second", draft: { name: "Second business", website: "https://second.test" } };
     mocks.get.mockResolvedValue({ candidates: [candidate, second] });
@@ -47,7 +60,9 @@ describe("post-onboarding business suggestion", () => {
   });
   it("opens a visibly synthetic nudge; discovery and preparation never save", async () => {
     const onVisibleChange = vi.fn();
+    const onSaved = vi.fn();
     render(<BusinessProfileSuggestion {...props} onVisibleChange={onVisibleChange}
+      onSaved={onSaved}
       renderMessage={(id, text, card) => <AgentBubble message={{ id, role: "assistant", text,
         timestamp: "", status: "done", ephemeral: true }} businessProfileCard={card} />} />);
     expect(await screen.findByRole("region", { name: "Is this your business?" })).toBeTruthy();
@@ -63,12 +78,24 @@ describe("post-onboarding business suggestion", () => {
     await screen.findByText("Synthetic company detail"); expect(mocks.save).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(candidate.businessUid));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Is this your business?" })).toBeNull());
     await waitFor(() => expect(onVisibleChange).toHaveBeenLastCalledWith(false));
   });
   it.each([false, null, Date.now() - 1000])("unknown, expired, or disabled authority does not request a candidate: %s", async value => {
     render(<BusinessProfileSuggestion {...props} {...(value === false ? { enabled: false } : { tokenExpiresAt: value as number | null })} />);
     await act(async () => undefined); expect(mocks.get).not.toHaveBeenCalled();
+  });
+  it("shows a retryable state when the directory is unavailable", async () => {
+    mocks.get.mockRejectedValueOnce(new Error("directory unavailable"));
+    render(<BusinessProfileSuggestion {...props} />);
+    expect(await screen.findByText(/temporarily unavailable/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry business lookup", exact: true })).toBeTruthy();
+  });
+  it("explains when verified contacts are insufficient without showing a false no-match", async () => {
+    mocks.get.mockResolvedValueOnce({ status: "insufficient_signals", candidates: [], coverageIncomplete: true });
+    render(<BusinessProfileSuggestion {...props} />);
+    expect(await screen.findByText(/verified contacts could not be used/)).toBeTruthy();
   });
   it.each(["not_me", "saved", "later"])("durable %s suppresses the nudge without memory writes", async decision => {
     mocks.load.mockResolvedValue({ version: 1, decision, until: Date.now() + 100000 });
@@ -114,5 +141,27 @@ describe("post-onboarding business suggestion", () => {
     fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
     await waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(3));
     expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it("rejects a changed public snapshot even when the business UID is unchanged", async () => {
+    mocks.syntheticPreview.mockReturnValue([]);
+    render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    await screen.findByText("Synthetic company detail");
+    mocks.get.mockResolvedValue({ candidates: [{ ...candidate, draft: { ...candidate.draft, website: "https://changed.test" } }] });
+    fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
+    await waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(3));
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it("reconciles a lost save response from the durable saved checkpoint", async () => {
+    mocks.syntheticPreview.mockReturnValue([]);
+    let reads = 0;
+    mocks.load.mockImplementation(async () => reads++ === 0 ? null : { version: 1, decision: "saved" });
+    mocks.save.mockRejectedValueOnce(new Error("response lost after commit"));
+    render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    await screen.findByText("Synthetic company detail");
+    fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Is this your business?" })).toBeNull());
   });
 });

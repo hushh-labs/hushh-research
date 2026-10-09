@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
+from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
 from hushh_mcp.services.direct_messages_service import (
     DEFAULT_MESSAGE_PAGE_SIZE,
     MAX_DIRECT_MESSAGE_LENGTH,
@@ -322,7 +323,7 @@ def _direct_message_event(payload: object) -> dict[str, object] | None:
         "conversationId": conversation_id,
         "directMessageId": str(payload.get("direct_message_id") or "").strip() or None,
         "at": str(payload.get("at") or "").strip() or None,
-        "deepLink": str(payload.get("deep_link") or "").strip() or None,
+        "deepLink": None,  # Navigation resolves through the authenticated token endpoint.
     }
 
 
@@ -407,3 +408,53 @@ __all__ = [
     "SendDirectMessageBody",
     "router",
 ]
+
+
+class DirectMessageRouteBody(BaseModel):
+    token: str | None = Field(default=None, max_length=512)
+    conversationId: str | None = Field(default=None, max_length=64)
+    personRef: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/route-token")
+async def direct_message_route_token(
+    body: DirectMessageRouteBody,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        if sum(bool(value) for value in (body.token, body.conversationId, body.personRef)) != 1:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_ROUTE_INVALID", "This conversation link is unavailable."
+            )
+        cipher = DirectMessageRouteCipher()
+        if body.token:
+            kind, ref = cipher.open(firebase_uid, body.token)
+        else:
+            kind, ref = (
+                ("conversation", body.conversationId)
+                if body.conversationId
+                else ("person", body.personRef)
+            )
+        service = _service()
+        if kind == "conversation":
+            ref = service._normalize_conversation_id(ref)
+            row = await run_in_threadpool(service._conversation_for_participant, firebase_uid, ref)
+            if not row:
+                raise DirectMessagesError(
+                    "DIRECT_MESSAGE_ROUTE_INVALID",
+                    "This conversation link is unavailable.",
+                    status_code=404,
+                )
+        else:
+            await run_in_threadpool(
+                service.open_with_person, firebase_uid, recipient_person_ref=ref
+            )
+        return {
+            "token": body.token or cipher.seal(firebase_uid, kind, ref),
+            "kind": kind,
+            "ref": ref,
+        }
+    except Exception as exc:
+        raise _handle(exc) from exc

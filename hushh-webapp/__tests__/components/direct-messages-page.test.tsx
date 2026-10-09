@@ -7,7 +7,7 @@ import {
   AgentDockVoiceBoundary,
 } from "@/components/agent/agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
-import { DirectMessagesPage } from "@/components/direct-messages/direct-messages-page";
+import { DirectMessagesPage as ProductionDirectMessagesPage } from "@/components/direct-messages/direct-messages-page";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { ComponentProps } from "react";
 import type { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
   };
 
   return {
+    navigateSelection: vi.fn(),
     router: { push: vi.fn(), replace: vi.fn() },
     user: {
       uid: "viewer-1",
@@ -46,6 +47,14 @@ const mocks = vi.hoisted(() => {
     requestAgentConversationAfterRoute: vi.fn(),
   };
 });
+
+vi.mock("@/lib/direct-messages/navigate-direct-message", () => ({
+  resolveDirectMessageHref: async () => "/one/messages?token=dm1.fixture",
+  navigateDirectMessage: (router: { push: (href: string) => void }, selection: unknown) => {
+    mocks.navigateSelection(selection);
+    router.push("/one/messages?token=dm1.fixture");
+  },
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
@@ -120,6 +129,13 @@ function connectionThread() {
 
 function renderConnectionThread() {
   return render(connectionThread());
+}
+
+function DirectMessagesPage() {
+  const params = new URLSearchParams(mocks.search);
+  const conversation = params.get("conversation");
+  const person = params.get("person");
+  return <ProductionDirectMessagesPage selection={conversation ? { kind: "conversation", ref: conversation } : person ? { kind: "person", ref: person } : null} />;
 }
 
 describe("DirectMessagesPage", () => {
@@ -200,11 +216,7 @@ describe("DirectMessagesPage", () => {
     const composer = await screen.findByRole("textbox", {
       name: "Message Ankit Kumar Singh",
     });
-    expect(screen.getByTestId("shared-chat-dock")).toHaveAttribute(
-      "data-agent-dock-surface",
-      "text",
-    );
-    expect(screen.getByText("Talk to One")).not.toBeVisible();
+    expect(composer.closest("form")?.parentElement).not.toBe(screen.getByTestId("shared-chat-dock"));
 
     fireEvent.change(composer, { target: { value: "Hello Ankit" } });
     fireEvent.submit(composer.closest("form")!);
@@ -216,7 +228,7 @@ describe("DirectMessagesPage", () => {
         recipientPersonRef: "person-1",
       }),
     );
-    await waitFor(() => expect(mocks.router.replace).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.router.replace).toHaveBeenCalledWith("/one/messages?token=dm1.fixture", { scroll: false }));
     // Navigation may settle on a later frame. The server-accepted message
     // must remain visible on the source route too, not blink out meanwhile.
     expect(screen.getByText("Hello Ankit")).toBeVisible();
@@ -237,13 +249,118 @@ describe("DirectMessagesPage", () => {
     expect(screen.getByText("Select a conversation to see the chat here.")).toBeVisible();
     expect(screen.queryByRole("textbox", { name: /Message/ })).toBeNull();
 
-    const row = await screen.findByRole("button", { name: /Ankit Kumar Singh/ });
-    expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "loaded");
-    fireEvent.click(row);
-    expect(mocks.router.replace).toHaveBeenCalledWith(
-      "/one/messages?conversation=conversation-1",
-      { scroll: false },
+    fireEvent.click(screen.getByRole("button", { name: /Ankit Kumar Singh/ }));
+    expect(mocks.navigateSelection).toHaveBeenCalledWith({ conversationId: "conversation-1" });
+    expect(mocks.router.push).toHaveBeenCalledWith("/one/messages?token=dm1.fixture");
+  });
+
+  it("clears the active chat badge while its messages are visible", async () => {
+    const unreadConversation = { ...mocks.conversation, unreadCount: 3 };
+    mocks.listConversations.mockResolvedValue({
+      items: [unreadConversation],
+      unreadCount: 3,
+    });
+    mocks.getConversationWithPerson.mockResolvedValue({
+      conversation: unreadConversation,
+      peerPersonRef: "person-1",
+      peerDisplayName: "Ankit Kumar Singh",
+      peerPhotoUrl: null,
+      canSend: true,
+      disconnectedNotice: null,
+    });
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: unreadConversation,
+      items: [],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    expect(await screen.findByRole("button", { name: /Ankit Kumar Singh/ })).toBeVisible();
+    expect(screen.queryByLabelText("3 unread")).not.toBeInTheDocument();
+    expect(mocks.markConversationRead).toHaveBeenCalledWith({
+      idToken: "test-token",
+      conversationId: "conversation-1",
+    });
+  });
+
+  it("acknowledges a conversation route even when history omits unread metadata", async () => {
+    mocks.search = "conversation=conversation-1";
+    mocks.listConversations
+      .mockResolvedValueOnce({
+        items: [{ ...mocks.conversation, unreadCount: 2 }],
+        unreadCount: 2,
+      })
+      .mockResolvedValue({
+        items: [{ ...mocks.conversation, unreadCount: 2 }],
+        unreadCount: 2,
+      });
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    expect(await screen.findByRole("heading", { name: "Ankit Kumar Singh" })).toBeVisible();
+    expect(screen.queryByLabelText("2 unread")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.markConversationRead).toHaveBeenCalledWith({
+        idToken: "test-token",
+        conversationId: "conversation-1",
+      }),
     );
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(mocks.listConversations).toHaveBeenCalledTimes(2));
+    expect(screen.queryByLabelText("2 unread")).not.toBeInTheDocument();
+  });
+
+  it("searches the open thread and keeps voice access in the header", async () => {
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [
+        {
+          id: "message-search-match",
+          conversationId: "conversation-1",
+          senderIsViewer: false,
+          content: "Budget review tomorrow",
+          createdAt: "2026-10-06T10:01:00.000Z",
+          readAt: null,
+          reactions: [],
+        },
+        {
+          id: "message-search-miss",
+          conversationId: "conversation-1",
+          senderIsViewer: true,
+          content: "See you then",
+          createdAt: "2026-10-06T10:02:00.000Z",
+          readAt: null,
+          reactions: [],
+        },
+      ],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    expect(await screen.findByText("Budget review tomorrow")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), {
+      target: { value: "budget" },
+    });
+    expect(screen.getByText("Budget review tomorrow")).toBeVisible();
+    expect(screen.getByText("1 match")).toBeVisible();
+    expect(screen.queryByText("See you then")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start voice call" }));
+    expect(mocks.router.push).toHaveBeenCalledWith(ROUTES.HOME);
   });
 
   it.each(["authentication", "response"] as const)(
@@ -319,6 +436,10 @@ describe("DirectMessagesPage", () => {
     expect(
       screen.getByRole("tab", { name: "Animals and nature" }),
     ).toBeInTheDocument();
+    const emojiSearch = screen.getByPlaceholderText("Search emoji");
+    fireEvent.change(emojiSearch, { target: { value: "cat" } });
+    expect(screen.getByRole("button", { name: "Use 🐱" })).toBeVisible();
+    fireEvent.change(emojiSearch, { target: { value: "" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
     expect(composer).toHaveValue("😀");
 
@@ -495,6 +616,42 @@ describe("DirectMessagesPage", () => {
     expect(screen.getAllByRole("article")).toHaveLength(3);
   });
 
+  it("reveals bubble timestamps only after a left swipe", async () => {
+    const message = {
+      id: "message-time",
+      conversationId: "conversation-1",
+      senderIsViewer: true,
+      content: "Swipe me",
+      createdAt: "2026-10-07T10:04:00.000Z",
+      readAt: null,
+      reactions: [],
+    };
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [message],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    const article = await screen.findByRole("article");
+    const timestamp = article.querySelector(
+      `time[datetime="${message.createdAt}"]`,
+    );
+    expect(timestamp).toBeInTheDocument();
+    const messageList = screen.getByTestId("direct-message-list");
+    expect(messageList).not.toHaveAttribute("data-show-message-times");
+    fireEvent.touchStart(article, {
+      changedTouches: [{ clientX: 220, clientY: 100 }],
+    });
+    fireEvent.touchEnd(article, {
+      changedTouches: [{ clientX: 140, clientY: 104 }],
+    });
+    expect(messageList).toHaveAttribute("data-show-message-times", "true");
+  });
+
   it("exposes message reactions and replies after a bubble is tapped", async () => {
     const message = {
       id: "message-1",
@@ -613,7 +770,7 @@ describe("DirectMessagesPage", () => {
       if (action === "edit") {
         fireEvent.change(screen.getByRole("textbox", { name: "Edit message" }), { target: { value: "Synthetic A edit" } });
         fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
-      } else fireEvent.click(screen.getByRole("button", { name: "Delete message", exact: true }));
+      } else fireEvent.click(screen.getByRole("button", { name: "Yes, delete", exact: true }));
     }
     await waitFor(() => outcome === "authorization"
       ? expect(mocks.user.getIdToken.mock.calls.length).toBeGreaterThan(tokenReads)

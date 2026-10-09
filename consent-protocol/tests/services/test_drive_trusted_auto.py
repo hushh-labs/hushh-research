@@ -101,6 +101,159 @@ def _auto_job(bulk, *, request_id):
     return job_id
 
 
+async def _frozen_auto_batch(sharing, bulk, *, payment_status=None):
+    request_id = (await _request(sharing))["requestId"]
+    # Real search startup moves a trusted request from queued to active;
+    # the synthetic search rows below must preserve that scheduler gate.
+    context = await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
+    assert context["searchStarted"] is True
+    job_id = _auto_job(bulk, request_id=request_id)
+    review = await bulk.create_review(
+        user_id="owner",
+        search_job_id=job_id,
+        client_request_id=str(uuid4()),
+        origin_request_id=request_id,
+        recipients=[
+            {
+                "userId": "recipient",
+                "email": "b@example.invalid",
+                "subject": "1234567",
+                "kind": "google_provider",
+            }
+        ],
+        excluded=[],
+        selected_positions=[1],
+    )
+    # The frozen review survives search completion. Release the per-owner
+    # active-search slot before constructing another independent request.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='completed',
+              updated_at=clock_timestamp() WHERE job_id=:job"""),
+            {"job": job_id},
+        )
+        assert (
+            connection.execute(
+                text("""SELECT preparation_error_code FROM drive_share_requests
+                  WHERE request_id=:request"""),
+                {"request": request_id},
+            ).scalar_one()
+            == "trusted_auto_active"
+        )
+    if payment_status is not None:
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO drive_request_payment_orders(
+                  request_id,user_id,requester_user_id,status,paid_at)
+                  VALUES(:request,'owner','recipient',:status,
+                    CASE WHEN :status='paid' THEN clock_timestamp() ELSE NULL END)"""),
+                {"request": request_id, "status": payment_status},
+            )
+    return request_id, review
+
+
+@pytest.mark.asyncio
+async def test_paid_trusted_batch_bypasses_older_unpaid_reviews(request_bulk, sharing):
+    _membership(sharing, "active")
+    unpaid = [
+        await _frozen_auto_batch(sharing, request_bulk, payment_status="awaiting_payment")
+        for _ in range(3)
+    ]
+    initializing = await _frozen_auto_batch(sharing, request_bulk)
+    paid_request, paid_review = await _frozen_auto_batch(
+        sharing, request_bulk, payment_status="paid"
+    )
+    wake = AsyncMock()
+    auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=wake)
+
+    due = await sharing.due_trusted_batches(limit=1)
+    assert [item["request_id"] for item in due] == [paid_request]
+    assert await auto.continue_batches(max_jobs=1) == 1
+
+    with sharing.db.engine.connect() as connection:
+        approved = connection.execute(
+            text("SELECT approval_source FROM drive_bulk_shares WHERE share_id=:share"),
+            {"share": paid_review["shareId"]},
+        ).scalar_one()
+        waiting = [
+            connection.execute(
+                text("SELECT status FROM drive_bulk_shares WHERE share_id=:share"),
+                {"share": review["shareId"]},
+            ).scalar_one()
+            for _, review in [*unpaid, initializing]
+        ]
+    assert approved == "trusted_auto"
+    assert waiting == ["review_ready"] * 4
+    assert paid_request not in {request_id for request_id, _ in unpaid}
+    wake.assert_awaited_with("sharing")
+
+
+@pytest.mark.asyncio
+async def test_unpaid_and_expired_auto_batches_wait_without_order_starvation(request_bulk, sharing):
+    _membership(sharing, "active")
+    awaiting, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="awaiting_payment")
+    expired, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="expired")
+    without_order, _ = await _frozen_auto_batch(sharing, request_bulk)
+
+    due = await sharing.due_trusted_batches(limit=3)
+
+    assert [item["request_id"] for item in due] == [without_order]
+    assert {awaiting, expired}.isdisjoint(item["request_id"] for item in due)
+    assert (
+        await DriveTrustedAutoService(
+            sharing=sharing, bulk=request_bulk, wake=AsyncMock()
+        ).continue_batches(max_jobs=1)
+        == 1
+    )
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": without_order},
+            ).scalar_one()
+            == "awaiting_payment"
+        )
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_bulk_share_effects e
+              JOIN drive_bulk_shares b ON b.share_id=e.share_id
+              WHERE b.origin_request_id IN (:awaiting,:expired)"""),
+                {"awaiting": awaiting, "expired": expired},
+            ).scalar_one()
+            == 0
+        )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_auto_batch_cannot_resume(request_bulk, sharing):
+    _membership(sharing, "active")
+    cancelled, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="paid")
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET status='cancelled' WHERE request_id=:request"),
+            {"request": cancelled},
+        )
+    assert await sharing.due_trusted_batches(limit=1) == []
+
+
+@pytest.mark.asyncio
+async def test_paid_auto_batches_rotate_one_processed_request_at_a_time(request_bulk, sharing):
+    _membership(sharing, "active")
+    first, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="paid")
+    second, _ = await _frozen_auto_batch(sharing, request_bulk, payment_status="paid")
+    auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=AsyncMock())
+    processed = []
+
+    async def record(*, user_id, request_id):
+        assert user_id == "owner"
+        processed.append(request_id)
+
+    auto.share_available = record
+    assert await auto.continue_batches(max_jobs=1) == 1
+    assert await auto.continue_batches(max_jobs=1) == 1
+    assert processed == [first, second]
+
+
 @pytest.mark.asyncio
 async def test_only_new_accepted_trusted_request_gets_auto_marker(
     request_bulk, sharing, monkeypatch
@@ -181,8 +334,11 @@ async def test_background_off_requires_one_setup_event_and_resumes_on_enable(req
     assert review["trustedAuto"] is True
     assert review["preparationError"] == "background_preparation_required"
     assert rows(sharing, "drive_share_permission_operations") == []
-    assert [event["event_type"] for event in rows(sharing, "drive_share_events")] == [
-        "document_share_request"
+    assert sorted(
+        (event["event_type"], event["user_id"]) for event in rows(sharing, "drive_share_events")
+    ) == [
+        ("document_share_request", "owner"),
+        ("document_share_request_sent", "recipient"),
     ]
     # The setup event is unique, and no automatic work retries in a tight loop.
     assert (await auto.start_pending())["deferred"] == 0

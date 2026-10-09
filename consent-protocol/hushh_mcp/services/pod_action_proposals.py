@@ -22,7 +22,7 @@ import logging
 import os
 import secrets
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,12 @@ STATUS_EXECUTING = "executing"
 TERMINAL = frozenset({"executed", "failed"})
 DEFAULT_TTL_S = 600
 _ATTEMPTS = 3
+
+
+class EmailSendStatus(TypedDict):
+    proposalId: str
+    kind: Literal["gmail_mailbox"]
+    state: Literal["prepared", "sent", "expired", "outcome_unknown"]
 
 
 class ProposalStoreUnavailable(RuntimeError):
@@ -117,6 +123,37 @@ class PodActionProposalStore:
             },
         )
         return {"proposal_id": proposal_id, "expires_at_ms": expires_at_ms}
+
+    async def email_send_status(
+        self, *, proposal_id: str, owner_id: str
+    ) -> Optional[EmailSendStatus]:
+        """Read sealed settlement evidence without claiming or dispatching anything."""
+        state, _ = await self._snapshot(self._log())
+        held = state.get(proposal_id)
+        if held is None:
+            return None
+        proposal = held["proposal"]
+        if (
+            not owner_id
+            or proposal.get("ownerId") != owner_id
+            or proposal.get("kind") != "gmail_mailbox"
+            or (proposal.get("payload") or {}).get("action") != "send_email"
+        ):
+            return None
+        observed = held["status"]
+        outcome: Literal["prepared", "sent", "expired", "outcome_unknown"]
+        if observed == STATUS_PENDING:
+            outcome = (
+                "expired"
+                if int(proposal.get("expiresAtMs") or 0) <= int(self._clock() * 1000)
+                else "prepared"
+            )
+        elif observed == "executed":
+            outcome = "sent"
+        else:
+            # Executing may have lost its response; failed includes uncertain dispatch.
+            outcome = "outcome_unknown"
+        return {"proposalId": proposal_id, "kind": "gmail_mailbox", "state": outcome}
 
     async def claim(self, *, proposal_id: str, owner_id: str, kind: str) -> Optional[dict]:
         """Move a live pending proposal to ``executing``; its payload, or None."""

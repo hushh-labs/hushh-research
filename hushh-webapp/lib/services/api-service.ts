@@ -529,7 +529,9 @@ export function webFetchTimeoutMsForPath(path: string): number {
     return OWNER_POD_WAKE_FETCH_TIMEOUT_MS;
   }
   if (isLongDriveSharingPath(path)) return 180_000;
-  if (pathname === "/api/account/delete") return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
+  if (pathname === "/api/account/delete" || pathname === "/api/account/delete-lost-vault") {
+    return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
+  }
   if (isLiveGmailReceiptPath(path)) return LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS;
   return pathname === "/api/one/email/information-requests/scan"
     ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS

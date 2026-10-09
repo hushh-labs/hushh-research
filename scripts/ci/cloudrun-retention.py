@@ -186,6 +186,10 @@ def main() -> int:
         "--healthy", action="store_true", help="assert release health gate passed"
     )
     parser.add_argument("--drain-seconds", type=int, default=120)
+    parser.add_argument(
+        "--tags-only", action="store_true",
+        help="retire zero-traffic tags without waiting or deleting revisions",
+    )
     args = parser.parse_args()
     if args.keep_count < 1 or args.drain_seconds < 0:
         parser.error("keep_count must be positive and drain-seconds nonnegative")
@@ -207,7 +211,10 @@ def main() -> int:
     expected = traffic_fingerprint(before)
     revisions = revision_state(args.service, args.project, args.region)
     plan = plan_cleanup(before, revisions, args.keep_count, protected)
-    drain_seconds = required_drain_seconds(before, revisions, plan, args.drain_seconds)
+    drain_seconds = (
+        0 if args.tags_only
+        else required_drain_seconds(before, revisions, plan, args.drain_seconds)
+    )
     print(
         f"{'APPLY' if args.apply else 'DRY RUN'}: {args.service} project={args.project or '(default)'}"
     )
@@ -245,6 +252,12 @@ def main() -> int:
                 "traffic differed after tag removal; refusing revision deletion"
             )
         expected = traffic_fingerprint(after_service)
+    if args.tags_only:
+        # The independently serialized maintenance job owns full timeout-based
+        # draining and deletion. Tag retirement alone preserves all revisions.
+        assert_traffic(args.service, args.project, args.region, expected)
+        print("Tags retired; revision draining/deletion deferred to maintenance")
+        return 0
     if plan.delete_revisions:
         # This also covers a retry after an earlier run removed tags but failed
         # before deletion; no durable untag timestamp is available.

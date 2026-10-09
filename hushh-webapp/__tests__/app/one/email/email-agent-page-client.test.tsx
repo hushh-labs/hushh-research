@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const push = vi.fn();
 const navigateToAgentChat = vi.hoisted(() => vi.fn());
-const createHandoff = vi.fn();
+const createHandoff = vi.hoisted(() => vi.fn());
 let connected = false;
 
 vi.mock("next/navigation", () => ({
@@ -36,6 +36,9 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
 import { EmailAgentPageClient } from "@/app/one/email/email-agent-page-client";
 
 describe("EmailAgentPageClient", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
   it("offers the canonical Gmail workspace when Gmail is disconnected", () => {
     connected = false;
     render(<EmailAgentPageClient />);
@@ -46,19 +49,14 @@ describe("EmailAgentPageClient", () => {
     expect(screen.getByRole("heading", { name: "Connect Mail" })).toBeTruthy();
   });
 
-  it("starts a normal visible One chat prompt when Gmail is connected", () => {
+  it("opens an empty One composer without starting an unrequested mail turn", () => {
     connected = true;
     render(<EmailAgentPageClient />);
 
     expect(screen.getByText("Mail connected")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Try Mail Agent with One" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask One about Mail" }));
 
-    expect(createHandoff).toHaveBeenCalledWith(
-      expect.objectContaining({
-        reason: "user_requested",
-        transcript: expect.stringContaining("owner@example.com"),
-      }),
-    );
     expect(navigateToAgentChat).toHaveBeenCalledWith();
+    expect(createHandoff).not.toHaveBeenCalled();
   });
 });

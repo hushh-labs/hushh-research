@@ -9,6 +9,9 @@ idempotent and backfills recent events once.
 
 # ruff: noqa: F811 -- shared pytest fixture imports
 
+import json
+import select
+
 import pytest
 from sqlalchemy import text
 
@@ -23,6 +26,7 @@ from tests.services.test_drive_live_query import ask, store  # noqa: F401
 from tests.services.test_drive_sharing_store import MIGRATIONS, request, sharing  # noqa: F401
 
 PROJECTION = MIGRATIONS / "246_drive_feed_projection.sql"
+STREAM_PROJECTION = MIGRATIONS / "288_drive_request_feed_stream.sql"
 
 
 def run_projection_migration(db, times=2):
@@ -31,12 +35,19 @@ def run_projection_migration(db, times=2):
             # Replay mode runs every migration on every deploy.
             for _ in range(times):
                 cursor.execute(PROJECTION.read_text())
+                cursor.execute(STREAM_PROJECTION.read_text())
         connection.commit()
 
 
 @pytest.fixture
 async def feed(store):
     with store.db.engine.connect() as connection:
+        # The sharing fixture stops at migration 263. Migration 287 adds this
+        # request column before the Feed wake migration in deployment order.
+        connection.exec_driver_sql(
+            "ALTER TABLE drive_share_requests "
+            "ADD COLUMN IF NOT EXISTS access_stop_requested_at TIMESTAMPTZ"
+        )
         connection.exec_driver_sql("ALTER TABLE actor_identity_cache ADD COLUMN email TEXT")
         connection.exec_driver_sql("CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY)")
         connection.exec_driver_sql("INSERT INTO actor_profiles VALUES ('owner'),('recipient')")
@@ -67,6 +78,51 @@ async def feed(store):
         connection.commit()
     run_projection_migration(store.db)
     return store
+
+
+@pytest.mark.asyncio
+async def test_owner_access_stop_wakes_both_participants_once_without_private_data(feed, sharing):
+    created = await request(sharing)
+    with feed.db.engine.connect() as listener:
+        raw = listener.connection.driver_connection
+        with raw.cursor() as cursor:
+            cursor.execute("LISTEN one_user_state_changed")
+        listener.commit()
+
+        with feed.db.engine.begin() as writer:
+            writer.execute(
+                text("""
+                    UPDATE drive_share_requests
+                    SET access_stop_requested_at=clock_timestamp()
+                    WHERE request_id=:request
+                """),
+                {"request": created["requestId"]},
+            )
+
+        assert select.select([raw], [], [], 1)[0]
+        raw.poll()
+        messages = []
+        while raw.notifies:
+            messages.append(json.loads(raw.notifies.pop(0).payload))
+        assert sorted(message["user_id"] for message in messages) == ["owner", "recipient"]
+        for message in messages:
+            assert message == {
+                "type": "document_share_feed_changed",
+                "user_id": message["user_id"],
+                "event_id": created["requestId"],
+                "request_id": created["requestId"],
+            }
+
+        with feed.db.engine.begin() as writer:
+            writer.execute(
+                text("""
+                    UPDATE drive_share_requests
+                    SET access_stop_requested_at=access_stop_requested_at
+                    WHERE request_id=:request
+                """),
+                {"request": created["requestId"]},
+            )
+        assert not select.select([raw], [], [], 0.1)[0]
 
 
 def feed_rows(db, user_id):
@@ -101,7 +157,15 @@ async def test_share_request_reaches_owner_feed_naming_the_requester(feed, shari
         "user_facing_status": "pending",
     }
     assert "six-month" not in str(row)
-    assert feed_rows(feed.db, "recipient") == []
+    [sent] = feed_rows(feed.db, "recipient")
+    assert sent["event_type"] == "document_share_request_sent"
+    assert sent["actor_label"] == "Ada"
+    assert sent["metadata"] == {
+        "request_id": created["requestId"],
+        "counterpart_label": "Ada",
+        "feed_audience": "recipient",
+        "user_facing_status": "pending",
+    }
 
 
 @pytest.mark.asyncio
@@ -164,7 +228,7 @@ async def test_feed_failure_never_fails_the_share(feed, sharing):
             text("SELECT event_type FROM drive_share_events WHERE request_id=:id"),
             {"id": created["requestId"]},
         ).scalars()
-        assert list(events) == ["document_share_request"]
+        assert list(events) == ["document_share_request", "document_share_request_sent"]
 
 
 @pytest.mark.asyncio
@@ -181,3 +245,6 @@ async def test_replay_backfills_recent_events_exactly_once(feed, sharing):
     rows = feed_rows(feed.db, "owner")
     assert [row["event_type"] for row in rows] == ["document_share_request"]
     assert rows[0]["counterpart_user_id"] == "recipient"
+    assert [row["event_type"] for row in feed_rows(feed.db, "recipient")] == [
+        "document_share_request_sent"
+    ]

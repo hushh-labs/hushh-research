@@ -93,6 +93,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
     async def reconcile_refunds(self, *, max_orders: int = 4) -> dict:
         from hushh_mcp.services.drive_request_payment_refunds import reconcile_refunds
 
+        await self.repair_paid_request_authority(limit=min(256, max_orders * 16))
         return await reconcile_refunds(self, max_orders=max_orders)
 
     def _current_checkout_authority(
@@ -112,11 +113,18 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         sharing._sharing_admission(owner)
         participants = sharing._participant_gate(connection, owner, request_id)
         request = sharing._related_request(connection, owner, request_id)
-        if request["recipient_user_id"] != requester_user_id or request[
-            "expires_at"
-        ] <= datetime.now(UTC):
+        if (
+            request["recipient_user_id"] != requester_user_id
+            or request["expires_at"] <= datetime.now(UTC)
+            or request["access_stop_requested_at"] is not None
+        ):
             raise DriveSharingError("payment_not_ready")
         private = sharing._open_request(request)
+        purpose = private.get("purpose", {})
+        if request["status"] == "pending" and not (
+            purpose.get("periodStart") and purpose.get("periodEnd")
+        ):
+            raise DriveSharingError("date_range_required")
         if private.get("trusted_auto") is True:
             preferences = DriveLivePreferences(db=self.db)
             current = preferences.live_active(connection, user_id=owner)
@@ -133,11 +141,16 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             )
         else:
             # Non-trusted requests retain owner consent. Payment is available
-            # only after that consent has queued the approved grant batch.
-            trusted_valid = request["status"] in {
-                "approved",
-                "partial",
-            } and connector_feature_enabled("google_drive_chat_reads", owner)
+            # only after that consent has queued an immutable grant batch.
+            # Progressive requests intentionally remain pending so later
+            # batches can still be reviewed and paid by the same order.
+            trusted_valid = connector_feature_enabled("google_drive_chat_reads", owner) and (
+                request["status"] in {"approved", "partial"}
+                or (
+                    request["status"] == "pending"
+                    and self.owner_approved_progressive_batch(connection, request)
+                )
+            )
         if not trusted_valid:
             raise DriveSharingError("payment_not_ready")
         return request
@@ -148,9 +161,9 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
         if state["status"] == "paid":
             raise DriveSharingError("payment_already_paid")
-        if state["status"] not in {"awaiting_payment", "checkout_open"} and not (
-            state["status"] == "expired" and state.get("paymentLinkExpired") is True
-        ):
+        if state["status"] == "expired" and state.get("paymentLinkExpired") is True:
+            raise DriveSharingError("payment_checkout_expired")
+        if state["status"] not in {"awaiting_payment", "checkout_open"}:
             raise DriveSharingError("payment_not_ready")
 
         def reserve(connection):
@@ -174,78 +187,55 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 raise DriveSharingError("payment_not_ready")
             if order["status"] == "paid":
                 raise DriveSharingError("payment_already_paid")
-            # An expired Checkout session can be replaced while the request is
-            # still pending.  Request expiry/cancellation is checked above and
-            # remains terminal; only a provider link expiry is recoverable.
-            if order["status"] not in {"awaiting_payment", "checkout_open", "expired"}:
+            # The first provider-backed payment window is the only one for
+            # this request. Never rotate an expired or already-bound session.
+            if order["status"] == "expired":
+                raise DriveSharingError("payment_checkout_expired")
+            if order["status"] not in {"awaiting_payment", "checkout_open"}:
                 raise DriveSharingError("payment_not_ready")
-            if order["stripe_checkout_url"] and order["stripe_checkout_expires_at"] > datetime.now(
-                UTC
+            now = datetime.now(UTC)
+            reserved_expiry = order.get("stripe_checkout_expires_at")
+            if (
+                order["stripe_checkout_session_id"]
+                and reserved_expiry is not None
+                and reserved_expiry <= now
             ):
+                raise DriveSharingError("payment_checkout_expired")
+            if order["stripe_checkout_url"] and reserved_expiry is not None:
                 return order
             if order["stripe_checkout_session_id"]:
-                return {**order, "expired_checkout": True}
-            if order["checkout_attempt_id"] is None:
+                raise DriveSharingError("payment_unavailable")
+            # Reserve the exact Stripe payload before provider I/O. Replays
+            # must use the same expiration with the same idempotency key.
+            # A failed, never-exposed attempt can restart only after its
+            # entire possible provider window has elapsed.
+            if order["checkout_attempt_id"] is None or (
+                reserved_expiry is not None and reserved_expiry <= now
+            ):
                 attempt_id = str(uuid4())
+                expires_at = int(now.timestamp()) + CHECKOUT_HOLD_SECONDS
             else:
                 attempt_id = order["checkout_attempt_id"]
+                expires_at = (
+                    int(reserved_expiry.timestamp())
+                    if reserved_expiry is not None
+                    else int(now.timestamp()) + CHECKOUT_HOLD_SECONDS
+                )
             connection.execute(
                 text("""UPDATE drive_request_payment_orders SET checkout_attempt_id=:attempt,
+                     stripe_checkout_expires_at=to_timestamp(:expires),
                      updated_at=clock_timestamp() WHERE request_id=:request"""),
-                {"attempt": attempt_id, "request": request_id},
+                {"attempt": attempt_id, "expires": expires_at, "request": request_id},
             )
             order["checkout_attempt_id"] = attempt_id
+            order["stripe_checkout_expires_at"] = datetime.fromtimestamp(expires_at, UTC)
             return order
 
         order = await self._transaction(reserve)
-        if order.get("expired_checkout"):
-            old_session_id = order["stripe_checkout_session_id"]
-            try:
-                old_session = _stripe_dict(
-                    await asyncio.to_thread(
-                        self.stripe_api.checkout.Session.retrieve, old_session_id, api_key=key
-                    )
-                )
-            except Exception:
-                raise DriveSharingError("payment_unavailable") from None
-            if (
-                old_session.get("id") != old_session_id
-                or old_session.get("status") != "expired"
-                or old_session.get("payment_status") == "paid"
-            ):
-                raise DriveSharingError("payment_checkout_expired")
-
-            def rotate(connection):
-                self._current_checkout_authority(
-                    connection, request_id=request_id, requester_user_id=requester_user_id
-                )
-                current = self._row(
-                    connection,
-                    """SELECT * FROM drive_request_payment_orders
-                       WHERE request_id=:request AND requester_user_id=:requester FOR UPDATE""",
-                    {"request": request_id, "requester": requester_user_id},
-                )
-                if (
-                    current is None
-                    or current["status"] not in {"awaiting_payment", "checkout_open", "expired"}
-                    or current["stripe_checkout_session_id"] != old_session_id
-                ):
-                    raise DriveSharingError("payment_not_ready")
-                connection.execute(
-                    text("""UPDATE drive_request_payment_orders
-                  SET status='awaiting_payment',checkout_attempt_id=:attempt,
-                    stripe_checkout_session_id=NULL,stripe_checkout_url=NULL,
-                    stripe_checkout_expires_at=NULL,updated_at=clock_timestamp()
-                  WHERE request_id=:request"""),
-                    {"attempt": str(uuid4()), "request": request_id},
-                )
-
-            await self._transaction(rotate)
-            order = await self._transaction(reserve)
         if order["stripe_checkout_url"]:
             return {"checkoutUrl": order["stripe_checkout_url"]}
 
-        checkout_expires_at = int(datetime.now(UTC).timestamp()) + CHECKOUT_HOLD_SECONDS
+        checkout_expires_at = int(order["stripe_checkout_expires_at"].timestamp())
 
         def create():
             params = dict(
@@ -321,12 +311,13 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             or not isinstance(session.get("id"), str)
             or not isinstance(session.get("url"), str)
             or not session["url"].startswith("https://checkout.stripe.com/")
-            or not isinstance(session.get("expires_at"), int)
+            or type(session.get("expires_at")) is not int
+            or session["expires_at"] != checkout_expires_at
         ):
             raise DriveSharingError("payment_unavailable")
 
         def bind(connection):
-            self._current_checkout_authority(
+            request = self._current_checkout_authority(
                 connection, request_id=request_id, requester_user_id=requester_user_id
             )
             current = self._row(
@@ -341,6 +332,20 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 raise DriveSharingError("payment_not_ready")
             if current["stripe_checkout_session_id"] not in {None, session["id"]}:
                 raise DriveSharingError("payment_unavailable")
+            if session["expires_at"] <= int(datetime.now(UTC).timestamp()):
+                connection.execute(
+                    text("""UPDATE drive_request_payment_orders
+                       SET status='expired',stripe_checkout_session_id=:session,
+                         stripe_checkout_url=NULL,
+                         stripe_checkout_expires_at=to_timestamp(:expires),
+                         updated_at=clock_timestamp() WHERE request_id=:request"""),
+                    {
+                        "session": session["id"],
+                        "expires": session["expires_at"],
+                        "request": request_id,
+                    },
+                )
+                return None, False
             connection.execute(
                 text("""UPDATE drive_request_payment_orders
                    SET status='checkout_open',stripe_checkout_session_id=:session,
@@ -353,9 +358,15 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                     "request": request_id,
                 },
             )
-            return {"checkoutUrl": session["url"]}
+            notified = self._event(connection, request, "document_share_payment_ready")
+            return session["url"], notified
 
-        return await self._transaction(bind)
+        checkout_url, notified = await self._transaction(bind)
+        if checkout_url is None:
+            raise DriveSharingError("payment_checkout_expired")
+        if notified:
+            await wake_drive_work("sharing")
+        return {"checkoutUrl": checkout_url}
 
     async def process_webhook(self, *, payload: bytes, signature: str | None) -> None:
         key, webhook_secret, _ = _config()
@@ -518,10 +529,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             ):
                 raise DriveSharingError("payment_invalid_event")
             if expired_event:
-                # A Checkout expiration is terminal for that provider link,
-                # but the request may still be paid through a newly-created
-                # session. Keep the session/attempt IDs for webhook binding
-                # and audit while clearing the stale URL from the Feed.
+                # Expiration closes the single payment window. Keep binding
+                # IDs for a delayed, signed paid event and refund review.
                 if binding["status"] not in {"paid", "refunded", "expired"}:
                     if request is None:
                         connection.execute(
@@ -607,7 +616,9 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             )
             return (
                 "sharing"
-                if request is None or request["status"] in {"approved", "partial"}
+                if request is None
+                or request["status"] in {"approved", "partial"}
+                or self.owner_approved_progressive_batch(connection, request)
                 else "suggestions"
             )
 

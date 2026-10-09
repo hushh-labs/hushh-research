@@ -413,6 +413,27 @@ def test_edit_reencrypts_and_reaction_is_persisted_for_the_authenticated_partici
     }
 
 
+def test_reaction_adds_a_distinct_emoji_without_replacing_existing_reactions(monkeypatch):
+    service = _service()
+    action_row = _action_message()
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(service, "_message_action_row", lambda *_args: action_row)
+
+    def execute_one(sql, params=None):
+        calls.append((sql, params or {}))
+        return None
+
+    monkeypatch.setattr(service, "_execute_one", execute_one)
+
+    service.react_to_message("alice", _CONVERSATION_ID, _MESSAGE_ID, emoji="❤️")
+
+    reaction_sql, reaction_params = next(
+        (sql, params) for sql, params in calls if "INSERT INTO direct_message_reactions" in sql
+    )
+    assert "ON CONFLICT (message_id, user_id, emoji)" in reaction_sql
+    assert reaction_params["emoji"] == "❤️"
+
+
 def test_delete_for_me_uses_the_viewers_participant_visibility_field(monkeypatch):
     service = _service()
     calls: list[tuple[str, dict]] = []
@@ -452,3 +473,26 @@ def test_block_requires_an_existing_relationship_and_persists_a_directed_row(mon
 
     assert result["blocked"] is True
     assert any("INSERT INTO direct_message_blocks" in sql for sql, _ in calls)
+
+
+def test_route_cipher_randomized_and_bound_to_viewer(monkeypatch):
+    from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
+    monkeypatch.setenv(
+        "DIRECT_MESSAGE_ENCRYPTION_KEY_V1", base64.urlsafe_b64encode(b"r" * 32).decode()
+    )
+    cipher = DirectMessageRouteCipher()
+    token = cipher.seal("alice", "conversation", _CONVERSATION_ID)
+    assert _CONVERSATION_ID not in token
+    assert token != cipher.seal("alice", "conversation", _CONVERSATION_ID)
+    assert cipher.open("alice", token) == ("conversation", _CONVERSATION_ID)
+    with pytest.raises(DirectMessagesError):
+        cipher.open("bob", token)
+    with pytest.raises(DirectMessagesError):
+        cipher.open("alice", token[:12] + ("A" if token[12] != "A" else "B") + token[13:])
+    person = cipher.seal("alice", "person", "person-ref")
+    assert cipher.open("alice", person) == ("person", "person-ref")
+    monkeypatch.delenv("DIRECT_MESSAGE_ENCRYPTION_KEY_V1")
+    with pytest.raises(DirectMessagesError) as exc:
+        cipher.open("alice", token)
+    assert exc.value.status_code == 503

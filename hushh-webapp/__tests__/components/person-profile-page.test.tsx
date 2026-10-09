@@ -362,8 +362,8 @@ describe("PersonProfilePage native profile route", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Message" }));
-    expect(mocks.push).toHaveBeenCalledWith(
+    expect(screen.queryByRole("button", { name: "Message" })).toBeNull();
+    expect(mocks.push).not.toHaveBeenCalledWith(
       "/one/messages?person=actual-public-ref",
     );
   });
@@ -432,7 +432,7 @@ describe("PersonProfilePage native profile route", () => {
     expect(reviewButton).toBeDisabled();
     const actions = document.querySelectorAll('[aria-label="Relationship actions"] button');
     expect(Array.from(actions, (button) => button.getAttribute("aria-label") || button.textContent?.trim())).toEqual([
-      "Request", "Share profile", "Message", "Manage access",
+      "Request", "Share profile", "Manage access",
     ]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");

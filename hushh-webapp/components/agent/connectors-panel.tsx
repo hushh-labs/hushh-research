@@ -18,7 +18,7 @@ import {
   SearchIcon,
   XIcon,
 } from "@/components/icons";
-import { ConnectedSystemsAgentIcon } from "@/components/icons/agents";
+import { ProfilePaneConnectorsIcon } from "@/components/profile/profile-pane-icons";
 import { Button } from "@/components/ui/button";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectorConfirm } from "@/components/agent/connector-confirm";
@@ -206,7 +206,7 @@ function ProfileConnectorGlyph({ id }: { id: string }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-[22px] object-contain${MONOCHROME_LOGOS.has(id) ? " dark:invert" : ""}`} />
       ) : (
-        <ConnectedSystemsAgentIcon size={22} />
+        <ProfilePaneConnectorsIcon size={22} />
       )}
     </span>
   );

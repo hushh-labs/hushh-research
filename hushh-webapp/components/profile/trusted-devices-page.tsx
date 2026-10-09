@@ -7,6 +7,8 @@ import {
   TrashIcon as Trash2,
 } from "@/components/icons";
 import { DevicesProfileIcon } from "@/components/icons/agents";
+import { ProfilePaneDevicesIcon } from "@/components/profile/profile-pane-icons";
+import typographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 
 import {
   AppPageContentRegion,
@@ -37,10 +39,15 @@ import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
 import { puppyAccessError } from "@/lib/trusted-device/puppy-access-error";
 import { useVault } from "@/lib/vault/vault-context";
+import { cn } from "@/lib/utils";
 
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
-export default function TrustedDevicesPage() {
+export default function TrustedDevicesPage({
+  panePresentation = false,
+}: {
+  panePresentation?: boolean;
+}) {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [error, setError] = useState("");
@@ -177,32 +184,45 @@ export default function TrustedDevicesPage() {
           title="Trusted devices"
           // The pane's top bar already names this screen; one title per screen.
           titleVisuallyHidden
-          description="Computers connected as an extension of your private agent."
+          description={panePresentation ? undefined : "Computers connected as an extension of your private agent."}
+          className={panePresentation ? "sr-only" : undefined}
           accent="neutral"
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <SettingsPresentationProvider density="compact">
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div
+              className={cn(
+                "flex items-center gap-2 text-sm text-muted-foreground",
+                panePresentation && typographyStyles.status,
+              )}
+            >
               <Loader2 className="size-4 animate-spin" /> Loading devices…
             </div>
           ) : null}
           {visibleError ? (
-            <p className="text-sm text-destructive">{visibleError}</p>
+            <p
+              className={cn(
+                "text-sm text-destructive",
+                panePresentation && typographyStyles.status,
+              )}
+            >
+              {visibleError}
+            </p>
           ) : null}
           {puppyNotice ? (
             <p className="text-sm text-muted-foreground">{puppyNotice}</p>
           ) : null}
           {devices.length > 0 ? (
-            <SettingsGroup separatorInset>
+            <SettingsGroup title={panePresentation ? "Connected devices" : undefined} separatorInset>
               {devices.map((device) => {
                 const sync = deriveSyncDisplay(device, nowMs);
                 const isActive = device.status === "active";
                 return (
                   <SettingsRow
                     key={device.device_id}
-                    icon={DevicesProfileIcon}
+                    icon={panePresentation ? ProfilePaneDevicesIcon : DevicesProfileIcon}
                     iconTone="capability"
                     title={device.device_name}
                     description={sync.label}
@@ -245,7 +265,12 @@ export default function TrustedDevicesPage() {
             </SettingsGroup>
           ) : null}
           {!loading && devices.length === 0 ? (
-            <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+            <p
+              className={cn(
+                "rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground",
+                panePresentation && typographyStyles.status,
+              )}
+            >
               No trusted devices are connected.
             </p>
           ) : null}
@@ -286,5 +311,14 @@ export default function TrustedDevicesPage() {
     </>
   );
 
-  return <div className="w-full">{pageContent}</div>;
+  return (
+    <div
+      className={cn(
+        "profile-inner-devices w-full",
+        panePresentation && typographyStyles.paneDevices,
+      )}
+    >
+      {pageContent}
+    </div>
+  );
 }

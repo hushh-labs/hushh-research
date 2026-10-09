@@ -1687,7 +1687,7 @@ describe("ProfileReceiptsPage", () => {
     ).toBeTruthy();
     expect(
       within(screen.getByRole("tabpanel", { name: "Receipts" })).getByText(
-        /your inbox and receipts will appear here as they are ready/i,
+        /your mail connection details will appear here when ready/i,
       ),
     ).toBeTruthy();
   });
@@ -2272,7 +2272,7 @@ describe("ProfileReceiptsPage", () => {
       });
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Mail connected. Your receipt scan will continue in the background.",
+      "Mail connected. You can use Mail in One now.",
     );
     expect(mocks.toast.error).not.toHaveBeenCalled();
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();

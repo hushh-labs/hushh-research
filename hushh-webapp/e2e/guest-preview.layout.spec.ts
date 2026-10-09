@@ -227,6 +227,8 @@ test("Circle and agent tours animate, repeat, and respect reduced motion", async
 });
 
 for (const viewport of [
+  // Reserve the 15px scrollport width used by Linux WebKit on compact phones.
+  { width: 305, height: 568, top: 20, bottom: 0 },
   { width: 320, height: 568, top: 20, bottom: 0 },
   { width: 375, height: 667, top: 20, bottom: 0 },
   { width: 393, height: 852, top: 59, bottom: 34 },
@@ -300,7 +302,7 @@ for (const viewport of [
         });
         const bounds = (await next.boundingBox())!;
         expect(bounds.height).toBeGreaterThanOrEqual(44);
-        expect(bounds.y + bounds.height).toBeLessThanOrEqual(
+        expect(bounds.y + bounds.height, `screen ${step} action stays in view`).toBeLessThanOrEqual(
           viewport.height - viewport.bottom + 1,
         );
         expect(
@@ -369,6 +371,9 @@ for (const viewport of [
           for (const agent of await screen
             .locator("[data-agent-tour] button")
             .all()) {
+            const target = (await agent.boundingBox())!;
+            expect(target.width, "agent tap target width").toBeGreaterThanOrEqual(44);
+            expect(target.height, "agent tap target height").toBeGreaterThanOrEqual(44);
             await agent.click();
             expect(
               (await next.boundingBox())!.y +

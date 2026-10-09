@@ -24,6 +24,8 @@ export type BottomShellModel = {
   navigationHidden: boolean;
   /** Chat owns this same bar as its composer, including active voice controls. */
   agentBarHidden?: boolean;
+  /** The route reserves its own composer in flow; active shell controls remain measured. */
+  composerInFlow?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
 };
@@ -69,7 +71,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     const publishHeight = () => {
       // Chat reserves the composer separately. Publishing its height twice
       // creates a feedback loop between transcript padding and shell layout.
-      const agentHeight = model.agentBarHidden
+      const agentHeight = model.agentBarHidden && !model.composerInFlow
         ? shell.querySelector("[data-bottom-shell-agent-slot]")?.getBoundingClientRect().height ?? 0
         : 0;
       const height = `${Math.ceil(shell.getBoundingClientRect().height - agentHeight)}px`;
@@ -91,7 +93,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [hidden, model.agentBarHidden, model.navigationHidden]);
+  }, [hidden, model.agentBarHidden, model.composerInFlow, model.navigationHidden]);
 
   if (hidden) return null;
 
@@ -105,7 +107,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         ref={shellRef}
         style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
-        data-agent-dock-chat={model.agentBarHidden || undefined}
+        data-agent-dock-chat={(model.agentBarHidden && !model.composerInFlow) || undefined}
         data-command-active={command?.active || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={

@@ -17,6 +17,10 @@ from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
+from hushh_mcp.services.drive_request_bulk_removal_worker import DriveRequestBulkRemovalWorker
+from hushh_mcp.services.drive_request_payment_checkout_worker import (
+    DriveRequestPaymentCheckoutWorker,
+)
 from hushh_mcp.services.drive_request_payment_refund_worker import DriveRequestPaymentRefundWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
@@ -29,6 +33,8 @@ WORKER_JOB_LIMITS = {
     "searches": 1,
     "permissions": 20,
     "bulk_shares": 400,
+    "bulk_removals": 20,
+    "checkouts": 4,
     "notifications": 20,
     "refunds": 4,
     "packet_orders": 20,
@@ -37,7 +43,15 @@ STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
     "sharing": frozenset(
-        {"permissions", "bulk_shares", "notifications", "refunds", "packet_orders"}
+        {
+            "permissions",
+            "bulk_shares",
+            "bulk_removals",
+            "checkouts",
+            "notifications",
+            "refunds",
+            "packet_orders",
+        }
     ),
 }
 STAGE_MAX_SECONDS = {
@@ -46,6 +60,8 @@ STAGE_MAX_SECONDS = {
     "searches": 90,
     "permissions": 75,
     "bulk_shares": 80,
+    "bulk_removals": 45,
+    "checkouts": 35,
     "notifications": 35,
     "refunds": 35,
     "packet_orders": 35,
@@ -56,6 +72,8 @@ STAGE_MIN_SECONDS = {
     "searches": 20,
     "permissions": 75,
     "bulk_shares": 75,
+    "bulk_removals": 20,
+    "checkouts": 20,
     "notifications": 35,
     "refunds": 20,
     "packet_orders": 20,
@@ -106,6 +124,7 @@ _WORKER_ALLOWED_OUTCOMES = {
     ),
     "permissions": frozenset(
         {
+            "materialized",
             "succeeded",
             "preexisting",
             "not_claimed",
@@ -141,6 +160,24 @@ _WORKER_ALLOWED_OUTCOMES = {
             "notification_unavailable",
             "notification_not_claimed",
         }
+    ),
+    "bulk_removals": frozenset(
+        {
+            "materialized",
+            "removed",
+            "absent",
+            "needs_review",
+            "queued",
+            "unknown",
+            "not_claimed",
+            "unavailable",
+            "disabled",
+            "deadline",
+            "deferred",
+        }
+    ),
+    "checkouts": frozenset(
+        {"ready", "not_ready", "not_claimed", "unavailable", "disabled", "deadline", "deferred"}
     ),
     "notifications": frozenset(
         {
@@ -232,6 +269,8 @@ class DriveWorkDrain:
         search_worker: DriveOwnerSearchWorker | None = None,
         permission_worker: DrivePermissionWorker | None = None,
         bulk_share_worker: DriveBulkShareWorker | None = None,
+        bulk_removal_worker: DriveRequestBulkRemovalWorker | None = None,
+        checkout_worker: DriveRequestPaymentCheckoutWorker | None = None,
         notification_worker: DriveShareNotificationWorker | None = None,
         refund_worker: DriveRequestPaymentRefundWorker | None = None,
         packet_order_worker: PkmPacketOrderWorker | None = None,
@@ -244,6 +283,8 @@ class DriveWorkDrain:
             ("searches", search_worker or DriveOwnerSearchWorker()),
             ("permissions", permission_worker or DrivePermissionWorker()),
             ("bulk_shares", bulk_share_worker or DriveBulkShareWorker()),
+            ("bulk_removals", bulk_removal_worker or DriveRequestBulkRemovalWorker()),
+            ("checkouts", checkout_worker or DriveRequestPaymentCheckoutWorker()),
             ("notifications", notification_worker or DriveShareNotificationWorker()),
             ("refunds", refund_worker or DriveRequestPaymentRefundWorker()),
             # PKM packet refunds ride the same minute-by-minute sharing drain.
@@ -269,6 +310,9 @@ class DriveWorkDrain:
 
         deadline = self._now() + deadline_seconds
         summaries: dict[str, dict[str, int]] = {}
+        for name, _ in self._workers:
+            if name not in STAGE_WORKERS[stage]:
+                summaries[name] = {"deferred": 1}
 
         async def run_worker(name, worker):
             if name not in STAGE_WORKERS[stage]:
@@ -300,17 +344,28 @@ class DriveWorkDrain:
             # The sharing stage below retains permissions-before-notifications.
             await asyncio.gather(*(run_worker(name, worker) for name, worker in self._workers))
         elif stage == "sharing":
-            # Refund reconciliation and notification dispatch are independent.
-            # Run them together after permission work so neither starves the
-            # other inside the existing minute-by-minute sharing drain.
-            for name, worker in self._workers:
-                if name not in {"notifications", "refunds", "packet_orders"}:
-                    await run_worker(name, worker)
+            # Bind checkout sessions before dispatching payment-ready notices.
+            # Payment preparation can overlap grant work; its own authority
+            # check and provider call need not consume the grant budget.
+            async def grant_work():
+                for name, worker in self._workers:
+                    if name in {"permissions", "bulk_shares"}:
+                        await run_worker(name, worker)
+
+            await asyncio.gather(
+                grant_work(),
+                *(
+                    run_worker(name, worker)
+                    for name, worker in self._workers
+                    if name == "checkouts"
+                ),
+            )
+            # Refund reconciliation and revocations remain independent.
             await asyncio.gather(
                 *(
                     run_worker(name, worker)
                     for name, worker in self._workers
-                    if name in {"notifications", "refunds", "packet_orders"}
+                    if name in {"bulk_removals", "notifications", "refunds", "packet_orders"}
                 )
             )
         else:

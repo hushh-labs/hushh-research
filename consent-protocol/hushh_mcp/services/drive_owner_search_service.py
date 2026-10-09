@@ -13,6 +13,7 @@ import json
 import re
 import time
 from calendar import monthrange
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -20,7 +21,7 @@ from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, 
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_sharing_contract import request_requires_explicit_dates
-from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY, DriveReadError
@@ -409,7 +410,12 @@ def compile_request_queries(
     query = " and ".join(clauses)
     if len(query) > 1800:
         raise DriveReadError("invalid_argument")
-    return [{"arguments": {"query": query, "orderBy": "createdTime desc"}}], period
+    # Google warns that createdTime sorting can time out on large collections.
+    # Discovery normally has no creation-order promise: date membership is
+    # checked from each file's metadata below. Preserve an explicit file-time
+    # intent, while using modifiedTime for generic discovery and exact titles.
+    order = parsed.file_time_field if parsed.time_intent == "file_activity" else "modifiedTime"
+    return [{"arguments": {"query": query, "orderBy": f"{order} desc"}}], period
 
 
 def _in_requested_period(match: dict, period: dict | None) -> bool:
@@ -1092,7 +1098,10 @@ class DriveOwnerSearchService:
             args = {
                 "folderId": folder["id"],
                 "query": clause or "trashed = false",
-                "orderBy": "createdTime desc",
+                # New checkpoints carry the discovery order. Keep the saved
+                # order for resumed folder pages so their token is not reused
+                # with different provider arguments after a rollout.
+                "orderBy": checkpoint["arguments"].get("orderBy", "modifiedTime desc"),
                 "pageSize": file_page_size,
                 **({"driveId": folder["driveId"]} if folder.get("driveId") else {}),
                 **({"resourceKey": folder["resourceKey"]} if folder.get("resourceKey") else {}),
@@ -1246,7 +1255,8 @@ class DriveOwnerSearchService:
             and (type(initial_page_size) is not int or initial_page_size != PAGE_SIZE)
         ):
             raise ValueError("invalid search slice bounds")
-        job = await self.store.claim(user_id=user_id, job_id=job_id)
+        with drive_stage(logger, "search_claim"):
+            job = await self.store.claim(user_id=user_id, job_id=job_id)
         if job is None:
             return "not_claimed"
         started = time.monotonic()
@@ -1266,11 +1276,13 @@ class DriveOwnerSearchService:
             return status
 
         try:
-            async with asyncio.timeout(deadline_seconds):
+            session = getattr(self.transport, "owner_search_session", nullcontext)
+            async with asyncio.timeout(deadline_seconds), session():
                 for _ in range(max_pages):
-                    if require_current:
-                        await require_current()
-                    await self.store.require_current(job)
+                    with drive_stage(logger, "search_authority"):
+                        if require_current:
+                            await require_current()
+                        await self.store.require_current(job)
                     page_started = time.monotonic()
                     phase = job["checkpoint"].get("phase")
                     phase = (
@@ -1297,11 +1309,16 @@ class DriveOwnerSearchService:
                             page_count,
                             (time.monotonic() - page_started) * 1000,
                         )
-                    if require_current:
-                        await require_current()
-                    result = await self.store.commit_page(
-                        job, checkpoint=checkpoint, files=files, incomplete=incomplete, done=done
-                    )
+                    with drive_stage(logger, "search_commit"):
+                        if require_current:
+                            await require_current()
+                        result = await self.store.commit_page(
+                            job,
+                            checkpoint=checkpoint,
+                            files=files,
+                            incomplete=incomplete,
+                            done=done,
+                        )
                     job["checkpoint"] = checkpoint
                     pages += 1
                     found = result["matched"]
@@ -1312,7 +1329,8 @@ class DriveOwnerSearchService:
                         # Even an empty final page must flush/resume a batch.
                         try:
                             handing_off = True
-                            await after_page(user_id=user_id, job_id=job_id)
+                            with drive_stage(logger, "search_handoff"):
+                                await after_page(user_id=user_id, job_id=job_id)
                             handing_off = False
                         except Exception:  # noqa: BLE001 - durable pages remain resumable
                             logger.warning("drive_search.page_handoff status=deferred")

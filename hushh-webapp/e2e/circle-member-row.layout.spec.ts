@@ -232,6 +232,15 @@ export default function Link({ href, children, ...props }: AnchorHTMLAttributes<
 }`,
   );
   fs.writeFileSync(
+    path.join(dir, "src/direct-messages-service.ts"),
+    `export const DirectMessagesService = { routeHref: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
+  );
+  fs.writeFileSync(
+    path.join(dir, "src/next-navigation.ts"),
+    `const router = { push: () => {}, replace: () => {}, prefetch: () => {} };
+export const useRouter = () => router;`,
+  );
+  fs.writeFileSync(
     path.join(dir, "src/main.tsx"),
     `import React from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -317,8 +326,10 @@ root.render(<App />);`,
       plugins: [react()],
       resolve: {
         alias: [
+          { find: "@/lib/services/direct-messages-service", replacement: path.join(dir, "src/direct-messages-service.ts") },
           { find: "@", replacement: webappRoot },
           { find: "next/link", replacement: path.join(dir, "src/next-link.tsx") },
+          { find: "next/navigation", replacement: path.join(dir, "src/next-navigation.ts") },
           {
             find: /^react\/jsx-dev-runtime$/,
             replacement: path.join(

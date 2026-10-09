@@ -521,3 +521,19 @@ def test_transport_constants_match_the_contract() -> None:
     assert PASS_TYPE_IDENTIFIER == "pass.com.hushh.app.one"
     assert WALLET_PASS_CONTENT_TYPE == "application/vnd.apple.pkpass"
     assert WALLET_PASS_FILENAME == "hushh-one.pkpass"
+
+
+@pytest.mark.parametrize("variant", ["referral", "nws"])
+def test_variant_pass_has_distinct_serial_and_no_profile_contact_fields(signing_material, variant):
+    content = _content(
+        pass_serial=f"{PASS_SERIAL}-{variant}",
+        variant=variant,
+        card_payload={"full_name": "Ada Lovelace"},
+    )
+    bundle = build_pkpass(content, material=signing_material)
+    payload = json.loads(_bundle_members(bundle)["pass.json"])
+    assert payload["serialNumber"] == f"{PASS_SERIAL}-{variant}"
+    assert payload["description"] == (
+        "Agent One Referral" if variant == "referral" else "Agent One NWS"
+    )
+    assert not any(row["key"] in {"email", "phone"} for row in payload["generic"]["backFields"])

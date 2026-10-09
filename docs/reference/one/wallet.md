@@ -7,7 +7,8 @@ renamed to Wallet on 2026-09-02 (founder directive). Items inside it are still
 called cards, because that is what they are; everything that names the feature
 says Wallet. The **Wallet Profile** (public identity pass at `/one/wallet-card`,
 `one_wallet_cards`, `ONE_WALLET_CARD_ENABLED`, `wallet-card-service.ts`) is a
-different, older feature and was never renamed.
+separate identity lifecycle. The Cards tab now composes that lifecycle alongside
+encrypted payment cards; it does not copy profile fields into the payment-card domain.
 
 ## Visual Map
 
@@ -88,8 +89,9 @@ without a duplicate Wallet page heading. Continue saves a cosmetic account-scope
 the workspace directly. This does not complete account setup or unlock the vault.
 
 Cards owns the animated collection, safe summary search, and the existing
-explicit reveal/removal actions. An empty collection shows labelled demo
-summaries; these never enter Wallet storage or invoke reveal/remove services.
+explicit reveal/removal actions. Profile, Referral and NWS are system cards and
+remain present beside saved payment cards. They never enter payment-card storage
+or invoke payment-card reveal/removal services.
 Add opens the encrypted card-entry form directly. Save and Cancel return to
 Cards, while switching tabs preserves and masks an unfinished draft. Vault lock
 discards the form and revealed details. Chat and Secrets handoffs wait until
@@ -101,39 +103,85 @@ it does not wait for the card summary request or a server image transform.
 Cold connections can still require an image download. The PNG remains the
 source artwork.
 
+## Adding a payment card
+
+The Add tab accepts manual entry only: card number, name on card, expiry and CVV
+are required. Card provider, PIN and issuing region are optional. A blank provider
+uses number-based network detection, with Other for a valid unrecognized number;
+a supplied provider supports overlapping network ranges. A supplied region is
+validated, while a blank region stays blank. Existing nicknames remain readable;
+new cards use the network label without asking for a nickname.
+
+A confirmed encrypted save inserts the returned card immediately into Cards,
+selects it, and clears the draft. Failed saves retain the draft for retry. The
+20 supplied payment-card finishes are selected deterministically from the saved
+card ID, so reload, renaming and incoming information do not change the artwork.
+The owner-only presentation includes the entered cardholder name. It is read
+from the encrypted secrets branch and never copied into the summary/index or
+chat projection. Default faces show only the last four number digits; full
+number, CVV and PIN remain behind explicit reveal. Locking the vault or changing
+accounts drops the presentation. Reads that fail do not become an empty wallet,
+and writes use the current snapshot revision to preserve concurrent additions.
+
 ## Card browser
 
 The Cards tab uses `WalletCardBrowser` to coordinate an All overview, the existing
-animated card collection, and a selected-card detail view. Cards open as a compact deck; View all opens a scroll-driven stack and Collapse cards restores
-the compact deck without overlapping detail links. A thumbnail strip outside the tab pager remains above the shared
-bottom chrome; its plus action opens the existing Add form. Reduced-motion users
-receive the same controls with a static list and instant selection.
+animated card collection, and a selected-card detail view. Cards open with one
+full face above the remaining stack. The deck fits the available viewport above
+the shared bottom controls, showing two lower card edges at normal zoom. Native
+vertical scrolling unfolds it into a spaced column. Reduced-motion users receive
+a static list. Card taps and the compact View details control open the same
+existing detail flow; the card switcher remains available to assistive technology.
 
-An empty Wallet shows explicitly labelled demo cards with fictional numbers,
-statements, activity, rewards, payment and autopay previews. These are presentation
-records only: they are never inserted into saved Wallet cards or sent to payment,
-consent, or vault services. Preview actions explain that no transaction or autopay
-is performed. Saved-card selection remains metadata-only; the existing explicit
+Agent One cards use the owner's identity and existing sharing services. Profile
+details compose `WalletCardWorkspace`, including the real QR, aggregate scans,
+last scan, edits, pause/resume, rotation, removal and Apple Wallet handoff. Referral
+uses the existing referral link, qualification counts and referral event stream.
+NWS has no computed score in this release. Its emerald face shows the fixed
+900/1000 sample requested for the card design; the accessible description and
+details identify it as a sample, not an evaluation. The NWS face has no QR;
+its existing Wallet Profile QR and sharing controls remain in details. Saved-card selection remains metadata-only; the existing explicit
 Show card details action owns decryption, and leaving Cards or selecting All
 clears any revealed values.
 
-The card thumbnail bar hides on downward page scrolling and returns on upward scrolling. Stopping alone does not reveal it; keyboard focus keeps its controls available.
+### Automatic Wallet Profile
 
-### Add: photo-assisted entry
+`WalletProfileBootstrap` runs once account authentication and the existing vault
+owner session are ready, without visiting Wallet. `POST /api/one/wallet-card/ensure`
+creates only a missing row from available account basics. Existing payloads,
+paused profiles and removed profiles are preserved, including concurrent first
+requests. The management route uses the same operation instead of requiring a
+setup form. Missing optional fields remain editable in Wallet Profile.
 
-The Wallet Add tab keeps all fields on one screen. Scan card uses the native camera
-or browser capture picker; Choose photo uses the device photo picker. Both prefill
-an editable draft, never submit it. Existing manually entered name/expiry values
-are preserved. CVV, PIN, issuing region and nickname remain manual.
+New QR tokens have an encrypted recovery envelope under the deployed credential
+encryption key, bound to the owner and token digest. Public lookup still uses the
+hash. A legacy QR can be adopted from its valid device-local token; if neither
+token nor envelope exists, the owner must explicitly rotate. Opening Wallet never
+silently invalidates a printed QR. Migration 285 adds the nullable envelope.
 
-Recognition runs locally with Tesseract.js. Worker, WASM and English language
-assets are copied from locked npm dependencies by `hushh-webapp/scripts/prepare-wallet-ocr.mjs`
-from Next config before development/build/export. Generated assets are ignored; no CDN, image
-upload or OCR-result persistence is used. Native capture disables cropping and
-gallery saving. Leaving Add, cancelling, or unmounting aborts the scan; the owned supervisor and nested OCR worker
-are terminated after completion, failure or a 60-second timeout. Unsupported/ambiguous photos fall back to manual
-entry. Existing validation and explicit encrypted WalletService submission remain
-the sole save path. Native camera and bundled worker execution require device QA.
+Owner mutations notify account-scoped subscribers immediately. Visible Wallet
+views refresh on focus and every 15 seconds for remote changes and aggregate
+scan updates; this is polling, not a Wallet Profile SSE stream. Referral updates
+continue to use the existing referral stream.
+
+Usernames are owner-scoped profile labels, not globally unique URLs. Defaults use
+the account name (`Ankit Kumar Singh` → `ankit.kumar.singh`). They allow 3–30
+lowercase ASCII letters/digits and single internal dots; reserved and blocked
+labels are rejected on the server as well as in the form. A nonrepresentable or
+unavailable name receives `member`, which the owner can edit.
+
+Existing-account batch provisioning uses
+`consent-protocol/scripts/backfill_one_wallet_cards.py`. It defaults to dry-run,
+has bounded batches, prints counts only, requires encrypted link recovery when
+applying, and never edits existing rows. Apply it in each environment only after
+its schema and runtime are deployed; a UAT deployment does not deploy production.
+
+### Add: manual entry
+
+Wallet Add and the secure chat widget share `SecureCardAddForm`. Neither offers
+Scan card or Choose photo. Previously saved cards and Secrets handoffs continue
+to use the same encrypted WalletService path. The standalone scanner module is
+not reachable from Add.
 
 ### Sharing: review and manage inside Wallet
 
@@ -168,4 +216,24 @@ whitespace-only PIN input is omitted before validation and saving.
 
 ### Card browsing gestures
 
-The Cards overview presents one full card above a compact lower stack. Vertical scrolling unfolds the remaining cards; reduced-motion users receive a static, fully unfolded list. A left drag or horizontal trackpad scroll opens card-local summary controls; full details continue through the existing Wallet reveal flow. The first-use swipe hint is scoped to the account and device through OnboardingLocalService. The compact thumbnail shelf hides on downward scrolling and returns on upward scrolling or keyboard navigation.
+The Cards overview presents one full card above a compact lower stack. Vertical scrolling unfolds the remaining cards; reduced-motion users receive a static, fully unfolded list. A left drag or horizontal trackpad scroll opens card-local summary controls; full details continue through the existing Wallet reveal flow. The first-use swipe hint is scoped to the account and device through OnboardingLocalService. The swipe panel shows identity fields or masked payment metadata, using the Profile row styling. It contains no second View details button and never decrypts payment secrets.
+
+
+### Complete card images
+
+`wallet-card-image.ts` composes the approved artwork, bundled font, current face
+fields and QR into one self-contained SVG. The face is revealed only after that
+complete image loads; an opaque card placeholder occupies the same dimensions
+while loading. Returning from details reuses cached public artwork. Personal
+compositions and object URLs remain component-local and are invalidated when
+identity or the QR link changes.
+
+The same composition produces a 1080×681 PNG for Profile, Referral and NWS.
+Share card prepares the file before the click to preserve Web Share activation.
+Supported browsers share the PNG through the system sheet; unsupported browsers
+download it. Installed apps use their existing file/share plugins and remove the
+temporary cache file after the share sheet completes. Dismissing sharing does not
+trigger a download. Copy link remains a separate action. Profile/NWS image sharing
+is disabled when sharing is paused. Referral exports use the latest referral URL.
+No export uploads the card or adds a new tracking authority; the existing QR
+resolver still owns visits, pause and rotation behavior.

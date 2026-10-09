@@ -361,7 +361,7 @@ describe("exact-file document review", () => {
     });
     expect(state.prepareRevocation).not.toHaveBeenCalled();
     fireEvent.click(prepare);
-    const remove = await screen.findByRole("button", { name: "Remove access" });
+    const remove = await screen.findByRole("button", { name: "Stop access" });
     expect(state.revoke).not.toHaveBeenCalled();
     state.delivery.mockResolvedValue({
       ...delivery(),
@@ -1193,6 +1193,42 @@ describe("exact-file document review", () => {
       );
     });
 
+    it("lets the owner stop a delivered bulk request without loading every file", async () => {
+      state.status.mockResolvedValue({ ...initial(), status: "completed" });
+      state.delivery.mockResolvedValue({ status: "completed", files: [], bulkShareId,
+        fileCount: 72, sharedCount: 71 });
+      state.prepareRevocation.mockResolvedValue({ revision: 4, directiveId: "d",
+        reviewDigest: "b".repeat(64), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        affectedCount: 71, pendingCount: 1, files: [] });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Review removal" }));
+      expect(await screen.findByText("Stop this request and check 71 file permissions.")).toBeVisible();
+      expect(screen.getByText("1 grant is still settling.")).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Stop access" }));
+      await waitFor(() => expect(state.revoke).toHaveBeenCalledOnce());
+      expect(state.deliveryFiles).not.toHaveBeenCalled();
+    });
+
+    it.each([true, false])("lets the owner stop a paid frozen request before any grant is queued (trusted: %s)", async (trustedAuto) => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(partial({ durableAvailable: true, trustedAuto,
+        progressiveAllowed: !trustedAuto,
+        search: durableSearch({ status: "completed" }),
+        bulkShare: durableBulk({ status: "review_ready", fileCount: 1 }),
+      }));
+      state.delivery.mockResolvedValue({ status: "pending", files: [], canStopAccess: true });
+      state.prepareRevocation.mockResolvedValue({ revision: 4, directiveId: "d",
+        reviewDigest: "b".repeat(64), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        affectedCount: 0, pendingCount: 0, files: [] });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      await waitFor(() => expect(state.delivery).toHaveBeenCalled());
+      fireEvent.click(await screen.findByRole("button", { name: "Stop access" }));
+      expect(state.prepareRevocation).toHaveBeenCalledOnce();
+      expect(await screen.findByText("Stop this request before files are shared.")).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Stop access" }));
+      await waitFor(() => expect(state.revoke).toHaveBeenCalledOnce());
+    });
+
     it("accounts for the skipped file, keeps search coverage, and pages the owner's original links", async () => {
       state.providers = [{ providerId: "google.com", email: "a@gmail.test" }];
       state.status.mockResolvedValue({ ...initial(), status: "partial" });
@@ -1463,7 +1499,7 @@ describe("exact-file document review", () => {
     });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review removal" }));
-    const remove = await screen.findByRole("button", { name: "Remove access" });
+    const remove = await screen.findByRole("button", { name: "Stop access" });
     state.revoke.mockReturnValueOnce(new Promise(() => undefined));
     fireEvent.click(remove);
     await waitFor(() =>

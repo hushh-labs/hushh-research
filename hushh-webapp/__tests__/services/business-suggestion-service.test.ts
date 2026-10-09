@@ -25,6 +25,14 @@ describe("business suggestion transport", () => {
     expect(result.coverageIncomplete).toBe(true);
     expect(result.candidates.map(candidate => candidate.businessUid)).toHaveLength(2);
     expect(result.candidates.every(candidate => !candidate.synthetic && !candidate.ownershipVerified)).toBe(true);
+    apiJson.mockResolvedValue({ ...response, candidates: [{ ...real,
+      business_uid: `urn:hushh:business:directory:business:${"c".repeat(64)}`,
+      source_identity: { source: "directory", source_key: '{"source":"directory_seed","source_key":"owner"}', vertical: "business" },
+      match_evidence: [{ kind: "verified_phone" },
+        { kind: "verified_email_domain", domain: "example.com" },
+        { kind: "verified_email_identity", email: "owner@example.com" }],
+    }] });
+    expect((await BusinessSuggestionService.get("owner-token")).candidates[0].matchEvidence).toHaveLength(3);
     for (const invalid of [
       { ...response, contract_version: "b2b-profile-suggestion.v1" },
       { ...response, candidates: [real, real] },

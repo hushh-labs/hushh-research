@@ -51,15 +51,16 @@ Status mapping is normative: `active` → 200; `paused` and unknown → 404 with
 | Secret: WWDR G4 PEM | `WALLET_PASS_WWDR_PEM` |
 | Runtime settings keys | `one_wallet_card_enabled`, `wallet_pass_cert_pem`, `wallet_pass_key_pem`, `wallet_pass_wwdr_pem`, `wallet_pass_team_identifier`, `wallet_pass_type_identifier` |
 
-## 2. Table `one_wallet_cards` (migration `132_one_wallet_card.sql`)
+## 2. Table `one_wallet_cards` (migrations `132_one_wallet_card.sql`, `285_one_wallet_card_auto_provision.sql`)
 
-One row per user. Additive only. No changes to any existing table.
+One row per user. Migration 285 adds an optional encrypted recovery envelope to the existing card table.
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `user_id` | TEXT PRIMARY KEY | vault owner |
 | `pass_serial` | UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE | stable for the life of the card; identifies the installed pass |
 | `share_token_hash` | TEXT NOT NULL UNIQUE | SHA-256 hex of the plaintext token. **Plaintext is NEVER stored.** |
+| `share_token_envelope` | JSONB NULL | AES-GCM encrypted owner recovery material; never returned in a projection |
 | `share_token_version` | INTEGER NOT NULL DEFAULT 1 | increments on rotate |
 | `status` | TEXT NOT NULL DEFAULT 'active' | CHECK IN ('active','paused','revoked') |
 | `card_payload` | JSONB NOT NULL DEFAULT '{}'::jsonb | server-validated allowlisted fields only (§3) |
@@ -88,6 +89,7 @@ Any key not in this list is **rejected** (not silently dropped). All values are 
 | Key | Max len | Notes |
 | --- | --- | --- |
 | `full_name` | 80 | |
+| `username` | 30 | 3–30 lowercase letters/digits separated by single dots; restricted/reserved terms rejected; display label, not login or unique routing identity |
 | `headline` | 120 | e.g. "Founder, Hussh" |
 | `organisation` | 80 | company or college |
 | `location_label` | 80 | coarse only — city/region. Never coordinates. |
@@ -107,9 +109,10 @@ URL fields: reject anything not `https://`. Reject `javascript:`, `data:`, and u
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/one/wallet-card` | current card + status + share URL (plaintext token is returned **only** at create/rotate; otherwise the URL is reconstructed client-side from a token the client already holds — see §5) |
+| GET | `/api/one/wallet-card` | current card + status; no token in a plain read |
+| POST | `/api/one/wallet-card/ensure` | create missing card from available account basics, or return the existing card and recover its current link; never replace owner fields or reactivate paused/revoked cards |
 | POST | `/api/one/wallet-card` | create or update card_payload; idempotent upsert; returns card |
-| POST | `/api/one/wallet-card/rotate` | mint new token (invalidates old immediately), bump `share_token_version`, return plaintext token **once** |
+| POST | `/api/one/wallet-card/rotate` | mint new token (invalidates old immediately), bump `share_token_version`, return the new plaintext token to the authenticated owner |
 | POST | `/api/one/wallet-card/pause` | status → `paused` |
 | POST | `/api/one/wallet-card/resume` | status → `active` |
 | DELETE | `/api/one/wallet-card` | status → `revoked`, set `revoked_at` |
@@ -117,10 +120,20 @@ URL fields: reject anything not `https://`. Reject `javascript:`, `data:`, and u
 
 ## 5. Token handling
 
-- Plaintext token = `secrets.token_urlsafe(32)`. Returned to the owner **only** in the create and rotate responses.
-- Stored only as SHA-256 hex in `share_token_hash`.
+- Plaintext token = `secrets.token_urlsafe(32)`. Returned to the owner in create, rotate and authenticated ensure/recovery responses. Never returned by a plain GET or public projection.
+- Public lookup uses SHA-256 hex in `share_token_hash`. Where the existing `EXTERNAL_CONNECTOR_CREDENTIAL_KEY` is configured, new tokens also retain an AES-GCM envelope with distinct Wallet Profile AAD bound to the owner and current digest. Plaintext is never persisted.
+- Legacy hash-only rows remain valid. Ensure can adopt a supplied device token only after its digest matches the current row, then encrypt it without changing the QR. If neither envelope nor current device token exists, recovery remains an explicit owner rotation; provisioning never silently rotates.
+- Revoked cards never return a share token. Pause, resume, edits and scans retain their existing lifecycle semantics.
 - Lookup is by hash of the presented token. Use `hmac.compare_digest` on the hash comparison.
 - The owner client persists the share URL locally so it can render the QR and the Add-to-Wallet link without re-requesting the token.
+
+### Automatic provisioning and existing accounts
+
+The authenticated app shell calls ensure after the existing VAULT_OWNER bootstrap succeeds. New and returning accounts use the same operation. The request is `{userId, cardPayload?, avatarUrl?, shareToken?}`; all fields remain optional except `userId`. Account basics (name, email, phone and photo) come from the existing identity cache, with available client account values supplied at sign-in. Optional missing fields do not block creation. Username is generated from the name when absent.
+
+Ensure uses `INSERT ... ON CONFLICT DO NOTHING`; it never invokes the replace/upsert path for an existing row, so a second tab, backfill or later sign-in cannot restore a removed field, overwrite edits, unpause or undo removal. It does not read PKM or publish to the Information Marketplace.
+
+`consent-protocol/scripts/backfill_one_wallet_cards.py` fills only missing cards for existing `actor_profiles` in bounded batches. It is dry-run by default. `--apply` requires the feature flag and the deployed encryption key; no token or personal value is printed. Deploy migration 285 before running it in the selected environment. Production execution is a separate rollout from UAT. A repeated run skips existing cards.
 
 ## 6. Public routes — **no authentication**
 
@@ -166,7 +179,7 @@ Omit `webServiceURL` and `authenticationToken` entirely (D2 — no web service).
 - **Never call `fetch()` from `app/**` or `components/**`** — `hushh-webapp/scripts/architecture/verify-service-layer-boundary.mjs` enforces this with a literal regex. All network access goes through `lib/services/wallet-card-service.ts` using `ApiService.apiFetch` / `apiJson`.
 - Public page `/c/[token]` must render for a logged-out stranger: register in `isPublicRoute()`, ensure `OneAuthGate`/`VaultLockGuard` are bypassed, and suppress chrome via `mode: "hidden"` in `lib/navigation/app-route-layout.contract.json`. Precedent to copy: `app/one/location/request/[token]`.
 - The public page must emit **no analytics** and must be added to the robots disallow prefixes.
-- Owner screens live under `app/one/wallet-card/`.
+- Owner screens live under `app/one/wallet-card/` and the Profile card details in `app/one/wallet/`. The shared service carries updates between mounted owner surfaces.
 - Add-to-Wallet uses the existing `openExternalUrl()` (`lib/utils/browser-navigation.ts:32`) so Capacitor hands the URL to Safari — WKWebView cannot import a pass.
 - Non-iOS: show share-link actions instead of Add-to-Wallet.
 
@@ -179,7 +192,7 @@ privacy assurance still states both what is visible and that it is reversible.
 - Profile settings row: **"Apple Wallet"** / "Share your profile with a scan."
 - Entry, before setup: **"Add to Apple Wallet"** / "Your profile, ready to share."
 - Setup intro: **"Your profile, one scan away"** / "Add a Hussh One pass to Apple Wallet."
-- Privacy assurance: **"You choose what shows"** / "Only what you pick is visible. Change or switch it off anytime."
+- Privacy assurance: **"You choose what shows"** / "Your account basics are ready to share. Change or switch them off anytime."
 - After setup entry: **"Wallet Profile"** / "Control what people see."
 - Success: **"Pass added"** / "Share your profile straight from Apple Wallet."
 - Signing failure (user-facing): "Couldn't create your pass. Try again in a moment." — log the technical error server-side only.
@@ -200,3 +213,23 @@ Never use: "Share everything", "Your complete identity", "All your data in one s
 4. Do **not** add a Capacitor plugin or an iOS entitlement.
 5. Do **not** add a Wallet web service, APNs, or device registration.
 6. Do **not** store per-scan telemetry rows.
+
+### Wallet collection pass variants and referral activity
+
+The existing pass download accepts `variant=profile|referral|nws` (default `profile`).
+All variants retain the share-token/status/rate-limit checks. The backend obtains
+referral links from the card owner's existing referral authority; clients cannot
+supply the pass QR destination. Referral and NWS variants print only the card name
+and holder name, without adding profile contact fields or a placeholder NWS score.
+NWS uses the existing profile QR. Local signing gives each variant a stable serial
+suffix (`-referral` / `-nws`) so cards can coexist. The external signing service
+currently assigns a new random serial on each issuance; re-adding through that
+provider may produce another copy, and this API does not override its contract.
+
+The authenticated referral summary adds `link_open_count` and `last_opened_at`
+from existing `one_referral_attributions` rows. These represent accepted referral
+link openings (QR and shared links are indistinguishable), not unique visitors or
+qualified referrals. Existing crawler exclusion still applies. Migration 286
+indexes the owner/opened lookup and sends a minimal owner-scoped doorbell through
+the existing referral SSE channel after an attribution insert. No second scan log,
+visitor identity, or new public tracking endpoint is introduced.

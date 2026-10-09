@@ -13,14 +13,14 @@
  *   re-validates it,
  * - the typed public states, so a revoked card, an expired link and an unknown
  *   token can never be collapsed into one vague failure,
- * - the device-local copy of the share link, because the plaintext token comes
- *   back from the backend exactly once (contract §5).
+ * - the device-local copy of the share link and authenticated token recovery.
  *
  * Privacy rules that are binding here: the plaintext share token is never
  * logged, no `card_payload` value is ever logged, and the public resolve carries
  * no authorization header — the token *is* the credential.
  */
 
+import { validateWalletProfileUsername } from "@/lib/wallet/wallet-profile-username";
 import { isIOS, isNative } from "@/lib/capacitor/platform";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
@@ -57,6 +57,8 @@ export const WALLET_CARD_SERVICE_COPY = {
 /** Mirrors the server-side `preferred_contact` closed set (contract §3). */
 export type WalletCardPreferredContact = "email" | "phone" | "linkedin" | "website";
 
+export type WalletPassVariant = "profile" | "referral" | "nws";
+
 export type WalletCardStatus = "active" | "paused" | "revoked";
 
 /**
@@ -65,6 +67,7 @@ export type WalletCardStatus = "active" | "paused" | "revoked";
  */
 export type WalletCardPayload = {
   full_name?: string | null;
+  username?: string | null;
   headline?: string | null;
   organisation?: string | null;
   location_label?: string | null;
@@ -100,8 +103,8 @@ export interface WalletCardRecord {
 }
 
 /**
- * The device-local copy of the share link. The backend cannot return the
- * plaintext token again, so this is what keeps the QR renderable.
+ * The device-local copy of the share link keeps the QR renderable between
+ * owner reads. Authenticated ensure can recover encrypted tokens.
  */
 export interface WalletCardShareLink {
   shareUrl: string;
@@ -119,7 +122,7 @@ export interface WalletCardState {
 
 export interface WalletCardMutationResult {
   card: WalletCardRecord;
-  /** Present only on create and rotate (contract §5). */
+  /** Present on create, rotate, or successful authenticated recovery. */
   shareToken: string | null;
   shareUrl: string | null;
   passUrl: string | null;
@@ -128,6 +131,7 @@ export interface WalletCardMutationResult {
 /** The visitor projection, in the same snake_case shape the contract defines. */
 export interface WalletCardPublicProfile {
   full_name: string | null;
+  username?: string | null;
   headline: string | null;
   organisation: string | null;
   location_label: string | null;
@@ -205,6 +209,7 @@ interface WalletCardOwnerRequest {
 /** Per-field caps, exactly as contract §3 states them. */
 const TEXT_FIELD_LIMITS = {
   full_name: 80,
+  username: 30,
   headline: 120,
   organisation: 80,
   location_label: 80,
@@ -358,9 +363,9 @@ export function walletCardShareUrl(shareToken: string): string {
  * URL to Safari, which imports the pass natively, and the proxy would return
  * JSON rather than the signed bundle.
  */
-export function walletCardPassUrl(shareToken: string): string {
+export function walletCardPassUrl(shareToken: string, variant: WalletPassVariant = "profile"): string {
   const token = encodeURIComponent(String(shareToken ?? ""));
-  return `${backendOrigin()}${WALLET_CARD_API_PREFIX}/pass/${token}.pkpass`;
+  return `${backendOrigin()}${WALLET_CARD_API_PREFIX}/pass/${token}.pkpass${variant === "profile" ? "" : `?variant=${variant}`}`;
 }
 
 /** Reject a wrong-shape token before it is sent, stored or trusted. */
@@ -527,6 +532,10 @@ export function validateWalletCardPayload(
       continue;
     }
 
+    if (key === "username") {
+      const message = validateWalletProfileUsername(trimmed);
+      if (message) { errors.push({ field: key, message }); continue; }
+    }
     if (key === "email" && !EMAIL_SHAPE.test(trimmed)) {
       errors.push({ field: key, message: "Enter a valid mail address." });
       continue;
@@ -591,6 +600,7 @@ function toPublicProfile(raw: unknown): WalletCardPublicProfile | null {
       ["fullName", "full_name", "displayName", "display_name"],
       TEXT_FIELD_LIMITS.full_name,
     ),
+    username: readString(source, ["username"], TEXT_FIELD_LIMITS.username),
     headline: readString(source, ["headline"], TEXT_FIELD_LIMITS.headline),
     organisation: readString(
       source,
@@ -630,6 +640,7 @@ function toStoredPayload(raw: unknown): WalletCardPayload {
 
   const textKeys: readonly [WalletCardTextField, readonly string[]][] = [
     ["full_name", ["full_name", "fullName"]],
+    ["username", ["username"]],
     ["headline", ["headline"]],
     ["organisation", ["organisation", "organization"]],
     ["location_label", ["location_label", "locationLabel"]],
@@ -804,6 +815,50 @@ async function readJsonBody(response: Response): Promise<unknown> {
 /* ----------------------------------------------------------------- service */
 
 export class WalletCardService {
+  /** Owner-scoped invalidation only; profile values and tokens never enter events. */
+  static subscribe(userId: string, onChange: () => void): () => void {
+    if (typeof window === "undefined") return () => {};
+    const changed = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === userId) onChange();
+    };
+    const stored = (event: StorageEvent) => {
+      if (event.key === shareLinkKey(userId)) onChange();
+    };
+    window.addEventListener("hushh:wallet-profile-changed", changed);
+    window.addEventListener("storage", stored);
+    return () => {
+      window.removeEventListener("hushh:wallet-profile-changed", changed);
+      window.removeEventListener("storage", stored);
+    };
+  }
+
+  private static notifyChanged(userId: string): void {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("hushh:wallet-profile-changed", { detail: userId }));
+    }
+  }
+
+  /** Create once using existing identity. Never changes an existing sharing choice. */
+  static async ensureCard(params: WalletCardOwnerRequest & {
+    payload?: WalletCardPayloadInput;
+    avatarUrl?: string | null;
+  }): Promise<WalletCardMutationResult> {
+    const validation = validateWalletCardPayload(params.payload ?? {});
+    if (!validation.ok) throw new WalletCardPayloadError(validation.errors);
+    const localLink = WalletCardService.readShareLink(params.userId);
+    const response = await apiJson<unknown>(`${WALLET_CARD_API_PREFIX}/ensure`, {
+      method: "POST",
+      headers: ownerJsonHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        userId: params.userId,
+        cardPayload: validation.value,
+        ...(params.avatarUrl ? { avatarUrl: params.avatarUrl } : {}),
+        ...(localLink ? { shareToken: localLink.shareToken } : {}),
+      }),
+    });
+    return WalletCardService.adoptMutation(params.userId, response);
+  }
+
   /* ------------------------------------------------------------ owner side */
 
   /**
@@ -839,8 +894,8 @@ export class WalletCardService {
    * Create or update the shared fields.
    *
    * The payload is validated against the closed allowlist first: an invalid
-   * draft never reaches the network. The plaintext token comes back only on
-   * first creation, so it is persisted here before the response is discarded.
+   * draft never reaches the network. First creation returns the plaintext
+   * token, which is persisted before the response is discarded.
    */
   static async saveCard(params: {
     vaultOwnerToken: string;
@@ -900,6 +955,7 @@ export class WalletCardService {
     WalletCardService.forgetShareLink(params.userId);
     const card = toCardRecord(asRecord(response)?.card);
     if (!card) throw unreadableResponse();
+    WalletCardService.notifyChanged(params.userId);
     return card;
   }
 
@@ -952,6 +1008,7 @@ export class WalletCardService {
    */
   static async checkPassAvailability(
     shareToken: string,
+    variant: WalletPassVariant = "profile",
   ): Promise<WalletPassAvailability> {
     if (!isWalletShareTokenShape(shareToken)) {
       return { state: "not_found", message: WALLET_CARD_SERVICE_COPY.notFound };
@@ -960,7 +1017,7 @@ export class WalletCardService {
     let response: Response;
     try {
       response = await ApiService.apiFetch(
-        `${WALLET_CARD_API_PREFIX}/pass/${encodeURIComponent(shareToken)}.pkpass`,
+        `${WALLET_CARD_API_PREFIX}/pass/${encodeURIComponent(shareToken)}.pkpass${variant === "profile" ? "" : `?variant=${variant}`}`,
         { method: "GET", cache: "no-store" },
       );
     } catch {
@@ -968,7 +1025,7 @@ export class WalletCardService {
     }
 
     if (response.ok) {
-      return { state: "available", url: walletCardPassUrl(shareToken) };
+      return { state: "available", url: walletCardPassUrl(shareToken, variant) };
     }
 
     const body = await readJsonBody(response);
@@ -1002,7 +1059,7 @@ export class WalletCardService {
    */
   static async addToAppleWallet(
     shareToken: string,
-    options: { verifyFirst?: boolean } = {},
+    options: { verifyFirst?: boolean; variant?: WalletPassVariant } = {},
   ): Promise<WalletPassAddResult> {
     if (walletPassCapability() === "unsupported") {
       return {
@@ -1013,11 +1070,11 @@ export class WalletCardService {
     }
 
     if (options.verifyFirst !== false) {
-      const availability = await WalletCardService.checkPassAvailability(shareToken);
+      const availability = await WalletCardService.checkPassAvailability(shareToken, options.variant);
       if (availability.state !== "available") return availability;
     }
 
-    const url = walletCardPassUrl(shareToken);
+    const url = walletCardPassUrl(shareToken, options.variant);
     openExternalUrl(url);
     return { state: "opened", url };
   }
@@ -1027,9 +1084,8 @@ export class WalletCardService {
   /**
    * Persist the share link on this device.
    *
-   * The backend hashes the token and cannot return it again (contract §5), so
-   * without this copy the QR could never be rendered after the create or rotate
-   * response is gone. Nothing here is logged.
+   * This copy avoids repeated authenticated recovery requests and preserves
+   * legacy links whose server rows have no encrypted envelope. Nothing is logged.
    */
   static rememberShareLink(
     userId: string,
@@ -1046,13 +1102,18 @@ export class WalletCardService {
 
     const storage = localStore();
     if (!storage) return;
+    const version = readTokenVersion(input.card);
+    const currentVersion = WalletCardService.readShareLink(userId)?.version ?? null;
+    // An ensure started before a rotation can finish after it. Never restore
+    // an older link over the newer one already confirmed on this device.
+    if (currentVersion !== null && (version === null || currentVersion > version)) return;
     try {
       storage.setItem(
         shareLinkKey(userId),
         JSON.stringify({
           shareUrl,
           shareToken,
-          version: readTokenVersion(input.card),
+          version,
         }),
       );
     } catch {
@@ -1131,10 +1192,11 @@ export class WalletCardService {
     });
     const card = toCardRecord(asRecord(response)?.card);
     if (!card) throw unreadableResponse();
+    WalletCardService.notifyChanged(params.userId);
     return card;
   }
 
-  /** Adopt a create/rotate response and keep the once-only token on-device. */
+  /** Adopt a creation, rotation, or recovery response and retain its token. */
   private static adoptMutation(
     userId: string,
     response: unknown,
@@ -1158,6 +1220,7 @@ export class WalletCardService {
       WalletCardService.rememberShareLink(userId, { card, shareToken, shareUrl });
     }
 
+    WalletCardService.notifyChanged(userId);
     return { card, shareToken, shareUrl, passUrl };
   }
 }

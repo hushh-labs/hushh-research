@@ -26,7 +26,7 @@ const directoryCandidateSchema = z.object({
     z.object({ kind: z.literal("verified_email_domain"), domain: z.string().min(3).max(253) }),
     z.object({ kind: z.literal("verified_phone") }),
     z.object({ kind: z.literal("verified_email_identity"), email: z.string().email() }),
-  ])).min(1).max(2),
+  ])).min(1).max(3),
   draft: z.object({ name: z.string().min(1).max(160), website: z.string().max(512),
     phone: z.string().max(512).optional(), formatted_address: z.string().max(512).optional(),
     address_line1: z.string().max(512).optional(), street1: z.string().max(512).optional(),

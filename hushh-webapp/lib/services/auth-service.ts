@@ -627,6 +627,51 @@ export class AuthService {
     }
   }
 
+  /** Fresh provider proof for irreversible account deletion; never signs in another user. */
+  static async reauthenticateAccountDeletionIdentity(
+    expectedUserId: string,
+    providerId: "google.com" | "apple.com",
+    isCurrent: () => boolean,
+  ): Promise<string> {
+    if (providerId === "google.com") {
+      return this.reauthenticateGoogleIdentity(expectedUserId, isCurrent);
+    }
+    if (Capacitor.isNativePlatform()) {
+      // The native Apple bridge has no reauthentication operation. A normal
+      // sign-in here could silently replace the current deletion session.
+      throw new Error("native_identity_unavailable");
+    }
+    const currentUser = auth.currentUser;
+    if (!expectedUserId || !isCurrent() || !currentUser ||
+        currentUser.uid !== expectedUserId ||
+        !currentUser.providerData.some((provider) => provider.providerId === providerId)) {
+      throw new Error("apple_identity_required");
+    }
+    const assertCurrent = () => {
+      if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== expectedUserId) {
+        throw new Error("session_changed");
+      }
+    };
+    assertCurrent();
+    try {
+      const result = await reauthenticateWithPopup(currentUser, this.createWebProvider("apple"));
+      assertCurrent();
+      if (result.user.uid !== expectedUserId) throw new Error("identity_mismatch");
+      const token = await result.user.getIdToken(true);
+      assertCurrent();
+      return token;
+    } catch (error) {
+      assertCurrent();
+      if (this.isExpectedPopupClose(error)) throw new Error("identity_cancelled");
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (code === "auth/popup-blocked") throw new Error("identity_popup_blocked");
+      if (code === "auth/user-mismatch" || error instanceof Error && error.message === "identity_mismatch") {
+        throw new Error("identity_mismatch");
+      }
+      throw new Error("identity_verification_failed");
+    }
+  }
+
   /**
    * Sign in with Email and Password using appropriate method for platform.
    * On Native: Uses @capacitor-firebase/authentication for Keychain persistence.
@@ -1253,6 +1298,23 @@ export class AuthService {
     },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("link", phoneNumber, options);
+  }
+
+  /** Send a one-time phone proof without adding, replacing, or unlinking a phone. */
+  static async startPhoneDeletionVerification(
+    phoneNumber: string,
+    recaptchaVerifier: ApplicationVerifier,
+  ): Promise<string> {
+    if (Capacitor.isNativePlatform()) throw new Error("native_identity_unavailable");
+    if (!auth.currentUser) throw new Error("session_changed");
+    const normalizedPhoneNumber = String(phoneNumber ?? "").trim();
+    if (!normalizedPhoneNumber) throw new Error("phone_unavailable");
+    try {
+      const provider = new PhoneAuthProvider(auth);
+      return await provider.verifyPhoneNumber(normalizedPhoneNumber, recaptchaVerifier);
+    } catch (error) {
+      throw this.normalizePhoneVerificationError(error, "link_start");
+    }
   }
 
   static async startPhoneReplacementVerification(
