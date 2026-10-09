@@ -1044,6 +1044,8 @@ describe("ProfileReceiptsPage", () => {
     expect(saved.userId).toBe("user-123");
     expect(saved.receipts).toHaveLength(1);
     expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
+    // The owner is never asked to save: there is no control for it.
+    expect(screen.queryByRole("button", { name: /private memory/i })).toBeNull();
   });
 
   it("holds sealed receipts behind vault unlock when the vault is locked", async () => {

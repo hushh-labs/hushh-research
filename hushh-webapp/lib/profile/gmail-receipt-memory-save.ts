@@ -4,22 +4,25 @@
  * This is the existing governed flow, not a new write path: the same
  * `gmail_receipt_memory_save_button` writer the reserved-branch registry names
  * for `shopping.receipts_memory`, the same `PkmWriteCoordinator`, and the same
- * prepared-domain validation. Its callers are the owner's tap and the finished
- * sync the owner started (the product default, which an owner setting can turn
- * off); this module never decides to save on its own.
+ * prepared-domain validation. Its caller is the finished sync the owner started
+ * (the product default, which an owner setting can turn off); this module never
+ * decides to save on its own.
  */
 
 import {
   buildReceiptCanonicalIndex,
   receiptIndexDigest,
 } from "@/lib/profile/gmail-receipt-memory-index";
-import { buildShoppingReceiptCanonicalIndexPreparedDomain } from "@/lib/profile/gmail-receipt-memory-pkm";
+import {
+  buildShoppingReceiptCanonicalIndexPreparedDomain,
+  RECEIPT_MEMORY_SAVE_WRITER,
+} from "@/lib/profile/gmail-receipt-memory-pkm";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
-export const RECEIPT_MEMORY_SAVE_WRITER = "gmail_receipt_memory_save_button";
+export { RECEIPT_MEMORY_SAVE_WRITER };
 
 export type ReceiptMemorySaveOutcome = {
   /** Canonical transactions in the saved memory. */
@@ -47,8 +50,8 @@ export async function saveReceiptCanonicalIndexToMemory(params: {
   });
   const digest = await receiptIndexDigest(index);
 
-  // Always written, even when the content is unchanged: the owner's sync or tap
-  // is the confirmation that the memory is current, and `generated_at` is how
+  // Always written, even when the content is unchanged: the owner's sync is the
+  // confirmation that the memory is current, and `generated_at` is how
   // the reader judges that.
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,

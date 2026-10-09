@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -15,6 +15,9 @@ import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
+import { ReferralIntroduction } from "./referral-introduction";
 import {
   ReferralService,
   type CircleLeaderboardEntry,
@@ -217,6 +220,59 @@ function Section<T>({
 
 export function ReferralDashboardPage() {
   const { user } = useAuth();
+  const ownerId = user?.uid ?? null;
+  // Remount on account changes: even an A → B → A switch gets a new local
+  // session, so an old native preference write cannot dismiss a later replay.
+  return <ReferralDashboardGate key={ownerId ?? "signed-out"} ownerId={ownerId} />;
+}
+
+function ReferralDashboardGate({ ownerId }: { ownerId: string | null }) {
+  const router = useRouter();
+  const [introduction, setIntroduction] = useState<{ ownerId: string; seen: boolean } | null>(null);
+  const [savingOwnerId, setSavingOwnerId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (ownerId) {
+      void OnboardingLocalService.hasSeenReferralIntroduction(ownerId).then((seen) => {
+        if (!cancelled) setIntroduction({ ownerId, seen });
+      });
+    }
+    return () => { cancelled = true; };
+  }, [ownerId]);
+
+  const completeIntroduction = async () => {
+    if (!ownerId || savingOwnerId === ownerId) return;
+    setSavingOwnerId(ownerId);
+    await OnboardingLocalService.markReferralIntroductionSeen(ownerId);
+    setIntroduction((current) => current?.ownerId === ownerId ? { ownerId, seen: true } : current);
+    setSavingOwnerId((current) => current === ownerId ? null : current);
+  };
+
+  if (!ownerId || introduction?.ownerId !== ownerId) {
+    return (
+      <div className="referral-dashboard flex min-h-dvh items-center justify-center text-sm">
+        <NativeTestBeacon routeId={ROUTES.ONE_REFERRALS} marker="native-route-one-referrals" authState="authenticated" dataState="loading" />
+        <p role="status">Loading your referrals…</p>
+      </div>
+    );
+  }
+
+  if (!introduction.seen) {
+    return (
+      <ReferralIntroduction
+        onContinue={() => { void completeIntroduction(); }}
+        onBack={() => navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })}
+        busy={savingOwnerId === ownerId}
+      />
+    );
+  }
+
+  return <ReferralDashboardContent onReplayIntroduction={() => setIntroduction({ ownerId, seen: false })} />;
+}
+
+function ReferralDashboardContent({ onReplayIntroduction }: { onReplayIntroduction: () => void }) {
+  const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>("you");
   const [board, setBoard] = useState<"individual" | "circles">("individual");
 
@@ -342,7 +398,7 @@ export function ReferralDashboardPage() {
         : "loaded";
 
   return (
-    <ShellRoot dataState={dataState} tab={tab} onTabChange={setTab} link={link} onCopy={onCopy}>
+    <ShellRoot dataState={dataState} tab={tab} onTabChange={setTab} link={link} onCopy={onCopy} onReplayIntroduction={onReplayIntroduction}>
       {tab === "you" && summaryRes.status === "loading" ? (
         <div className="flex min-h-[40vh] items-center justify-center text-sm" style={{ color: COLORS.text2 }}>
           Loading your referrals…
@@ -410,6 +466,7 @@ function ShellRoot({
   onTabChange,
   link,
   onCopy,
+  onReplayIntroduction,
   children,
 }: {
   dataState: "loading" | "loaded" | "unavailable-valid";
@@ -417,9 +474,17 @@ function ShellRoot({
   onTabChange: (tab: TabKey) => void;
   link: string;
   onCopy: () => void;
+  onReplayIntroduction: () => void;
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const mainRef = useRef<HTMLElement>(null);
+  useScrollReset("referral-dashboard");
+
+  useEffect(() => {
+    mainRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
     <div className="referral-dashboard min-h-dvh" style={{ background: COLORS.bg, color: COLORS.text }}>
       <NativeTestBeacon
@@ -467,9 +532,12 @@ function ShellRoot({
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1008px] px-6 pb-[calc(128px+env(safe-area-inset-bottom,0px))] pt-3">
+      <main ref={mainRef} aria-label="Referral dashboard" tabIndex={-1} className="mx-auto max-w-[1008px] px-6 pb-[calc(128px+env(safe-area-inset-bottom,0px))] pt-3 outline-none">
         <section role="tabpanel" aria-label={TABS.find((item) => item.key === tab)?.label}>{children}</section>
-        <footer className="mt-9 text-center text-xs leading-[1.6]" style={{ color: COLORS.text3 }}><span className="referral-reference-mark mr-1.5 size-4 align-[-3px]" aria-hidden />Your agents. Yours to own.</footer>
+        <footer className="mt-9 text-center text-xs leading-[1.6]" style={{ color: COLORS.text3 }}>
+          <p><span className="referral-reference-mark mr-1.5 size-4 align-[-3px]" aria-hidden />Your agents. Yours to own.</p>
+          <button onClick={onReplayIntroduction} className="min-h-11 px-3 text-xs underline underline-offset-4">View welcome screen</button>
+        </footer>
       </main>
 
       {link ? (

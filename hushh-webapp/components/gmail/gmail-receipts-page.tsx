@@ -2448,19 +2448,6 @@ export default function GmailReceiptsPage({
               </Button>
             </div>
           ) : null}
-
-          {/* The owner's own control; it saves nothing until it is tapped. */}
-          {hasSealedReceiptAccess && visibleReceipts.length > 0 && !loadingReceipts ? (
-            <GmailReceiptMemorySave
-              accountKey={
-                gmail.status?.google_sub || gmail.status?.google_email || null
-              }
-              receipts={visibleReceipts}
-              syncCompletion={receiptSyncCompletion}
-              savedCompletionRef={receiptMemorySavedCompletionRef}
-              autoSave={journeyVariant !== "onboarding"}
-            />
-          ) : null}
         </section>
       ) : null}
     </div>
@@ -2731,6 +2718,19 @@ export default function GmailReceiptsPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* No control: a finished sync saves itself to private memory, so Chat
+          with One can answer from it. */}
+      {isConnected && hasSealedReceiptAccess ? (
+        <GmailReceiptMemorySave
+          accountKey={
+            gmail.status?.google_sub || gmail.status?.google_email || null
+          }
+          receipts={visibleReceipts}
+          syncCompletion={receiptSyncCompletion}
+          savedCompletionRef={receiptMemorySavedCompletionRef}
+          autoSave={journeyVariant !== "onboarding"}
+        />
+      ) : null}
     </AppPageShell>
   );
 }

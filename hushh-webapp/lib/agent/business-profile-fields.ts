@@ -1,8 +1,60 @@
-import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
+import { describeAgentPkmCardDestination, formatAgentPkmCardDestination, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { businessMemoryEntity } from "@/lib/pkm/business-memory-origin";
 
 export type BusinessReviewField = { id: string; path: string[]; label: string; value: unknown };
 export type BusinessFieldSelection = Record<string, string[]>;
+
+export type BusinessReviewItem = {
+  id: string; label: string; text: string; destination: string; recordDetail: boolean;
+  fields: { cardId: string; fieldId: string }[];
+};
+
+const BUSINESS_LABELS: Record<string, string> = {
+  name: "Business name", business_name: "Business name", website: "Website", phone: "Phone",
+  email: "Email", formatted_address: "Address", address: "Address", address_line1: "Street address",
+  street1: "Street address", city: "City", state: "State", zip: "Postal code", postal_code: "Postal code",
+  category: "Category", description: "About", hours: "Opening hours", summary: "Details",
+  observations: "Notes", kind: "Record type", status: "Record status",
+};
+
+function readableValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(readableValue).join("\n");
+  if (value && typeof value === "object") return Object.entries(value).map(([key, child]) =>
+    `${BUSINESS_LABELS[key] || key.replaceAll("_", " ")}: ${readableValue(child)}`).join("\n");
+  return value === null ? "Not provided" : typeof value === "boolean" ? value ? "Yes" : "No" : String(value);
+}
+
+/** Presentation only. Every checkbox retains all exact backing field references. */
+export function businessReviewItems(cards: AgentPkmPreviewCard[]): BusinessReviewItem[] {
+  const groups = new Map<string, BusinessReviewItem>();
+  for (const card of cards) for (const field of businessReviewFields(card)) {
+    const leaf = field.path.at(-1)!;
+    const recordDetail = field.path.length === 1 && ["kind", "status"].includes(leaf);
+    let label = BUSINESS_LABELS[leaf] || field.label;
+    let text = readableValue(field.value);
+    // A singleton observation that repeats a summary is one visible fact,
+    // but its array and summary remain separate, unchanged fields on save.
+    let identityValue: unknown = field.value;
+    if (leaf === "observations" && Array.isArray(field.value) && field.value.length === 1 && typeof field.value[0] === "string") {
+      identityValue = field.value[0];
+      label = BUSINESS_LABELS.summary!;
+    }
+    if (["summary", "observations"].includes(leaf) && typeof identityValue === "string") {
+      const labelled = /^(name|business_name|website|phone|email|formatted_address|address|city|state|zip|postal_code|category):\s(.+)$/s.exec(identityValue);
+      if (labelled) { label = BUSINESS_LABELS[labelled[1]!]!; text = labelled[2]!; }
+    }
+    if (recordDetail && leaf === "kind" && text === "profile_fact") text = "Profile detail";
+    if (recordDetail && leaf === "status" && text === "active") text = "Active";
+    // No value-only, fuzzy, cross-destination or source-derived merging.
+    const destination = formatAgentPkmCardDestination(describeAgentPkmCardDestination(card));
+    const key = JSON.stringify([destination, field.path.slice(0, -1), label, identityValue, recordDetail]);
+    const group = groups.get(key);
+    const reference = { cardId: card.card_id, fieldId: field.id };
+    if (group) group.fields.push(reference);
+    else groups.set(key, { id: key, label, text, destination, recordDetail, fields: [reference] });
+  }
+  return [...groups.values()];
+}
 
 /** Consent applies to the actual proposed entity, not just its source listing. */
 export function businessReviewFields(card: AgentPkmPreviewCard): BusinessReviewField[] {

@@ -31,6 +31,11 @@ type AgentPkmReviewPanelProps = {
   /** A feature may offer finer consent inside the existing review surface. */
   renderCardDetails?: (card: AgentPkmPreviewCard) => ReactNode;
   saveLabel?: string;
+  /** Inline business review already owns its identity and consent framing. */
+  compact?: boolean;
+  /** A feature can compose one consent list while retaining this action shell. */
+  reviewContent?: ReactNode;
+  showDismissAction?: boolean;
 };
 
 type ReviewGroup = { destination: string; cards: AgentPkmPreviewCard[] };
@@ -89,6 +94,9 @@ export function AgentPkmReviewPanel({
   showSourceText = false,
   renderCardDetails,
   saveLabel,
+  compact = false,
+  reviewContent,
+  showDismissAction = true,
 }: AgentPkmReviewPanelProps) {
   const panelId = useId();
   const reviewableCards = cards.filter((card) => !isReservedPkmCard(card));
@@ -106,23 +114,23 @@ export function AgentPkmReviewPanel({
   return (
     <div
       className={cn(
-        "rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm",
+        compact ? "flex flex-col gap-4 text-sm" : "rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm",
         className
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className={compact ? "contents" : "flex flex-wrap items-start justify-between gap-3"}>
         <div className="flex min-w-0 gap-2">
-          <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+          {!compact && <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
             <Brain className="h-4 w-4" />
-          </div>
+          </div>}
           <div className="min-w-0">
-            <p className="font-medium text-foreground">Save this memory?</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            <p className="font-medium text-foreground">{compact ? "Save details" : "Save this memory?"}</p>
+            {!compact && <p className="mt-1 text-xs leading-5 text-muted-foreground">
               One needs your review before this is stored.
-            </p>
+            </p>}
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className={compact ? "order-3 flex justify-end gap-2" : "flex shrink-0 gap-2"}>
           {onEdit ? (
             <Button
               type="button"
@@ -136,7 +144,7 @@ export function AgentPkmReviewPanel({
               Edit
             </Button>
           ) : null}
-          <Button
+          {showDismissAction && <Button
             type="button"
             variant="outline"
             size="sm"
@@ -146,7 +154,7 @@ export function AgentPkmReviewPanel({
           >
             <X className="h-3.5 w-3.5" />
             Skip
-          </Button>
+          </Button>}
           <Button
             type="button"
             size="sm"
@@ -163,8 +171,8 @@ export function AgentPkmReviewPanel({
         </div>
       </div>
 
-      <div className="mt-3 max-h-96 space-y-3 overflow-y-auto rounded-md border border-border/60 bg-background p-2 pr-1" data-testid="agent-pkm-review-list">
-        {groups.map((group) => {
+      <div className={compact ? "order-2 space-y-4" : "mt-3 max-h-96 space-y-3 overflow-y-auto rounded-md border border-border/60 bg-background p-2 pr-1"} data-testid="agent-pkm-review-list">
+        {reviewContent ?? groups.map((group) => {
           const groupIds = group.cards.map((card) => card.card_id);
           const groupSelected = group.cards.filter(isSelected).length;
           return (
@@ -195,13 +203,13 @@ export function AgentPkmReviewPanel({
                   <div
                     key={card.card_id}
                     className={cn(
-                      "flex gap-2 rounded-lg px-3 py-2.5 text-xs",
-                      selected ? "bg-muted/35" : "bg-muted/15 opacity-70",
+                      compact ? "min-w-0 py-2 text-xs" : "flex gap-2 rounded-lg px-3 py-2.5 text-xs",
+                      compact ? "" : selected ? "bg-muted/35" : "bg-muted/15 opacity-70",
                     )}
                     data-testid="agent-pkm-review-card"
                     data-selected={selected ? "true" : "false"}
                   >
-                    {selectable ? (
+                    {selectable && !compact ? (
                       <input
                         id={`${panelId}-${card.card_id}`}
                         type="checkbox"
@@ -214,17 +222,17 @@ export function AgentPkmReviewPanel({
                     ) : null}
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-start justify-between gap-3">
-                        <label htmlFor={selectable ? `${panelId}-${card.card_id}` : undefined} className="font-medium text-foreground">
-                          {multiGroup && !showSourceText ? cleanText(card.source_text, 140) || destinationOf(card) : destinationOf(card)}
+                        <label htmlFor={selectable && !compact ? `${panelId}-${card.card_id}` : undefined} className="font-medium text-foreground">
+                          {multiGroup && !showSourceText && !compact ? cleanText(card.source_text, 140) || destinationOf(card) : destinationOf(card)}
                         </label>
-                        <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        {!compact && <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                           {cardSensitivity(card)}
-                        </span>
+                        </span>}
                       </div>
                       {renderCardDetails ? renderCardDetails(card) : showSourceText && card.source_text ? (
                         <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">{card.source_text}</p>
                       ) : null}
-                      {multiGroup ? null : card.confirmation_reason ? (
+                      {multiGroup || compact ? null : card.confirmation_reason ? (
                         <p className="leading-5 text-muted-foreground">{cleanText(card.confirmation_reason, 120)}</p>
                       ) : null}
                       {(card.validation_hints || []).includes("possible_duplicate") ? (
@@ -234,7 +242,7 @@ export function AgentPkmReviewPanel({
                         <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 leading-5 text-foreground">
                           {cleanText(card.sharing_impact.summary, 160)}
                         </p>
-                      ) : multiGroup ? null : (
+                      ) : multiGroup || compact ? null : (
                         <p className="leading-5 text-muted-foreground">Private to your private agent. Consent required to share.</p>
                       )}
                     </div>

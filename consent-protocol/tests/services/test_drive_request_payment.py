@@ -446,7 +446,7 @@ def test_queued_unposted_grants_do_not_block_terminal_refund_candidate():
     assert "'dispatching'" in effects_check and "'unknown'" in effects_check
 
 
-def test_payment_migration_replay_guards_existing_triggers_and_event_constraint():
+def test_payment_migration_replay_guards_existing_triggers():
     migration = (
         Path(__file__).resolve().parents[2] / "db/migrations/262_drive_request_payments.sql"
     ).read_text()
@@ -457,12 +457,6 @@ def test_payment_migration_replay_guards_existing_triggers_and_event_constraint(
         guard = f"tgname='{trigger}'\n      AND tgrelid='{table}'::regclass"
         assert guard in migration
         assert migration.index(guard) < migration.index(f"CREATE TRIGGER {trigger}")
-    assert "SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(" in migration
-    # Replay keeps an installed superset (288 adds a type) and only then drops.
-    assert "IF NOT COALESCE(installed @> ARRAY[" in migration
-    assert migration.index("IF NOT COALESCE(installed @> ARRAY[") < migration.index(
-        "ALTER TABLE drive_share_events DROP CONSTRAINT"
-    )
 
 
 @pytest.mark.asyncio

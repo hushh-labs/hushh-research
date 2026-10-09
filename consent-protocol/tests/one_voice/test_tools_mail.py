@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -66,7 +68,7 @@ def _ctx(**services: Any) -> ToolContext:
         screen=ScreenContext(),
         vault_owner_token=_fixture_credential("vault"),
         firebase_id_token=_fixture_credential("firebase"),
-        services={"gmail": object(), **services},
+        services={"gmail": SimpleNamespace(assert_read_ready=AsyncMock()), **services},
     )
 
 
@@ -112,6 +114,7 @@ def _delegated(
     coverage: dict[str, Any] | None = None,
     offer: dict[str, Any] | None = None,
     failure_stage: str | None = None,
+    failure_reason: str | None = None,
     analysis_failed: list[str] | None = None,
 ):
     """Stand in for run_delegated_mail_read with its real return shape.
@@ -143,6 +146,7 @@ def _delegated(
             "coverage": counts if status == "ok" else None,
             "offer": offer if status == "ok" else None,
             "failure_stage": failure_stage,
+            "failure_reason": failure_reason,
             "analysis_failed": analysis_failed or [],
         }
 
@@ -1393,3 +1397,29 @@ async def test_voice_send_capability_requires_the_negotiated_review_surface(
     assert visible["send_blocked_reason"] is None
     assert "private-owner@example.com" not in repr(result)
     assert "private-scopes" not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "reason,expected",
+    [
+        ("domain_policy", "Workspace policy"),
+        ("quota_exceeded", "daily read limit"),
+        ("retryable", "temporarily unavailable"),
+    ],
+)
+async def test_provider_failure_preserves_authored_reason_without_connection_claim(
+    monkeypatch, reason, expected
+):
+    result = await _call(
+        monkeypatch,
+        _delegated(
+            "unavailable",
+            [],
+            failure_stage="retrieval",
+            failure_reason=reason,
+        ),
+    )
+    assert result.reason_code == reason
+    assert expected in " ".join(result.spoken_facts)
+    assert "connection is available" not in " ".join(result.spoken_facts)
+    assert HOSTILE_BODY not in " ".join(result.spoken_facts)

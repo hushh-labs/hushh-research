@@ -28,7 +28,7 @@ function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export function WalletSharing() {
+export function WalletSharing({ cardDetails = false }: { cardDetails?: boolean } = {}) {
   const { user } = useAuth();
   const { vaultKey, getVaultOwnerToken } = useVault();
   const actions = useConsentActions({ userId: user?.uid });
@@ -49,7 +49,7 @@ export function WalletSharing() {
   const current = state?.owner === owner ? state : null;
 
   useEffect(() => {
-    if (!user?.uid) { setDemoProfile(null); return; }
+    if (cardDetails || !user?.uid) { setDemoProfile(null); return; }
     let cancelled = false;
     const load = async () => {
       const fallbackName = user.displayName?.trim() || null;
@@ -70,7 +70,7 @@ export function WalletSharing() {
     void load();
     const timer = window.setInterval(load, 15_000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [user?.uid, user?.displayName, vaultKey]);
+  }, [user?.uid, user?.displayName, vaultKey, cardDetails]);
 
   useEffect(() => {
     if (!user) return;
@@ -155,11 +155,12 @@ export function WalletSharing() {
             <div className="min-w-0 flex-1 space-y-1">
               <p className="break-words text-sm font-semibold">{name}</p>
               <p className="text-sm">{details ? "Card details" : "Card summary"}</p>
+              {cardDetails ? <p className="text-xs text-muted-foreground">{expiryLabel(entry.expires_at).replace("Check access duration in Manage", "Access duration unavailable")}</p> : null}
             </div>
-            <Button variant="ghost" size="compact" className="shrink-0" onClick={(event) => {
+            {!cardDetails ? <Button variant="ghost" size="compact" className="shrink-0" onClick={(event) => {
               reviewTrigger.current = event.currentTarget;
               open(entry, active);
-            }}>{active ? "Manage" : "Review"}<ArrowUpRight aria-hidden="true" className="size-4" /></Button>
+            }}>{active ? "Manage" : "Review"}<ArrowUpRight aria-hidden="true" className="size-4" /></Button> : null}
           </div>;
         }) : <div className={styles.empty}><p className="text-sm text-muted-foreground">Not shared with anyone yet.</p></div>}
 
@@ -168,13 +169,13 @@ export function WalletSharing() {
   );
 
   return <div className={`${styles.content} motion-step-enter mx-auto w-full max-w-[820px] space-y-6 py-4`} data-testid="wallet-sharing-content">
-    <section className={styles.hero}>
+    {cardDetails ? <p className="text-xs text-muted-foreground">These recipients have Wallet-wide access, including this card.</p> : <section className={styles.hero}>
       <h2 className="ui-text-section-title">Your cards.<br />Your control.</h2>
       <p>You choose who can access your Wallet information.</p>
       <figure className={styles.heroCard}>
         <WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} profile={demoProfile} />
       </figure>
-    </section>
+    </section>}
     {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup("Shared with", current.grants, true)}
     <Dialog modal open={Boolean(selection && current && !current.error)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[420px]" onCloseAutoFocus={event => { event.preventDefault(); reviewTrigger.current?.focus({ preventScroll: true }); }}>

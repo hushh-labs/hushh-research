@@ -39,6 +39,31 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
 - Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
 
+### Live Email and Calendar reads
+
+One Live Voice keeps ordered tool dispatch while its provider/client intake can
+cancel only the active read task. A matching provider `tool_cancel`, new owner
+speech, or new typed input fences its result and isolated narration before queued
+dispatch catches up. Canceled reads publish one metadata-only terminal result:
+`cancelled/provider_cancelled` or `superseded/newer_question`. Effects already
+accepted retain their separate authoritative settlement and are never replayed
+or canceled by this read policy.
+
+Total budgets are 25 seconds for Calendar and 45 seconds for Email, including
+retrieval and interpretation; isolated narration has an 8-second bound inside
+the total. A retrieval deadline returns `rejected/read_timeout`. Narration
+failure preserves a successfully published card and interrupts partial audio.
+Provider receipt delivery and cancellation settlement are bounded to three
+seconds; an unhealthy transport closes within one second and an uncertain
+provider receipt is never retried. Unpublished entity offers are discarded; a late read cannot change which message
+or event an ordinal selects. Cancellation is cooperative: a synchronous read
+already running in a worker thread may finish, but its content cannot publish.
+
+Calendar REST reads additionally have a 12-second provider/connection budget,
+at most one safe transient retry and a 2 MiB streamed response cap. Calendar
+writes do not inherit these retry rules. Google REST responses are JSON pages;
+the app's lifecycle/card/audio frames are distinct from provider token streaming.
+
 ### Document request Feed wake-ups
 
 `GET /api/consent/document-feed/{user_id}` is a separate Firebase-bearer-authenticated

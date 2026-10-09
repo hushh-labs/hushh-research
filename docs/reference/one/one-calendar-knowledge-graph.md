@@ -1,6 +1,6 @@
 # One Calendar Knowledge Graph
 
-Status: code-backed baseline audited 2026-10-09 on commit 6748aa7b4, with the P0 implementation disposition below. This graph describes the owner's Google Calendar connection and One surfaces. It is context for people and agents, not a permission grant or alternate runtime router. The [Email graph](./one-email-knowledge-graph.md) describes the parallel Gmail boundary. The [implementation plan](../../superpowers/plans/2026-10-09-one-email-calendar-read-voice-plan.md) tracks repairs and remaining scope.
+Status: current-code graph updated by the second read-reliability audit on 2026-10-09; release evidence is tracked in the implementation plan. This graph describes the owner's Google Calendar connection and One surfaces. It is context for people and agents, not a permission grant or alternate runtime router. The [Email graph](./one-email-knowledge-graph.md) describes the parallel Gmail boundary. The [implementation plan](../../superpowers/plans/2026-10-09-one-email-calendar-read-voice-plan.md) tracks repairs and remaining scope.
 
 ## Visual Map
 
@@ -64,10 +64,10 @@ These are code-path findings, not measured production incident rates. The dispos
 | --- | --- | --- |
 | K01 | Untrusted event text can enter a model turn that still has action tools. | Closed in one_adk/external_read_boundary.py and external_read_projection.py: Calendar reads block later same-turn effects and durable projection removes raw event text. |
 | K02 | A mid-read disconnect or account switch can release old-account events. | Closed for service reads: GoogleCalendarService verifies owner/account/grant binding after token resolution and provider response, and rejects changes. |
-| K03 | A failed free/busy calendar may be treated as free. | Closed: embedded per-calendar errors fail the availability read, including opening suggestions. |
+| K03 | A failed free/busy calendar may be treated as free. | Closed: embedded per-calendar errors, malformed busy intervals and incomplete group expansion fail the availability read, including opening suggestions. |
 | K04 | Quota failure can look like lost permission. | Closed for recognized Google quota reasons: 403 rate limits map to retryable 429; other permission errors remain permission errors. See [Google Calendar errors](https://developers.google.com/workspace/calendar/api/guides/errors). |
 | K05 | A stale UI request can repopulate another owner's card. | Closed in use-calendar-upcoming-events.ts with owner, connection generation, and request fencing. |
-| K06 | Read coverage is narrower than the product request. | Subscribed-calendar list, selected-calendar bounded event list/search, exact detail, and pagination signals are added. Typed list-to-detail and selected-calendar follow-ups use private owner/conversation/grant-bound ordinal offers. The external-read barrier allows one connector read per turn, so follow-ups need another user turn. Native Calendar consent does not request the new optional list scope in this web release. |
+| K06 | Read coverage is narrower than the product request. | Subscribed-calendar list, selected-calendar bounded event list/search, exact detail, and bounded pagination are implemented. Live Voice next-page continuation keeps query/window/cursor private to the active session and rechecks the same grant; it never serializes query/cursor into durable Voice context. Typed list-to-detail and selected-calendar follow-ups use private owner/conversation/grant-bound ordinal offers. The external-read barrier allows one connector read per turn, so follow-ups need another user turn. Native Calendar consent does not request the new optional list scope in this web release. |
 | K07 | Voice cannot read Calendar events. | Closed by read_calendar. Event details are on the private screen card and optionally a separate tool-less narration path; the operational Live model sees only count/status. Narration is rollout-gated and falls back to screen-only detail. |
 
 ## Scope decision and invariants
@@ -79,3 +79,15 @@ Google exposes several read-only Calendar scopes. This product read surface will
 3. A failed provider or per-calendar result is unknown, not free or empty.
 4. A voice screen frame and spoken sentence are presentation, not a provider or permission result. The operational Live model receives only bounded, non-content receipts; spoken details use an isolated narration path.
 5. Calendar write proposals and reviewed actions remain outside the read-only Voice release.
+
+## Current reliability boundaries
+
+- The Calendar authorization marker combines account identity, encrypted refresh-token generation and service grant revision. Access-token refresh alone leaves it stable; reconnect/revocation invalidates offers and in-flight results.
+- REST reads have a 12-second total budget, a streamed 2 MiB cap and one bounded transient retry. Mutations retain their existing single-attempt authority contract.
+- Live reads have a 25-second total budget and isolated narration up to eight seconds. New input/cancellation retires unpublished results and offers. Provider receipt and client settlement waits are bounded; uncertain provider receipts are not retried.
+- Private cards show busy timestamps, correct all-day ranges, attendee responses and safe Meet links. Owner and request generations fence connection labels and results. Auth failures offer the Calendar recovery path.
+- A nine-scenario actual Live-model canary passed after correcting an instruction that allowed a preparatory read for an unsupported write. This is bounded routing evidence; complete paraphrase accuracy and deployed p95 are not established.
+
+## Second read-reliability audit
+
+The [implementation plan and 64-case matrix](../../superpowers/plans/2026-10-09-one-email-calendar-read-voice-plan.md#second-audit-read-reliability-and-latency) records the current follow-up: stable authorization generations, strict availability validation, read cancellation/deadlines, owner-fenced cards, empty-Mail grounding, and private Calendar continuation. Implementation and release evidence are tracked there; baseline tests alone did not cover the reproduced gaps.

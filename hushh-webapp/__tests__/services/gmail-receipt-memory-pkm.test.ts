@@ -4,7 +4,9 @@ import {
   buildShoppingReceiptCanonicalIndexPreparedDomain,
   buildShoppingReceiptMemoryPreparedDomain,
   hasMatchingReceiptMemoryProvenance,
+  RECEIPT_MEMORY_SAVE_WRITER,
 } from "@/lib/profile/gmail-receipt-memory-pkm";
+import { evaluateReservedWrite } from "@/lib/pkm/reserved-branches";
 import {
   RECEIPT_INDEX_BRANCH,
   type ReceiptCanonicalIndex,
@@ -263,12 +265,49 @@ describe("gmail-receipt-memory-pkm canonical index", () => {
     expect(
       prepared.manifest.externalizable_paths.some((path) => path.startsWith("receipts_memory")),
     ).toBe(false);
-    expect(prepared.structureDecision.source_agent).toBe("gmail_receipt_memory_v1");
+    expect(prepared.structureDecision.source_agent).toBe(RECEIPT_MEMORY_SAVE_WRITER);
     expect(prepared.summary).toMatchObject({
       readable_summary: "Kai sees strong receipt signals around Amazon.",
       receipt_memory_projection_hash: "digest-1",
-      source: "gmail_receipt_memory_v1",
+      source: RECEIPT_MEMORY_SAVE_WRITER,
     });
+  });
+
+  it("declares only the registered writer, so the reserved-branch guard accepts the save", () => {
+    // UAT 2026-10-09: the pre-save validation carries no mutation plan, so the
+    // backend judged the write by structure_decision.source_agent, which was the
+    // legacy "gmail_receipt_memory_v1" -> pkm.reserved_refused writer_unknown (422).
+    const prepared = buildShoppingReceiptCanonicalIndexPreparedDomain({
+      currentDomainData,
+      currentManifest: null,
+      index: indexOf(3),
+      digest: "digest-1",
+      now,
+    });
+    const receiptPaths = prepared.manifest.paths
+      .map((path) => path.json_path)
+      .filter((path) => path.startsWith("receipts_memory"));
+    expect(receiptPaths.length).toBeGreaterThan(0);
+    expect(
+      prepared.manifest.paths
+        .filter((path) => path.json_path.startsWith("receipts_memory"))
+        .every((path) => path.source_agent === RECEIPT_MEMORY_SAVE_WRITER),
+    ).toBe(true);
+
+    const judge = (writerId: string) =>
+      evaluateReservedWrite({
+        domain: "shopping",
+        paths: receiptPaths,
+        writerId,
+        authorizationMode: null,
+      });
+    // What the validation request is judged by, and what the real write carries.
+    expect(judge(String(prepared.structureDecision.source_agent))).toEqual([]);
+    expect(judge(RECEIPT_MEMORY_SAVE_WRITER)).toEqual([]);
+    // Negative control: the old declared writer is refused by the same rule.
+    expect(judge("gmail_receipt_memory_v1").map((refusal) => refusal.reason)).toContain(
+      "writer_unknown",
+    );
   });
 
   it("describes the shape of the index, not its size", () => {

@@ -35,6 +35,7 @@ from hushh_mcp.services.gmail_personal_information_request_service import (
     SensitiveRequestAssessment,
     get_personal_gmail_information_request_service,
 )
+from hushh_mcp.services.gmail_receipts_service import GmailApiError
 from hushh_mcp.services.owner_time import owner_zone
 from hushh_mcp.services.receipt_memory_read import (
     OPEN_RECEIPTS_ACTION_ID,
@@ -94,6 +95,7 @@ def mail_latency(stage: str, log: logging.Logger | None = None) -> Iterator[Mail
 
 AnalysisCategory = Literal["personal_info", "action_items", "meetings"]
 _ANALYSIS_CATEGORIES = ("personal_info", "action_items", "meetings")
+_ANALYSIS_CATEGORY_DEADLINE = 25.0
 _CATEGORY_TITLES = {
     "personal_info": "personal-information request",
     "action_items": "action item",
@@ -377,7 +379,7 @@ async def _analyze_rows(
 
         async def one(row: dict[str, Any]) -> dict[str, Any] | None:
             async with semaphore:
-                assessment = await asyncio.wait_for(personal_assessor(row), timeout=25)
+                assessment = await personal_assessor(row)
             if not assessment.is_information_request:
                 return None
             fields = list(assessment.requested_fields[:3])
@@ -455,7 +457,13 @@ async def _analyze_rows(
     for category in categories:
         if category != "personal_info":
             jobs.append(([category], tasks_and_meetings(category)))
-    outcomes = await asyncio.gather(*(job for _, job in jobs), return_exceptions=True)
+    # Bound the whole category, including time queued behind the four-message
+    # semaphore. Per-message timeouts otherwise permit three serial 25s waves.
+    # A failed category cancels its own work while preserving finished siblings.
+    outcomes = await asyncio.gather(
+        *(asyncio.wait_for(job, timeout=_ANALYSIS_CATEGORY_DEADLINE) for _, job in jobs),
+        return_exceptions=True,
+    )
     for (owned_categories, _), outcome in zip(jobs, outcomes, strict=True):
         if isinstance(outcome, BaseException):
             failed.extend(owned_categories)
@@ -476,6 +484,7 @@ def _result(
     coverage=None,
     offer=None,
     failure_stage: str | None = None,
+    failure_reason: str | None = None,
     analysis_failed: tuple[AnalysisCategory, ...] = (),
 ) -> dict[str, Any]:
     """The specialist turn, plus what a surface needs to show the person.
@@ -513,6 +522,7 @@ def _result(
         # row, which makes a later positional request refuse instead of guess.
         "offer": dict(offer) if offer else None,
         "failure_stage": failure_stage,
+        "failure_reason": failure_reason,
         # Bounded planner categories, separate from the strict shared receipt.
         # A failed read has no coverage, but One still needs to name the
         # requested analyses it could not complete.
@@ -642,6 +652,19 @@ async def run_delegated_mail_read(
     analysis_categories: tuple[AnalysisCategory, ...] = ()
     try:
         async with asyncio.timeout(105):
+            if not receipt_reads:
+                # Voice can only read the live mailbox. Refuse unavailable
+                # grants before spending a model round trip on planning. Typed
+                # receipt-memory reads remain usable without a Gmail grant.
+                try:
+                    await gmail.assert_read_ready(user_id=user_id)
+                except GmailApiError as exc:
+                    code = {
+                        "GMAIL_NOT_CONNECTED": "connect_required",
+                        "GMAIL_READ_PERMISSION_REQUIRED": "reconnect_required",
+                        "GMAIL_REAUTH_REQUIRED": "reconnect_required",
+                    }.get(exc.code, "retryable")
+                    raise GmailMetadataError(code) from None
             read_ids = message_ids
             read_mailbox = offer_mailbox
             read_account = expect_account
@@ -898,6 +921,29 @@ async def run_delegated_mail_read(
             # the whole point of computing them here is that prose cannot be
             # trusted with a number. Its prompt stays exactly what it was.
             coverage = dict(metadata.get("coverage") or {})
+            rows = metadata["untrusted_external_content"]
+            if not rows:
+                # No evidence can support model-authored mailbox claims.
+                # Empty retrieval is a server fact; retain the exact read's
+                # coverage and recheck the grant at the release boundary.
+                await reader.require_current()
+                coverage.update(
+                    cited=0, summarized=0, plan_source="offer" if read_ids else "planner"
+                )
+                text = "I did not find any matching mail in the messages checked."
+                if coverage.get("matches_beyond_page") or coverage.get("items_omitted"):
+                    text += " More mail may be outside this page."
+                logger.info(
+                    "one_voice.mail.latency stage=%s ms=%d status=%s", "interpret", 0, "skipped"
+                )
+                return _result(
+                    conversation_id,
+                    text,
+                    "ok",
+                    truncated=metadata["truncated"],
+                    metadata_only=metadata["metadata_only"],
+                    coverage=coverage,
+                )
             evidence = {k: v for k, v in metadata.items() if k != "coverage"}
             stage = "interpretation"
             with mail_latency("interpret"):
@@ -1010,6 +1056,7 @@ async def run_delegated_mail_read(
                 else "unavailable"
             ),
             failure_stage=stage,
+            failure_reason=exc.code if exc.code in _ERRORS else None,
             analysis_failed=analysis_categories if stage == "analysis" else (),
         )
     except PermissionError:

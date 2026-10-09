@@ -8,6 +8,7 @@ import { WalletReferralCardDetails } from "./wallet-referral-card-details";
 import type { ReferralSummary } from "@/lib/services/referral-service";
 import { WalletCardWorkspace } from "@/components/wallet-card/wallet-card-workspace";
 import { WalletAddCollection } from "./wallet-add-collection";
+import { WalletSharing } from "./wallet-sharing";
 import { WalletCardFace } from "./wallet-card-face";
 import { WALLET_DEMO_CARDS, WalletDemoCardFace, isAgentWalletCard, type WalletDemoProfile } from "./wallet-demo-cards";
 import { cardNetworkLabel } from "./card-network-mark";
@@ -166,7 +167,10 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
       {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} profile={demoProfile} failed={referralError} onRetry={onRetryReferral} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
         {selected.cardId === "agent-one-nws" ? <p className="text-sm text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}
         <WalletCardWorkspace embedded active={active} passVariant={selected.cardId === "agent-one-nws" ? "nws" : "profile"} />
-      </div> : details}
+      </div> : <div className="space-y-5">
+        {active ? <WalletSharing cardDetails /> : null}
+        {details}
+      </div>}
     </div>}
     {active && dockHost ? createPortal(dock, dockHost) : null}
 

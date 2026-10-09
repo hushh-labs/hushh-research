@@ -486,11 +486,14 @@ minutes, void after a new save). A missing, malformed, empty or older-than-seven
 index answers `Your receipt memory is not ready yet. Sync and save your receipts
 in Mail.` with the generated `route.profile_receipts` action, and is never
 reported as an empty mailbox. The index is written only through writer
-`gmail_receipt_memory_save_button`: once after each sync the owner starts on
-Mail > Receipts (the product default, set by `RECEIPT_MEMORY_AUTO_SAVE_DEFAULT`),
-or when the owner taps Save or Update private memory. Opening the page, a
-partly loaded list or a failed sync never writes, and a failed save is not
-retried on its own.
+`gmail_receipt_memory_save_button`: once, automatically, after each sync the
+owner starts on Mail > Receipts (the product default, set by
+`RECEIPT_MEMORY_AUTO_SAVE_DEFAULT`). The page shows no save control. Opening the
+page, a partly loaded list or a failed sync never writes; a failed save retries
+twice, quietly, then waits for the next sync. Every field of the write that
+names its author, including the structure decision's `source_agent`, is that
+writer id, because the pre-save validation request carries no mutation plan and
+the reserved-branch guard judges it by `source_agent` alone.
 
 **Queued messages (Claude-Code-style queueing).** While One works on a typed
 turn, the composer stays usable. A message sent then is offered to the running
@@ -1375,7 +1378,7 @@ RIA relationship bundle note:
 | GET    | `/api/pkm/device-sync/{user_id}`                                         | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract               |
 | GET    | `/api/pkm/metadata/{user_id}`                                            | Get PKM metadata for UI                                                                                                                               |
 | POST   | `/api/pkm/commits/lookup`                                                | Owner-scoped: whether each of the caller's own writes `{domain, plan_id}` already committed, in order. The commit id is derived from the token's user; the answer is `{exists, data_version}` only. The resumable save job asks this when a write's response was lost. |
-| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. `memory_profile` is optional: `general` remains the compatibility default and `kyc_identity_v1` performs one constrained KYC fact-extraction pass. Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
+| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. Optional `memory_profile`: `general` (compatibility default), `kyc_identity_v1` (constrained KYC extraction), or `business_directory_v1` (one business record with selectable listing fields). Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
 | POST   | `/api/pkm/domains/{domain}/scope-exposure`                               | Set a top-level PKM section posture: private or consent-required                                                                                      |
 | POST   | `/api/pkm/domains/{domain}/public-profile-projection`                    | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture                                           |
 | GET    | `/api/pkm/domains/{domain}/public-profile-projections?user_id={user_id}` | Vault-owner lists active public-profile handles and metadata only; never projection payloads                                                          |

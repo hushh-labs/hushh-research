@@ -19,6 +19,14 @@ import type {
   ShoppingReceiptsMemoryPayload,
 } from "@/lib/services/gmail-receipt-memory-service";
 
+/**
+ * The registered writer for `shopping.receipts_memory` (reserved-branches
+ * registry). Everything the receipt memory save declares about its author must
+ * be this id: the backend judges a request without a mutation plan, such as
+ * the pre-save validation, by the structure decision's `source_agent`.
+ */
+export const RECEIPT_MEMORY_SAVE_WRITER = "gmail_receipt_memory_save_button";
+
 function isReceiptMemoryPath(path: string | null | undefined): boolean {
   const normalized = String(path || "").trim();
   return normalized === "receipts_memory" || normalized.startsWith("receipts_memory.");
@@ -33,6 +41,7 @@ function toRecord(value: unknown): Record<string, unknown> {
 function buildPathDescriptors(params: {
   generatedPaths: PathDescriptor[];
   currentManifest: DomainManifest | null;
+  receiptsSourceAgent?: string;
 }): PathDescriptor[] {
   const previousPathMap = new Map(
     (params.currentManifest?.paths || []).map((path) => [path.json_path, path])
@@ -48,7 +57,9 @@ function buildPathDescriptors(params: {
       sensitivity_label:
         previous?.sensitivity_label ?? (receiptsPath ? "confidential" : path.sensitivity_label),
       scope_handle: previous?.scope_handle ?? path.scope_handle,
-      source_agent: receiptsPath ? "gmail_receipt_memory_v1" : previous?.source_agent ?? path.source_agent,
+      source_agent: receiptsPath
+        ? params.receiptsSourceAgent ?? "gmail_receipt_memory_v1"
+        : previous?.source_agent ?? path.source_agent,
     };
   });
 }
@@ -202,6 +213,7 @@ export function buildShoppingReceiptCanonicalIndexPreparedDomain(params: {
   const paths = buildPathDescriptors({
     generatedPaths: generated.manifest.paths,
     currentManifest: params.currentManifest,
+    receiptsSourceAgent: RECEIPT_MEMORY_SAVE_WRITER,
   });
   const topLevelScopePaths = Array.from(
     new Set(
@@ -243,7 +255,7 @@ export function buildShoppingReceiptCanonicalIndexPreparedDomain(params: {
     externalizable_paths: externalizablePaths,
     summary_projection: summaryProjection,
     confidence: 1,
-    source_agent: "gmail_receipt_memory_v1",
+    source_agent: RECEIPT_MEMORY_SAVE_WRITER,
     contract_version: 1,
   };
 
@@ -267,7 +279,7 @@ export function buildShoppingReceiptCanonicalIndexPreparedDomain(params: {
 
   return {
     domainData: nextDomainData,
-    summary: { ...summaryProjection, source: "gmail_receipt_memory_v1" },
+    summary: { ...summaryProjection, source: RECEIPT_MEMORY_SAVE_WRITER },
     manifest,
     structureDecision,
   };

@@ -69,6 +69,45 @@ describe("ToolResultCard", () => {
     expect(card).not.toHaveTextContent("google-secret");
   });
 
+
+  it("renders freebusy string times and all-day dates with Google's exclusive end", () => {
+    const { rerender } = render(<ToolResultCard tool="read_calendar" ok result={{ status: "ok", operation: "freebusy", time_zone: "UTC", busy: [{ start: "2026-10-09T09:00:00Z", end: "2026-10-09T10:00:00Z" }] }} />);
+    expect(screen.getByRole("list", { name: "Busy periods" })).toHaveTextContent("9:00");
+    expect(screen.getByRole("list", { name: "Busy periods" })).toHaveTextContent("10:00");
+    rerender(<ToolResultCard tool="read_calendar" ok result={{ status: "ok", operation: "events", events: [{ title: "Day off", start: { date: "2026-10-09" }, end: { date: "2026-10-10" } }] }} />);
+    expect(screen.getByText("2026-10-09 · All day")).toBeInTheDocument();
+    expect(screen.queryByText(/2026-10-10/)).toBeNull();
+  });
+
+  it("shows private event attendees and allows only safe Google Meet links", () => {
+    const event = { title: "Planning", attendees: [{ email: "jamie@example.com", response_status: "accepted" }], conference_url: "https://meet.google.com/abc-defg-hij" };
+    const { rerender } = render(<ToolResultCard tool="read_calendar" ok result={{ status: "ok", operation: "event", event }} />);
+    expect(screen.getByRole("list", { name: "Attendees" })).toHaveTextContent("jamie@example.com · accepted");
+    expect(screen.getByRole("link", { name: "Join Google Meet" })).toHaveAttribute("href", event.conference_url);
+    for (const conference_url of ["javascript:alert(1)", "https://meet.google.com.attacker.example/abc", "https://attacker@meet.google.com/abc"]) {
+      rerender(<ToolResultCard tool="read_calendar" ok result={{ status: "ok", operation: "event", event: { ...event, conference_url } }} />);
+      expect(screen.queryByRole("link", { name: "Join Google Meet" })).toBeNull();
+    }
+  });
+
+  it.each([
+    ["read_calendar", "calendar_not_connected", "Connect Calendar", "/one/calendar"],
+    ["read_calendar", "reconnect_required", "Reconnect Calendar", "/one/calendar"],
+    ["read_calendar", "permission_required", "Reconnect Calendar", "/one/calendar"],
+    ["read_mail", "connect_required", "Connect Email", "/one/email"],
+    ["read_mail", "reconnect_required", "Reconnect Email", "/one/email"],
+  ])("offers the authored recovery for %s/%s", (tool, reason_code, label, href) => {
+    render(<ToolResultCard tool={tool} ok={false} result={{ status: "rejected", reason_code }} />);
+    expect(screen.getByRole("link", { name: label })).toHaveAttribute("href", href);
+  });
+
+  it("never infers connection actions from prose or displays a cancelled private read", () => {
+    const { rerender } = render(<ToolResultCard tool="read_calendar" ok={false} result={{ status: "rejected", reason_code: "read_timeout", spoken_facts: ["Reconnect Calendar"] }} />);
+    expect(screen.queryByRole("link")).toBeNull();
+    rerender(<ToolResultCard tool="read_mail" ok={false} result={{ status: "superseded", answer: "Private old answer", messages: [{ subject: "Private old subject" }] }} />);
+    expect(screen.queryByText(/Private old/)).toBeNull();
+  });
+
   it("renders spoken_facts as the summary and a Done chip only for ok:true + success status", () => {
     const result: ToolResultPublic = {
       status: "created",
