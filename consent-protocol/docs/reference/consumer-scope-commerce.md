@@ -1560,8 +1560,11 @@ setup and browser encryption, without replacing existing account state.
 
 The preview-only workflow correction selects ledger mode after verified baseline
 admission; shared-dev migration replay remains unchanged. Its focused tests and
-independent source review passed, but local core, CI and governed landing still
-need completion. The reviewer transport correction passed the canonical skill
+independent source review passed. Its unchanged serial local core subsequently
+passed in 976 seconds at `810932844754dc2e9e193a4afdd2ffb71f41e23a`, including
+9,862 protocol tests passed and 98 skipped. [PR #7666](https://github.com/hushh-labs/hushh-research/pull/7666)
+tracks the permanent correction; CI and governed landing remain required.
+The reviewer transport correction passed the canonical skill
 checks (15 tests), including confirmed termination of a SIGTERM-resistant issuer
 and an owner-bound cold challenge after 88 seconds. Negative controls fail when
 immediate timeout rejection or the old 60-second cold cap is restored. These are
@@ -1570,9 +1573,15 @@ harness proofs, not transaction receipts.
 Physical iOS signing, installation and launch previously passed; XCTest stopped
 before test-body entry at OS automation admission. After restart, the physical
 iPhone is reachable and unlocked and the Sandbox application remains installed.
-That transport readback does not prove automation admission or buyer/seller
-acceptance. Preserve the installed session; do not reinstall or reset to bypass
-OS authorization.
+At 08:00:27 UTC, the rebuilt and signed test runner was installed separately
+from the preserved Sandbox application (version 1.4.0, build 69). The documented
+destination-artifact attach configuration disabled retained attachments and
+selected only the credential-free admission test. XCTest entered the test body,
+observed one native WebView, and passed with `NATIVE_AUTOMATION_ADMISSION_CONFIRMED`.
+The observed app state is Google sign-in, with neither an unlock gate nor a
+protected Chat composer. Automation admission is now proven; reviewer sign-in,
+vault admission and buyer/seller acceptance remain outstanding. The application
+was neither reinstalled nor reset for this check.
 
 Host plugin discovery still reports the official Stripe connector available but
 not installed. Application SDK credentials do not establish its OAuth connection
@@ -1610,8 +1619,10 @@ The preview-ledger candidate's first local core run found three existing Drive
 release-test subprocess timeouts at the unchanged 20-second deadline. The other
 9,859 protocol tests passed and 98 were skipped by their existing contracts.
 The nearest complete 15-test file passed at normal priority in 55.44 seconds.
-The full core rerun uses one worker and the worktree's Python directly, preserving
-the same checks and timeouts; its terminal result remains required before push.
+The full core rerun used one worker and the worktree's Python directly,
+preserving the same checks and timeouts; it passed all stages in 976 seconds.
+The exact candidate was then pushed and PR #7666 opened for required CI and
+Admin SOP landing. The first failed run remains part of the verification record.
 
 First-run Firebase identity capture now observes the normal authenticated vault
 bootstrap request. Exact-origin capture checks prevent foreign requests or
