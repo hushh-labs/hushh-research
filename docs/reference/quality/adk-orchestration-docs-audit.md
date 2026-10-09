@@ -8,10 +8,11 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 ## Decision — 2026-10-08
 
-Measurement snapshot: **2026-10-09 01:03 UTC** (October 8 locally). Both cold cohorts are complete; later evidence requires a dated refresh.
+Measurement snapshot: **2026-10-09 02:06 UTC** (October 8 locally). Cold cohorts are unchanged; placement and owner-offer evidence were refreshed read-only.
 
-**The dev application and isolated Files journeys work on both clouds. Release
-acceptance is held on cold latency and normal-owner journeys.** The corrected image
+**Production rollout is withheld. Dev application and isolated Files journeys
+work on both clouds; release acceptance still needs cold latency and normal-owner
+journeys.** The corrected image
 serves dev and passes exact-predecessor recovery on both clouds. Current cold
 responses remain above the 30-second target. Complete 20-sample cold cohorts
 have p95 **71.304 seconds Azure / 71.721 seconds Google**. These are
@@ -31,10 +32,11 @@ automatic owner upgrade is authorized by these results.
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
+| Local continuation | `e2bafb58e626484f87585196709e184bc5f88c09`: placement persistence, one-time legacy Shared continuity and migration recovery fences | Focused verification only; not pushed, deployed or applied. Hermes companion `f47d1750e1` is committed locally and its existing dev relay is waiting for activation. |
 | Verified candidate | `f026ba9eaf54782fcf3d09fd9578a68af1c4ad3f`; local core and [hosted CI 37846374234](https://github.com/hushh-labs/hushh-research/actions/runs/37846374234) passed | Not deployed. Frozen ADK `31932bb01ae9`; later unrelated ADK changes belong to the next cycle. |
 | Serving source | `e30732de37f21759e86b95027252163319de3d60`; [hosted CI 37828524953](https://github.com/hushh-labs/hushh-research/actions/runs/37828524953) passed | Source and serving evidence remain separate. |
 | Dev application | [Deployment 37832290957](https://github.com/hushh-labs/hushh-research/actions/runs/37832290957) succeeded; backend `00151-9x6`, frontend `00129-bn5`, exact source/run and 100% traffic independently read back | Rollback targets: backend `00150-slh`, frontend `00128-8m7`. |
-| Schema | Version 284; all 55 dev-manifest rows match; no required schema gaps | Isolated schema restoration and owner-image recovery are separate receipts. |
+| Serving schema | Version 284; all 55 entries in the serving dev manifest match | Local 958 adds legacy Shared continuity and stricter placement-reader checks; not applied. Fresh main head is 286, so final integration must reconcile release contracts before rollout. |
 | Pod release | `2026.10-dev.12+caaa5a82fd9c.e213acf2`; digest `sha256:e213acf2468179177371709fb2651eb622439ec8c2a2df3d11394d23867ffa1e` | Published dev-only offer admits only exact predecessor `ace34069` after recovery passed on both clouds. Reused image retains source `caaa5a82` and its original provenance. Publication does not approve an owner installation. |
 | Isolated pods | Google `00010-r7q`; Azure warm/soak `--q30f41b62764c`, registry-locality comparison `--ql04f3fe9a92`; all run `e213acf2` with verified Files/key recovery | Synthetic owners; not evidence of a normal Settings approval or fresh Azure environment. |
 
@@ -52,8 +54,8 @@ The archived release descriptor and independent serving readback match the run. 
 | Recovery / updates | Exact `ace34069` → `e213acf2` transition passed on both clouds: identity, keys, selected configuration and encrypted history retained. Google file bytes matched; separate current-image fixtures on both clouds also retain Files. | Normal Settings approval during active work, refresh/reconnect and one durable operation. Qualification is at 1 vCPU / 2 GiB, not capacity proof for every existing owner configuration. |
 | Chat / runtime | Current `e213acf2`: 20 warm and 20 genuine-cold chats per cloud complete; one/two/four overlapping chat/Files/status pass; ten-minute soak settles 20 operations per cloud. | Cold target fails; normal-browser cold timing, real Puppy overlap and full-workload resource peaks remain unverified. Genuine scale-to-zero observed on the current image. |
 | Headless reviewer / owner APIs | Deployed dev: canonical reviewer authentication, visible locked-vault challenge, unlock, Hosting/Updates and same-session continuity pass. Existing owner-approved Hermes session returns active Azure BYOC, an installable `.12` update and HTTP 200 Files plan, with unchanged owner/device claims; content analysis remains off. | Bounded browser rehearsal still fails on unsolicited enrollment; local guard and negative control pass. No browser import of the device session, new enrollment, Files approval, update approval or installation occurred. |
-| Puppy | Existing Hermes identity and signed direct stream retained; prior grant/withdrawal, response and cancellation receipts. | Fresh response/reconnect on qualified image and independent active internet. Heartbeat alone is not inference. |
-| Setup / billing | Durable retry, explicit Shared/`unplaced`, pending/assigned preservation, owner identity/IAM/CORS/admission gates. | New and existing owner setup, billing/policy return without duplicate resources. Azure trial refuses a second environment and new OpenAI S0 resource. |
+| Puppy | Existing identity/grant retained. Hermes `f47d1750e1` restarts the dev profile; temporary readiness/expiry/grant refusals return to authorized activation. Signature/identity failures still refuse. | Fresh inference/reconnect and independent active internet. Activation polling uses current registry placement; an online device does not keep the paid pod awake. |
+| Setup / billing | Durable retry and pending/assigned preservation. New authorization refuses an unrecorded setup; malformed detach history cannot revive Shared. One-time legacy continuity is locally qualified. | New and existing owner setup, billing/policy return without duplicate resources. Azure trial refuses a second environment and new OpenAI S0 resource. |
 | Connectors / commands | Sealed native Google authorization, scoped pod tools, exact approval/resume, refresh/restart fencing, notification coalescing and bounded durable jobs. | Real provider sign-in, native iOS/Android, scope upgrades, recorded commands, notification delivery and verified legacy hub cleanup. |
 | Computer Use | Task/preview/takeover ports, consented PKM exports and encrypted opt-in site sessions are source-backed. | Separately gated on both clouds; no owner information admitted to an unqualified executor. |
 
@@ -134,12 +136,17 @@ The application serves this source; owner installation and final cold-wake resul
 | Runtime / release | Core mirror, exact-SHA hosted CI and governed dev deployment passed. Exact-predecessor recovery and current-image cold/warm cohorts completed on both clouds. Compatibility metadata is published. Resolve measured cold latency and complete normal-owner approval. |
 | Owner / device | A supported owner Firebase SDK session and vault unlock for Settings; existing Hermes awake plus another independent internet path. Chromium sign-in was refused October 7; Firebase rejects both CLI clients with `INVALID_OAUTH_CLIENT_ID`. Existing Hermes authentication passes owner API readback, without minting or removing claims, but has no supported browser import. No installation approved. UID/passphrase alone do not establish sign-in. |
 | Azure subscription | Eligibility for fresh environment/model resources. Existing-environment fixture is explicitly narrower; no personal service settings changed. |
-| Documentation / Wiki | Current report links, calculations, visual review and maintained-doc integrity checks pass. The full docs command flags 71 retained scratch/source-copy links under the concurrent classification change; resolve provenance without deleting evidence or weakening the gate. Cold/owner Wiki edits passed readback; latest Flash-Lite section failed durable persistence after connector refresh authority expired. Reauthenticate and verify persistence. |
+| Documentation / Wiki | Current report calculations and visual review pass. The prior full docs command flags retained scratch/source-copy links under the concurrent classification change; preserve evidence while its owner resolves provenance. Private pod-page corrections now passed readback, including current release, legacy Shared continuity, migration limits, relay wait and Flash-Lite measurements. |
 | Production | Graduate parked migrations/release channels; qualify actual legacy Shared cohort, IAM, erasure, recovery, hub capacity and UAT journeys independently. |
 
-Migration 955 preserves only the evidenced legacy Shared cohort with its recorded
-`cloud` marker and no conflicting choice, assignment, detach history or setup job.
-Missing placement alone is not Shared. Existing-account release notes follow
+Read-only checks of the actual UAT/production databases found the branch-only
+`cloud` marker absent from completed legacy accounts; 955 alone would not preserve
+their Shared access. New parked 958 captures eligible completed accounts once,
+excluding assignments, pending setup, detached/malformed authority and prior
+choices. Real PostgreSQL tests prove replay cannot admit new/later-completed
+accounts. The production reader foundations and additive backfill must graduate
+before application traffic; no production schema was changed. Missing placement
+alone is not Shared. Existing-account release notes follow
 unlock and resolved setup; new accounts skip historical catch-up. Pod notes require
 the exact successful operation and verified digest. Neither notice grants access.
 
@@ -150,6 +157,24 @@ not equivalent quality. At the same resources and token assumptions, Google with
 [Package assumptions and VM comparison](../operations/private-files-library.md#whole-package-planning-budget)
 include disk/IP, hypothetical external VM wake, custody, model calls and exclusions.
 Paid scale-down tails need measurement; warnings never stop service.
+
+Cross-cloud migration remains disabled: record-head equality is insufficient for
+nested encrypted memory, Files objects or remembered sessions. Record-only transfer
+now refuses source-custody memory on send and receive. Authenticated drain requires
+an exact operation/incarnation, zero active work and committed-state receipt.
+Incomplete recovery or cleanup retains its ticket; active/unreconciled moves cannot
+be overwritten. Full key/object transfer, destination readability and cloud-specific
+resource reconstruction are not implemented by that sequencer. See the
+[migration contract](../architecture/pod-migration.md).
+
+Local continuation checks: **102 hosting**, **56 migration/job/backfill** and
+**37 Hermes relay** checks pass. The PostgreSQL retry-race negative control fails
+when the timestamp fence is removed. Ruff, migration-manifest alignment and skill
+lint pass. All **182 Mermaid figures** render; the revised cloud-move figure also
+passes visual review. Maintained-document checks pass, but the overall docs command
+still reports **71 scratch/source-copy link findings** under the concurrent
+classification change. No gate was weakened; all eight unrelated edit hashes remain
+unchanged. These source checks do not establish cloud-move or fresh Puppy acceptance.
 
 Operational owners: [Files](../operations/private-files-library.md),
 [dev pod runbook](../operations/dev-pod-first-light-runbook.md),

@@ -77,10 +77,26 @@ its notes. Available releases, matching tags and unverified restarts cannot
 announce successful installation. Both notices share one dialog; neither chooses
 hosting, grants access or starts an update.
 
-Before production, qualify the actual existing Shared cohort against migration
-955's predicates and graduate that migration through the production gate.
-Preserve assignments, detached placements and pending setup. Missing placement
-alone must not become Shared; the release dialog cannot perform a migration.
+Before production, preserve the actual completed legacy Shared cohort, rather than
+assuming the branch's `cloud` marker exists. Read-only UAT/production checks on
+October 8 found that marker absent. Parked 958 qualifies a one-time continuity
+snapshot; it excludes assigned, pending, detached and malformed placement, and
+replay cannot admit later accounts. Its PostgreSQL fixtures pass, but it has not
+run on those environments. New accounts still choose Shared explicitly.
+
+Graduate additive placement-reader foundations and the corrected backfill before
+application traffic, using the current migration ledger and schema head. Do not
+replay 955's substring backfill on production, relocate applied parked files, or
+reintroduce old constraints that exclude Azure. Include the setup cancellation
+reader's `authorization_attempts` column. Capture excluded cohorts privately and
+verify unchanged assignments and pending jobs. The dev minimum contract now checks
+these reader columns. Missing placement alone is not Shared, and the release dialog
+cannot perform this migration.
+
+Cross-cloud moves follow [the migration contract](../architecture/pod-migration.md).
+Do not offer a record-only export as a complete library move. Source draining needs
+the existing authenticated lifecycle receipt; unknown routing, incomplete recovery
+or cleanup retains its ticket until reconciled. Private keys never enter hub custody.
 
 The dev build reads the reviewed version, summary, changelog and supported
 predecessor digests from `deploy/pod-release.json`. The existing build recipe

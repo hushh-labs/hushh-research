@@ -119,16 +119,22 @@ never "hussh cannot read that pod."
 The current hosting choices are Shared, owner-project GCP (BYOC) and the person's own
 Azure subscription (owner-cloud Azure, founder decision 2026-10-02). Hussh Pods
 remains disabled. Existing assigned pods and pending provisioning must be preserved;
-an owner with no current placement or setup intent is `unplaced`. Shared requires a recorded owner choice newer
-than the last detach; pending or unreadable placement never falls back to Shared.
-This is enforced by `personal_agent_hosting.py` and `owner_hosting_choice.py` with
-parked dev migration955. Shared is a managed runtime, not a dedicated private pod;
-source checks do not prove that migration or placement behavior is deployed.
+new accounts without a current placement or setup intent are `unplaced`. Shared
+requires a recorded choice newer than the last detach; pending or unreadable
+placement never falls back to Shared. A one-time legacy continuity snapshot records
+eligible completed Shared accounts without changing assignments or pending setup.
+This is enforced by `personal_agent_hosting.py`, `owner_hosting_choice.py` and parked
+dev migrations 955/958. UAT/production lack the branch's cloud marker; 955 alone
+does not preserve their cohort. Production reader/schema graduation remains
+separate. Shared is a managed runtime, not a dedicated private pod; source checks
+do not prove that migration or placement behavior is deployed.
 
 BYOC uses keyless, short-lived service-account impersonation on GCP, and on Azure the
 person's own one-time sign-in plus a federated, secretless Hussh identity that can
 only observe and restart. Migration between hosting modes remains a recovery and
-owner-approval requirement, not a proven one-click capability. GCP and owner-cloud
+owner-approval requirement, not a proven one-click capability. The
+[migration contract](./pod-migration.md) distinguishes log integrity from complete
+encrypted object/key portability and keeps incomplete moves disabled. GCP and owner-cloud
 Azure are the deployment providers; Azure becomes selectable only as each admission
 gate in `deployment-standard.md` gains live evidence
 (`docs/reference/architecture/byoc-azure.md`). One person runs one active agent: a
