@@ -76,6 +76,12 @@ tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
+# Owner Allow for requests from outside the Trusted circle: migration 291 bounds
+# the owner price, replays without waiting behind live writers and refuses a
+# rollback that would strand an owner-priced payment. The Consent Center keeps
+# the owner's Allow/Deny decision and the automatic progress after Allow.
+tests/test_drive_request_owner_allowed_migration.py
+tests/services/test_drive_sharing_center.py
 tests/services/test_drive_feed_projection.py
 tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py

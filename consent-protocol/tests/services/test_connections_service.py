@@ -2397,6 +2397,56 @@ def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
     assert calls == [{"user_a_id": "user-a", "user_b_id": "user-b"}]
 
 
+def test_disconnecting_ends_the_pairs_document_request_allows():
+    """An owner's Allow on a document request never outlives the connection.
+
+    Allow lets a request from outside the owner's Trusted circle run automatic
+    Drive search and sharing while the two stay connected. Reconnecting must
+    not quietly bring it back, as it never brings back revoked scope grants or
+    named Circles, so the disconnect transaction ends it.
+    """
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "conn-1",
+                    "user_a_id": "user-a",
+                    "user_b_id": "user-b",
+                    "status": "active",
+                }
+            ],  # SELECT
+            [],  # explicit scope proposals -> none
+            [],  # explicit share grants -> none
+            [],  # RIA relation projection -> none
+            [{"id": "tc-1"}],  # UPDATE trusted_connections
+            [],  # UPDATE connection_origins
+            [{"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"}],  # UPDATE connections
+        ]
+    )
+    calls: list[dict] = []
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch.object(svc, "_end_one_location_circle_memberships", lambda **_kwargs: None),
+        patch.object(svc, "_end_drive_owner_allows", lambda **kwargs: calls.append(kwargs)),
+    ):
+        out = svc.remove_connection("user-a", "conn-1")
+
+    assert out == {"removed": 1}
+    assert calls == [{"user_a_id": "user-a", "user_b_id": "user-b"}]
+
+    # The cleanup runs on the disconnect's own transaction connection.
+    transaction_connection = object()
+    svc._transaction_connection = transaction_connection
+    ended: list[tuple[object, dict]] = []
+    with patch(
+        "hushh_mcp.services.drive_owner_allowed.end_owner_allows_for_disconnected_pair",
+        lambda connection, **kwargs: ended.append((connection, kwargs)),
+    ):
+        svc._end_drive_owner_allows(user_a_id="user-a", user_b_id="user-b")
+    assert ended == [(transaction_connection, {"user_a_id": "user-a", "user_b_id": "user-b"})]
+
+
 def test_a_disconnect_that_changed_nothing_evicts_nobody():
     """An already-revoked connection is not a fresh disconnect.
 
@@ -2431,6 +2481,8 @@ def test_a_disconnect_that_changed_nothing_evicts_nobody():
             "_end_one_location_circle_memberships",
             lambda **kwargs: calls.append(kwargs),
         ),
+        # Nor does a no-op retry end anyone's document request Allow.
+        patch.object(svc, "_end_drive_owner_allows", lambda **kwargs: calls.append(kwargs)),
     ):
         out = svc.remove_connection("user-a", "conn-1")
 

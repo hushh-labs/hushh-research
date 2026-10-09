@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -782,10 +783,14 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     if str(error) == "background_preparation_required":
                         raise
                     raise DriveReadError("search_superseded") from error
-                from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-
-                if not DriveSharingStore._trusted_recipient_current(
-                    connection, job["user_id"], request["recipient_user_id"]
+                # Current Trusted membership, or this request's sealed owner
+                # Allow while the pair is still connected.
+                if not automatic_recipient_current(
+                    connection,
+                    job["user_id"],
+                    request["recipient_user_id"],
+                    private,
+                    request_id=origin,
                 ):
                     raise DriveReadError("search_superseded")
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()

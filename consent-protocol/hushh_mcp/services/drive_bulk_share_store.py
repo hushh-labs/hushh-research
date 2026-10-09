@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingCipher,
     DriveSharingError,
@@ -324,25 +325,24 @@ class DriveBulkShareStore(DriveLivePreferences):
             return False
         approval_source = share["approval_source"]
         if approval_source == "trusted_auto":
-            # The request marker only records eligibility at creation. The
-            # immutable batch approval is the grant authority; an owner may
-            # explicitly approve another batch after Trusted access changes.
+            # The request marker only records eligibility at creation or at
+            # the owner's Allow. The immutable batch approval is the grant
+            # authority; an owner may explicitly approve another batch after
+            # Trusted access changes.
             if (
                 private.get("trusted_auto") is not True
                 or not share["progressive_batch"]
                 or request["preparation_error_code"] == "manual_search_active"
             ):
                 return False
-            from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-
             try:
                 self.background_current(
                     connection, user_id=owner, generation=share["connection_generation"]
                 )
             except DriveReadError:
                 return False
-            recipient_current = DriveSharingStore._trusted_recipient_current(
-                connection, owner, recipient
+            recipient_current = automatic_recipient_current(
+                connection, owner, recipient, private, request_id=share["origin_request_id"]
             )
         elif approval_source == "owner":
             recipient_current = self._request_recipient_current(connection, owner, recipient)
@@ -1463,16 +1463,18 @@ class DriveBulkShareStore(DriveLivePreferences):
                     raise DriveSharingError("trusted_request_unavailable")
                 if private.get("trusted_auto") is not True:
                     raise DriveSharingError("trusted_request_unavailable")
-                from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-
                 try:
                     self.background_current(
                         connection, user_id=user_id, generation=row["connection_generation"]
                     )
                 except DriveReadError as error:
                     raise DriveSharingError("trusted_request_unavailable") from error
-                if not DriveSharingStore._trusted_recipient_current(
-                    connection, user_id, recipients[0]["user_id"]
+                if not automatic_recipient_current(
+                    connection,
+                    user_id,
+                    recipients[0]["user_id"],
+                    private,
+                    request_id=origin["request_id"],
                 ):
                     raise DriveSharingError("trusted_request_unavailable")
             self._assert_no_overlapping_share(

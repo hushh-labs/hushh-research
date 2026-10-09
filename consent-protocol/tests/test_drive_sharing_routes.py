@@ -34,6 +34,7 @@ def setup(monkeypatch):
                 "review",
                 "delivery",
                 "approve",
+                "allow",
                 "decide",
                 "retry_preparation",
                 "prepare_revocation",
@@ -89,6 +90,7 @@ def unlock(app, uid="recipient"):
                 "confirmed": True,
             },
         ),
+        ("post", f"/{REQUEST_ID}/allow", {"revision": 0, "confirmed": True}),
         ("post", f"/{REQUEST_ID}/decline", {"revision": 0}),
         ("post", f"/{REQUEST_ID}/cancel", {"revision": 0}),
         ("post", f"/{REQUEST_ID}/review/refresh", {"revision": 0}),
@@ -222,6 +224,66 @@ def test_approval_only_acknowledges_pending_work(setup):
     )
     assert response.status_code == 202
     assert response.json() == {"status": "approved", "sharingStatus": "pending"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"revision": 0},
+        {"revision": 0, "confirmed": False},
+        {"revision": 0, "confirmed": 1},
+        {"revision": 0, "confirmed": "true"},
+        {"revision": 0, "confirmed": True, "amountCents": 0},
+        {"revision": 0, "confirmed": True, "amountCents": 2050},
+        {"revision": 0, "confirmed": True, "amountCents": 50100},
+        {"revision": 0, "confirmed": True, "amountCents": 2000.0},
+        {"revision": 0, "confirmed": True, "amountCents": "2000"},
+        {"revision": 0, "confirmed": True, "amountCents": True},
+        {"revision": 0, "confirmed": True, "trustedAuto": True},
+    ],
+)
+def test_allow_needs_explicit_confirmation_and_a_whole_dollar_price(setup, body):
+    client, app, service, _ = setup
+    unlock(app)
+    response = client.post(BASE + f"/{REQUEST_ID}/allow", json=body)
+    assert response.status_code == 422
+    assert "no-store" in response.headers["Cache-Control"]
+    service.allow.assert_not_called()
+
+
+def test_allow_forwards_the_owners_price_and_reports_refusals(setup):
+    client, app, service, current = setup
+    unlock(app)
+    service.allow.return_value = {
+        "requestId": REQUEST_ID,
+        "status": "pending",
+        "revision": 3,
+        "ownerAllowed": True,
+        "amountCents": 2000,
+    }
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/allow",
+        json={"revision": 3, "amountCents": 2000, "confirmed": True},
+    )
+    assert response.status_code == 202
+    assert response.json() == service.allow.return_value
+    service.allow.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, revision=3, amount_cents=2000
+    )
+    assert current.await_count == 2
+
+    response = client.post(BASE + f"/{REQUEST_ID}/allow", json={"revision": 3, "confirmed": True})
+    assert response.status_code == 202
+    assert service.allow.await_args.kwargs["amount_cents"] is None
+
+    for code, status in (("invalid_payment_amount", 422), ("request_already_decided", 409)):
+        service.allow.side_effect = DriveSharingError(code)
+        response = client.post(
+            BASE + f"/{REQUEST_ID}/allow", json={"revision": 3, "confirmed": True}
+        )
+        assert response.status_code == status
+        assert response.json()["detail"]["code"] == code
+        assert "no-store" in response.headers["Cache-Control"]
 
 
 @pytest.mark.parametrize(

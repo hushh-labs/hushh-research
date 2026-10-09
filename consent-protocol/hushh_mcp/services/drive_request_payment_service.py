@@ -1,4 +1,8 @@
-"""Stripe-hosted Checkout for a fixed $10 Drive request, with DB-bound settlement."""
+"""Stripe-hosted Checkout for one Drive request at its order's fixed price.
+
+Settlement is bound to the database order: the Checkout amount comes from the
+order row, and a paid event must match that order's amount and currency.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,12 @@ from sqlalchemy import text
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import (
+    MAX_OWNER_PRICE_CENTS,
+    MIN_OWNER_PRICE_CENTS,
+    automatic_recipient_current,
+    valid_owner_price_cents,
+)
 from hushh_mcp.services.drive_request_payment_store import (
     DriveRequestPaymentStore,
     _payer_ref,
@@ -99,7 +109,11 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
     def _current_checkout_authority(
         self, connection, *, request_id: str, requester_user_id: str
     ) -> dict:
-        """Recheck the same Trusted/background boundary under graph and request locks."""
+        """Recheck the same automatic/background boundary under graph and request locks.
+
+        Automatic means current Trusted membership, or this request's sealed
+        owner Allow while the pair is still connected.
+        """
         participant = self._row(
             connection,
             """SELECT user_id,recipient_user_id FROM drive_share_requests
@@ -135,13 +149,18 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 request["status"] == "pending"
                 and request["preparation_error_code"] != "manual_search_active"
                 and connector_feature_enabled("google_drive_chat_reads", owner)
-                and sharing._trusted_recipient_current(
-                    connection, owner, participants["recipient_user_id"]
+                and automatic_recipient_current(
+                    connection,
+                    owner,
+                    participants["recipient_user_id"],
+                    private,
+                    request_id=request_id,
                 )
             )
         else:
-            # Non-trusted requests retain owner consent. Payment is available
-            # only after that consent has queued an immutable grant batch.
+            # Without the automatic marker (no Trusted creation, no owner
+            # Allow), requests retain per-batch owner consent. Payment is
+            # available only after that consent has queued an immutable batch.
             # Progressive requests intentionally remain pending so later
             # batches can still be reviewed and paid by the same order.
             trusted_valid = connector_feature_enabled("google_drive_chat_reads", owner) and (
@@ -205,6 +224,10 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 return order
             if order["stripe_checkout_session_id"]:
                 raise DriveSharingError("payment_unavailable")
+            # The stored order amount is the Checkout price. An amount outside
+            # the whole-dollar price range never reaches the provider.
+            if not valid_owner_price_cents(order["amount_cents"]) or order["currency"] != "usd":
+                raise DriveSharingError("payment_unavailable")
             # Reserve the exact Stripe payload before provider I/O. Replays
             # must use the same expiration with the same idempotency key.
             # A failed, never-exposed attempt can restart only after its
@@ -243,8 +266,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 line_items=[
                     {
                         "price_data": {
-                            "currency": "usd",
-                            "unit_amount": 1000,
+                            "currency": order["currency"],
+                            "unit_amount": order["amount_cents"],
                             "product_data": {"name": "Document request"},
                         },
                         "quantity": 1,
@@ -301,8 +324,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         if (
             session.get("mode") != "payment"
             or session.get("client_reference_id") != request_id
-            or session.get("amount_total") != 1000
-            or session.get("currency") != "usd"
+            or session.get("amount_total") != order["amount_cents"]
+            or session.get("currency") != order["currency"]
             or session.get("livemode") != key.startswith("sk_live_")
             or session_metadata.get("payer_ref") != _payer_ref(request_id, requester_user_id)
             or session_metadata.get("payment_kind") != "drive_request"
@@ -403,13 +426,17 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         except DriveSharingError:
             raise DriveSharingError("payment_invalid_event") from None
         expired_event = event_type == "checkout.session.expired"
+        # Amount shape only: the locked order or obligation amount below is
+        # the settlement authority, and the session must match it exactly.
+        amount_total = session.get("amount_total")
         if (
             session.get("object") != "checkout.session"
             or not isinstance(session.get("id"), str)
             or session.get("client_reference_id") != request_id
             or session.get("mode") != "payment"
             or (not expired_event and session.get("payment_status") != "paid")
-            or session.get("amount_total") != 1000
+            or type(amount_total) is not int
+            or not MIN_OWNER_PRICE_CENTS <= amount_total <= MAX_OWNER_PRICE_CENTS
             or session.get("currency") != "usd"
             or session.get("livemode") != key.startswith("sk_live_")
             or (not expired_event and not isinstance(session.get("payment_intent"), str))
