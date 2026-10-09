@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   resolveThemePreference,
   type ThemePreference,
@@ -172,16 +173,11 @@ export function ThemeToggleLean({
   showLabels?: boolean;
   nativeContext?: { owner: string | null; context: string; eligible: boolean };
 }) {
-  const { activeTheme, isDark, selectTheme } = useStableThemeSelection();
+  const { activeTheme, selectTheme } = useStableThemeSelection();
   const selectedRef = useRef<HTMLButtonElement>(null);
 
   const sizeIntent = THEME_TOGGLE_LEAN_SIZE[size];
   const resolvedShowLabels = showLabels ?? sizeIntent.showLabels;
-
-  const activeIndex = Math.max(
-    0,
-    THEME_OPTIONS.findIndex((o) => o.value === activeTheme)
-  );
 
   // Do not render a selected segment until the persisted preference is known.
   if (!activeTheme) {
@@ -194,63 +190,13 @@ export function ThemeToggleLean({
   }
 
   const control = (
-    <div
-      data-theme-control
-      role="radiogroup"
-      aria-label="Theme"
-      className={cn(
-        "relative grid h-9 grid-cols-3 items-center rounded-full p-[3px]",
-        sizeIntent.width,
-        isDark ? "bg-white/[0.07]" : "bg-black/[0.05]",
-        className
-      )}
-    >
-      {/* Sliding active thumb */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute inset-y-[3px] left-[3px] w-[calc((100%-6px)/3)] rounded-full transition-transform duration-150 ease-out",
-          isDark
-            ? "bg-neutral-800 shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
-            : "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
-        )}
-        style={{ transform: `translateX(${activeIndex * 100}%)` }}
-      />
-      {THEME_OPTIONS.map((option) => {
-        const isActive = option.value === activeTheme;
-        return (
-          <button
-            key={option.value}
-            ref={isActive ? selectedRef : undefined}
-            type="button"
-            role="radio"
-            aria-checked={isActive}
-            aria-label={option.label}
-            title={option.label}
-            onClick={() => {
-              if (option.value === activeTheme) return;
-              selectTheme(option.value);
-            }}
-            className={cn(
-              "relative z-10 flex h-full min-w-0 items-center justify-center gap-1 rounded-full px-0.5 transition-colors duration-150",
-              isActive
-                ? isDark
-                  ? "text-white"
-                  : "text-slate-950"
-                : isDark
-                  ? "text-zinc-400 hover:text-zinc-200"
-                  : "text-slate-500 hover:text-slate-800"
-            )}
-          >
-            <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
-            {resolvedShowLabels ? (
-              <span className="hidden text-xs font-medium leading-none sm:inline">
-                {option.label}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
+    <div data-theme-control className={cn("h-9", sizeIntent.width, className)}>
+      <SegmentedControl ariaLabel="Theme" variant="sliding" value={activeTheme}
+        onValueChange={value => selectTheme(value as ThemeOption)}
+        selectedButtonRef={selectedRef}
+        options={THEME_OPTIONS.map(option => ({ ...option, accessibleLabel: option.label }))}
+        labelClassName={resolvedShowLabels ? "hidden text-xs font-medium leading-none sm:inline" : "sr-only"}
+        className="w-full" />
     </div>
   );
   if (!nativeContext) return control;

@@ -196,6 +196,41 @@ final class ChromeFocusRequest: ObservableObject {
     @Published var sequence = 0
 }
 
+/// One renderer for bounded radio choices; route/swipe tabs keep their pager.
+/// All values/actions are projected from the existing React operation owner.
+@available(iOS 26.0, *)
+private struct NativeFiniteSegmentedPicker: View {
+    struct Option: Identifiable {
+        let id: String
+        let symbol: String
+        let label: String
+    }
+    let label: String
+    let identifier: String
+    let options: [Option]
+    let selected: String
+    let width: CGFloat
+    let theme: HushhNativeControlAppearance
+    let action: (String) -> Void
+    let layout: (CGSize) -> Void
+    var body: some View {
+        Picker(label, selection: Binding(get: { selected }, set: { value in
+            guard value != selected, options.contains(where: { $0.id == value }) else { return }
+            action(value)
+        })) {
+            ForEach(options) { option in
+                Image(systemName: option.symbol).tag(option.id).accessibilityLabel(option.label)
+            }
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.large)
+        .tint(Color(uiColor: theme.accent))
+        .accessibilityIdentifier(identifier)
+        .frame(width: width, height: 44)
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
+    }
+}
+
 /// Apple's segmented Picker, with no second selection store. React owns value.
 /// The 44pt host is a reservation, not proof of each system segment's hit region.
 /// Characterize large-control hit geometry on iPhone before family promotion.
@@ -207,18 +242,10 @@ struct NativeAgentSurfaceSelector: View {
     let action: (String) -> Void
     let layout: (CGSize) -> Void
     var body: some View {
-        Picker("Agent", selection: Binding(get: { selected }, set: action)) {
-            Image(systemName: "cloud").tag("one")
-                .accessibilityLabel("One, your cloud agent")
-            Image(systemName: "laptopcomputer").tag("puppy")
-                .accessibilityLabel("Puppy One, on your machine, with its own conversation")
-        }
-        .pickerStyle(.segmented)
-        .controlSize(.large)
-        .tint(Color(uiColor: theme.accent))
-        .accessibilityIdentifier("chat-agent-surface")
-        .frame(width: width, height: 44)
-        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
+        NativeFiniteSegmentedPicker(label: "Agent", identifier: "chat-agent-surface", options: [
+            .init(id: "one", symbol: "cloud", label: "One, your cloud agent"),
+            .init(id: "puppy", symbol: "laptopcomputer", label: "Puppy One, on your machine, with its own conversation")
+        ], selected: selected, width: width, theme: theme, action: action, layout: layout)
     }
 }
 
@@ -231,17 +258,11 @@ struct NativeAppearanceSelector: View {
     let action: (String) -> Void
     let layout: (CGSize) -> Void
     var body: some View {
-        Picker("Appearance", selection: Binding(get: { selected }, set: action)) {
-            Image(systemName: "sun.max").tag("light").accessibilityLabel("Light")
-            Image(systemName: "moon").tag("dark").accessibilityLabel("Dark")
-            Image(systemName: "desktopcomputer").tag("system").accessibilityLabel("System")
-        }
-        .pickerStyle(.segmented)
-        .controlSize(.large)
-        .tint(Color(uiColor: theme.accent))
-        .accessibilityIdentifier("profile-appearance")
-        .frame(width: width, height: 44)
-        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
+        NativeFiniteSegmentedPicker(label: "Appearance", identifier: "profile-appearance", options: [
+            .init(id: "light", symbol: "sun.max", label: "Light"),
+            .init(id: "dark", symbol: "moon", label: "Dark"),
+            .init(id: "system", symbol: "desktopcomputer", label: "System")
+        ], selected: selected, width: width, theme: theme, action: action, layout: layout)
     }
 }
 
