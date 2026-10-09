@@ -196,7 +196,10 @@ async function open(
   await page.setViewportSize({ width, height });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("http://wallet-fixture.local/**", async (route) => {
+  const fixture = shell ? shellMarkup() : '<div id="root"></div>';
+  const html = `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`;
+  await page.route("https://wallet-fixture.local/**", async (route) => {
+    if (route.request().isNavigationRequest()) { await route.fulfill({ body: html, contentType: "text/html" }); return; }
     const requestUrl = new URL(route.request().url());
     const assetPath = requestUrl.searchParams.get("url") ?? requestUrl.pathname;
     if (assetPath === "/wallet/wallet-cards-hero.webp") {
@@ -209,10 +212,7 @@ async function open(
     }
     await route.abort();
   });
-  const fixture = shell ? shellMarkup() : '<div id="root"></div>';
-  await page.setContent(
-    `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><base href="http://wallet-fixture.local/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`,
-  );
+  await page.goto("https://wallet-fixture.local/");
   await awaitProductFont(page);
   await page.addScriptTag({ content: `window.__walletScenario = ${JSON.stringify(scenario)};${PROBES}` });
   return errors;
@@ -347,6 +347,14 @@ test("Wallet Add scrolls in the page and swipes back to Cards without a tall bla
   await mount(page);
   await expect(page.getByTestId("wallet-add-layer-agent-one-profile")).toBeInViewport();
   const scroll = page.locator('[data-app-scroll-root="true"]');
+  await expect.poll(() => page.evaluate(async () => {
+    const cards = document.querySelector("#top-shell-wallet-panel-cards")!;
+    const pager = document.querySelector('[data-swipe-views-root="true"]')!;
+    const baseline = [cards.scrollHeight, pager.clientHeight];
+    for (let i = 0; i < 3; i += 1) await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    return Math.abs(pager.clientHeight - cards.scrollHeight) <= 1 &&
+      cards.scrollHeight === baseline[0] && pager.clientHeight === baseline[1];
+  })).toBe(true);
   const cardsOverflow = await scroll.evaluate((el) => el.scrollHeight - el.clientHeight);
   await page.getByRole("tab", { name: "Add", exact: true }).click();
   await expect(page.getByTestId("secure-card-add-form")).toBeInViewport();
@@ -614,15 +622,12 @@ for (const width of [320, 390, 1440]) {
     await mount(page);
     await expect(page.getByTestId("wallet-card-face").first()).toBeVisible();
     await page.getByRole("tab", { name: "Sharing", exact: true }).click();
-    await recordWalletLayout(page, "sharing-after-tap");
-    try {
-      await expect.poll(() => page.evaluate(() => Math.abs(
-        document.querySelector("#top-shell-wallet-panel-sharing")!.getBoundingClientRect().x -
-        document.querySelector('[data-swipe-views-root="true"]')!.getBoundingClientRect().x
-      ))).toBeLessThan(2);
-    } finally {
-      await recordWalletLayout(page, "sharing-after-alignment");
-    }
+
+    await expect.poll(() => page.evaluate(() => Math.abs(
+      document.querySelector("#top-shell-wallet-panel-sharing")!.getBoundingClientRect().x -
+      document.querySelector('[data-swipe-views-root="true"]')!.getBoundingClientRect().x
+    ))).toBeLessThan(2);
+
     const sharing = page.getByTestId("wallet-sharing-content");
     await expect(sharing.getByText("Sample requester")).toHaveCount(0);
     await expect(sharing.getByText("Sample recipient")).toBeVisible();

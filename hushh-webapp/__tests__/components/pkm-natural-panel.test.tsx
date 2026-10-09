@@ -13,6 +13,7 @@ import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { buildLocationMemoryPresentation } from "@/lib/profile/location-memory-presentation";
+import { ScopeCommerceService } from "@/lib/services/scope-commerce-service";
 
 const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory, trackEvent } = vi.hoisted(() => ({
   addToPKM: vi.fn(),
@@ -1207,6 +1208,12 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       // No navigation at all — specifically not to the Consent Center.
       expect(push).not.toHaveBeenCalled();
       expect(push).not.toHaveBeenCalledWith(expect.stringContaining("/consent"));
+      const tariff = vi.spyOn(ScopeCommerceService, "tariff").mockResolvedValue(null);
+      vi.spyOn(ScopeCommerceService, "readiness").mockRejectedValue(new Error("Payments paused"));
+      fireEvent.click(screen.getByRole("button", { name: "Set sharing price for Profile" }));
+      await screen.findByRole("heading", { name: "Price for Profile" });
+      await waitFor(() => expect(tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*"));
+      expect(push).not.toHaveBeenCalled();
     });
 
     it("changes this memory's own scope through the PKM scope-exposure contract", async () => {
@@ -1326,6 +1333,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         await screen.findByText(/Sharing controls for this memory aren’t available right now/),
       ).toBeTruthy();
       expect(screen.queryByRole("switch")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Set sharing price/ })).toBeNull();
       expect(updateScopeExposure).not.toHaveBeenCalled();
       expect(push).not.toHaveBeenCalled();
     });

@@ -1746,3 +1746,47 @@ No deployment, private-pod rollout, account OAuth receipt or payment acceptance
 is inferred from source verification. Effective bridge permissions, host/owner
 OAuth, physical reviewer sign-in and the explicit Sandbox cost scenario remain
 external prerequisites.
+
+
+### Shared Dev consolidation and Memory pricing — 2026-10-09
+
+The founder selected `dev.one.hushh.ai` as the demo destination and retained
+`claude/hushh-infrastructure-analysis-7o991c` as the development branch. This
+supersedes the dedicated preview as the active rehearsal destination; earlier
+preview receipts remain historical evidence, not current Dev acceptance.
+
+A fresh readback found shared Dev frontend `hushh-webapp-00129-bn5` and backend
+`consent-protocol-00151-9x6` serving application source
+`e30732de37f21759e86b95027252163319de3d60` at 100% traffic. That source already
+contains the legacy Profile-section price editor. The main Memory record's
+Sharing dialog omitted it, so the absence was an interface integration gap.
+The dialog now reuses the existing editor for exactly one materialized,
+registered section. It rejects foreign manifests, ambiguous/missing handles and
+missing record paths. Pricing applies to the named whole section; it never
+invents per-record pricing, inherits tariffs into descendant scopes, or changes
+sharing exposure, consent or refresh authority. The editor is keyed to the owner,
+handle, domain and section, preserving existing stale-session checks.
+
+Demo navigation is Memory → open a saved record → Sharing → Sharing price.
+Payment setup and activity remain in Profile → Account; requests and approvals
+remain in Consent. An unavailable payment provider does not prevent free,
+owner-approved sharing or convert saved paid terms to free. Paid controls remain
+unavailable until their server capabilities admit them.
+
+The combined branch at `f6ef39f45a93a95cb3be7223ce6ea8ccc84b1a80` failed CI
+run [37967146945](https://github.com/hushh-labs/hushh-research/actions/runs/37967146945).
+Corrections update existing fixtures to current navigation feedback, the Messages
+roster, cohesive Wallet artwork, native palette admission, whole-pane gestures
+and disabled native-test configuration. Privacy, cancellation, exact-scope and
+layout assertions remain blocking; a failed candidate cannot be deployed.
+
+The dedicated preview retirement preflight at 2026-10-09T17:22:09Z found zero
+fundings, purchases, journal entries, withdrawals and provider operations, with
+new paid/provider admission already disabled. Retirement removes only the
+owned preview services, scheduler, signed webhook endpoints, secret namespace,
+isolated database/roles, dedicated identities and exclusive monitoring resources.
+The shared SQL instance, shared metrics, reviewer identities, unrelated worktrees
+and audit history are preserved. Refresh the financial proof before mutation and
+verify exact resource absence afterward. Deploy/readback and retirement receipts
+are required before describing consolidation as complete. Live payments and full
+financial/native/MCP acceptance remain unverified and issue #7587 stays In Progress.

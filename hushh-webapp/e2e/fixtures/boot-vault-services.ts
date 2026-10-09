@@ -31,3 +31,9 @@ export const getNativeUiTestVaultPassphrase = () => null;
 export const isNativeUiTestSession = () => false;
 export const preferPassphraseUnlockForAutomation = () => false;
 export const shouldSkipGeneratedVaultUnlockForAutomation = () => false;
+
+// Automation is disabled for this inert layout fixture.
+export const shouldSkipFirstWelcomeForAutomation = (_config?: unknown) => false;
+export const shouldSkipAmbientIdentityHydrationForAutomation = (_config?: unknown) => false;
+export const shouldSkipReviewerBackgroundWritesForAutomation = () => false;
+export const shouldDisableExternalTelemetryForAutomation = (_config?: unknown, _hostname?: string) => false;

@@ -130,7 +130,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (10)" })).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
     // A resolved journey is redirected by that workspace to the normal product
@@ -187,6 +187,7 @@ describe("OneDashboardPage", () => {
     expect(
       screen.getByRole("link", { name: "Open Calendar" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("calendar"));
+    expect(screen.getByRole("link", { name: "Open Messages" })).toHaveAttribute("href", ROUTES.ONE_MESSAGES);
     expect(screen.queryByRole("link", { name: "Open KYC" })).toBeNull();
     expect(
       screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
@@ -201,7 +202,7 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText("Explore")).toBeNull();
     // Gmail and Calendar are first-class setup capabilities; Wallet, Memory,
     // and Consent remain direct workspaces and do not inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(10);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
@@ -233,7 +234,7 @@ describe("OneDashboardPage", () => {
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
     expect(countRosterMetrics(container, "0", "actions")).toBe(5);
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (10)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
 
     // Completed setup keeps the same capability artwork as unfinished setup.
@@ -317,13 +318,13 @@ describe("OneDashboardPage", () => {
     window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    const heading = screen.getByRole("heading", { name: "Agents (9)" });
+    const heading = screen.getByRole("heading", { name: "Agents (10)" });
     const gridControl = screen.getByLabelText("Show agent grid view");
     const listControl = screen.getByLabelText("Show agent list view");
     const gridContent = screen.getByTestId("one-agents-view-content");
 
     fireEvent.click(listControl);
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
+    expect(screen.getByRole("heading", { name: "Agents (10)" })).toBe(heading);
     expect(screen.getByLabelText("Show agent grid view")).toBe(gridControl);
     expect(screen.getByLabelText("Show agent list view")).toBe(listControl);
     expect(gridContent.isConnected).toBe(false);
@@ -331,7 +332,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
 
     fireEvent.click(gridControl);
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
+    expect(screen.getByRole("heading", { name: "Agents (10)" })).toBe(heading);
     expect(screen.queryByTestId("one-agents-list")).toBeNull();
     expect(screen.getAllByTestId("one-agents-grid")).toHaveLength(1);
   });

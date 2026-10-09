@@ -19,6 +19,8 @@ describe("native color preference", () => {
     bridge.platform = "ios";
     bridge.documentId = crypto.randomUUID();
     document.documentElement.style.setProperty("--app-accent", "#007aff");
+    document.documentElement.style.setProperty("--accent-preview-blue", "#007aff");
+    document.documentElement.style.setProperty("--accent-preview-gold", "#b8860b");
     document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, families: [], independentControls: true });
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
@@ -31,7 +33,7 @@ describe("native color preference", () => {
   it.each(["web", "android", "unsupported-ios"])("keeps the selected color inside its established fallback on %s", async platform => {
     bridge.platform = platform === "unsupported-ios" ? "ios" : platform;
     const view = render(<NativeAccentChoice value="gold" owner="synthetic-owner" context="preferences" eligible />);
-    const trigger = view.getByRole("combobox", { name: "App accent color" });
+    const trigger = await view.findByRole("combobox", { name: "App accent color" });
     await waitFor(() => expect(trigger).toBeVisible());
     expect(trigger).toHaveTextContent("Molten Gold");
     expect(bridge.prepare).not.toHaveBeenCalled();

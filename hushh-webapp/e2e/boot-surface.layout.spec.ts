@@ -527,7 +527,7 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
       return {
         centered: Math.abs(surface.left + surface.width / 2 - innerWidth / 2) <= 1,
         horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-        contained: footer.every((button) => {
+        contained: footer.length === 2 && footer.every((button) => {
           const r = button.getBoundingClientRect();
           return r.top >= box.top - 1 && r.bottom <= box.bottom + 1 &&
             r.bottom <= innerHeight - Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb-height")) + 1;
@@ -561,21 +561,38 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
       if (overflows) {
         // Negative control: programmatic reveal would pass overflow:hidden.
         // A real wheel inside the scrollport must not pass that broken state.
-        await content.evaluate((node) => { node.style.overflowY = "hidden"; });
-        await page.mouse.wheel(0, 1000);
-        await page.evaluate(() => new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        }));
-        await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBe(0);
-        expect((await recoveryGeometry()).contained).toBe(false);
-        await content.evaluate((node) => { node.style.overflowY = ""; });
-        // Synchronize the fixture's deliberate overflow mutation before the
-        // next wheel. WebKit failed without this paint boundary.
-        await page.evaluate(() => new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        }));
-        await page.mouse.wheel(0, 1000);
-        await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+        const originalScrollStyle = await content.evaluate((node) => {
+          const footer = [...node.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Recovery key")!;
+          const original = { maxHeight: node.style.maxHeight, overflowY: node.style.overflowY };
+          // Padding alone may overflow with all controls visible. Clip an actual
+          // target so the negative proves that hidden scrolling blocks recovery.
+          node.style.maxHeight = `${footer.getBoundingClientRect().top - node.getBoundingClientRect().top + footer.getBoundingClientRect().height / 2}px`;
+          node.style.overflowY = "hidden";
+          node.scrollTop = 0;
+          return original;
+        });
+        try {
+          await expect.poll(async () => (await recoveryGeometry()).contained).toBe(false);
+          await page.mouse.wheel(0, 1000);
+          await page.evaluate(() => new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }));
+          await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBe(0);
+          expect((await recoveryGeometry()).contained).toBe(false);
+          await content.evaluate((node) => { node.style.overflowY = "auto"; });
+          // Synchronize the fixture's deliberate overflow mutation before the
+          // next wheel. WebKit failed without this paint boundary.
+          await page.evaluate(() => new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }));
+          await page.mouse.wheel(0, 1000);
+          await expect.poll(() => content.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+          await expect.poll(async () => (await recoveryGeometry()).contained).toBe(true);
+        } finally {
+          await content.evaluate((node, original) => {
+            node.style.maxHeight = original.maxHeight; node.style.overflowY = original.overflowY;
+          }, originalScrollStyle);
+        }
       }
       // A positive scroll offset proves motion started, not that WebKit has
       // finished it. Require the full original geometry contract at settlement.

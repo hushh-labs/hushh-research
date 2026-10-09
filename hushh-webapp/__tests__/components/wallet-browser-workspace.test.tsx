@@ -26,6 +26,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigationMock.search),
 }));
 
+vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () => null }));
+
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: authMock.user, loading: false }),
 }));
@@ -56,8 +58,9 @@ const serviceMock = vi.hoisted(() => ({
   getCard: vi.fn(),
   addCard: vi.fn(),
 }));
-vi.mock("@/lib/services/wallet-card-service", () => ({
-  WalletCardService: { getCard: vi.fn().mockResolvedValue({ card: null, shareUrl: null }) },
+vi.mock("@/lib/services/wallet-card-service", async (original) => ({
+  ...await original<object>(),
+  WalletCardService: { getCard: vi.fn().mockResolvedValue({ enabled: false, exists: false, card: null, shareUrl: null }), subscribe: vi.fn(() => () => undefined) },
 }));
 
 vi.mock("@/lib/services/wallet-service", async () => {
@@ -112,7 +115,7 @@ describe("Wallet video browser workspace", () => {
     serviceMock.getCard.mockResolvedValue({ summary: makeCards(1)[0], secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Test" } });
     await open();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0", exact: true }));
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
     await screen.findByTestId("secure-card-reveal");
@@ -123,7 +126,7 @@ describe("Wallet video browser workspace", () => {
     let finish!: (value: unknown) => void;
     serviceMock.getCard.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     await open();
-    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0", exact: true }));
     fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     await act(async () => finish({ summary: makeCards(1)[0], secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Test" } }));
@@ -133,7 +136,7 @@ describe("Wallet video browser workspace", () => {
   it("opens the existing Add form from its tab and clears a revealed card", async () => {
     serviceMock.getCard.mockResolvedValue({ summary: makeCards(1)[0], secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Test" } });
     await open();
-    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0", exact: true }));
     fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
     await screen.findByTestId("secure-card-reveal");
     fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
@@ -166,13 +169,13 @@ describe("Wallet video browser workspace", () => {
     serviceMock.listCardSummaries.mockResolvedValue([]);
     await open();
     const browser = screen.getByTestId("wallet-card-browser");
-    fireEvent.click(screen.getByRole("button", { name: "Travel", exact: true }));
-    expect(screen.getByTestId("wallet-demo-details")).toHaveTextContent("Travel card");
+    fireEvent.click(screen.getByRole("button", { name: "Agent One Profile", exact: true }));
+    await waitFor(() => expect(screen.getByTestId("wallet-selected-card")).toBeVisible());
     fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fireEvent.click(screen.getByRole("tab", { name: "Cards", exact: true }));
     await waitFor(() => expect(browser).toHaveAttribute("data-mode", "all"));
     expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
-    expect(screen.queryByTestId("wallet-demo-details")).toBeNull();
+    expect(screen.queryByTestId("wallet-selected-card")).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
 

@@ -143,21 +143,22 @@ async function mount(
 const pane = (page: Page) => page.getByTestId("profile-pane");
 const paneTitle = (page: Page) => pane(page).locator("h2").first();
 
-test("stationary Profile chrome and Preferences keep their grid while only the body follows a pull", async ({ page }) => {
+test("Profile chrome and Preferences keep their grid while the whole pane follows a pull", async ({ page }) => {
   await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
-  const preferences = pane(page).locator("[data-profile-stationary-preferences]");
+  const preferences = pane(page).locator("[data-profile-appearance-preferences]");
   await expect(preferences.getByText("Appearance", { exact: true })).toBeVisible();
+  await expect(preferences.getByRole("radiogroup", { name: "Theme", exact: true })).toBeVisible();
   const controlEdges = await preferences.evaluate(node => {
     const appearance = node.querySelector('[role="radiogroup"]')!.getBoundingClientRect();
-    const accent = node.querySelector('[role="combobox"]')!.getBoundingClientRect();
+    const accent = node.querySelector('select[aria-label="App accent color"]')!.getBoundingClientRect();
     return { appearance: appearance.right, accent: accent.right };
   });
   expect(Math.abs(controlEdges.appearance - controlEdges.accent)).toBeLessThanOrEqual(1);
   const measured = await page.evaluate(() => {
     const frame = document.querySelector<HTMLElement>('[data-testid="profile-pane"]')!;
-    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
+    const body = frame;
     const title = frame.querySelector("h2")!;
-    const controls = frame.querySelector("[data-profile-stationary-preferences]")!;
+    const controls = frame.querySelector("[data-profile-appearance-preferences]")!;
     const before = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
     const dispatch = (type: string, x: number, time: number) => {
       const point = { identifier: 1, clientX: x, clientY: 320 };
@@ -168,27 +169,27 @@ test("stationary Profile chrome and Preferences keep their grid while only the b
     dispatch("touchstart", 120, 100); dispatch("touchmove", 170, 220);
     const after = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
     dispatch("touchcancel", 170, 240);
-    return { before, after, frameTransform: frame.style.transform, hasDuplicatedAppearance: frame.querySelectorAll('[data-profile-stationary-preferences]').length };
+    return { before, after, frameTransform: frame.style.transform, hasDuplicatedAppearance: frame.querySelectorAll('[data-profile-appearance-preferences]').length };
   });
-  expect(Math.abs(measured.after[0]! - measured.before[0]!)).toBeLessThanOrEqual(1);
-  expect(Math.abs(measured.after[1]! - measured.before[1]!)).toBeLessThanOrEqual(1);
+  expect(measured.after[0]! - measured.before[0]!).toBeCloseTo(50, 0);
+  expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(50, 0);
   expect(measured.after[2]! - measured.before[2]!).toBeCloseTo(50, 0);
-  expect(measured.frameTransform).toBe("");
+  expect(measured.frameTransform).not.toBe("");
   expect(measured.hasDuplicatedAppearance).toBe(1);
   await expect(pane(page)).toBeVisible(); // Cancellation never commits dismissal.
   // Observe settlement cleanup, where removing animation suppression used to
   // replay the entire opening slide. A settled screenshot cannot catch it.
-  const afterCancellation = await pane(page).evaluate(async frame => {
-    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
+  const afterCancellation = await pane(page).evaluate(async (frame, settledX) => {
+    const body = frame;
     let worstSettledOffset = 0;
     const started = performance.now();
     while (performance.now() - started < 550) {
       await new Promise(requestAnimationFrame);
       if (!body.style.transform) worstSettledOffset = Math.max(worstSettledOffset,
-        Math.abs(body.getBoundingClientRect().x - frame.getBoundingClientRect().x));
+        Math.abs(body.getBoundingClientRect().x - settledX));
     }
     return { worstSettledOffset, inlineTransform: body.style.transform };
-  });
+  }, measured.before[2]!);
   expect(afterCancellation.inlineTransform).toBe("");
   expect(afterCancellation.worstSettledOffset).toBeLessThanOrEqual(1);
 });
@@ -201,16 +202,14 @@ test("Accent stays coherent through repeated selection and Profile close/reopen"
   const trigger = page.getByRole("combobox", { name: "App accent color" });
   for (let cycle = 0; cycle < 10; cycle += 1) {
     const accent = cycle % 2 === 0 ? "Molten Gold" : "Blue";
-    await trigger.click();
-    const option = page.getByRole("option", { name: accent, exact: true });
-    await expect(option).toBeVisible();
-    expect(await option.evaluate(node => {
+    const value = accent === "Molten Gold" ? "gold" : "blue";
+    await expect.poll(() => trigger.evaluate(node => {
       const frame = node.getBoundingClientRect();
       const hit = document.elementFromPoint(frame.x + frame.width / 2, frame.y + frame.height / 2);
       return !!hit && node.contains(hit);
     })).toBe(true);
-    await option.click();
-    await expect(trigger).toContainText(accent);
+    await trigger.selectOption(value);
+    await expect(trigger).toHaveValue(value);
     if (accent === "Molten Gold") await expect(page.locator("html")).toHaveAttribute("data-accent", "gold");
     else await expect(page.locator("html")).not.toHaveAttribute("data-accent", /.+/);
     await page.getByRole("button", { name: "Close Profile", exact: true }).click();
@@ -218,7 +217,7 @@ test("Accent stays coherent through repeated selection and Profile close/reopen"
     await page.getByTestId("open-profile").click();
     await expect(pane(page)).toBeVisible();
     await page.getByTestId("profile-preferences-row").click();
-    await expect(trigger).toContainText(accent);
+    await expect(trigger).toHaveValue(value);
   }
   expect(errors).toEqual([]);
 });

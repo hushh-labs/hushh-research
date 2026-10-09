@@ -277,17 +277,16 @@ async function mountAppChrome(page: import("@playwright/test").Page, barHeight: 
   }, barHeight);
 }
 
-test("stationary History chrome retains its grid while only the body follows a pull", async ({ page }) => {
+test("History chrome retains its grid while the whole drawer follows a pull", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.getByRole("button", { name: "Open drawer" }).click();
   const dialog = page.locator("[data-agent-history-drawer]");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Create new chat" })).toBeVisible();
-  await expect.poll(() => dialog.locator('[data-side-panel-body="left"]').evaluate(element =>
-    Math.abs(element.getBoundingClientRect().left - element.parentElement!.getBoundingClientRect().left))).toBeLessThanOrEqual(1);
+  await expect.poll(() => dialog.evaluate(element => Math.abs(element.getBoundingClientRect().left))).toBeLessThanOrEqual(1);
   const measured = await dialog.evaluate(frame => {
     const title = frame.querySelector("h2")!;
-    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
+    const body = frame as HTMLElement;
     const before = [title.getBoundingClientRect().x, body.getBoundingClientRect().x];
     const dispatch = (type: string, x: number, time: number) => {
       const point = { identifier: 1, clientX: x, clientY: 320 };
@@ -300,9 +299,9 @@ test("stationary History chrome retains its grid while only the body follows a p
     dispatch("touchcancel", 110, 240);
     return { before, after, frameTransform: (frame as HTMLElement).style.transform };
   });
-  expect(Math.abs(measured.after[0]! - measured.before[0]!)).toBeLessThanOrEqual(1);
+  expect(measured.after[0]! - measured.before[0]!).toBeCloseTo(-50, 0);
   expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(-50, 0);
-  expect(measured.frameTransform).toBe("");
+  expect(measured.frameTransform).not.toBe("");
   await expect(dialog).toHaveAttribute("aria-hidden", "false");
 });
 
@@ -328,7 +327,7 @@ for (const width of [390, 1440])
     const result = await page.evaluate(async () => {
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
       const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
-      const panel = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
+      const panel = frame;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
       const before = { body: body.getBoundingClientRect().x, bar: bar.getBoundingClientRect().x, frame: frame.getBoundingClientRect().x };
@@ -350,7 +349,7 @@ for (const width of [390, 1440])
         samples.push({ offset: panel.getBoundingClientRect().x, expected: closed + dx,
           opacity: Number(getComputedStyle(scrim).opacity), visible: getComputedStyle(scrim).visibility === "visible" });
       }
-      const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar && frame.getBoundingClientRect().x === before.frame;
+      const stationary = body.getBoundingClientRect().x === before.body && bar.getBoundingClientRect().x === before.bar;
       const filter = getComputedStyle(scrim).backdropFilter || getComputedStyle(scrim).webkitBackdropFilter;
       const inertDuringPull = frame.inert;
       finger("touchend", 120);
@@ -369,17 +368,17 @@ for (const width of [390, 1440])
     await expect(drawer).toBeVisible();
     // Let the opening settle, then exercise the same owner in the other
     // direction. WebKit and Chromium must follow the finger, not wait for up.
-    await expect(page.locator('[data-side-panel-body="left"]')).not.toHaveAttribute("style", /will-change/);
+    await expect(page.locator('[data-agent-history-drawer]')).not.toHaveAttribute("style", /will-change/);
     // Removing the gesture hint is not a rendered-position receipt. WebKit
     // can still be completing the CSS handoff; that is a valid interrupted
     // re-grab, tested separately, not this fully-open closing contract.
     await expect.poll(async () => {
-      const bounds = await page.locator('[data-side-panel-body="left"]').boundingBox();
+      const bounds = await page.locator('[data-agent-history-drawer]').boundingBox();
       return bounds?.x;
     }).toBeCloseTo(0, 0);
     const closing = await page.evaluate(async () => {
       const frame = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
-      const panel = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
+      const panel = frame;
       const scrim = document.querySelector<HTMLElement>("[data-agent-history-scrim]")!;
       const body = document.querySelector<HTMLElement>("[data-gesture-body]")!;
       const bar = document.querySelector<HTMLElement>("[data-fixture-bottom-bar]")!;
@@ -494,17 +493,16 @@ for (const width of [390, 768, 1440])
     // A tap on the scrim beside the panel closes it.
     await page.mouse.click(beside, height / 2);
     await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).toHaveCount(0);
-    // The semantic header/frame stays stationary for retained native controls.
-    // Closed, it is hidden/inert and its motion body clears the viewport.
-    await expect(page.locator("[data-stationary-history-frame]")).toHaveAttribute("inert", "");
-    await expect.poll(() => page.locator("[data-stationary-history-frame]")
+    // The whole drawer clears the viewport and becomes hidden/inert after close.
+    await expect(page.locator("[data-agent-history-drawer]")).toHaveAttribute("inert", "");
+    await expect.poll(() => page.locator("[data-agent-history-drawer]")
       .evaluate(element => getComputedStyle(element).visibility)).toBe("hidden");
     await expect
       .poll(async () => {
-        const closed = await page.locator("[data-side-panel-body='left']").boundingBox();
-        return closed ? closed.x + closed.width : 0;
+        // WebKit rounds percentage translations to device pixels on fractional-width panes.
+        return page.locator("[data-agent-history-drawer]").evaluate(element => Math.round(element.getBoundingClientRect().right));
       })
-      .toBeLessThanOrEqual(-24);
+      .toBeLessThanOrEqual(0);
     // Closed, the scrim fades out and leaves no live backdrop filter behind.
     await expect.poll(async () => (await readScrim()).visibility).toBe("hidden");
     expect((await readScrim()).opacity).toBe("0");

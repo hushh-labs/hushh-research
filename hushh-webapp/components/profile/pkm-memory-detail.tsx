@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ChevronLeftIcon as ChevronLeft,
   ChevronRightIcon as ChevronRight,
@@ -67,6 +67,7 @@ export function PkmMemoryDetail({
   sharingPosture,
   sharingBusy,
   sharingError,
+  sharingPriceControl,
   canMutate,
   saving,
   deleting,
@@ -87,6 +88,7 @@ export function PkmMemoryDetail({
   sharingPosture: MemorySharingPosture;
   sharingBusy: boolean;
   sharingError: string | null;
+  sharingPriceControl?: ReactNode;
   canMutate: boolean;
   saving: boolean;
   deleting: boolean;
@@ -314,7 +316,7 @@ export function PkmMemoryDetail({
             </p>
           ) : null}
           {sharingError ? <p className="text-sm text-destructive">{sharingError}</p> : null}
-
+          {sharingPriceControl}
           <DialogFooter>
             <Button
               type="button"

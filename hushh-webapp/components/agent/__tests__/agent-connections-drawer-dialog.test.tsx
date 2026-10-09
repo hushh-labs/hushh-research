@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentConnectionsDrawer } from "@/components/agent/agent-connections-drawer";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -25,6 +25,12 @@ function Harness() {
 }
 
 describe("chat drawer dialog layering", () => {
+  const animationDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "getAnimations");
+  beforeEach(() => { Object.defineProperty(Element.prototype, "getAnimations", { configurable: true, value: () => [] }); });
+  afterEach(() => {
+    if (animationDescriptor) Object.defineProperty(Element.prototype, "getAnimations", animationDescriptor);
+    else Reflect.deleteProperty(Element.prototype, "getAnimations");
+  });
   it("keeps the mobile chat drawer open when Escape closes a Drive detail", async () => {
     render(<Harness />);
     fireEvent.click(await screen.findByRole("button", { name: "View Drive update" }));

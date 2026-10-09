@@ -128,6 +128,7 @@ describe("TopShellRouteSwipe", () => {
       expect.any(Function),
       "tap",
       "contextual",
+      "selection",
     );
     expect(surface?.style.transform).toBe("");
     expect(navigation.scrollToTop).not.toHaveBeenCalled();

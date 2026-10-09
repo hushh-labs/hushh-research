@@ -4,9 +4,8 @@
 // helpers are real; only routing, the vault gate and the heavy Profile
 // workspace are stood in for.
 import { useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
-import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
-import { useAccent } from "@/lib/theme/accent";
+import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
+import { useAccent, writeAccent } from "@/lib/theme/accent";
 
 import { ProfileStackNavigator } from "@/components/profile/profile-stack-navigator";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -71,9 +70,7 @@ export function useVault() {
  * moving through the real pane history helpers exactly as
  * ProfilePageContent's updateProfileView does.
  */
-export function ProfilePage({ paneLocation, stationaryPreferencesHost }: {
-  paneLocation?: ProfilePaneLocation; stationaryPreferencesHost?: HTMLDivElement | null;
-}) {
+export function ProfilePage({ paneLocation }: { paneLocation?: ProfilePaneLocation }) {
   const accent = useAccent();
   const search = useSearchParams();
   const location = paneLocation ?? { panel: null, detail: null };
@@ -96,14 +93,13 @@ export function ProfilePage({ paneLocation, stationaryPreferencesHost }: {
   } else if (location.panel === "account") {
     entries.push({ key: "panel:account", title: "Account", content: <SettingsGroup title="Account"><SettingsRow title="Signed-in account" /></SettingsGroup> });
   } else if (location.panel === "preferences") {
-    // Production places this panel's controls in the stationary portal. Its
-    // scrolling body is empty, not the synthetic root settings list.
-    entries.push({ key: "panel:preferences", title: "Preferences", content: null });
+    entries.push({ key: "panel:preferences", title: "Preferences", content:
+      <ProfileAppearancePreferences accent={accent} onAccentChange={writeAccent}
+        onGeminiClick={() => updateView({ panel: "preferences", detail: "gemini" })}
+        onVoiceClick={() => updateView({ panel: "preferences", detail: "voice" })} /> });
   }
   return (
     <SettingsPresentationProvider density="compact">
-      {location.panel === "preferences" && !location.detail && stationaryPreferencesHost
-        ? createPortal(<ProfileAppearanceControls value={accent} nativeContext={{ owner: null, context: "synthetic-preferences", eligible: false }} />, stationaryPreferencesHost) : null}
       <AppPageShell as="div" width="reading" fitContent>
       <ProfileStackNavigator
         resetScroll={false}
