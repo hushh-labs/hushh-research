@@ -347,6 +347,7 @@ test("Wallet Add scrolls in the page and swipes back to Cards without a tall bla
   await mount(page);
   await expect(page.getByTestId("wallet-add-layer-agent-one-profile")).toBeInViewport();
   const scroll = page.locator('[data-app-scroll-root="true"]');
+  await awaitWalletCardsSettled(page);
   await expect.poll(() => page.evaluate(async () => {
     const cards = document.querySelector("#top-shell-wallet-panel-cards")!;
     const pager = document.querySelector('[data-swipe-views-root="true"]')!;
@@ -572,9 +573,8 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
   await expect(page.getByTestId("wallet-add-stack").locator("li:not([inert])")).toHaveCount(4);
   await page.evaluate(() => window.__walletRemount!());
-  const next = page.getByRole("button", { name: "Continue", exact: true });
-  await expect(next).toBeVisible();
-  await next.click();
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0);
   await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
   await expect(saved.locator('[data-slot="wallet-card-holder"]')).toContainText("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
   await expect(saved.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");

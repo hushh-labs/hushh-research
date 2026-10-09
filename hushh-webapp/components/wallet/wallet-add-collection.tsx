@@ -13,6 +13,14 @@ import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import styles from "./wallet-card-gesture.module.css";
 
+/** Layout coordinates stay stable while the collection's entrance transforms animate. */
+function layoutTop(element: HTMLElement): number {
+  let top = 0;
+  for (let node: HTMLElement | null = element; node; node = node.offsetParent as HTMLElement | null) {
+    top += node.offsetTop + ((node.offsetParent as HTMLElement | null)?.clientTop ?? 0);
+  }
+  return top;
+}
 
 function EmptyCardPreview() {
   const [selected, setSelected] = useState<string | null>(null);
@@ -101,10 +109,9 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       const hostStyle = getComputedStyle(host);
       const hostWidth = host.clientWidth - parseFloat(hostStyle.paddingLeft || "0") - parseFloat(hostStyle.paddingRight || "0");
       if (hostWidth <= 0) { schedule(); return; }
-      const scrollOffset = ancestors.reduce((total, element) => total + Math.max(0, element.scrollTop), 0);
       const viewportBottom = window.visualViewport ? window.visualViewport.offsetTop + window.visualViewport.height : window.innerHeight;
       const visibleBottom = Math.min(viewportBottom, chrome?.getBoundingClientRect().top ?? viewportBottom);
-      const deckTop = stack.getBoundingClientRect().top + scrollOffset;
+      const deckTop = layoutTop(stack);
       const room = Math.max(0, visibleBottom - deckTop);
       const detailsHeight = showDetailsLink ? 52 : 0;
       const visibleEdges = Math.min(2, cards.length - 1);
