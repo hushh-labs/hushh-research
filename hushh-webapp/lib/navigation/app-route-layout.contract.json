@@ -5826,7 +5826,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.referrals",
-      "purpose": "Help the person read their referral link, points, standings, and reward progress through the dashboard's own controls.",
+      "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, standings, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
       "screen": "one_referrals",
       "entryCue": "",
       "proactivity": "ambient",
