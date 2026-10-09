@@ -4,7 +4,7 @@ import { isUnresolvedSourceBlock, prepareNaturalLanguagePkm } from "@/lib/pkm/pk
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import type { BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
-import { validBusinessProfilePreview } from "@/lib/agent/business-profile-contract";
+import { businessProfilePreviewDiagnostics, validBusinessProfilePreview } from "@/lib/agent/business-profile-contract";
 
 export type ConnectorMemorySource = "first_connect_insights" | "drive_read_review" | "business_profile_review";
 type MemorySession = {
@@ -13,6 +13,13 @@ type MemorySession = {
   isCurrent: () => boolean;
   assertCurrent: () => Promise<void>;
 };
+
+export class BusinessReviewPreparationError extends Error {
+  constructor(public readonly reason: "contract_rejected" | "degraded_preview" | "coverage_incomplete" | "proposal_failed" | "empty_preview") {
+    super("Business details could not be prepared safely.");
+    this.name = "BusinessReviewPreparationError";
+  }
+}
 
 /** Reuse the semantic preview and duplicate inventory. Preparing never writes memory. */
 export async function prepareConnectorMemoryReview(input: MemorySession & {
@@ -58,13 +65,15 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
     isEffectCurrent: input.isCurrent,
   });
   await input.assertCurrent();
+  if (input.source === "business_profile_review" && !validBusinessProfilePreview(prepared.cards, input.message))
+    console.warn("[BusinessReview] Contract flags " + JSON.stringify(businessProfilePreviewDiagnostics(prepared.cards, input.message)));
   const cards = prepared.cards.filter(card =>
     (card.write_mode === "can_save" || card.write_mode === "confirm_first") &&
     !isReservedPkmCard(card) && !isDegradedPreviewCard(card),
   );
   const coverage = prepared.sourceCoverage || [];
   if (input.source === "business_profile_review" && cards.length && !validBusinessProfilePreview(cards, input.message))
-    return { cards: [], alreadySaved: false, incomplete: true };
+    throw new BusinessReviewPreparationError("contract_rejected");
   // Only explicit exact-duplicate evidence can claim this is already saved.
   const alreadySaved = cards.length === 0 && coverage.length > 0 && coverage.every(block =>
     !block.preparationIssue && block.disposition === "intentionally_ignored" &&
@@ -72,7 +81,16 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
     (block.duplicateCount || 0) >= block.detectedFactCount &&
     !(block.excludedSecretCount || 0),
   );
-  return { cards, alreadySaved, incomplete: coverage.some(isUnresolvedSourceBlock) || cards.length < prepared.cards.filter(card => card.write_mode !== "do_not_save").length };
+  const incomplete = coverage.some(isUnresolvedSourceBlock) || cards.length < prepared.cards.filter(card => card.write_mode !== "do_not_save").length;
+  if (input.source === "business_profile_review" && !alreadySaved && (incomplete || !cards.length)) {
+    const hints = prepared.cards.flatMap(card => card.validation_hints || []);
+    const reason = hints.includes("business_profile_contract_invalid") ? "contract_rejected"
+      : prepared.cards.some(isDegradedPreviewCard) || coverage.some(block => block.preparationIssue === "degraded_preview") ? "degraded_preview"
+      : coverage.some(block => block.disposition === "failed") ? "proposal_failed"
+      : incomplete ? "coverage_incomplete" : "empty_preview";
+    throw new BusinessReviewPreparationError(reason);
+  }
+  return { cards, alreadySaved, incomplete };
 }
 
 export function connectorMemorySharingImpact(cards: AgentPkmPreviewCard[]): number {

@@ -92,6 +92,17 @@ def _single_segment(message: str):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "fields,entity_id",
+    [
+        ({"name": "Example business", "state": "TX", "category": "Restaurant"}, "example"),
+        (
+            {"name": "Portfolio Hotel", "category": "Analysis and brokerage", "state": "TX "},
+            "raw_hotel",
+        ),
+        ({"name": "IKEA"}, "ikea"),
+    ],
+)
+@pytest.mark.parametrize(
     "domain,mode,valid",
     [
         ("professional", "create_entity", True),
@@ -102,13 +113,12 @@ def _single_segment(message: str):
     ],
 )
 async def test_business_profile_runs_all_stages_and_rejects_personal_destinations(
-    monkeypatch, domain, mode, valid
+    monkeypatch, domain, mode, valid, fields, entity_id
 ):
     service = PKMAgentLabService()
     monkeypatch.setattr(
         service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
     )
-    fields = {"name": "Example business", "state": "TX", "category": "Restaurant"}
     message = json.dumps(fields)
     intent = {
         "save_class": "durable",
@@ -132,16 +142,17 @@ async def test_business_profile_runs_all_stages_and_rejects_personal_destination
     }
     merge = {
         "merge_mode": mode,
+        "proposed_entity_id": entity_id,
         "target_domain": domain,
-        "target_entity_id": "example" if mode != "create_entity" else "",
-        "target_entity_path": "businesses.entities.example" if mode != "create_entity" else "",
+        "target_entity_id": entity_id if mode != "create_entity" else "",
+        "target_entity_path": f"businesses.entities.{entity_id}" if mode != "create_entity" else "",
         "match_confidence": 0.99,
         "match_reason": "Business listing",
         "source_agent": "memory_merge_agent",
         "contract_version": 1,
     }
     structure = {
-        "candidate_payload": {"businesses": {"entities": {"example": fields}}},
+        "candidate_payload": {"businesses": {"entities": {entity_id: fields}}},
         "structure_decision": {
             "action": "extend_domain",
             "target_domain": domain,
@@ -169,7 +180,7 @@ async def test_business_profile_runs_all_stages_and_rejects_personal_destination
                 {
                     "domain": domain,
                     "entity_scope": "businesses",
-                    "entity_id": "example",
+                    "entity_id": entity_id,
                     "message": json.dumps({"name": "Example business", "description": "x" * 220}),
                     "active": True,
                 }
@@ -184,6 +195,12 @@ async def test_business_profile_runs_all_stages_and_rejects_personal_destination
         current_domains=[] if mode == "create_entity" else [domain],
     )
     assert run.await_count == 4
+    entity_schema = run.await_args_list[3].kwargs["response_schema"]["properties"][
+        "candidate_payload"
+    ]["properties"]["businesses"]["properties"]["entities"]
+    assert entity_schema["required"] == [entity_id]
+    assert entity_schema["properties"][entity_id]["required"] == list(fields)
+    assert entity_schema["additionalProperties"] is False
     assert all(
         _request(call.kwargs["prompt"])["memory_profile"] == "business_directory_v1"
         for call in run.await_args_list

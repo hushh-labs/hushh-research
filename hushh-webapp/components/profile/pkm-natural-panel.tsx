@@ -1658,7 +1658,7 @@ export function PkmNaturalPanel({
             />
           </div>
 
-          {memoryCardsLoading && memoryCards.length === 0 ? (
+          {(bootstrapLoading || (!metadata && !bootstrapError) || memoryCardsLoading) && memoryCards.length === 0 ? (
             <SurfaceInset className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               Opening Memory…
@@ -1722,7 +1722,7 @@ export function PkmNaturalPanel({
                 </SettingsGroup>
               ) : (
                 <>
-                  {!bootstrapError && !memoryCardsLoading && !memoryCardsLoadError ? (
+                  {metadata && !bootstrapLoading && !bootstrapError && !memoryCardsLoading && !memoryCardsLoadError ? (
                     <p className="px-1 text-sm text-muted-foreground">
                       One hasn’t saved anything yet.
                     </p>

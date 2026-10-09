@@ -1,6 +1,100 @@
 """Validate the business preview shape; never choose or rewrite agent meaning."""
 
 import json
+import re
+from copy import deepcopy
+
+
+def valid_business_source(message: str) -> bool:
+    try:
+        fields = json.loads(message)
+    except (ValueError, TypeError):
+        return False
+    return (
+        len(message) <= 4000
+        and isinstance(fields, dict)
+        and bool(fields)
+        and all(
+            key not in {"__proto__", "prototype", "constructor"}
+            and isinstance(value, str)
+            and bool(value.strip())
+            for key, value in fields.items()
+        )
+    )
+
+
+def business_merge_schema(base: dict) -> dict:
+    schema = deepcopy(base)
+    schema["properties"]["proposed_entity_id"] = {
+        "type": "STRING",
+        "description": "Canonical lowercase underscore business key; reuse the target key for an existing business, choose a new key for creation.",
+    }
+    schema["required"].append("proposed_entity_id")
+    return schema
+
+
+def business_structure_schema(message: str, base: dict, merge: dict | None = None) -> dict:
+    """Constrain representation, not meaning; domain and entity ID stay model-chosen.
+
+    The generic structurer permits summary records. A listing instead has exact
+    supplied strings: make that distinction visible to constrained generation,
+    while retaining the independent final validator and all authority guards.
+    """
+    schema = deepcopy(base)
+    try:
+        fields = json.loads(message)
+    except (ValueError, TypeError):
+        return schema
+    if (
+        not isinstance(fields, dict)
+        or not fields
+        or len(message) > 4000
+        or any(
+            key in {"__proto__", "prototype", "constructor"}
+            or not isinstance(value, str)
+            or not value.strip()
+            for key, value in fields.items()
+        )
+    ):
+        return schema
+    entity = {
+        "type": "OBJECT",
+        "properties": {key: {"type": "STRING", "enum": [value]} for key, value in fields.items()},
+        "required": list(fields),
+        "additionalProperties": False,
+    }
+    entity_id = (merge or {}).get("proposed_entity_id")
+    entities = {
+        "type": "OBJECT",
+        "additionalProperties": entity,
+        "minProperties": 1,
+        "maxProperties": 1,
+    }
+    if isinstance(entity_id, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,127}", entity_id):
+        # Use the merge agent's semantic choice, not an application-generated ID.
+        # Explicit properties work across providers that omit dynamic-map values.
+        entities = {
+            "type": "OBJECT",
+            "properties": {entity_id: entity},
+            "required": [entity_id],
+            "additionalProperties": False,
+        }
+    schema["properties"]["candidate_payload"] = {
+        "type": "OBJECT",
+        "properties": {
+            "businesses": {
+                "type": "OBJECT",
+                "properties": {"entities": entities},
+                "required": ["entities"],
+                "additionalProperties": False,
+            }
+        },
+        "required": ["businesses"],
+        "additionalProperties": False,
+    }
+    schema["properties"]["write_mode"] = {"type": "STRING", "enum": ["confirm_first"]}
+    schema["properties"]["target_entity_scope"] = {"type": "STRING", "enum": ["businesses"]}
+    return schema
 
 
 def valid_business_preview(message: str, preview: dict, merge: dict) -> bool:

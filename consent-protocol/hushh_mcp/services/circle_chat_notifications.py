@@ -173,23 +173,36 @@ def _dispatch_one() -> bool:
     return True
 
 
-def dispatch_circle_chat_pushes() -> None:
+def dispatch_circle_chat_pushes() -> int:
+    processed = 0
     for _ in range(20):
         if not _dispatch_one():
             break
+        processed += 1
+    return processed
 
 
 async def run_circle_chat_push_worker() -> None:
     ready = False
+    idle_delay = 1
+    # Leave a connection for foreground requests on small local pools. Leases
+    # still protect concurrent delivery on larger pools and across processes.
+    concurrency = max(1, min(4, get_db().engine.pool.size() - 1))
     while True:
         try:
-            await asyncio.gather(
-                *(asyncio.to_thread(dispatch_circle_chat_pushes) for _ in range(4))
+            counts = await asyncio.gather(
+                *(asyncio.to_thread(dispatch_circle_chat_pushes) for _ in range(concurrency))
             )
+            delay = 1 if any(counts) else idle_delay
+            idle_delay = 1 if any(counts) else min(5, idle_delay * 2)
             if not ready:
-                logger.info("circle_chat.push_worker_ready interval_s=1")
+                logger.info(
+                    "circle_chat.push_worker_ready max_idle_s=5 concurrency=%s", concurrency
+                )
                 ready = True
         except Exception as exc:
             # Never log messages, wraps, tokens, or database exception text.
             logger.warning("circle_chat.push_sweep_failed error_type=%s", type(exc).__name__)
-        await asyncio.sleep(1)
+            delay = idle_delay
+            idle_delay = min(5, idle_delay * 2)
+        await asyncio.sleep(delay)

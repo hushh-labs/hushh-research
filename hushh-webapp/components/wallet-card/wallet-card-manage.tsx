@@ -179,7 +179,6 @@ export function WalletCardManage({
           icon={ProfilePanePreviewIcon}
           iconTone="capability"
           title={WALLET_CARD_OWNER_COPY.previewAsVisitor}
-          description="See exactly what a scan shows right now."
           chevron
           onClick={() => onAction("preview")}
         />
@@ -187,7 +186,7 @@ export function WalletCardManage({
           icon={ProfilePaneEditIcon}
           iconTone="capability"
           title={WALLET_CARD_OWNER_COPY.editInformation}
-          description="Change what is included. Your QR stays the same."
+          description="Your QR stays the same."
           chevron
           onClick={() => onAction("edit")}
         />
@@ -201,8 +200,8 @@ export function WalletCardManage({
           }
           description={
             paused
-              ? "Make your selected information visible again."
-              : "A scan will show nothing until you resume."
+              ? "Show your selected information."
+              : "Hide until you resume."
           }
           chevron
           disabled={busyAction === "pause" || busyAction === "resume"}
@@ -212,7 +211,7 @@ export function WalletCardManage({
           icon={ProfilePaneRotateIcon}
           iconTone="capability"
           title={WALLET_CARD_OWNER_COPY.rotateAccess}
-          description="Invalidate the current QR and create a new one."
+          description="Replace the QR. Old links stop working."
           chevron
           disabled={busyAction === "rotate"}
           onClick={() => onAction("rotate")}
@@ -223,7 +222,7 @@ export function WalletCardManage({
           tone="destructive"
           className="profile-account-delete-row"
           title={WALLET_CARD_OWNER_COPY.removeProfile}
-          description="Stop sharing and take the profile down for good."
+          description="Stops sharing. Can't be undone."
           chevron
           disabled={busyAction === "remove"}
           onClick={() => onAction("remove")}

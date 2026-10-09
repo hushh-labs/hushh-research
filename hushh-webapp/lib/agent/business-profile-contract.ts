@@ -26,3 +26,26 @@ export function validBusinessProfilePreview(cards: AgentPkmPreviewCard[], messag
       Object.entries(supplied).every(([key, value]) => entity.value[key] === value);
   } catch { return false; }
 }
+
+/** Fixed diagnostic flags only: never log listing values, keys, or entity IDs. */
+export function businessProfilePreviewDiagnostics(cards: AgentPkmPreviewCard[], message: string) {
+  const card = cards[0];
+  const flags = { single_card: cards.length === 1, business_domain: false,
+    confirmation_required: card?.write_mode === "confirm_first", business_scope: card?.target_entity_scope === "businesses",
+    entity_shape: false, exact_fields: false, merge_target: false };
+  if (!card) return flags;
+  const domain = resolveCardTargetDomain(card);
+  flags.business_domain = Boolean(domain && !["identity", "location", "health", "social", "financial"].includes(domain));
+  try {
+    const supplied = JSON.parse(message) as Record<string, unknown>;
+    const entity = businessMemoryEntity(card);
+    flags.entity_shape = entity.path.length === 3 && entity.path[0] === "businesses" &&
+      Object.keys(card.candidate_payload || {}).length === 1 &&
+      Object.keys(card.candidate_payload?.businesses as object).length === 1;
+    flags.exact_fields = Object.keys(entity.value).length === Object.keys(supplied).length &&
+      Object.entries(supplied).every(([key, value]) => entity.value[key] === value);
+    flags.merge_target = ["create_entity", "extend_entity", "correct_entity"].includes(String(card.merge_decision?.merge_mode || "")) &&
+      (!card.merge_decision?.target_entity_path || card.merge_decision.target_entity_path === entity.path.join("."));
+  } catch { /* Malformed proposals remain rejected. */ }
+  return flags;
+}

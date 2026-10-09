@@ -866,9 +866,13 @@ unverified profile fields. Consumer email domains and non-US phones are omitted,
 not coerced. A failed canonical phone read is unavailable, not missing.
 
 The server invokes the protected directory at its pinned Cloud Run origin using
-workload OIDC; browsers receive no invocation credential. Local rehearsal uses
-the explicit Workspace gcloud account only under the existing peer/reviewer/
-UAT-resource gate, without changing CLI defaults or ADC. HTTP redirects are
+workload OIDC; browsers receive no invocation credential. An explicit approved
+gcloud account can invoke the directory in the local/development runtime,
+including ordinary live discovery without reviewer rehearsal. Deployment
+labels and Cloud Run service markers prohibit this CLI credential path.
+The process must select the credential store containing that account through
+`CLOUDSDK_CONFIG`; a local overlay may otherwise select the scraper's isolated
+store. This does not change shared CLI defaults or ADC. HTTP redirects are
 refused, response size is capped at 512 KB, token acquisition is off the event
 loop, and request I/O has a 40-second total budget. Contact lookup does not scan
 or write PKM or directory tables. Contacts and returned records are not logged.
@@ -1416,6 +1420,19 @@ Repeated failures do not extend the original cache expiry. Internal continuation
 records are not returned to clients or persisted; sanitized stage telemetry marks
 reuse separately from a new model invocation. This is preparation only, never
 write or sharing authorization.
+
+Business Review revalidates the directory and complete owner inventory before
+preparing a proposal. An explicit Review never treats an incomplete or failed
+ambient warm-up as current evidence: it performs a fresh, no-stale-fallback
+read. The whole preparation has a 90-second client deadline; failure returns
+to a retryable offer, and late results cannot publish after retry, owner change,
+or vault-session change. This deadline never authorizes a save. PKM RPCs and
+consent entry/background database reads execute off the API event loop. Upgrade
+status batches manifest reads and preserves unavailable-versus-absent errors.
+The domain registry accepts both eager SQL RPC results and lazy adapters without
+duplicate fallback upserts. Idle message-push sweeps back off to at most five
+seconds; circle dispatch concurrency leaves capacity for foreground requests
+on small pools. Delivery leases, retry bounds and eligibility checks are unchanged.
 
 #### Connected Systems
 

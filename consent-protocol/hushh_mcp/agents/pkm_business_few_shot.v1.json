@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "about": "Synthetic business-directory worked examples only. A listing is one business entity, not personal facts; semantic choices remain with each agent.",
+  "examples": [
+    {
+      "id": "business_atomic_listing", "agent": "agent_memory_segmentation",
+      "input": {"memory_profile": "business_directory_v1", "message": "{\"name\":\"Cedar Cafe\",\"state\":\"WA\",\"category\":\"Cafe\"}"},
+      "answer": {"segments": [{"source_text": "{\"name\":\"Cedar Cafe\",\"state\":\"WA\",\"category\":\"Cafe\"}", "context_quotes": [], "confidence": 0.99, "reason": "Complete business listing"}], "not_memory": [], "has_more_candidates": false, "source_agent": "memory_segmentation_agent", "contract_version": 1}
+    },
+    {
+      "id": "business_not_personal_identity", "agent": "agent_memory_intent",
+      "input": {"memory_profile": "business_directory_v1", "message": "{\"name\":\"Cedar Cafe\",\"state\":\"WA\",\"category\":\"Cafe\"}", "current_domains": ["identity", "location", "professional"], "existing_entities": []},
+      "answer": {"save_class": "durable", "intent_class": "profile_fact", "mutation_intent": "create", "requires_confirmation": true, "confirmation_reason": "Review business details", "candidate_domain_choices": [{"domain_key": "professional", "recommended": true}], "confidence": 0.99, "source_agent": "memory_intent_agent", "contract_version": 1}
+    },
+    {
+      "id": "business_new_entity", "agent": "agent_memory_merge",
+      "input": {"memory_profile": "business_directory_v1", "message": "{\"name\":\"Cedar Cafe\",\"state\":\"WA\",\"category\":\"Cafe\"}", "intent_frame": {"save_class": "durable", "intent_class": "profile_fact", "mutation_intent": "create", "candidate_domain_choices": [{"domain_key": "professional", "recommended": true}]}, "existing_entities": []},
+      "answer": {"merge_mode": "create_entity", "target_domain": "professional", "target_entity_id": "", "proposed_entity_id": "cedar_cafe", "target_entity_path": "", "match_confidence": 0.99, "match_reason": "New business listing", "source_agent": "memory_merge_agent", "contract_version": 1}
+    },
+    {
+      "id": "business_exact_fields", "agent": "agent_pkm_structure",
+      "input": {"memory_profile": "business_directory_v1", "message": "{\"name\":\"Cedar Cafe\",\"state\":\"WA\",\"category\":\"Cafe\"}", "intent_frame": {"save_class": "durable", "intent_class": "profile_fact", "mutation_intent": "create"}, "merge_decision": {"merge_mode": "create_entity", "target_domain": "professional", "target_entity_id": "", "proposed_entity_id": "cedar_cafe", "target_entity_path": ""}},
+      "answer": {"candidate_payload": {"businesses": {"entities": {"cedar_cafe": {"name": "Cedar Cafe", "state": "WA", "category": "Cafe"}}}}, "structure_decision": {"action": "extend_domain", "target_domain": "professional", "json_paths": ["businesses.entities.cedar_cafe.name", "businesses.entities.cedar_cafe.state", "businesses.entities.cedar_cafe.category"], "top_level_scope_paths": ["businesses"], "externalizable_paths": [], "summary_projection": {}, "sensitivity_labels": {"businesses": "confidential"}, "confidence": 0.99, "source_agent": "pkm_structure_agent", "contract_version": 1}, "write_mode": "confirm_first", "primary_json_path": "businesses.entities.cedar_cafe", "target_entity_scope": "businesses", "validation_hints": []}
+    }
+  ]
+}
