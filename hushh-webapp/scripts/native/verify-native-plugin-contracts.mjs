@@ -26,6 +26,12 @@ const iosControllerPath = path.join(appRoot, "ios/App/App/MyViewController.swift
 const androidActivityPath = path.join(appRoot, "android/app/src/main/java/com/hussh/app/MainActivity.kt");
 const iosInfoPlistPath = path.join(appRoot, "ios/App/App/Info.plist");
 const iosEntitlementsPath = path.join(appRoot, "ios/App/App/App.entitlements");
+const iosReleaseEntitlementsPath = path.join(appRoot, "ios/App/App/AppRelease.entitlements");
+const iosChatNotificationServiceEntitlementsPath = path.join(
+  appRoot,
+  "ios/App/ChatNotificationService/ChatNotificationService.entitlements",
+);
+const iosProjectPath = path.join(appRoot, "ios/App/App.xcodeproj/project.pbxproj");
 const iosVoicePluginPath = path.join(
   appRoot,
   "ios/App/App/Plugins/HushhVoiceInvocationPlugin.swift",
@@ -239,6 +245,41 @@ function verifyIosVaultAuthenticationConfiguration(iosContracts) {
   }
 }
 
+function verifyIosCommunicationNotificationEntitlements() {
+  const communicationNotificationsEntitlement =
+    /<key>com\.apple\.developer\.usernotifications\.communication<\/key>\s*<true\s*\/>/;
+  const chatNotificationServiceKeychainGroup =
+    "$(AppIdentifierPrefix)com.hussh.app.chatnotifications";
+  const parentEntitlements = [
+    ["App.entitlements", read(iosEntitlementsPath)],
+    ["AppRelease.entitlements", read(iosReleaseEntitlementsPath)],
+  ];
+
+  for (const [name, entitlements] of parentEntitlements) {
+    if (!communicationNotificationsEntitlement.test(entitlements)) {
+      fail(`${name} must enable the Communication Notifications entitlement for the parent app target.`);
+    }
+    if (!entitlements.includes(chatNotificationServiceKeychainGroup)) {
+      fail(`${name} must retain the ChatNotificationService keychain access group.`);
+    }
+  }
+
+  const serviceEntitlements = read(iosChatNotificationServiceEntitlementsPath);
+  if (serviceEntitlements.includes("com.apple.developer.usernotifications.communication")) {
+    fail("ChatNotificationService must not request the parent-only Communication Notifications entitlement.");
+  }
+  if (!serviceEntitlements.includes(chatNotificationServiceKeychainGroup)) {
+    fail("ChatNotificationService must retain its shared keychain access group.");
+  }
+
+  const project = read(iosProjectPath);
+  const serviceEntitlementsWiring =
+    project.match(/CODE_SIGN_ENTITLEMENTS\s*=\s*ChatNotificationService\/ChatNotificationService\.entitlements;/g) || [];
+  if (serviceEntitlementsWiring.length < 2) {
+    fail("ChatNotificationService must use its dedicated entitlements file for Debug and Release signing.");
+  }
+}
+
 function verifyIosCommandCaptureContract(iosContracts) {
   if (!iosContracts.has("HushhVoiceInvocation")) return;
 
@@ -273,6 +314,7 @@ const iosRegistrations = parseIosRegistrations();
 const androidRegistrations = parseAndroidRegistrations();
 
 verifyIosVaultAuthenticationConfiguration(iosContracts);
+verifyIosCommunicationNotificationEntitlements();
 verifyIosCommandCaptureContract(iosContracts);
 
 for (const pluginName of sorted(tsContracts.keys())) {
