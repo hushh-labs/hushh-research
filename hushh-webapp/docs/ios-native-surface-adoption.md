@@ -144,6 +144,23 @@ macro deadline for twenty interactions and emits bounded cycle counts. Individua
 action waits and pose-age limits are unchanged; the interrupted batch is not a
 motion pass.
 
+The completed follow-up receipts identify the failing seam: ten Profile cycles
+and nine History cycles return successfully; the final History close fails
+`NATIVE_PANEL_WARM_RETURN_UNCONFIRMED`. Credential-free inspection afterward
+finds an interactive native dock editor but no native History toggle or Close.
+The existing focus-return code contains a retirement/DOM-focus fallback path;
+its causal role in this failed return is **not yet proved**. A settled screenshot
+or a new installation cannot qualify this reopen race.
+
+The same inspection reports 553 motion samples, 553 stale samples, zero invalid
+clock samples, maximum target-frame pose age 37.9736 ms and maximum age 2.2778
+display intervals. Thus the current RAF/bridge mirroring has **not met** the
+one-display-interval architecture gate. These target-frame estimates do not
+establish actual detached-pixel distance or Release hitch ratio, but they cannot
+be called a timing pass. Require a corrected, revision-bound presentation and
+focus handoff, then rerun the same unchanged acceptance limits. Do not expand
+families, hide controls, substitute React to pass, or promote this candidate.
+
 The opt-in numeric timing probe compares a pose's JavaScript epoch timestamp with
 the native target display interval, retaining only the latest pending sample
 per group. It records neither information nor actions and cannot admit a choice.

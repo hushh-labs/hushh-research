@@ -85,6 +85,18 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
         XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
         let web = hosts.firstMatch
+        for identifier in ["native-dock-editor", "chat-history-toggle", "chat-history-close", "profile-close"] {
+            let control = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+            print("NATIVE_CONTROL_ADMISSION control=\(identifier.replacingOccurrences(of: "-", with: "_")) present=\(control.exists) hittable=\(control.exists && control.isHittable)")
+        }
+        let continuity = app.buttons["native-panel-continuity"].firstMatch
+        if let json = continuity.exists ? continuity.value as? String : nil,
+           let data = json.data(using: .utf8),
+           let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Double],
+           Set(packet.keys) == Set(["motionFrames", "staleFrames", "invalidSamples", "maxPoseAgeMs", "maxPoseAgeIntervals"]),
+           packet.values.allSatisfy({ $0.isFinite && $0 >= 0 }) {
+            print("NATIVE_PANEL_TIMING frames=\(Int(packet["motionFrames", default: 0])) stale=\(Int(packet["staleFrames", default: 0])) invalid=\(Int(packet["invalidSamples", default: 0])) max_age_ms=\(packet["maxPoseAgeMs", default: 0]) max_intervals=\(packet["maxPoseAgeIntervals", default: 0])")
+        }
         let status = app.buttons["native-test-status"].firstMatch
         if let raw = status.exists ? status.value as? String : nil {
             let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
@@ -1065,6 +1077,7 @@ final class AppUITests: XCTestCase {
                     editor.exists && editor.isHittable && opener.exists && opener.isHittable
                 }, object: editor)
                 guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    print("NATIVE_PANEL_RETURN editor_present=\(editor.exists) editor_hittable=\(editor.exists && editor.isHittable) opener_present=\(opener.exists) opener_hittable=\(opener.exists && opener.isHittable) close_present=\(close.exists) close_hittable=\(close.exists && close.isHittable)")
                     XCTFail("NATIVE_PANEL_WARM_RETURN_UNCONFIRMED"); return
                 }
                 let family = fallbackLabel == "Close Profile" ? "profile" : "history"
