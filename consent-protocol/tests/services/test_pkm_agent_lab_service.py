@@ -90,6 +90,161 @@ def _single_segment(message: str):
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "domain,mode,valid",
+    [
+        ("professional", "create_entity", True),
+        ("professional", "correct_entity", True),
+        ("professional", "extend_entity", True),
+        ("example_company", "create_entity", True),
+        ("identity", "create_entity", False),
+    ],
+)
+async def test_business_profile_runs_all_stages_and_rejects_personal_destinations(
+    monkeypatch, domain, mode, valid
+):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
+    )
+    fields = {"name": "Example business", "state": "TX", "category": "Restaurant"}
+    message = json.dumps(fields)
+    intent = {
+        "save_class": "durable",
+        "intent_class": "profile_fact",
+        "mutation_intent": "create"
+        if mode == "create_entity"
+        else "correct"
+        if mode == "correct_entity"
+        else "extend",
+        "requires_confirmation": True,
+        "confirmation_reason": "Review listing",
+        "candidate_domain_choices": [
+            {
+                "domain_key": "professional" if domain == "example_company" else domain,
+                "recommended": True,
+            }
+        ],
+        "confidence": 0.99,
+        "source_agent": "memory_intent_agent",
+        "contract_version": 1,
+    }
+    merge = {
+        "merge_mode": mode,
+        "target_domain": domain,
+        "target_entity_id": "example" if mode != "create_entity" else "",
+        "target_entity_path": "businesses.entities.example" if mode != "create_entity" else "",
+        "match_confidence": 0.99,
+        "match_reason": "Business listing",
+        "source_agent": "memory_merge_agent",
+        "contract_version": 1,
+    }
+    structure = {
+        "candidate_payload": {"businesses": {"entities": {"example": fields}}},
+        "structure_decision": {
+            "action": "extend_domain",
+            "target_domain": domain,
+            "json_paths": ["businesses"],
+            "top_level_scope_paths": ["businesses"],
+            "externalizable_paths": [],
+            "summary_projection": {},
+            "sensitivity_labels": {},
+            "confidence": 0.99,
+            "source_agent": "pkm_structure_agent",
+            "contract_version": 1,
+        },
+        "write_mode": "confirm_first",
+        "target_entity_scope": "businesses",
+        "primary_json_path": "businesses",
+        "validation_hints": [],
+    }
+    run = AsyncMock(side_effect=[_single_segment(message), intent, merge, structure])
+    monkeypatch.setattr(service, "_run_agent_contract", run)
+    state = (
+        None
+        if mode == "create_entity"
+        else {
+            "memories": [
+                {
+                    "domain": domain,
+                    "entity_scope": "businesses",
+                    "entity_id": "example",
+                    "message": json.dumps({"name": "Example business", "description": "x" * 220}),
+                    "active": True,
+                }
+            ]
+        }
+    )
+    result = await service.generate_structure_preview(
+        user_id=f"business-contract-{domain}-{mode}",
+        message=message,
+        memory_profile="business_directory_v1",
+        simulated_state=state,
+        current_domains=[] if mode == "create_entity" else [domain],
+    )
+    assert run.await_count == 4
+    assert all(
+        _request(call.kwargs["prompt"])["memory_profile"] == "business_directory_v1"
+        for call in run.await_args_list
+    )
+    assert len(result["preview_cards"]) == 1
+    if valid:
+        assert result["write_mode"] == "confirm_first", json.dumps(
+            {
+                key: result[key]
+                for key in (
+                    "candidate_payload",
+                    "merge_decision",
+                    "target_entity_scope",
+                    "validation_hints",
+                )
+            }
+        )
+        assert result["candidate_payload"] == structure["candidate_payload"]
+        assert result["structure_decision"]["target_domain"] == domain
+        if mode == "create_entity":
+            assert result["merge_decision"]["target_entity_path"] == ""
+        else:
+            assert (
+                len(
+                    _request(run.await_args_list[2].kwargs["prompt"])["existing_entities"][0][
+                        "summary"
+                    ]
+                )
+                > 200
+            )
+    else:
+        assert result["write_mode"] == "do_not_save"
+        assert "business_profile_contract_invalid" in result["validation_hints"]
+
+
+def test_business_contract_rejects_policy_fields_missing_values_and_sibling_facts():
+    from copy import deepcopy
+
+    from hushh_mcp.services.business_directory_profile import valid_business_preview
+
+    fields = {"name": "Example", "state": "TX"}
+    preview = {
+        "structure_decision": {"target_domain": "professional"},
+        "write_mode": "confirm_first",
+        "target_entity_scope": "businesses",
+        "candidate_payload": {"businesses": {"entities": {"example": fields}}},
+    }
+    merge = {"merge_mode": "create_entity", "target_domain": "professional"}
+    assert valid_business_preview(json.dumps(fields), preview, merge)
+    for key in ("summary", "observations", "kind", "disclaimer"):
+        invalid = deepcopy(preview)
+        invalid["candidate_payload"]["businesses"]["entities"]["example"][key] = "Policy text"
+        assert not valid_business_preview(json.dumps(fields), invalid, merge)
+    invalid = deepcopy(preview)
+    del invalid["candidate_payload"]["businesses"]["entities"]["example"]["state"]
+    assert not valid_business_preview(json.dumps(fields), invalid, merge)
+    invalid = deepcopy(preview)
+    invalid["candidate_payload"]["personal_fact"] = "TX"
+    assert not valid_business_preview(json.dumps(fields), invalid, merge)
+
+
 def test_default_preview_budget_outlives_one_tail_contract_without_unbounded_wait() -> None:
     # Both pins were stale on main: d1af7b695 raised the contract timeout from
     # ten to thirty and the budget from thirty-five to forty-five while
@@ -566,7 +721,11 @@ async def test_direct_contract_uses_manifest_instruction_and_input_only_segmenta
         prompt = service._build_memory_segmentation_prompt(
             message=message, strict_small_model=strict
         )
-        assert _request(prompt) == {"message": message, "strict_small_model": strict}
+        assert _request(prompt) == {
+            "message": message,
+            "strict_small_model": strict,
+            "memory_profile": "general",
+        }
         await service._run_agent_contract(
             manifest=service.memory_segmentation_manifest,
             prompt=prompt,

@@ -13,6 +13,7 @@ import json
 import logging
 import secrets
 from datetime import UTC, date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -34,6 +35,9 @@ logger = logging.getLogger(__name__)
 # One page, never an unbounded walk: a caller learns when more exist.
 EVENT_PAGE_MAX = 250
 _EVENT_QUERY_MAX_CHARS = 256
+CALENDAR_READ_DEADLINE_SECONDS = 12.0
+_CALENDAR_READ_ATTEMPT_TIMEOUT = 5.0
+_CALENDAR_READ_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _RATE_LIMIT_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"})
 # Attendee fields an events.patch may carry back. Read-only fields (id, self,
 # organizer) are recomputed by Google and never echoed.
@@ -106,29 +110,101 @@ class GoogleCalendarService:
         headers: dict[str, str] | None = None,
         required_scope: str | None = None,
     ) -> dict[str, Any]:
-        # A Calendar result must belong to the same live owner/account/grant at
-        # release time. Token resolution itself may refresh the connection row,
-        # so compare identity and grant across that step, then compare the full
-        # revision around the provider request.
+        # Include token refresh and grant checks in one wall-clock read budget.
+        # Mutations keep their existing timeout and are never retried here.
+        try:
+            async with asyncio.timeout(
+                CALENDAR_READ_DEADLINE_SECONDS if access == "read" else None
+            ):
+                return await self._request_with_authority(
+                    user_id=user_id,
+                    method=method,
+                    path=path,
+                    access=access,
+                    params=params,
+                    payload=payload,
+                    headers=headers,
+                    required_scope=required_scope,
+                )
+        except (TimeoutError, httpx.TimeoutException) as exc:
+            raise GoogleConnectionError(
+                "Google Calendar took too long to respond",
+                status_code=504,
+                reason_code="calendar_timeout",
+            ) from exc
+        except httpx.TransportError as exc:
+            raise GoogleConnectionError(
+                "Google Calendar is temporarily unavailable",
+                status_code=503,
+                reason_code="calendar_unavailable",
+            ) from exc
+
+    async def _request_with_authority(
+        self,
+        *,
+        user_id: str,
+        method: str,
+        path: str,
+        access: Literal["read", "manage"],
+        params: dict[str, Any] | None,
+        payload: dict[str, Any] | None,
+        headers: dict[str, str] | None,
+        required_scope: str | None,
+    ) -> dict[str, Any]:
         before = (
             await self.connections.read_grant_binding(user_id=user_id, service="calendar")
             if access == "read"
             else None
         )
         if access == "read" and before is None:
-            raise GoogleConnectionError("Connect Google Calendar first", status_code=403)
-        token = await self.connections.access_token(
-            user_id=user_id, service="calendar", access_level=access
-        )
+            status_reader = getattr(self.connections, "status", None)
+            status = (
+                await status_reader(user_id=user_id, service="calendar")
+                if callable(status_reader)
+                else {}
+            )
+            if status.get("status") == "needs_reauth":
+                raise GoogleConnectionError(
+                    "Reconnect Google Calendar",
+                    status_code=401,
+                    reason_code="calendar_reauthorization_required",
+                )
+            permission_missing = bool(status.get("connected"))
+            raise GoogleConnectionError(
+                "Allow Google Calendar reading"
+                if permission_missing
+                else "Connect Google Calendar first",
+                status_code=403,
+                reason_code="calendar_permission_required"
+                if permission_missing
+                else "calendar_not_connected",
+            )
+        try:
+            token = await self.connections.access_token(
+                user_id=user_id, service="calendar", access_level=access
+            )
+        except GoogleConnectionError as exc:
+            reason = {
+                "google_not_connected": "calendar_not_connected",
+                "google_permission_required": "calendar_permission_required",
+                "google_reauthorization_required": "calendar_reauthorization_required",
+            }.get(exc.reason_code or "")
+            if exc.status_code == 401:
+                reason = "calendar_reauthorization_required"
+            raise GoogleConnectionError(
+                str(exc), status_code=exc.status_code, reason_code=reason or exc.reason_code
+            ) from exc
         current = (
             await self.connections.read_grant_binding(user_id=user_id, service="calendar")
             if access == "read"
             else None
         )
-        if access == "read" and (
-            current is None or current[:4] != before[:4] or current[5:] != before[5:]
-        ):
-            raise GoogleConnectionError("Google Calendar connection changed", status_code=409)
+        if access == "read" and (current is None or current != before):
+            raise GoogleConnectionError(
+                "Google Calendar connection changed",
+                status_code=409,
+                reason_code="calendar_connection_changed",
+            )
         if required_scope and not await self.connections.has_service_scope(
             user_id=user_id, service="calendar", scope=required_scope
         ):
@@ -140,62 +216,202 @@ class GoogleCalendarService:
         request_headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         if headers:
             request_headers.update(headers)
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.request(
-                method,
-                f"{_CALENDAR_BASE}{path}",
-                params=params,
-                json=payload,
-                headers=request_headers,
-            )
-        if (
-            access == "read"
-            and await self.connections.read_grant_binding(user_id=user_id, service="calendar")
-            != current
-        ):
-            raise GoogleConnectionError("Google Calendar connection changed", status_code=409)
-        error_reason = ""
-        if response.status_code >= 400:
-            try:
-                problem = response.json()
-                errors = problem.get("error", {}).get("errors", [])
-                if isinstance(errors, list):
-                    error_reason = str(
-                        next(
-                            (
-                                item.get("reason")
-                                for item in errors
-                                if isinstance(item, dict) and item.get("reason")
-                            ),
-                            "",
-                        )
+        timeout = _CALENDAR_READ_ATTEMPT_TIMEOUT if access == "read" else 20
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for attempt in range(2 if access == "read" else 1):
+                try:
+                    response = await self._provider_request(
+                        client,
+                        method=method,
+                        path=path,
+                        access=access,
+                        params=params,
+                        payload=payload,
+                        headers=request_headers,
                     )
-            except (ValueError, AttributeError, TypeError):
-                pass
-        if response.status_code == 429 or error_reason in _RATE_LIMIT_REASONS:
-            raise GoogleConnectionError("Google Calendar is rate limited", status_code=429)
-        if response.status_code == 401:
-            raise GoogleConnectionError(
-                "Google Calendar connection needs reauthorization", status_code=401
+                except httpx.TransportError as exc:
+                    if access == "read" and attempt == 0:
+                        await asyncio.sleep(0.1 + secrets.randbelow(150) / 1000)
+                        # A retry may not cross disconnect or account replacement.
+                        await self._check_read_binding(user_id, current)
+                        continue
+                    raise GoogleConnectionError(
+                        "Google Calendar took too long to respond"
+                        if isinstance(exc, httpx.TimeoutException)
+                        else "Google Calendar is temporarily unavailable",
+                        status_code=504 if isinstance(exc, httpx.TimeoutException) else 503,
+                        reason_code="calendar_timeout"
+                        if isinstance(exc, httpx.TimeoutException)
+                        else "calendar_unavailable",
+                    ) from exc
+                if access == "read":
+                    await self._check_read_binding(user_id, current)
+                error_reason = self._response_error_reason(response)
+                transient = (
+                    response.status_code == 429
+                    or response.status_code >= 500
+                    or error_reason in _RATE_LIMIT_REASONS
+                )
+                if access == "read" and attempt == 0 and transient:
+                    delay = self._read_retry_delay(response)
+                    if delay is not None:
+                        await asyncio.sleep(delay)
+                        await self._check_read_binding(user_id, current)
+                        continue
+                if response.status_code == 429 or error_reason in _RATE_LIMIT_REASONS:
+                    raise GoogleConnectionError(
+                        "Google Calendar is rate limited",
+                        status_code=429,
+                        reason_code="calendar_rate_limited",
+                    )
+                if response.status_code == 401:
+                    raise GoogleConnectionError(
+                        "Google Calendar connection needs reauthorization",
+                        status_code=401,
+                        reason_code="calendar_reauthorization_required",
+                    )
+                if response.status_code == 403:
+                    raise GoogleConnectionError(
+                        "Google Calendar permission is insufficient",
+                        status_code=403,
+                        reason_code="calendar_permission_required",
+                    )
+                if response.status_code in {404, 410}:
+                    raise GoogleConnectionError(
+                        "Calendar event was not found",
+                        status_code=404,
+                        reason_code="calendar_not_found",
+                    )
+                if response.status_code == 412:
+                    raise GoogleConnectionError(
+                        "Calendar event changed; review it again before confirming",
+                        status_code=409,
+                        reason_code="calendar_connection_changed",
+                    )
+                if response.status_code >= 400:
+                    raise GoogleConnectionError(
+                        "Google Calendar request could not be completed",
+                        status_code=422 if response.status_code == 400 else 502,
+                        reason_code="calendar_invalid_request"
+                        if response.status_code == 400
+                        else "calendar_unavailable",
+                    )
+                if response.status_code == 204:
+                    if access == "read":
+                        raise self._invalid_response()
+                    return {}
+                try:
+                    parsed = response.json()
+                except ValueError as exc:
+                    raise self._invalid_response() from exc
+                if not isinstance(parsed, dict):
+                    raise self._invalid_response()
+                return parsed
+        raise self._invalid_response()
+
+    async def _provider_request(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        method: str,
+        path: str,
+        access: Literal["read", "manage"],
+        params: dict[str, Any] | None,
+        payload: dict[str, Any] | None,
+        headers: dict[str, str],
+    ) -> httpx.Response:
+        url = f"{_CALENDAR_BASE}{path}"
+        if access != "read":
+            return await client.request(method, url, params=params, json=payload, headers=headers)
+        async with client.stream(
+            method, url, params=params, json=payload, headers=headers
+        ) as response:
+            declared = response.headers.get("Content-Length", "")
+            if declared.isdigit() and int(declared) > _CALENDAR_READ_MAX_RESPONSE_BYTES:
+                raise self._invalid_response()
+            body = bytearray()
+            async for chunk in response.aiter_bytes(chunk_size=65536):
+                if len(body) + len(chunk) > _CALENDAR_READ_MAX_RESPONSE_BYTES:
+                    raise self._invalid_response()
+                body.extend(chunk)
+            # aiter_bytes has already decoded Content-Encoding. Rebuilding a
+            # bounded response must not decode compressed content a second time.
+            return httpx.Response(
+                response.status_code,
+                content=bytes(body),
+                request=response.request,
+                headers={
+                    key: value
+                    for key, value in response.headers.items()
+                    if key.lower() not in {"content-encoding", "content-length"}
+                },
             )
-        if response.status_code == 403:
+
+    async def _check_read_binding(self, user_id: str, expected: tuple[str, ...] | None) -> None:
+        if (
+            await self.connections.read_grant_binding(user_id=user_id, service="calendar")
+            != expected
+        ):
             raise GoogleConnectionError(
-                "Google Calendar permission is insufficient", status_code=403
+                "Google Calendar connection changed",
+                status_code=409,
+                reason_code="calendar_connection_changed",
             )
-        if response.status_code == 404:
-            raise GoogleConnectionError("Calendar event was not found", status_code=404)
-        if response.status_code == 412:
+
+    @staticmethod
+    def _response_error_reason(response: httpx.Response) -> str:
+        if response.status_code < 400:
+            return ""
+        try:
+            errors = response.json().get("error", {}).get("errors", [])
+            if isinstance(errors, list):
+                reasons = [
+                    str(item.get("reason") or "") for item in errors if isinstance(item, dict)
+                ]
+                return next(
+                    (value for value in reasons if value in _RATE_LIMIT_REASONS),
+                    reasons[0] if reasons else "",
+                )
+        except (ValueError, AttributeError, TypeError):
+            pass
+        return ""
+
+    @staticmethod
+    def _read_retry_delay(response: httpx.Response) -> float | None:
+        """Respect a short Retry-After; a long backoff belongs to a later request."""
+        value = response.headers.get("Retry-After")
+        if value:
+            try:
+                delay = float(value)
+            except ValueError:
+                try:
+                    retry_at = parsedate_to_datetime(value)
+                    delay = (retry_at - datetime.now(UTC)).total_seconds()
+                except (ValueError, TypeError, OverflowError):
+                    return None
+            return max(0.0, delay) if 0 <= delay <= 1.0 else None
+        return 0.1 + secrets.randbelow(150) / 1000
+
+    @staticmethod
+    def _invalid_response() -> GoogleConnectionError:
+        return GoogleConnectionError(
+            "Calendar availability could not be checked",
+            status_code=502,
+            reason_code="calendar_invalid_response",
+        )
+
+    @classmethod
+    def _read_window(cls, start_at: str, end_at: str) -> tuple[str, str]:
+        start, end = cls._iso(start_at), cls._iso(end_at)
+        if datetime.fromisoformat(start.replace("Z", "+00:00")) >= datetime.fromisoformat(
+            end.replace("Z", "+00:00")
+        ):
             raise GoogleConnectionError(
-                "Calendar event changed; review it again before confirming", status_code=409
+                "Calendar end must be after start",
+                status_code=422,
+                reason_code="calendar_invalid_request",
             )
-        if response.status_code >= 400:
-            raise GoogleConnectionError(
-                "Google Calendar request could not be completed", status_code=502
-            )
-        if response.status_code == 204:
-            return {}
-        parsed = response.json()
-        return parsed if isinstance(parsed, dict) else {}
+        return start, end
 
     @staticmethod
     def _event_summary(event: dict[str, Any]) -> dict[str, Any]:
@@ -293,9 +509,7 @@ class GoogleCalendarService:
         events exist than were returned, so the caller must not claim the list
         is complete.
         """
-        start, end = self._iso(start_at), self._iso(end_at)
-        if start >= end:
-            raise GoogleConnectionError("Calendar end must be after start", status_code=422)
+        start, end = self._read_window(start_at, end_at)
         if not calendar_id or len(calendar_id) > 1024:
             raise GoogleConnectionError("Calendar selection is invalid", status_code=422)
         if page_token is not None and (not page_token or len(page_token) > 2048):
@@ -370,9 +584,7 @@ class GoogleCalendarService:
     async def freebusy(
         self, *, user_id: str, start_at: str, end_at: str, calendar_ids: list[str] | None = None
     ) -> dict[str, Any]:
-        start, end = self._iso(start_at), self._iso(end_at)
-        if start >= end:
-            raise GoogleConnectionError("Calendar end must be after start", status_code=422)
+        start, end = self._read_window(start_at, end_at)
         ids = [value.strip() for value in (calendar_ids or ["primary"]) if value and value.strip()]
         if not ids or len(ids) > 20:
             raise GoogleConnectionError("Choose between one and twenty calendars", status_code=422)
@@ -385,20 +597,25 @@ class GoogleCalendarService:
         )
         calendars = response.get("calendars")
         groups = response.get("groups", {})
-        if (
-            not isinstance(calendars, dict)
-            or not isinstance(groups, dict)
-            or any(
-                not isinstance(item, dict) or bool(item.get("errors"))
-                for item in [*calendars.values(), *groups.values()]
-            )
-            or any(value not in calendars and value not in groups for value in ids)
-        ):
-            # HTTP 200 can still carry per-calendar failures. Treating their
-            # missing busy intervals as free time would invent availability.
-            raise GoogleConnectionError(
-                "Calendar availability could not be checked", status_code=502
-            )
+        if not isinstance(calendars, dict) or not isinstance(groups, dict):
+            raise self._invalid_response()
+        for group in groups.values():
+            if not isinstance(group, dict) or group.get("errors"):
+                raise self._invalid_response()
+            members = group.get("calendars")
+            if not isinstance(members, list) or any(
+                not isinstance(member, str) or member not in calendars for member in members
+            ):
+                raise self._invalid_response()
+        if any(value not in calendars and value not in groups for value in ids):
+            raise self._invalid_response()
+        # HTTP 200 can contain partial errors or malformed intervals. Neither
+        # may be interpreted as a free slot, even when other calendars succeeded.
+        self._merged_busy_intervals(
+            calendars=calendars,
+            range_start=datetime.fromisoformat(start.replace("Z", "+00:00")),
+            range_end=datetime.fromisoformat(end.replace("Z", "+00:00")),
+        )
         return {
             "time_min": start,
             "time_max": end,
@@ -492,20 +709,25 @@ class GoogleCalendarService:
     ) -> list[tuple[datetime, datetime]]:
         intervals: list[tuple[datetime, datetime]] = []
         if not isinstance(calendars, dict):
-            return intervals
+            raise cls._invalid_response()
         for calendar in calendars.values():
-            if not isinstance(calendar, dict):
-                continue
-            for item in calendar.get("busy", []):
+            if not isinstance(calendar, dict) or calendar.get("errors"):
+                raise cls._invalid_response()
+            busy = calendar.get("busy")
+            if not isinstance(busy, list):
+                raise cls._invalid_response()
+            for item in busy:
                 if not isinstance(item, dict):
-                    continue
+                    raise cls._invalid_response()
                 try:
                     start = datetime.fromisoformat(
                         cls._iso(str(item["start"])).replace("Z", "+00:00")
                     )
                     end = datetime.fromisoformat(cls._iso(str(item["end"])).replace("Z", "+00:00"))
-                except (KeyError, TypeError, ValueError, GoogleConnectionError):
-                    continue
+                except (KeyError, TypeError, ValueError, GoogleConnectionError) as exc:
+                    raise cls._invalid_response() from exc
+                if end <= start:
+                    raise cls._invalid_response()
                 start, end = max(start, range_start), min(end, range_end)
                 if start < end:
                     intervals.append((start, end))

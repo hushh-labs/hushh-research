@@ -121,6 +121,9 @@ _REJECT_SPOKEN = {
     "reconnect_required": "Mail needs reconnecting before I can look.",
     "connection_changed": "Your Mail connection changed while I was looking. Nothing was read.",
     "permission_denied": "Mail didn't allow that read.",
+    "quota_exceeded": "Gmail's daily read limit was reached. Please try again later.",
+    "domain_policy": "Your Google Workspace policy does not allow this Mail read.",
+    "retryable": "Gmail is temporarily unavailable. Please try again.",
     "source_changed": "The inbox changed while I was looking. Please ask again.",
     "response_too_large": "That search was too broad for me to read. Try narrowing it.",
     "invalid_argument": "I couldn't turn that into a search of your mail.",
@@ -128,7 +131,7 @@ _REJECT_SPOKEN = {
 _REJECT_DEFAULT = "I couldn't look at your mail just now."
 _STAGE_FAILURES = {
     "planning": "I couldn't plan that Mail request just now. Please try again.",
-    "retrieval": "Your Mail connection is available, but I couldn't fetch those messages just now.",
+    "retrieval": "I couldn't fetch those messages just now. Please try again.",
     "interpretation": "I fetched the messages, but I couldn't finish reading them just now.",
     "analysis": "I fetched the messages, but I couldn't complete the requested analysis.",
 }
@@ -480,14 +483,16 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
             (status or "failed")[:23],
             str(outcome.get("failure_stage") or "none")[:23],
         )
-        access_failure = _REJECT_SPOKEN.get(status)
+        failure_reason = str(outcome.get("failure_reason") or "")
+        access_failure = _REJECT_SPOKEN.get(status) or _REJECT_SPOKEN.get(failure_reason)
         analysis_speech = (
             _analysis_failure_speech(outcome.get("analysis_failed"))
             if outcome.get("failure_stage") == "analysis" and not access_failure
             else []
         )
         return Rejected(
-            reason_code=status or "mail_read_failed",
+            reason_code=(failure_reason if failure_reason in _REJECT_SPOKEN else status)
+            or "mail_read_failed",
             spoken_facts=analysis_speech
             or [
                 access_failure

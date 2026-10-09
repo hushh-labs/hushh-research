@@ -190,3 +190,114 @@ async def test_invalid_or_broad_window_and_unasked_duration_fail_before_google(c
     assert no_duration.result.reason_code == "duration_required"
     service.list_events.assert_not_awaited()
     service.find_openings.assert_not_awaited()
+
+
+async def test_continuation_reuses_private_window_query_and_latest_positions(context):
+    ctx, service = context
+    executor = ToolExecutor()
+    service.list_events.return_value.update(
+        {"truncated": True, "next_page_token": "private-page-2"}
+    )
+    first = await executor.call(
+        ctx, "read_calendar", {"operation": "events", "query": "private topic", **_window()}
+    )
+    assert first.result.truncated
+    # Provider cursors and owner query must stay out of both operational model and durable context.
+    for raw in (
+        json.dumps(first.result.model_public()),
+        json.dumps(ctx.entities.model_dump(mode="json")),
+    ):
+        assert "private-page-2" not in raw
+        assert "private topic" not in raw
+    service.list_events.return_value = {
+        "events": [{"id": "second-page-event", "title": "Second page"}],
+        "truncated": False,
+    }
+    second = await executor.call(ctx, "read_calendar", {"operation": "events", "more": True})
+    assert second.result.status == "ok"
+    assert service.list_events.await_args.kwargs["page_token"] == "private-page-2"
+    assert service.list_events.await_args.kwargs["query"] == "private topic"
+    assert service.list_events.await_args.kwargs["start_at"] == "2026-10-09T18:30:00+00:00"
+    assert ctx.entities.offered_calendar_events.event_ids == ["second-page-event"]
+    ended = await executor.call(ctx, "read_calendar", {"operation": "events", "more": True})
+    assert ended.result.reason_code == "no_more_results"
+    assert service.list_events.await_count == 2
+
+
+async def test_calendar_continuation_rejects_changed_filter_grant_and_expiry(context):
+    ctx, service = context
+    executor = ToolExecutor()
+    service.list_calendars.return_value.update(
+        {"truncated": True, "next_page_token": "private-list-page"}
+    )
+    await executor.call(ctx, "read_calendar", {"operation": "calendars"})
+    invalid = await executor.call(
+        ctx, "read_calendar", {"operation": "calendars", "more": True, "query": "changed"}
+    )
+    assert invalid.result.reason_code == "invalid_continuation"
+    service.connections.read_grant_binding.return_value = ("different",) * 6
+    changed = await executor.call(ctx, "read_calendar", {"operation": "calendars", "more": True})
+    assert changed.result.reason_code == "page_expired"
+    assert service.list_calendars.await_count == 1
+
+
+async def test_empty_intermediate_page_can_continue_but_restored_cursor_cannot(context):
+    ctx, service = context
+    executor = ToolExecutor()
+    service.list_events.return_value = {
+        "events": [],
+        "truncated": True,
+        "next_page_token": "opaque",
+    }
+    await executor.call(ctx, "read_calendar", {"operation": "events", **_window()})
+    continued = await executor.call(ctx, "read_calendar", {"operation": "events", "more": True})
+    assert continued.result.status == "ok"
+    ctx.entities = EntityContext.model_validate(ctx.entities.model_dump(mode="json"))
+    restored = await executor.call(ctx, "read_calendar", {"operation": "events", "more": True})
+    assert restored.result.reason_code == "page_expired"
+    assert service.list_events.await_count == 2
+
+
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        ("2026-03-08T02:15:00", "2026-03-08T03:30:00"),
+        ("2026-11-01T01:15:00", "2026-11-01T02:30:00"),
+    ],
+)
+async def test_dst_gap_or_fold_requires_unambiguous_offset(context, start, end):
+    ctx, service = context
+    ctx.timezone = "America/New_York"
+    result = await ToolExecutor().call(
+        ctx, "read_calendar", {"operation": "events", "start_at": start, "end_at": end}
+    )
+    assert result.result.reason_code == "invalid_window"
+    service.list_events.assert_not_awaited()
+
+
+@pytest.mark.parametrize("status,reason", [(401, "reconnect_required"), (504, "read_timeout")])
+async def test_reauthorization_and_timeout_have_distinct_recovery(context, status, reason):
+    ctx, service = context
+    service.list_events.side_effect = GoogleConnectionError(
+        "Untrusted provider text", status_code=status
+    )
+    result = await ToolExecutor().call(ctx, "read_calendar", {"operation": "events", **_window()})
+    assert result.result.reason_code == reason
+    assert "Untrusted" not in json.dumps(result.result.public())
+
+
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        ({"status": "needs_reauth", "connected": False}, "reconnect_required"),
+        ({"status": "connected", "connected": True}, "permission_required"),
+        ({"status": "disconnected", "connected": False}, "calendar_not_connected"),
+    ],
+)
+async def test_missing_binding_uses_provider_state_for_recovery(context, status, expected):
+    ctx, service = context
+    service.connections.read_grant_binding.return_value = None
+    service.connections.status = AsyncMock(return_value=status)
+    result = await ToolExecutor().call(ctx, "read_calendar", {"operation": "events", **_window()})
+    assert result.result.reason_code == expected
+    service.list_events.assert_not_awaited()

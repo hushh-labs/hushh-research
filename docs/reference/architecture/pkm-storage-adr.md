@@ -171,3 +171,35 @@ in-memory cache is invalidated per changed domain after a write. This phase has
 no server-side vector database, no embeddings, and no Gmail-content RAG: Gmail
 content remains outside PKM and is classified transiently under its separate
 consent boundary.
+
+## Decision: business-directory review uses the existing PKM pipeline (2026-10-09)
+
+`business_directory_v1` is a profile of `/api/pkm/memory/proposals`, not a
+second profile store. The existing four model stages propose one structured
+business entity in `businesses.entities` within a valid non-personal domain.
+The host rejects contradictory destinations, inferred fields, summary blobs,
+and ownership claims; it does not replace a successful model proposal with a
+host-authored profile. The review shows selectable business fields rather than
+model bookkeeping or disclaimers as facts.
+
+The unlocked client indexes current records by `_business_origin.business_uid`
+in the existing owner-scoped, in-memory working set. Only safe listing values
+and the existing entity destination enter reconciliation; origin bookkeeping
+does not enter the model prompt. An exact UID/field match needs no write.
+Changed or missing fields go through model review, and the conflict-aware
+writer rechecks business identity before every write/retry. A new entity has
+no prior merge target; its destination comes from the reviewed model payload.
+Updates must name an explicit existing target. Unchecked fields are not sent
+to the writer, and existing fields remain intact.
+
+The chat card is dismissed only after the existing save/checkpoint path or
+exact duplicate evidence. Later and Not my business retain the existing
+server decisions; pending actions disable conflicting controls. Nothing in
+this flow verifies business ownership or publishes a business profile.
+
+Frontend and backend must deploy together. A backend that has not yet
+accepted `business_directory_v1` returns HTTP 422; the client reports a
+deployment mismatch instead of retrying the generic profile. Unit/contract
+tests do not substitute for an authenticated, unlocked model-backed UAT
+review/save rehearsal. Frozen pending-save payloads are preserved on listing
+changes; automatically replacing such a job remains outside this demo scope.

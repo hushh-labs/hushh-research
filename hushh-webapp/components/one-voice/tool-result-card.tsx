@@ -23,6 +23,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import Link from "next/link";
+import { ROUTES } from "@/lib/navigation/routes";
 import { AlertCircle, Check, Info, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 
@@ -1511,14 +1513,14 @@ function ScheduledMailDetail({ result }: { result: ToolResultPublic }) {
 }
 
 function calendarWhen(value: unknown, timeZone: string | null): string | null {
-  if (!value || typeof value !== "object") return null;
-  const row = value as Row;
-  const date = text(row.date);
+  const row = value && typeof value === "object" ? value as Row : null;
+  const date = row && text(row.date);
   if (date) return date;
-  const dateTime = text(row.dateTime);
+  // Free/busy uses RFC3339 strings; event reads use dateTime objects.
+  const dateTime = typeof value === "string" ? value : row && text(row.dateTime);
   if (!dateTime) return null;
   const instant = new Date(dateTime);
-  if (!Number.isFinite(instant.getTime())) return dateTime;
+  if (!Number.isFinite(instant.getTime())) return null;
   try {
     return new Intl.DateTimeFormat(undefined, {
       dateStyle: "medium",
@@ -1528,6 +1530,50 @@ function calendarWhen(value: unknown, timeZone: string | null): string | null {
   } catch {
     return dateTime;
   }
+}
+
+function calendarRange(start: unknown, end: unknown, timeZone: string | null): string {
+  const startDate = start && typeof start === "object" ? text((start as Row).date) : null;
+  const endDate = end && typeof end === "object" ? text((end as Row).date) : null;
+  if (startDate && endDate) {
+    // Google all-day end dates are exclusive. Date-only arithmetic stays in UTC
+    // so display does not shift the event across a local daylight-saving change.
+    const exclusiveEnd = Date.parse(`${endDate}T00:00:00Z`);
+    const inclusiveEnd = Number.isFinite(exclusiveEnd)
+      ? new Date(exclusiveEnd - 86_400_000).toISOString().slice(0, 10) : null;
+    return `${startDate}${inclusiveEnd && inclusiveEnd > startDate ? ` – ${inclusiveEnd}` : ""} · All day`;
+  }
+  return [calendarWhen(start, timeZone), calendarWhen(end, timeZone)].filter(Boolean).join(" – ");
+}
+
+function calendarConferenceUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "meet.google.com" &&
+      !url.username && !url.password && !url.port ? url.href : null;
+  } catch { return null; }
+}
+
+/** Authored recovery follows typed service outcomes, never the model's prose. */
+function ReadConnectionRecovery({ family, result }: { family: ToolResultFamily; result: ToolResultPublic }) {
+  if (result.status !== "rejected" && result.status !== "failed") return null;
+  const reason = text(result.reason_code);
+  const calendar = family === "calendar" && reason && [
+    "calendar_not_connected", "reconnect_required", "permission_required",
+    "calendar_reauthorization_required", "calendar_permission_required", "calendar_list_permission_required",
+  ].includes(reason);
+  const mail = family === "mail" && reason && ["connect_required", "reconnect_required"].includes(reason);
+  if (!calendar && !mail) return null;
+  const reconnect = reason !== "calendar_not_connected" && reason !== "connect_required";
+  return (
+    <Link
+      href={calendar ? ROUTES.CALENDAR : ROUTES.EMAIL_AGENT}
+      className="mt-2 inline-flex min-h-11 items-center text-[13px] font-medium text-[color:var(--app-label)] underline underline-offset-4"
+    >
+      {reconnect ? "Reconnect" : "Connect"} {calendar ? "Calendar" : "Email"}
+    </Link>
+  );
 }
 
 /** Google text stays in the owner's screen card, never in operational speech. */
@@ -1577,15 +1623,13 @@ function CalendarReadDetail({ result }: { result: ToolResultPublic }) {
               : operation === "openings"
                 ? "Available"
                 : text(row.title) ?? "Untitled event";
-          const start = calendarWhen(
-            operation === "openings" ? { dateTime: row.start_at } : row.start,
+          const when = calendarRange(
+            operation === "openings" ? row.start_at : row.start,
+            operation === "openings" ? row.end_at : row.end,
             timeZone,
           );
-          const end = calendarWhen(
-            operation === "openings" ? { dateTime: row.end_at } : row.end,
-            timeZone,
-          );
-          const when = [start, end].filter(Boolean).join(" – ");
+          const attendees = operation === "event" ? rows(row.attendees) : [];
+          const conferenceUrl = operation === "event" ? calendarConferenceUrl(row.conference_url) : null;
           const location = operation === "event" ? text(row.location) : null;
           const description = operation === "event" ? text(row.description) : null;
           return (
@@ -1607,13 +1651,29 @@ function CalendarReadDetail({ result }: { result: ToolResultPublic }) {
                   {description}
                 </p>
               ) : null}
+              {attendees.length > 0 ? (
+                <ul aria-label="Attendees" className="text-[12px] text-[color:var(--app-secondary-label)]">
+                  {attendees.map((attendee, attendeeIndex) => (
+                    <li key={attendeeIndex} className="break-words">
+                      {[text(attendee.email), text(attendee.response_status)].filter(Boolean).join(" · ")}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {conferenceUrl ? (
+                <a href={conferenceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[13px] font-medium underline underline-offset-4">
+                  Join Google Meet
+                </a>
+              ) : null}
             </li>
           );
         })}
       </ul>
       {result.truncated === true ? (
         <p className="mt-2 text-[12px] text-[color:var(--app-secondary-label)]">
-          More results exist. Ask for a narrower time or search.
+          More results exist. {operation === "events" || operation === "calendars"
+            ? "Ask to show more, or narrow the time or search."
+            : "Ask for a narrower time range."}
         </p>
       ) : null}
     </div>
@@ -1824,14 +1884,15 @@ export function ToolResultCard({
               Nothing was changed.
             </p>
           ) : null}
-          <Detail
+          <ReadConnectionRecovery family={family} result={result} />
+          {!((family === "mail" || family === "calendar") && ["cancelled", "canceled", "superseded"].includes(String(result.status))) ? <Detail
             family={family}
             tool={tool}
             result={result}
             onOpenMail={onOpenMail}
             onOpenDraft={onOpenDraft}
             onActiveMailChange={onActiveMailChange}
-          />
+          /> : null}
         </div>
       </div>
     </div>

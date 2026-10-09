@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   GoogleCalendarService,
+  GoogleCalendarError,
+  type CalendarReadRecovery,
   type CalendarEventSummary,
   type CalendarEventTime,
 } from "@/lib/services/google-calendar-service";
@@ -34,6 +36,7 @@ export type UseCalendarUpcomingEventsResult = {
   events: RedactedCalendarEvent[];
   loading: boolean;
   error: string | null;
+  recovery: CalendarReadRecovery | null;
   loaded: boolean;
   refresh: () => void;
 };
@@ -48,7 +51,8 @@ function googleMeetUrl(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "meet.google.com"
+    return url.protocol === "https:" && url.hostname === "meet.google.com" &&
+      !url.username && !url.password && !url.port
       ? url.toString()
       : undefined;
   } catch {
@@ -87,25 +91,28 @@ export function useCalendarUpcomingEvents({
   // snapshot even before the effect has invalidated its in-flight request.
   const identity = useMemo(
     () => Symbol(
-      `calendar-${Boolean(userId)}-${Boolean(vaultOwnerToken)}-${isConnected}`,
+      `calendar-${Boolean(userId)}-${Boolean(vaultOwnerToken)}-${isConnected}-${windowHours}`,
     ),
-    [userId, vaultOwnerToken, isConnected],
+    [userId, vaultOwnerToken, isConnected, windowHours],
   );
   const identityRef = useRef(identity);
+  identityRef.current = identity;
   const requestRef = useRef(0);
   const [snapshot, setSnapshot] = useState<{
     identity: symbol;
     events: RedactedCalendarEvent[];
     loading: boolean;
     error: string | null;
+    recovery: CalendarReadRecovery | null;
     loaded: boolean;
-  }>({ identity, events: [], loading: false, error: null, loaded: false });
+  }>({ identity, events: [], loading: false, error: null, recovery: null, loaded: false });
   const canLoad = Boolean(isConnected && userId && vaultOwnerToken);
   const current = canLoad && snapshot.identity === identity;
 
   useEffect(() => {
     identityRef.current = identity;
     requestRef.current += 1;
+    return () => { requestRef.current += 1; };
   }, [identity]);
 
   const load = useCallback(async () => {
@@ -117,7 +124,7 @@ export function useCalendarUpcomingEvents({
     ) return;
     const request = ++requestRef.current;
     setSnapshot({
-      identity, events: [], loading: true, error: null, loaded: false,
+      identity, events: [], loading: true, error: null, recovery: null, loaded: false,
     });
     try {
       const now = new Date();
@@ -135,9 +142,10 @@ export function useCalendarUpcomingEvents({
         events: (response.events ?? []).map(redactEvent),
         loading: false,
         error: null,
+        recovery: null,
         loaded: true,
       });
-    } catch {
+    } catch (error) {
       if (request !== requestRef.current || identityRef.current !== identity) {
         return;
       }
@@ -145,7 +153,9 @@ export function useCalendarUpcomingEvents({
         identity,
         events: [],
         loading: false,
-        error: "Calendar details couldn’t load. Refresh to try again.",
+        error: error instanceof GoogleCalendarError
+          ? error.message : "Calendar details couldn’t load. Refresh to try again.",
+        recovery: error instanceof GoogleCalendarError ? error.recovery : "retry",
         loaded: true,
       });
     }
@@ -159,6 +169,7 @@ export function useCalendarUpcomingEvents({
     events: current ? snapshot.events : [],
     loading: current && snapshot.loading,
     error: current ? snapshot.error : null,
+    recovery: current ? snapshot.recovery : null,
     loaded: current && snapshot.loaded,
     refresh: () => void load(),
   };

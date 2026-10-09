@@ -5,6 +5,7 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -22,6 +23,7 @@ from hushh_mcp.services.email_delegated_read import (
 )
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
 from hushh_mcp.services.gmail_personal_information_request_service import SensitiveRequestAssessment
+from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
 
 class _Reader:
@@ -80,7 +82,7 @@ async def _run(
     reader, gene, require_access=None, timezone_name="UTC", message="find my invoices", **kwargs
 ):
     return await run_delegated_mail_read(
-        gmail=object(),
+        gmail=SimpleNamespace(assert_read_ready=AsyncMock()),
         user_id="owner",
         consent_token="synthetic",  # noqa: S106 - synthetic test authority
         conversation_id="original-one-thread",
@@ -401,6 +403,7 @@ async def test_provider_read_failure_has_safe_specific_copy_and_valid_status(
     )
     assert result["structured"]["status"] == "unavailable"
     assert expected_text in result["response"]
+    assert result["failure_reason"] == provider_code
     assert result["failure_stage"] == "retrieval"
 
 
@@ -755,7 +758,7 @@ async def test_an_offered_position_reads_that_message_and_never_searches_again()
         return {"answer": "Priya asked for the deck.", "source_refs": ["mail:1"]}
 
     result = await run_delegated_mail_read(
-        gmail=object(),
+        gmail=SimpleNamespace(assert_read_ready=AsyncMock()),
         user_id="owner",
         consent_token="synthetic",  # noqa: S106 - synthetic test authority
         conversation_id="original-one-thread",
@@ -806,7 +809,7 @@ async def test_typed_selection_uses_restored_exact_offer_without_exposing_ids_to
 
     reader_args = []
     result = await run_delegated_mail_read(
-        gmail=object(),
+        gmail=SimpleNamespace(assert_read_ready=AsyncMock()),
         user_id="owner",
         consent_token="synthetic",  # noqa: S106 - synthetic test authority
         conversation_id="original-one-thread",
@@ -898,7 +901,7 @@ async def test_typed_offer_rejects_account_switch_before_releasing_content():
 
     readers = []
     result = await run_delegated_mail_read(
-        gmail=object(),
+        gmail=SimpleNamespace(assert_read_ready=AsyncMock()),
         user_id="owner",
         consent_token="synthetic",  # noqa: S106 - synthetic test authority
         conversation_id="original-one-thread",
@@ -1158,7 +1161,7 @@ async def _receipts_turn(plan, memory, *, message="show my receipts", **kwargs):
         raise AssertionError("only the planner may run for a receipts answer")
 
     result = await run_delegated_mail_read(
-        gmail=object(),
+        gmail=SimpleNamespace(assert_read_ready=AsyncMock()),
         user_id="owner",
         consent_token="synthetic",  # noqa: S106 - synthetic test authority
         conversation_id="original-one-thread",
@@ -1352,3 +1355,115 @@ def test_planner_is_manifest_owned_routes_receipts_to_memory_and_keeps_inbox_sea
     for name in ("receipt_statuses", "receipt_identifier_kinds"):
         assert schema[name]["type"] == "array"
         assert "$ref" in schema[name]["items"] or schema[name]["items"].get("type") == "string"
+
+
+@pytest.mark.parametrize("truncated", [False, True])
+async def test_empty_read_does_not_ask_model_to_invent_an_answer(truncated):
+    reader = _Reader(
+        metadata={
+            "untrusted_external_content": [],
+            "metadata_only": True,
+            "truncated": truncated,
+            "coverage": {"returned": 0, "matches_beyond_page": truncated},
+        }
+    )
+    gene = AsyncMock(return_value={"operation": "list_recent"})
+    result = await _run(reader, gene)
+    assert result["structured"]["status"] == "ok"
+    assert gene.await_count == 1
+    assert result["structured"]["sources"] == [] and result["items"] == []
+    assert "did not find any matching mail" in result["response"]
+    assert ("outside this page" in result["response"]) == truncated
+    assert result["coverage"]["cited"] == 0
+    assert reader.validations == 2
+
+
+async def test_empty_read_rechecks_grant_before_release():
+    reader = _Reader(
+        metadata={
+            "untrusted_external_content": [],
+            "metadata_only": True,
+            "truncated": False,
+        },
+        late_error=True,
+    )
+    result = await _run(reader, AsyncMock(return_value={"operation": "list_recent"}))
+    assert result["structured"]["status"] == "connection_changed"
+    assert result["coverage"] is None
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        ("GMAIL_NOT_CONNECTED", "connect_required"),
+        ("GMAIL_READ_PERMISSION_REQUIRED", "reconnect_required"),
+    ],
+)
+async def test_live_mail_preflight_refuses_before_planner(code, expected):
+    gene = AsyncMock()
+    gmail = SimpleNamespace(
+        assert_read_ready=AsyncMock(
+            side_effect=GmailApiError(
+                "private provider text",
+                status_code=409,
+                code=code,
+            )
+        )
+    )
+    result = await run_delegated_mail_read(
+        gmail=gmail,
+        user_id="owner",
+        consent_token="fixture-authority",  # noqa: S106 - synthetic test authority
+        conversation_id="conversation",
+        message="read my inbox",
+        require_access=AsyncMock(),
+        gene_runner=gene,
+        reader_factory=_never_a_reader,
+    )
+    assert result["structured"]["status"] == expected
+    gene.assert_not_awaited()
+    assert "private provider text" not in result["response"]
+
+
+async def test_receipt_memory_planner_remains_available_without_live_gmail():
+    gmail = SimpleNamespace(assert_read_ready=AsyncMock(side_effect=AssertionError("no Gmail")))
+    result = await run_delegated_mail_read(
+        gmail=gmail,
+        user_id="owner",
+        consent_token="fixture-authority",  # noqa: S106 - synthetic test authority
+        conversation_id="conversation",
+        message="show receipts",
+        require_access=AsyncMock(),
+        receipt_reads=True,
+        receipt_memory=_receipt_memory(),
+        reader_factory=_never_a_reader,
+        gene_runner=AsyncMock(return_value={"operation": "read_receipts"}),
+        clock=lambda: _NOW,
+    )
+    assert result["structured"]["status"] == "ok"
+    gmail.assert_read_ready.assert_not_awaited()
+
+
+async def test_category_deadline_cancels_active_and_queued_assessments(monkeypatch):
+    monkeypatch.setattr("hushh_mcp.services.email_delegated_read._ANALYSIS_CATEGORY_DEADLINE", 0.03)
+    reader = _analysis_reader()
+    reader.metadata["untrusted_external_content"] *= 4
+    started, cancelled = [], []
+
+    async def assess(row):
+        started.append(row["source_ref"])
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.append(row["source_ref"])
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "analyze_mail", "categories": ["personal_info", "meetings"]}
+        return {"findings": []}
+
+    result = await asyncio.wait_for(_run(reader, gene, personal_assessor=assess), timeout=1)
+    assert result["structured"]["status"] == "ok"
+    assert result["coverage"]["analysis_failed"] == ["personal_info"]
+    assert result["coverage"]["findings_meetings"] == 0
+    assert len(started) == 4 and sorted(started) == sorted(cancelled)

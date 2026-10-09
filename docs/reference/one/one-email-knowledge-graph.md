@@ -161,7 +161,7 @@ These are code-path findings and current mitigation boundaries, not measured pro
 | F11 | Live Voice exposes overlapping mail send paths. | Negotiated tool declarations now omit legacy send/reply on review-capable clients, and the executor rejects their legacy route. Older clients retain their compatible path. one_voice/tools/registry.py; one_voice/tools/executor.py. |
 | F12 | An immediate claimed send can remain sending after process cancellation. | An owner/vault-authorized status reconciliation settles a stale immediate sending row to non-retryable outcome_unknown after five minutes; it never posts to Gmail. The normal GET stays read-only. SEND; api/routes/one/gmail_delivery.py. |
 | F13 | A two-phrase English draft override bypasses semantic drafting. | The substring override is removed. Draft text now follows the semantic drafting path; negated phrase regression is covered. SEND; tests/test_email_runtime.py. |
-| F14 | Read breadth and speed have unverified limits. | Planner allows one operation; list/body/thread caps are bounded. Plan/fetch/analyze/interpret and Chat/Voice turn timing exist, but no p95 by intent or evidence that a 105-second budget is normal latency. DELEGATE:54-85,97-114,439-459; READER:55-60. |
+| F14 | Read breadth and speed have unverified limits. | Planner allows one operation; list/body/thread caps are bounded. Disconnected Live Mail now fails before planning; empty retrieval skips interpretation; each analysis category has a 25-second bound with sibling results preserved. Live read plus narration is bounded to 45 seconds and superseded results cannot publish. Plan/fetch/analyze/interpret and Chat/Voice turn timing exist, but no p95 by intent or evidence that a 105-second budget is normal latency. DELEGATE:54-85,97-114,439-459; READER:55-60. |
 
 ## Graph invariants
 
@@ -172,3 +172,13 @@ These are code-path findings and current mitigation boundaries, not measured pro
 5. One Live Voice's separately gated mail tools are an active product path when Live Voice is enabled; the Email specialist manifest's typed-only entry does not remove them. S4 and P2 remain retained paths, not current product entrypoints.
 
 Refresh this graph after changes to OAuth scopes, the Email manifest, Chat admission, delivery/mailbox state machines, sync cursor, cache deletion, or streaming transport. Promote completed plan work into the owning code and canonical contracts; keep this ledger about current behavior.
+
+## Current read failure and grounding boundaries
+
+The current live-mail path preflights connection/read permission before semantic planning. Typed saved-receipt reads remain independent of the Gmail connection. Empty retrieval releases only an authored empty-result statement after a final grant check; it cannot acquire invented interpreter prose. Each semantic analysis category has a 25-second deadline and cancels its unfinished work; successful categories remain explicit partial results. Domain-policy and daily-quota reasons retain accurate Voice recovery copy. A grant with only send/compose/modify still does not satisfy the legacy reader's explicit `gmail.readonly` contract; broader-scope compatibility needs its owning grant-contract change.
+
+New speech, typed input or provider cancellation retires the pending Voice read and isolated narration. Provider receipt settlement has a bounded close path and never retries an uncertain receipt. This lifecycle does not cancel or replay accepted sends. Citation validation remains reference validation, not proof of every generated factual claim.
+
+## Second read-reliability audit
+
+The [implementation plan and 64-case matrix](../../superpowers/plans/2026-10-09-one-email-calendar-read-voice-plan.md#second-audit-read-reliability-and-latency) records the current follow-up: stable authorization generations, strict availability validation, read cancellation/deadlines, owner-fenced cards, empty-Mail grounding, and private Calendar continuation. Implementation and release evidence are tracked there; baseline tests alone did not cover the reproduced gaps.
