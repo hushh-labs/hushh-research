@@ -42,7 +42,7 @@
       ],
       "kind": "root",
       "reason": "Chat entry is an application root.",
-      "sourceRevision": "fbddca1c7ec09242c217f16e75ffc762370bf7cc6a0efa8c9371af9755228ddc"
+      "sourceRevision": "22088877a3564473206bded1e0d34da663eaea4c391eb844bad0454072f2340e"
     }
   },
   {
@@ -2041,18 +2041,17 @@
     "route": "/one/files",
     "mode": "standard",
     "shellVerification": {
-      "file": "components/profile/pkm-settings-shell.tsx",
+      "file": "components/files/files-workspace.tsx",
       "includes": [
         "AppPageShell",
         "AppPageHeaderRegion",
         "AppPageContentRegion",
-        "PageHeader",
-        "SurfaceStack"
+        "PageHeader"
       ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.files",
-      "purpose": "Manage the owner\u2019s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
+      "purpose": "Manage the owner’s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
@@ -2071,6 +2070,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally without inventing a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/files",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   },
   {
@@ -3860,6 +3872,27 @@
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/setup/cloud",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/setup/cloud?from=%2Fone%2Fprofile%2Fhosting",
+          "expected": {
+            "href": "/one/profile/hosting",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   },
   {
@@ -3895,6 +3928,19 @@
       "nextRoute": "/one/setup/cloud",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/setup/cloud/azure/return",
+          "expected": {
+            "href": "/one/setup",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   },
   {
@@ -4742,6 +4788,16 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "The private agent may explain the screen; claim decisions require the person's protected review controls."
+    },
+    "backVerification": {
+      "kind": "surface-owned",
+      "reason": "The one-time protected review owns completion and Return to One controls; it is not a generic Profile panel.",
+      "cases": [
+        {
+          "href": "/one/profile/discovery",
+          "expected": null
+        }
+      ]
     }
   },
   {
@@ -7231,6 +7287,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/profile/hosting",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   },
   {
@@ -7267,6 +7336,19 @@
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/profile/software-updates",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   }
 ]

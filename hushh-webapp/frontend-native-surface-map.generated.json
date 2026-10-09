@@ -2973,13 +2973,12 @@
       "route_contract": {
         "mode": "standard",
         "exemption_reason": null,
-        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_file": "components/files/files-workspace.tsx",
         "shell_verification_includes": [
           "AppPageShell",
           "AppPageHeaderRegion",
           "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
+          "PageHeader"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
@@ -10240,5 +10239,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "11be49f796f709c55267e649652dd8d20ec21d67e229d2439e2f56478568ed32"
+  "content_sha256": "1a358d03f3c574fc442c41ec29c59c21c9e7814e55d8604b1ca3bdedc90b26cf"
 }
