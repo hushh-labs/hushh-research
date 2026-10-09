@@ -1714,7 +1714,26 @@ No pod rollout or authenticated provider operation has occurred.
 The nearest renderer, runtime-map and governed-tool files passed 281 focused
 tests. Restoring the missing projection failed all three positive platform
 variants while the nine inadmissible cases remained denied. Complete final-source
-core and CI remain required. The headless financial rehearsal uses the exported
+core subsequently passed in 544 seconds at exact published candidate
+`da4b97830474bed49d8e9b0b87ef51ab88aff1bd`, including 400 Postgres tests and
+380 PKM integration tests. [Full CI 37918854465](https://github.com/hushh-labs/hushh-research/actions/runs/37918854465)
+completed successfully at 11:03:35 UTC: all 18 selected jobs passed, including
+iOS, Android, all three frontend shards, targeted browser contracts, backend,
+MCP, integration and the final status gate. Event-specific PR gates were
+intentionally skipped by their existing workflow conditions. The headless
+financial rehearsal uses the exported
 canonical runner with a private, role-bound token-provider callback; its generic
 CLI does not construct that callback. Hosted financial actions and each exact
 quote, withdrawal and source refund remain independent human checkpoints.
+
+Independent preview readback at 10:35:22 UTC still verifies the previous d1
+application at 100% traffic, canonical database head 287, disabled paid/provider
+admission and zero funding, purchase, journal, withdrawal or provider-operation
+records. Primary Shared/phone state is retained; ordinary vault/setup completion
+for both reviewers remains outstanding. The read-only task proxy exited. The
+original local branch now contains the published candidate through a clean merge;
+independent offline-pod work and unrelated edits remain local and preserved.
+No deployment, private-pod rollout, account OAuth receipt or payment acceptance
+is inferred from source verification. Effective bridge permissions, host/owner
+OAuth, physical reviewer sign-in and the explicit Sandbox cost scenario remain
+external prerequisites.
