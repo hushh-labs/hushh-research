@@ -5503,10 +5503,52 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 /* The retained Agent Bar owns the material in both modes. Chat projects its
  * existing form into that bar, not another glass pill or another text box. */
 [data-agent-dock-surface="text"] {
+  /* The fixed composer can overlap the last message while the keyboard is
+   * present. Give that overlap an iOS material so the transcript recedes
+   * behind the writing surface instead of reading through it. */
+  --agent-composer-material: color-mix(
+    in oklab,
+    var(--background) 72%,
+    transparent
+  );
+  --agent-composer-rim: color-mix(
+    in oklab,
+    var(--foreground) 10%,
+    transparent
+  );
   display: block;
   min-width: 0;
   overflow: visible;
   border-radius: 1.5rem;
+  border-color: var(--agent-composer-rim) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+
+.dark [data-agent-dock-surface="text"] {
+  --agent-composer-material: color-mix(
+    in oklab,
+    var(--background) 76%,
+    transparent
+  );
+  --agent-composer-rim: color-mix(
+    in oklab,
+    var(--foreground) 16%,
+    transparent
+  );
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-agent-dock-surface="text"] {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 [data-agent-dock-surface="voice"] {
   /* Same resting frame as the one-line composer: only content changes on
