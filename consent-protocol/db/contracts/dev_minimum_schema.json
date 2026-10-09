@@ -2257,6 +2257,31 @@
       "one_runtime_setup_choice",
       "one_chat_onboarding",
       "created_at",
+      "updated_at",
+      "one_hosting_choice",
+      "one_hosting_choice_at",
+      "one_hosting_legacy_shared_at"
+    ],
+    "personal_agent_registry": [
+      "user_id",
+      "status",
+      "deployment_target",
+      "backend",
+      "external_agent_id",
+      "a2a_route",
+      "pod_key_id",
+      "pod_pubkey",
+      "backend_metadata"
+    ],
+    "byoc_setup_jobs": [
+      "user_id",
+      "job_id",
+      "project_id",
+      "status",
+      "stage",
+      "stages",
+      "authorization_attempts",
+      "created_at",
       "updated_at"
     ]
   }

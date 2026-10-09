@@ -71,6 +71,7 @@
     "954_personal_agent_never_hosted_erasure.sql",
     "955_one_hosting_choice.sql",
     "956_personal_agent_notification_checkpoint.sql",
-    "957_personal_agent_azure_files_upgrade.sql"
+    "957_personal_agent_azure_files_upgrade.sql",
+    "958_one_shared_legacy_continuity.sql"
   ]
 }

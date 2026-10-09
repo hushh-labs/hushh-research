@@ -95,6 +95,64 @@ async def test_replacement_committed_before_update_preserves_successor(
         engine.dispose()
 
 
+async def test_retry_cannot_replace_reconciliation_committed_after_read(isolated_postgres):
+    engine = create_engine(
+        "postgresql+psycopg2://", creator=lambda: psycopg2.connect(isolated_postgres)
+    )
+    client = DatabaseClient(engine=engine)
+    try:
+        schema = (
+            Path(__file__).resolve().parents[1] / "db/migrations/parked/911_pod_migration_jobs.sql"
+        )
+        with engine.begin() as conn:
+            conn.execute(text(schema.read_text()))
+        repo = PodMigrationJobRepo(client=client)
+        await repo.start(
+            user_id="synthetic-owner",
+            job_id="old-job",
+            hushh_id="synthetic-pod",
+            target_project="source",
+        )
+        await repo.finish(
+            user_id="synthetic-owner",
+            job_id="old-job",
+            status="failed",
+            error_code="MIGRATION_FAILED",
+        )
+        armed = True
+
+        def reconcile_before_write(conn, cursor, statement, parameters, context, executemany):
+            nonlocal armed
+            if armed and statement.startswith("UPDATE"):
+                armed = False
+                with engine.begin() as other:
+                    other.execute(
+                        text(
+                            "UPDATE pod_migration_jobs SET error_code='SWITCH_OUTCOME_UNKNOWN', updated_at=clock_timestamp() WHERE user_id='synthetic-owner'"
+                        )
+                    )
+
+        event.listen(engine, "before_cursor_execute", reconcile_before_write)
+        try:
+            with pytest.raises(MigrationJobSuperseded):
+                await repo.start(
+                    user_id="synthetic-owner",
+                    job_id="new-job",
+                    hushh_id="synthetic-pod",
+                    target_project="destination",
+                )
+        finally:
+            event.remove(engine, "before_cursor_execute", reconcile_before_write)
+        row = await repo.get("synthetic-owner")
+        assert (row["job_id"], row["status"], row["error_code"]) == (
+            "old-job",
+            "failed",
+            "SWITCH_OUTCOME_UNKNOWN",
+        )
+    finally:
+        engine.dispose()
+
+
 class _FakeResponse:
     def __init__(self, data):
         self.data = data
@@ -184,7 +242,7 @@ async def test_a_job_records_where_it_is_going(repo):
 
 
 async def test_a_superseded_task_cannot_write(repo):
-    """Two tabs racing. The loser must stop, not interleave.
+    """A delayed task from a settled attempt must stop, not interleave.
 
     Worse here than in cloud setup: two live migration tasks could have one
     exporting from a pod the other has already torn down.
@@ -192,6 +250,7 @@ async def test_a_superseded_task_cannot_write(repo):
     first = new_job_id()
     await repo.start(user_id="u1", job_id=first, hushh_id="ha1", target_project="p")
     await repo.advance(user_id="u1", job_id=first, stage="freezing")
+    await repo.finish(user_id="u1", job_id=first, status="failed", error_code="NOT_READY_TO_MOVE")
 
     second = new_job_id()
     await repo.start(user_id="u1", job_id=second, hushh_id="ha1", target_project="p")

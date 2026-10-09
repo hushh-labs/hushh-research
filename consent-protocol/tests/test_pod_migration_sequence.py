@@ -20,6 +20,7 @@ import pytest
 
 from hushh_mcp.services.pod_migration_service import (
     MigrationJobSuperseded,
+    MigrationRefused,
     PodMigrationJobRepo,
     new_job_id,
     run_migration,
@@ -239,9 +240,10 @@ async def test_the_rollback_runs_even_if_the_teardown_itself_fails(repo):
 
     steps = _StubbornSteps(fail_at="export_source")
 
-    status, _row = await _run(repo, steps)
+    status, row = await _run(repo, steps)
 
-    assert status == "failed"
+    assert status == "recovery_pending"
+    assert row["error_code"] == "MIGRATION_RECOVERY_PENDING"
     assert "unfreeze" in steps.calls, "a failed teardown swallowed the unfreeze"
 
 
@@ -316,7 +318,7 @@ async def test_superseded_switch_does_not_attempt_recovery(repo):
 # --------------------------------------------------------------------------- #
 
 
-async def test_a_stranded_old_host_does_not_fail_the_move(repo):
+async def test_a_stranded_old_host_preserves_cutover_and_records_cleanup_pending(repo):
     """The person's agent is already live and verified in their own cloud. A
     host we could not tear down is an operational cost; telling them their move
     failed because of it would be false."""
@@ -324,9 +326,54 @@ async def test_a_stranded_old_host_does_not_fail_the_move(repo):
 
     status, row = await _run(repo, steps)
 
-    assert status == "succeeded"
-    assert row["status"] == "succeeded"
+    assert status == "cleanup_pending"
+    assert row["status"] == "cleanup_pending"
+    assert row["error_code"] == "SOURCE_CLEANUP_PENDING"
     assert "unfreeze" not in steps.calls
+    assert "rollback_destination" not in steps.calls
+
+
+async def test_superseded_cleanup_cannot_finish_another_attempt(repo):
+    class SupersededCleanup(_Steps):
+        async def reap_source(self):
+            raise MigrationJobSuperseded("new owner of cleanup")
+
+    with pytest.raises(MigrationJobSuperseded):
+        await _run(repo, SupersededCleanup())
+    assert (await repo.get("u1"))["status"] == "running"
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        ("cleanup_pending", "SOURCE_CLEANUP_PENDING"),
+        ("recovery_pending", "MIGRATION_RECOVERY_PENDING"),
+        ("failed", "SWITCH_OUTCOME_UNKNOWN"),
+        ("failed", "FREEZE_OUTCOME_UNKNOWN"),
+    ],
+)
+async def test_new_migration_cannot_erase_an_unreconciled_move(repo, status, code):
+    first = new_job_id()
+    await repo.start(user_id="u1", job_id=first, hushh_id="ha1_abc", target_project="theirs")
+    await repo.finish(user_id="u1", job_id=first, status=status, error_code=code)
+    with pytest.raises(MigrationRefused) as exc:
+        await repo.start(
+            user_id="u1", job_id=new_job_id(), hushh_id="ha1_abc", target_project="elsewhere"
+        )
+    assert exc.value.code == "MIGRATION_RECONCILIATION_REQUIRED"
+    row = await repo.get("u1")
+    assert (row["job_id"], row["status"], row["error_code"]) == (first, status, code)
+
+
+async def test_new_migration_cannot_replace_an_active_move(repo):
+    first = new_job_id()
+    await repo.start(user_id="u1", job_id=first, hushh_id="ha1_abc", target_project="theirs")
+    with pytest.raises(MigrationRefused) as exc:
+        await repo.start(
+            user_id="u1", job_id=new_job_id(), hushh_id="ha1_abc", target_project="elsewhere"
+        )
+    assert exc.value.code == "MIGRATION_IN_PROGRESS"
+    assert (await repo.get("u1"))["job_id"] == first
 
 
 # --------------------------------------------------------------------------- #
@@ -340,8 +387,9 @@ async def test_a_superseded_job_stops_without_unfreezing(repo):
     steps = _Steps()
     first = new_job_id()
     await repo.start(user_id="u1", job_id=first, hushh_id="ha1_abc", target_project="theirs")
-    # A second attempt takes the row while the first is mid-flight.
-    await repo.start(user_id="u1", job_id=new_job_id(), hushh_id="ha1_abc", target_project="theirs")
+    # Simulate an independently reconciled ownership change. Starting a second
+    # move while the first is running is refused by the real repository.
+    repo._store["rows"][0]["job_id"] = new_job_id()
 
     with pytest.raises(MigrationJobSuperseded):
         await run_migration(user_id="u1", job_id=first, steps=steps, repo=repo)
@@ -371,12 +419,35 @@ async def test_a_failed_unfreeze_still_records_what_went_wrong(repo):
 
     status, row = await _run(repo, steps)
 
-    assert status == "failed"
-    assert row["status"] == "failed", "the ticket was left claiming to be running"
-    assert row["error_code"] == "MIGRATION_FAILED"
+    assert status == "recovery_pending"
+    assert row["status"] == "recovery_pending", "the ticket was left claiming to be running"
+    assert row["error_code"] == "MIGRATION_RECOVERY_PENDING"
     # Both recovery attempts were made even though both failed.
     assert "unfreeze" in steps.calls
     assert "rollback_destination" in steps.calls
+
+
+async def test_superseded_recovery_stops_before_destination_teardown(repo):
+    class SupersededRecovery(_Steps):
+        async def unfreeze(self):
+            raise MigrationJobSuperseded("another attempt owns recovery")
+
+    steps = SupersededRecovery(fail_at="import_destination")
+    with pytest.raises(MigrationJobSuperseded):
+        await _run(repo, steps)
+    assert "rollback_destination" not in steps.calls
+    assert (await repo.get("u1"))["status"] == "running"
+
+
+async def test_provider_failure_does_not_persist_diagnostics(repo):
+    class SensitiveFailure(_Steps):
+        async def import_destination(self, bundle):
+            raise RuntimeError("provider credential should never become a user error")
+
+    status, row = await _run(repo, SensitiveFailure())
+    assert status == "failed"
+    assert row["error_code"] == "MIGRATION_FAILED"
+    assert "credential" not in row["error_message"]
 
 
 async def test_the_agent_is_unfrozen_before_the_teardown_is_attempted(repo):

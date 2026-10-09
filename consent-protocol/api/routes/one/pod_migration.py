@@ -410,8 +410,9 @@ async def import_log(
     """Open a bundle sealed to this pod and rebuild the chain under OUR key.
 
     Returns this pod's own head sha and count. The hub compares them against the
-    source's receipt; byte-equal heads is the zero-loss proof, and the row is
-    switched over only when they match.
+    source's receipt. Byte-equal heads prove record integrity, not complete
+    Files/session transfer or nested ciphertext readability. The record-only
+    exporter refuses source-custody memory and remembered browser sessions.
 
     The rebuild goes through the ordinary ``append`` path on purpose. There is
     deliberately no way to write a chosen sha: the hashes come out equal because

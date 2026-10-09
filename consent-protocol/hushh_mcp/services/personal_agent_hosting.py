@@ -1,9 +1,9 @@
 """Resolve where a person's agent runs: Shared, a pod, pending, or not chosen yet.
 
-Shared is never a default (founder direction, 2026-10-06). A person whose registry
-and setup record show no placement is ``unplaced`` until they record an explicit
-Shared choice (``owner_hosting_choice``) that is newer than their last detach. An
-unplaced person gets the tier chooser and never the hub runtime.
+New accounts choose Shared explicitly (founder direction, 2026-10-06). The
+one-time legacy continuity migration records the existing Shared cohort. Missing
+placement alone is ``unplaced``; a recorded choice must be newer than the last
+detach. An unplaced person gets the tier chooser and never the hub runtime.
 """
 
 from __future__ import annotations
@@ -59,6 +59,8 @@ def resolve_hosting_mode(
     if status in {"provisioned", "needs_reinit", "suspended"}:
         return "unknown"
     if row is not None and status not in {"", "unprovisioned", "reaped"}:
+        return "unknown"
+    if not _detach_history_readable(row):
         return "unknown"
 
     if setup_job is not None and abandoned_intent(setup_job, now=now):
@@ -120,6 +122,19 @@ def _whole_second(value: datetime) -> datetime:
     return value.replace(microsecond=0)
 
 
+def _detach_history_readable(row: dict | None) -> bool:
+    """Malformed placement history cannot establish permission to use Shared."""
+    metadata = (row or {}).get("backend_metadata")
+    if metadata is None:
+        return True
+    if not isinstance(metadata, dict):
+        return False
+    if "detachedPlacements" not in metadata:
+        return True
+    detached = metadata["detachedPlacements"]
+    return isinstance(detached, list) and all(isinstance(item, dict) for item in detached)
+
+
 def _last_detach(row: dict | None) -> Optional[dict]:
     metadata = (row or {}).get("backend_metadata")
     detached = metadata.get("detachedPlacements") if isinstance(metadata, dict) else None
@@ -139,6 +154,8 @@ def shared_choice_is_current(row: dict | None, choice: dict | None) -> bool:
         return False
     chosen_at = _instant(choice.get("chosen_at"))
     if chosen_at is None:
+        return False
+    if not _detach_history_readable(row):
         return False
     detach = _last_detach(row)
     if detach is None:

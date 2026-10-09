@@ -1,9 +1,10 @@
 """The person's explicit Hussh Shared choice, recorded in their pre-vault state.
 
-Shared is a choice, never a default (founder direction, 2026-10-06). This is the one
-writer and reader of that choice (``vault_keys.one_hosting_choice``, migration 955).
-It records a tier word and a time, nothing else; ``personal_agent_hosting`` compares
-the time with the person's last detach.
+New accounts choose Shared explicitly (founder direction, 2026-10-06). This is
+the runtime writer and reader of that choice (``vault_keys.one_hosting_choice``).
+The one-time legacy continuity migration records the existing Shared cohort.
+The choice holds a tier and time; ``personal_agent_hosting`` compares that time
+with the person's last detach.
 """
 
 from __future__ import annotations

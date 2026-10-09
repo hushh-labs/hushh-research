@@ -21,7 +21,7 @@ Every byte the hub touches is ciphertext under a key the hub does not have. The
 honesty clause -- "hussh does not read this pod, and here is the migration path to
 where it structurally cannot" -- is engineered here rather than asserted.
 
-THE ZERO-LOSS ORACLE
+THE RECORD-INTEGRITY ORACLE
 --------------------
 ``PodCommitLog``'s chain hash is computed over PLAINTEXT-KEYED fields only::
 
@@ -31,8 +31,9 @@ Not over the ciphertext, not over the nonce, not over the object key. So a log
 rebuilt by appending the same ``(kind, payload)`` values in the same order, into
 an empty log, produces byte-identical hashes at every seq under a completely
 different seal key. Comparing the two head SHAs is therefore a cryptographic
-statement that every record arrived intact and in order -- not a sample, not a
-count, not a spot check.
+statement that every record arrived intact and in order. It does not prove that
+nested ciphertext is readable under fresh destination custody, or that separately
+stored file/session objects were transferred. Those need their own verified ports.
 
 That is why the import does not need (and deliberately does not have) a way to
 write a chosen ``sha``: it replays through the ordinary ``append`` path, and the
@@ -76,6 +77,10 @@ _KEY_LEN = 32
 #: never be usable for another, and the info string is what enforces that.
 _HKDF_INFO = b"hussh.pod.migration.bundle.v1"
 
+# These records contain nested ciphertext/HMACs under the source pod DEK.
+# Re-sealing only the outer log cannot make them readable at a fresh destination.
+_SOURCE_CUSTODY_KINDS = frozenset({"agent_memory", "agent_memory_fact"})
+
 
 class PodMigrationBundleError(RuntimeError):
     """A bundle could not be built, opened, or trusted."""
@@ -96,6 +101,17 @@ class BundleReceipt:
 
 def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _require_record_only_portability(records: list[dict[str, Any]]) -> None:
+    for record in records:
+        kind = record.get("kind") if isinstance(record, dict) else None
+        if not isinstance(kind, str) or not kind:
+            raise PodMigrationBundleError("migration record kind is invalid")
+        if kind == "browser_session_v1":
+            raise PodMigrationBundleError("browser session object transfer is not qualified")
+        if kind in _SOURCE_CUSTODY_KINDS:
+            raise PodMigrationBundleError("memory custody transfer is not qualified")
 
 
 def _derive(shared_secret: bytes, ephemeral_public: bytes, recipient_public: bytes) -> bytes:
@@ -146,8 +162,7 @@ def seal_bundle(
         # reporting success. Refusing costs a person one retry; succeeding
         # quietly costs them their agent's memory.
         raise PodMigrationBundleError("refusing to seal an empty log")
-    if any(record.get("kind") == "browser_session_v1" for record in records):
-        raise PodMigrationBundleError("browser session object transfer is not qualified")
+    _require_record_only_portability(records)
 
     try:
         recipient_raw = base64.b64decode(recipient_public_key_b64, validate=True)
@@ -238,11 +253,7 @@ def open_bundle(
 
     body = json.loads(plaintext)
     records = list(body.get("records") or [])
-    if any(
-        isinstance(record, dict) and record.get("kind") == "browser_session_v1"
-        for record in records
-    ):
-        raise PodMigrationBundleError("browser session object transfer is not qualified")
+    _require_record_only_portability(records)
     head_sha = str(body.get("headSha") or "")
     count = int(body.get("recordCount") or 0)
     if len(records) != count:

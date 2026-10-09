@@ -39,6 +39,25 @@ class _Registry:
         return True
 
 
+class _Handoff:
+    def __init__(self):
+        self.calls = []
+
+    def prepare_and_wait(self, *, operation_id, incarnation, timeout_seconds):
+        self.calls.append("drain")
+        return {
+            "operationId": operation_id,
+            "incarnation": incarnation,
+            "activeWork": 0,
+            "committedState": "verified-head",
+            "runtimeEpoch": "epoch-1",
+        }
+
+    def release(self, *, operation_id, incarnation):
+        self.calls.append("release")
+        return {"state": "accepting", "incarnation": incarnation, "operationId": None}
+
+
 class _Provisioner:
     def __init__(self):
         self.calls: list[str] = []
@@ -157,6 +176,8 @@ def _steps(registry, provisioner, transport, reaped, switched, minter="op-minter
         hushh_id="ha1_abc",
         source_pod_url="https://one-pod-src.run.app",
         source_service="one-pod-src",
+        operation_id="fixture-migration",
+        source_incarnation="source-revision",
     )
 
     def _reap():
@@ -173,6 +194,7 @@ def _steps(registry, provisioner, transport, reaped, switched, minter="op-minter
         reap=_reap,
         switch_over=_switch,
         token_minter=minter,
+        handoff=_Handoff(),
     )
 
 
@@ -254,6 +276,43 @@ async def test_a_row_that_cannot_be_frozen_stops_before_touching_the_destination
     assert provisioner.calls == [], "nothing was built for a move that could not start"
 
 
+async def test_missing_or_wrong_runtime_drain_never_builds_a_destination():
+    registry, provisioner = _Registry(), _Provisioner()
+    steps = _steps(registry, provisioner, _Transport(), [], [])
+    steps._handoff = None
+    status, row = await _run(steps, _repo())
+    assert (status, row["error_code"]) == ("failed", "MIGRATION_DRAIN_UNAVAILABLE")
+    assert registry.calls == [] and provisioner.calls == []
+
+    class WrongIncarnation(_Handoff):
+        def prepare_and_wait(self, **kwargs):
+            return {**super().prepare_and_wait(**kwargs), "incarnation": "other-pod"}
+
+    steps._handoff = WrongIncarnation()
+    status, row = await _run(steps, _repo())
+    assert (status, row["error_code"]) == ("failed", "FREEZE_OUTCOME_UNKNOWN")
+    assert registry.calls == ["begin"] and provisioner.calls == []
+
+
+async def test_failed_handoff_release_keeps_registry_frozen():
+    class FailedRelease(_Handoff):
+        def release(self, **kwargs):
+            return {
+                "state": "idle",
+                "incarnation": kwargs["incarnation"],
+                "operationId": kwargs["operation_id"],
+            }
+
+    registry = _Registry()
+    steps = _steps(registry, _Provisioner(), _Transport(), [], [])
+    steps._handoff = FailedRelease()
+    import pytest
+
+    with pytest.raises(RuntimeError, match="release could not be verified"):
+        await steps.unfreeze()
+    assert registry.calls == []
+
+
 async def test_cleanup_after_the_switch_cannot_fail_the_move():
     class _Provisioner2(_Provisioner):
         pass
@@ -266,6 +325,8 @@ async def test_cleanup_after_the_switch_cannot_fail_the_move():
         hushh_id="ha1_abc",
         source_pod_url="https://one-pod-src.run.app",
         source_service="one-pod-src",
+        operation_id="fixture-migration",
+        source_incarnation="source-revision",
     )
 
     def _reap_boom():
@@ -281,13 +342,15 @@ async def test_cleanup_after_the_switch_cannot_fail_the_move():
         transport=transport,
         reap=_reap_boom,
         switch_over=_switch,
+        handoff=_Handoff(),
     )
 
     status, _row = await _run(steps, _repo())
 
     # The agent is already live and verified in the destination; a stranded old
     # host is an operational cost, not a failed move.
-    assert status == "succeeded"
+    assert status == "cleanup_pending"
+    assert _row["error_code"] == "SOURCE_CLEANUP_PENDING"
     assert switched == ["https://one-pod-dst.run.app"]
 
 

@@ -28,7 +28,12 @@ async def test_begin_refuses_an_invalid_project_id():
 
 async def test_begin_returns_a_google_consent_url(monkeypatch):
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
+    from hushh_mcp.services import byoc_setup_intent
 
+    async def recorded(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr(byoc_setup_intent, "record_intent", recorded)
     monkeypatch.setattr(oauth, "_oauth_client", lambda: ("cid", "secret", "https://app/return"))
     result = await runtime_route.begin_byoc_authorize(
         request=None,

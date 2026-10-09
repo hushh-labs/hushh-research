@@ -1068,7 +1068,19 @@ async def begin_byoc_authorize(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
         ) from exc
     # Pending from here, never Shared, while the person is on Google's consent screen.
-    await record_intent(firebase_uid, provider="gcp", project=verdict.project_id)
+    if not await record_intent(firebase_uid, provider="gcp", project=verdict.project_id):
+        from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+
+        # A billing retry may already have a durable job. An unreadable or absent
+        # intent must not publish a URL while authority still resolves to Shared.
+        if await get_owner_hosting_mode(firebase_uid) != "pending":
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "BYOC_SETUP_UNRECORDED",
+                    "message": "Cloud setup could not be saved. Please try again.",
+                },
+            )
     return ByocAuthorizeBeginResponse(authUrl=url)
 
 

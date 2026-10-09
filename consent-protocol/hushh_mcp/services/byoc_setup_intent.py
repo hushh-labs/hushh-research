@@ -13,8 +13,9 @@ proven the person can reach that project, and the indexed column is what the
 project fence and the orphan index trust, so an unproven name must not appear
 there. The completion route's ``start`` replaces this row with the real job.
 
-Never raises: a begin whose intent could not be written still sends the person to
-the sign-in, and the completion route records the job as before.
+Returns whether the intent was written. Begin routes publish a sign-in URL only
+after this succeeds or an existing durable setup already establishes pending
+placement. A failed write must never leave a Shared owner unfenced during setup.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ async def record_intent(
             _RECORD,
             {"owner": user_id, "job": uuid.uuid4().hex, "stages": json.dumps([entry])},
         )
-    except Exception as exc:  # noqa: BLE001 - a begin must still reach the sign-in
+    except Exception as exc:  # noqa: BLE001 - the caller owns the typed refusal
         logger.warning("byoc_setup_intent.record_failed err=%s", type(exc).__name__)
         return False
     written = bool(response.data)

@@ -63,12 +63,23 @@ class RegistryPort(Protocol):
     async def end_migration(self, user_id: str, *, status: str = "provisioned") -> bool: ...
 
 
+class RuntimeHandoff(Protocol):
+    """The existing authenticated pod lifecycle client, not a second work ledger."""
+
+    def prepare_and_wait(
+        self, *, operation_id: str, incarnation: str, timeout_seconds: float
+    ) -> dict: ...
+    def release(self, *, operation_id: str, incarnation: str) -> dict: ...
+
+
 @dataclass(frozen=True)
 class MigrationContext:
     user_id: str
     hushh_id: str
     source_pod_url: str
     source_service: str
+    operation_id: str = ""
+    source_incarnation: str = ""
 
 
 class LiveMigrationSteps:
@@ -93,6 +104,7 @@ class LiveMigrationSteps:
         reap: Any,
         switch_over: Any,
         token_minter: Any = None,
+        handoff: RuntimeHandoff | None = None,
     ) -> None:
         self._ctx = ctx
         self._registry = registry
@@ -101,17 +113,57 @@ class LiveMigrationSteps:
         self._reap = reap
         self._switch_over = switch_over
         self._token_minter = token_minter
+        self._handoff = handoff
         # Captured when the destination is created; the sequencer passes the URL
         # back into switch_over, but import_destination needs it too.
         self._destination_url = ""
 
     async def freeze(self) -> bool:
-        # Conditional on the row being `provisioned`; a False here is "not ready
-        # to move" and the sequencer stops before touching anything.
-        return await self._registry.begin_migration(self._ctx.user_id)
+        from hushh_mcp.services.pod_migration_service import MigrationRefused
+
+        if self._handoff is None or not self._ctx.operation_id or not self._ctx.source_incarnation:
+            raise MigrationRefused(
+                "MIGRATION_DRAIN_UNAVAILABLE",
+                "An authenticated source-pod drain is required before moving.",
+            )
+        if not await self._registry.begin_migration(self._ctx.user_id):
+            return False
+        receipt = await asyncio.to_thread(
+            self._handoff.prepare_and_wait,
+            operation_id=self._ctx.operation_id,
+            incarnation=self._ctx.source_incarnation,
+            timeout_seconds=120,
+        )
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("operationId") != self._ctx.operation_id
+            or receipt.get("incarnation") != self._ctx.source_incarnation
+            or type(receipt.get("activeWork")) is not int
+            or receipt["activeWork"] != 0
+            or not isinstance(receipt.get("committedState"), str)
+            or not receipt["committedState"]
+            or not receipt.get("runtimeEpoch")
+        ):
+            raise RuntimeError("source pod drain could not be verified")
+        return True
 
     async def unfreeze(self) -> None:
-        await self._registry.end_migration(self._ctx.user_id)
+        if self._handoff is None:
+            raise RuntimeError("source handoff unavailable")
+        released = await asyncio.to_thread(
+            self._handoff.release,
+            operation_id=self._ctx.operation_id,
+            incarnation=self._ctx.source_incarnation,
+        )
+        if (
+            not isinstance(released, dict)
+            or released.get("state") != "accepting"
+            or released.get("incarnation") != self._ctx.source_incarnation
+            or released.get("operationId") is not None
+        ):
+            raise RuntimeError("source handoff release could not be verified")
+        if not await self._registry.end_migration(self._ctx.user_id):
+            raise RuntimeError("source registry release could not be verified")
 
     async def prepare_destination(self) -> None:
         await self._provisioner.prepare()

@@ -80,6 +80,20 @@ def test_a_detach_without_a_readable_time_supersedes_every_choice():
     assert _mode(row=_detached(at=None), choice=_shared(AFTER)) == "unplaced"
 
 
+@pytest.mark.parametrize(
+    "metadata", ["damaged", {"detachedPlacements": "damaged"}, {"detachedPlacements": [None]}]
+)
+def test_malformed_detach_history_cannot_restore_shared_authority(metadata):
+    row = {"status": "unprovisioned", "backend_metadata": metadata}
+    assert _mode(row=row, choice=_shared(AFTER)) == "unknown"
+    assert hosting.shared_choice_is_current(row, _shared(AFTER)) is False
+    # A readable absent history still permits the same explicit owner choice.
+    assert (
+        _mode(row={"status": "unprovisioned", "backend_metadata": {}}, choice=_shared(AFTER))
+        == "shared"
+    )
+
+
 @pytest.mark.parametrize("choice", [{"tier": "shared"}, {"tier": "pods", "chosen_at": AFTER}, {}])
 def test_a_malformed_choice_is_not_shared(choice):
     assert _mode(choice=choice) == "unplaced"
@@ -288,11 +302,46 @@ async def test_an_intent_names_the_project_only_inside_its_stage_entry():
     assert "owner-project" in params["stages"] and params["owner"] == "u1"
 
 
-async def test_an_intent_that_cannot_be_written_never_blocks_the_sign_in():
+async def test_an_intent_write_failure_is_reported_to_the_begin_route():
     assert (
         await byoc_setup_intent.record_intent("u1", provider="azure", client=_Raw(fail=True))
         is False
     )
+
+
+@pytest.mark.parametrize("mode", ["shared", "unplaced", "unknown", "pending"])
+async def test_google_begin_needs_durable_pending_authority_before_publishing_url(
+    monkeypatch, mode
+):
+    from hushh_mcp.services import byoc_oauth_authorizer as oauth
+
+    async def unassigned(_owner):
+        return None
+
+    async def failed_intent(*_args, **_kwargs):
+        return False
+
+    async def observed_mode(_owner):
+        return mode
+
+    monkeypatch.setattr(runtime, "_require_unassigned_byoc", unassigned)
+    monkeypatch.setattr(oauth, "begin", lambda *_args, **_kwargs: "https://consent/owner-project")
+    monkeypatch.setattr(byoc_setup_intent, "record_intent", failed_intent)
+    monkeypatch.setattr(hosting, "get_owner_hosting_mode", observed_mode)
+    kwargs = dict(
+        request=None,
+        body=runtime.ByocAuthorizeBeginRequest(projectId="owner-project"),
+        firebase_uid="u1",
+    )
+    if mode == "pending":
+        assert (
+            await runtime.begin_byoc_authorize.__wrapped__(**kwargs)
+        ).authUrl == "https://consent/owner-project"
+    else:
+        with pytest.raises(HTTPException) as exc:
+            await runtime.begin_byoc_authorize.__wrapped__(**kwargs)
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "BYOC_SETUP_UNRECORDED"
 
 
 async def test_only_an_untouched_intent_is_ever_cleared():

@@ -1,9 +1,8 @@
-"""Migration 955 keeps today's Shared owners Shared, on a real PostgreSQL.
+"""Qualify legacy Shared continuity on real PostgreSQL.
 
-Before 955, choosing Shared wrote only the ``cloud`` setup marker. Without a
-backfill every working Shared owner would read ``unplaced`` and lose hub chat.
-The backfill must pick exactly those people and never a person with a
-placement, a detach or a setup job. A WHERE clause needs a real server to prove.
+955 handles the branch's older cloud marker. Main's completed accounts lack that
+marker: 958 captures that existing cohort once, excluding placements, detaches,
+setup jobs and malformed authority. Replay cannot opt new accounts into Shared.
 """
 
 from __future__ import annotations
@@ -20,13 +19,17 @@ psycopg2 = pytest.importorskip("psycopg2")
 pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
 
 MIGRATION = Path(__file__).resolve().parents[1] / "db/migrations/parked/955_one_hosting_choice.sql"
+CONTINUITY = MIGRATION.with_name("958_one_shared_legacy_continuity.sql")
 
 #: The minimum neighbours 955 reads; columns match migrations 029, 900, 906 and 909.
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS vault_keys (user_id TEXT PRIMARY KEY);
 ALTER TABLE vault_keys ADD COLUMN IF NOT EXISTS setup_capability_ids TEXT;
+ALTER TABLE vault_keys ADD COLUMN IF NOT EXISTS setup_completed BOOLEAN;
 CREATE TABLE personal_agent_registry (
-  user_id TEXT PRIMARY KEY, deployment_target TEXT, backend_metadata JSONB
+  user_id TEXT PRIMARY KEY, deployment_target TEXT, backend_metadata JSONB,
+  backend TEXT, external_agent_id TEXT, a2a_route TEXT, pod_key_id TEXT, pod_pubkey TEXT,
+  status TEXT DEFAULT 'unprovisioned'
 );
 CREATE TABLE byoc_setup_jobs (user_id TEXT PRIMARY KEY, stage TEXT);
 """
@@ -54,7 +57,7 @@ def _person(pg, uid: str, capabilities: str | None, registry=None, job: bool = F
     if registry is not None:
         target, metadata = registry
         pg.execute(
-            "INSERT INTO personal_agent_registry VALUES (%s, %s, %s)",
+            "INSERT INTO personal_agent_registry (user_id,deployment_target,backend_metadata) VALUES (%s, %s, %s)",
             (uid, target, json.dumps(metadata) if metadata is not None else None),
         )
     if job:
@@ -103,3 +106,61 @@ def test_rerunning_the_migration_keeps_the_first_choice_time(pg):
     first = pg.execute("SELECT one_hosting_choice_at FROM vault_keys")
     pg.apply_file(MIGRATION)
     assert pg.execute("SELECT one_hosting_choice_at FROM vault_keys") == first
+
+
+def test_completed_legacy_accounts_preserve_shared_without_a_branch_cloud_marker(pg):
+    for uid in (
+        "legacy",
+        "gcp",
+        "azure",
+        "pending",
+        "detached",
+        "broken",
+        "unfinished",
+        "explicit",
+    ):
+        _person(pg, uid, json.dumps(["connections"]))
+    pg.execute("UPDATE vault_keys SET setup_completed=TRUE WHERE user_id <> 'unfinished'")
+    pg.execute(
+        "INSERT INTO personal_agent_registry (user_id,deployment_target) VALUES ('gcp','user_gcp'),('azure','user_azure')"
+    )
+    pg.execute("INSERT INTO personal_agent_registry (user_id,status) VALUES ('pending','pending')")
+    pg.execute(
+        "INSERT INTO personal_agent_registry (user_id,backend_metadata) VALUES ('detached','{\"detachedPlacements\":[]}'::jsonb),('broken','[null]'::jsonb)"
+    )
+    for key in ("url", "erasure", "upgradeLease", "provisionAttempt"):
+        _person(pg, key, json.dumps(["connections"]), registry=(None, {key: "unresolved"}))
+        pg.execute("UPDATE vault_keys SET setup_completed=TRUE WHERE user_id=%s", (key,))
+    _person(pg, "begun", json.dumps(["connections"]), job=True)
+    pg.execute("UPDATE vault_keys SET setup_completed=TRUE WHERE user_id='begun'")
+    pg.apply_file(MIGRATION)
+    pg.execute(
+        "UPDATE vault_keys SET one_hosting_choice='shared',one_hosting_choice_at='2026-01-01' WHERE user_id='explicit'"
+    )
+    pg.apply_file(CONTINUITY)
+    assert {k: v for k, v in _choices(pg).items() if v} == {
+        "legacy": "shared",
+        "explicit": "shared",
+    }
+    assert pg.execute(
+        "SELECT one_hosting_choice_at=one_hosting_legacy_shared_at FROM vault_keys WHERE user_id='legacy'"
+    ) == [(True,)]
+    assert pg.execute(
+        "SELECT one_hosting_legacy_shared_at FROM vault_keys WHERE user_id='explicit'"
+    ) == [(None,)]
+
+
+def test_legacy_snapshot_replay_never_opts_new_or_later_completed_accounts_into_shared(pg):
+    _person(pg, "legacy", json.dumps(["connections"]))
+    _person(pg, "unfinished", json.dumps(["connections"]))
+    pg.execute("UPDATE vault_keys SET setup_completed=TRUE WHERE user_id='legacy'")
+    pg.apply_file(MIGRATION)
+    pg.apply_file(CONTINUITY)
+    first = pg.execute("SELECT one_hosting_choice_at FROM vault_keys WHERE user_id='legacy'")
+    _person(pg, "new", json.dumps(["connections"]))
+    pg.execute("UPDATE vault_keys SET setup_completed=TRUE")
+    pg.apply_file(CONTINUITY)
+    assert _choices(pg) == {"legacy": "shared", "new": None, "unfinished": None}
+    assert (
+        pg.execute("SELECT one_hosting_choice_at FROM vault_keys WHERE user_id='legacy'") == first
+    )

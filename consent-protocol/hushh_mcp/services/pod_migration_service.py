@@ -143,11 +143,36 @@ class PodMigrationJobRepo:
             "created_at": _now(),
             "updated_at": _now(),
         }
-        existing = (
-            self._db().table(_JOBS).select("user_id").eq("user_id", user_id).limit(1).execute()
-        )
+        existing = self._db().table(_JOBS).select("*").eq("user_id", user_id).limit(1).execute()
         if existing.data:
-            self._db().table(_JOBS).update(row).eq("user_id", user_id).execute()
+            previous = existing.data[0]
+            if previous.get("status") == "running":
+                raise MigrationRefused(
+                    "MIGRATION_IN_PROGRESS",
+                    "The existing move must settle or be reconciled before another move.",
+                )
+            if (
+                previous.get("status") not in {"failed", "succeeded"}
+                or not previous.get("updated_at")
+                or previous.get("error_code")
+                in {"SWITCH_OUTCOME_UNKNOWN", "FREEZE_OUTCOME_UNKNOWN"}
+            ):
+                raise MigrationRefused(
+                    "MIGRATION_RECONCILIATION_REQUIRED",
+                    "The existing move needs routing or cleanup reconciliation before another move.",
+                )
+            updated = (
+                self._db()
+                .table(_JOBS)
+                .update(row)
+                .eq("user_id", user_id)
+                .eq("job_id", previous["job_id"])
+                .eq("status", previous["status"])
+                .eq("updated_at", previous["updated_at"])
+                .execute()
+            )
+            if not updated.data:
+                raise MigrationJobSuperseded(job_id)
         else:
             self._db().table(_JOBS).insert(row).execute()
 
@@ -337,33 +362,57 @@ async def run_migration(
         )
         return "failed"
 
-    async def _recover() -> None:
-        """Put the person's agent back, then tidy what we can.
+    async def _recover_and_fail(code: str, message: str) -> str:
+        """Retain the ticket until source admission and teardown are confirmed.
 
-        Both halves are best-effort and NEITHER may propagate. An earlier version
-        let a failed teardown escape, which meant the typed failure was never
-        recorded and the ticket sat at `running` until it went stale -- so the one
-        situation where a person most needs to be told what happened was the one
-        where nothing told them. Unfreezing matters more than tidying, and saying
-        what went wrong matters more than both.
+        A failed recovery must not be overwritten by another attempt. Superseded
+        work cannot release another attempt's fence or delete its destination.
+        Only lifecycle codes are logged; provider exceptions may contain secrets.
         """
+        recovery_failed = False
         try:
             await steps.unfreeze()
+        except MigrationJobSuperseded:
+            raise
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "pod_migration.unfreeze_failed -- the row is still frozen", exc_info=True
-            )
+            recovery_failed = True
+            logger.warning("pod_migration.unfreeze_failed")
         try:
             await steps.rollback_destination()
+        except MigrationJobSuperseded:
+            raise
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "pod_migration.rollback_failed -- a half-built pod may remain", exc_info=True
+            recovery_failed = True
+            logger.warning("pod_migration.rollback_failed")
+        if recovery_failed:
+            await repo.finish(
+                user_id=user_id,
+                job_id=job_id,
+                status="recovery_pending",
+                error_code="MIGRATION_RECOVERY_PENDING",
+                error_message="The move stopped; source admission or destination cleanup still needs verified recovery.",
             )
+            return "recovery_pending"
+        return await _fail(code, message)
 
     # 1. Freeze. Conditional on the row being `provisioned`, so this both takes
     #    the lock and answers "is this agent even in a state to be moved".
     await repo.advance(user_id=user_id, job_id=job_id, stage="freezing")
-    if not await steps.freeze():
+    try:
+        frozen = await steps.freeze()
+    except MigrationJobSuperseded:
+        raise
+    except MigrationRefused as exc:
+        return await _fail(exc.code, exc.message)
+    except Exception:
+        # The registry/runtime fence may have committed before acknowledgement.
+        # No destination exists yet; retain the source until the fence is reconciled.
+        logger.warning("pod_migration.freeze_outcome_unknown")
+        return await _fail(
+            "FREEZE_OUTCOME_UNKNOWN",
+            "Source drain could not be confirmed; the existing pod is retained.",
+        )
+    if not frozen:
         # Nothing was frozen, so there is nothing to unfreeze. Returning here
         # rather than falling through is what keeps the rollback path from
         # unfreezing a row this job never owned.
@@ -412,14 +461,12 @@ async def run_migration(
         try:
             verify_rebuilt_head(source_head_sha=source_head, target_head_sha=target_head)
         except PodMigrationBundleError as exc:
-            await _recover()
-            return await _fail("HEAD_MISMATCH", str(exc))
+            return await _recover_and_fail("HEAD_MISMATCH", str(exc))
         if source_count != target_count:
             # Belt and braces: equal heads already imply equal counts, so a
             # disagreement here means one of the two ends is reporting something
             # other than what it did, and that is worth refusing loudly.
-            await _recover()
-            return await _fail(
+            return await _recover_and_fail(
                 "COUNT_MISMATCH",
                 f"the two ends disagree on how many records moved ({source_count}/{target_count})",
             )
@@ -428,10 +475,11 @@ async def run_migration(
         # A newer attempt owns the row. Stop writing and get out of its way --
         # unfreezing here would unfreeze a migration that is currently running.
         raise
-    except Exception as exc:  # noqa: BLE001 - every pre-switch failure is survivable
-        logger.warning("pod_migration.failed_before_switch", exc_info=True)
-        await _recover()
-        return await _fail("MIGRATION_FAILED", f"{type(exc).__name__}: {exc}")
+    except Exception:  # noqa: BLE001 - preserve the recovery outcome before retry
+        logger.warning("pod_migration.failed_before_switch")
+        return await _recover_and_fail(
+            "MIGRATION_FAILED", "The move stopped before routing changed."
+        )
 
     # 9. The point of no return, taken only after the proof.
     await repo.advance(user_id=user_id, job_id=job_id, stage="switching_over")
@@ -450,15 +498,23 @@ async def run_migration(
             "routing outcome could not be confirmed; both hosts retained for reconciliation",
         )
 
-    # 10. Cleanup is last and its failure is NOT fatal. The person's agent is
-    #     already live and verified in their own cloud; a stranded old host is
-    #     an operational cost, and telling them their move failed because of it
-    #     would be false.
+    # 10. Cutover succeeded, but cleanup remains an independent obligation.
+    # Keep the serving destination and record an honest durable pending result.
     await repo.advance(user_id=user_id, job_id=job_id, stage="cleaning_up")
     try:
         await steps.reap_source()
+    except MigrationJobSuperseded:
+        raise
     except Exception:  # noqa: BLE001
-        logger.warning("pod_migration.source_reap_failed -- the move succeeded", exc_info=True)
+        logger.warning("pod_migration.source_cleanup_pending")
+        await repo.finish(
+            user_id=user_id,
+            job_id=job_id,
+            status="cleanup_pending",
+            error_code="SOURCE_CLEANUP_PENDING",
+            error_message="Your agent moved; the old host still needs verified cleanup.",
+        )
+        return "cleanup_pending"
 
     await repo.finish(user_id=user_id, job_id=job_id, status="succeeded")
     return "succeeded"

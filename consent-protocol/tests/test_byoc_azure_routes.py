@@ -74,6 +74,9 @@ def spawned(monkeypatch):
     async def no_reservation(_uid):
         return False
 
+    async def recorded_intent(*_args, **_kwargs):
+        return True
+
     _Registry.row = {
         "user_id": _UID,
         "hushh_id": "ha1_azure",
@@ -89,6 +92,7 @@ def spawned(monkeypatch):
     monkeypatch.setattr(runtime, "_require_unassigned_byoc", unassigned)
     monkeypatch.setattr(runtime, "_reserve_pending_agent_record", no_reservation)
     monkeypatch.setattr(byoc_azure, "_require_image_access", _image_access_ok)
+    monkeypatch.setattr("hushh_mcp.services.byoc_setup_intent.record_intent", recorded_intent)
     monkeypatch.setenv("HUSSH_AZURE_APP_CLIENT_ID", "44444444-4444-4444-4444-444444444444")
     monkeypatch.setenv(
         "HUSSH_AZURE_OAUTH_REDIRECT_URI", "https://app.example/one/setup/cloud/azure/return"
@@ -131,6 +135,27 @@ def test_begin_returns_only_an_authorization_url(spawned):
     url = response.json()["authorizationUrl"]
     assert url.startswith("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?")
     assert "offline_access" not in urllib.parse.unquote(url)
+
+
+@pytest.mark.parametrize("mode", ["shared", "unplaced", "unknown", "pending"])
+def test_begin_requires_persisted_intent_or_an_existing_pending_setup(spawned, monkeypatch, mode):
+    async def failed_intent(*_args, **_kwargs):
+        return False
+
+    async def observed_mode(_owner):
+        return mode
+
+    monkeypatch.setattr("hushh_mcp.services.byoc_setup_intent.record_intent", failed_intent)
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_hosting.get_owner_hosting_mode", observed_mode
+    )
+    response = _client().post(_BEGIN, json={})
+    if mode == "pending":
+        assert response.status_code == 200
+        assert set(response.json()) == {"authorizationUrl"}
+    else:
+        assert response.status_code == 503
+        assert response.json()["detail"]["code"] == "BYOC_SETUP_UNRECORDED"
 
 
 def test_begin_refuses_a_malformed_subscription(spawned):

@@ -74,6 +74,36 @@ async def test_browser_history_refuses_record_only_export_and_older_peer_import(
         open_bundle(envelope, private_key=keys.private_key, expected_key_id=keys.key_id)
 
 
+@pytest.mark.parametrize("kind", ["agent_memory", "agent_memory_fact"])
+async def test_nested_memory_ciphertext_refuses_outer_log_only_transfer(
+    tmp_path, monkeypatch, kind
+):
+    source = await _log_with_history(tmp_path, b"S" * 32, "source")
+    records = await source.replay()
+    keys = generate_pod_keypair()
+    terms = dict(
+        head_sha=head_sha_of(records),
+        recipient_public_key_b64=keys.public_key_b64,
+        recipient_key_id=keys.key_id,
+    )
+    nested = copy.deepcopy(records)
+    nested[0]["kind"] = kind
+    with pytest.raises(PodMigrationBundleError, match="memory custody transfer is not qualified"):
+        seal_bundle(records=nested, **terms)
+    canonical = pod_migration_bundle._canonical
+
+    def older_payload(value):
+        if "records" in value:
+            value = copy.deepcopy(value)
+            value["records"][0]["kind"] = kind
+        return canonical(value)
+
+    monkeypatch.setattr(pod_migration_bundle, "_canonical", older_payload)
+    envelope, _ = seal_bundle(records=records, **terms)
+    with pytest.raises(PodMigrationBundleError, match="memory custody transfer is not qualified"):
+        open_bundle(envelope, private_key=keys.private_key, expected_key_id=keys.key_id)
+
+
 async def _log_with_history(tmp_path, key: bytes, name: str) -> PodCommitLog:
     log = PodCommitLog(LocalObjectStore(str(tmp_path / name)), key)
     for kind, payload in _FACTS:
