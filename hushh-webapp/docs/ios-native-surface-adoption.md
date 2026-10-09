@@ -106,6 +106,42 @@ multiselects, protected forms, scrolling controls and rich approval cards remain
 React deliberately. Rollback is capability denial/removal of the Debug arguments;
 fallback and strict retirement must still be verified before any family promotion.
 
+### Bottom navigation overlay admission repair — 2026-10-09
+
+At source baseline `64c2739df3`, Profile/History isolation projected
+`visible: false` into NativeNavigation, and UIKit used the same predicate for
+paint, touch and accessibility. Closing showed the retained bar again. The
+repair keeps contract version 2 and negotiates `interactionIsolation` separately:
+an overlay retains presentation while disabling touch and accessibility.
+Interaction epochs fence delayed confirmations across closing/reopening. Older
+wrappers retain their safe hide behavior; lock, privacy, keyboard and genuinely
+hidden route chrome still conceal navigation. The owning React shell remains
+the routing authority.
+
+The local signed iPhone candidate is UAT-targeted, derived from that baseline
+plus this repair. Its installed executable fingerprint is
+`dd38fcc471b9e5d3bb4f55baa092754e2ff2808ababc6cb3322f6ad2eb24ba20`.
+Native assets/export/sync, typecheck, static/plugin/design checks, 26 focused
+frontend contracts and 48 native-support tests pass. Canonical reviewer
+admission and one normal passphrase unlock pass. An attach-only physical iPhone
+batch passes ten Profile and ten History open/close cycles on the ordinary
+wrapper path, checking retained visible navigation, revoked covered interaction
+and accessibility, frame differences at most one logical point, and restored
+admission after Close. No account reset or relaunch occurs within that batch.
+Private runner results are discarded; only sanitized receipts are retained.
+
+These are native state/frame assertions, not a rendered transition-film or
+pixel-perfect visual acceptance. The bar remains a direct native host child;
+drawer scrim/material stacking still needs rendered qualification. The opt-in
+whole-panel compositor and its previously failed motion/focus-return gates
+below are not qualified by this ordinary-wrapper navigation pass. Release
+performance/accessibility acceptance, a fresh combined core run and exact-head
+CI remain outstanding. The repository-root Search contract instructions also
+reference `build:search-contracts`/`verify:search-contracts`, absent from this
+branch's package scripts; reconcile that owning workflow before promotion.
+This is a local candidate installation, not a UAT service deployment or native
+distribution receipt.
+
 ### Whole-panel compositor qualification — 2026-10-09
 
 The candidate is derived from `fe58d0e56e` on

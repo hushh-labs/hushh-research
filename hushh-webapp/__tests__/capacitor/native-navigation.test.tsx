@@ -148,4 +148,40 @@ describe("native navigation presentation boundary", () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledExactlyOnceWith("dashboard"));
     view.unmount();
   });
+
+  it("retains negotiated navigation through repeated drawer cycles without admitting covered or stale choices", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, interactionIsolation: true, supported: true, contentHeight: 49, bottomInset: 34 });
+    const onSelect = vi.fn();
+    const view = renderHook(({ interactive, visible }) => useNativeNavigation({ ...options, visible, interactionEnabled: interactive, onSelect }), {
+      initialProps: { interactive: true, visible: true },
+    });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    const history = render(<PersistentHistory open={false} />);
+    let confirm: (result: { valid: boolean }) => void = () => undefined;
+    bridge.confirmSelection.mockReturnValueOnce(new Promise((resolve) => { confirm = resolve; }));
+    select(lastState());
+    await waitFor(() => expect(bridge.confirmSelection).toHaveBeenCalled());
+    for (let cycle = 0; cycle < 10; cycle += 1) {
+      const before = lastState();
+      history.rerender(<PersistentHistory open />);
+      select(before); // Fence immediately, before the bridge acknowledges.
+      await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: false }));
+      expect(view.result.current.height).toBe(49);
+      history.rerender(<PersistentHistory open={false} />);
+      await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: true }));
+      select(before); // Cannot replay an old choice after reopening.
+    }
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(bridge.setState.mock.calls.every(([state]) => state.visible)).toBe(true);
+    await act(async () => { confirm({ valid: true }); });
+    expect(onSelect).not.toHaveBeenCalled(); // A delayed approval cannot cross a covered epoch.
+    view.rerender({ interactive: false, visible: true });
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: false }));
+    select(lastState());
+    expect(onSelect).not.toHaveBeenCalled();
+    view.rerender({ interactive: true, visible: false }); // Lock/route hiding must still conceal.
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: false, interactionEnabled: false }));
+    history.unmount();
+    view.unmount();
+  });
 });

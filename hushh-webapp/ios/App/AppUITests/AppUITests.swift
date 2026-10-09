@@ -1015,6 +1015,65 @@ final class AppUITests: XCTestCase {
         print("NATIVE_DOCK_CONTINUITY ten_warm_routes_unicode_newline_keyboard_no_web_duplicate")
     }
 
+    func testLocalSessionNativeNavigationDrawerContinuity() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_NAVIGATION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in bottom-navigation drawer regression")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("NATIVE_NAVIGATION_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate()
+        let probe = app.buttons["native-navigation-presentation"].firstMatch
+        guard probe.waitForExistence(timeout: 15) else { XCTFail("NATIVE_NAVIGATION_PROBE_UNAVAILABLE"); return }
+        func packet() -> [String: Any]? {
+            guard let raw = probe.value as? String, let data = raw.data(using: .utf8),
+                  let fields = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  Set(fields.keys) == Set(["visible", "interactive", "accessibilityHidden", "x", "y", "width", "height"]) else { return nil }
+            return fields
+        }
+        func matches(interactive: Bool) -> Bool {
+            guard let fields = packet() else { return false }
+            return fields["visible"] as? Bool == true && fields["interactive"] as? Bool == interactive &&
+                fields["accessibilityHidden"] as? Bool == !interactive
+        }
+        let profile = app.buttons["Open Profile"].firstMatch
+        // The regression is shared by ordinary wrappers and opt-in chrome.
+        // Use authored accessibility names, never infer arbitrary DOM controls.
+        let history = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "chat-history-toggle", "Open chat history")).firstMatch
+        let profileClose = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "profile-close", "Close Profile")).firstMatch
+        let historyClose = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "chat-history-close", "Close chat history")).firstMatch
+        defer {
+            if profileClose.exists && profileClose.isHittable { profileClose.tap() }
+            if historyClose.exists && historyClose.isHittable { historyClose.tap() }
+        }
+        guard matches(interactive: true), let baseline = packet() else { XCTFail("NATIVE_NAVIGATION_BASE_NOT_ADMITTED"); return }
+        for (opener, close, family) in [(profile, profileClose, "profile"), (history, historyClose, "history")] {
+            for cycle in 0..<10 {
+                guard opener.waitForExistence(timeout: 10), opener.isHittable else { XCTFail("NATIVE_PANEL_OPENER_UNAVAILABLE"); return }
+                opener.tap()
+                guard close.waitForExistence(timeout: 10), close.isHittable else { XCTFail("NATIVE_PANEL_CLOSE_NOT_ADMITTED"); return }
+                XCTAssertTrue(matches(interactive: false), "NATIVE_NAVIGATION_COVERED_PRESENTATION_LOST")
+                if let current = packet() {
+                    for key in ["x", "y", "width", "height"] {
+                        XCTAssertEqual((current[key] as? NSNumber)?.doubleValue ?? -.infinity,
+                                       (baseline[key] as? NSNumber)?.doubleValue ?? .infinity, accuracy: 1,
+                                       "NATIVE_NAVIGATION_FRAME_SHIFTED")
+                    }
+                }
+                close.tap()
+                let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    matches(interactive: true) && opener.exists && opener.isHittable
+                }, object: probe)
+                guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                    XCTFail("NATIVE_NAVIGATION_WARM_RETURN_UNCONFIRMED"); return
+                }
+                print("NATIVE_NAVIGATION_CYCLE family=\(family) completed=\(cycle + 1)")
+            }
+        }
+        print("NATIVE_NAVIGATION_WARM_CONTINUITY twenty_drawer_cycles_retained_frame_and_interaction_fence")
+    }
+
     func testLocalSessionNativeCompositorDrawerTiming() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_COMPOSITOR_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in retained compositor architecture gate")

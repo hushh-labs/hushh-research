@@ -7,6 +7,7 @@ struct HushhNativeNavigationState {
     private(set) var documentId: String?
     private(set) var revision = -1
     private(set) var visible = false
+    private(set) var interactionEnabled = false
     private(set) var selected = "chat"
     private(set) var interactionEpoch = -1
     private var retiredDocuments = Set<String>()
@@ -16,9 +17,10 @@ struct HushhNativeNavigationState {
         documentId = nil
         revision = -1
         visible = false
+        interactionEnabled = false
     }
 
-    mutating func apply(document: String, revision: Int, visible: Bool, selected: String, interactionEpoch: Int = 0) -> Bool {
+    mutating func apply(document: String, revision: Int, visible: Bool, selected: String, interactionEpoch: Int = 0, interactionEnabled: Bool = true) -> Bool {
         guard !document.isEmpty, document.count <= 128, !retiredDocuments.contains(document),
               revision >= 0, interactionEpoch >= 0,
               Self.tabs.contains(selected) else { return false }
@@ -27,13 +29,19 @@ struct HushhNativeNavigationState {
         documentId = document
         self.revision = revision
         self.visible = visible
+        self.interactionEnabled = interactionEnabled
         self.selected = selected
         self.interactionEpoch = interactionEpoch
         return true
     }
 
+    func isPresented(appIsActive: Bool, shielded: Bool, keyboardVisible: Bool) -> Bool {
+        visible && appIsActive && !shielded && !keyboardVisible
+    }
+
     func acceptsTap(_ tab: String, appIsActive: Bool, shielded: Bool, keyboardVisible: Bool) -> Bool {
-        visible && appIsActive && !shielded && !keyboardVisible && Self.tabs.contains(tab)
+        isPresented(appIsActive: appIsActive, shielded: shielded, keyboardVisible: keyboardVisible) &&
+            interactionEnabled && Self.tabs.contains(tab)
     }
 }
 
@@ -76,6 +84,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var confirmedSequence = 0
     private var retiredRestartGeneration = -1
     private lazy var navigationItems = HushhNativeNavigationArtwork.items()
+    #if DEBUG
+    private var presentationProbe: NativeTestStatusLabel?
+    #endif
 
     override func load() {
         DispatchQueue.main.async { [weak self] in
@@ -102,7 +113,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": self.navigationItems != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "interactionIsolation": true, "supported": self.navigationItems != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
             }
@@ -126,7 +137,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             self.updatePresentation() // Consume pending restart retirement before observing the replacement.
             shield.observeDocument(document)
             guard shield.acceptsDocument(document), self.state.apply(document: document, revision: revision,
-                      visible: visible, selected: selected, interactionEpoch: epoch) else {
+                      visible: visible, selected: selected, interactionEpoch: epoch,
+                      interactionEnabled: call.getBool("interactionEnabled") ?? visible) else {
                 call.reject("NATIVE_NAVIGATION_STALE_STATE"); return
             }
             self.installIfNeeded()
@@ -179,6 +191,14 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             host.addSubview(bar)
         }
         tabBar = bar
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") {
+            let probe = NativeTestStatusLabel(frame: CGRect(x: 0, y: host.safeAreaInsets.top, width: 1, height: 1), showOverlay: false)
+            probe.accessibilityIdentifier = "native-navigation-presentation"
+            host.addSubview(probe)
+            presentationProbe = probe
+        }
+        #endif
     }
 
     func layoutTabBar() {
@@ -194,6 +214,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             bottomInset = inset
             notifyListeners("geometryChanged", data: ["contentHeight": contentHeight, "bottomInset": bottomInset])
         }
+        publishPresentationProbe()
     }
 
     private func updatePresentation() {
@@ -202,14 +223,30 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             state.retireDocument()
             retiredRestartGeneration = privacy.generation
         }
-        let show = state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
-                                   shielded: privacy.shielded, keyboardVisible: keyboardVisible)
+        let show = state.isPresented(appIsActive: privacy.appIsActive,
+                                     shielded: privacy.shielded, keyboardVisible: keyboardVisible)
+        let interactive = state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
+                                          shielded: privacy.shielded, keyboardVisible: keyboardVisible)
         tabBar?.isHidden = !show
-        tabBar?.isUserInteractionEnabled = show
-        tabBar?.accessibilityElementsHidden = !show
+        tabBar?.isUserInteractionEnabled = interactive
+        tabBar?.accessibilityElementsHidden = !interactive
         tabBar?.selectedItem = tabBar?.items?.first(where: {
             HushhNativeNavigationState.tabs[$0.tag] == state.selected
         })
+        publishPresentationProbe()
+    }
+
+    private func publishPresentationProbe() {
+        #if DEBUG
+        guard let bar = tabBar, let probe = presentationProbe else { return }
+        // Public presentation only; never routes, owners, drafts or credentials.
+        let fields: [String: Any] = ["visible": !bar.isHidden, "interactive": bar.isUserInteractionEnabled,
+                                    "accessibilityHidden": bar.accessibilityElementsHidden,
+                                    "x": bar.frame.minX, "y": bar.frame.minY,
+                                    "width": bar.frame.width, "height": bar.frame.height]
+        if let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]),
+           let status = String(data: data, encoding: .utf8) { probe.update(status: status) }
+        #endif
     }
 
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {

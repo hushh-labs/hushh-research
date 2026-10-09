@@ -467,8 +467,8 @@ export const Navbar = ({
   const nativeNavigation = useNativeNavigation({
     enabled: layout === "slot" && nativeAppearance !== null,
     visible: isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
-      !hideNavbar && !shellNavigationHidden && !sessionChromeSuppressed &&
-      !surface?.interactionLayer?.blocksUnderlyingActions,
+      !hideNavbar && !shellNavigationHidden && !sessionChromeSuppressed,
+    interactionEnabled: !surface?.interactionLayer?.blocksUnderlyingActions,
     selected: NATIVE_NAVIGATION_TABS.includes(activeNav as NativeNavigationTab)
       ? activeNav as NativeNavigationTab : "dashboard",
     feedAttention: (pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0,

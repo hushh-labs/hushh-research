@@ -14,12 +14,13 @@ type NavigationState = NativeControlAppearance & {
   revision: number;
   interactionEpoch: number;
   visible: boolean;
+  interactionEnabled: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
@@ -100,14 +101,16 @@ export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRe
   }, [enabled, forwardedRef, release, owningLayer]);
 }
 
-export function useNativeNavigation({ enabled, visible, selected, feedAttention, appearance, accentHex, foregroundHex, onSelect }: NativeControlAppearance & {
+export function useNativeNavigation({ enabled, visible, interactionEnabled = true, selected, feedAttention, appearance, accentHex, foregroundHex, onSelect }: NativeControlAppearance & {
   enabled: boolean;
   visible: boolean;
+  interactionEnabled?: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
   onSelect: (tab: NativeNavigationTab) => void;
 }) {
   const [supported, setSupported] = useState(false);
+  const [interactionIsolation, setInteractionIsolation] = useState(false);
   const [ready, setReady] = useState(false);
   const [height, setHeight] = useState(49);
   const overlayBlocked = useSyncExternalStore(subscribe, () => overlays.size > 0, () => false);
@@ -135,13 +138,13 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
         await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
         await retain(nativeNavigation.addListener("selectionRequested", (event) => {
           const state = current.current;
-          if (!state?.visible || overlays.size > 0 || event.documentId !== state.documentId ||
+          if (!state?.visible || !state.interactionEnabled || overlays.size > 0 || event.documentId !== state.documentId ||
               event.interactionEpoch !== state.interactionEpoch || !Number.isSafeInteger(event.sequence) ||
               event.sequence <= lastSelection.current || !NATIVE_NAVIGATION_TABS.includes(event.tab)) return;
           const requestEpoch = confirmationEpoch;
           void nativeNavigation.confirmSelection(event).then(({ valid }) => {
             const latest = current.current;
-            if (!valid || cancelled || requestEpoch !== confirmationEpoch || !latest?.visible || overlays.size > 0 ||
+            if (!valid || cancelled || requestEpoch !== confirmationEpoch || !latest?.visible || !latest.interactionEnabled || overlays.size > 0 ||
                 document.visibilityState === "hidden" || event.documentId !== latest.documentId ||
                 event.interactionEpoch !== latest.interactionEpoch || event.sequence <= lastSelection.current) return;
             lastSelection.current = event.sequence;
@@ -158,7 +161,10 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
             } catch { /* Retain the last valid reservation. */ }
           }
         }));
-        if (!cancelled) setSupported(true);
+        if (!cancelled) {
+          setInteractionIsolation(capability.interactionIsolation === true);
+          setSupported(true);
+        }
       } catch { /* Old wrappers and non-iOS builds retain the existing web navigation. */ }
     })();
     return () => {
@@ -167,17 +173,21 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
       handles.forEach((handle) => { void handle.remove(); });
       const state = current.current;
       current.current = null;
-      if (state) void sendState({ ...state, visible: false, revision: ++revision }).catch(() => undefined);
+      if (state) void sendState({ ...state, visible: false, interactionEnabled: false, revision: ++revision }).catch(() => undefined);
       setInstalled(false);
     };
   }, [enabled]);
 
   useLayoutEffect(() => {
     if (!supported || !documentId) return;
-    const nextVisible = visible && !overlayBlocked;
-    if (!current.current || current.current.visible !== nextVisible) interactionEpoch += 1;
+    const nextInteractionEnabled = visible && interactionEnabled && !overlayBlocked;
+    // Legacy wrappers lack a separate interaction fence: retain their safe hide
+    // behavior. Negotiated wrappers retain presentation during overlay isolation.
+    const nextVisible = visible && (interactionIsolation || nextInteractionEnabled);
+    if (!current.current || current.current.visible !== nextVisible ||
+        current.current.interactionEnabled !== nextInteractionEnabled) interactionEpoch += 1;
     const state: NavigationState = {
-      documentId, revision: ++revision, interactionEpoch, visible: nextVisible,
+      documentId, revision: ++revision, interactionEpoch, visible: nextVisible, interactionEnabled: nextInteractionEnabled,
       selected, feedAttention, appearance, accentHex, foregroundHex,
     };
     current.current = state;
@@ -195,7 +205,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, visible, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex]);
+  }, [supported, interactionIsolation, visible, interactionEnabled, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex]);
 
   return { ready, height };
 }

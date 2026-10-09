@@ -534,6 +534,14 @@ final class NativeSupportTests: XCTestCase {
         var state = HushhNativeNavigationState()
         XCTAssertTrue(state.apply(document: "first", revision: 1, visible: true, selected: "chat"))
         XCTAssertTrue(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: false))
+        // Covered presentation is retained; neither direct taps nor VoiceOver
+        // admission may navigate underneath the authored interaction layer.
+        XCTAssertTrue(state.apply(document: "first", revision: 2, visible: true, selected: "chat", interactionEpoch: 1, interactionEnabled: false))
+        XCTAssertTrue(state.isPresented(appIsActive: true, shielded: false, keyboardVisible: false))
+        XCTAssertFalse(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: false))
+        XCTAssertFalse(state.isPresented(appIsActive: true, shielded: true, keyboardVisible: false))
+        XCTAssertFalse(state.isPresented(appIsActive: false, shielded: false, keyboardVisible: false))
+        XCTAssertFalse(state.isPresented(appIsActive: true, shielded: false, keyboardVisible: true))
         XCTAssertTrue(state.apply(document: "first", revision: 3, visible: false, selected: "feed"))
         XCTAssertFalse(state.apply(document: "first", revision: 2, visible: true, selected: "chat"))
         XCTAssertFalse(state.apply(document: "first", revision: 4, visible: true, selected: "arbitrary-route"))
