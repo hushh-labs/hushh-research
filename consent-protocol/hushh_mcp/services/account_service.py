@@ -25,6 +25,10 @@ from hushh_mcp.services.account_external_connector_erasure import (
 from hushh_mcp.services.account_external_connector_erasure import (
     clear_external_connector_data,
 )
+from hushh_mcp.services.account_push_erasure import (
+    erase_push_registrations,
+    push_registration_erasure_queries,
+)
 from hushh_mcp.services.byoc_setup_intent import is_untouched_intent
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
@@ -679,7 +683,7 @@ class AccountService:
                    )
                 """
             ),
-            "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            **push_registration_erasure_queries(),
             "circle_chat_messages": text(
                 "DELETE FROM circle_chat_messages WHERE sender_user_id = :user_id"
             ),
@@ -1701,7 +1705,7 @@ class AccountService:
             conn, table_name="internal_access_events", params=params
         )
         results["internal_access_events"] = True
-        self._delete_user_rows_if_table_exists(conn, table_name="user_push_tokens", params=params)
+        erase_push_registrations(conn, params, self._table_exists)
         results["push_tokens"] = True
         self._delete_owned_named_circles(
             conn,
@@ -2308,9 +2312,7 @@ class AccountService:
                     conn, table_name="internal_access_events", params=params
                 )
                 results["internal_access_events"] = True
-                self._delete_user_rows_if_table_exists(
-                    conn, table_name="user_push_tokens", params=params
-                )
+                erase_push_registrations(conn, params, self._table_exists)
                 results["push_tokens"] = True
                 self._delete_owned_named_circles(
                     conn,

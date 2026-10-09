@@ -348,8 +348,8 @@ def test_payment_migration_replay_guards_existing_triggers_and_event_constraint(
         assert guard in migration
         assert migration.index(guard) < migration.index(f"CREATE TRIGGER {trigger}")
     assert "SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(" in migration
-    assert "IF installed IS DISTINCT FROM ARRAY[" in migration
-    assert migration.index("IF installed IS DISTINCT FROM ARRAY[") < migration.index(
+    assert "IF installed IS DISTINCT FROM ARRAY[" not in migration
+    assert migration.index("IF NOT COALESCE(installed @> ARRAY[") < migration.index(
         "ALTER TABLE drive_share_events DROP CONSTRAINT"
     )
 
