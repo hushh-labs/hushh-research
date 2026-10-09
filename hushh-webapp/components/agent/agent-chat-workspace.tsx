@@ -431,8 +431,12 @@ import {
 import { AgentMessageAttachments } from "@/components/agent/agent-message-attachments";
 import { AgentComposerTextAttachment } from "@/components/agent/agent-text-attachment-editor";
 import {
+  countUnseenTranscriptMessages,
   findPendingAssistantTurn,
+  formatTranscriptMessageCount,
   measureTranscriptReveal,
+  prepareSeenTranscriptMessages,
+  type SeenTranscriptMessages,
   transcriptFollowsLatest,
   transcriptRevealScrollTop,
 } from "@/lib/agent/agent-chat-transcript-scroll";
@@ -2050,6 +2054,7 @@ export function AgentBubble({
   return (
     <div
       data-message-role={message.role}
+      data-message-id={message.id}
       data-message-status={message.status}
       // The time is kept on the row for tooling; the transcript shows it in
       // the centered separator above each group instead of under every bubble.
@@ -8413,19 +8418,38 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (next.open && !isPuppySurface)
       void loadConversationList().catch(() => undefined);
   }, [drawerMode, isHistoryDrawerOpen, isPuppySurface, loadConversationList]);
-  // "N messages" (as in the reference): while the reader is scrolled up, a
-  // pill above the composer counts the messages not yet fully in view below
-  // and jumps back to the latest on a tap.
+  // Seen messages stay acknowledged when the reader returns to older history.
   const [messagesBelow, setMessagesBelow] = useState(0);
   const messagesBelowFrameRef = useRef<number | null>(null);
+  const seenTranscriptMessagesRef = useRef<SeenTranscriptMessages>({
+    scope: "", conversationId: null, ids: new Set(),
+  });
   const countMessagesBelow = useCallback(() => {
     messagesBelowFrameRef.current = null;
+    const scope = JSON.stringify([user?.uid, vaultSessionEpoch]);
+    seenTranscriptMessagesRef.current = prepareSeenTranscriptMessages(
+      seenTranscriptMessagesRef.current, scope, conversationId,
+    );
     const transcript = transcriptRef.current;
-    if (!transcript || isPuppySurface) {
+    if (!transcript || isPuppySurface || document.visibilityState === "hidden") {
       setMessagesBelow(0);
       return;
     }
+    // The composer floats over the transcript, so "in view" ends at its top.
+    const transcriptRect = transcript.getBoundingClientRect();
     const overlay = isCanonicalChatRoute ? agentDockFrame : composerStackRef.current;
+    const overlayRect = overlay?.getBoundingClientRect();
+    const visibleBottom = Math.max(transcriptRect.top, Math.min(transcriptRect.bottom,
+      overlayRect && overlayRect.height > 0 ? overlayRect.top : transcriptRect.bottom));
+    if (visibleBottom <= transcriptRect.top) {
+      setMessagesBelow(0);
+      return;
+    }
+    const rows = Array.from(transcript.querySelectorAll<HTMLElement>("[data-message-id]"), row => {
+      const rect = row.getBoundingClientRect();
+      return { id: row.dataset.messageId!, top: rect.top, bottom: rect.bottom };
+    });
+    const count = countUnseenTranscriptMessages(rows, visibleBottom, seenTranscriptMessagesRef.current.ids);
     const end = messagesEndRef.current;
     if (end) {
       const endTargetTop = transcriptRevealScrollTop(
@@ -8436,30 +8460,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
     }
-    const distanceFromBottom =
-      transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop;
-    if (distanceFromBottom <= 96) {
-      setMessagesBelow(0);
-      return;
-    }
-    // The composer floats over the transcript, so "in view" ends at its top.
-    const transcriptRect = transcript.getBoundingClientRect();
-    const overlayRect = overlay?.getBoundingClientRect();
-    const visibleBottom = Math.max(transcriptRect.top, Math.min(transcriptRect.bottom,
-      overlayRect && overlayRect.height > 0 ? overlayRect.top : transcriptRect.bottom));
-    let count = 0;
-    transcript.querySelectorAll<HTMLElement>("[data-message-role]").forEach((row) => {
-      if (row.getBoundingClientRect().bottom > visibleBottom + 4) count += 1;
-    });
-    setMessagesBelow(count);
-  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface]);
+    setMessagesBelow(current => current === count ? current : count);
+  }, [agentDockFrame, conversationId, isCanonicalChatRoute, isPuppySurface, user?.uid, vaultSessionEpoch]);
+  const countMessagesBelowRef = useRef(countMessagesBelow);
+  useLayoutEffect(() => {
+    countMessagesBelowRef.current = countMessagesBelow;
+  }, [countMessagesBelow]);
   const scheduleMessagesBelowCount = useCallback(() => {
     if (messagesBelowFrameRef.current !== null) return;
-    messagesBelowFrameRef.current = window.requestAnimationFrame(countMessagesBelow);
-  }, [countMessagesBelow]);
+    // A queued frame must use the latest committed conversation/owner scope.
+    messagesBelowFrameRef.current = window.requestAnimationFrame(() => countMessagesBelowRef.current());
+  }, []);
   useEffect(() => {
     scheduleMessagesBelowCount();
-  }, [messages, chatOnboarding.turns.length, scheduleMessagesBelowCount]);
+  }, [messages, chatOnboarding.turns.length, countMessagesBelow, scheduleMessagesBelowCount]);
+  useEffect(() => {
+    document.addEventListener("visibilitychange", scheduleMessagesBelowCount);
+    return () => document.removeEventListener("visibilitychange", scheduleMessagesBelowCount);
+  }, [scheduleMessagesBelowCount]);
   useEffect(() => () => {
     if (messagesBelowFrameRef.current !== null)
       window.cancelAnimationFrame(messagesBelowFrameRef.current);
@@ -10430,7 +10448,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   aria-label={`Jump to latest, ${messagesBelow} ${messagesBelow === 1 ? "message" : "messages"} below`}
                   className="pointer-events-auto inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)] pl-4 pr-3 text-[14px] font-semibold tabular-nums text-[color:var(--app-accent-fg)] shadow-[0_10px_28px_-12px_var(--app-accent-deep)] transition-colors hover:bg-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--one-chat-canvas)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1"
                 >
-                  {messagesBelow} {messagesBelow === 1 ? "message" : "messages"}
+                  {formatTranscriptMessageCount(messagesBelow)} {messagesBelow === 1 ? "message" : "messages"}
                   <ChevronDown className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
