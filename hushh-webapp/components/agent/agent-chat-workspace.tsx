@@ -2506,6 +2506,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     getVaultOwnerToken,
   } = useVault();
   const vaultSessionEpoch = snapshotVaultSessionEpoch();
+  const emailScopeRef = useRef({ ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch });
+  if (emailScopeRef.current.ownerId !== renderedWorkspaceOwnerId || emailScopeRef.current.epoch !== vaultSessionEpoch) {
+    emailScopeRef.current = { ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch };
+  }
   const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, vaultSessionEpoch);
   // Authority changes retire chrome; a selector's value uses ordered updates.
   const chatChromeContext = `${pathname}:${isVaultUnlocked}:${vaultSessionEpoch}`;
@@ -2821,14 +2825,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     actionId: string; ownerId: string;
   }>>(new Map());
   const [checkingEmailActionId, setCheckingEmailActionId] = useState<string | null>(null);
+  const emailStatusOperationRef = useRef<{ scope: typeof emailScopeRef.current } | null>(null);
   const emailHistoryOwnerRef = useRef<string | null>(user?.uid ?? null);
   useEffect(() => {
+    emailStatusOperationRef.current = null;
+    setCheckingEmailActionId(null);
     if (emailHistoryOwnerRef.current === (user?.uid ?? null)) return;
     emailHistoryOwnerRef.current = user?.uid ?? null;
     emailDeliveryActionByAttemptRef.current.clear();
     setEmailDeliveryHistory([]);
-    setCheckingEmailActionId(null);
-  }, [user?.uid]);
+  }, [user?.uid, vaultSessionEpoch]);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [visiblePkmToolCount, setVisiblePkmToolCount] = useState(0);
@@ -8318,6 +8324,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!emailDraftOpen) return null;
     const workflowId = gmailKycEmailDraftWorkflowId;
     const draftOwnerId = workspaceOwnerIdRef.current;
+    const draftScope = emailScopeRef.current;
+    const isDraftScopeCurrent = () => emailScopeRef.current === draftScope &&
+      workspaceOwnerIdRef.current === draftOwnerId && isVaultSessionEpochCurrent(draftScope.epoch);
     const draftAnchorId = emailDraftAnchorMessageId;
     return (
       <div className="border-t border-border/70 pt-3">
@@ -8326,21 +8335,23 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           initialInstruction={emailDraftInstruction}
           initialDraft={emailDraftInitialValue}
           autoDraft={emailDraftAutoDraft}
-          getAuth={getEmailDeliveryAuth}
-          onRequireVault={() => setVaultDialogOpen(true)}
+          getAuth={() => getEmailDeliveryAuth(draftScope)}
+          onRequireVault={() => { if (isDraftScopeCurrent()) setVaultDialogOpen(true); }}
           onDismiss={closeEmailDraft}
           onSendStarted={handleEmailSendStarted}
-          onSent={handleEmailSent}
-          onSendFailed={handleEmailSendFailed}
+          onSent={(attemptId) => { if (isDraftScopeCurrent()) handleEmailSent(attemptId); }}
+          onSendFailed={(error, attemptId) => { if (isDraftScopeCurrent()) handleEmailSendFailed(error, attemptId); }}
           onSaveStateChange={(state, attemptId) => {
-            if (workspaceOwnerIdRef.current !== draftOwnerId ||
+            if (!isDraftScopeCurrent() ||
               retryPresentationRef.current.emailDraftMessageId !== draftAnchorId) return;
             if (state === "saving") emailDraftSaveAttemptRef.current = attemptId;
             if (emailDraftSaveAttemptRef.current !== attemptId) return;
             emailDraftSaveStateRef.current = state;
             setEmailDraftSaveState(state);
           }}
-          onDeliveryPrepared={handleEmailDeliveryPrepared}
+          onDeliveryPrepared={(actionId, attemptId) => {
+            if (isDraftScopeCurrent()) handleEmailDeliveryPrepared(actionId, attemptId);
+          }}
           sourceBoundEnvelope={gmailKycEmailDraftEnvelope}
           onDraftChange={handleEmailDraftChange}
           onOpenConnections={openConnectorSurface}
@@ -8711,27 +8722,34 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onDeleteConversation={isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation}
     />
   );
-  const getEmailDeliveryAuth = async () => {
-    if (!user || !isVaultUnlocked || !tokenIsFresh) return null;
+  const getEmailDeliveryAuth = async (scope = emailScopeRef.current) => {
+    const isCurrent = () => emailScopeRef.current === scope &&
+      workspaceOwnerIdRef.current === scope.ownerId && isVaultSessionEpochCurrent(scope.epoch);
+    if (!isCurrent() || !user || !isVaultUnlocked || !tokenIsFresh) return null;
     const currentVaultOwnerToken = getVaultOwnerToken();
     if (!currentVaultOwnerToken) return null;
     const firebaseIdToken = await user.getIdToken();
-    if (!firebaseIdToken) return null;
+    if (!isCurrent() || !firebaseIdToken || getVaultOwnerToken() !== currentVaultOwnerToken) return null;
     return { firebaseIdToken, vaultOwnerToken: currentVaultOwnerToken };
   };
 
   const checkEmailDeliveryStatus = async (item: EmailDeliveryHistoryItem) => {
-    if (!item.actionId || !user?.uid || checkingEmailActionId) return;
-    const auth = await getEmailDeliveryAuth();
-    if (!auth) {
-      setVaultDialogOpen(true);
-      return;
-    }
+    const scope = emailScopeRef.current;
+    if (!item.actionId || !user?.uid || emailStatusOperationRef.current?.scope === scope) return;
     const ownerId = user.uid;
     const actionId = item.actionId;
+    const operation = { scope };
+    emailStatusOperationRef.current = operation;
+    const isCurrent = () => emailStatusOperationRef.current === operation &&
+      emailScopeRef.current === scope && workspaceOwnerIdRef.current === ownerId &&
+      isVaultSessionEpochCurrent(scope.epoch);
     setCheckingEmailActionId(actionId);
     try {
+      const auth = await getEmailDeliveryAuth(scope);
+      if (!isCurrent()) return;
+      if (!auth) { setVaultDialogOpen(true); return; }
       const result = await EmailDeliveryService.sendStatus({ ...auth, actionId });
+      if (!isCurrent()) return;
       const terminal = ["sent", "failed", "expired", "cancelled"].includes(result.state);
       if (terminal) forgetPendingEmailSendAction(ownerId, actionId);
       setEmailDeliveryHistory((current) => current.map((entry) =>
@@ -8745,12 +8763,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             }
           : entry));
     } catch {
+      if (!isCurrent()) return;
       setEmailDeliveryHistory((current) => current.map((entry) =>
         entry.actionId === actionId
           ? { ...entry, status: "outcome_unknown", errorMessage: "Could not check Mail right now." }
           : entry));
     } finally {
-      setCheckingEmailActionId(null);
+      if (isCurrent()) {
+        emailStatusOperationRef.current = null;
+        setCheckingEmailActionId(null);
+      }
     }
   };
 
@@ -8759,9 +8781,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const actionIds = pendingEmailSendActionIds(user.uid);
     if (!actionIds.length) return;
     const owner = user;
+    const scope = emailScopeRef.current;
     const token = getVaultOwnerToken();
     if (!token) return;
     let active = true;
+    const isCurrent = () => active && emailScopeRef.current === scope &&
+      workspaceOwnerIdRef.current === owner.uid && isVaultSessionEpochCurrent(scope.epoch);
     const emptyDraft: EmailDraft = { to: "", cc: "", bcc: "", subject: "", body: "" };
     setEmailDeliveryHistory((current) => {
       const known = new Set(current.map((item) => item.actionId));
@@ -8776,12 +8801,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }))];
     });
     void owner.getIdToken().then(async (firebaseIdToken) => {
+      if (!isCurrent() || getVaultOwnerToken() !== token) return;
       await Promise.all(actionIds.map(async (actionId) => {
         try {
           const result = await EmailDeliveryService.sendStatus({
             firebaseIdToken, vaultOwnerToken: token, actionId,
           });
-          if (!active) return;
+          if (!isCurrent()) return;
           const terminal = ["sent", "failed", "expired", "cancelled"].includes(result.state);
           if (terminal) forgetPendingEmailSendAction(owner.uid, actionId);
           setEmailDeliveryHistory((current) => current.map((item) =>
