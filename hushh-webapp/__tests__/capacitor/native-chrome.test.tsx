@@ -355,6 +355,28 @@ describe("native chrome presentation lease", () => {
       expect(document.documentElement.style.getPropertyValue("--native-overlay-top")).toBe("80px");
     } finally { seat.remove(); }
   });
+  it.each([false, true])("reconciles superseded shell preparation without reviving a cancelled lease (%s)", async cancelled => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true, reservedPresentationRegions: true });
+    await getNativeChromeCapabilities();
+    const receipt = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReturnValueOnce(receipt.promise);
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    let height = 120;
+    vi.spyOn(seat, "getBoundingClientRect").mockImplementation(() => ({ bottom: height } as DOMRect));
+    try {
+      const lease = new NativeChromeLease(projection, "owner-a");
+      const preparing = lease.prepare();
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledOnce());
+      const obsolete = bridge.setPresentationRegions.mock.calls[0][0];
+      height = 140;
+      expect(await syncNativePresentationRegions()).toBe(true);
+      if (cancelled) lease.invalidate();
+      receipt.resolve(obsolete);
+      expect(await preparing).toBe(!cancelled);
+      expect(bridge.prepare).toHaveBeenCalledTimes(cancelled ? 0 : 1);
+    } finally { seat.remove(); }
+  });
 
   it("requires acknowledged suspension and identical ownership/schema/geometry before resuming a host with fresh authority", async () => {
     const epoch = chromeOwnerEpoch("account-a", "top-shell-back");

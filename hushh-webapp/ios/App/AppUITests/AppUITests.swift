@@ -1039,10 +1039,16 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue((editor.value as? String) == draft, "NATIVE_DOCK_UNICODE_OR_NEWLINE_LOST")
         XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY - 4,
             "NATIVE_DOCK_KEYBOARD_OVERLAP")
-        // A command key needs key injection, not text injection. Chrome
-        // correctly retires during keyboard presentation, so its History
-        // opener cannot stand in for a hardware Escape dismissal.
-        editor.typeKey(.escape, modifierFlags: [])
+        // Exercise the normal software-keyboard interruption. Hardware Escape
+        // delivery is a separate, currently unqualified device acceptance gate.
+        // Public NativeChrome controls retire while the keyboard is visible;
+        // the existing React Profile opener remains the authored touch path.
+        let profile = app.buttons["Open Profile"].firstMatch
+        XCTAssertTrue(waitForAdmittedControl(profile), "NATIVE_DOCK_KEYBOARD_PROFILE_UNAVAILABLE")
+        profile.tap()
+        let profileClose = app.buttons["Close Profile"].firstMatch
+        XCTAssertTrue(waitForAdmittedControl(profileClose), "NATIVE_DOCK_KEYBOARD_PROFILE_CLOSE_UNAVAILABLE")
+        profileClose.tap()
         let hiddenKeyboard = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)
         }, object: app)

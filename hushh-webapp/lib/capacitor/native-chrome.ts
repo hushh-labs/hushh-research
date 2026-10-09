@@ -370,7 +370,7 @@ export class NativeChromeLease {
     return this.current;
   }
   async prepare(): Promise<boolean> {
-    if (peekNativeChromeCapabilities()?.reservedPresentationRegions && !await syncNativePresentationRegions()) return false;
+    if (!await this.acknowledgeRegions()) return false;
     suspended.delete(this.projection.controlId);
     outstanding.set(this.projection.controlId, this.projection);
     const ack = await bounded(nativeChrome.prepare(this.projection));
@@ -389,13 +389,22 @@ export class NativeChromeLease {
   }
   private async prepareReplacement(previous: NativeChromeLease,
     prepare: (projection: ChromeProjection & { previousRevision: number }) => Promise<ChromeAcknowledgement>): Promise<boolean> {
-    if (peekNativeChromeCapabilities()?.reservedPresentationRegions && !await syncNativePresentationRegions()) return false;
+    if (!await this.acknowledgeRegions()) return false;
     previous.invalidate();
     outstanding.set(this.projection.controlId, this.projection);
     const ack = await bounded(prepare({
       ...this.projection, previousRevision: previous.projection.revision,
     }));
     return this.acceptPreparation(ack);
+  }
+  private async acknowledgeRegions(): Promise<boolean> {
+    if (!peekNativeChromeCapabilities()?.reservedPresentationRegions) return this.current;
+    // A sibling shell can supersede a pending receipt. Reconcile once, without
+    // reinstalling the host or retrying any choice/operation. Cancellation wins.
+    for (let attempt = 0; attempt < 2 && this.current; attempt++) {
+      if (await syncNativePresentationRegions()) return this.current;
+    }
+    return false;
   }
   async activate(): Promise<void> {
     if (!this.current) return;
