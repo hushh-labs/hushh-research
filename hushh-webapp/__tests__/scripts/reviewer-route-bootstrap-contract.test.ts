@@ -107,7 +107,6 @@ describe("reviewer route bootstrap contract", () => {
     expect(source).toContain("unlockInput.fill(reviewerPassphrase)");
     expect(source).toContain("bootstrapErrorClass");
     expect(source).toContain("userMatches");
-    expect(source).toContain("const maxAttempts = humanAuthenticated ? 1 : 3");
     expect(source).toContain("await context.close().catch(() => undefined)");
   });
 

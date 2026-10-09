@@ -9,11 +9,13 @@ import { createReviewerSessionHarness } from "../../../.codex/skills/reviewer-ap
 import { installOperatorReviewerTokenBinding } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-operator-token-binding.mjs";
 
 afterEach(() => vi.unstubAllEnvs());
-async function harness() {
+async function harness(authMode = "custom_token") {
+  vi.stubEnv("REVIEWER_AUTH_MODE", authMode);
   vi.stubEnv("REVIEWER_UID", "synthetic-owner");
   vi.stubEnv("REVIEWER_VAULT_PASSPHRASE", "synthetic-passphrase");
   vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "false");
-  return createReviewerSessionHarness({ repoRoot: resolve(process.cwd(), ".."), appOrigin: "https://synthetic.example" });
+  return createReviewerSessionHarness({ repoRoot: resolve(process.cwd(), ".."), appOrigin: "https://synthetic.example",
+    reviewerTokenProvider: authMode === "operator_issued_token" ? vi.fn(async () => "synthetic-proof") : null });
 }
 function browser(state = "authenticated") {
   const window = { location: { pathname: "/one/setup", search: "" }, __HUSHH_NATIVE_TEST__: { bootstrapState: state, bootstrapUserId: "synthetic-owner" } };
@@ -176,12 +178,16 @@ describe("read-only request admission", () => {
 });
 
 
-it("closes contexts when request interception cannot be installed", async () => {
-  const reviewer = await harness();
+it.each([
+  ["custom_token", 3],
+  ["human_authenticated", 1],
+  ["operator_issued_token", 1],
+])("closes failed contexts without replaying one-shot reviewer admission (%s)", async (mode, expectedAttempts) => {
+  const reviewer = await harness(mode);
   const b = browser();
   b.context.route.mockRejectedValue(new Error("synthetic interception failure"));
   await expect(reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false })).rejects.toThrow("bootstrap failed");
-  expect(b.context.close).toHaveBeenCalledTimes(3);
+  expect(b.context.close).toHaveBeenCalledTimes(expectedAttempts);
   expect(b.page.goto).not.toHaveBeenCalled();
 });
 
