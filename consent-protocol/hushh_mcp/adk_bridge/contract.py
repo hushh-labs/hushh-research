@@ -142,10 +142,12 @@ class A2ADirective:
 
 class SpecialistReadSource(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    source_ref: str = Field(pattern=r"^(mail|document):[A-Za-z0-9_-]{1,80}$")
+    source_ref: str = Field(pattern=r"^(mail|document|receipt):[A-Za-z0-9_-]{1,80}$")
     label: str = Field(max_length=80)
     # "message" marks a Mail source whose readable text the person asked for.
-    kind: Literal["metadata", "document", "message"]
+    # "receipt" is a receipt from the owner's saved receipt memory, cited by its
+    # opaque saved reference; no mailbox was read for it.
+    kind: Literal["metadata", "document", "message", "receipt"]
     page: int | None = Field(default=None, ge=1, le=100)
 
 
@@ -162,7 +164,7 @@ class SpecialistReadResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     schema_version: Literal["specialist_read.v1"] = "specialist_read.v1"
-    connector: Literal["mail", "drive"]
+    connector: Literal["mail", "drive", "receipts"]
     status: Literal[
         "ok",
         "input_required",

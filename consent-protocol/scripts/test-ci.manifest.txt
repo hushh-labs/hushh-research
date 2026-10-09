@@ -91,6 +91,7 @@ tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
 tests/services/test_email_delegated_read.py
 tests/services/test_receipt_memory_read.py
+tests/services/test_receipt_action_links.py
 tests/test_email_agent_a2a.py
 tests/test_adk_specialist_chat_services.py
 tests/test_one_external_read_boundary.py

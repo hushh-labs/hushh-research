@@ -452,10 +452,12 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   (`one_voice.mail.latency stage=interpret status=skipped`, `coverage.source =
   receipt_memory`). Only the planner's own fields choose the window and filters;
   code filters, sorts newest first, pages by ten, and omits any value the index
-  does not hold. A missing, malformed, empty, or older-than-seven-days index is
+  does not hold. A missing, malformed, or empty index is
   "not ready" with the exact sentence `Your receipt memory is not ready yet. Sync
   and save your receipts in Mail.` and the generated `route.profile_receipts`
-  action; it is never reported as an empty mailbox. A "show more" continues a
+  action; it is never reported as an empty mailbox. Saved receipts persist until
+  the owner resets them, so an index older than seven days is still answered
+  from, with a note that says when it was last synced. A "show more" continues a
   server-held position (`hussh:receipt_cursor`: filters and an offset, never a
   receipt) that expires after thirty minutes and is void after a new save.
 - Authority and storage: the index is derived on the owner's device from the same
@@ -480,9 +482,46 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   filters every time; run "find emails mentioning receipts", "emails from Amazon
   about my order" and "what does the Supabase invoice email say" and confirm
   `search_inbox` or `read_message`, never `read_receipts`. Include a missing,
-  stale and truncated memory, a locked vault, and a second page. Until then the
+  old and truncated memory, a locked vault, and a second page. Until then the
   Email Mail-read kill switch (`GMAIL_CHAT_READS`) remains the rollback.
 
+
+### Declared: receipt action link selection
+
+- Owning agent: `agent_email_receipt_extractor`. For one receipt email it decides
+  which single link, if any, is the receipt's useful action and what that action
+  is: `view_receipt`, `view_invoice` or `pay_due`. It chooses from the label and
+  host of each safe candidate and returns `action_kind` with `action_link_id`, or
+  null for both. No anchor-text table, URL pattern or keyword list picks the
+  action or its kind.
+- Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`
+  (`agent_email_receipt_extractor`). Structured output:
+  `EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA` in
+  `consent-protocol/hushh_mcp/agents/email/runtime.py`.
+- Deterministic code and why it is allowed: `receipt_action_links.py` only
+  validates. It decides which links the model may choose from (HTTPS, an ordinary
+  DNS host, ASCII only, no credentials, no `javascript:`, `data:` or `mailto:`, no
+  tracking, unsubscribe, advertising, shortener or redirect wrapper, and a host
+  that belongs to the sender or to a reviewed billing platform), strips tracking
+  parameters, and rejects a choice that names no candidate, names an unknown
+  kind, or is `pay_due` for a receipt not found unpaid. A rejected choice drops
+  the action and keeps the receipt, and is logged as
+  `live_receipt_optional_field_rejected field=action`. It never fetches a link
+  and never substitutes a link or a kind the model did not choose.
+- Skips: none. The extractor is asked on every candidate message, with an empty
+  `link_candidates` list when there is none.
+- What is stored: a sealed reference (`ra1.`: AES-GCM under a key derived from
+  the signing key, bound to the owner and Gmail connection) holding the message
+  and a fingerprint of the link, never a URL or a Gmail id in the clear. The
+  link is derived again from the message in Gmail when the owner clicks, passes
+  every rule again, and is returned once with `Cache-Control: no-store`; it is
+  not logged and is shown to the owner only as a button.
+- Live evaluation (2026-10-10, synthetic emails, the live extractor on Vertex,
+  three runs each): an overdue invoice with a payment link selected `pay_due`
+  every time; a paid receipt `view_receipt`; a paid invoice `view_invoice`; an
+  email with only subscription, support and shopping links, and one with no
+  links, selected nothing. Re-run it after any change to the extractor
+  instruction.
 
 ### Declared: typed-chat message reactions
 

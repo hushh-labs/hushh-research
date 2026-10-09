@@ -61,7 +61,11 @@ function isGmailPath(path: string): boolean {
 }
 
 function isLiveReceiptPath(path: string): boolean {
-  return path === "gmail/receipts/scan" || path === "gmail/receipts/detail";
+  return (
+    path === "gmail/receipts/scan" ||
+    path === "gmail/receipts/detail" ||
+    path === "gmail/receipts/action-link"
+  );
 }
 
 const LIVE_RECEIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
@@ -78,6 +82,8 @@ const LIVE_RECEIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   GMAIL_RECEIPT_SCAN_IN_PROGRESS:
     "A receipt scan is already running for this account.",
   GMAIL_RECEIPT_NOT_FOUND: "The selected receipt is not available.",
+  GMAIL_RECEIPT_ACTION_UNAVAILABLE:
+    "This receipt's link is no longer available.",
   GMAIL_RECEIPT_SCAN_TIMEOUT:
     "The Gmail receipt scan timed out. Please try again.",
   GMAIL_RECEIPT_DETAIL_TIMEOUT:
@@ -243,6 +249,14 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
       error: "Receipt scan unavailable",
       message:
         "We couldn't scan Mail for receipts right now. Please try again in a moment.",
+    };
+  }
+
+  if (path === "gmail/receipts/action-link") {
+    return {
+      error: "Receipt link unavailable",
+      message:
+        "We couldn't open that receipt link right now. Please try again in a moment.",
     };
   }
 

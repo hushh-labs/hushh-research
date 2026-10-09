@@ -315,13 +315,9 @@ def test_show_more_with_new_filters_is_ambiguous_and_leaves_the_stored_position(
         (None, NOW, "missing"),
         ({"schema": "receipt_canonical_index.v1"}, NOW, "missing"),
         (_index([]), NOW, "empty"),
-        (_index([_txn(1)], generated_at="2026-09-01T09:00:00Z"), NOW, "stale"),
-        (_index([_txn(1)], generated_at="2026-10-20T09:00:00Z"), NOW, "stale"),
     ],
 )
-def test_missing_stale_or_empty_memory_is_not_ready_and_never_claims_an_empty_mailbox(
-    index, now, reason
-):
+def test_missing_or_empty_memory_is_not_ready_and_never_claims_an_empty_mailbox(index, now, reason):
     outcome = _read(index, ReceiptPlanFields(since="2026-08-09"), now=now)
     assert outcome.text == NOT_READY_TEXT
     assert (
@@ -334,11 +330,36 @@ def test_missing_stale_or_empty_memory_is_not_ready_and_never_claims_an_empty_ma
     assert "no receipts" not in outcome.text.lower()
 
 
-def test_a_seven_day_old_save_is_still_ready_and_an_eight_day_old_one_is_not():
-    index = _index([_txn(1)], generated_at="2026-10-02T10:00:00Z")
-    assert _read(index).status == "ok"
-    old = _index([_txn(1)], generated_at="2026-10-01T09:59:00Z")
-    assert _read(old).text == NOT_READY_TEXT
+def test_saved_receipts_persist_so_an_old_save_is_answered_with_when_it_was_last_synced():
+    # A save keeps answering until the owner resets it: age never makes it unreadable.
+    recent = _index([_txn(1)], generated_at="2026-10-02T10:00:00Z")
+    assert "last synced" not in _read(recent).text
+    old = _index([_txn(1)], generated_at="2026-09-01T09:00:00Z")
+    outcome = _read(old)
+    assert outcome.status == "ok" and outcome.text != NOT_READY_TEXT
+    assert "Shop 1" in outcome.text
+    assert (
+        "These receipts were last synced on Sep 1. Sync again in Mail to refresh them."
+        in outcome.text
+    )
+    assert outcome.coverage is not None and outcome.coverage["memory_old"] is True
+    assert not outcome.propose_open_receipts
+    # A device clock ahead of the server is not a reason to stop answering.
+    future = _index([_txn(1)], generated_at="2026-10-20T09:00:00Z")
+    assert _read(future).status == "ok"
+
+
+def test_the_optional_logo_domain_and_account_reference_are_accepted_only_when_well_formed():
+    good = _index([_txn(1, logo_domain="supabase.io")])
+    good["account_ref"] = "acct_" + "ab" * 12
+    parsed = parse_receipt_index(good)
+    assert parsed is not None and parsed.transactions[0].logo_domain == "supabase.io"
+    for bad_domain in ("https://evil.example/x", "evil.com/<script>", "Evil.COM", "a b.com"):
+        assert parse_receipt_index(_index([_txn(1, logo_domain=bad_domain)])) is None
+    for bad_ref in ("acct_zz", "someone@example.com", "x" * 80):
+        bad = _index([_txn(1)])
+        bad["account_ref"] = bad_ref
+        assert parse_receipt_index(bad) is None
 
 
 def test_a_truncated_index_says_older_receipts_may_be_missing():
@@ -360,6 +381,8 @@ def test_a_truncated_index_says_older_receipts_may_be_missing():
         {"gmail_message_id": "18c0ffee"},
         {"source_id": "gmail_live_abc.0123"},
         {"tracking_url": "https://track.example/123"},
+        # The device keeps sealed action references to itself; a stray one is refused.
+        {"action": {"kind": "pay_due", "ref": "ra1.AAAAAAAAAAAA"}},
     ],
 )
 def test_index_admission_is_closed_so_no_raw_email_can_ride_along(extra):

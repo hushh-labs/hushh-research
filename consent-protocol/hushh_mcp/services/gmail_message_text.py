@@ -101,6 +101,11 @@ def _decode(part: dict[str, Any]) -> str:
     return raw.decode(_charset(part), errors="replace")
 
 
+def decode_part_text(part: dict[str, Any]) -> str:
+    """The decoded text of one message part, or "" when it carries none."""
+    return _decode(part)
+
+
 def _normalize(text: str) -> str:
     text = _CONTROL.sub(" ", text.replace("\r\n", "\n").replace("\r", "\n"))
     lines = [" ".join(line.split()) for line in text.split("\n")]

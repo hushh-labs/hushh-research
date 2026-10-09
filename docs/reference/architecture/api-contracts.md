@@ -482,10 +482,27 @@ state, logged, or shown to a model. A receipts question (`read_receipts`) filter
 pages and formats it in code, newest first, ten at a time, with dates in the
 owner's timezone and any unavailable amount omitted. "Show more" continues a
 server-held position (`hussh:receipt_cursor`, filters and offset only, thirty
-minutes, void after a new save). A missing, malformed, empty or older-than-seven-day
-index answers `Your receipt memory is not ready yet. Sync and save your receipts
-in Mail.` with the generated `route.profile_receipts` action, and is never
-reported as an empty mailbox. The index is written only through writer
+minutes, void after a new save). A missing, malformed or empty index answers
+`Your receipt memory is not ready yet. Sync and save your receipts in Mail.`
+with the generated `route.profile_receipts` action, and is never reported as an
+empty mailbox. Saved receipts persist until the owner resets them: an index
+older than seven days is still answered from, with a note saying when it was
+last synced. Mail > Receipts reads the same index on open (read-only, no Mail
+scan) and shows it, and keeps showing it, read-only, while Mail is disconnected
+or needs reconnecting: only Sync again and opening a receipt's link need a live
+Mail grant. A receipt set whose one-way `account_ref` differs from the connected
+Mail account is left out; one that cannot be compared (no connected account, or
+saved before the reference existed) is shown. A link whose reference no longer
+names one (after a reconnect) waits, says so, and is refreshed by the next sync;
+Chat answers from the saved index regardless of Mail's state. Its optional
+`logo_domain` is a reviewed canonical domain, never merchant text. The owner's
+Reset saves an empty index through the same writer after an explicit
+confirmation. An answer read from saved receipts returns the structured result
+with `connector: "receipts"` and one `receipt:<saved ref>` source per receipt
+shown; the durable conversation keeps the result with no sources. The device
+looks each cited saved ref up in its own index and draws, under the answer, the
+receipt's verified action (always for a payment that is due, and a view link
+only when at most three receipts were cited). The index is written only through writer
 `gmail_receipt_memory_save_button`: once, automatically, after each sync the
 owner starts on Mail > Receipts (the product default, set by
 `RECEIPT_MEMORY_AUTO_SAVE_DEFAULT`). The page shows no save control. Opening the
@@ -649,6 +666,7 @@ and that binding before returning information.
 | ------ | ---- | ---- | ----------- |
 | POST | `/api/kai/gmail/receipts/scan` | Firebase + `VAULT_OWNER` | Body `{user_id,page?,per_page?,cursor?}` with `page<=50` and `per_page<=6`. Search a bounded receipt-like Gmail page, fetch bounded content only for those candidates, run at most two manifest-owned Email receipt extractors concurrently, and return normalized live items plus honest page coverage. Receipt scans use owner-scoped expiring task leases; timeout, cancellation, and caller disconnect release the lane without changing Gmail connection state. A successful empty provider page is `200` with `items:[]`; provider, authorization, malformed-response, timeout, and extraction failures remain typed non-empty errors. |
 | POST | `/api/kai/gmail/receipts/detail` | Firebase + `VAULT_OWNER` | Body `{user_id,source_id}`. Verify the signed owner/account-bound source handle, re-fetch only that Gmail message, and return its current normalized item plus an optional bounded object labelled `email_excerpt` / `Email preview`; it is never represented as a full invoice. |
+| POST | `/api/kai/gmail/receipts/action-link` | Firebase + `VAULT_OWNER` | Body `{user_id,ref}` where `ref` is the sealed `ra1.` action reference a scan item carries. Verify the reference's owner and Mail-connection binding, re-fetch only that Gmail message, re-derive the one verified HTTPS link it names, and return `{kind,url}` with `Cache-Control: no-store`. A reference stands for a link in the sender's own mail or a reviewed billing platform; tracking, unsubscribe, advertising, redirect, `javascript:`, `data:`, `mailto:` and non-ASCII links are never offered. The link is returned only to the owner's click, is never stored, and a stale or unverifiable reference answers `GMAIL_RECEIPT_ACTION_UNAVAILABLE`. |
 | GET | `/api/kai/gmail/receipts/{user_id}` | Firebase + `VAULT_OWNER` | Compatibility read of owner-scoped legacy receipt rows only. The table remains read-only and is not a dependency or write target for live scan results. |
 
 Each live item carries stable `source_id`, `source_kind="gmail_live"`, Gmail

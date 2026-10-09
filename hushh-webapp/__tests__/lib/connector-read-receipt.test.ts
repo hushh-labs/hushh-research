@@ -94,6 +94,27 @@ describe("connector read receipts", () => {
       sources: [{ source_ref: "mail:1", label: "Mail", kind: "document" }] })).toBeNull();
   });
 
+  it("accepts a saved-receipts answer from the email specialist only, by opaque saved refs", () => {
+    const ref = `receipt:txn_${"a".repeat(16)}`;
+    const saved = { ...receipt, connector: "receipts", truncated: false,
+      sources: [{ source_ref: ref, label: "Receipt", kind: "receipt" }] };
+    expect(parseAgentToolResultExperience("ask_email_agent", { text: "PRIVATE ANSWER", structured: saved }))
+      .toEqual({ type: "one.connector_read.v1", connector: "receipts", status: "ok",
+        sourceRefs: [ref], truncated: false, metadataOnly: true });
+    // It is not a Drive result, and a saved receipt is never a Mail citation.
+    expect(parseAgentToolResultExperience("ask_documents_agent", { structured: saved })).toBeNull();
+    for (const source of [
+      { source_ref: "mail:1", label: "Mail", kind: "metadata" },
+      { source_ref: "receipt:txn_short", label: "Receipt", kind: "receipt" },
+      { source_ref: ref, label: "Merchant", kind: "receipt" },
+      { source_ref: ref, label: "Receipt", kind: "metadata" },
+      { source_ref: ref, label: "Receipt", kind: "receipt", open_url: "https://evil.invalid" },
+    ]) {
+      expect(parseConnectorReadReceipt({ ...saved, sources: [source] })).toBeNull();
+    }
+    expect(parseConnectorReadReceipt({ ...saved, metadata_only: false })).toBeNull();
+  });
+
   it.each([
     { schema_version: "future" }, { connector: "drive" }, { status: "invented" },
     { token: "PRIVATE" }, { sources: [{ source_ref: "https://evil.invalid", label: "Mail", kind: "metadata" }] },

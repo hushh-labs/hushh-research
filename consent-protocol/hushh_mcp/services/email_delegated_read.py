@@ -486,6 +486,7 @@ def _result(
     failure_stage: str | None = None,
     failure_reason: str | None = None,
     analysis_failed: tuple[AnalysisCategory, ...] = (),
+    connector: Literal["mail", "receipts"] = "mail",
 ) -> dict[str, Any]:
     """The specialist turn, plus what a surface needs to show the person.
 
@@ -509,7 +510,7 @@ def _result(
         "stateChanged": False,
         "structured": {
             "schema_version": "specialist_read.v1",
-            "connector": "mail",
+            "connector": connector,
             "status": status,
             "sources": list(sources),
             "truncated": truncated,
@@ -593,6 +594,14 @@ def _answer_from_receipt_memory(
         conversation_id,
         outcome.text,
         outcome.status,
+        # The answer came from the owner's saved receipts, not from Mail, so the
+        # receipt cites those receipts by their opaque saved references. The
+        # device looks any action up in its own saved memory.
+        connector="receipts",
+        sources=[
+            {"source_ref": f"receipt:{ref}", "label": "Receipt", "kind": "receipt"}
+            for ref in outcome.shown_refs
+        ],
         truncated=outcome.has_more,
         metadata_only=True,
         coverage=outcome.coverage,

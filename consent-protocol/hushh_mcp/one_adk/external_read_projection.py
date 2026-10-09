@@ -52,8 +52,13 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
     # their owner-authenticated API, not by replaying a stored tool receipt.
     safe["background_search_available"] = False
     safe["background_search_query"] = None
+    labels = {"mail": "Mail", "drive": "Document", "receipts": "Receipt"}
     for source in safe["sources"]:
-        source["label"] = "Mail" if safe["connector"] == "mail" else "Document"
+        source["label"] = labels[safe["connector"]]
+    if safe["connector"] == "receipts":
+        # The saved references only let the live turn draw its action buttons.
+        # Nothing the owner saved is written to the durable conversation.
+        safe["sources"] = []
     receipt["structured"] = safe
     receipt["status"] = structured.status
     return receipt

@@ -813,8 +813,11 @@ export function parseAgentToolResultExperience(
   if (sharedCard) return sharedCard;
   if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
     const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
-    return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
-      ? receipt : null;
+    // The email specialist answers either from Mail or, for saved receipts,
+    // from the owner's receipt memory; the documents specialist only from Drive.
+    return receipt && (toolName === "ask_email_agent"
+      ? receipt.connector === "mail" || receipt.connector === "receipts"
+      : receipt.connector === "drive") ? receipt : null;
   }
   if (toolName === "read_workspace_tool") {
     const result = unwrapToolResult(content);

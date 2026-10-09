@@ -1060,6 +1060,54 @@ describe("AG-UI Agent One client", () => {
     );
   });
 
+  it("sends the answer fields of the saved receipts and never the device-only action references", async () => {
+    const receiptMemory = {
+      schema: "receipt_canonical_index.v1" as const,
+      generated_at: "2026-10-09T10:00:00Z",
+      total_transactions: 1,
+      truncated: false,
+      account_ref: `acct_${"a".repeat(24)}`,
+      transactions: [
+        {
+          ref: `txn_${"b".repeat(24)}`,
+          merchant: "Supabase",
+          amount: 124.01,
+          currency: "USD",
+          category: null,
+          status: "overdue" as const,
+          transaction_date: "2026-10-04",
+          identifiers: [{ kind: "invoice" as const, value: "ZSUQHV-00028" }],
+          detail: null,
+          logo_domain: "supabase.com",
+          action: { kind: "pay_due" as const, ref: `ra1.${"c".repeat(40)}` },
+        },
+      ],
+    };
+    await streamAgentChat({
+      vaultKey: TEST_VAULT_KEY,
+      userId: "user-1",
+      conversationId: "thread-1",
+      vaultOwnerToken: "owner-token",
+      handlers: {},
+      message: "Show my overdue bills",
+      receiptMemory,
+    });
+    const sent = mockTransport.runAgent.mock.calls.at(-1)?.[0].forwardedProps.receiptMemory;
+    expect(sent.transactions[0]).toEqual({
+      ref: receiptMemory.transactions[0]!.ref,
+      merchant: "Supabase",
+      amount: 124.01,
+      currency: "USD",
+      category: null,
+      status: "overdue",
+      transaction_date: "2026-10-04",
+      identifiers: [{ kind: "invoice", value: "ZSUQHV-00028" }],
+      detail: null,
+    });
+    expect(sent).not.toHaveProperty("account_ref");
+    expect(JSON.stringify(sent)).not.toMatch(/ra1\.|supabase\.com|"action"/);
+  });
+
   it("carries the saved receipt index only on a turn that has one", async () => {
     const receiptMemory = {
       schema: "receipt_canonical_index.v1" as const,

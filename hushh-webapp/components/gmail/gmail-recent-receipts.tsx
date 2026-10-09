@@ -22,6 +22,7 @@ import {
   CreditCard,
   FileText,
   Cloud,
+  Loader2,
 } from "@/components/icons";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
@@ -39,6 +40,14 @@ import {
   type RecentReceiptRow,
   type ReceiptTimelineEvent,
 } from "@/lib/profile/gmail-receipt-presentation";
+import {
+  RECEIPT_ACTION_RECONNECT_NOTICE,
+  RECEIPT_ACTION_REFRESH_NOTICE,
+  receiptActionLabel,
+  type ReceiptAction,
+} from "@/lib/profile/gmail-receipt-action";
+import { receiptActionFailure } from "@/lib/services/gmail-receipts-service";
+import type { SavedReceiptView } from "@/lib/profile/gmail-saved-receipts";
 import type {
   ReceiptCategory,
   GmailReceiptSourceEvidence,
@@ -383,11 +392,19 @@ function receiptTimelineLabel(event: ReceiptTimelineEvent): string {
 export function GmailRecentReceipts({
   accountKey,
   receipts,
+  saved = null,
   loadReceiptDetail,
   onReceiptDetailLoaded,
+  onOpenAction,
+  actionsAvailable = true,
 }: {
   accountKey: string | null | undefined;
   receipts: readonly ReceiptListItem[];
+  /**
+   * The owner's saved receipts. When given, they are the rows shown, and
+   * opening one reads its saved record, never Mail.
+   */
+  saved?: SavedReceiptView | null;
   loadReceiptDetail: (
     sourceId: string,
     signal: AbortSignal,
@@ -402,6 +419,17 @@ export function GmailRecentReceipts({
     source_evidence?: GmailReceiptSourceEvidence[];
   }>;
   onReceiptDetailLoaded?: (item: ReceiptListItem) => void;
+  /**
+   * Opens a receipt's verified link. Called only from the owner's click; the
+   * link is resolved then and is never shown, so it only needs the reference.
+   */
+  onOpenAction?: (action: ReceiptAction) => Promise<void>;
+  /**
+   * False while Mail is disconnected or its login was rejected: a link is
+   * derived from the live message, so the action waits for a reconnect and a
+   * new sync. The receipt itself stays on screen.
+   */
+  actionsAvailable?: boolean;
 }) {
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [selectedReceiptKey, setSelectedReceiptKey] = useState<string | null>(
@@ -421,12 +449,19 @@ export function GmailRecentReceipts({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailAttempt, setDetailAttempt] = useState(0);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  // References that stopped naming a link (after a reconnect or a changed
+  // message). Only their button waits; nothing is shown about the link itself.
+  const [staleActions, setStaleActions] = useState<ReadonlyMap<string, "expired" | "reconnect">>(
+    () => new Map(),
+  );
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<ReceiptFilter>("all");
   const [displayPage, setDisplayPage] = useState(1);
   const rows = useMemo(
-    () => buildRecentReceiptRows(receipts, accountKey),
-    [accountKey, receipts],
+    () => (saved ? saved.rows : buildRecentReceiptRows(receipts, accountKey)),
+    [accountKey, receipts, saved],
   );
   const selectedRow = useMemo(
     () => rows.find((row) => row.id === selectedRowId || Boolean(selectedReceiptKey && row.sourceReceiptKeys.includes(selectedReceiptKey))) || null,
@@ -452,12 +487,21 @@ export function GmailRecentReceipts({
     () => groupReceiptRowsByMonth(visibleRows),
     [visibleRows],
   );
+  const selectedSavedItem = useMemo(
+    () =>
+      (saved?.items || []).find((item) => item.source_id === selectedReceiptKey) || null,
+    [saved, selectedReceiptKey],
+  );
   const selectedListReceipt = useMemo(
     () =>
-      receipts.find(
-        (receipt) => receiptSelectionKey(receipt) === selectedReceiptKey,
-      ) || null,
-    [receipts, selectedReceiptKey],
+      selectedSavedItem ||
+      (saved
+        ? null
+        : receipts.find(
+            (receipt) => receiptSelectionKey(receipt) === selectedReceiptKey,
+          )) ||
+      null,
+    [receipts, saved, selectedReceiptKey, selectedSavedItem],
   );
   const selectedReceiptAvailable = Boolean(selectedListReceipt);
 
@@ -472,6 +516,16 @@ export function GmailRecentReceipts({
       setSourceEvidence([]);
       setDetailLoading(false);
       setDetailError(null);
+      return;
+    }
+
+    if (selectedSavedItem) {
+      // A saved receipt is complete as saved; nothing is read from Mail.
+      setReceiptDetail(selectedSavedItem);
+      setEmailExcerpt(null);
+      setSourceEvidence([]);
+      setDetailError(null);
+      setDetailLoading(false);
       return;
     }
 
@@ -521,7 +575,50 @@ export function GmailRecentReceipts({
     onReceiptDetailLoaded,
     selectedReceiptAvailable,
     selectedReceiptKey,
+    selectedSavedItem,
   ]);
+
+  // A different receipt starts without the previous one's action state.
+  useEffect(() => {
+    setActionBusy(false);
+    setActionError(null);
+  }, [selectedReceiptKey]);
+
+  const openAction = useCallback(
+    async (action: ReceiptAction) => {
+      if (!onOpenAction) return;
+      setActionBusy(true);
+      setActionError(null);
+      try {
+        await onOpenAction(action);
+      } catch (error) {
+        const failure = receiptActionFailure(error);
+        if (failure !== "failed") {
+          setStaleActions((current) => new Map(current).set(action.ref, failure));
+          return;
+        }
+        setActionError(
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "We couldn't open that link. Please try again.",
+        );
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [onOpenAction],
+  );
+
+  const shownAction = selectedRow?.action || receiptDetail?.action || null;
+  // Why the visible receipt's action is waiting, in the next step's words.
+  const shownActionStale = shownAction ? staleActions.get(shownAction.ref) : undefined;
+  const actionHint = !shownAction
+    ? null
+    : !actionsAvailable || shownActionStale === "reconnect"
+      ? RECEIPT_ACTION_RECONNECT_NOTICE
+      : shownActionStale === "expired"
+        ? RECEIPT_ACTION_REFRESH_NOTICE
+        : null;
 
   const closeDetail = useCallback(() => {
     setSelectedRowId(null);
@@ -662,7 +759,11 @@ export function GmailRecentReceipts({
           selectedRow ? (
             <ReceiptMerchantLogo
               merchantName={detailIdentity?.displayName || selectedRow.merchantName}
-              logoDomain={detailIdentity ? detailIdentity.logoDomain : selectedRow.logoDomain}
+              logoDomain={
+                selectedSavedItem || !detailIdentity
+                  ? selectedRow.logoDomain
+                  : detailIdentity.logoDomain
+              }
               category={detailIdentity?.category || selectedRow.category}
             />
           ) : null
@@ -700,6 +801,32 @@ export function GmailRecentReceipts({
         ) : null}
         {receiptDetail && !detailLoading ? (
           <div className="space-y-4" data-testid="receipt-detail">
+            {onOpenAction && (selectedRow?.action || receiptDetail.action) ? (
+              <div className="space-y-2" data-testid="receipt-action">
+                <Button
+                  className="w-full"
+                  disabled={actionBusy || actionHint !== null}
+                  onClick={() => {
+                    const action = selectedRow?.action || receiptDetail.action;
+                    if (action) void openAction(action);
+                  }}
+                  type="button"
+                >
+                  {actionBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {receiptActionLabel((selectedRow?.action || receiptDetail.action)!.kind)}
+                </Button>
+                {actionHint ? (
+                  <p className="text-xs text-muted-foreground" role="status">
+                    {actionHint}
+                  </p>
+                ) : null}
+                {actionError ? (
+                  <p className="text-xs text-destructive" role="alert">
+                    {actionError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <dl className="divide-y divide-border/60 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4">
               <ReceiptDetailRow
                 label="Amount"

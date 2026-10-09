@@ -83,7 +83,7 @@ describe("Gmail workspace background loading contract", () => {
     expect(source).toContain('aria-label="Loading receipts"');
     expect(source).toContain("RECEIPT_PLACEHOLDER_ROWS = 8");
     expect(source).toContain(
-      "receiptsWorkspaceActive && isConnected",
+      "receiptsWorkspaceActive && (isConnected ||",
     );
     expect(source).toContain(
       "showReceiptPlaceholders ? <ReceiptListSkeleton /> : null",

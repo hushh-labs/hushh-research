@@ -24,6 +24,10 @@ from email.utils import parseaddr, parsedate_to_datetime
 from typing import Any, Literal
 
 import httpx
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from hushh_mcp.agents.email.runtime import (
@@ -31,6 +35,7 @@ from hushh_mcp.agents.email.runtime import (
     run_email_gene,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.generated_contracts import generated_contract_path
 from hushh_mcp.services.gmail_message_text import MessageTextError, cap_utf8, message_text
 from hushh_mcp.services.gmail_receipt_documents import MAX_PDF_BYTES, html_fallback, pdf_candidates
 from hushh_mcp.services.gmail_receipts_service import (
@@ -38,9 +43,17 @@ from hushh_mcp.services.gmail_receipts_service import (
     GmailReceiptsService,
     get_gmail_receipts_service,
 )
+from hushh_mcp.services.receipt_action_links import (
+    ACTION_KINDS,
+    PAY_DUE_STATUSES,
+    action_links,
+    url_digest,
+)
 
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _logger = logging.getLogger(__name__)
+_ACTION_REF_PREFIX = "ra1."
+_ACTION_REF_AAD = b"hushh.receipt-action-ref.v1"
 _SOURCE_ID = re.compile(r"gmail_live_([A-Za-z0-9_-]{2,267})\.([0-9a-f]{48})\Z")
 _PROVIDER_ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
 _DOMAIN = re.compile(
@@ -150,12 +163,37 @@ class _MerchantRule:
     sender_domains: tuple[str, ...]
 
 
-_MERCHANT_RULES = (
-    _MerchantRule("Myntra", "myntra.com", ("myntra.com",)),
-    _MerchantRule("Amazon", "amazon.com", ("amazon.com", "amazon.in", "amazon.co.in")),
-    _MerchantRule("Apple", "apple.com", ("apple.com",)),
-    _MerchantRule("PayPal", "paypal.com", ("paypal.com",)),
-)
+def _load_merchant_rules() -> tuple[_MerchantRule, ...]:
+    """The reviewed merchant brands, from the contract the web registry also reads.
+
+    A sender domain, never message text, selects a brand. An unreadable contract
+    yields no brands (so no logos), never a failed scan.
+    """
+    path = generated_contract_path("receipts", "verified-merchants.v1.json")
+    try:
+        merchants = json.loads(path.read_text(encoding="utf-8"))["merchants"]
+        rules = tuple(
+            _MerchantRule(
+                str(item["name"]),
+                str(item["logo_domain"]),
+                tuple(str(domain) for domain in item["sender_domains"]),
+            )
+            for item in merchants
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        _logger.error("receipts.verified_merchants_unavailable path=%s", path.name)
+        return ()
+    if not all(
+        _DOMAIN.fullmatch(rule.merchant_domain)
+        and all(_DOMAIN.fullmatch(domain) for domain in rule.sender_domains)
+        for rule in rules
+    ):
+        _logger.error("receipts.verified_merchants_invalid path=%s", path.name)
+        return ()
+    return rules
+
+
+_MERCHANT_RULES = _load_merchant_rules()
 
 # Fulfilment platforms can send mail from a merchant-owned parent domain while
 # describing a purchase from a different seller.  Those role subdomains are
@@ -334,6 +372,8 @@ def _evidence(message: dict[str, Any]) -> dict[str, Any]:
     combined = "\n".join(part for part in (subject, snippet, body) if part)
     from_name, from_email, sender_domain = _sender(headers.get("from", ""))
     merchant = _verified_merchant(sender_domain)
+    # Safe links only; the model is shown an id, a label and a host, never a URL.
+    links = action_links(message.get("payload"), sender_domain=sender_domain)
 
     receipt_signals: list[dict[str, str]] = []
     labels = {
@@ -484,6 +524,13 @@ def _evidence(message: dict[str, Any]) -> dict[str, Any]:
         "order_candidates": order_candidates,
         "total_candidates": total_candidates,
         "event_candidates": event_candidates,
+        "action_links": [
+            {"id": link.link_id, "url": link.url, "label": link.label, "host": link.host}
+            for link in links
+        ],
+        "link_candidates": [
+            {"id": link.link_id, "label": link.label, "host": link.host} for link in links
+        ],
     }
 
 
@@ -647,6 +694,34 @@ def _receipt_enrichment(model: dict[str, Any], evidence: dict[str, Any]) -> dict
             }
         )
     return result
+
+
+def _selected_action(
+    model: dict[str, Any], evidence: dict[str, Any], enrichment: dict[str, Any]
+) -> dict[str, str] | None:
+    """The extractor's chosen action, kept only if it names a safe link and fits the receipt.
+
+    Both fields are the model's judgment; this only validates them. An invalid
+    choice drops the action, never the receipt.
+    """
+    kind = model.get("action_kind")
+    link_id = model.get("action_link_id")
+    if kind is None and link_id is None:
+        return None
+    link = (
+        next((item for item in evidence.get("action_links", ()) if item["id"] == link_id), None)
+        if isinstance(link_id, str)
+        else None
+    )
+    if (
+        not isinstance(kind, str)
+        or kind not in ACTION_KINDS
+        or link is None
+        or (kind == "pay_due" and enrichment.get("status") not in PAY_DUE_STATUSES)
+    ):
+        _logger.info("live_receipt_optional_field_rejected field=action")
+        return None
+    return {"kind": kind, "url": link["url"]}
 
 
 def _validated_projection(
@@ -834,6 +909,7 @@ def _validated_projection(
     message_id = str(message["id"])
     compatibility_id = -max(1, int(hashlib.sha256(source_id.encode()).hexdigest()[:8], 16))
     enrichment = _receipt_enrichment(model, evidence)
+    action = _selected_action(model, evidence, enrichment)
     source_evidence: list[dict[str, str]] = []
 
     def add_source_evidence(kind: str, value: Any) -> None:
@@ -890,6 +966,7 @@ def _validated_projection(
         "event_type": event_type,
         **enrichment,
         "_source_evidence": source_evidence,
+        "_action": action,
     }
 
 
@@ -915,6 +992,59 @@ class GmailLiveReceiptsService:
         if self._source_secret is not None:
             return self._source_secret
         return get_core_security_settings().app_signing_key.encode("utf-8")
+
+    def _action_key(self) -> bytes:
+        return HKDF(
+            algorithm=hashes.SHA256(), length=32, salt=None, info=b"hushh.receipt-action-key.v1"
+        ).derive(self._secret())
+
+    def _action_ref(self, authority: _ReadAuthority, message_id: str, kind: str, url: str) -> str:
+        """An opaque reference to one link in one message, sealed so it holds no id or URL.
+
+        The same message and link always seal to the same reference, so saving an
+        unchanged receipt again does not change its memory.
+        """
+        plaintext = json.dumps(
+            {
+                "v": 1,
+                "u": authority.user_id,
+                "a": authority.account,
+                "c": authority.connected_at,
+                "m": message_id,
+                "k": kind,
+                "h": url_digest(url),
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        key = self._action_key()
+        nonce = hmac.new(key, b"nonce\x00" + plaintext, hashlib.sha256).digest()[:12]
+        sealed = AESGCM(key).encrypt(nonce, plaintext, _ACTION_REF_AAD)
+        return _ACTION_REF_PREFIX + base64.urlsafe_b64encode(nonce + sealed).decode().rstrip("=")
+
+    def _read_action_ref(self, authority: _ReadAuthority, ref: str) -> dict[str, str] | None:
+        """The sealed contents for this exact owner and connection, or ``None``."""
+        try:
+            if not isinstance(ref, str) or not ref.startswith(_ACTION_REF_PREFIX) or len(ref) > 600:
+                return None
+            body = ref[len(_ACTION_REF_PREFIX) :]
+            raw = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))
+            data = json.loads(
+                AESGCM(self._action_key()).decrypt(raw[:12], raw[12:], _ACTION_REF_AAD)
+            )
+        except (InvalidTag, ValueError, TypeError, binascii.Error, UnicodeDecodeError):
+            return None
+        if (
+            not isinstance(data, dict)
+            or data.get("v") != 1
+            or data.get("k") not in ACTION_KINDS
+            or not all(isinstance(data.get(key), str) for key in ("u", "a", "c", "m", "k", "h"))
+            or not _PROVIDER_ID.fullmatch(data["m"])
+            or data["u"] != authority.user_id
+            or data["a"] != authority.account
+            or data["c"] != authority.connected_at
+        ):
+            return None
+        return {key: data[key] for key in ("m", "k", "h")}
 
     def _scan_cursor(self, authority: _ReadAuthority, payload: dict[str, Any]) -> str:
         encoded = (
@@ -1019,6 +1149,7 @@ class GmailLiveReceiptsService:
             "snippet or body_excerpt; cite a verbatim transaction-context quote, not an "
             "evidence ID. Every accepted receipt needs a category, including verified merchants. "
             "Use Uncategorized with transaction evidence when a specific category is unclear. "
+            "Choose an action only from link_candidates ids, as your authored contract describes. "
             "Return only the schema JSON.\n"
             + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         )
@@ -1482,12 +1613,26 @@ class GmailLiveReceiptsService:
                     code="GMAIL_RECEIPT_EXTRACTION_INVALID",
                 )
             try:
-                return _validated_projection(
+                projected = _validated_projection(
                     message=message,
                     evidence=evidence,
                     model=model,
                     source_id=self._source_id(authority, str(message["id"])),
                 )
+                chosen = projected.pop("_action", None) if projected else None
+                if projected is not None:
+                    # The stored reference names the message and link; it holds no URL.
+                    projected["action"] = (
+                        {
+                            "kind": chosen["kind"],
+                            "ref": self._action_ref(
+                                authority, str(message["id"]), chosen["kind"], chosen["url"]
+                            ),
+                        }
+                        if chosen
+                        else None
+                    )
+                return projected
             except GmailApiError as exc:
                 # Only fixed validator labels enter logs, never model/email fields.
                 field = {
@@ -1524,6 +1669,7 @@ class GmailLiveReceiptsService:
                 # conflicting peer values that the API would reject anyway.
                 "total_candidates": [preferred_total] if preferred_total else [],
                 "event_candidates": evidence["event_candidates"],
+                "link_candidates": evidence["link_candidates"],
             }
             async with semaphore:
                 for attempt in range(_EXTRACTOR_RETRIES + 1):
@@ -1845,6 +1991,64 @@ class GmailLiveReceiptsService:
         except TimeoutError:
             raise GmailApiError(
                 "The Gmail receipt detail timed out. Please try again.",
+                status_code=504,
+                code="GMAIL_RECEIPT_DETAIL_TIMEOUT",
+            ) from None
+        except httpx.HTTPError:
+            raise GmailApiError(
+                "Gmail is temporarily unavailable.",
+                status_code=502,
+                code="GMAIL_PROVIDER_UNAVAILABLE",
+            ) from None
+
+    async def resolve_action(
+        self,
+        *,
+        user_id: str,
+        ref: str,
+        require_access: RequireAccess,
+    ) -> dict[str, str]:
+        """The one verified link a saved receipt reference names, derived again now.
+
+        The reference holds no URL, so the link comes from the message as it is in
+        Gmail at this moment and must pass every safety rule again. Nothing is
+        fetched from the link, and nothing about it is logged.
+        """
+
+        def unavailable() -> GmailApiError:
+            return GmailApiError(
+                "This receipt's link is no longer available.",
+                status_code=404,
+                code="GMAIL_RECEIPT_ACTION_UNAVAILABLE",
+            )
+
+        try:
+            async with asyncio.timeout(_DEADLINE_SECONDS):
+                authority = await self._authority(user_id=user_id, require_access=require_access)
+                chosen = self._read_action_ref(authority, ref)
+                if chosen is None:
+                    raise unavailable()
+                budget = [_RESPONSE_BUDGET]
+                async with httpx.AsyncClient(
+                    transport=self._transport, timeout=10, follow_redirects=False
+                ) as client:
+                    messages = await self._fetch_messages(
+                        client=client,
+                        authority=authority,
+                        message_ids=[chosen["m"]],
+                        budget=budget,
+                    )
+                await self._require_current(authority=authority, require_access=require_access)
+                if len(messages) != 1:
+                    raise unavailable()
+                _name, _address, sender_domain = _sender(_header_map(messages[0]).get("from", ""))
+                for link in action_links(messages[0].get("payload"), sender_domain=sender_domain):
+                    if hmac.compare_digest(url_digest(link.url), chosen["h"]):
+                        return {"kind": chosen["k"], "url": link.url}
+                raise unavailable()
+        except TimeoutError:
+            raise GmailApiError(
+                "The receipt link timed out. Please try again.",
                 status_code=504,
                 code="GMAIL_RECEIPT_DETAIL_TIMEOUT",
             ) from None

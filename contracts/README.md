@@ -7,7 +7,7 @@ authoring source. Do not hand-edit; change the source and regenerate. Each one h
 a `--check` command, and `scripts/ci/repo-governance-check.sh` runs the topology
 one in CI.
 
-**Authored truth tables** (`pkm/`) are the authoring source. No generator emits
+**Authored truth tables** (`pkm/`, `consent/`, `receipts/`) are the authoring source. No generator emits
 them, and hand-editing is how they are meant to change. They exist so that two
 implementations of the same rule, one in TypeScript and one in Python, read from a
 single file instead of drifting. Each has tests on both sides, but be aware that
@@ -31,11 +31,12 @@ safe as the review it gets.
 | `pkm/internal-path-keys.v1.json` | Which stored keys are plumbing rather than a person's record, so they never become requestable | `hushh-webapp/lib/pkm/internal-path-keys.ts` and `consent-protocol/hushh_mcp/consent/internal_path_keys.py` |
 | `pkm/secret-patterns.v1.json` | Which spans of text are secrets (keys, passwords, tokens, private keys, card and government id numbers), with each kind's filing target and shared positive and negative cases | `hushh-webapp/lib/pkm/secret-patterns.ts` (the device guard) and `consent-protocol/hushh_mcp/consent/secret_patterns.py` (the server's second net); byte-identical copies in `consent-protocol/contracts/pkm/` and `hushh-webapp/contracts/pkm/` |
 | `pkm/reserved-branches.v1.json` | Which PKM branches an app feature owns, the closed catalogue of writers, and which writers may change each branch (shadow mode: counted, not yet refused) | `consent-protocol/hushh_mcp/consent/reserved_branches.py` and `hushh-webapp/lib/pkm/reserved-branches.ts`; byte-identical copies in `consent-protocol/contracts/pkm/` and `hushh-webapp/contracts/pkm/` |
+| `receipts/verified-merchants.v1.json` | The reviewed merchants Mail > Receipts may name with a canonical domain: each one's id, display name, sender domains and logo domain. A logo is looked up only by that domain, never by merchant text | `hushh-webapp/lib/mail/receipt-merchant-registry.ts` and `consent-protocol/hushh_mcp/services/gmail_live_receipts_service.py`; byte-identical copies in `consent-protocol/contracts/receipts/` and `hushh-webapp/contracts/receipts/` |
 | `pkm/segment-humanization.v1.json` | How one path segment is spelled for a person | `hushh-webapp/lib/pkm/humanize-segment.ts` and `consent-protocol/hushh_mcp/consent/segment_labels.py` |
 | `consent/field-sensitivity.v1.json` | Which FIELDS are sensitive in any domain (identifier keys such as an EIN, and identifier-shaped values), so they never reach the model even inside a standard item | `consent-protocol/hushh_mcp/consent/field_sensitivity.py` and `hushh-webapp/lib/consent/field-sensitivity.ts` (the continuation builder and the secure card) |
 | `consent/field-labels.v1.json` | Human names for field keys and enum values ("Fein" is "Federal EIN", "C_CORP" is "C corporation") | `consent-protocol/hushh_mcp/consent/field_labels.py` and `hushh-webapp/lib/consent/field-labels.ts` (names a field the device withholds); the secure card's own label table has not moved onto it yet |
 
-All five are hand-edited on purpose. The two `consent/` tables are read by the
+All of these are hand-edited on purpose. The two `consent/` tables are read by the
 backend at runtime, so each also has an in-context copy under
 `consent-protocol/contracts/consent/` that must match this one
 (`consent-protocol/tests/test_generated_contract_packaging.py`), and a copy under

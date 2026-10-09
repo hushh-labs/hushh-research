@@ -48,6 +48,9 @@ RUNTIME_CONTRACTS = (
     # Secret-span patterns (2026-10-01): read by the memory proposal route's
     # second net on every proposal, so it must ship inside the image.
     ("pkm", "secret-patterns.v1.json"),
+    # Reviewed merchant brands (2026-10-10): read by the live receipt scan to
+    # name a verified merchant, and by the web registry to look up its logo.
+    ("receipts", "verified-merchants.v1.json"),
 )
 
 

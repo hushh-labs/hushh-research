@@ -1,3 +1,5 @@
+import verifiedMerchantsContract from "@/contracts/receipts/verified-merchants.v1.json";
+
 export type VerifiedReceiptMerchant = {
   merchantId: string;
   displayName: string;
@@ -9,41 +11,31 @@ type VerifiedMerchantDomainRule = VerifiedReceiptMerchant & {
   includeSubdomains: boolean;
 };
 
+type ContractMerchant = {
+  id: string;
+  name: string;
+  logo_domain: string;
+  sender_domains: readonly string[];
+};
+
 /**
  * Reviewed sender-domain mappings are the only source of receipt branding.
  * Sender display names, local-parts, subjects, snippets, and extracted labels
  * are untrusted input and must never select a merchant or logo.
+ *
+ * The list is the authored contract `contracts/receipts/verified-merchants.v1.json`,
+ * shared byte for byte with the backend, so adding a merchant is one reviewed
+ * edit rather than two lists that can drift.
  */
-const VERIFIED_MERCHANT_DOMAIN_RULES: readonly VerifiedMerchantDomainRule[] = [
-  {
-    merchantId: "myntra",
-    displayName: "Myntra",
-    senderDomains: ["myntra.com"],
-    logoDomain: "myntra.com",
-    includeSubdomains: true,
-  },
-  {
-    merchantId: "amazon",
-    displayName: "Amazon",
-    senderDomains: ["amazon.com", "amazon.in", "amazon.co.in"],
-    logoDomain: "amazon.com",
-    includeSubdomains: true,
-  },
-  {
-    merchantId: "apple",
-    displayName: "Apple",
-    senderDomains: ["apple.com"],
-    logoDomain: "apple.com",
-    includeSubdomains: true,
-  },
-  {
-    merchantId: "paypal",
-    displayName: "PayPal",
-    senderDomains: ["paypal.com"],
-    logoDomain: "paypal.com",
-    includeSubdomains: true,
-  },
-] as const;
+const VERIFIED_MERCHANT_DOMAIN_RULES: readonly VerifiedMerchantDomainRule[] = (
+  verifiedMerchantsContract.merchants as readonly ContractMerchant[]
+).map((merchant) => ({
+  merchantId: merchant.id,
+  displayName: merchant.name,
+  senderDomains: merchant.sender_domains,
+  logoDomain: merchant.logo_domain,
+  includeSubdomains: true,
+}));
 
 const VERIFIED_LOGO_DOMAINS = new Set(
   VERIFIED_MERCHANT_DOMAIN_RULES.map((rule) => rule.logoDomain),

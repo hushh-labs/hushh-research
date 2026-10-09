@@ -5,7 +5,9 @@ import {
   mergeReceiptsMemoryWithIndex,
   parseReceiptCanonicalIndex,
   readReceiptCanonicalIndex,
+  receiptAccountRef,
   receiptIndexDigest,
+  receiptIndexForChat,
   RECEIPT_INDEX_BRANCH,
   RECEIPT_INDEX_MAX_TRANSACTIONS,
 } from "@/lib/profile/gmail-receipt-memory-index";
@@ -75,15 +77,17 @@ describe("receipt canonical index", () => {
   it("carries a closed set of fields and never a mailbox's raw content", async () => {
     const { index } = await indexFor([receipt(1)]);
     expect(Object.keys(index).sort()).toEqual(
-      ["generated_at", "schema", "total_transactions", "transactions", "truncated"],
+      ["account_ref", "generated_at", "schema", "total_transactions", "transactions", "truncated"],
     );
     expect(Object.keys(index.transactions[0]!).sort()).toEqual(
       [
+        "action",
         "amount",
         "category",
         "currency",
         "detail",
         "identifiers",
+        "logo_domain",
         "merchant",
         "ref",
         "status",
@@ -106,6 +110,86 @@ describe("receipt canonical index", () => {
     ]) {
       expect(stored).not.toContain(raw);
     }
+  });
+
+  it("binds the saved receipts to their Mail account with a one-way reference", async () => {
+    const mine = (await indexFor([receipt(1)], "owner@example.com")).index;
+    const other = (await indexFor([receipt(1)], "other@example.com")).index;
+    expect(mine.account_ref).toMatch(/^acct_[0-9a-f]{24}$/);
+    expect(mine.account_ref).toBe(await receiptAccountRef("owner@example.com"));
+    expect(mine.account_ref).not.toBe(other.account_ref);
+    expect(JSON.stringify(mine)).not.toContain("owner@example.com");
+    expect(await receiptAccountRef("   ")).toBeNull();
+  });
+
+  it("stores a logo domain only from the reviewed merchant registry, never from merchant text", async () => {
+    const { index } = await indexFor([
+      receipt(1, { merchant_name: "Amazon", merchant_domain: "amazon.in", order_id: "A-1", identifiers: [{ kind: "order", value: "A-1" }] }),
+      // Merchant text that mimics a brand, from an unreviewed sender domain.
+      receipt(2, { merchant_name: "Amazon", merchant_domain: "evil.example", order_id: "B-2", identifiers: [{ kind: "order", value: "B-2" }] }),
+      receipt(3, { merchant_name: "Supabase", merchant_domain: "supabase.io" }),
+      receipt(4, { merchant_name: "Acme Local Shop", merchant_domain: "acme-local.example" }),
+    ]);
+    const byMerchant = index.transactions.map((item) => [item.merchant, item.logo_domain]);
+    expect(byMerchant).toContainEqual(["Amazon", "amazon.com"]);
+    expect(byMerchant.filter(([, domain]) => domain === "amazon.com")).toHaveLength(1);
+    // Any reviewed brand gets its canonical domain; an unreviewed one gets none.
+    expect(byMerchant).toContainEqual(["Supabase", "supabase.com"]);
+    expect(byMerchant).toContainEqual(["Acme Local Shop", null]);
+    expect(parseReceiptCanonicalIndex(index)).not.toBeNull();
+    const smuggled = structuredClone(index);
+    smuggled.transactions[0]!.logo_domain = "https://evil.example/x.png";
+    expect(parseReceiptCanonicalIndex(smuggled)).toBeNull();
+  });
+
+  it("keeps a sealed action with no URL, and never lets it leave the device in a chat turn", async () => {
+    const ref = `ra1.${"Q".repeat(40)}`;
+    const { index } = await indexFor([
+      receipt(1, { action: { kind: "pay_due", ref } }),
+      receipt(2, { identifiers: [{ kind: "invoice", value: "NO-ACTION-1" }] }),
+    ]);
+    const actions = index.transactions.map((item) => item.action ?? null);
+    expect(actions).toContainEqual({ kind: "pay_due", ref });
+    expect(actions).toContain(null);
+    expect(JSON.stringify(index)).not.toMatch(/https?:\/\//);
+    expect(parseReceiptCanonicalIndex(index)).not.toBeNull();
+    // A reference that is a URL, or an unknown kind, is not an index.
+    for (const bad of [
+      { kind: "pay_due", ref: "https://evil.example/pay" },
+      { kind: "wire_money", ref },
+      { kind: "pay_due", ref, url: "https://evil.example" },
+    ]) {
+      const tampered = structuredClone(index);
+      tampered.transactions[0]!.action = bad as never;
+      expect(parseReceiptCanonicalIndex(tampered)).toBeNull();
+    }
+
+    // The chat turn carries the answer fields only; the backend's schema is closed.
+    const forChat = receiptIndexForChat(index)!;
+    const chatText = JSON.stringify(forChat);
+    expect(chatText).not.toContain("ra1.");
+    expect(chatText).not.toContain('"action"');
+    expect(chatText).not.toContain("logo_domain");
+    expect(chatText).not.toContain("account_ref");
+    expect(Object.keys(forChat).sort()).toEqual([
+      "generated_at",
+      "schema",
+      "total_transactions",
+      "transactions",
+      "truncated",
+    ]);
+    expect(Object.keys(forChat.transactions[0]!).sort()).toEqual([
+      "amount",
+      "category",
+      "currency",
+      "detail",
+      "identifiers",
+      "merchant",
+      "ref",
+      "status",
+      "transaction_date",
+    ]);
+    expect(receiptIndexForChat(null)).toBeNull();
   });
 
   it("derives opaque refs that are stable per owner and never a provider id", async () => {

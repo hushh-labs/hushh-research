@@ -14,6 +14,7 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
 
 import {
   RECEIPT_MEMORY_SAVE_WRITER,
+  resetReceiptCanonicalIndexInMemory,
   saveReceiptCanonicalIndexToMemory,
 } from "@/lib/profile/gmail-receipt-memory-save";
 import { RECEIPT_INDEX_BRANCH } from "@/lib/profile/gmail-receipt-memory-index";
@@ -112,5 +113,59 @@ describe("saving the receipt canonical index to private memory", () => {
     await expect(
       saveReceiptCanonicalIndexToMemory({ ...base, receipts: [receipt(1)] }),
     ).rejects.toThrow(/save receipt memory/i);
+  });
+
+  it("resets through the very same governed writer by saving an empty index, with its summary rewritten", async () => {
+    let written: Record<string, unknown> | null = null;
+    savePreparedDomain.mockImplementation(async (params: { build: (c: unknown) => Promise<{ domainData: Record<string, unknown> }> }) => {
+      const prepared = await params.build({
+        currentDomainData: {
+          receipts_memory: {
+            readable_summary: {
+              text: "Saved 3 receipts from your Mail.",
+              highlights: [],
+              updated_at: "2026-10-01T00:00:00Z",
+              source_label: "Gmail receipts",
+              generated_by: "receipt_canonical_index",
+            },
+            [RECEIPT_INDEX_BRANCH]: { schema: "receipt_canonical_index.v1" },
+          },
+        },
+        currentManifest: null,
+        baseFullBlob: {},
+        currentEncryptedDomain: null,
+        expectedDataVersion: 3,
+        upgradeContext: undefined,
+      });
+      written = prepared.domainData;
+      return { success: true };
+    });
+
+    await resetReceiptCanonicalIndexInMemory({
+      userId: base.userId,
+      vaultKey: base.vaultKey,
+      vaultOwnerToken: base.vaultOwnerToken,
+      now: base.now,
+    });
+
+    expect(savePreparedDomain).toHaveBeenCalledOnce();
+    expect(savePreparedDomain.mock.calls[0]![0].confirmation.source).toBe(RECEIPT_MEMORY_SAVE_WRITER);
+    const memory = (written as unknown as { receipts_memory: Record<string, unknown> }).receipts_memory;
+    const index = memory[RECEIPT_INDEX_BRANCH] as { total_transactions: number; transactions: unknown[] };
+    expect(index.total_transactions).toBe(0);
+    expect(index.transactions).toEqual([]);
+    // The stale "Saved 3 receipts" text is ours, so it is rewritten, not kept.
+    expect((memory.readable_summary as { text: string }).text).toBe("No receipts are saved.");
+  });
+
+  it("does not report a reset that the writer refused", async () => {
+    savePreparedDomain.mockResolvedValue({ success: false });
+    await expect(
+      resetReceiptCanonicalIndexInMemory({
+        userId: base.userId,
+        vaultKey: base.vaultKey,
+        vaultOwnerToken: base.vaultOwnerToken,
+      }),
+    ).rejects.toThrow("Failed to save receipt memory.");
   });
 });
