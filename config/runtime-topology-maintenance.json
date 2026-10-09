@@ -270,6 +270,8 @@
       ],
       "table_family_ids": [
         "actor_identity_state",
+        "one_reply_deliveries",
+        "one_push_devices",
         "agent_chat_encrypted_memory",
         "relay_ticket_replay_guard"
       ],

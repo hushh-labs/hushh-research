@@ -153,6 +153,7 @@ _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(pattern)
     for pattern in (
+        r"/api/one/pod/agent-chat/holds/[0-9a-f]{32}",
         rf"/api/one/pod/agent-chat/(?:history|conversations)/{_CONVERSATION}",
         r"/api/one/pod/agent-chat/connectors/[A-Za-z0-9_-]{1,128}/mcp/review",
         # Settings' tool refresh and connector login (pod_agent_chat_connectors.py):

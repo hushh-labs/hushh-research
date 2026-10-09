@@ -74,6 +74,9 @@ async def pod_tick(
     # recorded provider consent; a pod without a bank reports and does nothing.
     report = await memory_bank_rebuild_job()
     gmail = await gmail_notification_job()
+    from hushh_mcp.services.pod_reply_notifications import drain_reply_notifications
+
+    replies = await drain_reply_notifications()
     logger.info(
         "pod_maintenance.tick email=%s memory_bank_rebuild=%s",
         getattr(identity, "email", "<none>"),
@@ -84,6 +87,7 @@ async def pod_tick(
         "work": "memory_bank_rebuild" if report.get("outcome") == "rebuilt" else "none",
         "memoryBankRebuild": report,
         "gmailNotifications": gmail,
+        "replyNotifications": replies,
     }
 
 

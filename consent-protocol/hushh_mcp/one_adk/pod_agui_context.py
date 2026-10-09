@@ -13,21 +13,22 @@ from hushh_mcp.one_adk.pod_adk_session_repository import (
     PodAdkSessionProjection,
     PodAdkSessionRepository,
 )
+from hushh_mcp.one_adk.pod_chat_settlement import (
+    finish_turn,
+    notify_detached_reply,
+    turn_request_lifetime,
+)
 from hushh_mcp.services.chat_key import bind_request_chat_key_owner, request_has_chat_key
 
 _projection: PodAdkSessionProjection | None = None
 
 
 class PodChatContext:
+    async def _notify_detached_reply(self, input: Any) -> None:
+        await notify_detached_reply(self, input)
+
     async def _finish_turn(self, memory: Any, input: Any) -> None:
-        if memory is not None:
-            await memory.commit(input)
-        await self.require_access()
-        await self.projection.snapshot(force_save=True)
-        projection = getattr(self.authority, "recovery_projection", None)
-        if projection is not None:
-            await projection.recover(self.log, force_save=True)
-        await self.require_access()
+        await finish_turn(self, memory, input)
 
     def __init__(
         self, authorization: str | None, *, needs_key: bool = True, browser_runtime: Any = None
@@ -37,6 +38,7 @@ class PodChatContext:
         from hushh_mcp.services.pod_session_authority import ROLE_APP, SCOPE_PKM_READ
 
         self.authorization = authorization
+        self._needs_key = needs_key
         self.authority, self.claims = verified_session(
             authorization, role=ROLE_APP, scope=SCOPE_PKM_READ
         )
@@ -136,6 +138,8 @@ class PodChatContext:
 
     async def require_access(self) -> None:
         await self._require_session_access()
+        if getattr(self, "_needs_key", True) and not request_has_chat_key(self.owner):
+            raise HTTPException(403, detail={"code": "CHAT_KEY_REQUIRED"})
         await self.log.require_open()
 
     async def _files_access(self, *, manage: bool = False) -> None:
@@ -260,5 +264,10 @@ class PodChatContext:
             before_run=prepare,
             after_run=lambda input: self._finish_turn(memory, input),
             mcp_owner_admission=self._mcp_owner_admission,
+            detached_completion=self._notify_detached_reply,
+            request_lifetime=self._turn_request_lifetime(),
         )
         return agent
+
+    def _turn_request_lifetime(self):
+        return turn_request_lifetime(self)

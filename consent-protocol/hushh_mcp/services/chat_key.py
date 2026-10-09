@@ -152,6 +152,12 @@ class RequestChatKey:
         with self._lock:
             return self._key is not None
 
+    @property
+    def remaining_seconds(self) -> float:
+        """Remaining original lifetime; retaining never extends this deadline."""
+        with self._lock:
+            return max(0.0, self._deadline - time.monotonic()) if self._key else 0.0
+
     def refusal_state(self, owner_id: str | None) -> str:
         """Why this key can or cannot serve ``owner_id``. A category, never the key.
 

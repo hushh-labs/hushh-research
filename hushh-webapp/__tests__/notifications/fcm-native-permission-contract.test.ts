@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
   getToken: vi.fn(),
   addListener: vi.fn(),
   registerPushToken: vi.fn(),
+  unregisterPushToken: vi.fn(),
+  freshIdToken: vi.fn(),
+  tokenReceived: null as ((event: { token: string }) => Promise<void>) | null,
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -27,15 +30,24 @@ vi.mock("@capacitor-firebase/messaging", () => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     registerPushToken: mocks.registerPushToken,
+    unregisterPushToken: mocks.unregisterPushToken,
   },
 }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getIdTokenWithRetry: mocks.freshIdToken } }));
 
-import { initializeFCM } from "@/lib/notifications/fcm-service";
+import { clearFCMSession, initializeFCM } from "@/lib/notifications/fcm-service";
+import { getFCMSessionEpoch } from "@/lib/notifications/fcm-session";
 
 describe("native FCM permission ownership", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.addListener.mockResolvedValue({ remove: vi.fn() });
+    clearFCMSession();
+    mocks.addListener.mockImplementation(async (type, callback) => {
+      if (type === "tokenReceived") mocks.tokenReceived = callback;
+      return { remove: vi.fn() };
+    });
+    mocks.freshIdToken.mockResolvedValue("fresh-token");
+    mocks.unregisterPushToken.mockResolvedValue(new Response(null));
     mocks.checkPermissions.mockResolvedValue({ receive: "prompt" });
     mocks.requestPermissions.mockResolvedValue({ receive: "granted" });
     mocks.getToken.mockResolvedValue({ token: "test-token" });
@@ -69,5 +81,55 @@ describe("native FCM permission ownership", () => {
       "ios",
       "id-token",
     );
+  });
+
+  it("refreshes credentials for the current owner and withdraws authority immediately on logout", async () => {
+    mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
+    await initializeFCM("user-1", "expired-id-token");
+    await mocks.tokenReceived?.({ token: "refreshed-device" });
+    expect(mocks.freshIdToken).toHaveBeenCalledWith({ expectedUserId: "user-1" });
+    expect(mocks.registerPushToken).toHaveBeenLastCalledWith("user-1", "refreshed-device", "ios", "fresh-token");
+    clearFCMSession();
+    mocks.registerPushToken.mockClear();
+    await mocks.tokenReceived?.({ token: "after-logout" });
+    expect(mocks.registerPushToken).not.toHaveBeenCalled();
+  });
+
+  it("fences an in-flight registration after account switching with exact old-owner cleanup", async () => {
+    mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
+    let complete!: (response: Response) => void;
+    mocks.registerPushToken.mockImplementationOnce(() => new Promise<Response>(resolve => { complete = resolve; }));
+    const old = initializeFCM("owner-a", "id-a");
+    await vi.waitFor(() => expect(mocks.registerPushToken).toHaveBeenCalledOnce());
+    await initializeFCM("owner-b", "id-b");
+    complete(new Response(JSON.stringify({ registered: true })));
+    expect((await old).status).toBe("push_failed");
+    expect(mocks.unregisterPushToken).toHaveBeenCalledWith("owner-a", "id-a", "ios", undefined, "test-token");
+  });
+
+  it("repairs the current owner while its registration response is still pending", async () => {
+    mocks.checkPermissions.mockResolvedValue({ receive: "granted" });
+    let finishA!: (response: Response) => void;
+    let finishB!: (response: Response) => void;
+    mocks.registerPushToken
+      .mockImplementationOnce(() => new Promise<Response>(resolve => { finishA = resolve; }))
+      .mockImplementationOnce(() => new Promise<Response>(resolve => { finishB = resolve; }));
+    const old = initializeFCM("owner-a", "id-a");
+    await vi.waitFor(() => expect(mocks.registerPushToken).toHaveBeenCalledTimes(1));
+    const current = initializeFCM("owner-b", "id-b");
+    await vi.waitFor(() => expect(mocks.registerPushToken).toHaveBeenCalledTimes(2));
+    finishA(new Response(JSON.stringify({ registered: true })));
+    await old;
+    expect(mocks.registerPushToken).toHaveBeenLastCalledWith("owner-b", "test-token", "ios", "fresh-token");
+    finishB(new Response(JSON.stringify({ registered: true })));
+    expect((await current).status).toBe("push_active");
+  });
+
+  it("refuses a delayed provider initialization from before logout", async () => {
+    const sessionEpoch = getFCMSessionEpoch();
+    clearFCMSession();
+    expect((await initializeFCM("owner-a", "id-a", { sessionEpoch })).status).toBe("push_failed");
+    expect(mocks.checkPermissions).not.toHaveBeenCalled();
+    expect(mocks.registerPushToken).not.toHaveBeenCalled();
   });
 });

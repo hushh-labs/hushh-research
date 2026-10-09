@@ -14,118 +14,14 @@ import uuid
 from urllib.parse import quote
 
 from hushh_mcp.branding import connection_request_body
+from hushh_mcp.services.push_delivery import (
+    PushDeliveryReport as PushDeliveryReport,
+)
+from hushh_mcp.services.push_delivery import (
+    send_user_data_push as send_user_data_push,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def send_user_data_push(
-    user_id: str,
-    *,
-    notification_type: str,
-    title: str,
-    body: str,
-    deep_link: str,
-    notification_tag: str,
-    notification_category: str,
-    data: dict[str, str] | None = None,
-    show_alert: bool = True,
-    include_user_id: bool = True,
-    platforms: frozenset[str] | None = None,
-) -> int:
-    """Send a metadata push to every device registered for ``user_id``.
-
-    Returns the number of devices a send was attempted for. Best-effort:
-    returns 0 (and swallows everything) when the user is empty, Firebase is
-    unconfigured, the user has no tokens, or any send fails. Firebase config is
-    checked FIRST so that unconfigured environments never touch the database.
-    ``platforms`` limits delivery to those registered platforms (for example
-    native only); ``None`` keeps every registered device.
-    """
-    user_id = (user_id or "").strip()
-    if not user_id:
-        return 0
-    try:
-        from api.utils.firebase_admin import ensure_firebase_admin
-
-        configured, _ = ensure_firebase_admin()
-        if not configured:
-            return 0
-
-        from db.db_client import get_db
-
-        rows = (
-            get_db()
-            .execute_raw(
-                "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
-                {"user_id": user_id},
-            )
-            .data
-            or []
-        )
-        if not rows:
-            return 0
-
-        from firebase_admin import messaging
-
-        from api.utils.fcm_messages import build_push_message
-
-        message_data = {
-            "type": notification_type,
-            "request_url": deep_link,
-            "deep_link": deep_link,
-            "notification_tag": notification_tag,
-            "notification_category": notification_category,
-            **{k: str(v) for k, v in (data or {}).items() if str(v or "").strip()},
-        }
-        # Existing notification lanes retain their recipient reconciliation
-        # field. Privacy-scoped callers can opt out when their opaque message
-        # reference is sufficient and a raw account identifier must never
-        # reach Firebase or the device.
-        if include_user_id:
-            message_data["user_id"] = user_id
-
-        sent = 0
-        seen: set[str] = set()
-        for row in rows:
-            token = str(row.get("token") or "").strip()
-            if not token or token in seen:
-                continue
-            seen.add(token)
-            platform = str(row.get("platform") or "").strip().lower()
-            if platforms is not None and platform not in platforms:
-                continue
-            message = build_push_message(
-                messaging,
-                token=token,
-                platform=platform,
-                data=message_data,
-                title=title,
-                body=body,
-                request_url=deep_link,
-                notification_tag=notification_tag,
-                show_alert=show_alert,
-            )
-            try:
-                messaging.send(message)
-                sent += 1
-            except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
-                try:
-                    get_db().execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
-                except Exception as cleanup_exc:  # noqa: BLE001
-                    logger.warning(
-                        "push.token_cleanup_failed type=%s error=%s",
-                        notification_type,
-                        cleanup_exc,
-                    )
-            except Exception as send_exc:  # noqa: BLE001
-                logger.warning("push.send_failed type=%s error=%s", notification_type, send_exc)
-        return sent
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("push.notify_skipped type=%s error=%s", notification_type, exc)
-        return 0
 
 
 _GENERIC_CONNECTION_REQUEST_BODY = connection_request_body()
@@ -163,12 +59,12 @@ def _connection_request_link(connection_request_id: str | None) -> str:
 
 def _connection_request_body(requester_name: str | None) -> str:
     """Connection-request banner copy. Names the requester when we have one,
-    else falls back to the generic line — never emits ``None``/``undefined``.
+    else falls back to the generic line â€” never emits ``None``/``undefined``.
 
     Thin wrapper kept for the existing call sites and tests; the sentence itself
     lives in ``hushh_mcp.branding`` so the web toast, the OS banner and the SSE
     body cannot drift apart again (that drift is how the brand misspelling
-    survived on this surface — see issue #5422).
+    survived on this surface â€” see issue #5422).
     """
     return connection_request_body(requester_name)
 
@@ -184,7 +80,7 @@ def _lookup_display_name(user_id: str) -> str:
     from ``send_user_data_push`` where the gate genuinely avoids a pointless
     token read. Here the same value also feeds the in-app/SSE copy, so the gate
     blanked a perfectly resolvable name in every environment without Firebase
-    credentials — the database had it the whole time.
+    credentials â€” the database had it the whole time.
     """
     from hushh_mcp.services.requester_identity import resolve_requester_label
 
@@ -300,7 +196,7 @@ def send_connection_request_push(
         # The real row id, not the old synthetic `conn_req:<uid>`. That value
         # was stable per *requester* rather than per request, so the SSE
         # de-dup in api/routes/sse.py silently swallowed every follow-up
-        # request from the same person on one connection — and any client
+        # request from the same person on one connection â€” and any client
         # promoting it into `?requestId` would resolve nothing.
         "request_id": request_id or f"conn_req:{requester_user_id}",
         "user_id": addressee_user_id,

@@ -367,6 +367,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/cancel",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/complete",
         "/api/one/pod/agent-chat/feedback",
+        "/api/one/pod/agent-chat/holds/{hold_id}",
         "/api/one/pod/agent-chat/proposals",
         "/api/one/pod/agent-chat/proposals/typed",
         "/api/one/pod/agent-chat/proposals/{command_id}",
@@ -448,6 +449,7 @@ def _concrete(path: str) -> str:
         else "custom_" + "0" * 32,
         "proposal_id": "gmod_" + "a" * 16,
         "client_message_id": "message_123",
+        "hold_id": "0" * 32,
     }
     return re.sub(r"\{([^}]+)\}", lambda match: values.get(match[1], "sample"), path)
 

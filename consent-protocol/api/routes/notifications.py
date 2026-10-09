@@ -5,6 +5,7 @@ Stores device tokens so the notification worker can send push when consent
 requests are created (WhatsApp-style delivery when app is closed).
 """
 
+import asyncio
 import logging
 from typing import Literal
 
@@ -26,7 +27,7 @@ async def register_push_token(request: Request):
     Register FCM or APNs device token for the authenticated user.
 
     Call after login or when the user grants notification permission.
-    One token per user per platform (latest wins). Requires Firebase ID token.
+    The private-agent lane retains multiple devices; requires Firebase ID token.
     """
     auth_header = request.headers.get("Authorization")
     firebase_uid = verify_firebase_bearer(auth_header)
@@ -36,11 +37,18 @@ async def register_push_token(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    if not isinstance(body, dict):
+        raise HTTPException(400, detail="Invalid JSON body")
     user_id = body.get("user_id") or body.get("userId")
     token = body.get("token")
     platform = body.get("platform", "web")
 
-    if not user_id or not token:
+    if (
+        not isinstance(user_id, str)
+        or not isinstance(token, str)
+        or not token.strip()
+        or len(token) > 4096
+    ):
         raise HTTPException(
             status_code=400,
             detail="user_id and token are required",
@@ -58,9 +66,11 @@ async def register_push_token(request: Request):
 
     try:
         service = PushTokensService()
-        token_id = service.upsert_user_push_token(user_id=user_id, token=token, platform=platform)
-    except Exception as e:
-        logger.error("Push token registration failed: %s", e)
+        token_id = await asyncio.to_thread(
+            service.upsert_user_push_token, user_id=user_id, token=token, platform=platform
+        )
+    except Exception:
+        logger.error("Push token registration failed")
         raise HTTPException(status_code=500, detail="Failed to register token")
 
     logger.info("Push token registered for user=%s platform=%s", user_id, platform)
@@ -83,8 +93,15 @@ async def unregister_push_token(request: Request):
     except Exception:
         body = {}
 
+    if not isinstance(body, dict):
+        raise HTTPException(400, detail="Invalid JSON body")
     user_id = body.get("user_id") or body.get("userId") or firebase_uid
     platform = body.get("platform")
+    token = body.get("token")
+    if platform is not None and platform not in ("web", "ios", "android"):
+        raise HTTPException(400, detail="Invalid platform")
+    if token is not None and (not isinstance(token, str) or not token.strip() or len(token) > 4096):
+        raise HTTPException(400, detail="Invalid token")
 
     if firebase_uid != user_id:
         raise HTTPException(
@@ -94,9 +111,14 @@ async def unregister_push_token(request: Request):
 
     try:
         service = PushTokensService()
-        deleted = service.delete_user_push_tokens(user_id=user_id, platform=platform)
-    except Exception as e:
-        logger.error("Push token unregister failed: %s", e)
+        deleted = await asyncio.to_thread(
+            service.delete_user_push_tokens,
+            user_id=user_id,
+            platform=platform,
+            **({"token": token} if token is not None else {}),
+        )
+    except Exception:
+        logger.error("Push token unregister failed")
         raise HTTPException(status_code=500, detail="Failed to unregister token(s)")
 
     logger.info(

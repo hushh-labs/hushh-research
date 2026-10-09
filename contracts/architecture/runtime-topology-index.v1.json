@@ -1466,6 +1466,16 @@
       "primary_access_path": "Firebase owner-scoped discovery status/start and vault-owner encrypted-draft/terminal-claim routes; PostgreSQL leased background worker and transactional Feed outbox."
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "user_push_devices"
+      ],
+      "id": "one_push_devices",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "PushTokensService dual-writes and cleans the additive multi-device registry whenever its schema exists, including while PERSONAL_AGENT_ENABLED is off; latest-per-platform user_push_tokens remains compatible. Flag-enabled delivery selects the deduplicated union when the additive schema is available."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_agent_engagement_sessions",
@@ -1493,6 +1503,16 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only. Migration 270 adds the gamification layer built on top of this graph: versioned program settings (points, milestones, streaks, flash windows, weekly schedule, prize catalogue) and the weekly reward round schedule slots. Migration 271 adds cumulative scoring: an append-only points ledger (one_referral_score_events), a durable worker queue enqueued atomically alongside each qualification transition (one_referral_scoring_jobs), a per-referrer streak-award watermark (one_referral_streak_state, recomputed from relationship qualification dates rather than stored incrementally), and published cumulative-ranking snapshots (one_referral_leaderboard_snapshots / _entries) the dashboard reads instead of a live aggregate query. Migration 272 adds circles and milestones: an interval history of each user's single active referral-contest team (one_referral_circle_selections, new and referral-owned -- it never writes to one_location_circles or one_location_circle_memberships), an append-only settled-once record of which team gets credit for each qualified relationship resolved at event time (one_referral_circle_contributions, COUNT(*) per circle_id is the team's raw cumulative score), lifetime once-only milestone entitlements (one_referral_milestone_entitlements), and a staff review/fulfillment foundation with no shipping or purchase capability (one_referral_fulfillment_records). Migration 273 adds one_referral_display_handles: an opt-in, self-chosen public alias distinct from actor_identity_cache.display_name, so a referrer who has not set one has no public leaderboard identity and is rendered as an anonymous placeholder rather than their real/account name. Migration 274 adds one_referral_weekly_awards: finalized weekly rank-1/2/3 prize awards, unique on (reward_round_id, award_slot) only -- deliberately never on user_id, because the program is cumulative with no weekly reset and a previous winner is expected to win again in a later round without earning anything new that week. cumulative_points_at_cutoff is a frozen snapshot written once at finalization; winning never writes back to one_referral_score_events, so a prize is never itself a point award, and re-running finalization for an already-finalized round is a no-op via ON CONFLICT DO NOTHING on that same unique pair."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_reply_deliveries"
+      ],
+      "id": "one_reply_deliveries",
+      "lifecycle_status": "dev_only",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "OneReplyDelivery owner/event CAS claims from signed current serving owner-cloud POD completion signals; existing authenticated maintenance tick retries sealed pending signals."
     },
     {
       "data_class": "workflow_state",
@@ -1959,6 +1979,8 @@
       ],
       "table_family_ids": [
         "actor_identity_state",
+        "one_reply_deliveries",
+        "one_push_devices",
         "agent_chat_encrypted_memory",
         "relay_ticket_replay_guard"
       ]
@@ -6390,13 +6412,13 @@
     "action_gateway": "9f022d8c7acf93d12e8dc96f8b39ff61c12e74f5c26f9a1ca9c62bd3bfdcc558",
     "agent_registry": "f39677c975a982267939a4e90f803cb992ac2a7d54b008b1500e228b8c38d416",
     "cache_manifest": "df8bcd02aa12938a199ba389dccabd3ba0b5173beea69ae5b3e1b640462a8f70",
-    "data_plane": "db3ca23d49c0fdd096cf97a25943d6bcb1d809af7f8a2782c0c77c682c9c8f75",
+    "data_plane": "68f10a6bd269ad71f57adb7ed0748b301d568788a70f247495144e8c784345fa",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
     "route_index": "20d422a49c4c98ad150545ad1fde4b442ee8217ce25235fb394de7dd896e13b1",
     "route_layout": "c5b99c3467712432a6dc966d9d908ba1a5a1a4a95685151d4feb9ddbb7654bcf",
     "surface_map": "95532960a4c5b7e0a52aacbaf53a8b124ade01c20992d690f4fcf06ed1e3b9a2",
-    "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
+    "topology_contract": "e73b3426a00191d6d1b960998a51c6683f1a2bfcb05a1f8e18d75f108bc6a3f2",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -6409,6 +6431,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 151,
     "semantic_routes": 17,
-    "table_families": 100
+    "table_families": 102
   }
 }

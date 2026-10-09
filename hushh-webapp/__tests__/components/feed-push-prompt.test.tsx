@@ -5,6 +5,8 @@ const state = vi.hoisted(() => ({
   native: false,
   deliveryMode: "inbox_only",
   retry: vi.fn(),
+  openSettings: vi.fn(),
+  returned: null as (() => void) | null,
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -24,6 +26,12 @@ vi.mock("@/lib/morphy-ux/button", () => ({
     <button {...(props as object)}>{children as never}</button>
   ),
 }));
+vi.mock("@/lib/services/notification-settings-service", () => ({
+  NotificationSettingsService: {
+    open: state.openSettings,
+    onReturn: (callback: () => void) => { state.returned = callback; return () => { state.returned = null; }; },
+  },
+}));
 
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 
@@ -41,6 +49,7 @@ describe("FeedPushPrompt", () => {
     state.native = false;
     state.deliveryMode = "inbox_only";
     state.retry.mockReset();
+    state.openSettings.mockReset().mockResolvedValue(true);
   });
   afterEach(() => {
     Reflect.deleteProperty(window, "Notification");
@@ -63,7 +72,7 @@ describe("FeedPushPrompt", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("stays out of the way once push works, and on native", () => {
+  it("stays out of the way once push works and enables native only on a tap", () => {
     setPermission("default");
     state.deliveryMode = "push_active";
     const { container, rerender } = render(<FeedPushPrompt />);
@@ -72,6 +81,24 @@ describe("FeedPushPrompt", () => {
     state.deliveryMode = "inbox_only";
     state.native = true;
     rerender(<FeedPushPrompt />);
-    expect(container.innerHTML).toBe("");
+    expect(state.retry).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    expect(state.retry).toHaveBeenCalledOnce();
+  });
+
+  it("opens denied native settings explicitly and rechecks only after returning", async () => {
+    state.native = true;
+    state.deliveryMode = "push_blocked";
+    const request = setPermission("default");
+    render(<FeedPushPrompt />);
+    expect(state.openSettings).not.toHaveBeenCalled();
+    state.returned?.();
+    expect(state.retry).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+    await waitFor(() => expect(state.openSettings).toHaveBeenCalledOnce());
+    state.returned?.();
+    state.returned?.();
+    expect(state.retry).toHaveBeenCalledOnce();
+    expect(request).not.toHaveBeenCalled();
   });
 });

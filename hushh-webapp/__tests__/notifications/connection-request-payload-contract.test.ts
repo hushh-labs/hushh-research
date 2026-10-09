@@ -7,15 +7,15 @@
  * the client read it from the data map, and nothing anywhere asserted that the
  * field the server writes is the field the client reads.
  *
- * So this test reads the Python source and checks it against the TypeScript that
- * consumes it. No fixture, no duplicated expectation: if either side moves, this
- * fails. That is what makes the fix hold on all three platforms rather than just
- * the one someone happened to retest.
+ * This test checks the Python payload fields against the production TypeScript
+ * mapper and consumers. Moving a mapper keeps the contract; losing the identity
+ * field fails it on the shared path used by all three platforms.
  */
 import fs from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { consentFromFCMPayload } from "@/lib/notifications/consent-payload";
 
 import {
   BRAND_NAME,
@@ -113,7 +113,12 @@ describe("connection-request notification: payload field contract", () => {
     // The bug in one assertion: the server resolved the name and never put it in
     // the data map, which is the only thing the toast sees.
     expect(pythonClientDataKeys()).toContain("requester_label");
-    expect(PROVIDER_TSX).toContain("requesterLabel: data.requester_label");
+    expect(
+      consentFromFCMPayload({
+        request_id: "request-1",
+        requester_label: "Rohan Mehta",
+      })?.developer,
+    ).toBe("Rohan Mehta");
   });
 
   it("ships a request id, and every consumer reads it", () => {

@@ -1,10 +1,11 @@
 "use client";
 
 import { Capacitor } from "@capacitor/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
 import { Button } from "@/lib/morphy-ux/button";
+import { NotificationSettingsService } from "@/lib/services/notification-settings-service";
 
 type BrowserPermission = NotificationPermission | "unsupported";
 
@@ -29,17 +30,33 @@ export function FeedPushPrompt() {
   const { deliveryMode, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
+  const awaitingSettings = useRef(false);
+  const [settingsFailed, setSettingsFailed] = useState(false);
+  const native = Capacitor.isNativePlatform();
+
+  useEffect(() => {
+    if (!native) return;
+    return NotificationSettingsService.onReturn(() => {
+      if (!awaitingSettings.current) return;
+      awaitingSettings.current = false;
+      retryPushRegistration();
+    });
+  }, [native, retryPushRegistration]);
 
   useEffect(() => {
     setPermission(browserPermission());
   }, [deliveryMode]);
 
-  if (Capacitor.isNativePlatform() || deliveryMode === "push_active") {
+  if (deliveryMode === "push_active") {
     return null;
   }
-  if (permission === "unsupported" || permission === "granted") return null;
+  if (!native && (permission === "unsupported" || permission === "granted")) return null;
 
   const enable = async () => {
+    if (native) {
+      retryPushRegistration();
+      return;
+    }
     let result: BrowserPermission;
     try {
       result = await Notification.requestPermission();
@@ -50,6 +67,13 @@ export function FeedPushPrompt() {
     if (result === "granted") retryPushRegistration();
   };
 
+  const openSettings = async () => {
+    awaitingSettings.current = true;
+    const opened = await NotificationSettingsService.open();
+    if (!opened) awaitingSettings.current = false;
+    setSettingsFailed(!opened);
+  };
+
   return (
     <div
       role="status"
@@ -57,11 +81,17 @@ export function FeedPushPrompt() {
       className="mb-3 flex w-full items-center justify-between gap-3 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3"
     >
       <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
-        {permission === "denied"
+        {native
+          ? deliveryMode === "push_blocked"
+            ? settingsFailed
+              ? "Open your phone settings, choose One, and allow notifications."
+              : "Allow notifications for One in your phone settings to get alerts when your answer is ready."
+            : "Get an alert when your answer is ready, even when One is closed."
+          : permission === "denied"
           ? "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
           : "Get an alert when someone shares with you or asks you something."}
       </p>
-      {permission === "default" ? (
+      {(native ? deliveryMode !== "push_blocked" : permission === "default") ? (
         <Button
           type="button"
           variant="none"
@@ -71,6 +101,10 @@ export function FeedPushPrompt() {
           onClick={() => void enable()}
         >
           Turn on
+        </Button>
+      ) : native ? (
+        <Button type="button" variant="none" effect="fade" size="compact" onClick={() => void openSettings()}>
+          Open settings
         </Button>
       ) : null}
     </div>

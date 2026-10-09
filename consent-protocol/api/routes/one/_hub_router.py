@@ -51,6 +51,7 @@ from .pod_lifecycle import router as pod_lifecycle_router
 from .pod_mcp_approval import router as pod_mcp_approval_router
 from .pod_owner_feed import router as pod_owner_feed_router
 from .pod_relay import router as pod_relay_router
+from .pod_reply_notifications import router as pod_reply_notifications_router
 from .pod_specialist import router as pod_specialist_router
 from .pod_wake import router as pod_wake_router
 from .profile_discovery import router as profile_discovery_router
@@ -116,6 +117,7 @@ router.include_router(people_router)
 router.include_router(pod_consent_router)
 router.include_router(pod_mcp_approval_router)
 router.include_router(pod_owner_feed_router)
+router.include_router(pod_reply_notifications_router)
 router.include_router(pod_heartbeat_router)
 # Hub-only, like the relay: a pod has no registry database and no business
 # narrating anyone's provisioning. Pure readers of the narrative log.

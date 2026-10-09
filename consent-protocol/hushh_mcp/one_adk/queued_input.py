@@ -86,6 +86,7 @@ class Settlement:
 
     delivered: tuple[str, ...] = ()
     returned: tuple[str, ...] = ()
+    stopped: bool = False
 
 
 @dataclass
@@ -160,7 +161,11 @@ class QueuedInputRegistry:
                     inbox.returned.append(item.client_message_id)
                     self._record(key, item.client_message_id, "returned")
                 inbox.pending.clear()
-                return Settlement(delivered=tuple(inbox.delivered), returned=tuple(inbox.returned))
+                return Settlement(
+                    delivered=tuple(inbox.delivered),
+                    returned=tuple(inbox.returned),
+                    stopped=inbox.stop_requested,
+                )
             runs.remove(inbox)
             if not runs:
                 self._inboxes.pop(key, None)
@@ -170,7 +175,9 @@ class QueuedInputRegistry:
             inbox.pending.clear()
             inbox.inflight.clear()
             settlement = Settlement(
-                delivered=tuple(inbox.delivered), returned=tuple(inbox.returned)
+                delivered=tuple(inbox.delivered),
+                returned=tuple(inbox.returned),
+                stopped=inbox.stop_requested,
             )
             self._settled[(key, run_id)] = settlement
             while len(self._settled) > MAX_SETTLED_RUNS:
