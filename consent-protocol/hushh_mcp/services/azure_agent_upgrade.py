@@ -173,7 +173,9 @@ def upgrade_agent(
     if files is not None:
         # From the first attempted addition onward, uncertainty retains the
         # upgrade fence. Never release it based on a failed provider response.
-        files.apply(spec.on_files_upgrade_checkpoint)
+        files.apply(
+            spec.on_files_upgrade_checkpoint, completed_steps=spec.files_upgrade_completed_steps
+        )
         current = arm.get(backend.app_id, api_version=api, op="upgrade")
         files.plan.require_observation(current)
     return _replace(

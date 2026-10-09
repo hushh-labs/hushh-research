@@ -151,7 +151,12 @@ async def test_files_preflight_read_refusal_has_no_mutations_or_ambiguous_receip
     assert not arm.writes() and not receipts and not _Handoff.events
 
 
-async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_image(arm):  # noqa: F811
+@pytest.mark.parametrize("reconciled_prefix", [False, True])
+async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_image(
+    arm,  # noqa: F811 - shared ARM fixture
+    monkeypatch,
+    reconciled_prefix,
+):  # noqa: F811
     from copy import deepcopy
 
     from hushh_mcp.services.pod_files.azure_checkpoint import AzureFilesUpgradeCheckpoint
@@ -162,6 +167,17 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
     backend = _backend(arm)
     target = f"{_SOURCE}@{_OLD}"
     plan, row = _files_plan(arm, backend, target)
+    role_call = next(call for call in plan.operations() if call["kind"] == "role_definition")
+    role_id = plan.scopes.role_definition(role_call["path"].rsplit("/", 1)[-1])
+    get = arm.get
+
+    def canonical_readback(path, **kwargs):
+        result = get(path, **kwargs)
+        if path == role_call["path"]:
+            result["id"] = role_id
+        return result
+
+    monkeypatch.setattr(arm, "get", canonical_readback)
     approval = {
         "capabilityPlan": plan.model_dump(),
         "capabilityPlanDigest": plan.digest,
@@ -202,9 +218,44 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
             await backend.upgrade(spec)
     assert not arm.writes() and not _Handoff.events and not receipts
     arm.resources[plan.storageId]["properties"]["allowBlobPublicAccess"] = False
+    if reconciled_prefix:
+        from dataclasses import replace
+
+        from hushh_mcp.services.pod_files.azure_checkpoint import qualify_readback
+
+        prefix = []
+        for call in plan.operations()[:2]:
+            arm.put(call["path"], api_version="fixture", body=call["body"])
+            value, _ = checkpoint.prepare("intent", call["step"], prefix)
+            checkpoint.acknowledge(value)
+            prefix.append(
+                {
+                    "step": call["step"],
+                    "ok": True,
+                    "status": 200,
+                    "observation": qualify_readback(
+                        call, arm.get(call["path"], api_version="fixture")
+                    ),
+                }
+            )
+            value, _ = checkpoint.prepare("observed", call["step"], prefix)
+            checkpoint.acknowledge(value)
+        spec = replace(spec, files_upgrade_completed_steps=prefix)
+        arm.calls.clear()
     with jit_person_authority("person-jit-token"):
         handle = await backend.upgrade(spec)
-    assert checkpoint.complete and len(receipts) == 8
+    assert checkpoint.complete and len(receipts) == (4 if reconciled_prefix else 8)
+    if reconciled_prefix:
+        assert {path for method, path in arm.writes() if method == "PUT"} == {
+            backend.app_id,
+            *(call["path"] for call in plan.operations()[2:]),
+        }
+    role_observation = next(
+        entry["observation"]
+        for entry in receipts[-1][0]["completed"]
+        if entry["observation"]["kind"] == "role_definition"
+    )
+    assert role_observation["id"] == role_call["path"]
     assert all(entry[1]["version"] == "azure.files.inventory.v1" for entry in receipts)
     assert handle.backend_metadata["filesCapability"] == {
         "planDigest": plan.digest,
@@ -234,3 +285,66 @@ async def test_files_update_uses_exact_approval_and_checkpoints_even_on_same_ima
             original_inventory={},
             previous=last,
         )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "subscription",
+        "guid",
+        "foreign_group",
+        "tenant",
+        "url",
+        "dot_path",
+        "encoded_path",
+        "scope",
+        "actions",
+        "notActions",
+        "dataActions",
+        "notDataActions",
+        "type",
+        "queue_alias",
+        "assignment_alias",
+    ],
+)
+def test_files_canonical_role_readback_preserves_exact_authority(arm, change):  # noqa: F811
+    from copy import deepcopy
+
+    from hushh_mcp.services.pod_files.azure_checkpoint import qualify_readback
+    from tests.test_user_azure_backend import _OLD, _SOURCE, _SUB
+
+    backend = _backend(arm)
+    plan, _ = _files_plan(arm, backend, f"{_SOURCE}@{_OLD}")
+    calls = plan.operations()
+    kind = {"queue_alias": "queue", "assignment_alias": "role_assignment"}.get(
+        change, "role_definition"
+    )
+    call = next(
+        c for c in calls if (c["step"] == "files_queue" if kind == "queue" else c["kind"] == kind)
+    )
+    value = {"id": call["path"], "properties": deepcopy(call["body"]["properties"])}
+    canonical = plan.scopes.role_definition(call["path"].rsplit("/", 1)[-1])
+    if kind == "role_definition":
+        value["id"] = canonical
+        assert qualify_readback(call, value)["id"] == call["path"]
+    replacements = {
+        "subscription": canonical.replace(_SUB, "33333333-3333-3333-3333-333333333333"),
+        "guid": canonical.rsplit("/", 1)[0] + "/33333333-3333-3333-3333-333333333333",
+        "foreign_group": call["path"].replace(plan.resourceGroup, "foreign-group"),
+        "tenant": canonical[canonical.index("/providers/") :],
+        "url": "https://management.azure.com" + canonical,
+        "dot_path": canonical.replace("/providers/", "/./providers/"),
+        "encoded_path": canonical.replace("/providers/", "/%70roviders/"),
+        "queue_alias": canonical,
+        "assignment_alias": canonical,
+    }
+    if change in replacements:
+        value["id"] = replacements[change]
+    elif change == "scope":
+        value["properties"]["assignableScopes"] = [f"/subscriptions/{_SUB}"]
+    elif change == "type":
+        value["properties"]["type"] = "BuiltInRole"
+    else:
+        value["properties"]["permissions"][0].setdefault(change, []).append("*")
+    with pytest.raises(ValueError):
+        qualify_readback(call, value)

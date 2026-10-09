@@ -75,9 +75,31 @@ class AzureFilesBootstrap:
                         "Existing Files resource conflicts with this approval"
                     ) from None
 
-    def apply(self, checkpoint: Callable[[str, str, list[dict]], None]) -> None:
-        completed: list[dict] = []
-        for call in self.plan.operations():
+    def apply(
+        self,
+        checkpoint: Callable[[str, str, list[dict]], None],
+        *,
+        completed_steps: list[dict] | None = None,
+    ) -> None:
+        completed: list[dict] = list(completed_steps or [])
+        calls = self.plan.operations()
+        if completed and len(completed) != 2:
+            raise ValueError("Files continuation requires its qualified prefix")
+        for call, receipt in zip(calls, completed, strict=False):
+            observed = qualify_readback(
+                call,
+                self.arm.get(
+                    call["path"], api_version=API_VERSIONS[call["api"]], op="files_prefix_readback"
+                ),
+            )
+            if receipt != {
+                "step": call["step"],
+                "ok": True,
+                "status": 200,
+                "observation": observed,
+            }:
+                raise ValueError("Files continuation prefix changed")
+        for call in calls[len(completed) :]:
             step, api = call["step"], API_VERSIONS[call["api"]]
             checkpoint("intent", step, completed)
             try:

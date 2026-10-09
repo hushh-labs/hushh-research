@@ -363,6 +363,11 @@ class UserAzureBackend(RegistryPruneHook):
 
         return await discover_files_upgrade_ack(self, spec)
 
+    async def qualify_files_upgrade_prefix(self, spec: PodSpec, *, count: int) -> list[dict]:
+        from hushh_mcp.services.pod_files.azure_provisioning import qualify_files_upgrade_prefix
+
+        return await qualify_files_upgrade_prefix(self, spec, count=count)
+
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]
     ) -> Optional[BackendHandle]:

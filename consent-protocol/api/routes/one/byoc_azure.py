@@ -506,6 +506,10 @@ async def _start_upgrade(
     if token.tenant_id != str(row.get("user_cloud_tenant_id") or "").lower():
         raise _refuse(409, "BAD_TENANT", "Sign in with the directory that holds your agent.")
     group = group_id(str(row["user_cloud_subscription_id"]), str(row["user_cloud_resource_group"]))
+    from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
+    from hushh_mcp.services.pod_files.azure_recovery import settled_role_operation
+
+    continuation = settled_role_operation(row, await ByocSetupJobRepo().get(user_id))
     job_id, started = await _claim_job(user_id, group)
     if started:
         service = PersonalAgentProvisioningService(
@@ -518,6 +522,7 @@ async def _start_upgrade(
                 access_token=token.access_token,
                 target_image=target,
                 upgrade=service.upgrade_pod,
+                **({"resume_files_queue_operation": continuation} if continuation else {}),
             )
         )
     return AzureAuthorizeCompleteResponse(status="upgrade_started", jobId=job_id)

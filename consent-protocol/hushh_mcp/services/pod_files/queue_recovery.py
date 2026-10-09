@@ -92,6 +92,12 @@ async def claim_queue_retry(
     *, registry, row: dict, spec, backend, operation: str
 ) -> tuple[dict, list[dict]]:
     """CAS one recovery executor into the existing owner-approved reservation."""
+    if (spec.files_upgrade_plan or {}).get("version") == 2:
+        from .azure_recovery import claim_role_reconciliation
+
+        return await claim_role_reconciliation(
+            registry=registry, row=row, spec=spec, backend=backend, operation=operation
+        )
     from hushh_mcp.services.personal_agent_provisioning_service import upgrade_approval_matches
 
     metadata = row["backend_metadata"]

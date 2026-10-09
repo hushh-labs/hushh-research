@@ -375,6 +375,23 @@ def test_files_late_receipts_keep_exact_owner_inventory_during_erasure(arm, monk
                 "phase": "reserved",
                 "registrySnapshot": snapshot,
             }
+            if len(intent["completed"]) == 2:
+                # Reconciliation retains the original uncertain receipt outside
+                # the canonical checkpoint. A subsequent assignment may still
+                # arrive during erasure and must retain its exact obligations.
+                snapshot["backend_metadata"]["filesUpgradeReconciliation"] = {
+                    "operationId": "op-files",
+                    "failedCheckpoint": {
+                        **intent,
+                        "phase": "observed",
+                        "step": "files_custody_role",
+                        "completed": [
+                            intent["completed"][0],
+                            {"step": "files_custody_role", "ok": False, "status": 0},
+                        ],
+                    },
+                    "observedAt": "2026-10-09T01:00:00+00:00",
+                }
 
             def valid(value, receipt=observed):
                 return server.execute(

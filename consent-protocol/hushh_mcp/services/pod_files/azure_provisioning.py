@@ -101,6 +101,50 @@ async def discover_files_upgrade_ack(backend: UserAzureBackend, spec: PodSpec) -
     }
 
 
+async def qualify_files_upgrade_prefix(
+    backend: UserAzureBackend, spec: PodSpec, *, count: int
+) -> list[dict]:
+    from hushh_mcp.services.azure_arm_client import API_VERSIONS
+    from hushh_mcp.services.user_azure_backend import current_jit_token
+
+    from .azure_bootstrap import AzureFilesBootstrap
+    from .azure_capability import AzureFilesCapabilityPlan
+    from .azure_checkpoint import qualify_readback
+
+    plan = AzureFilesCapabilityPlan.model_validate(spec.files_upgrade_plan)
+    if count != 2 or plan.service.lower() != backend.app_id.lower():
+        raise ValueError("Files reconciliation is outside the approved prefix")
+    arm = backend._person_factory(current_jit_token())
+
+    def read():
+        app = arm.get(
+            backend.app_id, api_version=API_VERSIONS["container_apps"], op="files_reconcile"
+        )
+        plan.require_observation(app)
+        AzureFilesBootstrap(plan, arm).preflight()
+        completed = []
+        for call in plan.operations()[:count]:
+            value = arm.get(
+                call["path"], api_version=API_VERSIONS[call["api"]], op="files_reconcile"
+            )
+            completed.append(
+                {
+                    "step": call["step"],
+                    "ok": True,
+                    "status": 200,
+                    "observation": qualify_readback(call, value),
+                }
+            )
+        plan.require_observation(
+            arm.get(
+                backend.app_id, api_version=API_VERSIONS["container_apps"], op="files_reconcile"
+            )
+        )
+        return completed
+
+    return await asyncio.to_thread(read)
+
+
 async def attach_with_files(backend: UserAzureBackend, spec: PodSpec) -> BackendHandle:
     """Attach to the agent the person's setup created; never create one here."""
     observation = await backend.observe()

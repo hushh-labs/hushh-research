@@ -9,7 +9,24 @@ from .azure_capability import AzureFilesCapabilityPlan
 
 def qualify_readback(call: dict, value: dict) -> dict:
     """Discard provider response bodies; retain only the approved resource's configuration."""
-    if str(value.get("id", "")).lower() != call["path"].lower():
+    approved_path = call["path"].lower()
+    allowed_ids = {approved_path}
+    # ARM returns a subscription-canonical ID for a role created/read through
+    # its resource-group scope. Derive only that exact ID from the approved plan;
+    # GUID suffixes and aliases for other resource kinds are not authority.
+    parts = approved_path.split("/")
+    if (
+        call["kind"] == "role_definition"
+        and len(parts) == 9
+        and parts[0] == ""
+        and parts[1] == "subscriptions"
+        and parts[3] == "resourcegroups"
+        and parts[5:8] == ["providers", "microsoft.authorization", "roledefinitions"]
+    ):
+        allowed_ids.add(
+            f"/subscriptions/{parts[2]}/providers/microsoft.authorization/roledefinitions/{parts[8]}"
+        )
+    if str(value.get("id", "")).lower() not in allowed_ids:
         raise ValueError("Files resource readback belongs to another resource")
     props = value.get("properties") or {}
     expected = call["body"]["properties"]
@@ -140,7 +157,12 @@ class AzureFilesUpgradeCheckpoint:
             "step": step,
             "completed": deepcopy(completed),
         }
-        inventory = {
+        return checkpoint, self.inventory_for(completed)
+
+    def inventory_for(self, completed: list[dict]) -> dict:
+        """One inventory projection for ordinary writes and qualified recovery."""
+        self._validate_prefix(completed)
+        return {
             "version": "azure.files.inventory.v1",
             "ownerId": self.plan.ownerId,
             "hushhId": self.plan.hushhId,
@@ -153,7 +175,6 @@ class AzureFilesUpgradeCheckpoint:
             "plannedOperations": self.plan.operations(),
             "observations": [x["observation"] for x in completed if x["ok"]],
         }
-        return checkpoint, inventory
 
     def acknowledge(self, checkpoint: dict) -> None:
         self.previous = deepcopy(checkpoint)

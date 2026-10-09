@@ -253,6 +253,29 @@ the same approved identity after deployment. Files settings and transfer custody
 checks must use the same cloud-specific key reference; an Azure library must not
 be checked against an empty Google KMS reference.
 
+### Reconciling Azure Files role readback
+
+Azure may return a subscription-canonical custom-role ID for an approved
+resource-group-scoped request. Qualify only the same subscription and role GUID,
+exact custom-role permissions, and exact approved assignable scope. Other resource
+IDs retain strict equality; a matching suffix alone is insufficient.
+
+For the specific failed role readback, the original queue success and uncertain
+role receipt remain authoritative. A fresh owner Microsoft authorization can
+continue the existing Settings-approved operation only after its setup worker has
+settled as failed, current resources qualify through read-only checks, pod identity
+and template are unchanged, and the full metadata/lease comparison succeeds.
+Preserve the failed receipt in `filesUpgradeReconciliation`; retain the same
+operation, attempt and lease. Re-read the qualified prefix, then execute only the
+remaining assignments and approved image/configuration installation. Never replay
+an uncertain role creation or reset approval to make a retry pass.
+
+This continuation handles the confirmed first-role failure once. A crash after
+reconciliation or a later suffix failure remains held for investigation; this is
+not generic recovery. Verify digest, recovery, Files custody and byte-exact
+transfer before reporting success. October 9 source checks establish the repair;
+the owner operation is not yet completed live.
+
 ### Recovering a denied Files queue creation
 
 For a blocked Files activation, retain its existing approval, lease, successful

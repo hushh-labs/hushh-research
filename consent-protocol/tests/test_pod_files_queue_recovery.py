@@ -18,6 +18,10 @@ from tests.test_personal_agent_upgrade_authority import (
     _RecoveryRegistry,
 )
 from tests.test_pod_files_provisioning import legacy_files_fixture
+from tests.test_user_azure_backend import (  # noqa: F401 - shared ARM authority fixtures
+    _hub_caller,
+    arm,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -68,6 +72,133 @@ def _denied_queue_fixture():
         files_upgrade_plan=plan.model_dump(),
     )
     return row, plan, spec, observed, prefix
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "refusal",
+    [None, "missing_role", "permissions", "changed_pod", "no_owner", "cas_lost", "current_ack"],
+)
+async def test_uncertain_azure_files_role_is_read_back_not_replayed(arm, monkeypatch, refusal):  # noqa: F811
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_files.azure_checkpoint import (
+        AzureFilesUpgradeCheckpoint,
+        qualify_readback,
+    )
+    from hushh_mcp.services.pod_files.azure_recovery import (
+        claim_role_reconciliation,
+        settled_role_operation,
+    )
+    from hushh_mcp.services.user_azure_backend import jit_person_authority
+    from tests.test_azure_agent_upgrade_handoff import _files_plan
+    from tests.test_user_azure_backend import _OLD, _SOURCE, _backend, _upgrade_spec
+
+    backend = _backend(arm)
+    target = f"{_SOURCE}@{_OLD}"
+    plan, row = _files_plan(arm, backend, target)
+    lease, operation = "held-azure-lease", "op-azure-files"
+    calls = plan.operations()
+    completed = []
+    for call in calls[:2]:
+        arm.put(call["path"], api_version="fixture", body=call["body"])
+        completed.append(
+            {
+                "step": call["step"],
+                "ok": True,
+                "status": 200,
+                "observation": qualify_readback(call, arm.resources[call["path"]]),
+            }
+        )
+    failed = {"step": calls[1]["step"], "ok": False, "status": 0}
+    previous = {
+        "version": 2,
+        "provider": "user_azure",
+        "planDigest": plan.digest,
+        "operationId": operation,
+        "attemptId": hashlib.sha256(lease.encode()).hexdigest(),
+        "phase": "observed",
+        "step": calls[1]["step"],
+        "completed": [completed[0], failed],
+    }
+    approval = {
+        **_approval(row, target, status="blocked"),
+        "operationId": operation,
+        "ownerId": plan.ownerId,
+        "hushhId": plan.hushhId,
+        "podIncarnation": plan.serviceUid,
+        "capabilityPlan": plan.model_dump(),
+        "capabilityPlanDigest": plan.digest,
+        "releaseId": upgrade_release_id(row, target, capability_digest=plan.digest),
+        "startedAt": "2026-10-09T01:00:01+00:00",
+    }
+    row["backend_metadata"].update(
+        upgradeApproval=approval, upgradeLease=lease, filesUpgradeCheckpoint=previous
+    )
+    job = {
+        "user_id": plan.ownerId,
+        "project_id": plan.scopes.group,
+        "status": "failed",
+        "error_code": "UNEXPECTED",
+        "stage": "importing_image",
+        "created_at": "2026-10-09T01:00:00+00:00",
+        "updated_at": "2026-10-09T01:00:02+00:00",
+    }
+    assert settled_role_operation(row, job) == operation
+    for field, value in [
+        ("status", "running"),
+        ("user_id", "other"),
+        ("error_code", "STALE"),
+        ("updated_at", "2026-10-09T01:00:00+00:00"),
+    ]:
+        assert settled_role_operation(row, {**job, field: value}) is None
+    registry = _RecoveryRegistry(row)
+    spec = _upgrade_spec(
+        arm,
+        backend,
+        [],
+        upgrade_target_image=target,
+        files_upgrade_plan=plan.model_dump(),
+        upgrade_operation_id=operation,
+    )
+    if refusal == "missing_role":
+        del arm.resources[calls[1]["path"]]
+    if refusal == "permissions":
+        arm.resources[calls[1]["path"]]["properties"]["permissions"][0]["actions"] = ["*"]
+    if refusal == "changed_pod":
+        arm.resources[backend.app_id]["tags"]["hussh-incarnation"] = "replacement"
+    if refusal == "current_ack":
+        row["backend_metadata"]["upgradeAcknowledgement"] = {"operationId": operation}
+    if refusal == "cas_lost":
+        registry.record_image_upgrade = AsyncMock(return_value=False)
+    arm.calls.clear()
+    request = dict(registry=registry, row=row, spec=spec, backend=backend, operation=operation)
+    if refusal:
+        from contextlib import nullcontext
+
+        with nullcontext() if refusal == "no_owner" else jit_person_authority("person-fixture"):
+            with pytest.raises((ValueError, RuntimeError)):
+                await claim_role_reconciliation(**request)
+        assert not arm.writes()
+        return
+    with jit_person_authority("person-fixture"):
+        current, prefix = await claim_role_reconciliation(**request)
+    assert prefix == completed and not arm.writes()
+    metadata = current["backend_metadata"]
+    assert metadata["upgradeLease"] == lease
+    assert metadata["filesUpgradeReconciliation"]["failedCheckpoint"] == previous
+    checkpoint = AzureFilesUpgradeCheckpoint(
+        plan=plan,
+        operation_id=operation,
+        attempt_id=previous["attemptId"],
+        original_inventory={},
+        previous=metadata["filesUpgradeCheckpoint"],
+    )
+    checkpoint.prepare("intent", calls[2]["step"], prefix)
+    assert registry.writes[0]["require_unchanged_metadata"] is True
+    assert registry.writes[0]["retain_lease"] is True
+    with pytest.raises(ValueError):
+        await claim_role_reconciliation(**{**request, "row": current})
 
 
 @pytest.mark.asyncio
