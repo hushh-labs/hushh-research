@@ -2,13 +2,6 @@
 
 Run before Chromium: resolve the canonical reviewer and prevent unauthorized shared-fixture mutations.
 
-Shared Dev operator admission uses the serving revision's verified `dev` auth
-lane. Its runtime-settings JSON can retain `environment: uat` from the hosted
-secret synchronizer; that compatibility value does not authorize a UAT token on
-Dev. Verify the fixed service, Dev runtime/deployment markers, review mode,
-non-production profile and mounted configuration/Firebase versions before minting.
-The isolated preview retains its separately verified UAT lane.
-
 ## Required conditions
 
 1. Classify the run as `read_only` or `mutation_authorized`; routine review is read-only.
