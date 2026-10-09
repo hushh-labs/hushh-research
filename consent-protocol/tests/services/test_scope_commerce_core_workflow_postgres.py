@@ -317,8 +317,10 @@ async def test_free_tariff_and_balance_need_no_provider_admission_or_bootstrap(c
 
 @pytest.mark.parametrize("excluded", ["owner", "payer"])
 async def test_sandbox_actor_admission_bounds_new_paid_work_but_preserves_existing_release(
-    commerce_db, excluded
+    commerce_db, excluded, monkeypatch
 ):
+    monkeypatch.setenv("ENVIRONMENT", "sandbox")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "sandbox")
     service, pool = commerce_db
     await fund(service, 50)
     reserved_quote, reserved = await purchase(service, 1)
