@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -159,6 +159,7 @@ import { markOneLocationGrantUnwatched } from "@/lib/one-location/notifications"
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import type { OneLocationState } from "@/lib/one-location/types";
 import { CacheService } from "@/lib/services/cache-service";
+import { getFCMSessionEpoch } from "@/lib/notifications/fcm-session";
 
 const EMPTY_LOCATION_STATE = {
   recipients: [],
@@ -247,6 +248,7 @@ describe("global One Location Feed-first notification policy", () => {
   }
 
   it("requests notification authorization only after an explicit user action", async () => {
+    const sessionEpoch = getFCMSessionEpoch();
     mocks.initializeFCM.mockResolvedValue({
       status: "push_not_requested",
       detail: "permission_default",
@@ -257,18 +259,16 @@ describe("global One Location Feed-first notification policy", () => {
     expect(mocks.initializeFCM).toHaveBeenLastCalledWith(
       "recipient-user",
       "firebase-token",
-      { requestPermission: false },
+      { requestPermission: false, sessionEpoch },
     );
 
-    act(() => {
-      screen.getByRole("button", { name: "Enable notifications" }).click();
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Enable notifications" }));
 
     await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledTimes(2));
     expect(mocks.initializeFCM).toHaveBeenLastCalledWith(
       "recipient-user",
       "firebase-token",
-      { requestPermission: true },
+      { requestPermission: true, sessionEpoch },
     );
   });
 
