@@ -21,7 +21,8 @@
   "required_reads": [
     "docs/guides/new-feature.md",
     "hushh-webapp/ios/App/App/MyViewController.swift",
-    "hushh-webapp/android/app/src/main/AndroidManifest.xml"
+    "hushh-webapp/android/app/src/main/AndroidManifest.xml",
+    "hushh-webapp/docs/ios-native-surface-adoption.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run typecheck",

@@ -45,12 +45,14 @@ Non-owned surfaces:
 1. `docs/guides/new-feature.md`
 2. `hushh-webapp/ios/App/App/MyViewController.swift`
 3. `hushh-webapp/android/app/src/main/AndroidManifest.xml`
+4. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
 
 1. Verify the TypeScript bridge, plugin registration, and native implementation paths first.
 2. Keep plugin method names and service-layer contracts aligned across platforms.
 3. Treat service-layer native/web branching as part of the same contract, not a follow-up.
+4. Separate retained presentation, current action binding, interaction/accessibility eligibility and privacy. Capability/layout receipts are admission evidence, not rendered transition acceptance; use the adoption reference's qualification rules.
 
 ## Handoff Rules
 

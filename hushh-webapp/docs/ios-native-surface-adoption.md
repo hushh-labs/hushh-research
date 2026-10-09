@@ -13,6 +13,134 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Reserved-region candidate — 2026-10-09
+
+This supersedes the foreground overlay-concealment pilot below. Baseline:
+`2f0ce572d6` on `feat/adk-orchestration-runtime`; implementation commit
+`d1504db62f`. New families remain opt-in Debug/iPhone, not Release or iPad.
+
+One content-backed native plane sits above the existing WKWebView. The shared
+top/bottom shell owners reserve stationary regions; the central region contains
+React drawers, their scrims and shared web dialogs/sheets. Popover collision
+padding uses the same acknowledged geometry. Moving Profile/History headers,
+Close, Back and Preferences stay React for their full lifetime. No native view
+is interleaved between internal WK page/scrim/drawer layers.
+
+`reservedPresentationRegions` is negotiated without changing NativeChrome or
+NativeNavigation version 2, or NativeDock version 1. Public region receipts bind
+document, ordered revision, viewport and bounded insets. They carry no private
+editor payload. Stale receipts cannot restore layout or action authority.
+Covered native seats remain mounted and visible, but become touch/AX-ineligible;
+reserved strips intercept touches rather than falling through to covered DOM.
+Region dismissal alone does not readmit an obsolete action. Privacy still covers
+the complete application window and conceals the editor immediately.
+
+| Family | Renderer / operation owner | Candidate evidence | Fallback / rollback |
+|---|---|---|---|
+| Stationary shell Back | Native / authored React Back | Ordered lease/update contracts; physical unqualified | Unsupported wrapper uses React; remove Debug qualification flag |
+| History opener | Native / existing History owner | Reserved slot, stale-choice fence; physical unqualified | Existing React opener on unsupported wrappers |
+| Profile/History moving controls | React / existing drawer and Back owners | No native Close relocation; drag visibility regression test | Existing web renderer retained |
+| Bottom navigation | Standard UITabBar / React navigation | Reserved wrappers retain visible material and revoke actions; older pilot still hides safely | Older iOS/web/Android keep established path |
+| Agent Dock | One native host/editor / existing draft, Send and voice owners | Ordered private contract; overlay-cycle invalidation | Confirm retirement before restoring web composer |
+| Stationary More/bounded picker | Native eligible / authored React operation | Capability and region admission only; physical unqualified | Retain React unless slot is eligible |
+| Appearance/Accent in Profile | React trigger / Settings owner | Moving triggers deliberately retained | Existing menus; no delayed renderer swap |
+| Rich/scrolling controls, protected forms, complex multiselects | React / feature owner | Deliberately retained, not native adoption | Unchanged |
+
+History's closed invisible panel becomes visible only during its owned opening
+drag; cancellation, settlement and teardown remove the temporary visibility.
+Motion, selection and routing authority remain with the existing gesture owners.
+Native pose mirroring is not used for these moving React controls. The historical
+underlay experiment remains reversible and is not qualification evidence here.
+
+The qualified region removes duplicate safe-area padding on moving panels;
+leading/trailing edge placement and whole-panel motion remain authored React.
+The native-owned voice seat retains its geometry but has no web pill material,
+touch or accessibility admission. A newer acknowledged shell layout reconciles
+the retained dock/navigation instead of stranding a superseded preparation.
+
+### Candidate receipts and remaining gates
+
+- Candidate: iPhone Debug 1.4.0 (69), UAT runtime, implementation `d1504db62f`.
+  Executable SHA-256 `a74a4203939786391928a97a023feb6db5be43a615e759af9e9145188aa51f82`;
+  packaged index `68729fa311de1b2608882d44566ecf246d569bb1ad1490b019b36265e636232f`.
+  Installation and normal passphrase unlock succeeded separately from warm proof.
+- 141 focused web tests, 49 simulator native support tests, typecheck, static
+  export, device/simulator builds and strict signature verification passed.
+- A pre-freeze Debug candidate passed ten Profile plus ten History cycles:
+  navigation remained visible and covered native interaction/AX was revoked.
+  These metadata receipts do not prove pixels or qualify the installed candidate.
+- Dock keyboard/draft proof previously failed at keyboard dismissal. Direct
+  selector unit coverage did not prove physical key delivery. The current editor
+  explicitly prioritizes Command-Return and idle Escape over UIKit text/focus;
+  marked text retains its guard. Physical delivery remains an acceptance gate.
+- The software-keyboard journey subsequently passed dismissal through Profile,
+  then failed `NATIVE_DOCK_ROUTE_RETURN_LOST_DRAFT`. Chat's local draft and editor
+  context were recreated on route remount. The candidate now retains the draft,
+  attachment and expansion in the existing memory-only One session authority;
+  owner/context guards reject late edits, and vault lock clears the draft even
+  while Chat is unmounted. This source fix still requires exact-candidate proof.
+- A prior core run passed; an overlapping export caused the subsequent core run
+  to fail on Next's build lock. Serialize the frozen-head rerun; do not relax it.
+- Outstanding: exact-candidate transition/alignment, IME/attachments/refusal,
+  full accessibility/material settings, three physical Release performance runs,
+  iPad qualification and exact-head CI. No push or release promotion is implied.
+- Root Back/Search generator instructions reference scripts absent from this
+  branch's package. No new actions/routes were authored here. Reconcile that
+  instruction drift through existing frontend contract governance before landing.
+  The separately invoked native route-matcher test also retains obsolete Finance
+  literal expectations while the runner now uses generated actions; not waived.
+
+### Shared-family mapping
+
+Consolidate anatomy and semantics at existing primitive boundaries, not by
+replacing every tab-looking control with one new routing component.
+
+| Interaction family | Shared implementation | Authority and adoption boundary |
+|---|---|---|
+| Bounded radio choice: One/Puppy, Appearance | Morphy `SegmentedControl`; one SwiftUI `NativeFiniteSegmentedPicker` for eligible stationary hosts | React owns value and validation; shared roving focus, authored icons and no-op repeated choices. Appearance's sliding web thumb preserves its existing geometry. |
+| Route/query tabs: Connect, Memory, Mail, Finance | `TopShellTabs` and existing tab registry / `SwipeViews` | Existing route/pager owns taps, swipes and URL. Continuous moving indicators remain React. |
+| Local content tabs | Existing `SegmentedTabs` / feature pager | Feature owns panel selection, accessibility associations and swipe reconciliation. |
+| Bottom navigation | Standard native `UITabBar`; existing web navigation | React navigation authority remains; no new router or selector draft. |
+| Rich/searchable multiselect and protected fields | Existing React controls | Deliberately retained. Native bounded presentations require authored metadata and explicit owner validation, not DOM inference. |
+
+The finite native renderer shares layout, tint and choice validation without
+adding a selection store or changing public bridge version 2. Consolidation does
+not qualify moving controls for native replacement or establish visual acceptance.
+
+Apple documents the [keyboard-command delivery order](https://developer.apple.com/documentation/uikit/uikeycommand/wantspriorityoversystembehavior).
+XCUI command-key injection and real event delivery must be distinguished from
+calling a handler directly; neither is a reason to record an unobserved pass.
+
+### Presentation qualification rules
+
+1. Establish feasible layer composition before implementation. One WKWebView
+   cannot place UIKit controls between its internal DOM layers. Never substitute
+   hidden controls, snapshots or a second WebView for continuity.
+2. Choose one renderer per eligible control lifetime before reveal. Reserve
+   geometry during capability/layout preparation; unsupported wrappers choose
+   their fallback, and uncertain retirement never admits a duplicate.
+3. Test visual presentation, touch admission, accessibility isolation and privacy
+   separately. A retained host or acknowledged layout is not visible-pixel proof.
+4. Cover shared families across authored routes, rapid reopen, edge presses and
+   interrupted drags. Inspect transition frames on synthetic/public surfaces;
+   private journeys produce only sanitized metadata.
+5. Diagnose device transport, XCTest authorization and vault unlock separately.
+   Install the exact candidate in preparation, then use attach-only warm tests;
+   no repeated reset/sign-out or injected route stands in for continuity.
+6. Physical qualification requires the same WebView/editor/session, one interactive
+   composer, one-CSS-pixel alignment, both themes/accents, accessibility and three
+   Release performance runs. Simulator/Debug receipts cannot close those gates.
+
+Material inspection follows Apple's [effect-view restrictions](https://developer.apple.com/documentation/uikit/uivisualeffectview)
+and [Liquid Glass guidance](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views):
+inspect backdrop, traits and ancestors independently; use one regular dock glass
+surface, semantic colors and plain child actions. Do not force white/black fills.
+
+## Historical experiments and evidence
+
+The following sections describe earlier candidates. Their receipts do not qualify
+the current reserved-region composition.
+
 ### Material foundation pilot — 2026-10-09
 
 The source baseline is `44eff92efd` on `feat/adk-orchestration-runtime`.

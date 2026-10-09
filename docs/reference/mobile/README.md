@@ -36,8 +36,14 @@ each tap is confirmed against native privacy generation and current visibility.
 Presentation-only revisions (selection, theme or badge changes) do not discard
 the final tap. Failed provisional loads do not retire the surviving document.
 
-Native controls are hidden and accessibility-isolated under mounted shared
-overlays, session/vault gates, the keyboard and the native privacy shield.
+Established wrappers hide native controls under mounted shared overlays.
+The opt-in content-backed iPhone candidate instead negotiates reserved shell
+regions: ordinary web overlays retain visible native presentation but revoke
+touch and accessibility eligibility. Moving drawer controls stay React, bounded
+inside the remaining region. See the [adoption inventory](../../../hushh-webapp/docs/ios-native-surface-adoption.md)
+for current source scope and separate physical qualification. Session/vault
+gates, keyboard navigation hiding and the full-window privacy shield retain
+their concealment contracts.
 The native bar and web voice slot stay pinned together without per-frame
 bridge traffic. The DOM reservation excludes the native home-indicator inset;
 the existing shared bottom shell reserves the reported native inset once, not
