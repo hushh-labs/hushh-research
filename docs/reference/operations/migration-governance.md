@@ -115,6 +115,11 @@ writes no ledger rows, so editing a file this way leaves nothing to re-verify.
 In `ledger` mode, any checksum a baseline recorded would need the baseline
 procedure again.
 
+An earlier replay guard must also preserve compatible event values installed by
+later migrations. Drive migration 262 checks that its payment events are already
+allowed without removing migration 288's `document_share_request_sent` events.
+The installed constraint continues to reject unsupported event kinds.
+
 When a lock times out, the runner logs the relation and lock mode it waited for.
 It also logs each blocking session's pid, `application_name`, state, wait event,
 and transaction and query ages. It samples these from a second pool connection
