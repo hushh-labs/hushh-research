@@ -168,6 +168,8 @@ private struct NativeAccentTrigger: View {
     let theme: HushhNativeControlAppearance
     let action: () -> Void
     let layout: (CGSize) -> Void
+    @ObservedObject var focus: ChromeFocusRequest
+    @AccessibilityFocusState private var accessibilityFocused: Bool
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
@@ -175,12 +177,15 @@ private struct NativeAccentTrigger: View {
                 Text(selected == "gold" ? "Molten Gold" : "Blue").lineLimit(1)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
-            }.padding(.horizontal, 12).frame(width: width, height: 44).contentShape(Rectangle())
+            }.padding(.horizontal, 12).frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
         }
         .buttonStyle(.glass).tint(Color(uiColor: theme.accent))
         .foregroundStyle(Color(uiColor: theme.foreground))
         .accessibilityLabel("App accent color").accessibilityValue(selected == "gold" ? "Molten Gold" : "Blue")
         .accessibilityIdentifier("profile-accent")
+        .accessibilityFocused($accessibilityFocused)
+        .onChange(of: focus.sequence) { _, _ in accessibilityFocused = true }
+        .frame(width: width, height: 44)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
     }
 }
@@ -535,17 +540,21 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("NATIVE_CHROME_OPTIONS_INVALID"); return
             }
             let previous = slot.state.identity
+            let presentation = ChromePresentation(call)
             let retained = slot.layoutConfirmed && slot.state.phase == "suspended" && previous?.document == identity.document &&
                 previous?.ownerEpoch == identity.ownerEpoch && slot.kind == kind && slot.label == label &&
                 slot.fullAccentTrigger == (kind == "accent" && call.getBool("fullTrigger") == true) &&
                 slot.hosting?.view.frame == frame && slot.viewport == bounds && slot.configuration.matches(configuration)
+            // Reopening grants fresh authority, not a fresh SwiftUI tree.
+            // Button callbacks resolve the current slot; no old lease is kept.
+            let retainRoot = retained && slot.presentation == presentation && slot.focus.sequence == 0
             guard slot.configuration.prepare(identity, parsed: configuration, state: &slot.state) else { call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return }
             if !retained { self.removeHosting(slot) }
             slot.kind = kind
             slot.label = label
             slot.fullAccentTrigger = kind == "accent" && call.getBool("fullTrigger") == true
-            slot.presentation = ChromePresentation(call)
-            if !retained { slot.focus = ChromeFocusRequest() }
+            slot.presentation = presentation
+            if !retainRoot { slot.focus = ChromeFocusRequest() }
             slot.viewport = parent.view.bounds.size
             var swiftUILayout = retained
             let layout: (CGSize) -> Void = { [weak slot] size in
@@ -564,7 +573,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout).disabled(false))
             } else if slot.fullAccentTrigger {
                 root = AnyView(NativeAccentTrigger(selected: call.getString("value") ?? "blue", width: frame.width,
-                    theme: theme, action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout).disabled(false))
+                    theme: theme, action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout, focus: slot.focus).disabled(false))
             } else {
                 root = AnyView(NativeChromeButton(label: kind == "history" ? (call.getBool("expanded") == true ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
                     value: kind == "accent" ? (call.getString("value") == "gold" ? "Molten Gold" : "Blue") : nil,
@@ -572,7 +581,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout, focus: slot.focus).disabled(false))
             }
             let controller = retained ? slot.hosting! : ChromeHostingController(rootView: root)
-            if retained { controller.rootView = root }
+            if retained && !retainRoot { controller.rootView = root }
             slot.hosting = controller
             controller.overrideUserInterfaceStyle = theme.style
             controller.view.backgroundColor = .clear
@@ -595,6 +604,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 if kind == "back" { self.backContinuity?.installed(controller.view) }
                 if kind == "history" { self.historyContinuity?.installed(controller.view) }
                 if kind == "profile-back" { self.profileBackContinuity?.installed(controller.view) }
+            } else {
+                if kind == "back" { self.backContinuity?.replaced(controller.view, rootUpdated: !retainRoot) }
+                if kind == "history" { self.historyContinuity?.replaced(controller.view, rootUpdated: !retainRoot) }
+                if kind == "profile-back" { self.profileBackContinuity?.replaced(controller.view, rootUpdated: !retainRoot) }
             }
             #endif
             slot.pendingLayout = call
@@ -780,7 +793,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                         layout: { _ in }).disabled(!presentation.enabled))
                 } else if slot.fullAccentTrigger {
                     root = AnyView(NativeAccentTrigger(selected: presentation.value ?? "blue", width: hosting.view.frame.width,
-                        theme: presentation.theme, action: { [weak self] in self?.activateControl(identity.controlId) }, layout: { _ in }).disabled(!presentation.enabled))
+                        theme: presentation.theme, action: { [weak self] in self?.activateControl(identity.controlId) }, layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
                 } else {
                     root = AnyView(NativeChromeButton(label: slot.kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : slot.label, controlId: identity.controlId,
                         value: slot.kind == "accent" ? (presentation.value == "gold" ? "Molten Gold" : "Blue") : nil,

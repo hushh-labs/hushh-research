@@ -11,12 +11,10 @@ export function ProfileAppearanceControls({ value, nativeContext }: {
   value: AppAccent;
   nativeContext: { owner: string | null; context: string; eligible: boolean };
 }) {
-  return <SettingsGroup>
+  return <SettingsGroup rowSizing="uniform">
     <SettingsRow icon={AppearanceRowIcon} iconTone="capability" title="Appearance"
-      description="Light, dark, or system." stackTrailingOnMobile
-      trailing={<ThemeToggleLean size="expanded" className="w-full sm:w-60 min-w-0" nativeContext={nativeContext} />} />
+      trailing={<ThemeToggleLean size="compact" className="w-[132px] min-w-0" nativeContext={nativeContext} />} />
     <SettingsRow icon={AccentRowIcon} iconTone="capability" title="Accent"
-      description="Choose the app accent." stackTrailingOnMobile
       trailing={<NativeAccentChoice value={value} {...nativeContext} />} />
   </SettingsGroup>;
 }

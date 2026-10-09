@@ -89,6 +89,27 @@ multiselects, protected forms, scrolling controls and rich approval cards remain
 React deliberately. Rollback is capability denial/removal of the Debug arguments;
 fallback and strict retirement must still be verified before any family promotion.
 
+### Warm handoff corrections — 2026-10-08
+
+Compatible active History/Profile Back handoffs now take the existing replacement
+contract before suspension; they keep their native presentation while fresh action
+authority is acknowledged. Reopening an actually suspended compatible control
+retains its identical SwiftUI root as well as its host. Privacy and overlay
+suspension still hide controls and complete owned-popup dismissal.
+
+Profile interruption handling now preserves the rendered position when Close
+interrupts spring-back or an opening preview is re-grabbed. Location-only stack
+changes retain outer animation suppression. Preferences uses compact, title-only
+rows; Accent fills its reserved trigger width, keeps swatch contrast, and preserves
+label/color coherence when browser persistence is denied. Its native trigger uses
+the existing assistive-focus acknowledgement contract.
+
+Focused regression tests and a signed native compile verify these source paths.
+Ten repeated Accent/Profile cycles passed in a synthetic WebKit fixture; synthetic
+phone light/dark, tablet and desktop renders were reviewed separately. This does
+not qualify the installed physical candidate, native editor, accessibility or frame
+pacing, and does not enable any additional release or iPad family.
+
 - [HushhNativeNavigationPlugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift)
   presents a standard UIKit `UITabBar` on iOS 26+. It does not use SwiftUI `TabView`
   or `UITabBarController`; controller-only Search, minimization and accessory

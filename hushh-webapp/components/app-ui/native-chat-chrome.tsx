@@ -451,16 +451,19 @@ export function NativeChatChrome(props: Props) {
           { kind: "more", options: props.options, label: props.label };
         const retainHost = peekNativeChromeCapabilities()?.retainedControls === true &&
           !!props.owner && !isSessionChromeSuppressed() && retiring?.projection.ownerEpoch === epoch;
-        if (retainHost && retiring) await suspendOwnedNativeChrome(retiring);
-        if (cancelled) return;
-        const resuming = peekNativeChromeCapabilities()?.retainedControls === true && theme && geometry &&
-          await canResumeNativeChrome({ ...control, enabled: true, ...theme, ...geometry }, epoch);
-        if (cancelled || current.current.epoch !== epoch || current.current.context !== context) return;
-        const replacing = previous && theme && geometry && (
+        // A compatible active handoff must stay visible. Suspension belongs to
+        // an actually inactive surface, not a route/action revision change.
+        // The native replacement contract fences interaction until activation.
+        const replacing = !inactive && previous && theme && geometry && (
           historyReplacement && props.kind === "history" &&
             previous.canReplaceHistoryWith({ kind: "history", expanded, label: "Chat history", enabled: true, ...theme, ...geometry }, epoch, context) ||
           profileBackReplacement && props.kind === "profile-back" &&
             previous.canReplaceBackWith({ kind: "profile-back", label: props.label, enabled: true, ...theme, ...geometry }, epoch, context));
+        if (!replacing && retainHost && retiring) await suspendOwnedNativeChrome(retiring);
+        if (cancelled) return;
+        const resuming = !replacing && peekNativeChromeCapabilities()?.retainedControls === true && theme && geometry &&
+          await canResumeNativeChrome({ ...control, enabled: true, ...theme, ...geometry }, epoch);
+        if (cancelled || current.current.epoch !== epoch || current.current.context !== context) return;
         if (!replacing && !resuming && !(inactive && retainHost)) {
           // Qualified warm geometry must not expose its web replacement while
           // the bridge acknowledges strict retirement. Focused/moving fallback
@@ -513,7 +516,7 @@ export function NativeChatChrome(props: Props) {
         // handoff. Do not paint an intermediate, clickable web replacement.
         setHidden(true);
         reportRehearsal(stage, "pending");
-        const ready = !retainHost && replacing && previous
+        const ready = replacing && previous
           ? props.kind === "profile-back" ? await next.prepareBackReplacement(previous) : await next.prepareHistoryReplacement(previous)
           : await next.prepare();
         if (ready && !cancelled) { reportRehearsal(stage, "acknowledged"); setHidden(true); setPrepared(next); }

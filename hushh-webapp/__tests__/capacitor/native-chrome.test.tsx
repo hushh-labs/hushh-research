@@ -1079,15 +1079,18 @@ describe("native chrome presentation lease", () => {
     return kind === "back" ? <Harness context={context} owner={owner} onBack={action} suppressed={suppressed} eligible={eligible} />
       : <ChatHarness context={context} owner={owner} onAction={action} suppressed={suppressed} eligible={eligible} />;
   }
-  function admitReplacement(kind: "back" | "history" | "profile-back") {
+  function admitReplacement(kind: "back" | "history" | "profile-back", retainedControls = false) {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [kind], independentControls: true,
-      backReplacement: true, profileBackReplacement: true, historyReplacement: true, inPlaceUpdates: true });
+      backReplacement: true, profileBackReplacement: true, historyReplacement: true, inPlaceUpdates: true, retainedControls });
     return kind === "history" ? bridge.prepareHistoryReplacement : bridge.prepareBackReplacement;
   }
 
-  it.each(["back", "history", "profile-back"] as const)("hands off same-frame %s presentation without removal while expiring pending old actions", async (kind) => {
+  it.each([
+    ["back", false], ["history", false], ["profile-back", false],
+    ["history", true], ["profile-back", true],
+  ] as const)("hands off same-frame %s presentation without hiding or removal (retained=%s) while expiring pending old actions", async (kind, retained) => {
     measureSlot();
-    const replacement = admitReplacement(kind);
+    const replacement = admitReplacement(kind, retained);
     const oldAction = vi.fn(), newAction = vi.fn();
     const view = render(retainedControl(kind, "original", oldAction));
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
@@ -1101,12 +1104,14 @@ describe("native chrome presentation lease", () => {
     const handoff = deferred<ChromeAcknowledgement>();
     replacement.mockReturnValueOnce(handoff.promise);
     const retirements = bridge.retire.mock.calls.length;
+    const suspensions = bridge.suspend.mock.calls.length;
     view.rerender(retainedControl(kind, "replacement", newAction));
     await waitFor(() => expect(replacement).toHaveBeenCalledOnce());
     const next = replacement.mock.calls[0][0];
     expect(next).toMatchObject({ previousRevision: old.revision, ownerEpoch: old.ownerEpoch, frame: old.frame });
     expect(next.revision).toBeGreaterThan(old.revision);
     expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+    expect(bridge.suspend).toHaveBeenCalledTimes(suspensions);
     expect(view.getByRole("button", { hidden: true })).not.toBeVisible();
     await act(async () => confirmation.resolve({ valid: true }));
     expect(oldAction).not.toHaveBeenCalled(); expect(newAction).not.toHaveBeenCalled();
@@ -1122,7 +1127,8 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(newAction).toHaveBeenCalledOnce());
     expect(oldAction).not.toHaveBeenCalled();
     view.unmount();
-    await waitFor(() => expect(hasOutstandingNativeChrome(old.controlId)).toBe(false));
+    if (retained) await waitFor(() => expect(bridge.suspend).toHaveBeenCalledTimes(suspensions + 1));
+    else await waitFor(() => expect(hasOutstandingNativeChrome(old.controlId)).toBe(false));
   });
 
   it.each([ ["back", "refused"], ["back", "uncertain"], ["history", "refused"], ["history", "uncertain"], ["profile-back", "refused"], ["profile-back", "uncertain"] ] as const)("hard-retires either revision after %s %s replacement before restoring DOM", async (kind, outcome) => {

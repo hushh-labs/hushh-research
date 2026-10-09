@@ -4,7 +4,7 @@ import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useRef,
 import { ProfilePaneDrag } from "@/components/app-ui/profile-pane-drag";
 import { SidePanelMotionBody, SidePanelMotionProvider } from "@/components/app-ui/side-panel-motion";
 import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
-import { presentationMotionDuration } from "@/components/app-ui/drawer-motion";
+import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
 import { nativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 
 import {
@@ -195,30 +195,34 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     let timer = 0;
     let generation = 0;
     let committed = false;
+    let dragOrigin: number | null = null;
     const clear = () => {
-      preview.hidden = true; scrim.hidden = true; previewOffset.current = null;
+      preview.hidden = true; scrim.hidden = true; previewOffset.current = null; dragOrigin = null;
     };
     const onPreview = (event: Event) => {
       const detail = (event as CustomEvent<ProfilePanePreview>).detail;
       if (!detail || !Number.isFinite(detail.distance) || detail.distance < 0) return;
       window.clearTimeout(timer);
       const current = ++generation;
-      const offset = Math.max(0, preview.offsetWidth - detail.distance);
       if (detail.phase === "drag") {
         committed = false;
+        const wasHidden = preview.hidden;
         preview.hidden = false; scrim.hidden = false;
         // Measure after un-hiding; a hidden surface reports width zero.
         const width = preview.offsetWidth;
+        dragOrigin ??= wasHidden ? width : Math.max(0, Math.min(width, renderedDrawerOffset(preview)));
+        const offset = Math.max(0, dragOrigin - detail.distance);
         preview.style.transition = "none";
         scrim.style.transition = "none";
-        preview.style.transform = `translate3d(${Math.max(0, width - detail.distance)}px,0,0)`;
-        scrim.style.opacity = String(Math.min(1, detail.distance / Math.max(1, width)));
+        preview.style.transform = `translate3d(${offset}px,0,0)`;
+        scrim.style.opacity = String(1 - offset / Math.max(1, width));
       } else if (detail.phase === "commit") {
         committed = true;
-        previewOffset.current = offset;
+        previewOffset.current = Math.max(0, (dragOrigin ?? preview.offsetWidth) - detail.distance);
         // Failed admission cannot leave a presentation-only preview behind.
         timer = window.setTimeout(() => { if (generation === current) clear(); }, 500);
       } else {
+        dragOrigin = null;
         preview.style.transition = "transform var(--motion-drawer-settle-duration) var(--motion-sheet-exit-ease)";
         scrim.style.transition = "opacity var(--motion-drawer-settle-duration) var(--motion-sheet-exit-ease)";
         preview.style.transform = "translate3d(100%,0,0)"; scrim.style.opacity = "0";
@@ -273,7 +277,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
             : location.panel === "account"
               ? "Your account"
               : location.panel === "preferences"
-                ? "Appearance & preferences"
+                ? "Preferences"
                 : location.panel === "security"
                   ? "Security & privacy"
                   : location.panel === "referrals"

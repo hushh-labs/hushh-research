@@ -138,6 +138,12 @@ test("stationary Profile chrome and Preferences keep their grid while only the b
   await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
   const preferences = pane(page).locator("[data-profile-stationary-preferences]");
   await expect(preferences.getByText("Appearance", { exact: true })).toBeVisible();
+  const controlEdges = await preferences.evaluate(node => {
+    const appearance = node.querySelector('[role="radiogroup"]')!.getBoundingClientRect();
+    const accent = node.querySelector('[role="combobox"]')!.getBoundingClientRect();
+    return { appearance: appearance.right, accent: accent.right };
+  });
+  expect(Math.abs(controlEdges.appearance - controlEdges.accent)).toBeLessThanOrEqual(1);
   const measured = await page.evaluate(() => {
     const frame = document.querySelector<HTMLElement>('[data-testid="profile-pane"]')!;
     const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
@@ -176,6 +182,36 @@ test("stationary Profile chrome and Preferences keep their grid while only the b
   });
   expect(afterCancellation.inlineTransform).toBe("");
   expect(afterCancellation.worstSettledOffset).toBeLessThanOrEqual(1);
+});
+
+test("Accent stays coherent through repeated selection and Profile close/reopen", async ({ page }) => {
+  // Ten full open/menu/selection/close cycles, not one 30s interaction.
+  test.setTimeout(60_000);
+  const errors = await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const trigger = page.getByRole("combobox", { name: "App accent color" });
+  for (let cycle = 0; cycle < 10; cycle += 1) {
+    const accent = cycle % 2 === 0 ? "Molten Gold" : "Blue";
+    await trigger.click();
+    const option = page.getByRole("option", { name: accent, exact: true });
+    await expect(option).toBeVisible();
+    expect(await option.evaluate(node => {
+      const frame = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(frame.x + frame.width / 2, frame.y + frame.height / 2);
+      return !!hit && node.contains(hit);
+    })).toBe(true);
+    await option.click();
+    await expect(trigger).toContainText(accent);
+    if (accent === "Molten Gold") await expect(page.locator("html")).toHaveAttribute("data-accent", "gold");
+    else await expect(page.locator("html")).not.toHaveAttribute("data-accent", /.+/);
+    await page.getByRole("button", { name: "Close Profile", exact: true }).click();
+    await expect(pane(page)).not.toBeVisible();
+    await page.getByTestId("open-profile").click();
+    await expect(pane(page)).toBeVisible();
+    await page.getByTestId("profile-preferences-row").click();
+    await expect(trigger).toContainText(accent);
+  }
+  expect(errors).toEqual([]);
 });
 
 function query(page: Page) {
@@ -351,10 +387,11 @@ for (const width of [320, 393, 1440]) {
 // Review renders for the founder, written only when LEGAL_RENDER_DIR is set.
 test.describe("review renders", () => {
   test.skip(!process.env.LEGAL_RENDER_DIR, "set LEGAL_RENDER_DIR to write review renders");
-  for (const [width, theme] of [[393, "light"], [393, "dark"], [1440, "light"]] as const) {
+  for (const [width, theme] of [[393, "light"], [393, "dark"], [820, "light"], [1440, "light"]] as const) {
     test(`pane renders at ${width}px ${theme}`, async ({ page }) => {
       const dir = process.env.LEGAL_RENDER_DIR!;
       for (const [name, at] of [
+        ["pane-preferences", "/one?profile_pane=1&profile_panel=preferences"],
         ["pane-legal-terms", "/one?profile_pane=1&profile_panel=legal&profile_detail=terms"],
         ["pane-legal-section", "/one?profile_pane=1&profile_panel=legal"],
         ["pane-connectors", "/?profile_pane=1&profile_panel=connectors"],

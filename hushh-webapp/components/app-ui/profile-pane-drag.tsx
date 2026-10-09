@@ -81,7 +81,14 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
         return;
       }
       cancelSettlement();
-      if (!pull?.engaged) return;
+      if (!pull?.engaged && !settling) return;
+      // Close may interrupt spring-back, after the pointer was cleared. Exit
+      // from the rendered position rather than suppressing the exit animation.
+      const offset = Math.max(0, Math.min(panel.offsetWidth, renderedDrawerOffset(panel)));
+      panel.style.setProperty("--profile-pull-x", `${offset}px`);
+      scrim.style.setProperty("--profile-pull-opacity", String(1 - offset / Math.max(1, panel.offsetWidth)));
+      panel.style.removeProperty("transition");
+      scrim.style.removeProperty("transition");
       pull = null;
       settling = true;
       panel.dataset.profilePull = "exit";
@@ -175,7 +182,9 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
     return () => {
       cancelSettlement();
       reconcile.current = null;
-      clear(false);
+      // A location-only change is not a new outer presentation. Removing the
+      // settled marker here replays entry motion on the still-open pane.
+      clear(owner.current.open && panel.isConnected);
       panel.removeEventListener("touchstart", start);
       panel.removeEventListener("touchmove", move);
       panel.removeEventListener("touchend", end);
