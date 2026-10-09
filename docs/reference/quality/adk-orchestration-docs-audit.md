@@ -8,7 +8,7 @@ and [private browser runtime](../../../consent-protocol/docs/reference/private-b
 
 ## Decision — 2026-10-08
 
-Measurement snapshot: **2026-10-09 06:01 UTC** (October 8 locally). Cold cohorts are unchanged. Owner activation, sealed Puppy admission, idle socket release, zero replicas and on-demand reconnection were verified. Local model generation also passes. Instrumentation identifies an admission timeout; normal browser inference and Settings approval remain separate.
+Measurement snapshot: **2026-10-09 06:58 UTC** (October 8 locally). Cold chat cohorts are unchanged. Owner activation, sealed Puppy admission, idle socket release, zero replicas and on-demand reconnection were verified. Local model generation also passes. The timeout is isolated to the waking pod's challenge; the bounded startup-wait correction now passes a real post-zero relay wake without retry. Normal browser inference and Settings approval remain separate.
 
 **Production rollout is withheld. Dev application and isolated Files journeys
 work on both clouds; release acceptance still needs cold latency and normal-owner
@@ -32,7 +32,7 @@ automatic owner upgrade is authorized by these results.
 
 | Surface | Verified evidence | Boundary |
 | --- | --- | --- |
-| Local continuation | `0eeb3cc1dc`: reuse fresh, identity-bound direct admission instead of a redundant browser wake probe; preserve the existing endpoint facade | 61 focused checks, typecheck, lint and architecture ratchet pass. Not deployed. Hermes `079837d42b` adds redacted admission/transport timings; 39 focused checks and a raw-exception negative control pass. |
+| Local continuation | `0eeb3cc1dc`: reuse fresh, identity-bound direct admission instead of a redundant browser wake probe; preserve the existing endpoint facade | 61 focused checks, typecheck, lint and architecture ratchet pass. Not deployed. Hermes `aad14b6a7e` isolates admission requests and gives only the verified pod challenge a finite startup read budget. Its tracing passed 41 checks; the final deadline change passed five admission cases. Privacy and deadline negative controls fail as intended. |
 | Verified candidate | `f026ba9eaf54782fcf3d09fd9578a68af1c4ad3f`; local core and [hosted CI 37846374234](https://github.com/hushh-labs/hushh-research/actions/runs/37846374234) passed | Not deployed. Frozen ADK `31932bb01ae9`; later unrelated ADK changes belong to the next cycle. |
 | Serving source | `e30732de37f21759e86b95027252163319de3d60`; [hosted CI 37828524953](https://github.com/hushh-labs/hushh-research/actions/runs/37828524953) passed | Source and serving evidence remain separate. |
 | Dev application | [Deployment 37832290957](https://github.com/hushh-labs/hushh-research/actions/runs/37832290957) succeeded; backend `00151-9x6`, frontend `00129-bn5`, exact source/run and 100% traffic independently read back | Rollback targets: backend `00150-slh`, frontend `00128-8m7`. |
@@ -54,7 +54,7 @@ The archived release descriptor and independent serving readback match the run. 
 | Recovery / updates | Exact `ace34069` → `e213acf2` transition passed on both clouds: identity, keys, selected configuration and encrypted history retained. Google file bytes matched; separate current-image fixtures on both clouds also retain Files. | Normal Settings approval during active work, refresh/reconnect and one durable operation. Qualification is at 1 vCPU / 2 GiB, not capacity proof for every existing owner configuration. |
 | Chat / runtime | Current `e213acf2`: 20 warm and 20 genuine-cold chats per cloud complete; one/two/four overlapping chat/Files/status pass; ten-minute soak settles 20 operations per cloud. | Cold target fails; normal-browser cold timing, real Puppy overlap and full-workload resource peaks remain unverified. Genuine scale-to-zero observed on the current image. |
 | Headless reviewer / owner APIs | Deployed dev: canonical reviewer authentication, visible locked-vault challenge, unlock, Hosting/Updates and same-session continuity pass. Existing owner-approved Hermes session returns active Azure BYOC, an installable `.12` update and HTTP 200 Files plan, with unchanged owner/device claims; content analysis remains off. | Bounded browser rehearsal still fails on unsolicited enrollment; local guard and negative control pass. No browser import of the device session, new enrollment, Files approval, update approval or installation occurred. |
-| Puppy | Existing grant enabled; signed Azure endpoint and inference-only binding v9 verified. Socket release, zero replicas and owner-triggered reconnect pass. Latest sealed admission: epoch 35, 600-second grace, same identity/image/configuration. | Browser inference, cancellation, withdrawal/re-enable and independent active internet. Latest relay reconnect: 43.874 seconds; admission timeout 30.870 s, retry 5.635 s, sealed WSS setup 0.397 s. Not a first-token result or another cold-cohort sample. |
+| Puppy | Existing grant enabled; signed Azure endpoint and inference-only binding v13 read back. Socket release, zero replicas and owner-triggered reconnect pass. Latest sealed admission: epoch 37, 600-second grace, same identity/image/configuration. Post-zero wake passed in one admission attempt. | Browser inference, cancellation, withdrawal/re-enable and independent active internet. Challenge 45.532 s, admission 46.366 s, sealed WSS 0.532 s; owner preflight/control wait brings total to 57.125 s. Not a first-token result or a cold-chat cohort sample. |
 | Setup / billing | Durable retry and pending/assigned preservation. New authorization refuses an unrecorded setup; malformed detach history cannot revive Shared. One-time legacy continuity is locally qualified. | New and existing owner setup, billing/policy return without duplicate resources. Azure trial refuses a second environment and new OpenAI S0 resource. |
 | Connectors / commands | Sealed native Google authorization, scoped pod tools, exact approval/resume, refresh/restart fencing, notification coalescing and bounded durable jobs. | Real provider sign-in, native iOS/Android, scope upgrades, recorded commands, notification delivery and verified legacy hub cleanup. |
 | Computer Use | Task/preview/takeover ports, consented PKM exports and encrypted opt-in site sessions are source-backed. | Separately gated on both clouds; no owner information admitted to an unqualified executor. |
@@ -180,22 +180,22 @@ an unchanged architecture ratchet. Its delayed-persistence negative control fail
 when the observation timestamp is moved after storage. Reachability evidence is
 memory-only and cannot authorize a turn; ambiguous chat submissions remain single-send.
 
-The personal Azure pod still runs installed digest `ace34069` on the same revision,
-with its selected **0.5 vCPU / 1 GiB, minimum zero and maximum one**. No image or
-configuration changed. Its socket closed by 05:06:53; Azure reported zero replicas
-at 05:13:30. The first cold reconnection took 52.139 seconds, with an unclassified
-transient retained. Zero replicas were observed again at 05:37:12; the subsequent
-instrumented reconnect reaches sealed epoch 35 at 05:46:29: **43.874 seconds**,
-including owner preflight. The earlier zero observation is not a fresh cohort
-preflight. Admission timed out after **30.870 seconds**, retried in
-**5.635 seconds**, and sealed WSS setup took **0.397 seconds**. The failing
-HTTP hop is not yet isolated; these measurements do not establish model latency.
-The original automation attempt stalled in native Keychain lookup and was stopped;
-the bounded repetition uses Hermes's own trusted runtime and normal stored identity.
-No model request was sent during those relay wake checks. A separate loopback
-model turn at 06:01 produced nonempty content in **5.780 seconds**, completed in
-**5.787 seconds**, and used no cloud model or private information. These timings
-exclude the browser, hub and pod paths. Browser inference remains separate.
+The personal Azure pod retains its installed `ace34069` image and selected
+**0.5 vCPU / 1 GiB, minimum zero and maximum one**. Its socket closed by 05:06:53
+and Azure reported zero replicas at 05:13:30; owner-triggered reconnection passed.
+The Mac subsequently restarted. Only its existing dev relay was restored; its
+selected loopback model server was already available. At 06:47, request tracing
+isolated a **30.212-second timeout to the pod challenge**. Hub requests took
+75–263 ms; retry challenge took 9.139 seconds, session admission 0.252 seconds,
+and sealed WSS setup 0.412 seconds. The correction permits one finite 90-second
+challenge read while preserving other timeout limits, signatures, expiry and
+grants. Azure reported zero replicas at 06:56:42; a new owner activation reached
+sealed epoch 37 at 06:58:04 in one admission attempt without a timeout or retry.
+Challenge took **45.532 seconds**; no latency-target pass is inferred.
+The earlier native Keychain automation stall and original failed wake receipts
+remain preserved. A separate loopback turn returned content in **5.780 seconds**
+and completed in **5.787 seconds**, without a cloud model or private information.
+This excludes the browser, hub and pod; browser inference remains separate.
 
 Operational owners: [Files](../operations/private-files-library.md),
 [dev pod runbook](../operations/dev-pod-first-light-runbook.md),
