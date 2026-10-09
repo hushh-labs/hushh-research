@@ -74,6 +74,27 @@ The SQL migration files remain the authored schema history. The ledger records
 which immutable checksums an environment has accepted; it is not a second
 authored manifest.
 
+## Shared-dev compatibility deferral — 2026-10-09
+
+Main's canonical migration 249 is destructive chat-history cleanup. This branch
+previously used that number for a public-profile bridge, now registered as 294.
+Shared-dev runs **replay**, which ignores ledger/baseline coverage and records no
+release receipts. Synchronizing the canonical SQL must not trigger another
+history cutover during an ordinary application deployment.
+
+The existing dev manifest pins 249's filename and checksum as deferred. Only an
+explicit `hushh-pda-dev` / `shared-dev` / `postgres` target using the production
+base lane excludes it from replay execution. Observe still inspects canonical
+history; ledger refuses until the deferral is resolved. Production, UAT and the
+isolated commerce preview retain their canonical selectors and baselines.
+Changed SQL or invalid deferral metadata refuses before migration execution.
+
+A release schema check proves shape and the minimum head, not execution of every
+canonical migration. Record this deferral in deployment evidence. The prior
+parked 944 receipt is separate and cannot stand in for canonical 249. Removing
+the deferral requires the approved history-cutover recovery, writer drain and
+command-settlement evidence; do not change a baseline or mark 249 applied.
+
 ## Execution Modes
 
 - `replay` preserves the historical replay-all behavior. It remains the repo

@@ -73,5 +73,12 @@
     "956_personal_agent_notification_checkpoint.sql",
     "957_personal_agent_azure_files_upgrade.sql",
     "958_one_shared_legacy_continuity.sql"
+  ],
+  "deferred_release_migrations": [
+    {
+      "filename": "249_one_chat_history_legacy_cutover.sql",
+      "checksum_sha256": "7644bff699a8c6899761060c2e45171acd3dc0862e877cff82d1c75e2b33fc5c",
+      "reason": "Canonical history cleanup requires separate retained-information recovery and incompatible-writer/command drain acceptance; ordinary shared-dev replay must not repeat the cutover. Parked 944 has its own existing receipt."
+    }
   ]
 }

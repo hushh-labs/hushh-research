@@ -20,6 +20,7 @@ Environment:
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -306,6 +307,46 @@ def dev_extra_active(*, explicit: bool = False, project_id: str | None = None) -
     if target != "shared-dev":
         raise ValueError("Unknown development migration target")
     return explicit or resolved == DEV_GCP_PROJECT_ID
+
+
+def deferred_dev_release_migrations() -> tuple[str, ...]:
+    """Read the reviewed deferral only for the exact shared-dev workflow target.
+
+    This changes execution selection, never canonical identity, baseline hashes,
+    or receipts. Missing target markers grant no exemption.
+    """
+    if (
+        os.getenv("GCP_PROJECT_ID") != DEV_GCP_PROJECT_ID
+        or os.getenv("DEV_TARGET") != "shared-dev"
+        or os.getenv("DB_NAME") != "postgres"
+    ):
+        return ()
+    payload = json.loads(DEV_MANIFEST_PATH.read_text(encoding="utf-8"))
+    entries = payload.get("deferred_release_migrations")
+    if (
+        payload.get("target_gcp_project_id") != DEV_GCP_PROJECT_ID
+        or not isinstance(entries, list)
+        or not entries
+    ):
+        raise RuntimeError("Invalid shared-dev release deferral manifest")
+    deferred: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise RuntimeError("Invalid shared-dev release deferral entry")
+        filename = entry.get("filename")
+        if (
+            filename != "249_one_chat_history_legacy_cutover.sql"
+            or filename not in BASE_RELEASE_MIGRATION_FILES
+            or filename in deferred
+            or not isinstance(entry.get("reason"), str)
+            or not entry["reason"].strip()
+        ):
+            raise RuntimeError("Unreviewed shared-dev release deferral")
+        checksum = hashlib.sha256((MIGRATIONS_DIR / filename).read_bytes()).hexdigest()
+        if entry.get("checksum_sha256") != checksum:
+            raise RuntimeError("Shared-dev deferred migration checksum changed")
+        deferred.append(filename)
+    return tuple(deferred)
 
 
 # ============================================================================
@@ -1315,6 +1356,16 @@ async def run_release_migration(
     """Apply the selected canonical release lane; production is the safe default."""
     release_environment = assert_uat_release_target(release_environment)
     filenames = release_migration_files(release_environment)
+    if release_environment == "production":
+        deferred = deferred_dev_release_migrations()
+        if deferred:
+            if mode is MigrationMode.LEDGER:
+                raise RuntimeError(
+                    "Shared-dev ledger cutover refused while history cleanup is deferred"
+                )
+            print("Shared-dev history cleanup deferred: " + ", ".join(deferred))
+            if mode is MigrationMode.REPLAY:
+                filenames = tuple(name for name in filenames if name not in deferred)
     if release_environment == "uat":
         async with pool.acquire() as connection:
             await assert_connected_uat_database(connection)

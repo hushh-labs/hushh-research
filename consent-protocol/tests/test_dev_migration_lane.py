@@ -327,3 +327,84 @@ async def test_real_release_handler_preserves_shared_tail_and_preview_release_on
     assert parked.await_count == (1 if target == "shared-dev" else 0)
     status.assert_awaited_once_with(pool)
     pool.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutation,mode,deferred,refused",
+    [
+        (None, migrate.MigrationMode.REPLAY, True, False),
+        ("missing_target", migrate.MigrationMode.REPLAY, False, False),
+        ("production", migrate.MigrationMode.REPLAY, False, False),
+        ("uat_project", migrate.MigrationMode.REPLAY, False, False),
+        ("preview", migrate.MigrationMode.REPLAY, False, False),
+        ("wrong_database", migrate.MigrationMode.REPLAY, False, False),
+        (None, migrate.MigrationMode.OBSERVE, False, False),
+        (None, migrate.MigrationMode.LEDGER, False, True),
+        ("checksum", migrate.MigrationMode.REPLAY, False, True),
+        ("duplicate", migrate.MigrationMode.REPLAY, False, True),
+        ("unknown", migrate.MigrationMode.REPLAY, False, True),
+        ("reason", migrate.MigrationMode.REPLAY, False, True),
+        ("project_manifest", migrate.MigrationMode.REPLAY, False, True),
+        ("missing_deferral", migrate.MigrationMode.REPLAY, False, True),
+        ("empty_deferral", migrate.MigrationMode.REPLAY, False, True),
+    ],
+)
+async def test_shared_dev_replay_defers_only_pinned_history_cleanup(
+    monkeypatch, tmp_path, mutation, mode, deferred, refused
+):
+    """An ordinary app release cannot re-run destructive cutover after main sync."""
+    for key, value in {
+        "GCP_PROJECT_ID": "hushh-pda-dev",
+        "DEV_TARGET": "shared-dev",
+        "DB_NAME": "postgres",
+    }.items():
+        monkeypatch.setenv(key, value)
+    if mutation == "missing_target":
+        monkeypatch.delenv("DEV_TARGET")
+    elif mutation in {"production", "uat_project"}:
+        monkeypatch.setenv(
+            "GCP_PROJECT_ID", "hushh-pda" if mutation == "production" else "hushh-pda-uat"
+        )
+    elif mutation == "preview":
+        monkeypatch.setenv("DEV_TARGET", "scope-commerce-sandbox")
+        monkeypatch.setenv("DB_NAME", "scope_commerce_sandbox")
+    elif mutation == "wrong_database":
+        monkeypatch.setenv("DB_NAME", "unqualified")
+    payload = json.loads(migrate.DEV_MANIFEST_PATH.read_text())
+    entry = payload["deferred_release_migrations"][0]
+    if mutation == "missing_deferral":
+        del payload["deferred_release_migrations"]
+    elif mutation == "empty_deferral":
+        payload["deferred_release_migrations"] = []
+    elif mutation == "checksum":
+        entry["checksum_sha256"] = "0" * 64
+    elif mutation == "duplicate":
+        payload["deferred_release_migrations"].append(dict(entry))
+    elif mutation == "unknown":
+        entry["filename"] = "../249_one_chat_history_legacy_cutover.sql"
+    elif mutation == "reason":
+        entry["reason"] = " "
+    elif mutation == "project_manifest":
+        payload["target_gcp_project_id"] = "hushh-pda"
+    manifest = tmp_path / "dev_migration_manifest.json"
+    manifest.write_text(json.dumps(payload))
+    monkeypatch.setattr(migrate, "DEV_MANIFEST_PATH", manifest)
+    apply = AsyncMock()
+    monkeypatch.setattr(migrate, "apply_migration_files", apply)
+    pool = AsyncMock()
+    canonical = migrate.release_migration_files("production")
+    cleanup = "249_one_chat_history_legacy_cutover.sql"
+    assert cleanup in canonical
+    if refused:
+        with pytest.raises(RuntimeError, match="deferr|checksum|deferral"):
+            await migrate.run_release_migration(pool, mode=mode)
+        apply.assert_not_awaited()
+    else:
+        await migrate.run_release_migration(pool, mode=mode)
+        apply.assert_awaited_once()
+        selected = apply.await_args.args[1]
+        assert selected == tuple(name for name in canonical if not (deferred and name == cleanup))
+    # The baseline and production/UAT truth remain canonical, even in Dev.
+    assert migrate.release_migration_files("production") == canonical
+    assert cleanup in migrate.release_migration_files("uat")
