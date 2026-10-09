@@ -433,7 +433,7 @@ export async function createReviewerSessionHarness({
   async function assertVisibleVaultChallenge(browser, redirect) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
-    const challengeTimeoutMs = Math.min(timeoutMs, 60_000);
+    const challengeTimeoutMs = Math.min(timeoutMs, operatorIssued ? 180_000 : 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
     const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, reviewerAuthMode });

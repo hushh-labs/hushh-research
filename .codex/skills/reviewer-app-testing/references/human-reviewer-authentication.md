@@ -33,6 +33,18 @@ exist and be enabled. The real Firebase Admin token carries `hushh_review_mint=u
 this is environment containment, not proof of service-level isolation. No backend
 mint response is intercepted or manufactured.
 
+The private pipe adapter defaults to a 55-second issuance budget. Operators may
+select an explicit `timeoutMs` up to 180 seconds when measured local or provider
+latency requires it; it remains a finite deadline with no retry or authentication
+fallback. The 2026-10-09 dedicated-preview timing probe passed the canonical
+checks in 88 seconds, so that headless rehearsal uses a 120-second budget and a
+longer matching browser admission deadline. The separate cold-visible-challenge
+check uses that operator admission budget, capped at 180 seconds; other modes
+retain their existing 60-second challenge budget. Tokens and provider diagnostics
+stay in memory. Failure retires partial output and terminates the owned issuer,
+with a one-second graceful window before escalation; the adapter rejects only
+after its pipes close. Timeout does not grant admission.
+
 One main frame at the exact origin may request one token for its expected UID.
 Firebase uses in-memory persistence before exchange. The browser helper refuses
 production and native execution. Failed issuance or subsequent canonical identity

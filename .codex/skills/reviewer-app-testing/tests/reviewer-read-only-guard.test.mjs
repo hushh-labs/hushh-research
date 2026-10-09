@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { installReadOnlyMutationGuard } from "../scripts/reviewer-session-harness.mjs";
+import { createReviewerSessionHarness, installReadOnlyMutationGuard } from "../scripts/reviewer-session-harness.mjs";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -10,8 +10,94 @@ import { createCommerceMutationAdmission } from "../scripts/scope-commerce-rehea
 import { newCommerceState, validateCommerceState, actionId, acquireCommerceStateLease, saveCommerceState, loadCommerceState } from "../scripts/scope-commerce-rehearsal-state.mjs";
 import { verifyProviderPreflight, verifyApplicationReadiness, verifyPreparation, verifyQuote, unusedCalendarRefund } from "../scripts/scope-commerce-rehearsal-contract.mjs";
 import { parseCommerceArguments } from "../scripts/verify-reviewer-scope-commerce.mjs";
+import { createOperatorReviewerTokenProvider } from "../scripts/reviewer-operator-token-provider.mjs";
 
 const APP_ORIGIN = "https://uat.one.hushh.ai";
+
+test("operator token transport enforces its explicit finite budget without retaining private output", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "hussh-operator-budget-"));
+  const configuration = { repoRoot, appOrigin: APP_ORIGIN, reviewerBindingFile: "synthetic-binding" };
+  try {
+    for (const timeoutMs of [0, -1, NaN, Infinity, 180_001]) {
+      assert.throws(() => createOperatorReviewerTokenProvider({ ...configuration, timeoutMs }), /budget refused/);
+    }
+    const executable = path.join(repoRoot, "consent-protocol/.venv/bin/python");
+    const script = path.join(repoRoot, ".codex/skills/reviewer-app-testing/scripts/reviewer_operator_token.py");
+    await fs.mkdir(path.dirname(executable), { recursive: true });
+    await fs.mkdir(path.dirname(script), { recursive: true });
+    await fs.writeFile(executable, `#!/bin/sh\nexec "${process.execPath}" "$@"\n`, { mode: 0o700 });
+    await fs.writeFile(script, `let input = ""; process.stdin.on("data", part => input += part); process.stdin.on("end", () => {
+      const binding = JSON.parse(input);
+      if (binding.requested_uid !== "synthetic-owner" || binding.app_origin !== "${APP_ORIGIN}") process.exit(1);
+      process.stderr.write("synthetic-private-diagnostic");
+      setTimeout(() => process.stdout.write("synthetic-token"), 100);
+    });`);
+    assert.equal(await createOperatorReviewerTokenProvider({ ...configuration, timeoutMs: 5_000 })("synthetic-owner"), "synthetic-token");
+    await assert.rejects(createOperatorReviewerTokenProvider({ ...configuration, timeoutMs: 1 })("synthetic-owner"), /^Error: Operator reviewer token unavailable\.$/);
+    const pidFile = path.join(repoRoot, "synthetic-issuer-pid");
+    await fs.writeFile(script, `const fs = require("node:fs");
+      process.on("SIGTERM", () => {});
+      fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+      process.stdout.write("synthetic-private-partial-token");
+      process.stderr.write("synthetic-private-diagnostic");
+      setInterval(() => process.stdout.write("synthetic-private-late-output"), 50);
+    `);
+    let issuerPid;
+    try {
+      await assert.rejects(createOperatorReviewerTokenProvider({ ...configuration, timeoutMs: 2_000 })("synthetic-owner"), /^Error: Operator reviewer token unavailable\.$/);
+      issuerPid = Number(await fs.readFile(pidFile, "utf8"));
+      assert.throws(() => process.kill(issuerPid, 0), { code: "ESRCH" });
+      issuerPid = 0;
+    } finally {
+      issuerPid ??= Number(await fs.readFile(pidFile, "utf8").catch(() => ""));
+      if (issuerPid > 0) {
+        try { process.kill(issuerPid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+      }
+    }
+  } finally { await fs.rm(repoRoot, { recursive: true, force: true }); }
+});
+
+test("cold operator admission waits for the owner-bound challenge without injecting a passphrase", async (t) => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "hussh-cold-admission-"));
+  const previousMode = process.env.REVIEWER_AUTH_MODE;
+  let now = 0;
+  let closed = false;
+  t.mock.method(Date, "now", () => now);
+  try {
+    process.env.REVIEWER_AUTH_MODE = "operator_issued_token";
+    const webDir = path.join(repoRoot, "hushh-webapp");
+    await fs.mkdir(path.join(webDir, "node_modules/playwright"), { recursive: true });
+    await fs.mkdir(path.join(webDir, "scripts/testing"), { recursive: true });
+    await fs.writeFile(path.join(webDir, "package.json"), "{}");
+    await fs.writeFile(path.join(webDir, "node_modules/playwright/index.js"), "module.exports = { chromium: {} };");
+    await fs.writeFile(path.join(webDir, "scripts/testing/reviewer-test-identity.mjs"), "export {};");
+    const harness = await createReviewerSessionHarness({ repoRoot, appOrigin: APP_ORIGIN, timeoutMs: 180_000,
+      reviewerIdentity: { reviewerUid: "synthetic-owner", reviewerVaultPassphrase: "synthetic-private-phrase" },
+      reviewerTokenProvider: async () => "synthetic-token" });
+    const page = {
+      setDefaultTimeout() {}, setDefaultNavigationTimeout() {}, on() {}, exposeBinding: async () => {},
+      addInitScript: async (_script, args) => assert.equal(args.vaultPassphrase, ""),
+      goto: async () => {}, getByRole: () => ({ isVisible: async () => false }),
+      locator: selector => { assert.equal(selector, "#unlock-passphrase"); return { isVisible: async () => true }; },
+      evaluate: async (_script, expectedUid) => {
+        if (expectedUid === undefined) return { path: "/login", title: "Synthetic admission", bootstrapState: "authenticating" };
+        assert.equal(expectedUid, "synthetic-owner");
+        return { matches: now >= 88_000, state: now >= 88_000 ? "authenticated" : "authenticating" };
+      },
+      waitForTimeout: async delay => { now += delay; },
+    };
+    await harness.assertVisibleVaultChallenge({ newContext: async () => ({
+      newPage: async () => page, route: async () => {}, close: async () => { closed = true; },
+    }) }, "/one");
+    assert.equal(now, 88_000);
+    assert.equal(closed, true);
+  } finally {
+    if (previousMode === undefined) delete process.env.REVIEWER_AUTH_MODE;
+    else process.env.REVIEWER_AUTH_MODE = previousMode;
+    t.mock.restoreAll();
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
 
 function requestFor(handler, method, url, body = undefined) {
   const result = { forwarded: false, response: null };
