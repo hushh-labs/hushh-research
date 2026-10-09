@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type Ref,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
@@ -18,7 +19,6 @@ import {
   ExternalLink,
   Lock,
   Mail,
-  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -28,6 +28,17 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Sheet,
   SheetContent,
@@ -242,20 +253,14 @@ function CircularCheckbox({
         onChange();
       }}
       className={cn(
-        "mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border transition-[transform,colors,box-shadow] duration-200 motion-reduce:transition-none",
+        "grid size-9 shrink-0 place-items-center rounded-full border transition-[transform,colors,box-shadow] duration-200 motion-reduce:transition-none",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50",
         checked
           ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-white shadow-[0_3px_10px_color-mix(in_oklab,var(--app-accent)_28%,transparent)]"
-          : "border-border/80 bg-background text-transparent hover:border-[color:var(--app-accent)]",
+          : "border-border/80 bg-background text-[color:var(--app-accent)] hover:border-[color:var(--app-accent)]",
       )}
     >
-      <Check
-        className={cn(
-          "size-4 transition-transform duration-200 motion-reduce:transition-none",
-          checked ? "scale-100" : "scale-50",
-        )}
-        aria-hidden="true"
-      />
+      <Check className="size-4" aria-hidden="true" />
     </button>
   );
 }
@@ -310,13 +315,11 @@ function TodoRow({
   saving,
   onToggle,
   onDelete,
-  onEdit,
 }: {
   task: TodoItem;
   saving: boolean;
   onToggle: (task: TodoItem, complete: boolean) => void;
-  onDelete: (task: TodoItem) => void;
-  onEdit?: (task: TodoItem) => void;
+  onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
 }) {
   const swipe = useRowSwipe({
     enabled: !saving,
@@ -324,20 +327,13 @@ function TodoRow({
     onDelete: () => onDelete(task),
   });
   const source = task.sourceAgent;
-  const canEdit = task.type === "manual" && Boolean(onEdit);
 
   return (
     <div
       data-no-route-swipe
-      className="group flex min-h-[72px] touch-pan-y items-start gap-3 px-4 py-3.5"
+      className="flex min-h-[72px] touch-pan-y items-start gap-3 px-4 py-3.5"
       {...swipe}
     >
-      <CircularCheckbox
-        checked={task.status === "done"}
-        disabled={saving}
-        label={`Mark ${task.title} as ${task.status === "done" ? "not completed" : "completed"}`}
-        onChange={() => onToggle(task, task.status !== "done")}
-      />
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p
@@ -391,27 +387,21 @@ function TodoRow({
           </p>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-        {canEdit ? (
-          <button
-            type="button"
-            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
-            aria-label={`Edit ${task.title}`}
-            onClick={() => onEdit?.(task)}
-            disabled={saving}
-          >
-            <Pencil className="size-4" aria-hidden="true" />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+      <div className="flex shrink-0 items-center gap-2">
+        <CircularCheckbox
+          checked={task.status === "done"}
+          disabled={saving}
+          label={`Mark ${task.title} as ${task.status === "done" ? "not completed" : "completed"}`}
+          onChange={() => onToggle(task, task.status !== "done")}
+        />
+        <ShellActionSurface
+          className="text-destructive hover:text-destructive"
           aria-label={`Delete ${task.title}`}
-          onClick={() => onDelete(task)}
+          onClick={(event) => onDelete(task, event.currentTarget)}
           disabled={saving}
         >
           <Trash2 className="size-4" aria-hidden="true" />
-        </button>
+        </ShellActionSurface>
       </div>
     </div>
   );
@@ -422,14 +412,12 @@ function TodoRows({
   savingTaskId,
   onToggle,
   onDelete,
-  onEdit,
   contained = false,
 }: {
   tasks: TodoItem[];
   savingTaskId: string | null;
   onToggle: (task: TodoItem, complete: boolean) => void;
-  onDelete: (task: TodoItem) => void;
-  onEdit?: (task: TodoItem) => void;
+  onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
   contained?: boolean;
 }) {
   return (
@@ -460,7 +448,6 @@ function TodoRows({
                 saving={savingTaskId === task.id}
                 onToggle={onToggle}
                 onDelete={onDelete}
-                onEdit={onEdit}
               />
             ))}
           </div>
@@ -470,15 +457,13 @@ function TodoRows({
   );
 }
 
-function TodoEditorSheet({
+function TodoAddItemSheet({
   open,
-  task,
   saving,
   onOpenChange,
   onSave,
 }: {
   open: boolean;
-  task: TodoItem | null;
   saving: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (input: EditableTodoFields) => Promise<void>;
@@ -490,11 +475,11 @@ function TodoEditorSheet({
 
   useEffect(() => {
     if (!open) return;
-    setTitle(task?.title ?? "");
-    setDate(task?.date ?? "");
-    setTime(task?.time ?? "");
-    setNotes(task?.notes ?? "");
-  }, [open, task]);
+    setTitle("");
+    setDate("");
+    setTime("");
+    setNotes("");
+  }, [open]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -523,12 +508,10 @@ function TodoEditorSheet({
         <form onSubmit={(event) => void submit(event)}>
           <SheetHeader className="px-5 pb-3 pt-2 text-left">
             <SheetTitle className="text-xl tracking-[-0.02em]">
-              {task ? "Edit item" : "Add item"}
+              Add item
             </SheetTitle>
             <SheetDescription>
-              {task
-                ? "Keep the details simple and useful."
-                : "This stays encrypted in your private agent."}
+              This stays encrypted in your private agent.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 px-5 pb-2">
@@ -621,12 +604,15 @@ function TodoEditorSheet({
 function AddItemButton({
   disabled,
   onClick,
+  buttonRef,
 }: {
   disabled: boolean;
   onClick: () => void;
+  buttonRef: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -642,11 +628,13 @@ export function TodoListPage() {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<TodoItem | null>(null);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
   const [completedOpen, setCompletedOpen] = useState(false);
+  const [deleteRequest, setDeleteRequest] = useState<TodoItem | null>(null);
+  const deleteTriggerRef = useRef<HTMLElement | null>(null);
+  const addItemRef = useRef<HTMLButtonElement | null>(null);
 
   const userId = user?.uid ?? null;
   const writeReady = Boolean(
@@ -709,41 +697,7 @@ export function TodoListPage() {
 
   const saveTask = async (input: EditableTodoFields) => {
     if (!userId || !vaultKey || !vaultOwnerToken) return;
-    const current = editingTask;
-    const taskId = current?.id ?? "new-item";
-    setSavingTaskId(taskId);
-
-    if (current) {
-      const updatedAt = new Date().toISOString();
-      const optimistic = { ...current, ...input, updatedAt };
-      const operation = TodoListPkmService.update({
-        userId,
-        vaultKey,
-        vaultOwnerToken,
-        taskId: current.id,
-        update: input,
-      }).then(requireSaved);
-      void morphyToast.promise(operation, {
-        loading: "Saving item…",
-        success: "Item saved.",
-        error: "Item couldn’t be saved. Try again.",
-      });
-      try {
-        await operation;
-        setTasks((currentTasks) =>
-          currentTasks.map((task) =>
-            task.id === current.id ? optimistic : task,
-          ),
-        );
-        setEditorOpen(false);
-        setEditingTask(null);
-      } catch {
-        // The shared promise toast owns the failure state.
-      } finally {
-        setSavingTaskId(null);
-      }
-      return;
-    }
+    setSavingTaskId("new-item");
 
     const operation = createTodo(
       { ...input, type: "manual" },
@@ -758,7 +712,6 @@ export function TodoListPage() {
       const { task } = await operation;
       setTasks((currentTasks) => [task, ...currentTasks]);
       setEditorOpen(false);
-      setEditingTask(null);
     } catch {
       // The shared promise toast owns the failure state.
     } finally {
@@ -849,8 +802,16 @@ export function TodoListPage() {
   };
 
   const openCreate = () => {
-    setEditingTask(null);
     setEditorOpen(true);
+  };
+
+  const requestDelete = (task: TodoItem, trigger?: HTMLButtonElement) => {
+    deleteTriggerRef.current =
+      trigger ??
+      (document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
+    setDeleteRequest(task);
   };
 
   return (
@@ -886,6 +847,7 @@ export function TodoListPage() {
             </h1>
           </div>
           <AddItemButton
+            buttonRef={addItemRef}
             disabled={!writeReady || itemsLoading}
             onClick={openCreate}
           />
@@ -931,12 +893,8 @@ export function TodoListPage() {
                 tasks={pending}
                 savingTaskId={savingTaskId}
                 onToggle={toggleTask}
-                onDelete={deleteTask}
+                onDelete={requestDelete}
                 contained
-                onEdit={(task) => {
-                  setEditingTask(task);
-                  setEditorOpen(true);
-                }}
               />
             ) : (
               <div className="flex items-start gap-3 px-4 py-5 text-sm text-muted-foreground">
@@ -981,12 +939,7 @@ export function TodoListPage() {
                   tasks={completed}
                   savingTaskId={savingTaskId}
                   onToggle={toggleTask}
-                  onDelete={deleteTask}
-                  onEdit={(task) => {
-                    if (task.type !== "manual") return;
-                    setEditingTask(task);
-                    setEditorOpen(true);
-                  }}
+                  onDelete={requestDelete}
                 />
               </div>
             ) : null}
@@ -994,13 +947,49 @@ export function TodoListPage() {
         ) : null}
       </AppPageContentRegion>
 
-      <TodoEditorSheet
+      <TodoAddItemSheet
         open={editorOpen}
-        task={editingTask}
         saving={savingTaskId !== null}
         onOpenChange={setEditorOpen}
         onSave={saveTask}
       />
+      <AlertDialog
+        open={deleteRequest !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteRequest(null);
+        }}
+      >
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = deleteTriggerRef.current;
+            if (trigger?.isConnected && !trigger.hasAttribute("disabled")) {
+              trigger.focus();
+            } else {
+              addItemRef.current?.focus();
+            }
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes “{deleteRequest?.title}” from your to-do list. Calendar
+              events and emails stay in place.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (deleteRequest) void deleteTask(deleteRequest);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppPageShell>
   );
 }

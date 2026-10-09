@@ -120,6 +120,23 @@ const METADATA = {
 let pkmBlob: Record<string, unknown>;
 
 describe("agent PKM memory helpers", () => {
+  it("indexes current businesses by exact UID without sharing origin bookkeeping or other owners", async () => {
+    pkmGetMetadataMock.mockResolvedValue({ ...METADATA, domains: [{ key: "professional" }] });
+    pkmBlob = { professional: { businesses: { entities: {
+      first: { name: "Example", phone: "+15555550100", _business_origin: { business_uid: "business-one" } },
+      second: { name: "Example", _business_origin: { business_uid: "business-two" } },
+    } } } };
+    await AgentPkmContextStore.load({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" });
+    const entries = AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "business-one" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ entity_id: "first", domain: "professional", entity_scope: "businesses" });
+    expect(JSON.parse(entries[0]!.message)).toEqual({ name: "Example", phone: "+15555550100" });
+    expect(JSON.stringify(entries)).not.toContain("business-one");
+    expect(AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "unmatched" })).toEqual([]);
+    expect(() => AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "other-owner", businessUid: "business-one" })).toThrow();
+    clearAgentPkmContext();
+    expect(() => AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "business-one" })).toThrow();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     clearAgentPkmContext();
@@ -1103,6 +1120,22 @@ describe("agent PKM memory helpers", () => {
       }),
     );
     consoleError.mockRestore();
+  });
+
+  it("identifies an outdated backend contract without exposing rejected business details", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    apiFetchMock.mockResolvedValue({ ok: false, status: 422, json: async () => ({
+      detail: [{ type: "literal_error", loc: ["body", "memory_profile"], input: "private source" }],
+    }) });
+    try {
+      await expect(previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "vault_token",
+        message: "private source", currentDomains: [], memoryProfile: "business_directory_v1",
+      })).rejects.toMatchObject({ name: "PkmBackendContractMismatch",
+        message: "Review is unavailable until the backend update finishes." });
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain("private source");
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("saves reviewed PKM cards through the write coordinator and invalidates cached context", async () => {

@@ -302,6 +302,11 @@ class OfferedCalendarEvents(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_ids: list[str] = Field(default_factory=list, max_length=10)
     calendar_id: str = "primary"
+    # Continuation stays in the live session; query text/cursors never persist.
+    start_at: str | None = Field(default=None, exclude=True)
+    end_at: str | None = Field(default=None, exclude=True)
+    query: str | None = Field(default=None, exclude=True)
+    next_page_token: str | None = Field(default=None, max_length=2048, exclude=True)
     grant_binding: tuple[str, ...] = ()
     offered_at: str | None = None
 
@@ -311,6 +316,7 @@ class OfferedCalendarList(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     calendar_ids: list[str] = Field(default_factory=list, max_length=20)
+    next_page_token: str | None = Field(default=None, max_length=2048, exclude=True)
     grant_binding: tuple[str, ...] = ()
     offered_at: str | None = None
 
@@ -567,24 +573,48 @@ class EntityContext(BaseModel):
         self.last_person_user_id = person.user_id
 
     def offer_calendar_events(
-        self, event_ids: list[str], *, calendar_id: str, grant_binding: tuple[str, ...]
+        self,
+        event_ids: list[str],
+        *,
+        calendar_id: str,
+        grant_binding: tuple[str, ...],
+        start_at: str | None = None,
+        end_at: str | None = None,
+        query: str | None = None,
+        next_page_token: str | None = None,
     ) -> None:
         self.offered_calendar_events = OfferedCalendarEvents(
             event_ids=list(event_ids)[:10],
             calendar_id=calendar_id,
+            start_at=start_at,
+            end_at=end_at,
+            query=query,
+            next_page_token=next_page_token,
             grant_binding=grant_binding,
             offered_at=self._now().isoformat(),
         )
 
     def calendar_offer_is_fresh(self) -> bool:
         offer = self.offered_calendar_events
-        if offer is None or not offer.event_ids or not offer.grant_binding or not offer.offered_at:
+        if (
+            offer is None
+            or not (offer.event_ids or offer.next_page_token)
+            or not offer.grant_binding
+            or not offer.offered_at
+        ):
             return False
         return self._calendar_offer_age_is_fresh(offer.offered_at)
 
-    def offer_calendars(self, calendar_ids: list[str], *, grant_binding: tuple[str, ...]) -> None:
+    def offer_calendars(
+        self,
+        calendar_ids: list[str],
+        *,
+        grant_binding: tuple[str, ...],
+        next_page_token: str | None = None,
+    ) -> None:
         self.offered_calendars = OfferedCalendarList(
             calendar_ids=list(calendar_ids)[:20],
+            next_page_token=next_page_token,
             grant_binding=grant_binding,
             offered_at=self._now().isoformat(),
         )
@@ -593,7 +623,7 @@ class EntityContext(BaseModel):
         offer = self.offered_calendars
         if (
             offer is None
-            or not offer.calendar_ids
+            or not (offer.calendar_ids or offer.next_page_token)
             or not offer.grant_binding
             or not offer.offered_at
         ):

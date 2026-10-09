@@ -8,6 +8,7 @@ call Google until the owner presses the confirmation control.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Literal
@@ -26,6 +27,7 @@ from hushh_mcp.services.google_calendar_service import (
     get_google_calendar_service,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.owner_time import resolve_calendar_time
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +190,10 @@ async def _run_calendar_read(
     """
     try:
         user_id = _user_id(tool_context)
-        return await call(user_id)
+        async with asyncio.timeout(25):
+            return await call(user_id)
+    except TimeoutError:
+        return {"status": "timeout", "message": "Calendar took too long. Please try again."}
     except GoogleConnectionError as exc:
         directive = _handle_connection_error(tool_context, exc, access_level="read")
         if directive is not None:
@@ -226,7 +231,7 @@ async def _run_calendar_read(
             }
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
     except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
-        logger.exception("one_adk_calendar_call_failed reason=unexpected")
+        logger.warning("one_adk_calendar_call_failed reason=unexpected")
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
 
 
@@ -243,12 +248,17 @@ def _iso_window(tool_context: ToolContext, days: int) -> tuple[str, str]:
 def _calendar_iso(value: str, tool_context: ToolContext) -> str:
     """Use the person's declared timezone only when the model omitted an offset."""
     try:
+        resolved = resolve_calendar_time(str(value), timezone_name=_timezone(tool_context))
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return str(value)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=ZoneInfo(_timezone(tool_context)))
-    return parsed.isoformat()
+        return (
+            parsed if parsed.tzinfo else resolved.astimezone(ZoneInfo(_timezone(tool_context)))
+        ).isoformat()
+    except (ValueError, OverflowError) as exc:
+        raise GoogleConnectionError(
+            "Use a valid Calendar time with an explicit offset when local time repeats",
+            status_code=422,
+            reason_code="calendar_time_invalid",
+        ) from exc
 
 
 async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str, Any]:
@@ -563,7 +573,7 @@ async def _propose(
         logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
     except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
-        logger.exception("one_adk_calendar_call_failed reason=unexpected")
+        logger.warning("one_adk_calendar_call_failed reason=unexpected")
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
     plan = proposal.get("plan")
     proposal_id = proposal.get("proposal_id")

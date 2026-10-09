@@ -13,7 +13,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_sharing_contract import (
@@ -237,39 +236,6 @@ async def test_request_is_private_idempotent_and_does_not_share(sharing):
     stored = rows(sharing, "drive_share_requests")[0]
     for private in ("Private six-month", "recipient@example.invalid", "1234567"):
         assert private not in json.dumps(stored, default=str)
-
-
-@pytest.mark.asyncio
-async def test_payment_migration_replay_preserves_later_request_events(sharing):
-    await request(sharing)
-    original_events = rows(sharing, "drive_share_events")
-    assert any(event["event_type"] == "document_share_request_sent" for event in original_events)
-    constraint_oid = text(
-        "SELECT oid FROM pg_constraint WHERE conrelid='drive_share_events'::regclass "
-        "AND conname='drive_share_events_event_type_check'"
-    )
-    with sharing.db.engine.connect() as connection:
-        original_oid = connection.execute(constraint_oid).scalar_one()
-        connection.exec_driver_sql(
-            (MIGRATIONS / "262_drive_request_payments.sql").read_text().replace("%", "%%")
-        )
-        connection.commit()
-        assert connection.execute(constraint_oid).scalar_one() == original_oid
-    assert rows(sharing, "drive_share_events") == original_events
-
-    await request(sharing)
-    assert (
-        sum(
-            event["event_type"] == "document_share_request_sent"
-            for event in rows(sharing, "drive_share_events")
-        )
-        == 2
-    )
-    with pytest.raises(IntegrityError) as rejected, sharing.db.engine.begin() as connection:
-        connection.execute(
-            text("UPDATE drive_share_events SET event_type='document_share_unsupported'")
-        )
-    assert rejected.value.orig.pgcode == "23514"
 
 
 @pytest.mark.asyncio

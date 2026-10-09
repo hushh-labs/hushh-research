@@ -75,9 +75,8 @@ class _RateLimitedCalendar:
 
 class _FlakyCalendar:
     async def list_events(self, **kwargs: object) -> dict[str, object]:
-        # Not a GoogleConnectionError at all -- what the underlying HTTP
-        # client itself raises on a timeout or connection failure.
-        raise TimeoutError("connect timed out")
+        # Unexpected provider failures must not expose their raw messages.
+        raise RuntimeError("private provider detail")
 
 
 def test_calendar_summary_fails_clean_on_a_non_reauth_provider_error(monkeypatch) -> None:  # noqa: ANN001
@@ -97,6 +96,18 @@ def test_calendar_summary_fails_clean_on_an_unexpected_exception(monkeypatch) ->
     result = asyncio.run(tools.calendar_summary(_context()))
 
     assert result == {"status": "failed", "message": tools._CALENDAR_UNAVAILABLE_MESSAGE}
+
+
+def test_calendar_summary_reports_timeout_without_provider_details(monkeypatch) -> None:
+    class SlowCalendar:
+        async def list_events(self, **kwargs: object) -> dict[str, object]:
+            raise TimeoutError("private provider detail")
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: SlowCalendar())
+    assert asyncio.run(tools.calendar_summary(_context())) == {
+        "status": "timeout",
+        "message": "Calendar took too long. Please try again.",
+    }
 
 
 def test_calendar_summary_fails_clean_when_signed_out(monkeypatch) -> None:  # noqa: ANN001

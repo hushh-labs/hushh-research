@@ -328,7 +328,7 @@ export async function previewAgentPkmMemory(params: {
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
-  memoryProfile?: "general" | "kyc_identity_v1";
+  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1";
   /** Existing details the merge agent may extend or correct (explicit saves). */
   reconciliationCandidates?: readonly PkmReconciliationCandidate[];
   signal?: AbortSignal;
@@ -369,11 +369,14 @@ export async function previewAgentPkmMemory(params: {
 
   if (!response.ok) {
     let errorCode = `http_${response.status}`;
+    let profileMismatch = false;
     try {
       const payload = await response.json() as {
-        detail?: { type?: unknown; code?: unknown } | Array<{ type?: unknown; code?: unknown }>;
+        detail?: { type?: unknown; code?: unknown; loc?: unknown } | Array<{ type?: unknown; code?: unknown; loc?: unknown }>;
       };
       const detail = Array.isArray(payload?.detail) ? payload.detail[0] : payload?.detail;
+      profileMismatch = response.status === 422 && detail?.type === "literal_error" &&
+        Array.isArray(detail.loc) && detail.loc.at(-1) === "memory_profile";
       if (detail && typeof detail === "object") {
         const candidate = detail.code || detail.type;
         if (typeof candidate === "string" && candidate.trim()) {
@@ -389,6 +392,11 @@ export async function previewAgentPkmMemory(params: {
       status: response.status,
       error_code: errorCode,
     });
+    if (profileMismatch) {
+      const error = new Error("Review is unavailable until the backend update finishes.");
+      error.name = "PkmBackendContractMismatch";
+      throw error;
+    }
     throw new Error(`Memory preparation failed (${errorCode}). Please try again.`);
   }
 

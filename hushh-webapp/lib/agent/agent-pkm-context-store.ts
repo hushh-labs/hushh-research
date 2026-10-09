@@ -66,6 +66,9 @@ type AgentPkmWorkingSet = {
   userId: string;
   metadata: PersonalKnowledgeModelMetadata | null;
   inventory: PkmInventory;
+  /** Current business records only; UID bookkeeping never enters chat context. */
+  businesses: Map<string, PkmReconciliationCandidate[]>;
+  businessInventoryComplete: boolean;
   /** The owner's Settings style choices, sent apart from the packet. */
   ownerStyle: OwnerStyleSettings;
   /**
@@ -377,6 +380,30 @@ function snapshotsToBlob(
   );
 }
 
+function businessInventory(blob: Record<string, unknown>): Map<string, PkmReconciliationCandidate[]> {
+  const result = new Map<string, PkmReconciliationCandidate[]>();
+  for (const [domain, data] of Object.entries(blob)) {
+    if (isLabelOnly(domain) || shouldSkipPkmAgentContextKey(domain) || !isPlainRecord(data)) continue;
+    const branch = data.businesses;
+    if (!isPlainRecord(branch) || !isPlainRecord(branch.entities)) continue;
+    for (const [id, value] of Object.entries(branch.entities)) {
+      if (!isPlainRecord(value) || value.status === "deleted" || value.active === false || shouldSkipPkmAgentContextKey(id)) continue;
+      const origin = value._business_origin;
+      const uid = isPlainRecord(origin) && typeof origin.business_uid === "string" ? origin.business_uid : "";
+      if (!uid) continue;
+      const fields = Object.fromEntries(Object.entries(value).filter(([key, child]) =>
+        !shouldSkipPkmAgentContextKey(key) && typeof child === "string" && child.trim(),
+      ).map(([key, child]) => [key, maskSecretSpans(child as string)]));
+      const message = JSON.stringify(fields);
+      if (!Object.keys(fields).length || message.length > 4000) continue;
+      const existing = result.get(uid) || [];
+      existing.push({ domain, entity_id: id, entity_scope: "businesses", message, active: true });
+      result.set(uid, existing);
+    }
+  }
+  return result;
+}
+
 function formatFactPath(fact: PkmInventoryFact): string {
   const displayPath = fact.path
     .filter((segment) => !/^\d+$/.test(segment))
@@ -673,6 +700,15 @@ export class AgentPkmContextStore {
       .map(({ score: _score, ...candidate }) => candidate);
   }
 
+  static findBusinessReconciliationCandidates(params: { userId: string; businessUid: string }): PkmReconciliationCandidate[] {
+    const workingSet = workingSets.get(params.userId);
+    if (!workingSet || !workingSet.businessInventoryComplete)
+      throw new Error("Existing business details could not be checked. Try again.");
+    const candidates = workingSet.businesses.get(params.businessUid) || [];
+    if (candidates.length > 1) throw new Error("This business has conflicting saved records. Review your saved details first.");
+    return candidates.map(candidate => ({ ...candidate }));
+  }
+
   static async load(params: {
     userId: string;
     vaultKey: string;
@@ -723,7 +759,7 @@ export class AgentPkmContextStore {
       // Resolve every permitted domain before publishing the working set. The
       // batch resource still uses encrypted device snapshots when available,
       // but it must not publish a partial packet while other domains refresh.
-      const { snapshots } = await PkmDomainResourceService.getManyStaleFirst({
+      const { snapshots, failedDomains } = await PkmDomainResourceService.getManyStaleFirst({
         userId: params.userId,
         domains,
         vaultKey: params.vaultKey,
@@ -738,6 +774,8 @@ export class AgentPkmContextStore {
         userId: params.userId,
         metadata,
         inventory: buildPkmInventory(blob),
+        businesses: businessInventory(blob),
+        businessInventoryComplete: !failedDomains?.length && domains.every(domain => Boolean(snapshots[domain])),
         ownerStyle: ownerStyleFromBranch(
           identity && typeof identity === "object" ? (identity as Record<string, unknown>)[OWNER_STYLE_BRANCH] : null,
         ),

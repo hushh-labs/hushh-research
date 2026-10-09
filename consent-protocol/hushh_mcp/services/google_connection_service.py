@@ -58,6 +58,33 @@ _SERVICE_SCOPES: dict[GoogleService, dict[str, tuple[str, ...]]] = {
 }
 
 
+def _scopes_cover(granted: set[str], required: set[str]) -> bool:
+    """Apply Google's documented scope implications without widening consent."""
+    prefix = "https://www.googleapis.com/auth/"
+    calendar = prefix + "calendar"
+    implications = {
+        calendar + ".events.readonly": {
+            calendar + ".events",
+            calendar + ".readonly",
+            calendar,
+        },
+        calendar + ".events": {calendar},
+        calendar + ".freebusy": {
+            calendar + ".events.freebusy",
+            calendar + ".readonly",
+            calendar,
+        },
+        CALENDAR_LIST_READ_SCOPE: {
+            calendar + ".calendarlist",
+            calendar + ".readonly",
+            calendar,
+        },
+    }
+    return all(
+        scope in granted or bool(implications.get(scope, set()) & granted) for scope in required
+    )
+
+
 class GoogleConnectionError(RuntimeError):
     def __init__(
         self, message: str, *, status_code: int = 400, reason_code: str | None = None
@@ -485,7 +512,8 @@ class GoogleConnectionService:
                 scope for grant in grants.data for scope in _clean(grant.get("scope_csv")).split()
             }
             if prior_scopes and (
-                not _clean(token.get("scope")) or not prior_scopes.issubset(scopes.split())
+                not _clean(token.get("scope"))
+                or not _scopes_cover(set(scopes.split()), prior_scopes)
             ):
                 raise GoogleConnectionError(
                     "Keep the existing Google permissions when connecting another service.",
@@ -497,14 +525,18 @@ class GoogleConnectionService:
             and "https://www.googleapis.com/auth/calendar.events" in scopes.split()
             else "read"
         )
-        if not set(self.scopes(service, level)).issubset(scopes.split()):
+        if not _scopes_cover(set(scopes.split()), set(self.scopes(service, level))):
             raise GoogleConnectionError(
                 "The requested Google service permission was not granted", status_code=403
             )
         if (
             service == "calendar"
             and CALENDAR_LIST_READ_SCOPE in requested_scopes
-            and (CALENDAR_LIST_READ_SCOPE not in _clean(token.get("scope")).split())
+            and (
+                not _scopes_cover(
+                    set(_clean(token.get("scope")).split()), {CALENDAR_LIST_READ_SCOPE}
+                )
+            )
         ):
             raise GoogleConnectionError(
                 "Calendar list permission was not granted",
@@ -823,17 +855,28 @@ class GoogleConnectionService:
         )
         row = snapshot.data[0] if snapshot.data else None
         if not row or row.get("status") != "connected":
-            raise GoogleConnectionError(f"Connect {service_name} first", status_code=403)
+            reauthorization = bool(row and row.get("status") == "needs_reauth")
+            raise GoogleConnectionError(
+                f"Reconnect {service_name}" if reauthorization else f"Connect {service_name} first",
+                status_code=401 if reauthorization else 403,
+                reason_code="google_reauthorization_required"
+                if reauthorization
+                else "google_not_connected",
+            )
         if row.get("service_status") != "connected" or (
             access_level == "manage" and row.get("service_access_level") != "manage"
         ):
             raise GoogleConnectionError(
-                f"Additional {service_name} permission is required", status_code=403
+                f"Additional {service_name} permission is required",
+                status_code=403,
+                reason_code="google_permission_required",
             )
         granted_scopes = set(_clean(row.get("service_scope_csv")).split())
-        if not required_scopes.issubset(granted_scopes):
+        if not _scopes_cover(granted_scopes, required_scopes):
             raise GoogleConnectionError(
-                f"Additional {service_name} permission is required", status_code=403
+                f"Additional {service_name} permission is required",
+                status_code=403,
+                reason_code="google_permission_required",
             )
         expiry = row.get("access_token_expires_at")
         try:
@@ -931,8 +974,10 @@ class GoogleConnectionService:
                     "calendar_list_access": bool(
                         connection_active
                         and grant_status == "connected"
-                        and CALENDAR_LIST_READ_SCOPE
-                        in _clean(grant.get("scope_csv") if grant else "").split()
+                        and _scopes_cover(
+                            set(_clean(grant.get("scope_csv") if grant else "").split()),
+                            {CALENDAR_LIST_READ_SCOPE},
+                        )
                     )
                 }
                 if service == "calendar"
@@ -954,7 +999,7 @@ class GoogleConnectionService:
             row
             and row.get("connection_status") == "connected"
             and row.get("grant_status") == "connected"
-            and scope in _clean(row.get("scope_csv")).split()
+            and _scopes_cover(set(_clean(row.get("scope_csv")).split()), {scope})
         )
 
     async def read_grant_binding(
@@ -962,14 +1007,14 @@ class GoogleConnectionService:
     ) -> tuple[str, ...] | None:
         """Observe one exact owner/account/grant generation without returning tokens.
 
-        A token refresh changes the connection row's ``xmin`` too, so an
-        in-flight read may be discarded conservatively and retried by the owner.
+        The authorization generation changes on reconnect, not access-token
+        refresh. The service grant revision still fences revocation or scope changes.
         """
         if service not in {"drive", "calendar"}:
             return None
         result = await self._execute_raw_async(
             """SELECT c.provider_subject, c.status AS connection_status, c.connected_at,
-                      c.xmin::text AS connection_revision, g.status AS grant_status,
+                      c.refresh_token_ciphertext, g.status AS grant_status,
                       g.scope_csv, g.xmin::text AS grant_revision
                FROM google_provider_connections c
                JOIN google_service_grants g ON g.user_id = c.user_id AND g.provider = c.provider
@@ -983,10 +1028,10 @@ class GoogleConnectionService:
             not row
             or row.get("connection_status") != "connected"
             or row.get("grant_status") != "connected"
-            or not required <= granted
+            or not _scopes_cover(granted, required)
             or not row.get("provider_subject")
             or not row.get("connected_at")
-            or not row.get("connection_revision")
+            or not row.get("refresh_token_ciphertext")
             or not row.get("grant_revision")
         ):
             return None
@@ -995,7 +1040,13 @@ class GoogleConnectionService:
             service,
             str(row["provider_subject"]),
             str(row["connected_at"]),
-            str(row["connection_revision"]),
+            connection_generation(
+                {
+                    "provider_subject": row["provider_subject"],
+                    "refresh_token_ciphertext": row["refresh_token_ciphertext"],
+                    "status": row["connection_status"],
+                }
+            ),
             str(row["grant_revision"]),
         )
 
