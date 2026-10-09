@@ -312,6 +312,17 @@ async def test_after_activation_revoke_retains_actual_cost_and_returned_credit_h
         )
     ended = await service.revoke_purchase(owner_user_id="owner", purchase_id=p["purchaseId"])
     assert 0 < ended["refundedCents"] < 100
+    async with pool.acquire() as c:
+        term = await c.fetchrow(
+            "SELECT price_cents,duration_seconds,expires_at,revoked_at FROM scope_commerce_purchases WHERE purchase_id=$1",
+            UUID(p["purchaseId"]),
+        )
+    remaining_seconds = int((term["expires_at"] - term["revoked_at"]).total_seconds())
+    expected_refund = (2 * term["price_cents"] * remaining_seconds + term["duration_seconds"]) // (
+        2 * term["duration_seconds"]
+    )
+    assert ended["refundedCents"] == expected_refund
+    assert ended["revokedAt"] == term["revoked_at"].isoformat()
     assert await service.funding_fee_conservation() == {"balanced": True, "bad_lot_count": 0}
     assert ended["processingFeeMicroUsd"] == 333333
     assert (await service.earnings(owner_user_id="owner"))["debtCents"] == (

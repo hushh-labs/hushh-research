@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import copy
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -164,8 +165,9 @@ async def test_pre_activation_source_write_queues_continuous_owner_refresh_only(
     assert await continuous.grant.exports() == [None] * 4
 
 
+@pytest.mark.parametrize("ending", ["revocation", "expiry"])
 async def test_rollback_retains_account_obligations_and_paid_activation_enforcement(
-    paid_contract: PaidContract, monkeypatch: pytest.MonkeyPatch
+    paid_contract: PaidContract, monkeypatch: pytest.MonkeyPatch, ending: str
 ):
     ctx = paid_contract
     paid = await staged_purchase(ctx)
@@ -184,6 +186,18 @@ async def test_rollback_retains_account_obligations_and_paid_activation_enforcem
         purchase_id=paid.reservation.purchase_id, buyer_app_id="app"
     )
     assert active["accessAllowed"] is True
+    if ending == "expiry":
+        expiry = datetime.fromtimestamp(paid.grant.expires_at_ms / 1000, UTC)
+        async with ctx.pool.acquire() as conn:
+            await conn.execute("UPDATE contract_clock SET observed_at=$1", expiry)
+            assert await conn.fetchval(
+                "SELECT earnings_settled_at IS NULL FROM scope_commerce_purchases WHERE purchase_id=$1",
+                paid.reservation.purchase_id,
+            )
+        monkeypatch.setattr("hushh_mcp.services.scope_commerce.domain.utcnow", lambda: expiry)
+        assert await paid_admission.paid_grant_is_admitted(paid.grant.token, paid.metadata) is False
+        assert await paid.grant.exports() == [None] * 4
+        return
     revoke = await ctx.post(
         f"/purchases/{paid.reservation.purchase_id}/revoke",
         {"idempotency_key": str(uuid4())},

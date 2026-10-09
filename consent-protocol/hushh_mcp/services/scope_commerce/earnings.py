@@ -124,9 +124,10 @@ class AccessEarnings:
             await self._release_reservation(c, p)
         p = await self._row(
             c,
-            "UPDATE scope_commerce_purchases SET status='revoked',refunded_cents=$2,revoked_at=clock_timestamp(),staged_export=NULL WHERE purchase_id=$1 RETURNING *",
+            "UPDATE scope_commerce_purchases SET status='revoked',refunded_cents=$2,revoked_at=$3,staged_export=NULL WHERE purchase_id=$1 RETURNING *",
             p["purchase_id"],
             refund,
+            now,
         )
         return public(p)
 
