@@ -1563,7 +1563,12 @@ admission; shared-dev migration replay remains unchanged. Its focused tests and
 independent source review passed. Its unchanged serial local core subsequently
 passed in 976 seconds at `810932844754dc2e9e193a4afdd2ffb71f41e23a`, including
 9,862 protocol tests passed and 98 skipped. [PR #7666](https://github.com/hushh-labs/hushh-research/pull/7666)
-tracks the permanent correction; CI and governed landing remain required.
+tracks the permanent correction. [CI 37902314732](https://github.com/hushh-labs/hushh-research/actions/runs/37902314732)
+passed its selected gates, with intentional frontend/native path-lane skips.
+Admin SOP landing merged the exact head into main commit
+`3e0cfd05402f0619f25d20a88f829f3ea5f4cd84`; [post-merge smoke 37905273461](https://github.com/hushh-labs/hushh-research/actions/runs/37905273461)
+passed. This was an Admin queue bypass, not merge-queue execution. The merged
+temporary branch and worktree were removed after verifying preservation.
 The reviewer transport correction passed the canonical skill
 checks (15 tests), including confirmed termination of a SIGTERM-resistant issuer
 and an owner-bound cold challenge after 88 seconds. Negative controls fail when
@@ -1640,3 +1645,42 @@ files are retained under `db/legacy/` for dated preview provenance. Existing
 preview ledgers using those earlier IDs must remain on their pinned lineage
 until separately reconciled; they cannot replay this release as a renaming.
 The shared dev ledger was inspected on 2026-10-09 and contains neither old ID.
+
+### Governed Gemini bridge correction, 2026-10-09
+
+The owner selected the existing governed model bridge after native-project
+account enforcement. Candidate `c1df401dce0f63633157dbda56bf0d6bbffadf59` pins
+only `_GENAI_PROJECT_ID` to `hushh-vertex-personal54`. Application resources,
+runtime identity, database, secrets and Stripe policy remain dedicated to the
+preview. The bridge is already allowlisted by the existing Cloud Build contract;
+do not change the target's native `PROJECT` or substitute another credential.
+The deployment executes the selected candidate's substitution script, so
+redispatching old d1 cannot apply this correction.
+
+The corrected source passed 54 focused preview/deployment checks; restoring the
+native model-project expression fails the negative control. Its first core run
+passed 16,650 protocol tests and 400 Postgres tests, then stopped at web typecheck
+because a reused dependency tree lacked `@capacitor/browser`. Installing the
+candidate's own lockfile corrected that setup error without source or gate
+changes. A fresh complete core passed in 730 seconds, including 16,650 protocol
+tests, 400 Postgres tests and 380 PKM integration tests. [Full CI 37908803816](https://github.com/hushh-labs/hushh-research/actions/runs/37908803816)
+failed one frontend asynchronous receipt-state assertion; all other lanes passed.
+The integrated pod candidate must pass its own exact-SHA checks before release.
+An independently added pod commit remains local and is excluded from the
+published candidate. The developer's original branch and unrelated edits remain
+preserved.
+
+Same-image/same-runtime bridge qualification attempted all eight generation
+probes and failed as `candidate_misconfigured`, without an account-enforcement
+signal. One detail-only diagnostic refinement failed because of a malformed
+projection; its corrected execution completed and the 08:36:36 UTC readback
+confirmed `prediction_permission_denied=true` and
+`permission_fault_observed=true`. Generation has not passed. The approved ADC
+cannot read bridge IAM; the runtime's governed `roles/aiplatform.user` and
+cross-project `roles/serviceusage.serviceUsageConsumer` bindings must be supplied
+by bridge administration before qualification and deployment. A false
+service-usage denial flag does not independently prove that grant exists.
+The completed diagnostic job was deleted and absence verified at 08:37:22 UTC.
+No IAM mutation, application promotion, vault commitment or financial action
+occurred. Requalify after the permission change, then use the normal fixed-target
+release and authenticated managed-readiness checks.
