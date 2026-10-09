@@ -299,12 +299,14 @@ export function AgentConnectionsDrawer({
               // the safe areas itself (so the notch is surface, not a gap). Phones
               // get a nearly full-width panel that leaves a strip of scrim to tap
               // closed; from md up it keeps the drawer's 336px. Closed, it also
-              // clears its own shadow. Motion uses the shared sheet tier.
+              // clears its own shadow. The extra pixel keeps fractional-width
+              // panels fully outside the viewport after WebKit rounds the
+              // percentage translation. Motion uses the shared sheet tier.
               "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transform-gpu transition-[transform,visibility] motion-reduce:transition-none",
               "w-[min(88vw,360px)] md:w-[336px]",
               historyOpen
                 ? "visible translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
-                : "invisible -translate-x-full duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
+                : "invisible -translate-x-[calc(100%+1px)] duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}
           >
             <div
