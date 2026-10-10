@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Verify or explicitly activate the fixed Google Drive UAT registry row.
+"""Verify or explicitly activate/migrate the fixed Google Drive UAT registry row.
 
 This is intentionally not the generic external-MCP connector CLI. Google
 Drive uses a fixed REST transport and accepts no caller-provided endpoint,
 scope, redirect, policy, OAuth client, or secret. The default action is
-read-only verification; ``--activate`` is required to insert or activate the
-reviewed UAT row.
+read-only verification; ``--activate`` inserts or activates the reviewed UAT
+row, or migrates its exact prior redirect list to the dual-domain list.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--activate",
         action="store_true",
-        help="Explicitly create or activate the reviewed UAT Drive registry row.",
+        help="Create, activate, or migrate the reviewed UAT Drive registry row.",
     )
     return parser
 
