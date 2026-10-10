@@ -116,3 +116,30 @@ describe("Feed live pagination", () => {
     expect(isFeedIdAtOrBefore("6", "not-an-id")).toBe(false);
   });
 });
+
+
+describe("grouped chat pagination", () => {
+  const chat = (id: number, key: string): FeedItem => ({ ...item(id), event_type: "direct_message_received", metadata: { chat_thread_key: key } });
+  it("replaces an older conversation representative when the chat moves to the first page", () => {
+    let state = reconcileFeedFirstPage(createFeedPaginationState(), { ...page([100], "100"), items: [item(100)] });
+    state = appendFeedPage(state, { ...page([], "80"), items: [chat(90, "direct:a"), chat(80, "direct:b")] }, "100");
+    state = reconcileFeedFirstPage(state, { ...page([], "100"), items: [chat(110, "direct:a"), item(100)] });
+    expect(state.additionalItems.map(row => row.id)).toEqual(["80"]);
+    expect(state.previousFirstPageItems[0]?.id).toBe("110");
+  });
+  it("does not re-add a stale grouped row from an in-flight older page", () => {
+    let state = reconcileFeedFirstPage(createFeedPaginationState(), { ...page([], "100"), items: [chat(110, "direct:a")] });
+    state = appendFeedPage(state, { ...page([], null), items: [chat(90, "direct:a"), chat(80, "direct:b")] }, "100");
+    expect(state.additionalItems.map(row => row.id)).toEqual(["80"]);
+  });
+});
+
+
+it("restarts pagination when only a moved conversation overlaps logically", () => {
+  const conversation = (id: number): FeedItem => ({ ...item(id), event_type: "direct_message_received", metadata: { chat_thread_key: "direct:a" } });
+  let state = reconcileFeedFirstPage(createFeedPaginationState(), { ...page(range(100, 81), "81"), items: [conversation(100), ...range(99, 81).map(item)] });
+  state = reconcileFeedFirstPage(state, { ...page(range(125, 106), "106"), items: [conversation(125), ...range(124, 106).map(item)] });
+  expect(state.nextCursor).toBe("106");
+  expect(state.additionalItems.some(row => row.id === "100")).toBe(false);
+  expect(state.additionalItems.some(row => row.id === "99")).toBe(true);
+});

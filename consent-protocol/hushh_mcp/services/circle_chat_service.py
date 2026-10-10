@@ -538,10 +538,10 @@ class CircleChatService:
                 conn.execute(
                     text("""
                     INSERT INTO circle_chat_recipients(message_id, recipient_user_id,
-                      membership_joined_at, key_id, envelope, read_at, feed_event_id, push_status)
+                      membership_joined_at, key_id, envelope, read_at, feed_event_id, push_status, push_due_at)
                     VALUES(CAST(:message AS uuid), :recipient, :joined, :key, CAST(:envelope AS jsonb),
                       CASE WHEN :self THEN now() ELSE NULL END, :feed,
-                      CASE WHEN :self THEN 'suppressed' ELSE 'pending' END)
+                      CASE WHEN :self THEN 'suppressed' ELSE 'pending' END, now())
                 """),
                     {
                         "message": message,
@@ -709,7 +709,12 @@ class CircleChatService:
                         f"{user}:{sequence}",
                         "location_circle_chat_receipts",
                     )
-            return {"readThrough": sequence}
+        from hushh_mcp.services.chat_notification_state import sync_chat_read
+
+        return {
+            "readThrough": sequence,
+            **sync_chat_read(user, circle=circle, sequence=sequence, db=self.db),
+        }
 
     def mute(self, user: str, circle: str, muted: bool) -> dict:
         with self.db.engine.begin() as conn:

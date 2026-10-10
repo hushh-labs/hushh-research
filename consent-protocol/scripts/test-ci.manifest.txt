@@ -650,6 +650,13 @@ tests/test_provision_curated_connector.py
 
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py
+tests/services/test_chat_notification_state.py
+
+# Grouped Feed pagination/read authority and authenticated chat route boundaries.
+tests/services/test_feed_service.py
+tests/routes/test_feed_route.py
+tests/services/test_direct_messages_service.py
+tests/routes/test_direct_messages_route.py
 
 # Direct-message attachment history, replay and authorization on isolated PostgreSQL.
 tests/test_direct_message_feed_projection_postgres.py

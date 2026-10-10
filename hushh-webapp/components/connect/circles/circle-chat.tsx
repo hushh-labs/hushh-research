@@ -17,6 +17,8 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { circleStateChangeClosesDetail, subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { chatReadIsBlocked, subscribeChatLayerChanges } from "@/lib/interaction/chat-read-visibility";
+import { useChatAlertVisibility } from "@/lib/notifications/chat-alert-visibility";
+import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import laneStyles from "./circle-chat-lane.module.css";
@@ -162,12 +164,13 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
         {state && state.unreadCount > 0 ? <span aria-label={`${state.unreadCount} unread messages`} className="rounded-full bg-primary px-2 text-primary-foreground">{state.unreadCount}</span> : null}
       </Button> : <div className="flex min-w-0 items-center gap-2 text-sm font-semibold"><MessageCircle className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="text-muted-foreground">Circle chat</span>
         {state && state.unreadCount > 0 ? <span aria-label={`${state.unreadCount} unread messages`} className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{state.unreadCount}</span> : null}</div>}
-      {open && state ? <ShellActionSurface variant="icon" className="size-11 shrink-0 text-sm" aria-label={state.muted ? "Unmute notifications" : "Mute notifications"} disabled={muting} onClick={async () => {
+      {open && state ? <ShellActionSurface variant="icon" className="min-h-11 min-w-11 shrink-0 gap-2 px-3 text-sm" aria-pressed={!state.muted} aria-label={state.muted ? "Unmute notifications" : "Mute notifications"} disabled={muting} onClick={async () => {
         setMuting(true);
         try { const next = await CircleChatService.mute(session, !state.muted); setState((old) => old ? { ...old, muted: next.muted } : old); }
         catch (err) { setError(errorText(err)); } finally { setMuting(false); }
-      }}>{state.muted ? <Bell className="size-4" aria-hidden="true" /> : <BellOff className="size-4" aria-hidden="true" />}<span className="sr-only">{state.muted ? "Unmute" : "Mute"}</span></ShellActionSurface> : null}
+      }}>{state.muted ? <BellOff className="size-4" aria-hidden="true" /> : <Bell className="size-4" aria-hidden="true" />}<span>{state.muted ? "Muted" : "Alerts on"}</span></ShellActionSurface> : null}
     </div> : null}
+    {open && paneActive && state && !state.muted && !revoked ? <div className="px-3 pt-3"><FeedPushPrompt context="chat" /></div> : null}
     {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
     {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
@@ -231,6 +234,8 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
   const onRevokedRef = useRef(onRevoked); onRevokedRef.current = onRevoked;
   const fileInput = useRef<HTMLInputElement>(null);
   const composerEditor = useRef<HTMLTextAreaElement>(null);
+  useChatAlertVisibility(visible && !loading && !readingBlocked && !blockingLayer && viewers.size === 0
+    ? `circle-chat:${session.circleId}` : null, transcript);
 
   const fail = useCallback((err: unknown) => {
     if (!active.current) return;

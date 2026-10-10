@@ -2078,7 +2078,7 @@ class DirectMessagesService:
                     WHERE boundary.id=CAST(:through_message_id AS UUID)
                       AND boundary.conversation_id=CAST(:conversation_id AS UUID)
                   ))
-                RETURNING id, read_at
+                RETURNING id, read_at, created_at
                 """,
                 {
                     "conversation_id": conversation_key,
@@ -2086,10 +2086,31 @@ class DirectMessagesService:
                     "through_message_id": through_message_id,
                 },
             )
+        frontier_at = through["created_at"] if through else None
+        frontier_id = through_message_id or ""
+        if not through and updated:
+            latest = max(updated, key=lambda row: (row["created_at"], str(row["id"])))
+            frontier_at, frontier_id = latest["created_at"], str(latest["id"])
+        sync = {}
+        if self._transaction_connection is None:
+            from hushh_mcp.services.chat_notification_state import sync_chat_read
+
+            sync = sync_chat_read(
+                viewer,
+                conversation=conversation_key,
+                read_at=frontier_at,
+                message_id=frontier_id,
+                db=self.db,
+            )
         return {
+            **sync,
             "readCount": len(updated),
             "readAt": _iso(updated[0].get("read_at")) if updated else None,
-            **({"readThroughCreatedAt": _iso(through["created_at"])} if through else {}),
+            **(
+                {"readThroughCreatedAt": _iso(frontier_at), "readThroughMessageId": frontier_id}
+                if frontier_at
+                else {}
+            ),
         }
 
 

@@ -942,8 +942,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     }
     case "location_circle_message": {
-      return { icon: Users, domainLabel: "Circle chat", label: "New circle message",
-        description: metadataString(item.metadata, "circle_name") || "Open your circle chat",
+      const unread = Number(item.metadata.chat_unread_count) || 0;
+      return { icon: Users, domainLabel: "Circle chat", label: metadataString(item.metadata, "circle_name") || "Circle chat",
+        description: unread > 1 ? `${unread} new messages` : unread === 1 ? "1 new message" : "Open your circle chat",
         href: circleChatHref(metadataString(item.metadata, "circle_id")) };
     }
     case "circle_member_added": {
@@ -1226,12 +1227,13 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "direct_message_received": {
       const hasWho = who !== "Someone";
       const preview = metadataString(item.metadata, "message_preview");
+      const unread = Number(item.metadata.chat_unread_count) || 0;
       return {
         icon: MessageCircle,
         domainLabel: "Messages",
         label: hasWho ? who : "New message",
         person: counterpartPerson(item.metadata, who),
-        description: preview || "Sent you a message",
+        description: unread > 1 ? `${unread} new messages${preview ? ` · ${preview}` : ""}` : preview || "Sent you a message",
         href: directMessageFeedHref(item.metadata),
       };
     }
