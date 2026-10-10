@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 from pathlib import Path
+from runpy import run_path
 from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
@@ -319,12 +320,7 @@ def _calendar_redirect_contract(project: str) -> dict[str, str]:
 
 
 def _domain_runtime_contract(project: str) -> dict[str, str]:
-    """Validate domain-derived backend config without rendering secret values.
-
-    Presence and Cloud Run mount checks cannot prove that the JSON runtime
-    config was rebuilt after an origin migration. This compares only canonical
-    public URL/host relationships in-memory and returns status labels.
-    """
+    """Verify origin-derived runtime policy in memory; return redacted status labels."""
 
     frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
     runtime_raw = _read_secret_value(project, "BACKEND_RUNTIME_CONFIG_JSON")
@@ -364,14 +360,8 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
         for item in str(runtime.get("cors_allowed_origins") or "").split(",")
         if item.strip()
     }
-    expected_origin = frontend_origin.rstrip("/")
-    aliases = json.loads(
-        (Path(__file__).resolve().parents[2] / "hushh-webapp/lib/vault/passkey-domain-aliases.json").read_text()
-    )
-    related_hosts = next((set(pair) for pair in aliases.values() if host in pair), {host})
-    expected_cors = {f"https://{related}" for related in related_hosts} if host in {
-        item for pair in aliases.values() for item in pair
-    } else {expected_origin}
+    policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
+    expected_cors, expected_passkey_hosts = policy["domain_expectations"](frontend_origin, host)
     cors_status = "valid" if expected_cors.issubset(cors_values) else "mismatch"
 
     passkey_hosts = {
@@ -379,7 +369,6 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
         for item in str(runtime.get("passkey_allowed_rp_ids") or "").split(",")
         if item.strip()
     }
-    expected_passkey_hosts = {"localhost", "127.0.0.1", *related_hosts}
     passkey_status = "valid" if passkey_hosts == expected_passkey_hosts else "mismatch"
 
     plaid_url = urlsplit(str(runtime.get("plaid_webhook_url") or "").strip())
