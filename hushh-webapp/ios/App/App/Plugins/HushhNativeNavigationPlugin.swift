@@ -282,7 +282,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         if let compositor, compositor.contentBackedPresentation {
             fields["contentBacked"] = true
             fields["covered"] = compositor.fullWindowCovered
-            fields["planeVisible"] = !compositor.underlay.isHidden
+            fields["planeVisible"] = !compositor.underlay.isHidden && compositor.baseVisibleFrame.width > 0
             fields["retained"] = bar.superview === compositor.underlay
         }
         if let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]),

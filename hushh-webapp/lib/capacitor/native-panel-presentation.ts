@@ -3,6 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { getNativeChromeCapabilities, nativeChrome, type ChromeFrame } from "./native-chrome";
 import { getNativeSessionPrivacyState, nativeDocumentId, subscribeNativeSessionPrivacy } from "./session-privacy";
+import { nativeDrawerPresentationAdmission, useNativePresentationRegionRevision } from "./native-presentation-regions";
 
 export type NativePanelIdentity = {
   documentId: string; ownerEpoch: string; group: "profile" | "history"; generation: number;
@@ -10,8 +11,9 @@ export type NativePanelIdentity = {
 export type NativePanelPose = NativePanelIdentity & {
   sequence: number; privacyGeneration: number; frame: ChromeFrame;
   offset: number; opacity: number; settled: boolean; sampledAtMs?: number;
+  presentationRegionRevision?: number;
 };
-export type NativePanelReceipt = NativePanelIdentity & { sequence: number; privacyGeneration: number };
+export type NativePanelReceipt = NativePanelIdentity & { sequence: number; privacyGeneration: number; presentationRegionRevision?: number; presentationApplied?: boolean };
 type Entry = { identity: NativePanelIdentity; confirmed: boolean; offset: number; frame: ChromeFrame };
 export const NATIVE_PANEL_LAYOUT_EVENT = "hushh:native-panel-layout";
 const panels = new WeakMap<HTMLElement, Entry>();
@@ -53,10 +55,11 @@ export class NativePanelPoseWriter {
       });
       if (this.retired) return;
       if (ack.documentId !== pose.documentId || ack.ownerEpoch !== pose.ownerEpoch || ack.group !== pose.group ||
-          ack.generation !== pose.generation || ack.sequence !== pose.sequence || ack.privacyGeneration !== pose.privacyGeneration) {
+          ack.generation !== pose.generation || ack.sequence !== pose.sequence || ack.privacyGeneration !== pose.privacyGeneration ||
+          ack.presentationRegionRevision !== pose.presentationRegionRevision) {
         throw new Error("NATIVE_PANEL_ACK_UNCONFIRMED");
       }
-      this.receipt?.(performance.now() - started);
+      if (ack.presentationApplied !== false) this.receipt?.(performance.now() - started);
     } catch { if (!this.retired) { this.retire(); this.failed(); } }
     finally {
       this.sending = false;
@@ -73,11 +76,13 @@ export class NativePanelPoseWriter {
 /** Mirror the existing full-panel gesture/animation, never a gesture decision.
  * Reads/writes remain panel-local; React state is not updated on animation frames. */
 export function useNativePanelPresentation(group: "profile" | "history", owner: string | null,
-  panelRef: RefObject<HTMLElement | null>, open: boolean) {
+  panelRef: RefObject<HTMLElement | null>, open: boolean, enabled = true, coverageOnly = false) {
   const [node, setNode] = useState<HTMLElement | null>(null);
   const [recovery, setRecovery] = useState(0);
   const openState = useRef(open);
   const wakeCurrent = useRef<(() => void) | undefined>(undefined);
+  const regionRevision = useNativePresentationRegionRevision();
+  useLayoutEffect(() => { wakeCurrent.current?.(); }, [regionRevision]);
   useLayoutEffect(() => { openState.current = open; wakeCurrent.current?.(); }, [open]);
   const attach = useCallback((element: HTMLElement | null) => {
     panelRef.current = element;
@@ -85,11 +90,12 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
   }, [panelRef]);
   useLayoutEffect(() => {
     const panel = node;
-    if (!owner || !panel) return;
+    if (!owner || !panel || !enabled) return;
     let cancelled = false, frame = 0, sequence = 0, privacyGeneration = -1;
     let writer: NativePanelPoseWriter | undefined;
     let handle: Awaited<ReturnType<typeof subscribeNativeSessionPrivacy>> | undefined;
     let previous = "";
+    let clipping = false;
     const identity: NativePanelIdentity = { documentId: nativeDocumentId(), ownerEpoch: crypto.randomUUID(), group, generation: ++generation };
     const entry: Entry = { identity, confirmed: false, offset: 0, frame: { x: 0, y: 0, width: 0, height: 0 } };
     const fail = () => {
@@ -102,7 +108,10 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
     const sample = () => {
       frame = 0;
       if (cancelled || !panel.isConnected || privacyGeneration < 0) return;
+      const admission = clipping ? nativeDrawerPresentationAdmission(group) : undefined;
+      if (clipping && !admission) return;
       const bounds = panel.getBoundingClientRect();
+      if (clipping && (bounds.width <= 0 || bounds.height <= 0)) return;
       const x = group === "profile" ? window.innerWidth - bounds.width : 0;
       const style = getComputedStyle(panel);
       const moving = panel.getAnimations().some(animation => animation.playState === "running") ||
@@ -111,9 +120,10 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
         frame: { x, y: bounds.y, width: bounds.width, height: bounds.height },
         offset: Math.max(-bounds.width, Math.min(bounds.width, bounds.x - x)),
         opacity: style.visibility === "hidden" ? 0 : Math.max(0, Math.min(1, Number.parseFloat(style.opacity) || (style.opacity === "0" ? 0 : 1))),
-        settled: !moving && Math.abs(bounds.x - x) < 1 && openState.current };
+        settled: !moving && Math.abs(bounds.x - x) < 1 && openState.current,
+        ...(admission ? { presentationRegionRevision: admission.presentationRegionRevision } : {}) };
       entry.offset = pose.offset; entry.frame = pose.frame;
-      const signature = JSON.stringify([pose.frame, pose.offset, pose.opacity, pose.settled, privacyGeneration]);
+      const signature = JSON.stringify([pose.frame, pose.offset, pose.opacity, pose.settled, privacyGeneration, pose.presentationRegionRevision]);
       if (signature !== previous) { previous = signature; sequence += 1; writer?.publish(pose); }
       if (moving) frame = requestAnimationFrame(sample);
     };
@@ -130,7 +140,9 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
     void (async () => {
       try {
         const capability = await getNativeChromeCapabilities();
-        if (cancelled || capability?.panelPresentation !== true) return;
+        if (cancelled || capability?.panelPresentation !== true && capability?.drawerClipping !== true) return;
+        if (coverageOnly && capability.drawerClipping !== true) return;
+        clipping = capability.drawerClipping === true;
         handle = await subscribeNativeSessionPrivacy(state => {
           if (privacyGeneration < 0) return; // Initial retained events are caught up by the read below.
           if (state.shielded || !state.appIsActive) { writer?.retire(); fail(); }
@@ -168,6 +180,6 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
         // Uncertain retirement remains noninteractive; it is not retried.
       });
     };
-  }, [group, owner, node, recovery]);
+  }, [group, owner, node, recovery, enabled, coverageOnly]);
   return attach;
 }

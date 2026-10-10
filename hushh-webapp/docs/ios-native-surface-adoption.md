@@ -13,6 +13,50 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Partial-drawer exposure prototype — 2026-10-09
+
+At `0806bb293652`, the held partial Profile drag hides the entire native base
+plane because `fullWindowCovered` conceals its ancestor. Host retention does not
+meet visible continuity. The owner explicitly rejected that behavior; the
+retained-coverage candidate below is historical, not acceptance of partial drags.
+
+The bounded replacement is Debug-iPhone-only, negotiated with `drawerClipping`
+and the explicit `--hushh-native-drawer-clip` qualification flag. One clear,
+alpha-1 rectangular UIKit viewport clips the retained full-size native base to
+the exposed part of Chat. Its compensated origin preserves existing child and
+keyboard coordinates. No ancestor mask, material alpha, snapshot, additional
+WebView, composer, route owner or gesture engine is introduced. Apple documents
+[rectangular clipping](https://developer.apple.com/documentation/uikit/uiview/clipstobounds)
+separately from the unsupported ancestor-mask/alpha patterns in
+[effect views](https://developer.apple.com/documentation/uikit/uivisualeffectview).
+Neither document establishes this hybrid candidate's visual acceptance.
+
+The existing overlay registry names the authored drawer; ambiguous simultaneous
+drawers expose no base pixels. The existing latest-wins pose transport covers the
+opening Profile preview as well as the actual Profile and History panels. Poses
+must match document, owner, generation, ordered sequence, privacy and current
+region revision. Unsupported geometry or unconfirmed initial coverage remains
+clipped; old region receipts do not re-admit actions. Exposed base controls stay
+touch-inactive and accessibility-hidden. Privacy concealment remains independent.
+
+The shared `NativeChatChrome`/NativeChrome family map remains the renderer gate,
+not a global DOM-button substitution. Profile Back/Close use `ShellActionSurface`
+for coherent React fallback geometry, material tokens and ripple. They are not
+native glass in this candidate. A Profile-owned moving native Close requires a
+separate qualified presentation group, current-pose action fencing and one
+renderer before reveal; never enable every Close as an overlay-blocking exception.
+
+Qualification must include a real partial opening held before release, not only
+settled open/close cycles. The existing privacy-fenced public geometry probe records
+bounded numeric held-pose/absent-plane counts without text, editor contents or
+account identity. Missing initial acknowledgments, asynchronous pose age and
+native glass sitting above the internal web scrim remain explicit limitations.
+A passing held-pose check alone does not establish uninterrupted transition
+pixels, uniformly dimmed scrims, frame pacing or native Close acceptance.
+
+Older wrappers and Release retain their existing paths. Do not expand native
+adoption or deploy from this prototype until the architecture/material gate passes.
+
 ### Full-height retained-coverage candidate — 2026-10-09
 
 The owner selected full-height Profile/History drawers rather than the shorter

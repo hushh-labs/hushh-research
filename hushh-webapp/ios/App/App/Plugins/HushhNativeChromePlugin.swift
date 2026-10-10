@@ -501,6 +501,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "contentBackedPresentation": contentBacked,
                           "reservedPresentationRegions": contentBacked,
                           "fullWindowOverlays": contentBacked,
+                          "drawerClipping": self?.compositor?.drawerClipping == true,
                           "interactionFeedback": true,
                           "fullAccentTrigger": !contentBacked && self?.chatControlsAdmitted == true,
                           "retainedControls": self?.chatControlsAdmitted == true,
@@ -528,17 +529,19 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.acceptDocument(document)
             let covered = call.getBool("covered") ?? false
+            let drawer = call.getString("drawer")
             let privacyGeneration = call.getInt("privacyGeneration")
             guard privacyGeneration == nil || privacyGeneration == shield.snapshot().generation else {
                 call.reject("NATIVE_REGIONS_PRIVACY_STALE"); return
             }
             guard compositor.setRegions(document: document, revision: revision, viewport: viewport,
                 top: CGFloat(top), bottom: CGFloat(bottom), isolated: isolated, covered: covered,
-                privacyGeneration: privacyGeneration) else { call.reject("NATIVE_REGIONS_STALE"); return }
+                privacyGeneration: privacyGeneration, drawer: drawer) else { call.reject("NATIVE_REGIONS_STALE"); return }
             var receipt: [String: Any] = ["documentId": document, "revision": revision, "top": top, "bottom": bottom,
                 "isolated": isolated, "viewport": ["width": Double(viewport.width), "height": Double(viewport.height)]]
             if call.getBool("covered") != nil { receipt["covered"] = covered }
             if let privacyGeneration { receipt["privacyGeneration"] = privacyGeneration }
+            if let drawer { receipt["drawer"] = drawer }
             call.resolve(receipt)
         }
     }
@@ -1003,7 +1006,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func applyPanelPose(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let compositor = self.compositor,
-                  !compositor.contentBackedPresentation,
+                  !compositor.contentBackedPresentation || compositor.drawerClipping,
                   let group = call.getString("group"), ["profile", "history"].contains(group),
                   let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
                   let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
@@ -1026,7 +1029,18 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 sequence: sequence, privacyGeneration: privacy,
                 frame: CGRect(x: x, y: y, width: width, height: height),
                 offset: offset, opacity: opacity, settled: settled)
-            guard compositor.apply(pose, group: group, privacy: HushhSessionPrivacyShield.shared.snapshot().generation) else {
+            let currentPrivacy = HushhSessionPrivacyShield.shared.snapshot().generation
+            let regionRevision = call.getInt("presentationRegionRevision")
+            if compositor.drawerClipping && !compositor.acceptsPresentationRevision(regionRevision, privacyGeneration: privacy) {
+                call.resolve(["documentId": document, "ownerEpoch": owner, "group": group,
+                    "generation": generation, "sequence": sequence, "privacyGeneration": privacy,
+                    "presentationRegionRevision": regionRevision ?? -1, "presentationApplied": false])
+                return // Superseded layout only; never replay an operation.
+            }
+            let applied = compositor.drawerClipping
+                ? regionRevision.map { compositor.applyDrawerCoverage(pose, group: group, privacy: currentPrivacy, revision: $0) } == true
+                : compositor.apply(pose, group: group, privacy: currentPrivacy)
+            guard applied else {
                 call.reject("NATIVE_PANEL_POSE_STALE"); return
             }
             compositor.recordPoseTiming(group: group, sampledAtMs: call.getDouble("sampledAtMs"))
@@ -1034,8 +1048,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 compositor.setAdmission(id, admitted: self.canPresent && slot.state.phase == "active" && self.panelIsSettled(slot))
                 if !pose.settled { slot.choiceValue = nil; slot.presenter?.retire {} }
             }
-            call.resolve(["documentId": document, "ownerEpoch": owner, "group": group,
-                "generation": generation, "sequence": sequence, "privacyGeneration": privacy])
+            var receipt: [String: Any] = ["documentId": document, "ownerEpoch": owner, "group": group,
+                "generation": generation, "sequence": sequence, "privacyGeneration": privacy]
+            if let regionRevision { receipt["presentationRegionRevision"] = regionRevision }
+            call.resolve(receipt)
         }
     }
 

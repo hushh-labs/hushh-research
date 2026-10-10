@@ -78,6 +78,63 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testContentBackedDrawerClippingPreservesWindowCoordinatesWithoutGrantingActions() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .contentBacked, drawerClipping: true)
+        let control = UIButton(frame: CGRect(x: 10, y: 10, width: 44, height: 44))
+        container.install(control, id: "chat-history-toggle", group: nil)
+        let retained = control.superview
+        let original = control.convert(control.bounds, to: container)
+        let privacy = HushhSessionPrivacyShield.shared.snapshot().generation
+        func regions(_ revision: Int, drawer: String?) {
+            XCTAssertTrue(container.setRegions(document: "synthetic", revision: revision,
+                viewport: container.bounds.size, top: 100, bottom: 150, isolated: drawer != nil,
+                covered: drawer != nil, privacyGeneration: privacy, drawer: drawer))
+        }
+        regions(1, drawer: "profile")
+        XCTAssertEqual(container.baseVisibleFrame, .zero, "No native paint before the first current coverage receipt")
+        let pose = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 150, opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(pose, group: "profile", privacy: privacy, revision: 1))
+        XCTAssertEqual(container.baseVisibleFrame, CGRect(x: 0, y: 0, width: 150, height: 844))
+        XCTAssertFalse(container.underlay.isHidden, "Held partial drag must not hide the entire retained native plane")
+        XCTAssertEqual(control.convert(control.bounds, to: container), original)
+        XCTAssertTrue(control.superview === retained)
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 350, y: 20), with: nil) === container,
+            "Drawer edge touches must reach the single WebView")
+        // Same displayed drawer, new admission revision: no blank interval.
+        regions(2, drawer: "profile")
+        XCTAssertEqual(container.baseVisibleFrame.width, 150)
+        XCTAssertFalse(container.applyDrawerCoverage(pose, group: "profile", privacy: privacy, revision: 1))
+        regions(3, drawer: nil)
+        XCTAssertEqual(container.baseVisibleFrame, container.bounds)
+        XCTAssertFalse(container.applyDrawerCoverage(pose, group: "profile", privacy: privacy, revision: 1),
+            "A delayed covered pose cannot cover the dismissed drawer")
+        regions(4, drawer: "history")
+        let history = NativePanelPose(document: "synthetic", ownerEpoch: "history-epoch", generation: 2,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: -150, opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(history, group: "history", privacy: privacy, revision: 4))
+        XCTAssertEqual(container.baseVisibleFrame, CGRect(x: 240, y: 0, width: 150, height: 844))
+        XCTAssertEqual(control.convert(control.bounds, to: container), original,
+            "Right-hand exposure must compensate the viewport origin, not move child controls")
+        XCTAssertEqual(container.underlay.bounds.size, container.bounds.size)
+        XCTAssertEqual(container.underlay.superview?.alpha, 1)
+        XCTAssertNil(container.underlay.superview?.layer.mask)
+        XCTAssertTrue(container.underlay.superview?.clipsToBounds == true)
+        XCTAssertFalse(container.applyDrawerCoverage(history, group: "profile", privacy: privacy, revision: 4))
+        XCTAssertFalse(container.applyDrawerCoverage(history, group: "history", privacy: privacy + 1, revision: 4))
+        XCTAssertTrue(container.retire(group: "history", document: "synthetic", ownerEpoch: "history-epoch", generation: 2))
+        XCTAssertEqual(container.baseVisibleFrame, .zero, "Uncertain/retired coverage must not paint over the drawer")
+        container.conceal()
+        regions(5, drawer: nil)
+        XCTAssertEqual(container.baseVisibleFrame, .zero)
+        XCTAssertTrue(container.underlay.isHidden, "Region release must never clear privacy")
+        XCTAssertTrue(web.superview === container)
+    }
+
+    @MainActor
     func testNativePanelPoseAndClippingDoNotGrantStaleOrOutsideHits() {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let container = NativePresentationContainer(webView: web)

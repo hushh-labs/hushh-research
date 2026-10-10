@@ -1133,6 +1133,29 @@ final class AppUITests: XCTestCase {
             if profileClose.exists && profileClose.isHittable { profileClose.tap() }
             if historyClose.exists && historyClose.isHittable { historyClose.tap() }
         }
+        func heldMeasurements() -> [String: NSNumber]? {
+            guard let raw = layout.value as? String, let data = raw.data(using: .utf8) else { return nil }
+            return try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber]
+        }
+        let beforeHold = heldMeasurements()
+        let origin = web.coordinate(withNormalizedOffset: .zero)
+        let bodyY = editor.frame.minY - web.frame.minY - 48
+        XCTAssertGreaterThan(bodyY, history.frame.maxY - web.frame.minY + 44,
+            "NATIVE_MATERIAL_HOLD_BODY_CLEARANCE_UNAVAILABLE")
+        // Actual touch input in the empty transcript clearance. Keep the finger
+        // down at a partial opening; numeric samples run during the held touch.
+        let start = origin.withOffset(CGVector(dx: web.frame.width * 0.70, dy: bodyY))
+        let end = origin.withOffset(CGVector(dx: web.frame.width * 0.52, dy: bodyY))
+        start.press(forDuration: 0.05, thenDragTo: end,
+            withVelocity: .slow, thenHoldForDuration: 2.0)
+        let afterHold = heldMeasurements()
+        let held = (afterHold?["heldDrawerSamples"]?.intValue ?? 0) - (beforeHold?["heldDrawerSamples"]?.intValue ?? 0)
+        let missing = (afterHold?["heldDrawerMissingPlaneSamples"]?.intValue ?? 0) - (beforeHold?["heldDrawerMissingPlaneSamples"]?.intValue ?? 0)
+        print("NATIVE_MATERIAL_HELD_DRAWER samples=\(held) missing_plane=\(missing)")
+        XCTAssertGreaterThan(held, 0, "NATIVE_MATERIAL_PARTIAL_HOLD_NOT_OBSERVED")
+        XCTAssertEqual(missing, 0, "NATIVE_MATERIAL_UNCOVERED_GLASS_HIDDEN_DURING_HOLD")
+        if profileClose.exists && profileClose.isHittable { profileClose.tap() }
+        XCTAssertTrue(waitForAdmittedControl(editor), "NATIVE_MATERIAL_HELD_DRAWER_WARM_RETURN_FAILED")
         for (opener, close, family) in [(profile, profileClose, "profile"), (history, historyClose, "history")] {
             for cycle in 0..<10 {
                 XCTAssertTrue(waitForAdmittedControl(opener), "NATIVE_MATERIAL_OPENER_NOT_ADMITTED")

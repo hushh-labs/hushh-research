@@ -737,6 +737,9 @@ final class NativeVaultLayoutProbe {
     private var timer: Timer?
     private var inFlight = false
     private var sequence = 0
+    private var heldDrawerSamples = 0
+    private var heldDrawerMissingPlaneSamples = 0
+    private var previousDrawerLeft: Double?
     private weak var webView: WKWebView?
     private var observers = [NSObjectProtocol]()
 
@@ -747,6 +750,9 @@ final class NativeVaultLayoutProbe {
     }
 
     private func conceal() {
+        heldDrawerSamples = 0
+        heldDrawerMissingPlaneSamples = 0
+        previousDrawerLeft = nil
         label.isHidden = true
         label.accessibilityElementsHidden = true
         label.update(status: "{}")
@@ -801,7 +807,7 @@ final class NativeVaultLayoutProbe {
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
                             "methodClicks", "methodPointerUps", "passphraseFields", "dockActive",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
-                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled"])
+                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -820,6 +826,23 @@ final class NativeVaultLayoutProbe {
             // private editor state. Activation alone need not apply new flags.
             payload["dockOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-agent-dock")
             payload["chromeOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-chat-chrome")
+            if let container = webView.superview as? NativePresentationContainer,
+               let left = payload["drawerLeft"] as? NSNumber {
+                let partial = (payload["drawerPartial"] as? NSNumber)?.boolValue == true
+                // Two stationary numeric samples prove a held partial exposure,
+                // not settled-only screenshots or a disappearing AX heading.
+                if partial, let previous = self.previousDrawerLeft, abs(previous - left.doubleValue) <= 1 {
+                    self.heldDrawerSamples = min(100_000, self.heldDrawerSamples + 1)
+                    if container.underlay.isHidden || container.baseVisibleFrame.width <= 1 {
+                        self.heldDrawerMissingPlaneSamples = min(100_000, self.heldDrawerMissingPlaneSamples + 1)
+                    }
+                }
+                self.previousDrawerLeft = partial ? left.doubleValue : nil
+                payload["baseExposureX"] = container.baseVisibleFrame.minX
+                payload["baseExposureWidth"] = container.baseVisibleFrame.width
+            } else { self.previousDrawerLeft = nil }
+            payload["heldDrawerSamples"] = self.heldDrawerSamples
+            payload["heldDrawerMissingPlaneSamples"] = self.heldDrawerMissingPlaneSamples
             guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
                   let json = String(data: data, encoding: .utf8) else { return }
             self.label.update(status: json)
@@ -872,7 +895,8 @@ final class NativeVaultLayoutProbe {
       };
       // Authored public pane geometry, not a named AX heading or inferred
       // operation. Neither contents nor account/route labels are read.
-      const profile = document.querySelector('[data-testid="profile-pane"][data-state="open"]');
+      const profile = document.querySelector('[data-testid="profile-pane"][data-state="open"]') ||
+        document.querySelector('[data-profile-preview]:not([hidden])');
       const history = document.querySelector('[data-agent-history-drawer][aria-hidden="false"]');
       const drawer = profile || history;
       if (drawer) {
@@ -884,6 +908,9 @@ final class NativeVaultLayoutProbe {
           animation.effect?.getComputedTiming().iterations !== Infinity);
         Object.assign(result, { drawerKind: profile ? 1 : 2,
           drawerTop: rect.top, drawerBottom: rect.bottom, drawerWidth: rect.width,
+          drawerLeft: rect.left, drawerRight: rect.right,
+          drawerPartial: Math.min(innerWidth, rect.right) - Math.max(0, rect.left) > 1 &&
+            Math.min(innerWidth, rect.right) - Math.max(0, rect.left) < innerWidth - 1,
           drawerViewportHeight: innerHeight, drawerOwnsTopEdge: owns(1),
           drawerOwnsBottomEdge: owns(innerHeight - 1), drawerSettled: !moving });
       }

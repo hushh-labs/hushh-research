@@ -209,7 +209,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
            let existing = webView, view === existing {
             let contentBacked = ProcessInfo.processInfo.arguments.contains("--hushh-native-content-backed")
             view = NativePresentationContainer(webView: existing,
-                basePresentation: contentBacked ? .contentBacked : .underlay)
+                basePresentation: contentBacked ? .contentBacked : .underlay,
+                drawerClipping: ProcessInfo.processInfo.arguments.contains("--hushh-native-drawer-clip"))
         }
         #endif
         

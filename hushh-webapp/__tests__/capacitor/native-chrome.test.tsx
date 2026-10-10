@@ -83,6 +83,10 @@ describe("owned panel pose transport", () => {
     writer.publish(pose);
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(failed).toHaveBeenCalledOnce();
+    const staleRegion = new NativePanelPoseWriter(async value => ({ ...value, presentationRegionRevision: 4 }), failed);
+    staleRegion.publish({ ...pose, presentationRegionRevision: 5 });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(failed).toHaveBeenCalledTimes(2);
     vi.useFakeTimers();
     const hung = vi.fn(() => new Promise<NativePanelPose>(() => undefined));
     const timeout = vi.fn();
@@ -91,6 +95,22 @@ describe("owned panel pose transport", () => {
     await vi.advanceTimersByTimeAsync(3001);
     expect(timeout).toHaveBeenCalledOnce(); expect(hung).toHaveBeenCalledOnce();
     vi.useRealTimers();
+  });
+  it("does not confirm or replay a superseded coverage receipt, but admits a fresh authored pose", async () => {
+    const failed = vi.fn(), confirmed = vi.fn();
+    const send = vi.fn().mockImplementationOnce(async value => ({ ...value, presentationApplied: false }))
+      .mockImplementation(async value => value);
+    const writer = new NativePanelPoseWriter(send, failed, confirmed);
+    writer.publish({ ...pose, presentationRegionRevision: 4 });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(send).toHaveBeenCalledOnce();
+    expect(confirmed).not.toHaveBeenCalled();
+    writer.publish({ ...pose, sequence: 2, presentationRegionRevision: 5 });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(confirmed).toHaveBeenCalledOnce();
+    expect(failed).not.toHaveBeenCalled();
+    writer.retire();
   });
   it("resamples queued geometry with its own timestamp after delivery without replaying a retired frame", async () => {
     const first = deferred<NativePanelPose>();
@@ -354,7 +374,7 @@ describe("native chrome presentation lease", () => {
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
   it("admits full-height panes only after current coverage and rejects an open-close-reopen receipt", async () => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history", "agent-surface"],
-      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true });
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });
     const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
     document.body.appendChild(seat);
     vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ bottom: 100 } as DOMRect);
@@ -371,7 +391,7 @@ describe("native chrome presentation lease", () => {
       await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledTimes(2));
       const obsolete = bridge.setPresentationRegions.mock.calls[1][0];
       expect(view.getByTestId("cover-state").textContent).toBe("waiting");
-      expect(obsolete).toEqual(expect.objectContaining({ covered: true, isolated: true, privacyGeneration: 0, top: 100 }));
+      expect(obsolete).toEqual(expect.objectContaining({ covered: true, isolated: true, privacyGeneration: 0, top: 100, drawer: "profile" }));
       view.rerender(<Cover active={false} />);
       await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledTimes(3));
       await waitFor(() => expect(nativePresentationAdmission().presentationRegionRevision).toBeGreaterThan(obsolete.revision));

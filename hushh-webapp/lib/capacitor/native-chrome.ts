@@ -62,6 +62,8 @@ export type NativeChromeCapabilities = {
   contentBackedPresentation?: boolean;
   reservedPresentationRegions?: boolean;
   fullWindowOverlays?: boolean;
+  /** Debug qualification: rectangular exposure of retained stationary chrome. */
+  drawerClipping?: boolean;
   interactionFeedback?: boolean;
 };
 

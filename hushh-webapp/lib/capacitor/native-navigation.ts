@@ -46,9 +46,12 @@ const subscribe = (listener: () => void) => {
   return () => { subscribers.delete(listener); };
 };
 function publish() {
-  const cover = [...overlays.values()].some(layer =>
-    layer === "profile-pane" || layer === "profile-drag" || layer === "chat-history" || layer === "history-drag");
-  setNativePresentationRegionIsolation(overlays.size > 0, cover);
+  const drawers = new Set([...overlays.values()].flatMap(layer =>
+    layer === "profile-pane" || layer === "profile-drag" ? ["profile" as const] :
+    layer === "chat-history" || layer === "history-drag" ? ["history" as const] : []));
+  // Ambiguous overlapping drawers never expose native pixels via one rectangle.
+  setNativePresentationRegionIsolation(overlays.size > 0, drawers.size > 0,
+    drawers.size === 1 ? [...drawers][0] : undefined);
   subscribers.forEach((listener) => listener());
 }
 function isNativeIOS() { return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios"; }

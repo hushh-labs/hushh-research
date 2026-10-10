@@ -13,6 +13,7 @@ export type NativePresentationRegions = {
   isolated: boolean;
   covered?: boolean;
   privacyGeneration?: number;
+  drawer?: "profile" | "history";
 };
 
 let revision = 0;
@@ -20,6 +21,7 @@ let accepted: NativePresentationRegions | undefined;
 let pending: { key: string; promise: Promise<boolean> } | undefined;
 let isolated = false;
 let covered = false;
+let drawer: NativePresentationRegions["drawer"];
 const isolatedSeats = new Map<HTMLElement, boolean>();
 const listeners = new Set<() => void>();
 let dockFrame: { documentId: string; revision: number; y: number } | undefined;
@@ -41,9 +43,10 @@ function isolateSeats() {
   }
 }
 
-export function setNativePresentationRegionIsolation(active: boolean, cover = false) {
+export function setNativePresentationRegionIsolation(active: boolean, cover = false, owningDrawer?: NativePresentationRegions["drawer"]) {
   isolated = active;
   covered = active && cover;
+  drawer = covered ? owningDrawer : undefined;
   isolateSeats();
   if (!peekNativeChromeCapabilities()?.reservedPresentationRegions) return;
   void syncNativePresentationRegions().catch(() => undefined);
@@ -72,11 +75,13 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
   const capability = await getNativeChromeCapabilities();
   if (!capability?.reservedPresentationRegions) return false;
   const privacy = capability.fullWindowOverlays ? await getNativeSessionPrivacyState() : undefined;
-  const measured = { ...measureRegions(), ...(privacy ? { covered, privacyGeneration: privacy.generation } : {}) };
+  const measured = { ...measureRegions(), ...(privacy ? { covered, privacyGeneration: privacy.generation } : {}),
+    ...(capability.drawerClipping && covered && drawer ? { drawer } : {}) };
   const key = JSON.stringify(measured);
   if (!pending && accepted && JSON.stringify({ documentId: accepted.documentId, viewport: accepted.viewport,
     top: accepted.top, bottom: accepted.bottom, isolated: accepted.isolated,
-    ...(accepted.covered !== undefined ? { covered: accepted.covered, privacyGeneration: accepted.privacyGeneration } : {}) }) === key) { isolateSeats(); return true; }
+    ...(accepted.covered !== undefined ? { covered: accepted.covered, privacyGeneration: accepted.privacyGeneration } : {}),
+    ...(accepted.drawer ? { drawer: accepted.drawer } : {}) }) === key) { isolateSeats(); return true; }
   if (pending?.key === key) return pending.promise;
   const projection = { ...measured, revision: ++revision };
   const promise = (async () => {
@@ -87,11 +92,13 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
     if (receipt.documentId !== projection.documentId || receipt.revision !== projection.revision ||
         receipt.top !== projection.top || receipt.bottom !== projection.bottom || receipt.isolated !== projection.isolated ||
         receipt.covered !== projection.covered || receipt.privacyGeneration !== projection.privacyGeneration ||
+        receipt.drawer !== projection.drawer ||
         receipt.viewport.width !== projection.viewport.width || receipt.viewport.height !== projection.viewport.height) {
       throw new Error("NATIVE_REGIONS_ACK_UNCONFIRMED");
     }
     if (projection.revision !== revision || projection.documentId !== nativeDocumentId() ||
         projection.covered !== undefined && (projection.covered !== covered || projection.isolated !== isolated ||
+          capability.drawerClipping && projection.drawer !== drawer ||
           (await getNativeSessionPrivacyState()).generation !== projection.privacyGeneration)) return false;
     // Privacy readback is asynchronous; a newer cover request can arrive while
     // it is in flight even when the earlier revision check already passed.
@@ -165,6 +172,12 @@ export function useNativeFullWindowOverlayReady(active: boolean) {
 export function nativePresentationAdmission() {
   return accepted?.documentId === nativeDocumentId() && accepted.privacyGeneration !== undefined
     ? { presentationRegionRevision: accepted.revision, privacyGeneration: accepted.privacyGeneration } : {};
+}
+
+/** Pose metadata for the currently acknowledged authored drawer, never content. */
+export function nativeDrawerPresentationAdmission(group: "profile" | "history") {
+  return accepted?.documentId === nativeDocumentId() && accepted.covered && accepted.drawer === group &&
+    accepted.revision === revision ? nativePresentationAdmission() : undefined;
 }
 
 /** Reconcile a current presentation after another shell owner supersedes its
