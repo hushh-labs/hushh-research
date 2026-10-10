@@ -6,6 +6,7 @@ import { FinanceImportOnboardingSetupClient } from "@/app/one/setup/finance/impo
 
 const mocks = vi.hoisted(() => ({
   cachedJourney: null as Record<string, unknown> | null,
+  ownerId: "user-1",
   bootstrapState: vi.fn(),
   syncOnboardingJourney: vi.fn(),
   replace: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "user-1" }, loading: false }),
+  useAuth: () => ({ user: { uid: mocks.ownerId }, loading: false }),
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -113,6 +114,7 @@ function expectTerminalActionsDisabled() {
 describe("setup coordinator completed Location entry", () => {
   beforeEach(() => {
     mocks.cachedJourney = null;
+    mocks.ownerId = "user-1";
     mocks.bootstrapState.mockReset();
     mocks.syncOnboardingJourney.mockReset();
     mocks.syncOnboardingJourney.mockResolvedValue(undefined);
@@ -127,6 +129,48 @@ describe("setup coordinator completed Location entry", () => {
   });
 
   afterEach(cleanup);
+
+  it.each([
+    { cached: true, setupCompleted: false, completed: false, expected: true },
+    { cached: false, setupCompleted: false, completed: false, expected: true },
+    { cached: true, setupCompleted: false, completed: true, expected: false },
+    { cached: false, setupCompleted: false, completed: true, expected: false },
+    { cached: true, setupCompleted: true, completed: false, expected: false },
+    { cached: false, setupCompleted: true, completed: false, expected: false },
+  ])("uses durable Calendar setup state for first-time presentation: %j", async ({ cached, setupCompleted, completed, expected }) => {
+    const journey = setupJourney({ setupCompleted, setupCapabilityIds: completed ? ["calendar"] : [], onboardingActiveCapability: "calendar" });
+    mocks.cachedJourney = cached ? journey : null;
+    mocks.bootstrapState.mockResolvedValue(journey);
+    const { result } = renderHook(() => useSetupCapabilityCoordinator({
+      capabilityId: "calendar", isOperationallyReady: false,
+      finishActionId: "setup.finish_calendar", skipActionId: "setup.skip_calendar",
+    }));
+    if (!cached) expect(result.current.isInitialSetup).toBe(false);
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(result.current.isInitialSetup).toBe(expected);
+    // Calendar's existing entry/terminal route policy is unchanged.
+    expect(result.current.isAlreadyComplete).toBe(false);
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("does not transfer first-time eligibility to another owner or accept a late bootstrap", async () => {
+    let resolveOld!: (value: unknown) => void;
+    let resolveNew!: (value: unknown) => void;
+    mocks.bootstrapState.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve; }));
+    const { result, rerender } = renderHook(() => useSetupCapabilityCoordinator({
+      capabilityId: "calendar", isOperationallyReady: false,
+      finishActionId: "setup.finish_calendar", skipActionId: "setup.skip_calendar",
+    }));
+    expect(result.current.isInitialSetup).toBe(false);
+    mocks.ownerId = "user-2";
+    rerender();
+    await act(async () => resolveOld(setupJourney({ onboardingActiveCapability: "calendar" })));
+    expect(result.current.isInitialSetup).toBe(false);
+    await act(async () => resolveNew(setupJourney({ setupCapabilityIds: ["calendar"], onboardingActiveCapability: "calendar" })));
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(result.current.isInitialSetup).toBe(false);
+  });
 
   it("acknowledges cached completion without reclaiming the onboarding journey", async () => {
     mocks.cachedJourney = setupJourney({

@@ -12,6 +12,8 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
+
 # Stripe can prune idempotency keys after 24 hours. Start this shorter window
 # before any provider call so a crash or delayed call cannot extend it.
 _REFUND_RETRY_WINDOW = timedelta(hours=20)
@@ -23,7 +25,7 @@ _REFUND_CANDIDATES_SQL = """
   LEFT JOIN drive_share_requests r ON r.request_id=o.request_id
   LEFT JOIN drive_request_payment_refunds f ON f.request_id=o.request_id
   LEFT JOIN drive_request_owner_payouts p ON p.request_id=o.request_id
-  WHERE o.status='paid'
+  WHERE o.status='paid' AND o.stripe_mode=:stripe_mode
     AND (f.request_id IS NULL OR (f.status IN
       ('queued','dispatching','unknown','pending','manual_review')
       AND f.next_check_at<=clock_timestamp()
@@ -64,7 +66,7 @@ def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
     candidates = (
         connection.execute(
             text(f"SELECT o.request_id {_REFUND_CANDIDATES_SQL} ORDER BY o.paid_at LIMIT :scan"),
-            {"scan": limit * 4},
+            {"scan": limit * 4, "stripe_mode": configured_stripe_mode()},
         )
         .mappings()
         .all()
@@ -91,7 +93,12 @@ def _claim_refunds(service, connection, *, limit: int) -> list[dict]:
                WHERE request_id=:request FOR UPDATE""",
             {"request": request_id},
         )
-        if order is None or order["status"] != "paid" or not order["stripe_payment_intent_id"]:
+        if (
+            order is None
+            or order.get("stripe_mode") != configured_stripe_mode()
+            or order["status"] != "paid"
+            or not order["stripe_payment_intent_id"]
+        ):
             continue
         payout = service._row(
             connection,
@@ -431,7 +438,8 @@ async def reconcile_refunds(service, *, max_orders: int = 4) -> dict:
     has_candidate = await service._transaction(
         lambda connection: bool(
             connection.execute(
-                text(f"SELECT EXISTS(SELECT 1 {_REFUND_CANDIDATES_SQL})")
+                text(f"SELECT EXISTS(SELECT 1 {_REFUND_CANDIDATES_SQL})"),
+                {"stripe_mode": configured_stripe_mode()},
             ).scalar_one()
         )
     )

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Source from both UAT deploy lanes; never replace the existing test secrets.
+STRIPE_UAT_MODE="${STRIPE_UAT_MODE:-test}"
+case "${STRIPE_UAT_MODE}" in
+  test)
+    STRIPE_UAT_KEY_SECRET=STRIPE_SECRET_KEY
+    STRIPE_UAT_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET
+    STRIPE_UAT_CONNECT_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET
+    ;;
+  live)
+    STRIPE_UAT_KEY_SECRET=STRIPE_LIVE_SECRET_KEY
+    STRIPE_UAT_WEBHOOK_SECRET=STRIPE_LIVE_WEBHOOK_SECRET
+    STRIPE_UAT_CONNECT_SECRET=STRIPE_LIVE_CONNECT_WEBHOOK_SECRET
+    ;;
+  *)
+    echo "STRIPE_UAT_MODE must be test or live" >&2
+    exit 1
+    ;;
+esac

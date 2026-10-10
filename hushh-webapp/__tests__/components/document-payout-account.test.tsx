@@ -148,6 +148,67 @@ describe("document payout account", () => {
     expect(within(details).getByText("$0.59")).toBeInTheDocument();
   });
 
+  it("keeps bank recovery available when Stripe pauses payouts and refreshes changed bank details", async () => {
+    const account = { detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: false,
+      ready: false, status: "restricted", canManageBank: true, bankStatus: "needs_attention",
+      bank: { name: "Example Bank", last4: "6789", status: "errored" } };
+    state.account.mockResolvedValueOnce({ stripeMode: "live", account })
+      .mockResolvedValueOnce({ stripeMode: "live", account: { ...account, bankStatus: "missing", bank: null } });
+    render(<DocumentPayoutAccountCard compact />);
+    const action = await screen.findByRole("button", { name: "Manage bank" });
+    expect(action).toBeEnabled();
+    expect(screen.getByText("Update your bank")).toBeVisible();
+    fireEvent.click(action);
+    await waitFor(() => expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token"));
+    act(() => window.dispatchEvent(new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
+      detail: { source: "sse_document_feed", reconcile: true },
+    })));
+    expect(await screen.findByText("Bank needed")).toBeVisible();
+    expect(screen.queryByText("Bank linked")).toBeNull();
+    expect(screen.getByRole("button", { name: "Manage bank" })).toBeEnabled();
+  });
+
+  it("retries an unavailable bank check without sending verified owners through identity setup", async () => {
+    const account = { detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true,
+      ready: false, status: "onboarding_required", canManageBank: true, bankStatus: "unavailable", bank: null };
+    state.account.mockResolvedValueOnce({ stripeMode: "live", account })
+      .mockResolvedValueOnce({ stripeMode: "live", account: { ...account, ready: true, status: "ready",
+        bankStatus: "linked", bank: { name: "Example Bank", last4: "6789", status: "verified" } } });
+    render(<DocumentPayoutAccountCard compact />);
+    expect(await screen.findByText("Bank check unavailable")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Manage bank" })).toBeEnabled();
+    expect(screen.queryByText("Verify details")).toBeNull();
+    expect(screen.queryByText("Bank linked")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Bank linked")).toBeVisible();
+    expect(screen.getByText("Example Bank •••• 6789")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(state.account).toHaveBeenCalledTimes(2);
+    expect(state.onboard).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["test", "awaiting_account", "Test payment", "No bank deposit"],
+    ["test", "due", "Test payment", "No bank deposit"],
+    ["test", "transferred", "Test payment", "No bank deposit"],
+    ["legacy", "awaiting_account", "Payment mode unconfirmed", "Under review"],
+  ])("keeps %s %s history from promising a live payout", async (stripeMode, status, modeLabel, statusLabel) => {
+    state.account.mockResolvedValue({ stripeMode: "live", account: null });
+    state.earnings.mockResolvedValue({ stripeMode: "live", currency: "USD", transactions: [{
+      requestId: "11111111-1111-4111-8111-111111111111", description: "Earlier documents", stripeMode,
+      status, grossAmountCents: 1000, refundAmountCents: 0, platformFeeCents: 30,
+      processingFeeCents: 59, netAmountCents: 911, reversedAmountCents: 0,
+      createdAt: "2026-10-10T12:00:00Z", transferredAt: "2026-10-10T12:00:00Z", expectedFiles: 1, confirmedFiles: 1,
+    }], nextCursor: null });
+    render(<DocumentPayoutAccountCard />);
+    const title = await screen.findByText("Earlier documents");
+    expect(title.closest("summary")).toHaveTextContent(modeLabel);
+    expect(title.closest("summary")).toHaveTextContent(statusLabel);
+    expect(title.closest("summary")).not.toHaveTextContent(/Link bank to receive|Transfer pending/);
+    expect(title.closest("summary")).toHaveTextContent("$9.11");
+    expect(screen.queryByText(/bank payout paid/)).toBeNull();
+  });
+
   it("loads the next transaction page and clears history on an account switch", async () => {
     const make = (requestId: string, description: string) => ({
       requestId, description, status: "awaiting_delivery", grossAmountCents: 1000,

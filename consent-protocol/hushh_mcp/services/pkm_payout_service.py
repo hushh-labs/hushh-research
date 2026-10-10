@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -25,10 +26,16 @@ from hushh_mcp.services.pkm_packet_order_service import (
     _stripe_config,
     _stripe_dict,
 )
+from hushh_mcp.services.stripe_mode import (
+    configured_stripe_mode,
+    stripe_environment,
+    uat_live_document_only,
+)
 
 logger = logging.getLogger(__name__)
 
-ACCOUNTS = "pkm_owner_payout_accounts"
+ACCOUNTS = "stripe_owner_payout_accounts"
+LEGACY_ACCOUNTS = "pkm_owner_payout_accounts"
 ONBOARDING_RETURN_PATHS = {
     "marketplace": "/one/marketplace",
     "documents": "/one/profile/payouts",
@@ -60,6 +67,49 @@ def _app_origin() -> str:
     return origin
 
 
+def _bank_projection(remote: dict[str, Any]) -> dict[str, Any]:
+    """Expose only the default USD bank's display details, never banking credentials."""
+    external = remote.get("external_accounts")
+    if not isinstance(external, dict) or not isinstance(external.get("data"), list):
+        return {"bankStatus": "unavailable", "bank": None}
+    bank = next(
+        (
+            item
+            for item in external["data"]
+            if isinstance(item, dict)
+            and item.get("object") == "bank_account"
+            and item.get("currency") == "usd"
+            and item.get("country") == "US"
+            and item.get("default_for_currency") is True
+            and not item.get("deleted")
+        ),
+        None,
+    )
+    if bank is None:
+        # Account retrieval includes only a bounded external-account preview.
+        # An omitted default in a paginated preview is not proof it was removed.
+        return {
+            "bankStatus": "unavailable" if external.get("has_more") else "missing",
+            "bank": None,
+        }
+    raw_status = bank.get("status")
+    status = (
+        raw_status
+        if raw_status in {"new", "validated", "verified", "verification_failed", "errored"}
+        else "unknown"
+    )
+    name = bank.get("bank_name")
+    last4 = bank.get("last4")
+    return {
+        "bankStatus": "linked" if status in {"new", "validated", "verified"} else "needs_attention",
+        "bank": {
+            "name": name.strip()[:80] if isinstance(name, str) and name.strip() else None,
+            "last4": last4 if isinstance(last4, str) and re.fullmatch(r"[0-9]{4}", last4) else None,
+            "status": status,
+        },
+    }
+
+
 def _account_readiness(remote: dict[str, Any]) -> dict[str, Any]:
     """A live Stripe Account is the authority for transfer and payout readiness."""
     capabilities = remote.get("capabilities") or {}
@@ -72,14 +122,49 @@ def _account_readiness(remote: dict[str, Any]) -> dict[str, Any]:
     submitted = bool(remote.get("details_submitted"))
     transfers = capabilities.get("transfers") == "active"
     payouts = bool(remote.get("payouts_enabled"))
-    ready = submitted and transfers and payouts and not disabled
+    bank = _bank_projection(remote)
+    ready = submitted and transfers and payouts and not disabled and bank["bankStatus"] == "linked"
+    dashboard = (remote.get("controller") or {}).get("stripe_dashboard") or {}
+    can_manage = (
+        not remote.get("deleted")
+        and remote.get("country") == "US"
+        and remote.get("type", "express") == "express"
+        and dashboard.get("type", "express") == "express"
+    )
     return {
         "detailsSubmitted": submitted,
         "transfersEnabled": transfers,
         "payoutsEnabled": payouts,
         "ready": ready,
         "status": "ready" if ready else "restricted" if disabled else "onboarding_required",
+        "canManageBank": can_manage,
+        **bank,
     }
+
+
+def _legacy_account_absent(exc: Exception, *, account_id: str, mode: str) -> bool:
+    """Only an explicit provider absence/mode verdict permits fresh onboarding."""
+    if getattr(exc, "code", None) == "resource_missing":
+        return True
+    # Stripe currently returns APIError/400 without a code for test Connect
+    # accounts read using live credentials. Match the provider's exact verdict
+    # about this account; generic 400/auth/network failures remain unavailable.
+    import stripe
+
+    body = getattr(exc, "json_body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    return bool(
+        mode == "live"
+        and isinstance(exc, stripe.APIError)
+        and getattr(exc, "http_status", None) == 400
+        and isinstance(error, dict)
+        and error.get("type") == "api_error"
+        and error.get("message")
+        == (
+            f"The account {account_id} was a test account created with a testmode key, "
+            "and therefore can only be used with testmode keys."
+        )
+    )
 
 
 async def resume_document_owner_setup(db: Any, user_id: str) -> None:
@@ -113,8 +198,66 @@ class PkmPayoutService:
         return getattr(result, "data", None) or []
 
     async def _account(self, user_id: str) -> dict[str, Any] | None:
-        rows = await self._rows(self.db.table(ACCOUNTS).select("*").eq("user_id", user_id).limit(1))
-        return rows[0] if rows else None
+        mode = configured_stripe_mode()
+        rows = await self._rows(
+            self.db.table(ACCOUNTS)
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("stripe_mode", mode)
+            .limit(1)
+        )
+        if rows:
+            return rows[0]
+        # Preserve the old mapping until the provider proves which mode owns it.
+        # Stripe Account objects have no livemode field; authenticated retrieval
+        # is authoritative. A network/auth failure must not create a replacement.
+        legacy = await self._rows(
+            self.db.table(LEGACY_ACCOUNTS).select("*").eq("user_id", user_id).limit(1)
+        )
+        if not legacy:
+            return None
+        key, _, _ = _stripe_config()
+        try:
+            remote = _stripe_dict(
+                await asyncio.to_thread(
+                    self.stripe_api.Account.retrieve, legacy[0]["stripe_account_id"], api_key=key
+                )
+            )
+        except Exception as exc:
+            if _legacy_account_absent(exc, account_id=legacy[0]["stripe_account_id"], mode=mode):
+                return None
+            raise PacketOrderError(
+                "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
+            ) from None
+        if remote.get("id") != legacy[0]["stripe_account_id"]:
+            raise PacketOrderError(
+                "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
+            )
+        readiness = _account_readiness(remote)
+        adopted = {
+            "user_id": user_id,
+            "stripe_mode": mode,
+            "stripe_account_id": legacy[0]["stripe_account_id"],
+            "details_submitted": readiness["detailsSubmitted"],
+            "payouts_enabled": readiness["payoutsEnabled"],
+            "account_ready": readiness["ready"],
+        }
+        try:
+            await self._rows(self.db.table(ACCOUNTS).insert(adopted))
+        except Exception:
+            rows = await self._rows(
+                self.db.table(ACCOUNTS)
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("stripe_mode", mode)
+                .limit(1)
+            )
+            if not rows:
+                raise PacketOrderError(
+                    "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
+                ) from None
+            return rows[0]
+        return adopted
 
     # --- owner -------------------------------------------------------------
 
@@ -132,11 +275,14 @@ class PkmPayoutService:
                     await asyncio.to_thread(
                         self.stripe_api.Account.create,
                         api_key=key,
-                        idempotency_key=f"pkm-payout-account:{user_id}",
+                        idempotency_key=f"pkm-payout-account:{stripe_environment()}:{configured_stripe_mode()}:{user_id}",
                         type="express",
                         country="US",
                         capabilities={"transfers": {"requested": True}},
-                        metadata={"hussh_user_ref": "pkm_owner"},
+                        metadata={
+                            "hussh_user_ref": "pkm_owner",
+                            "hussh_environment": stripe_environment(),
+                        },
                     )
                 )
             except Exception as exc:
@@ -152,7 +298,11 @@ class PkmPayoutService:
             try:
                 await self._rows(
                     self.db.table(ACCOUNTS).insert(
-                        {"user_id": user_id, "stripe_account_id": account_id}
+                        {
+                            "user_id": user_id,
+                            "stripe_account_id": account_id,
+                            "stripe_mode": configured_stripe_mode(),
+                        }
                     )
                 )
             except Exception:
@@ -226,7 +376,12 @@ class PkmPayoutService:
             "account_ready": readiness["ready"],
             "updated_at": _now(),
         }
-        await self._rows(self.db.table(ACCOUNTS).update(patch).eq("user_id", user_id))
+        await self._rows(
+            self.db.table(ACCOUNTS)
+            .update(patch)
+            .eq("user_id", user_id)
+            .eq("stripe_mode", configured_stripe_mode())
+        )
         if account.get("account_ready") is not readiness["ready"]:
             await resume_document_owner_setup(self.db, user_id)
         return {**account, **patch, "readiness": readiness}
@@ -236,6 +391,8 @@ class PkmPayoutService:
         account = await self.refresh_account(user_id)
         if account is None:
             raise PacketOrderError("PAYOUT_ACCOUNT_REQUIRED", "Link a bank first.")
+        if not account["readiness"]["canManageBank"]:
+            raise PacketOrderError("PAYOUT_ACCOUNT_DISABLED", "This payout account needs support.")
         key, _, _ = _stripe_config()
         try:
             link = _stripe_dict(
@@ -264,13 +421,45 @@ class PkmPayoutService:
     async def account_status(self, *, user_id: str) -> dict[str, Any]:
         """Document checkout consumes this without exposing PKM sales or account IDs."""
         account = await self.refresh_account(user_id)
-        return {"account": account["readiness"] if account is not None else None}
+        return {
+            "account": account["readiness"] if account is not None else None,
+            "stripeMode": configured_stripe_mode(),
+        }
+
+    async def _earning_orders(
+        self, *, state: str | None = None, owner: str | None = None, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Keep pre-cutover production credit earnings on their existing terms.
+
+        Legacy card orders still require provider-mode proof. UAT never treats
+        its historic credits as live money.
+        """
+        mode = configured_stripe_mode()
+        modes = [mode]
+        if mode == "live" and stripe_environment() == "production":
+            modes.append("legacy")
+        rows = []
+        for candidate_mode in modes:
+            query = (
+                self.db.table(ORDERS)
+                .select("*")
+                .eq("status", "paid")
+                .eq("stripe_mode", candidate_mode)
+            )
+            if owner is not None:
+                query = query.eq("owner_user_id", owner)
+            if state is not None:
+                query = query.eq("owner_earning_status", state)
+            if candidate_mode == "legacy":
+                query = query.eq("payment_method", "credits")
+            if limit is not None:
+                query = query.limit(limit)
+            rows.extend(await self._rows(query))
+        return rows[:limit] if limit is not None else rows
 
     async def summary(self, *, user_id: str) -> dict[str, Any]:
         account = await self.refresh_account(user_id)
-        orders = await self._rows(
-            self.db.table(ORDERS).select("*").eq("owner_user_id", user_id).eq("status", "paid")
-        )
+        orders = await self._earning_orders(owner=user_id)
         totals = {"awaitingDelivery": 0, "due": 0, "paidOut": 0}
         for order in orders:
             state = order.get("owner_earning_status") or "none"
@@ -292,13 +481,7 @@ class PkmPayoutService:
 
     async def mark_delivered_earnings_due(self, *, max_orders: int = 50) -> int:
         """Paid orders whose packet has been delivered become 'due' to the owner."""
-        paid = await self._rows(
-            self.db.table(ORDERS)
-            .select("*")
-            .eq("status", "paid")
-            .eq("owner_earning_status", "none")
-            .limit(max_orders)
-        )
+        paid = await self._earning_orders(state="none", limit=max_orders)
         request_ids = [str(o["access_request_id"]) for o in paid if o.get("access_request_id")]
         if not request_ids:
             return 0
@@ -325,22 +508,25 @@ class PkmPayoutService:
         return marked
 
     async def transfer_due(self, *, max_orders: int = 20) -> int:
-        due = await self._rows(
-            self.db.table(ORDERS).select("*").eq("owner_earning_status", "due").limit(max_orders)
-        )
+        due = await self._earning_orders(state="due", limit=max_orders)
         if not due:
             return 0
         key, _, _ = _stripe_config()
-        accounts = {
-            str(a["user_id"]): a
-            for a in await self._rows(
-                self.db.table(ACCOUNTS)
-                .select("*")
-                .in_("user_id", list({str(o["owner_user_id"]) for o in due}))
-            )
-        }
+        accounts = {}
+        for owner in sorted({str(order["owner_user_id"]) for order in due}):
+            try:
+                # Includes verified adoption of an old mapping without requiring
+                # the person to visit Profile before an existing earning settles.
+                account = await self.refresh_account(owner)
+                if account and account["readiness"]["ready"]:
+                    accounts[owner] = account
+            except PacketOrderError:
+                continue  # Retain the earning; no replacement on provider failure.
         sent = 0
         for order in due:
+            # Credit balances predate mode isolation; they cannot back live cash.
+            if uat_live_document_only() and order.get("payment_method") == "credits":
+                continue
             account = accounts.get(str(order["owner_user_id"]))
             if not account or not account.get("payouts_enabled"):
                 continue  # stays due until the owner finishes onboarding

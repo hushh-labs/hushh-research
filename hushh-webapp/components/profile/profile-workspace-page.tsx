@@ -49,8 +49,6 @@ import {
 } from "@/components/icons/agents";
 import {
   ProfilePaneAccountIcon,
-  ProfilePaneCardNetworkIcon,
-  ProfilePaneEditIcon,
   ProfilePaneAppearanceIcon,
   ProfilePaneConnectorsIcon,
   ProfilePaneDevicesIcon,
@@ -75,6 +73,8 @@ import {
   ProfileSecondaryVisibilityIcon,
 } from "@/components/profile/profile-secondary-icons";
 import {
+  ProfileAccountBankIcon,
+  ProfileAccountPriceIcon,
   ProfileAccountDeleteIcon,
   ProfileAccountMailIcon,
   ProfileAccountNameIcon,
@@ -3384,7 +3384,7 @@ function ProfilePageContent({
   };
 
   const myDataContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div className={cn("space-y-4 sm:space-y-5", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
       <PkmDataManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -4370,7 +4370,7 @@ function ProfilePageContent({
       key: "panel:payouts",
       title: "Payouts",
       content: (
-        <div className="space-y-4">
+        <div className={cn("space-y-4", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
           <DocumentPayoutAccountCard handleReturn />
           <DocumentBankPayoutStatusCard refreshOnFeedChange />
         </div>
@@ -4380,7 +4380,11 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:request-pricing",
       title: "Request pricing",
-      content: <DocumentRequestPricingCard />,
+      content: (
+        <div className={cn(isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
+          <DocumentRequestPricingCard />
+        </div>
+      ),
     });
   } else if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
@@ -4682,7 +4686,7 @@ function ProfilePageContent({
                 onClick={openAccountPanel}
               />
               <SettingsRow
-                icon={ProfilePaneCardNetworkIcon}
+                icon={ProfileAccountBankIcon}
                 iconTone="capability"
                 title="Payouts"
                 chevron
@@ -4693,7 +4697,7 @@ function ProfilePageContent({
                 onClick={() => openVaultBackedPanel("payouts")}
               />
               <SettingsRow
-                icon={ProfilePaneEditIcon}
+                icon={ProfileAccountPriceIcon}
                 iconTone="capability"
                 title="Request pricing"
                 chevron
