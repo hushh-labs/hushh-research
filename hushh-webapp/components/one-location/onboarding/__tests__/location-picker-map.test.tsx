@@ -133,9 +133,8 @@ describe("LocationPickerMap", () => {
     const actions = screen.getByTestId("location-picker-actions");
     expect(actions).toHaveClass("mx-auto", "w-full", "max-w-[320px]");
     expect(actions.className).not.toContain("bg-background");
-    expect(actions.className).toContain(
-      "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
-    );
+    // The enclosing modal owns the safe-area inset; adding it here doubles it.
+    expect(actions.className).not.toContain("safe-area-inset-bottom");
     expect(confirm.querySelector("svg")).toBeNull();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });

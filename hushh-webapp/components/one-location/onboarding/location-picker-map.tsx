@@ -618,9 +618,9 @@ export function LocationPickerMap({
       : "Move the pin if needed.";
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div className={cn("flex min-h-0 flex-col gap-3", !embedded && "flex-1", className)}>
       {!embedded ? (
-        <div className="flex items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between">
           {/* Three words. "on the map" described the thing the person is already
             looking at, and this row shares a sheet header with the step rail --
             every word here is a word the title has to fit beside a 44px close
@@ -645,193 +645,204 @@ export function LocationPickerMap({
       ) : null}
 
       <div
-        // Panning the map is a horizontal drag too. Marked so an enclosing
-        // carousel can ignore gestures that start here instead of stealing
-        // them and sliding the sheet while the person is moving the pin.
-        data-location-picker-surface
+        data-location-picker-body
         className={cn(
-          "relative w-full overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]",
-          embedded
-            ? "h-[clamp(160px,25dvh,240px)] lg:h-[clamp(300px,44dvh,460px)]"
-            : PICKER_MAP_HEIGHT_CLASSNAME,
-          // The native map draws below the WebView, so the surface must stay
-          // transparent for it to show through. Web keeps the neutral tile bg.
-          native
-            ? "one-location-picker-native-surface bg-transparent"
-            : "bg-[#eef2f7] dark:bg-[#10151d]",
+          "flex flex-col gap-3",
+          !embedded && "min-h-0 flex-1 overflow-y-auto overscroll-contain",
         )}
       >
-        {/* NATIVE: the @capacitor/google-maps element must be mounted BEFORE
-            GoogleMap.create runs (create needs a real element). Gating it behind
-            status==="ready" deadlocked the picker — the element only mounted
-            once ready, but ready only arrives after create succeeds against the
-            element — which is what left it stuck on "Loading map…". So on native
-            we always mount the element (unless the map is truly unavailable) and
-            overlay the loader on top until it's ready. */}
-        {native && !unavailable ? (
-          <capacitor-google-map
-            ref={(element: HTMLElement | null) => {
-              nativeMapElementRef.current = element;
-            }}
-            className="block h-full w-full bg-transparent"
-          />
+        <div
+          // Panning the map is a horizontal drag too. Marked so an enclosing
+          // carousel can ignore gestures that start here instead of stealing
+          // them and sliding the sheet while the person is moving the pin.
+          data-location-picker-surface
+          className={cn(
+            "relative w-full overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]",
+            embedded
+              ? "h-[clamp(160px,25dvh,240px)] lg:h-[clamp(300px,44dvh,460px)]"
+              : PICKER_MAP_HEIGHT_CLASSNAME,
+            // Give short screens room for the selected address above the
+            // pinned actions, while retaining a usable map and scroll fallback.
+            !embedded && "min-h-[128px] shrink",
+            // The native map draws below the WebView, so the surface must stay
+            // transparent for it to show through. Web keeps the neutral tile bg.
+            native
+              ? "one-location-picker-native-surface bg-transparent"
+              : "bg-[#eef2f7] dark:bg-[#10151d]",
+          )}
+        >
+          {/* NATIVE: the @capacitor/google-maps element must be mounted BEFORE
+              GoogleMap.create runs (create needs a real element). Gating it behind
+              status==="ready" deadlocked the picker — the element only mounted
+              once ready, but ready only arrives after create succeeds against the
+              element — which is what left it stuck on "Loading map…". So on native
+              we always mount the element (unless the map is truly unavailable) and
+              overlay the loader on top until it's ready. */}
+          {native && !unavailable ? (
+            <capacitor-google-map
+              ref={(element: HTMLElement | null) => {
+                nativeMapElementRef.current = element;
+              }}
+              className="block h-full w-full bg-transparent"
+            />
+          ) : null}
+
+          {unavailable ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"
+            >
+              <MapPin
+                className="h-7 w-7 text-[#8b93a1]"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <p
+                id={mapUnavailableDescriptionId}
+                className="text-[13px] font-medium text-[#5b6472] dark:text-[#9aa6b6]"
+              >
+                The interactive map isn&apos;t available right now. You can
+                continue with the captured point and complete the address
+                manually.
+              </p>
+            </div>
+          ) : status !== "ready" ? (
+            // Overlay (not a replacement): on native the map element stays mounted
+            // underneath so create() can resolve; this loader simply covers it
+            // until ready.
+            <div className="absolute inset-0 flex h-full items-center justify-center gap-2 bg-[#eef2f7] text-[13px] text-[#5b6472] dark:bg-[#10151d] dark:text-[#9aa6b6]">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading
+              map…
+            </div>
+          ) : (
+            <>
+              {native ? null : (
+                <div
+                  key={colorScheme}
+                  ref={containerRef}
+                  className="h-full w-full"
+                />
+              )}
+
+              {/* Fixed centre marker — the map moves beneath it, so the pin
+                  always marks the chosen coordinate. A polished Google-style
+                  teardrop (accent fill + white ring) with a soft ground shadow
+                  reads far better than a flat outline icon. */}
+              <div
+                className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                aria-hidden="true"
+              >
+                <div
+                  className={cn(
+                    "relative flex flex-col items-center transition-transform duration-150 ease-out",
+                    // Lift so the teardrop TIP sits exactly on the map centre.
+                    dragging ? "-translate-y-[30px]" : "-translate-y-[24px]",
+                  )}
+                >
+                  <svg
+                    width="40"
+                    height="48"
+                    viewBox="0 0 40 48"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="drop-shadow-[0_6px_10px_rgba(16,24,40,0.35)]"
+                  >
+                    {/* Teardrop body */}
+                    <path
+                      d="M20 1.5c-9.66 0-17.5 7.6-17.5 17 0 7.02 4.02 12.06 8.2 16.86 2.1 2.42 4.28 4.86 6.02 7.62.72 1.14 1.28 2.02 3.28 2.02s2.56-.88 3.28-2.02c1.74-2.76 3.92-5.2 6.02-7.62 4.18-4.8 8.2-9.84 8.2-16.86 0-9.4-7.84-17-17.5-17z"
+                      fill="var(--app-accent,#087ff5)"
+                      stroke="#ffffff"
+                      strokeWidth="2.5"
+                    />
+                    {/* Inner dot */}
+                    <circle cx="20" cy="18.5" r="6.2" fill="#ffffff" />
+                    <circle
+                      cx="20"
+                      cy="18.5"
+                      r="3"
+                      fill="var(--app-accent,#087ff5)"
+                    />
+                  </svg>
+                  {/* Ground shadow under the tip */}
+                  <span
+                    className={cn(
+                      "mt-[1px] rounded-full bg-black/45 blur-[2px] transition-[background-color,filter,opacity] duration-150",
+                      dragging
+                        ? "h-[5px] w-[10px] opacity-35"
+                        : "h-[6px] w-[14px] opacity-55",
+                    )}
+                  />
+                </div>
+              </div>
+
+              {onLocateMe ? (
+                <button
+                  type="button"
+                  onClick={() => void handleLocateMe()}
+                  disabled={locating}
+                  aria-label="Use my current location"
+                  className="press-scale absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-[color:var(--app-accent-deep,#0b62c4)] shadow-[0_4px_14px_rgba(16,24,40,0.22)] disabled:opacity-60 dark:bg-[#1c2430] dark:text-[#9bc7f5]"
+                >
+                  {locating ? (
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                  ) : (
+                    <Crosshair
+                      className="h-5 w-5"
+                      strokeWidth={2.2}
+                      aria-hidden
+                    />
+                  )}
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <p className="text-[12px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]">
+          {accuracyHint}
+        </p>
+
+        {locationError ? (
+          <p
+            role="status"
+            className="rounded-xl bg-[#fff4ed] px-3 py-2 text-[12px] font-medium leading-[1.4] text-[#b54708] dark:bg-[#7a2e0e]/20 dark:text-[#fdb022]"
+          >
+            {locationError}
+          </p>
         ) : null}
 
-        {unavailable ? (
+        {!embedded ? (
           <div
-            role="status"
             aria-live="polite"
-            className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"
+            className="flex items-start gap-2 rounded-2xl bg-[#f4f6fa] px-3.5 py-3 dark:bg-white/[0.05]"
           >
-            <MapPin
-              className="h-7 w-7 text-[#8b93a1]"
-              strokeWidth={2}
-              aria-hidden
-            />
-            <p
-              id={mapUnavailableDescriptionId}
-              className="text-[13px] font-medium text-[#5b6472] dark:text-[#9aa6b6]"
-            >
-              The interactive map isn&apos;t available right now. You can
-              continue with the captured point and complete the address
-              manually.
-            </p>
-          </div>
-        ) : status !== "ready" ? (
-          // Overlay (not a replacement): on native the map element stays mounted
-          // underneath so create() can resolve; this loader simply covers it
-          // until ready.
-          <div className="absolute inset-0 flex h-full items-center justify-center gap-2 bg-[#eef2f7] text-[13px] text-[#5b6472] dark:bg-[#10151d] dark:text-[#9aa6b6]">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading
-            map…
-          </div>
-        ) : (
-          <>
-            {native ? null : (
-              <div
-                key={colorScheme}
-                ref={containerRef}
-                className="h-full w-full"
-              />
-            )}
-
-            {/* Fixed centre marker — the map moves beneath it, so the pin
-                always marks the chosen coordinate. A polished Google-style
-                teardrop (accent fill + white ring) with a soft ground shadow
-                reads far better than a flat outline icon. */}
-            <div
-              className="pointer-events-none absolute inset-0 flex items-center justify-center"
-              aria-hidden="true"
-            >
-              <div
-                className={cn(
-                  "relative flex flex-col items-center transition-transform duration-150 ease-out",
-                  // Lift so the teardrop TIP sits exactly on the map centre.
-                  dragging ? "-translate-y-[30px]" : "-translate-y-[24px]",
-                )}
-              >
-                <svg
-                  width="40"
-                  height="48"
-                  viewBox="0 0 40 48"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="drop-shadow-[0_6px_10px_rgba(16,24,40,0.35)]"
-                >
-                  {/* Teardrop body */}
-                  <path
-                    d="M20 1.5c-9.66 0-17.5 7.6-17.5 17 0 7.02 4.02 12.06 8.2 16.86 2.1 2.42 4.28 4.86 6.02 7.62.72 1.14 1.28 2.02 3.28 2.02s2.56-.88 3.28-2.02c1.74-2.76 3.92-5.2 6.02-7.62 4.18-4.8 8.2-9.84 8.2-16.86 0-9.4-7.84-17-17.5-17z"
-                    fill="var(--app-accent,#087ff5)"
-                    stroke="#ffffff"
-                    strokeWidth="2.5"
-                  />
-                  {/* Inner dot */}
-                  <circle cx="20" cy="18.5" r="6.2" fill="#ffffff" />
-                  <circle
-                    cx="20"
-                    cy="18.5"
-                    r="3"
-                    fill="var(--app-accent,#087ff5)"
-                  />
-                </svg>
-                {/* Ground shadow under the tip */}
-                <span
-                  className={cn(
-                    "mt-[1px] rounded-full bg-black/45 blur-[2px] transition-[background-color,filter,opacity] duration-150",
-                    dragging
-                      ? "h-[5px] w-[10px] opacity-35"
-                      : "h-[6px] w-[14px] opacity-55",
-                  )}
-                />
-              </div>
-            </div>
-
-            {onLocateMe ? (
-              <button
-                type="button"
-                onClick={() => void handleLocateMe()}
-                disabled={locating}
-                aria-label="Use my current location"
-                className="press-scale absolute bottom-3 right-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-[color:var(--app-accent-deep,#0b62c4)] shadow-[0_4px_14px_rgba(16,24,40,0.22)] disabled:opacity-60 dark:bg-[#1c2430] dark:text-[#9bc7f5]"
-              >
-                {locating ? (
-                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                ) : (
-                  <Crosshair
-                    className="h-5 w-5"
-                    strokeWidth={2.2}
-                    aria-hidden
-                  />
-                )}
-              </button>
-            ) : null}
-          </>
-        )}
-      </div>
-
-      <p className="text-[12px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]">
-        {accuracyHint}
-      </p>
-
-      {locationError ? (
-        <p
-          role="status"
-          className="rounded-xl bg-[#fff4ed] px-3 py-2 text-[12px] font-medium leading-[1.4] text-[#b54708] dark:bg-[#7a2e0e]/20 dark:text-[#fdb022]"
-        >
-          {locationError}
-        </p>
-      ) : null}
-
-      {!embedded ? (
-        <div
-          aria-live="polite"
-          className="flex items-start gap-2 rounded-2xl bg-[#f4f6fa] px-3.5 py-3 dark:bg-white/[0.05]"
-        >
-          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
-            <MapPin className="h-4 w-4" strokeWidth={2.4} aria-hidden />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[#8b93a1] dark:text-[#7f8a99]">
-              Selected spot
-            </p>
-            {resolving ? (
-              <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                Finding this address…
-              </span>
-            ) : (
-              <p className="mt-0.5 text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
-                {address ||
-                  (unavailable
-                    ? "Captured point ready"
-                    : hasInteracted
-                      ? "Address not found — add details on the next step"
-                      : "Move the map to choose a place")}
+            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
+              <MapPin className="h-4 w-4" strokeWidth={2.4} aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[#8b93a1] dark:text-[#7f8a99]">
+                Selected spot
               </p>
-            )}
+              {resolving ? (
+                <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  Finding this address…
+                </span>
+              ) : (
+                <p className="mt-0.5 text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
+                  {address ||
+                    (unavailable
+                      ? "Captured point ready"
+                      : hasInteracted
+                        ? "Address not found — add details on the next step"
+                        : "Move the map to choose a place")}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {!embedded ? (
         <div
