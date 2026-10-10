@@ -45,4 +45,24 @@ describe("CircleMessagesPane saved selection", () => {
       .toEqual({ lane: "circles", circleId: null }));
     expect(screen.queryByTestId("circle-chat")).not.toBeInTheDocument();
   });
+
+  it("excludes system circles from chats and clears an unsupported saved selection", async () => {
+    const count = vi.fn();
+    writeLastMessagesSelection("viewer", { lane: "circles", circleId: "trusted" });
+    mocks.listCircles.mockResolvedValue([
+      circle("group"),
+      { ...circle("trusted"), systemKind: "trusted", isSystem: false },
+      { ...circle("sms"), systemKind: "sms", isSystem: true },
+      { ...circle("legacy-sms"), isSystem: true },
+    ]);
+
+    render(<CircleMessagesPane active initialCircleId="trusted" onCircleCountChange={count} />);
+
+    expect(await screen.findByRole("button", { name: /group/ })).toBeInTheDocument();
+    await waitFor(() => expect(count).toHaveBeenLastCalledWith(1));
+    expect(screen.queryByRole("button", { name: /trusted|sms/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("circle-chat")).not.toBeInTheDocument();
+    expect(parseLastMessagesSelection(readLastMessagesSelection("viewer")))
+      .toEqual({ lane: "circles", circleId: null });
+  });
 });

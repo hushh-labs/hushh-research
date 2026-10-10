@@ -658,6 +658,10 @@ export function SwipeViews({
       if (widthChanged || engineIsStale || slideCountStale) api.reInit();
       if (targetIdx !== -1) {
         scrollToIndexSafely(api, targetIdx, true);
+        // A geometry repair jumps without scroll/settle events. Publish its
+        // resting position here too, or the shell retains the prior highlight.
+        isAnimatingRef.current = false;
+        setTopShellTabSwipeState(tabSetId, targetIdx, false);
       }
     };
 
@@ -666,7 +670,7 @@ export function SwipeViews({
     const observer = new ResizeObserver(reconcile);
     observer.observe(root);
     return () => observer.disconnect();
-  }, [emblaApi]);
+  }, [emblaApi, tabSetId]);
 
   /**
    * Lets the viewport come down to the pane the person is now looking at.
