@@ -57,6 +57,10 @@ class _FakeDb:
         return _FakeQuery(table_name, self.response_rows, self.execute_thread_ids)
 
     def execute_raw(self, sql, params):
+        if "consent_audit" in sql:
+            self.requested_tables.append("consent_audit")
+            self.execute_thread_ids.append(threading.get_ident())
+            return _FakeResponse(self.response_rows.get("consent_audit", []))
         assert "internal_access_events" in sql
         self.requested_tables.append("internal_access_events")
         self.execute_thread_ids.append(threading.get_ident())

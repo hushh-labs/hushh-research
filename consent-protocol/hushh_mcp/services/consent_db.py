@@ -1290,18 +1290,25 @@ class ConsentDBService:
                     limit=1,
                 )
         else:
-            db = self._get_db()
-            query = (
-                db.table("consent_audit")
-                .select("action,expires_at,issued_at,token_id")
-                .eq("user_id", user_id)
-                .eq("scope", normalized_scope)
-                .in_("action", ["CONSENT_GRANTED", "REVOKED"])
-            )
+            agent_clause = ' AND "agent_id" = :agent_id' if normalized_agent_id else ""
+            sql = f"""
+                SELECT "action", "expires_at", "issued_at", "token_id"
+                FROM "consent_audit"
+                WHERE "user_id" = :user_id
+                  AND "scope" = :scope
+                  AND "action" IN ('CONSENT_GRANTED', 'REVOKED'){agent_clause}
+                ORDER BY "issued_at" DESC, "id" DESC
+                LIMIT 1
+            """
+            params: Dict[str, Any] = {
+                "user_id": user_id,
+                "scope": normalized_scope,
+            }
             if normalized_agent_id:
-                query = query.eq("agent_id", normalized_agent_id)
+                params["agent_id"] = normalized_agent_id
+
             rows = await asyncio.to_thread(
-                lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+                lambda: self._get_db().execute_raw(sql, params).data or []
             )
 
         if not rows:
