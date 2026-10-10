@@ -799,7 +799,9 @@ final class NativeVaultLayoutProbe {
                             "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
                             "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
-                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive"])
+                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive",
+                            "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
+                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -868,6 +870,23 @@ final class NativeVaultLayoutProbe {
         passphraseFields: document.querySelectorAll('#unlock-passphrase').length,
         dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]'))
       };
+      // Authored public pane geometry, not a named AX heading or inferred
+      // operation. Neither contents nor account/route labels are read.
+      const profile = document.querySelector('[data-testid="profile-pane"][data-state="open"]');
+      const history = document.querySelector('[data-agent-history-drawer][aria-hidden="false"]');
+      const drawer = profile || history;
+      if (drawer) {
+        const rect = drawer.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const owns = y => drawer.contains(document.elementFromPoint(x, y));
+        const moving = drawer.getAnimations().some(animation =>
+          animation.effect?.target === drawer && animation.playState === 'running' &&
+          animation.effect?.getComputedTiming().iterations !== Infinity);
+        Object.assign(result, { drawerKind: profile ? 1 : 2,
+          drawerTop: rect.top, drawerBottom: rect.bottom, drawerWidth: rect.width,
+          drawerViewportHeight: innerHeight, drawerOwnsTopEdge: owns(1),
+          drawerOwnsBottomEdge: owns(innerHeight - 1), drawerSettled: !moving });
+      }
       // Public interaction admission only. Never read the editor's value,
       // selection contents, transcript, account identity or arbitrary DOM.
       const chats = document.querySelectorAll('textarea[aria-label="Message One"]');

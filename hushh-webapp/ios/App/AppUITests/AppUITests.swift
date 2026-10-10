@@ -1127,7 +1127,9 @@ final class AppUITests: XCTestCase {
         let selector = app.segmentedControls["chat-agent-surface"].firstMatch
         XCTAssertTrue(waitForAdmittedControl(selector), "NATIVE_MATERIAL_AGENT_SELECTOR_NOT_ADMITTED")
         let selectorFrame = selector.frame
-        defer {
+        let layout = app.buttons["native-vault-layout"].firstMatch
+        XCTAssertTrue(layout.waitForExistence(timeout: 10), "NATIVE_MATERIAL_DRAWER_PROBE_UNAVAILABLE")
+        addTeardownBlock {
             if profileClose.exists && profileClose.isHittable { profileClose.tap() }
             if historyClose.exists && historyClose.isHittable { historyClose.tap() }
         }
@@ -1144,10 +1146,30 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(covered?["accessibilityHidden"] as? Bool, true)
                 XCTAssertFalse(editor.exists && editor.isHittable, "NATIVE_MATERIAL_COVERED_EDITOR_ADMITTED")
                 XCTAssertFalse(selector.exists && selector.isHittable, "NATIVE_MATERIAL_COVERED_SELECTOR_ADMITTED")
-                let panel = web.otherElements[family == "profile" ? "Profile" : "Agent chat history"].firstMatch
-                guard panel.exists else { XCTFail("NATIVE_MATERIAL_DRAWER_FRAME_UNAVAILABLE"); return }
-                XCTAssertEqual(panel.frame.minY, web.frame.minY, accuracy: 1, "NATIVE_MATERIAL_DRAWER_TOP_NOT_EDGE_TO_EDGE")
-                XCTAssertEqual(panel.frame.maxY, web.frame.maxY, accuracy: 1, "NATIVE_MATERIAL_DRAWER_BOTTOM_NOT_EDGE_TO_EDGE")
+                // WebKit can project the Profile heading as an Other named
+                // "Profile", without exposing the dialog's rectangle. Bind
+                // layout to the authored pane and independently prove both
+                // edge hit owners; do not waive a clipped or shortened pane.
+                var bounds: [String: NSNumber]?
+                let paneReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    guard let raw = layout.value as? String, let data = raw.data(using: .utf8),
+                          let values = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber],
+                          values["drawerKind"]?.intValue == (family == "profile" ? 1 : 2),
+                          values["drawerSettled"]?.boolValue == true else { return false }
+                    bounds = values; return true
+                }, object: layout)
+                guard XCTWaiter.wait(for: [paneReady], timeout: 10) == .completed,
+                      let bounds, let top = bounds["drawerTop"]?.doubleValue,
+                      let bottom = bounds["drawerBottom"]?.doubleValue,
+                      let height = bounds["drawerViewportHeight"]?.doubleValue,
+                      [top, bottom, height].allSatisfy({ $0.isFinite }) else {
+                    XCTFail("NATIVE_MATERIAL_DRAWER_FRAME_UNAVAILABLE"); return
+                }
+                print("NATIVE_DRAWER_GEOMETRY family=\(family) top=\(Int(top)) bottom=\(Int(bottom)) viewport_top=0 viewport_bottom=\(Int(height))")
+                XCTAssertEqual(top, 0, accuracy: 1, "NATIVE_MATERIAL_DRAWER_TOP_NOT_EDGE_TO_EDGE")
+                XCTAssertEqual(bottom, height, accuracy: 1, "NATIVE_MATERIAL_DRAWER_BOTTOM_NOT_EDGE_TO_EDGE")
+                XCTAssertEqual(bounds["drawerOwnsTopEdge"]?.boolValue, true, "NATIVE_MATERIAL_DRAWER_TOP_EDGE_NOT_ADMITTED")
+                XCTAssertEqual(bounds["drawerOwnsBottomEdge"]?.boolValue, true, "NATIVE_MATERIAL_DRAWER_BOTTOM_EDGE_NOT_ADMITTED")
                 close.tap()
                 let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                     admitted() && editor.exists && editor.isHittable && opener.exists && opener.isHittable &&
@@ -5498,6 +5520,13 @@ final class AppUITests: XCTestCase {
     }
 
     private func returnToRehearsalChat(_ app: XCUIApplication) {
+        // Recover only authored dismissals left by this rehearsal. A failed
+        // XCTest assertion can interrupt Swift defer, so do not assume a prior
+        // drawer test restored its warm entry state. No account/fixture reset.
+        for label in ["Close Profile", "Close chat history", "Close search"] {
+            let close = app.buttons[label].firstMatch
+            if close.exists && close.isHittable { close.tap() }
+        }
         // A roster entry can legitimately open unfinished capability setup,
         // where the dock is absent. Use the authored Back, not a cold route or
         // a test bootstrap, before returning through the normal Chat tab.
