@@ -499,8 +499,8 @@ export function CalendarAgentPage({
     : "View availability and manage meetings with One.";
   const needsReauth = status?.status === "needs_reauth";
   const checkingConnection = connectionPending || loading || !status;
-  // Connection state owns this presentation, including a later disconnect.
-  const showConnectHero = Boolean(user) && !connected && !checkingConnection;
+  // Keep the illustration from first paint; only a verified connection swaps it.
+  const showConnectHero = !connected;
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
@@ -555,7 +555,7 @@ export function CalendarAgentPage({
         {showConnectHero ? (
           <CalendarConnectHero
             journeyVariant={journeyVariant}
-            busy={busy}
+            busy={busy || checkingConnection || !user}
             needsReauth={needsReauth}
             onConnect={() => void connect("read")}
           >
