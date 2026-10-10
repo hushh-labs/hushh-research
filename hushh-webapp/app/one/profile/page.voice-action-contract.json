@@ -54,6 +54,49 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "route.profile_my_data",
+      "label": "Open Memory",
+      "meaning": "Opens Drive request pricing, document payouts, and saved details in Profile.",
+      "aliases": [
+        "set my Drive price",
+        "set up document payouts"
+      ],
+      "search_keywords": [
+        "memory",
+        "Drive price",
+        "document payouts"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/my-data"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_my_data"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/my-data"
+      },
+      "control_ids": [
+        "profile_my_data"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/profile/my-data/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_connected_systems",
       "label": "Open Connected Systems Panel",
       "meaning": "Navigates to the Connected Systems route.",

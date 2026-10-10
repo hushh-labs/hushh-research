@@ -45,6 +45,19 @@ describe("profile workspace duplication contract", () => {
     );
   });
 
+  it("makes document pricing and payouts reachable from Profile, including after vault creation", () => {
+    const home = profilePageSource.split('const profileRootContent = (')[1]?.split('if (legacyProfileRedirectHref)')[0] ?? "";
+    const memory = profilePageSource.split('const myDataContent = (')[1]?.split('const accessContent = (')[0] ?? "";
+    expect(home).toMatch(/title="Memory"[\s\S]*?description="Drive pricing and payouts"[\s\S]*?onClick=\{\(\) => openVaultBackedPanel\("my-data"\)\}/);
+    expect(memory.indexOf("<DocumentRequestPricingCard />")).toBeGreaterThanOrEqual(0);
+    expect(memory.indexOf("<DocumentPayoutAccountCard handleReturn />")).toBeGreaterThanOrEqual(0);
+    expect(memory.indexOf("<DocumentRequestPricingCard />")).toBeLessThan(memory.indexOf("<PkmDataManagerPanel"));
+    expect(profilePageSource).toMatch(/if \(vaultAccess\.needsVaultCreation && panel !== "security"\) \{\s*setPendingProfileTarget\(\{ panel, detail, mode: "push" \}\);/);
+    expect(profilePageSource).toMatch(/else if \(pendingProfileTarget\) \{\s*updateProfileView\(/);
+    expect(profilePageSource).toMatch(/const handleVaultCreationOpenChange = \(open: boolean\) => \{[\s\S]*?else if \(!vaultCreationCompletingRef\.current\) \{\s*setPendingProfileTarget\(null\);/);
+    expect(profilePageSource).toContain("onOpenChange={handleVaultCreationOpenChange}");
+  });
+
   it("keeps Security as the sole Profile entry for vault controls", () => {
     expect(profilePageSource).not.toContain('className="min-w-[148px]"');
     expect(profilePageSource).not.toContain('voiceControlId="profile_vault"');

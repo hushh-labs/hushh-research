@@ -46,7 +46,7 @@ const PROFILE_DETAIL_TITLES: Record<string, string> = {
 };
 
 /** Rows in the Profile home's "Your settings" group, for the shell. */
-const PROFILE_PANE_SHELL_ROW_COUNT = 7;
+const PROFILE_PANE_SHELL_ROW_COUNT = 8;
 
 function prefersReducedMotion(): boolean {
   return (

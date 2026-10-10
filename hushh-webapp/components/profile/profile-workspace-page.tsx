@@ -55,6 +55,7 @@ import {
   ProfilePaneInviteIcon,
   ProfilePaneSecurityIcon,
   ProfilePaneSignOutIcon,
+  ProfilePaneWalletIcon,
 } from "@/components/profile/profile-pane-icons";
 import {
   ProfileInnerPeopleIcon,
@@ -759,6 +760,7 @@ function ProfilePageContent({
     string | null
   >(null);
   const vaultUnlockCompletingRef = useRef(false);
+  const vaultCreationCompletingRef = useRef(false);
   const supportMessageRef = useRef<HTMLTextAreaElement | null>(null);
   const supportSuccessHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
@@ -1854,6 +1856,7 @@ function ProfilePageContent({
     detail: ProfileDetail | null = null,
   ) {
     if (vaultAccess.needsVaultCreation && panel !== "security") {
+      setPendingProfileTarget({ panel, detail, mode: "push" });
       setShowVaultCreation(true);
       return;
     }
@@ -2185,6 +2188,15 @@ function ProfilePageContent({
     }
   };
 
+  const handleVaultCreationOpenChange = (open: boolean) => {
+    setShowVaultCreation(open);
+    if (open) {
+      vaultCreationCompletingRef.current = false;
+    } else if (!vaultCreationCompletingRef.current) {
+      setPendingProfileTarget(null);
+    }
+  };
+
   const unlockDialogTitle =
     vaultUnlockReason === "delete_account"
       ? "Unlock to delete"
@@ -2274,9 +2286,10 @@ function ProfilePageContent({
       {
         id: "profile_my_data",
         label: "Memory",
-        purpose: "opens your saved details and sharing controls.",
+        purpose: "opens Drive pricing, payouts, and saved details.",
+        actionId: "route.profile_my_data",
         role: "card",
-        voiceAliases: ["personal knowledge model", "my saved details", "pkm"],
+        voiceAliases: ["my data", "Drive price", "document payouts", "saved details"],
       },
       {
         id: "profile_preferences",
@@ -3329,6 +3342,9 @@ function ProfilePageContent({
 
   const myDataContent = (
     <div className="space-y-4 sm:space-y-5">
+      {isVaultUnlocked ? <DocumentRequestPricingCard /> : null}
+      {isVaultUnlocked ? <DocumentPayoutAccountCard handleReturn /> : null}
+      {isVaultUnlocked ? <DocumentBankPayoutStatusCard /> : null}
       <PkmDataManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -3361,9 +3377,6 @@ function ProfilePageContent({
           )
         }
       />
-      {isVaultUnlocked ? <DocumentRequestPricingCard /> : null}
-      {isVaultUnlocked ? <DocumentPayoutAccountCard handleReturn /> : null}
-      {isVaultUnlocked ? <DocumentBankPayoutStatusCard /> : null}
       {isVaultUnlocked ? <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} /> : null}
       {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} /> : null}
     </div>
@@ -4612,6 +4625,18 @@ function ProfilePageContent({
                 onClick={openAccountPanel}
               />
               <SettingsRow
+                icon={isPanePresentation ? ProfilePaneWalletIcon : WalletAgentIcon}
+                iconTone="capability"
+                title="Memory"
+                description="Drive pricing and payouts"
+                chevron
+                voiceControlId="profile_my_data"
+                voiceActionId="route.profile_my_data"
+                voiceLabel="Memory"
+                voicePurpose="Opens Drive pricing, payouts, and saved details."
+                onClick={() => openVaultBackedPanel("my-data")}
+              />
+              <SettingsRow
                 icon={isPanePresentation ? ProfilePaneAppearanceIcon : PreferencesProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.preferences}
@@ -4797,19 +4822,33 @@ function ProfilePageContent({
         <VaultUnlockDialog
           user={user}
           open={showVaultCreation}
-          onOpenChange={setShowVaultCreation}
+          onOpenChange={handleVaultCreationOpenChange}
           title="Create your vault"
           description="Set up a passphrase to secure your saved details."
           onSuccess={() => {
+            vaultCreationCompletingRef.current = true;
             setShowVaultCreation(false);
             setHasVault(true);
             VaultService.setVaultCheckCache(user.uid, true);
             const returnTo = vaultReturnToRef.current;
             if (returnTo) {
               vaultReturnToRef.current = null;
+              setPendingProfileTarget(null);
               router.replace(returnTo);
+            } else if (pendingProfileTarget) {
+              updateProfileView(
+                {
+                  panel: pendingProfileTarget.panel,
+                  detail: pendingProfileTarget.detail,
+                },
+                pendingProfileTarget.mode,
+              );
+              setPendingProfileTarget(null);
             }
             toast.success("Vault created and unlocked.");
+            setTimeout(() => {
+              vaultCreationCompletingRef.current = false;
+            }, 0);
           }}
         />
       )}

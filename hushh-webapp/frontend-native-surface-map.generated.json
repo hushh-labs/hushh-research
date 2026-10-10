@@ -5028,6 +5028,7 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
@@ -9912,5 +9913,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "94beb54c717852695f92ec65dae24a9919b674b2b73023bfdf1a7eee451372d0"
+  "content_sha256": "86d5b5c57ff85ecf26cf74ee0ce533cfa52fbb883fef4916803ae2a9ed18b0db"
 }

@@ -15598,6 +15598,154 @@
     },
     {
       "aliases": [
+        "Open Memory",
+        "set my Drive price",
+        "set up document payouts"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_my_data",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens Drive request pricing, document payouts, and saved details in Profile.",
+      "execution": {
+        "binding_ref": "route:/one/profile/my-data",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/my-data"
+        }
+      },
+      "goal_id": "goal.route.profile_my_data",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Memory",
+      "navigation": {
+        "fallback": "/one/profile/my-data",
+        "routes": [
+          "/one/profile/my-data"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_my_data"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "Drive price",
+        "document payouts"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Referrals",
         "open referrals",
         "invite friends",
@@ -37619,7 +37767,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "0a4e5ea0ac7d402e36c7de3f7e5267fd383de443ff85a4e4cc754474af02dbbf",
+      "projection_digest": "fda445d26e64227678f86a1750474e8b0c4a1cbbd0ae9e43dc1fb9e69af4b694",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37638,7 +37786,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "d98448584de64472",
+      "source_revision": "a6b414c81c0d0c88",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39156,7 +39304,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "d98448584de64472",
+    "source_revision": "a6b414c81c0d0c88",
     "web": {
       "actions": [
         {
@@ -39199,7 +39347,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "3ed7ee277756d7cee0c615ddc6016f68dc701c8331cfdf08b6e4d95fe28f6325",
+      "projection_digest": "962d3bb0633f733aea3106eeda1d75ba0b51f3e5c53c9716ecea722d1896e46e",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39218,7 +39366,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "d98448584de64472",
+      "source_revision": "a6b414c81c0d0c88",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -40775,7 +40923,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "d98448584de64472",
+  "revision": "a6b414c81c0d0c88",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41679,6 +41827,7 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
@@ -41725,6 +41874,7 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
@@ -41753,6 +41903,7 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
@@ -41851,7 +42002,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_my_data"
+      ],
       "capability_id": "screen:/one/profile/my-data",
       "kind": "screen",
       "label": "profile_my_data",
@@ -41860,7 +42013,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_my_data"
+      ],
       "capability_id": "screen:/one/profile/my-data/domain",
       "kind": "screen",
       "label": "profile_my_data",
@@ -42531,12 +42686,20 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:route.profile_my_data"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone",
+      "screens:screen:/one/profile/my-data",
+      "screens:screen:/one/profile/my-data/domain"
+    ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "12bc858aab243003",
+    "from_revision": "d98448584de64472",
     "migrated": [],
     "removed": []
   },
@@ -44766,18 +44929,18 @@
     "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "05273c47c17aeaed1c58fbe7aeb66395d49b78a9d5adcaad37d1edd45acb9443",
+    "kai_action_gateway": "62dcba9fa0582add4740eccb4ea92357f9250d2866493966185d55f2bfeeb4ab",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
-    "route_orchestration_index": "0f6963fa9194dd99f3f191334bb53e38e7cc70f1bffb1a642cc839f184264599",
+    "route_orchestration_index": "dd1f1dc96ce9429c3bebfc632f8f02cbdd46947454599571eb3c9870429aae6c",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "d98448584de64472",
+  "source_revision": "a6b414c81c0d0c88",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "d98448584de64472",
+    "current_graph_revision": "a6b414c81c0d0c88",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -44864,6 +45027,7 @@
           "d3412cfe7b8de515",
           "d3e820220dacdce1",
           "d4b2dd7b65a583c6",
+          "d98448584de64472",
           "db9c1ca05979d69a",
           "e2bea9d9173fd56a",
           "e59793b27ab57818",
@@ -44969,6 +45133,7 @@
           "d3412cfe7b8de515",
           "d3e820220dacdce1",
           "d4b2dd7b65a583c6",
+          "d98448584de64472",
           "db9c1ca05979d69a",
           "e2bea9d9173fd56a",
           "e59793b27ab57818",
@@ -45015,6 +45180,7 @@
           "af6fca76390c1e24",
           "d01f9a7a5198c5c9",
           "d3412cfe7b8de515",
+          "d98448584de64472",
           "db9c1ca05979d69a",
           "e64a0a56bd563562",
           "edaa00dc65d3cb12"
@@ -45180,6 +45346,7 @@
           "d3412cfe7b8de515",
           "d3e820220dacdce1",
           "d4b2dd7b65a583c6",
+          "d98448584de64472",
           "db9c1ca05979d69a",
           "e2bea9d9173fd56a",
           "e59793b27ab57818",
@@ -45285,6 +45452,7 @@
           "d3412cfe7b8de515",
           "d3e820220dacdce1",
           "d4b2dd7b65a583c6",
+          "d98448584de64472",
           "db9c1ca05979d69a",
           "e2bea9d9173fd56a",
           "e59793b27ab57818",
@@ -45390,6 +45558,7 @@
           "d3412cfe7b8de515",
           "d3e820220dacdce1",
           "d4b2dd7b65a583c6",
+          "d98448584de64472",
           "db9c1ca05979d69a",
           "e2bea9d9173fd56a",
           "e59793b27ab57818",
@@ -45495,6 +45664,7 @@
           "d3412cfe7b8de515",
           "d3e820220dacdce1",
           "d4b2dd7b65a583c6",
+          "d98448584de64472",
           "db9c1ca05979d69a",
           "e2bea9d9173fd56a",
           "e59793b27ab57818",

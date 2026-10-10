@@ -4024,6 +4024,7 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
@@ -4112,6 +4113,7 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
@@ -4154,6 +4156,7 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
@@ -4393,7 +4396,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_my_data"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data"
       }
@@ -4416,7 +4421,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_my_data"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data.domain"
       }
@@ -6062,21 +6069,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "05273c47c17aeaed1c58fbe7aeb66395d49b78a9d5adcaad37d1edd45acb9443",
+    "action_gateway": "62dcba9fa0582add4740eccb4ea92357f9250d2866493966185d55f2bfeeb4ab",
     "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
     "cache_manifest": "5eff3c647e67b8c7f2a50fdc079673ef4bb2282806b0d99276857309c0d9db8f",
     "data_plane": "fb9abeff994c578d23857dae543647135aa029e0c2a7c707ebb86d1b221e91fe",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "0f6963fa9194dd99f3f191334bb53e38e7cc70f1bffb1a642cc839f184264599",
+    "route_index": "dd1f1dc96ce9429c3bebfc632f8f02cbdd46947454599571eb3c9870429aae6c",
     "route_layout": "5b45210882ec53328e3066f126d889a6fe1f09691354bbe996471c529f3592b2",
-    "surface_map": "9b84dd050d7d74fe9705d3873bae225f5c7ba7b2342212ebd3c089fe81d91c61",
+    "surface_map": "2edb4b08c832c062a93f5334f5f966834161a7e4d4929353ce3c380b2077395c",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 227,
+    "actions": 228,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
