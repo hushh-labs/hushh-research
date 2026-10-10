@@ -2,6 +2,7 @@
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDocumentId } from "./session-privacy";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 import type { NativeControlAppearance } from "./native-control-appearance";
 
 /** Private, memory-only input adapter. Never put these payloads in chrome
@@ -31,8 +32,10 @@ export type DockState = DockIdentity & NativeControlAppearance & DockProjection 
   updateSequence: number;
   acknowledgedEdit: number;
   privacyGeneration: number;
+  presentationRegionRevision?: number;
   settledConsumption: number;
   visible: boolean;
+  interactionEnabled?: boolean;
   frame: { x: number; y: number; width: number; height: number };
   viewport: { width: number; height: number };
 };
@@ -41,6 +44,7 @@ export type DockLayout = DockIdentity & {
   frame: DockState["frame"]; viewport: DockState["viewport"];
 };
 export type DockAcknowledgement = DockIdentity & { updateSequence: number; phase: "active" | "retired"; height: number;
+  presentationApplied?: boolean;
   layout?: DockLayout;
   recovery?: { text: string; context: string; editorRevision: number; consumed: boolean };
 };
@@ -58,8 +62,9 @@ export type DockEvent = DockIdentity & {
   action?: DockAction;
   attachmentId?: string;
 };
+export type NativeDockCapabilities = { contractVersion: number; supported: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean };
 export interface HushhNativeDockPlugin {
-  getCapabilities(): Promise<{ contractVersion: number; supported: boolean; underlayPresentation?: boolean }>;
+  getCapabilities(): Promise<NativeDockCapabilities>;
   apply(options: DockState): Promise<DockAcknowledgement>;
   retire(options: DockIdentity & { preserveDraft?: boolean }): Promise<DockAcknowledgement>;
   suspend(options: DockIdentity): Promise<DockAcknowledgement>;
@@ -71,8 +76,9 @@ export interface HushhNativeDockPlugin {
   addListener(eventName: "readmissionRequested", listener: () => void): Promise<PluginListenerHandle>;
 }
 export const nativeDock = registerPlugin<HushhNativeDockPlugin>("HushhNativeDock");
-let capability: { documentId: string; promise: Promise<{ contractVersion: number; supported: boolean; underlayPresentation?: boolean } | null> } | undefined;
+let capability: { documentId: string; promise: Promise<NativeDockCapabilities | null> } | undefined;
 export function getNativeDockCapabilities() {
+  if (!customNativePresentationEnabled()) return Promise.resolve(null);
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return Promise.resolve(null);
   const documentId = nativeDocumentId();
   if (capability?.documentId === documentId) return capability.promise;

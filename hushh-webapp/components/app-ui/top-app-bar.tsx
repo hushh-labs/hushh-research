@@ -18,6 +18,7 @@
  * evaluates correctly in both environments.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import {
   BriefcaseBusiness,
   Code2,
@@ -972,11 +973,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     ],
   );
 
+  const nativeRegionRef = useRef<HTMLDivElement>(null);
+  useNativePresentationRegions(nativeRegionRef, !hideChrome);
   if (hideChrome) return null;
 
   return (
     <div
       data-app-top-bar
+      ref={nativeRegionRef}
       data-ui-role="top-navigation"
       data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}
       data-ambient-chrome-ignore

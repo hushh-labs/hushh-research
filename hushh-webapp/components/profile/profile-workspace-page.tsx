@@ -192,7 +192,7 @@ import {
 } from "@/lib/profile/mail-flow";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { getProvider, ProviderIcon } from "@/components/profile/provider-identity";
 import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
@@ -3628,7 +3628,8 @@ function ProfilePageContent({
               aria-labelledby="support-intent-label"
               aria-describedby="support-intent-description"
             >
-              <SegmentedTabs
+              <SegmentedControl
+                ariaLabel="Support request type"
                 value={supportKind}
                 onValueChange={(value) => {
                   const nextKind = normalizeSupportKind(value);
@@ -3641,7 +3642,8 @@ function ProfilePageContent({
                 }}
                 options={SUPPORT_INTENT_OPTIONS}
                 disabled={sendingSupportMessage}
-                className="min-h-11 [&_[data-ui-contract=required-title]]:whitespace-normal"
+                className="min-h-11 w-full"
+                labelClassName="whitespace-normal"
               />
             </div>
             <p id="support-intent-description" className="sr-only">

@@ -11,9 +11,9 @@ const PROFILE_PANE_SOURCE = path.join(
   "components/app-ui/profile-pane.tsx",
 );
 const GLOBAL_CSS_SOURCE = path.join(WEBAPP_ROOT, "app/globals.css");
-const CLOSE_RIGHT = "20px";
+const CLOSE_RIGHT = "max(1rem, env(safe-area-inset-right, 0px))";
 const CLOSE_POSITION_CLASSNAME =
-  "absolute top-5 z-10";
+  "absolute top-[calc(1rem+env(safe-area-inset-top,0px))] z-10";
 const CLOSE_BUTTON_CLASSNAME =
   "inline-flex h-11 w-11 items-center justify-center rounded-full";
 const HEADER_CLASSNAME =
@@ -150,7 +150,7 @@ test.describe("Profile pane custom close layout", () => {
     </style></head><body>
       <section class="profile-pane-sheet" data-slot="sheet-content">
         <header class="profile-pane-header">Profile</header>
-        <button class="profile-pane-close" style="position:absolute;right:20px">Close</button>
+        <button class="profile-pane-close" style="position:absolute;right:16px">Close</button>
         <div class="profile-pane-scroll-root"><div style="height: 1200px">Settings</div></div>
       </section>
     </body></html>`);
@@ -183,7 +183,7 @@ test.describe("Profile pane custom close layout", () => {
       expect(geometry.height).toBeCloseTo(size.cardHeight, 0);
       expect(geometry.radius).toBe("25px");
       expect(geometry.canScroll).toBe(true);
-      expect(geometry.closeRightGap).toBeCloseTo(21, 0);
+      expect(geometry.closeRightGap).toBeCloseTo(17, 0);
     }
   });
 
@@ -212,7 +212,7 @@ test.describe("Profile pane custom close layout", () => {
           <div><button type="button" aria-label="Back in Profile">←</button><h2 data-slot="sheet-title">Appearance &amp; preferences</h2></div>
           <p class="sr-only" data-slot="sheet-description">Profile settings</p>
         </header>
-        <button class="profile-pane-close" style="position:absolute;right:20px" aria-label="Close Profile">×</button>
+        <button class="profile-pane-close" style="position:absolute;right:16px" aria-label="Close Profile">×</button>
         <div class="profile-pane-scroll-root">
           <div class="app-page-shell profile-pane-page--inner">
             <div data-profile-stack-content="true">
@@ -257,9 +257,40 @@ test.describe("Profile pane custom close layout", () => {
     }
   });
 
-  test("keeps the close button inset inside the card", () => {
+  test("keeps negotiated full-height drawers edge-to-edge before coverage acknowledgment", async ({ page }) => {
+    const globals = fs.readFileSync(path.join(WEBAPP_ROOT, "app/globals.css"), "utf8");
+    const start = globals.indexOf("/* Acknowledged native seats bound web overlays; panel motion stays React. */");
+    const end = globals.indexOf("/* Opt-in stationary chrome:", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setContent(`<style>
+      :root { --native-overlay-top: 116px; --native-overlay-bottom: 149px; }
+      section { position: fixed; inset: 0; }
+      ${globals.slice(start, end)}
+    </style>
+    <section id="profile" data-testid="profile-pane" data-slot="sheet-content" data-sheet-side="right"></section>
+    <section id="preview" data-profile-preview></section>
+    <section id="history" data-agent-history-drawer data-slot="sheet-content" data-sheet-side="left"></section>`);
+    for (const mode of [
+      { classes: "native-reserved-chrome native-full-window-overlays", top: 0, height: 844 },
+      { classes: "native-reserved-chrome", top: 116, height: 579 },
+      { classes: "", top: 0, height: 844 },
+    ]) {
+      await page.evaluate(classes => { document.documentElement.className = classes; }, mode.classes);
+      // No coverage attribute: initial sampling must already use authored
+      // full-height geometry, while the separate admission gate stays closed.
+      for (const family of ["profile", "preview", "history"]) {
+        const bounds = await page.locator(`#${family}`).evaluate(node => node.getBoundingClientRect().toJSON());
+        expect(bounds.y, `${mode.classes}:${family}`).toBeCloseTo(mode.top, 0);
+        expect(bounds.height, `${mode.classes}:${family}`).toBeCloseTo(mode.height, 0);
+      }
+    }
+  });
+
+  test("keeps the right-safe-area declaration on the owning Close slot", () => {
     const source = fs.readFileSync(PROFILE_PANE_SOURCE, "utf8");
-    const closeMarkup = source.match(/<SheetClose[\s\S]*?<\/SheetClose>/)?.[0];
+    const closeMarkup = source.match(/<NativeChatChrome\s+kind="close"[\s\S]*?<\/NativeChatChrome>/)?.[0];
 
     expect(closeMarkup).toBeDefined();
     expect(closeMarkup).toContain(

@@ -78,7 +78,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
     const shadowClearance = Math.max(0, -panel.getBoundingClientRect().left - panel.offsetWidth);
 
     const clear = (current: Gesture) => {
-      for (const property of ["transition", "transform", "translate", "will-change"]) current.panel.style.removeProperty(property);
+      for (const property of ["transition", "transform", "translate", "visibility", "will-change"]) current.panel.style.removeProperty(property);
       for (const property of ["transition", "opacity", "visibility", "will-change"]) current.scrim.style.removeProperty(property);
       if (current.semantic !== current.panel) {
         for (const property of ["transition", "opacity", "visibility"]) current.semantic.style.removeProperty(property);
@@ -93,6 +93,9 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
       // Tailwind v4's resting translate is independent of transform. Disable
       // it for the pull, otherwise both offsets add and the panel stays hidden.
       current.panel.style.translate = "none";
+      // The real closed drawer is invisible. Moving it does not override that
+      // visibility; reveal this owned preview without admitting its actions.
+      current.panel.style.visibility = "visible";
       current.scrim.style.transition = phase === "drag" || reduced ? "none"
         : `opacity var(--motion-drawer-settle-duration) var(--motion-sheet-${motion}-ease)`;
       current.panel.style.transform = `translate3d(${offset}px, 0, 0)`;

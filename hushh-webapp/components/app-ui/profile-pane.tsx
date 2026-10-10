@@ -5,8 +5,10 @@ import { ProfilePaneDrag } from "@/components/app-ui/profile-pane-drag";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
-import { nativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
+import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
 
 import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -170,7 +172,15 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
   const backRef = useRef<HTMLButtonElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const { isVaultUnlocked } = useVault();
+  const [previewing, setPreviewing] = useState(false);
+  useNativeNavigationBlocked(open && isVaultUnlocked, "profile-pane");
+  useNativeNavigationBlocked(previewing && !open && isVaultUnlocked, "profile-drag");
+  const presentationReady = useNativeFullWindowOverlayReady(open && isVaultUnlocked);
+  useLayoutEffect(() => { if (open || !isVaultUnlocked) setPreviewing(false); }, [open, isVaultUnlocked]);
   const attachNativePanel = useNativePanelPresentation("profile", owner ?? null, panelRef, open && isVaultUnlocked);
+  // The existing opening preview owns the same family before the modal mounts.
+  // Negotiate clipping separately; this never adopts moving native actions.
+  const attachPreview = useNativePanelPresentation("profile", owner ?? null, previewRef, false, !open && isVaultUnlocked, true);
   const attachPanel = useCallback((node: HTMLDivElement | null) => {
     semanticRef.current = node;
     attachNativePanel(node);
@@ -196,6 +206,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     let dragOrigin: number | null = null;
     const clear = () => {
       preview.hidden = true; scrim.hidden = true; previewOffset.current = null; dragOrigin = null;
+      setPreviewing(false);
     };
     const onPreview = (event: Event) => {
       const detail = (event as CustomEvent<ProfilePanePreview>).detail;
@@ -203,6 +214,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
       window.clearTimeout(timer);
       const current = ++generation;
       if (detail.phase === "drag") {
+        setPreviewing(true);
         committed = false;
         const wasHidden = preview.hidden;
         preview.hidden = false; scrim.hidden = false;
@@ -304,14 +316,14 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
   return (
     <>
     {!open ? <>
-      <div ref={previewScrimRef} hidden aria-hidden inert className="pointer-events-none fixed inset-0 z-(--z-sheet-overlay) bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)]" />
-      <div ref={previewRef} hidden aria-hidden inert data-profile-preview
+      <div ref={previewScrimRef} data-profile-preview-scrim hidden aria-hidden inert className="pointer-events-none fixed inset-0 z-(--z-sheet-overlay) bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)]" />
+      <div ref={attachPreview} hidden aria-hidden inert data-profile-preview
         className="pointer-events-none fixed inset-y-0 right-0 z-(--z-sheet) w-full overflow-hidden bg-background sm:w-[min(92vw,560px)]">
         <div className="border-b border-border/60 px-[var(--page-inline-gutter-standard)] pb-4 pt-[calc(1rem+env(safe-area-inset-top))] text-[22px] font-bold">Profile</div>
         <ProfilePaneShell />
       </div>
     </> : null}
-    <Sheet open={open} onOpenChange={onOpenChange} modal>
+    <Sheet open={open && presentationReady} onOpenChange={onOpenChange} modal>
       <SheetContent
         nativeLayer="profile-pane"
         side="right"
@@ -351,19 +363,19 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
                 label="Back in Profile"
                 focusRef={backRef}
                 context={`${pathname}:${profilePaneLocationKey(location)}`}
-                eligible={open}
+                eligible={false}
                 onActivate={() => popProfilePaneLocation(pathname, searchParams)}
                 className="-ml-4 flex size-11 shrink-0 items-center justify-center"
               >
-                <button
+                <ShellActionSurface
                   ref={backRef}
                   type="button"
                   aria-label="Back in Profile"
                   onClick={() => { appHaptic("light"); popProfilePaneLocation(pathname, searchParams); }}
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                  className="size-11"
                 >
                   <ArrowLeft className="h-5 w-5" />
-                </button>
+                </ShellActionSurface>
               </NativeChatChrome>
             ) : null}
             <SheetTitle ref={titleRef} tabIndex={-1} className="truncate outline-none font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
@@ -387,27 +399,27 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
           </SheetDescription>
         </SheetHeader>
         <NativeChatChrome kind="close" owner={owner ?? null} label="Close Profile" focusRef={closeRef}
-          context={panePresentationKey} eligible={open}
+          context={panePresentationKey} eligible={false}
           onActivate={() => onOpenChange(false)}
           style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
           className="absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">
         <SheetClose asChild>
-          <button
+          <ShellActionSurface
             ref={closeRef}
             type="button"
             aria-label="Close Profile"
             onClick={() => appHaptic("light")}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-muted-foreground transition-colors duration-100 hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            className="size-11"
           >
             <X className="h-4 w-4" />
-          </button>
+          </ShellActionSurface>
         </SheetClose>
         </NativeChatChrome>
         <div
           className="profile-pane-scroll-root min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
-          <ProfilePaneBody location={location} nativeControlsEligible={open} />
+          <ProfilePaneBody location={location} nativeControlsEligible={false} />
         </div>
       </SheetContent>
     </Sheet>

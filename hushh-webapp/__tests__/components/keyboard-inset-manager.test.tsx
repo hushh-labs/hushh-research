@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type KeyboardHandler = (info: { keyboardHeight?: number }) => void;
@@ -48,7 +48,45 @@ describe("KeyboardInsetManager on native", () => {
   });
 
   afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
     setInnerHeight(768);
+  });
+
+  it.each(["hide", "focus", "detach", "inert", "unmount"])("cancels deferred form scrolling after %s invalidates its target", async (reason) => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let sequence = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => {
+      frames.set(++sequence, callback); return sequence;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(id => { frames.delete(id); });
+    const nextFrame = () => {
+      const pending = [...frames.values()]; frames.clear();
+      act(() => pending.forEach(callback => callback(0)));
+    };
+    const input = document.createElement("input");
+    const scroll = vi.fn(); input.scrollIntoView = scroll;
+    document.body.appendChild(input);
+    try {
+      await mount(); input.focus();
+      act(() => handlers.get("keyboardWillShow")?.({ keyboardHeight: 336 }));
+      nextFrame();
+      if (reason === "hide") act(() => handlers.get("keyboardWillHide")?.({}));
+      if (reason === "focus") input.blur();
+      if (reason === "detach") input.remove();
+      if (reason === "inert") input.setAttribute("inert", "");
+      if (reason === "unmount") cleanup();
+      nextFrame();
+      expect(scroll).not.toHaveBeenCalled();
+      if (reason !== "unmount") {
+        // A fresh, connected focus still scrolls: the fix is not disabling
+        // keyboard avoidance for normal-flow forms.
+        input.removeAttribute("inert"); document.body.appendChild(input); input.focus();
+        act(() => handlers.get("keyboardDidShow")?.({ keyboardHeight: 336 }));
+        nextFrame(); nextFrame();
+        expect(scroll).toHaveBeenCalledOnce();
+      }
+    } finally { input.remove(); }
   });
 
   it("publishes the whole keyboard when the web view keeps its size (iOS)", async () => {

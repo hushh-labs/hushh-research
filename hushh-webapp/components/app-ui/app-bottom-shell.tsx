@@ -11,6 +11,7 @@ import {
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
+import { useNativeDockPorts } from "@/components/agent/native-dock-port";
 import {
   BOTTOM_CHROME_COLUMN_CLASSNAME,
   BOTTOM_CHROME_INSET_CLASSNAME,
@@ -20,6 +21,7 @@ import { useOptionalLocationCommand } from "@/components/agent/location-command-
 import { Navbar } from "@/components/navbar";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigation";
+import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 
 export type BottomShellModel = {
   navigationHidden: boolean;
@@ -43,11 +45,13 @@ const BOTTOM_SCROLL_TRANSFORM =
 export const AppBottomShell = memo(function AppBottomShell({ model }: { model: BottomShellModel }) {
   const command = useOptionalLocationCommand();
   const nativeBottomInset = useNativeNavigationBottomInset();
+  const nativeDock = useNativeDockPorts();
   const voiceActive = useAgentVoiceState((state) => state.active);
   const hidden = model.hidden && !command?.active && !voiceActive;
   // The owner remains mounted above routes; Chat presents its active control
   // in the composer slot, not a second overlapping shell launcher.
   const shellRef = useRef<HTMLDivElement | null>(null);
+  useNativePresentationRegions(shellRef, !hidden);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
   // AgentBar reads client-only auth and location-command state. Rendering its
   // markup only after the first client commit keeps the server and hydration
@@ -108,6 +112,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
         data-agent-dock-chat={(model.agentBarHidden && !model.composerInFlow) || undefined}
+        data-native-agent-dock={nativeDock?.owned || undefined}
         data-command-active={command?.active || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={

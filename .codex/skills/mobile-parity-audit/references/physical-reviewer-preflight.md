@@ -13,6 +13,14 @@ another reviewer store or a privileged app-unlock route.
    `xcrun devicectl device info lockState --device <udid>`. Pairing does not prove
    unlocked transport; a connection reset is not a vault rejection. Recheck once
    after reconnection, not in an unbounded retry loop.
+   For Wi-Fi, inspect live Bonjour discovery and the current network rather than
+   reusing an earlier IP. A reachable endpoint or an `available (paired)` row is
+   not an authenticated tunnel. Inspect this version's `devicectl manage pair
+   --help`; reconnect the existing paired UDID without unpairing or clearing app
+   state, then require a successful details/service probe with `Transport Type:
+   localNetwork`. Hostname lookup and paired-UDID lookup can differ. Separate a
+   failed tunnel handshake from DDI compatibility and XCTest admission. Do not
+   restart shared CoreDevice/Xcode services while another session owns work.
 3. Inspect this Xcode version's `devicectl device settings --help` before claiming
    a supported authorization or unlock command. Do not infer one from permission
    to operate the device or from the possession of its passcode.
@@ -31,6 +39,11 @@ another reviewer store or a privileged app-unlock route.
    entering the named secure field; submit normal Unlock once. A device passcode
    is not a vault passphrase. Persist neither in skills, env files, launch
    arguments, xctestrun files, screenshots, traces or diagnostics.
+7. Check that the native privacy cover has actually retired before private
+   input. XCTest can report an underlying WebKit control as hittable while
+   UIKit still covers it. Use only the authored recovery action or cancel a
+   positively identified authenticator prompt; never remove the shield, tap
+   an unrelated system alert or interpret blocked input as credential rejection.
 
 ## Preserve the session and classify the result
 
@@ -78,3 +91,18 @@ another reviewer store or a privileged app-unlock route.
 8. Route landing and redeployment through the full Admin SOP in `repo-operations`.
    Local install, source checks and a partial device batch do not authorize or
    prove a successful deployment.
+
+## Native drawer continuity
+
+When the requested behavior keeps native controls visible in uncovered areas,
+hold a real partial drag before release, then cancel, re-grab and close through
+the authored controls. Settled open/close checks and retained-host identities
+cannot prove exposed material stayed visible. Inspect current clipping geometry
+separately from touch/accessibility admission; covered controls must not paint
+over or act through the drawer. Verify any required opt-in public probes during
+candidate preparation. Missing probes are a harness failure, not a gesture result.
+
+Bound numeric held-pose receipts prove only sampled presentation state. Use
+synthetic transition frames for actual material/alignment evidence; never capture
+protected content. Record initial-ack gaps, retirement gaps, pose age and scrim
+composition separately rather than calling one passing hold full qualification.

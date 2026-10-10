@@ -734,6 +734,9 @@ final class NativeVaultLayoutProbe {
     private var timer: Timer?
     private var inFlight = false
     private var sequence = 0
+    private var heldDrawerSamples = 0
+    private var heldDrawerMissingPlaneSamples = 0
+    private var previousDrawerLeft: Double?
     private weak var webView: WKWebView?
     private var observers = [NSObjectProtocol]()
 
@@ -744,6 +747,9 @@ final class NativeVaultLayoutProbe {
     }
 
     private func conceal() {
+        heldDrawerSamples = 0
+        heldDrawerMissingPlaneSamples = 0
+        previousDrawerLeft = nil
         label.isHidden = true
         label.accessibilityElementsHidden = true
         label.update(status: "{}")
@@ -796,7 +802,9 @@ final class NativeVaultLayoutProbe {
                             "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
                             "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
-                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive"])
+                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
+                            "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
+                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -811,10 +819,36 @@ final class NativeVaultLayoutProbe {
             payload["nativeGuideHeight"] = (webView.superview as? NativePresentationContainer)?.keyboardLayoutGuide.layoutFrame.height
                 ?? webView.keyboardLayoutGuide.layoutFrame.height
             payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
+            payload["regionRefusal"] = (webView.superview as? NativePresentationContainer)?.lastRegionRefusal ?? 0
+            payload["baseEditorFocused"] = (webView.superview as? NativePresentationContainer)?.baseEditorFocused ?? false
+            if let container = webView.superview as? NativePresentationContainer,
+               let frame = container.lastRejectedInitialFrame {
+                for (key, value) in [("initialTopDelta", frame.minY - container.bounds.minY),
+                    ("initialBottomDelta", frame.maxY - container.bounds.maxY),
+                    ("initialWidthDelta", frame.width - container.bounds.width)]
+                    where value.isFinite && abs(value) <= 100_000 { payload[key] = value }
+            }
             // Public Debug admission booleans, never process arguments or
             // private editor state. Activation alone need not apply new flags.
             payload["dockOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-agent-dock")
             payload["chromeOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-chat-chrome")
+            if let container = webView.superview as? NativePresentationContainer,
+               let left = payload["drawerLeft"] as? NSNumber {
+                let partial = (payload["drawerPartial"] as? NSNumber)?.boolValue == true
+                // Two stationary numeric samples prove a held partial exposure,
+                // not settled-only screenshots or a disappearing AX heading.
+                if partial, let previous = self.previousDrawerLeft, abs(previous - left.doubleValue) <= 1 {
+                    self.heldDrawerSamples = min(100_000, self.heldDrawerSamples + 1)
+                    if container.underlay.isHidden || container.baseVisibleFrame.width <= 1 {
+                        self.heldDrawerMissingPlaneSamples = min(100_000, self.heldDrawerMissingPlaneSamples + 1)
+                    }
+                }
+                self.previousDrawerLeft = partial ? left.doubleValue : nil
+                payload["baseExposureX"] = container.baseVisibleFrame.minX
+                payload["baseExposureWidth"] = container.baseVisibleFrame.width
+            } else { self.previousDrawerLeft = nil }
+            payload["heldDrawerSamples"] = self.heldDrawerSamples
+            payload["heldDrawerMissingPlaneSamples"] = self.heldDrawerMissingPlaneSamples
             guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
                   let json = String(data: data, encoding: .utf8) else { return }
             self.label.update(status: json)
@@ -855,6 +889,7 @@ final class NativeVaultLayoutProbe {
       const surfaces = document.querySelectorAll('[data-vault-unlock-surface]');
       const root = document.documentElement;
       const finite = value => { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined; };
+      const dockFailure = document.querySelector('[data-native-dock-failure-code]');
       const result = {
         presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
         visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
@@ -863,8 +898,31 @@ final class NativeVaultLayoutProbe {
         unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted,
         methodClicks: receipt.methodClicks, methodPointerUps: receipt.methodPointerUps,
         passphraseFields: document.querySelectorAll('#unlock-passphrase').length,
-        dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]'))
+        dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]')),
+        dockFailureStage: finite(dockFailure?.dataset.nativeDockFailureStage),
+        dockFailureCode: finite(dockFailure?.dataset.nativeDockFailureCode)
       };
+      // Authored public pane geometry, not a named AX heading or inferred
+      // operation. Neither contents nor account/route labels are read.
+      const profile = document.querySelector('[data-testid="profile-pane"][data-state="open"]') ||
+        document.querySelector('[data-profile-preview]:not([hidden])');
+      const history = document.querySelector('[data-agent-history-drawer][aria-hidden="false"]');
+      const drawer = profile || history;
+      if (drawer) {
+        const rect = drawer.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const owns = y => drawer.contains(document.elementFromPoint(x, y));
+        const moving = drawer.getAnimations().some(animation =>
+          animation.effect?.target === drawer && animation.playState === 'running' &&
+          animation.effect?.getComputedTiming().iterations !== Infinity);
+        Object.assign(result, { drawerKind: profile ? 1 : 2,
+          drawerTop: rect.top, drawerBottom: rect.bottom, drawerWidth: rect.width,
+          drawerLeft: rect.left, drawerRight: rect.right,
+          drawerPartial: Math.min(innerWidth, rect.right) - Math.max(0, rect.left) > 1 &&
+            Math.min(innerWidth, rect.right) - Math.max(0, rect.left) < innerWidth - 1,
+          drawerViewportHeight: innerHeight, drawerOwnsTopEdge: owns(1),
+          drawerOwnsBottomEdge: owns(innerHeight - 1), drawerSettled: !moving });
+      }
       // Public interaction admission only. Never read the editor's value,
       // selection contents, transcript, account identity or arbitrary DOM.
       const chats = document.querySelectorAll('textarea[aria-label="Message One"]');

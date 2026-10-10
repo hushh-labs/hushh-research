@@ -105,18 +105,19 @@ final class NativeDockModel: ObservableObject {
     @Published var supportsHold = false
     @Published var muted = false
     @Published var visible = false
+    @Published var interactionEnabled = false
     @Published var attachments = [(String, String, Bool)]()
     @Published var accent = UIColor.tintColor
     weak var editor: DockTextView?
     var emit: ((String, String?, String?, String?, NSRange?) -> Void)?
     var changedHeight: (() -> Void)?
     func action(_ name: String, attachment: String? = nil) {
-        guard visible, editor?.markedTextRange == nil else { return }
+        guard visible, interactionEnabled, editor?.markedTextRange == nil else { return }
         emit?("action", name, attachment, nil, nil)
     }
     func clear() {
         editor?.resignFirstResponder()
-        consumeText(); attachments = []; visible = false; awaitingConsumption = false; awaitingTransition = false
+        consumeText(); attachments = []; visible = false; interactionEnabled = false; awaitingConsumption = false; awaitingTransition = false
     }
     func consumeText() {
         editor?.text = ""; editor?.undoManager?.removeAllActions()
@@ -157,11 +158,16 @@ final class DockTextView: UITextView {
             height: font?.lineHeight ?? 0)
     }
     override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(input: "\r", modifierFlags: .command, action: #selector(sendFromKeyboard)),
-         UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(dismissKeyboard))]
+        let send = UIKeyCommand(input: "\r", modifierFlags: .command, action: #selector(sendFromKeyboard))
+        let dismiss = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(dismissKeyboard))
+        // Modern UIKit otherwise lets text/focus handling consume these keys
+        // before the editor commands. IME still owns Escape while composing.
+        send.wantsPriorityOverSystemBehavior = true
+        dismiss.wantsPriorityOverSystemBehavior = markedTextRange == nil
+        return [send, dismiss]
     }
     @objc private func sendFromKeyboard() { if markedTextRange == nil { submit?() } }
-    @objc private func dismissKeyboard() { resignFirstResponder() }
+    @objc private func dismissKeyboard() { if markedTextRange == nil { resignFirstResponder() } }
 }
 
 /// Constraints follow UIKit's keyboard guide without a JavaScript resize or
@@ -234,7 +240,7 @@ struct NativeDockEditor: UIViewRepresentable {
         editor.isSelectable = model.visible
         editor.textColor = .label
         editor.tintColor = model.accent
-        editor.updatePlaceholder(model.placeholder, visible: model.mode == "text" && model.visible)
+        editor.updatePlaceholder(model.placeholder, visible: model.mode == "text")
         // Never destroy marked text, selection or undo on a theme/geometry echo.
         if editor.markedTextRange == nil && editor.text != model.text {
             let selection = editor.selectedRange
@@ -259,18 +265,21 @@ struct NativeDockEditor: UIViewRepresentable {
         private let model: NativeDockModel
         init(_ model: NativeDockModel) { self.model = model }
         func textViewDidChange(_ textView: UITextView) {
+            guard model.visible, model.interactionEnabled else { return }
             (textView as? DockTextView)?.refreshPlaceholder()
             model.text = textView.text
             model.emit?("edit", nil, nil, textView.text, textView.selectedRange)
             model.changedHeight?()
         }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard model.editable, model.visible, model.interactionEnabled,
+                  !model.awaitingConsumption, !model.awaitingTransition else { return false }
             // Large paste goes through the owning feature's existing attachment
             // policy; a memory-only input event never becomes a provider send.
             if text.utf16.count >= 1200 || text.components(separatedBy: "\n").count >= 12 {
                 model.emit?("paste", nil, nil, text, range); return false
             }
-            return model.editable && model.visible
+            return true
         }
     }
 }
@@ -327,7 +336,7 @@ struct NativeAgentDockView: View {
                             .accessibilityAction { model.action("voice-tap") }
                             .gesture(DragGesture(minimumDistance: 0)
                                 .onChanged { value in
-                                    guard model.visible else { return }
+                                    guard model.visible, model.interactionEnabled else { return }
                                     if pressStarted == nil {
                                         pressStarted = Date(); cancelled = false; pressWasActive = model.cancelEnabled
                                         if model.supportsHold && !model.cancelEnabled { model.action("capture-start") }
@@ -336,7 +345,7 @@ struct NativeAgentDockView: View {
                                 }
                                 .onEnded { _ in
                                     defer { pressStarted = nil; cancelled = false }
-                                    guard let began = pressStarted, model.visible else { return }
+                                    guard let began = pressStarted, model.visible, model.interactionEnabled else { return }
                                     if cancelled { model.action("capture-cancel") }
                                     else if pressWasActive || !model.supportsHold { model.action("voice-tap") }
                                     else if Date().timeIntervalSince(began) >= 0.25 { model.action("capture-finish") }
@@ -370,7 +379,8 @@ struct NativeAgentDockView: View {
                 .font(.system(size: glyphSize, weight: .semibold))
                 .foregroundStyle(.tint)
                 .frame(width: actionSize, height: actionSize)
-                .glassEffect(.regular.interactive(), in: .circle)
+                // The dock owns the single glass material. Child actions
+                // remain compact plain controls, never glass on glass.
                 // Compact visible material; the entire 44-point slot still
                 // belongs to the button, including its transparent perimeter.
                 .frame(width: max(44, actionSize), height: max(44, actionSize))
@@ -403,10 +413,14 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     private var viewport = CGSize.zero
     private var observers = [NSObjectProtocol]()
     private var requestedVisible = false
+    #if DEBUG
+    private var admissionProbe: NativeTestStatusLabel?
+    #endif
     private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     private var layoutState = NativeDockLayoutState()
     private lazy var model = NativeDockModel()
     private var admitted: Bool {
+        guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
         #if DEBUG
         if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone {
             return ProcessInfo.processInfo.arguments.contains("--hushh-native-agent-dock")
@@ -421,12 +435,32 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     override func load() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics"), let parent = self.bridge?.viewController?.view {
+                let probe = NativeTestStatusLabel(frame: .zero, showOverlay: false)
+                probe.accessibilityIdentifier = "native-dock-admission"
+                probe.translatesAutoresizingMaskIntoConstraints = false
+                parent.addSubview(probe)
+                NSLayoutConstraint.activate([
+                    probe.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+                    probe.topAnchor.constraint(equalTo: parent.safeAreaLayoutGuide.topAnchor),
+                    probe.widthAnchor.constraint(equalToConstant: 1), probe.heightAnchor.constraint(equalToConstant: 1),
+                ])
+                probe.update(status: "none")
+                self.admissionProbe = probe
+            }
+            #endif
             for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange] {
                 self.observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                     guard let self, #available(iOS 26.0, *) else { return }
+                    #if DEBUG
+                    let probePrivacy = HushhSessionPrivacyShield.shared.snapshot()
+                    self.admissionProbe?.accessibilityElementsHidden = notification.name == UIApplication.willResignActiveNotification ||
+                        !probePrivacy.appIsActive || probePrivacy.shielded
+                    #endif
                     // Release is not admission. A fresh owner-fenced apply is
                     // required; a queued JS revocation must never flash text.
-                    self.requestedVisible = false; self.model.visible = false
+                    self.requestedVisible = false; self.model.visible = false; self.model.interactionEnabled = false
                     self.model.editor?.resignFirstResponder()
                     self.hosting?.view.isHidden = true
                     self.hosting?.view.accessibilityElementsHidden = true
@@ -444,8 +478,29 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
         }
     }
-    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
-    @objc func getCapabilities(_ call: CAPPluginCall) { call.resolve(["contractVersion": 1, "supported": admitted, "underlayPresentation": compositor != nil]) }
+    private func rejectApply(_ call: CAPPluginCall, code: String) {
+        #if DEBUG
+        // Fixed refusal codes only. Never expose editor text, the call object,
+        // identities, attachments or provider errors through the opt-in probe.
+        admissionProbe?.update(status: code)
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        admissionProbe?.accessibilityElementsHidden = !privacy.appIsActive || privacy.shielded
+        #endif
+        call.reject(code)
+    }
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        #if DEBUG
+        admissionProbe?.removeFromSuperview()
+        #endif
+    }
+    @objc func getCapabilities(_ call: CAPPluginCall) {
+        call.resolve(["contractVersion": 1, "supported": admitted,
+                      "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
+                      "contentBackedPresentation": compositor?.contentBackedPresentation == true,
+                      "reservedPresentationRegions": compositor?.contentBackedPresentation == true,
+                      "fullWindowOverlays": compositor?.contentBackedPresentation == true])
+    }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, #available(iOS 26.0, *), self.admitted,
@@ -463,17 +518,25 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let acknowledgedEdit = call.getInt("acknowledgedEdit"), acknowledgedEdit >= 0,
                   let editorRevision = call.getInt("editorRevision"), editorRevision >= 0,
                   editorRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else {
-                call.reject("NATIVE_DOCK_INVALID"); return
+                if let self { self.rejectApply(call, code: "NATIVE_DOCK_INVALID") }
+                else { call.reject("NATIVE_DOCK_INVALID") }
+                return
             }
             let shield = HushhSessionPrivacyShield.shared
             shield.observeDocument(identity.document)
             let privacy = shield.snapshot()
             guard shield.acceptsDocument(identity.document), privacy.appIsActive, !privacy.shielded,
-                  call.getInt("privacyGeneration") == privacy.generation else { call.reject("NATIVE_DOCK_DOCUMENT_RETIRED"); return }
+                  call.getInt("privacyGeneration") == privacy.generation else { self.rejectApply(call, code: "NATIVE_DOCK_DOCUMENT_RETIRED"); return }
+            guard self.compositor?.acceptsPresentationRevision(call.getInt("presentationRegionRevision"),
+                privacyGeneration: call.getInt("privacyGeneration")) != false else {
+                call.resolve(["documentId": identity.document, "ownerEpoch": identity.owner,
+                    "revision": identity.revision, "updateSequence": sequence, "phase": "active",
+                    "height": self.hosting?.view.bounds.height ?? 0, "presentationApplied": false]); return
+            }
             let replacing = self.fence.identity != identity
             let changingEditor = mode == "text" && self.editorContext != context
             let replacingText = mode == "text" && self.editorRevision != editorRevision
-            guard self.fence.apply(identity, sequence: sequence) else { call.reject("NATIVE_DOCK_STALE"); return }
+            guard self.fence.apply(identity, sequence: sequence) else { self.rejectApply(call, code: "NATIVE_DOCK_STALE"); return }
             if replacing || changingEditor { self.model.clear() }
             if mode == "text" { self.editorContext = context; self.editorRevision = editorRevision }
             self.context = context
@@ -507,7 +570,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.model.emit = { [weak self] kind, action, attachment, text, range in self?.emit(kind: kind, action: action, attachment: attachment, text: text, range: range) }
             self.model.changedHeight = { [weak self] in self?.layoutDock() }
-            guard let parent = self.bridge?.viewController else { call.reject("NATIVE_DOCK_HOST_MISSING"); return }
+            guard let parent = self.bridge?.viewController else { self.rejectApply(call, code: "NATIVE_DOCK_HOST_MISSING"); return }
             if self.hosting == nil {
                 let host = NativeDockHostingController(rootView: NativeAgentDockView(model: self.model))
                 host.safeAreaRegions = []
@@ -529,10 +592,17 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             self.hosting?.overrideUserInterfaceStyle = theme.style
             self.requestedVisible = call.getBool("visible") ?? false
             self.model.visible = self.requestedVisible && self.safe
-            self.hosting?.view.isHidden = !self.model.visible
-            self.hosting?.view.accessibilityElementsHidden = !self.model.visible
-            if self.model.visible { self.compositor?.revealUnderlay() }
-            self.compositor?.setAdmission("agent-dock", admitted: self.model.visible)
+            self.model.interactionEnabled = self.model.visible && (call.getBool("interactionEnabled") ?? true) && self.compositor?.overlayIsolated != true
+            // A real modal takes focus; a temporary admission/disabled echo
+            // does not dismiss the keyboard or replace the retained editor.
+            if self.compositor?.overlayIsolated == true { self.model.editor?.resignFirstResponder() }
+            self.hosting?.view.isHidden = !self.requestedVisible || !self.safe
+            self.hosting?.view.isUserInteractionEnabled = self.model.interactionEnabled
+            self.hosting?.view.accessibilityElementsHidden = !self.model.interactionEnabled
+            if self.model.visible { self.compositor?.revealUnderlay(presentationRegionRevision: call.getInt("presentationRegionRevision"),
+                privacyGeneration: call.getInt("privacyGeneration")) }
+            self.compositor?.setAdmission("agent-dock", admitted: self.model.interactionEnabled,
+                presentationRegionRevision: call.getInt("presentationRegionRevision"), privacyGeneration: call.getInt("privacyGeneration"))
             self.layoutDock()
             // Commit actual native layout before transferring the web input.
             parent.view.layoutIfNeeded()
@@ -558,7 +628,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     @MainActor
     private func currentLayout() -> JSObject? {
-        guard #available(iOS 26.0, *), safe, requestedVisible, model.visible,
+        guard #available(iOS 26.0, *), safe, requestedVisible,
               let identity = fence.identity, let host = hosting, !host.view.isHidden,
               let parent = bridge?.viewController, viewport.width > 0 else { return nil }
         let scale = parent.view.bounds.width / viewport.width
@@ -582,8 +652,11 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), self.fence.identity == identity,
                   #available(iOS 26.0, *) else { call.reject("NATIVE_DOCK_STALE"); return }
-            self.requestedVisible = false; self.model.visible = false
+            self.requestedVisible = false; self.model.visible = false; self.model.interactionEnabled = false
             self.model.editor?.resignFirstResponder()
+            // WK drawers cannot interleave with foreground UIKit controls.
+            // Retain the editor/host, but conceal the foreground pilot until
+            // the current React owner acknowledges fresh admission.
             self.hosting?.view.isHidden = self.compositor == nil || !self.safe
             self.hosting?.view.accessibilityElementsHidden = true
             self.compositor?.setAdmission("agent-dock", admitted: false)
@@ -618,7 +691,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let kind = call.getString("kind") else { call.resolve(["valid": false]); return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let valid = self.fence.confirm(identity, sequence: sequence, applied: applied, editRevision: editRevision, kind: kind,
-                allowed: self.safe && self.requestedVisible && call.getString("context") == self.context &&
+                allowed: self.safe && self.requestedVisible && self.model.visible && self.model.interactionEnabled && self.compositor?.overlayIsolated != true && call.getString("context") == self.context &&
                     call.getInt("editorRevision") == (self.model.mode == "text" ? self.editorRevision : 0) &&
                     call.getInt("privacyGeneration") == privacy.generation)
             call.resolve(["valid": valid])
@@ -632,7 +705,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let consumed = self.fence.consume(identity, sequence: sequence, editRevision: edit,
-                allowed: self.safe && self.model.visible && self.model.mode == "text" && self.model.sendEnabled &&
+                allowed: self.safe && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && self.model.sendEnabled &&
                     self.model.editor?.markedTextRange == nil && call.getString("context") == self.context &&
                     call.getInt("privacyGeneration") == privacy.generation)
             if consumed {
@@ -646,7 +719,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func beginEditingTransition(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let sequence = call.getInt("sequence"),
-                  let edit = call.getInt("editRevision"), self.safe, self.model.visible,
+                  let edit = call.getInt("editRevision"), self.safe, self.model.visible, self.model.interactionEnabled,
                   self.model.mode == "text", !self.model.awaitingConsumption, !self.model.awaitingTransition,
                   self.model.editor?.markedTextRange == nil,
                   call.getString("context") == self.context, call.getInt("editorRevision") == self.editorRevision,
@@ -660,7 +733,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     private func emit(kind: String, action: String?, attachment: String?, text: String?, range: NSRange?) {
-        guard #available(iOS 26.0, *), safe, model.visible, !model.awaitingConsumption, !model.awaitingTransition, let identity = fence.identity else { return }
+        guard #available(iOS 26.0, *), safe, model.visible, model.interactionEnabled, !model.awaitingConsumption, !model.awaitingTransition, let identity = fence.identity else { return }
         if kind == "edit" { fence.edited() }
         let selection = range ?? model.editor?.selectedRange ?? NSRange(location: 0, length: 0)
         var payload = identityPayload(identity)

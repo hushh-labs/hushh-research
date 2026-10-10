@@ -11,9 +11,18 @@ import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
-import { NativePanelPoseWriter, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
+import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
+import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
+import { nativePresentationAdmission, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
+
+// Keep qualification-only lifecycle coverage without enabling it in the app.
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
+  customNativePresentationEnabled: vi.fn(() => true),
+}));
 
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "dock-reviewer" } }) }));
 
@@ -24,14 +33,15 @@ vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked
 vi.mock("@/components/profile/profile-workspace-page", () => ({ ProfilePage: () => null }));
 
 const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", callbacks: new Map<string, (event: unknown) => void>(),
-  listeners: new Map<string, Set<(event: unknown) => void>>(),
+  listeners: new Map<string, Set<(event: unknown) => void>>(), setPresentationRegions: vi.fn(), applyPanelPose: vi.fn(), retirePanel: vi.fn(),
   subscribe: vi.fn(), prepare: vi.fn(), prepareBackReplacement: vi.fn(), prepareHistoryReplacement: vi.fn(), activate: vi.fn(), update: vi.fn(), suspend: vi.fn(), retire: vi.fn(), restoreFocus: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
-  getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn() }));
+  subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
   registerPlugin: (plugin: string) => plugin === "HushhNativeDock" ? { ...dockBridge,
     addListener: async (name: string, callback: (event: unknown) => void) => {
+      await dockBridge.subscribe(name);
       dockBridge.callbacks.set(name, callback);
       return { remove: async () => { if (dockBridge.callbacks.get(name) === callback) dockBridge.callbacks.delete(name); } };
     },
@@ -44,9 +54,13 @@ vi.mock("@capacitor/core", () => ({
     return { remove: async () => { listeners.delete(callback); if (!listeners.size) bridge.callbacks.delete(name); } };
   } }),
 }));
+const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: number; shielded: boolean; appIsActive: boolean }) => void>() }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => bridge.documentId,
   getNativeSessionPrivacyState: async () => ({ generation: 0, shielded: false, appIsActive: true }),
-  subscribeNativeSessionPrivacy: async () => ({ remove: async () => undefined }) }));
+  subscribeNativeSessionPrivacy: async (callback: (event: { generation: number; shielded: boolean; appIsActive: boolean }) => void) => {
+    privacy.callbacks.add(callback);
+    return { remove: async () => { privacy.callbacks.delete(callback); } };
+  } }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
 const projection = { kind: "back" as const, label: "Go back", enabled: true,
   appearance: "light" as const, accentHex: "#112233", foregroundHex: "#223344",
@@ -80,6 +94,10 @@ describe("owned panel pose transport", () => {
     writer.publish(pose);
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(failed).toHaveBeenCalledOnce();
+    const staleRegion = new NativePanelPoseWriter(async value => ({ ...value, presentationRegionRevision: 4 }), failed);
+    staleRegion.publish({ ...pose, presentationRegionRevision: 5 });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(failed).toHaveBeenCalledTimes(2);
     vi.useFakeTimers();
     const hung = vi.fn(() => new Promise<NativePanelPose>(() => undefined));
     const timeout = vi.fn();
@@ -88,6 +106,49 @@ describe("owned panel pose transport", () => {
     await vi.advanceTimersByTimeAsync(3001);
     expect(timeout).toHaveBeenCalledOnce(); expect(hung).toHaveBeenCalledOnce();
     vi.useRealTimers();
+  });
+  it("does not confirm or replay a superseded coverage receipt, but admits a fresh authored pose", async () => {
+    const failed = vi.fn(), confirmed = vi.fn(), refresh = vi.fn();
+    const send = vi.fn().mockImplementationOnce(async value => ({ ...value, presentationApplied: false }))
+      .mockImplementation(async value => value);
+    const writer = new NativePanelPoseWriter(send, failed, confirmed, refresh);
+    writer.publish({ ...pose, presentationRegionRevision: 4 });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(send).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(confirmed).not.toHaveBeenCalled();
+    writer.publish({ ...pose, sequence: 2, presentationRegionRevision: 5 });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(confirmed).toHaveBeenCalledOnce();
+    expect(failed).not.toHaveBeenCalled();
+    writer.retire();
+  });
+  it("resamples queued geometry with its own timestamp after delivery without replaying a retired frame", async () => {
+    const first = deferred<NativePanelPose>();
+    const send = vi.fn().mockImplementationOnce(() => first.promise).mockImplementation(async value => value);
+    const failed = vi.fn();
+    const fresh = { ...pose, sequence: 3, offset: 0, settled: true, sampledAtMs: 102 };
+    const refresh = vi.fn(() => writer.publish(fresh));
+    const writer = new NativePanelPoseWriter(send, failed, undefined, refresh);
+    writer.publish({ ...pose, sampledAtMs: 100 });
+    writer.publish({ ...pose, sequence: 2, offset: 80, sampledAtMs: 101 });
+    first.resolve(pose);
+    await first.promise; await Promise.resolve(); await Promise.resolve();
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0]).toEqual(fresh); // Includes latest terminal intent, not the aged transform.
+    writer.retire();
+    writer.publish({ ...fresh, sequence: 4 });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(failed).not.toHaveBeenCalled();
+    const delayed = deferred<NativePanelPose>();
+    const nextRefresh = vi.fn();
+    const retired = new NativePanelPoseWriter(() => delayed.promise, failed, undefined, nextRefresh);
+    retired.publish(pose); retired.publish({ ...pose, sequence: 2 }); retired.retire();
+    delayed.resolve(pose);
+    await delayed.promise; await Promise.resolve(); await Promise.resolve();
+    expect(nextRefresh).not.toHaveBeenCalled();
   });
 });
 
@@ -164,10 +225,12 @@ describe("private dock asynchronous submission boundary", () => {
       selectionStart: 0, selectionEnd: 0 };
   }
   beforeEach(() => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     bridge.platform = "ios"; bridge.documentId = crypto.randomUUID();
     document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
     document.documentElement.classList.remove("dark");
     dockBridge.callbacks.clear();
+    dockBridge.subscribe.mockReset().mockResolvedValue(undefined);
     dockBridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 1, supported: true });
     dockBridge.apply.mockReset().mockImplementation(async state => ({ ...state, height: 52, phase: "active" }));
     dockBridge.suspend.mockReset().mockImplementation(async state => ({ ...state, height: 52, phase: "active" }));
@@ -180,6 +243,74 @@ describe("private dock asynchronous submission boundary", () => {
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("reveals recovery controls synchronously and never admits reservations, apertures or drawer poses", async () => {
+    const productionPolicy = await vi.importActual<typeof import("@/lib/capacitor/native-presentation-policy")>("@/lib/capacitor/native-presentation-policy");
+    expect(productionPolicy.customNativePresentationEnabled()).toBe(false);
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    bridge.getCapabilities.mockReturnValue(new Promise(() => undefined));
+    const back = vi.fn(), select = vi.fn();
+    function Controls({ open }: { open: boolean }) {
+      const focus = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
+      const attach = useNativePanelPresentation("profile", "synthetic-owner", panel, open);
+      const ready = useNativeFullWindowOverlayReady(open);
+      return <div data-app-shell-root="true">
+        <NativeShellBack label="Go back" onBack={back} owner="synthetic-owner" context="synthetic" eligible />
+        <NativeChatChrome kind="agent-surface" owner="synthetic-owner" context="synthetic" eligible value="one"
+          className="" focusRef={focus} onValueChange={select}><button ref={focus} onClick={() => select("puppy")}>Puppy</button></NativeChatChrome>
+        <div ref={attach} data-native-panel-group="profile" data-testid="recovery-pane">{ready ? "ready" : "waiting"}</div>
+      </div>;
+    }
+    const view = render(<Controls open={false} />);
+    for (const label of ["Go back", "Puppy"]) {
+      const control = view.getByRole("button", { name: label });
+      expect(control.closest('[inert], [aria-hidden="true"]')).toBeNull();
+      expect(control).toBeVisible();
+      fireEvent.click(control);
+    }
+    expect(back).toHaveBeenCalledOnce(); expect(select).toHaveBeenCalledOnce();
+    for (const open of [true, false, true, false]) {
+      view.rerender(<Controls open={open} />);
+      expect(view.getByTestId("recovery-pane").textContent).toBe("ready");
+    }
+    setNativeBaseAperture("recovery-probe", 1, projection.frame);
+    expect(await syncNativePresentationRegions()).toBe(false);
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.getCapabilities).not.toHaveBeenCalled();
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    expect(bridge.setPresentationRegions).not.toHaveBeenCalled();
+    expect(bridge.applyPanelPose).not.toHaveBeenCalled();
+    expect(document.documentElement.classList.contains("native-compositor-apertures")).toBe(false);
+    expect(view.container.querySelector<HTMLElement>('[data-app-shell-root]')?.style.clipPath).toBe("");
+  });
+  it("keeps the React composer interactive before discovery in recovery mode, including reopen", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    dockBridge.getCapabilities.mockReturnValue(new Promise(() => undefined));
+    const view = render(fixture(false, vi.fn()));
+    expect(view.getByTestId("dock-presentation").textContent).toBe("fallback");
+    view.rerender(fixture(true, vi.fn()));
+    view.rerender(fixture(false, vi.fn()));
+    await act(async () => { await Promise.resolve(); });
+    expect(view.getByTestId("dock-presentation").textContent).toBe("fallback");
+    expect(dockBridge.getCapabilities).not.toHaveBeenCalled();
+    expect(dockBridge.apply).not.toHaveBeenCalled();
+    expect(dockBridge.subscribe).not.toHaveBeenCalled();
+  });
+  it.each([false, true])("waits for operation listeners before admitting the editor; rejection %s", async (reject) => {
+    const input = deferred<void>();
+    dockBridge.subscribe.mockImplementation(async name => { if (name === "input") await input.promise; });
+    const view = render(fixture(false, vi.fn()));
+    await waitFor(() => expect(dockBridge.subscribe).toHaveBeenCalledWith("input"));
+    expect(dockBridge.apply).not.toHaveBeenCalled();
+    expect(view.getByTestId("dock-presentation").textContent).toBe("reserved");
+    await act(async () => { if (reject) input.reject(new Error("Synthetic listener refusal")); else input.resolve(); });
+    if (reject) {
+      await waitFor(() => expect(view.getByTestId("dock-presentation").textContent).toBe("fallback"));
+      expect(dockBridge.apply).not.toHaveBeenCalled();
+      expect(dockBridge.callbacks.size).toBe(0);
+    } else {
+      await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+    }
+  });
   it("reserves the cold dock before discovery and restores an unsupported wrapper without creating a native editor", async () => {
     const receipt = deferred<{ contractVersion: number; supported: boolean }>();
     dockBridge.getCapabilities.mockReturnValueOnce(receipt.promise);
@@ -191,6 +322,82 @@ describe("private dock asynchronous submission boundary", () => {
     view.rerender(fixture(true, vi.fn()));
     expect(view.getByTestId("dock-presentation").textContent).toBe("fallback");
     expect(dockBridge.apply).not.toHaveBeenCalled();
+  });
+  it("keeps the reserved voice seat unpainted and inaccessible until confirmed web fallback", () => {
+    function Seat({ owned }: { owned: boolean }) {
+      const ports = useNativeDockPorts();
+      useLayoutEffect(() => { ports?.present(owned); }, [ports, owned]);
+      return <AgentBarSurface data-testid="voice-seat"><button>Talk to One</button></AgentBarSurface>;
+    }
+    const view = render(<AgentDockProvider><Seat owned /></AgentDockProvider>);
+    expect(view.getByTestId("voice-seat").hasAttribute("inert")).toBe(true);
+    expect(view.getByTestId("voice-seat").getAttribute("aria-hidden")).toBe("true");
+    expect(view.getByTestId("voice-seat").classList.contains("bottom-chrome-surface")).toBe(false);
+    view.rerender(<AgentDockProvider><Seat owned={false} /></AgentDockProvider>);
+    expect(view.getByTestId("voice-seat").hasAttribute("inert")).toBe(false);
+    expect(view.getByTestId("voice-seat").classList.contains("bottom-chrome-surface")).toBe(true);
+  });
+  it.each([false, true])("readmits the current dock after a newer shell layout supersedes its pending region receipt (refused %s)", async refused => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [], independentControls: true, reservedPresentationRegions: true });
+    dockBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, reservedPresentationRegions: true });
+    const receipt = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReset().mockImplementation(async projection => projection)
+      .mockReturnValueOnce(receipt.promise);
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    let height = 80;
+    vi.spyOn(seat, "getBoundingClientRect").mockImplementation(() => ({ bottom: height } as DOMRect));
+    try {
+      render(fixture(false, vi.fn()));
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledOnce());
+      const obsolete = bridge.setPresentationRegions.mock.calls[0][0];
+      height = 100;
+      await act(async () => { expect(await syncNativePresentationRegions()).toBe(true); });
+      expect(dockBridge.apply).not.toHaveBeenCalled();
+      await act(async () => { if (refused) receipt.reject(new Error("NATIVE_REGIONS_STALE")); else receipt.resolve(obsolete); });
+      await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+      expect(dockBridge.retire).not.toHaveBeenCalled();
+    } finally { seat.remove(); }
+  });
+  it("does not apply an obsolete dock snapshot after delayed region admission", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [], independentControls: true, reservedPresentationRegions: true });
+    dockBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, reservedPresentationRegions: true });
+    bridge.setPresentationRegions.mockReset().mockImplementation(async projection => projection);
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    let height = 80;
+    vi.spyOn(seat, "getBoundingClientRect").mockImplementation(() => ({ bottom: height } as DOMRect));
+    const view = render(fixture(false, vi.fn()));
+    try {
+      await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+      const baseline = dockBridge.apply.mock.calls.length;
+      bridge.setPresentationRegions.mockImplementationOnce(async projection => {
+        // Change eligibility inside the bridge request, after the dock's
+        // preceding privacy read has passed but before layout returns.
+        act(() => view.rerender(fixture(true, vi.fn())));
+        return projection;
+      });
+      height = 100;
+      act(() => window.dispatchEvent(new Event("resize")));
+      await waitFor(() => expect(bridge.setPresentationRegions.mock.calls.at(-1)![0].top).toBe(100));
+      await waitFor(() => expect(dockBridge.apply.mock.calls.length).toBeGreaterThan(baseline));
+      expect(dockBridge.apply.mock.calls.slice(baseline).every(([state]) => state.interactionEnabled === false)).toBe(true);
+      expect(dockBridge.retire).not.toHaveBeenCalled();
+      view.rerender(fixture(false, vi.fn()));
+      await waitFor(() => expect(dockBridge.apply.mock.calls.at(-1)![0].interactionEnabled).toBe(true));
+    } finally { seat.remove(); }
+  });
+  it("does not retire a newer dock lifetime when an obsolete apply fails", async () => {
+    const receipt = deferred<Record<string, unknown>>();
+    dockBridge.apply.mockReturnValueOnce(receipt.promise);
+    const view = render(fixture(false, vi.fn()));
+    await waitFor(() => expect(dockBridge.apply).toHaveBeenCalledOnce());
+    view.rerender(fixture(true, vi.fn()));
+    await act(async () => { receipt.reject(new Error("Synthetic delayed refusal")); });
+    expect(dockBridge.retire).not.toHaveBeenCalled();
+    view.rerender(fixture(false, vi.fn()));
+    await waitFor(() => expect(dockBridge.apply.mock.calls.length).toBeGreaterThan(1));
+    expect(dockBridge.retire).not.toHaveBeenCalled();
   });
   it("retires a consumed replica when an overlay invalidates its delayed receipt, without sending or replaying", async () => {
     const onAction = vi.fn();
@@ -241,6 +448,7 @@ describe("native chrome presentation lease", () => {
     expect(action).toHaveBeenCalledOnce();
   });
   beforeEach(async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     window.localStorage.clear();
     document.documentElement.classList.remove("dark");
     document.documentElement.removeAttribute("data-accent");
@@ -256,6 +464,9 @@ describe("native chrome presentation lease", () => {
     bridge.subscribe.mockReset().mockResolvedValue(undefined);
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true });
     bridge.setCanvasAppearance.mockReset().mockImplementation(async (value) => value);
+    bridge.setPresentationRegions.mockReset().mockImplementation(async (value) => value);
+    bridge.applyPanelPose.mockReset().mockImplementation(async (value) => value);
+    bridge.retirePanel.mockReset().mockImplementation(async (value) => value);
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.prepareBackReplacement.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.prepareHistoryReplacement.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
@@ -269,6 +480,201 @@ describe("native chrome presentation lease", () => {
       retireNativeChrome("owner-a", undefined, controlId as ChromeProjection["controlId"])));
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("stops pose delivery on teardown but retires only after the matching uncovered receipt", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"],
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });
+    function Panel() {
+      const ref = useRef<HTMLDivElement>(null);
+      const attach = useNativePanelPresentation("profile", "synthetic-owner", ref, true);
+      useLayoutEffect(() => { if (ref.current) ref.current.getAnimations = () => []; }, []);
+      return <div ref={attach} data-native-panel-group="profile" />;
+    }
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 150, y: 0, width: 390, height: window.innerHeight, bottom: window.innerHeight } as DOMRect);
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    await getNativeChromeCapabilities();
+    setNativePresentationRegionIsolation(true, true, "profile");
+    expect(await syncNativePresentationRegions()).toBe(true);
+    const view = render(<Panel />);
+    await waitFor(() => expect(bridge.applyPanelPose).toHaveBeenCalled());
+    const captured = bridge.applyPanelPose.mock.calls.at(-1)![0] as NativePanelPose;
+    const poseCount = bridge.applyPanelPose.mock.calls.length;
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.retirePanel).not.toHaveBeenCalled();
+    const delayed = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+    setNativePresentationRegionIsolation(false);
+    await waitFor(() => expect(bridge.setPresentationRegions.mock.calls.at(-1)?.[0].covered).toBe(false));
+    expect(bridge.retirePanel).not.toHaveBeenCalled();
+    expect(bridge.applyPanelPose).toHaveBeenCalledTimes(poseCount);
+    const release = bridge.setPresentationRegions.mock.calls.at(-1)![0];
+    await act(async () => { delayed.resolve(release); });
+    await waitFor(() => expect(bridge.retirePanel).toHaveBeenCalledOnce());
+    expect(bridge.retirePanel).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: captured.documentId, ownerEpoch: captured.ownerEpoch, generation: captured.generation }));
+  });
+  it("does not mistake a superseded release or reopening for uncovered admission", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"],
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });
+    await getNativeChromeCapabilities();
+    setNativePresentationRegionIsolation(true, true, "profile");
+    expect(await syncNativePresentationRegions()).toBe(true);
+    const retired = vi.fn();
+    const waiting = waitForNativeDrawerCoverageRelease(bridge.documentId, 0).then(retired);
+    const delayed = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+    setNativePresentationRegionIsolation(false);
+    await waitFor(() => expect(bridge.setPresentationRegions.mock.calls.at(-1)?.[0].covered).toBe(false));
+    const obsolete = bridge.setPresentationRegions.mock.calls.at(-1)![0];
+    setNativePresentationRegionIsolation(true, true, "profile");
+    expect(await syncNativePresentationRegions()).toBe(true);
+    await act(async () => { delayed.resolve(obsolete); });
+    expect(retired).not.toHaveBeenCalled();
+    setNativePresentationRegionIsolation(false);
+    expect(await syncNativePresentationRegions()).toBe(true);
+    await waiting;
+    expect(retired).toHaveBeenCalledExactlyOnceWith("released");
+  });
+  it.each([false, true])("admits coverage and its authored initial pose together; superseded owner %s", async superseded => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [], independentControls: true,
+      reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true, atomicDrawerCoverage: true });
+    await getNativeChromeCapabilities();
+    setNativePresentationRegionIsolation(false);
+    await syncNativePresentationRegions();
+    const identity = { documentId: bridge.documentId, ownerEpoch: "synthetic-drawer", group: "profile" as const, generation: 10 };
+    const remove = registerNativeDrawerPose(identity, privacyGeneration => ({ ...identity, sequence: 1, privacyGeneration,
+      frame: { x: 0, y: 0, width: 390, height: 844 }, offset: 200, opacity: 1, settled: false }));
+    const delayed = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+    try {
+      setNativePresentationRegionIsolation(true, true, "profile");
+      await waitFor(() => expect(bridge.setPresentationRegions.mock.calls.at(-1)![0].initialDrawerPose).toBeDefined());
+      const projection = bridge.setPresentationRegions.mock.calls.at(-1)![0];
+      expect(projection.initialDrawerPose).toEqual(expect.objectContaining({ ...identity, sequence: 1, offset: 200, opacity: 1 }));
+      const waiting = syncNativePresentationRegions();
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+      if (superseded) remove();
+      await act(async () => { delayed.resolve(projection); });
+      expect(await waiting).toBe(!superseded);
+      expect(nativePresentationAdmission().presentationRegionRevision === projection.revision).toBe(!superseded);
+    } finally { remove(); setNativePresentationRegionIsolation(false); await syncNativePresentationRegions(); }
+  });
+  it.each(["privacy", "timeout"])("ends normal-retirement waiting fail-closed on %s", async reason => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"],
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });
+    await getNativeChromeCapabilities();
+    setNativePresentationRegionIsolation(true, true, "profile");
+    expect(await syncNativePresentationRegions()).toBe(true);
+    const callbacks = privacy.callbacks.size;
+    if (reason === "timeout") vi.useFakeTimers();
+    try {
+      const waiting = waitForNativeDrawerCoverageRelease(bridge.documentId, 0);
+      await act(async () => { await Promise.resolve(); });
+      if (reason === "privacy") privacy.callbacks.forEach(callback => callback({ generation: 1, shielded: true, appIsActive: false }));
+      else await vi.advanceTimersByTimeAsync(3001);
+      expect(await waiting).toBe(reason === "privacy" ? "invalidated" : "uncertain");
+      expect(privacy.callbacks.size).toBe(callbacks);
+    } finally { vi.useRealTimers(); setNativePresentationRegionIsolation(false); await syncNativePresentationRegions(); }
+  });
+  it("admits full-height panes only after current coverage and rejects an open-close-reopen receipt", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history", "agent-surface"],
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ bottom: 100 } as DOMRect);
+    function Cover({ active }: { active: boolean }) {
+      useNativeNavigationBlocked(active, "profile-pane");
+      const ready = useNativeFullWindowOverlayReady(active);
+      return <span data-testid="cover-state">{!active ? "closed" : ready ? "admitted" : "waiting"}</span>;
+    }
+    try {
+      expect(await syncNativePresentationRegions()).toBe(true);
+      const delayed = deferred<NativePresentationRegions>();
+      bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+      const view = render(<Cover active />);
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledTimes(2));
+      const obsolete = bridge.setPresentationRegions.mock.calls[1][0];
+      expect(view.getByTestId("cover-state").textContent).toBe("waiting");
+      expect(obsolete).toEqual(expect.objectContaining({ covered: true, isolated: true, privacyGeneration: 0, top: 100, drawer: "profile" }));
+      view.rerender(<Cover active={false} />);
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(nativePresentationAdmission().presentationRegionRevision).toBeGreaterThan(obsolete.revision));
+      await waitFor(() => expect(document.documentElement.hasAttribute("data-native-full-window-covered")).toBe(false));
+      view.rerender(<Cover active />);
+      await waitFor(() => expect(view.getByTestId("cover-state").textContent).toBe("admitted"));
+      const admission = nativePresentationAdmission();
+      await act(async () => { delayed.resolve(obsolete); });
+      expect(nativePresentationAdmission()).toEqual(admission);
+      expect(admission.presentationRegionRevision).toBeGreaterThan(obsolete.revision);
+      expect(document.documentElement.style.getPropertyValue("--native-overlay-top")).toBe("0px");
+      expect(document.documentElement.hasAttribute("data-native-full-window-covered")).toBe(true);
+    } finally { seat.remove(); }
+  });
+  it.each([false, true])("rejects stale region acknowledgments even when returning to the previously accepted layout (refused %s)", async refused => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true, reservedPresentationRegions: true });
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    let height = 80;
+    vi.spyOn(seat, "getBoundingClientRect").mockImplementation(() => ({ bottom: height } as DOMRect));
+    try {
+      expect(await syncNativePresentationRegions()).toBe(true);
+      const delayed = deferred<NativePresentationRegions>();
+      bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+      height = 100;
+      const changing = syncNativePresentationRegions();
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledTimes(2));
+      const obsolete = bridge.setPresentationRegions.mock.calls[1][0];
+      height = 80;
+      expect(await syncNativePresentationRegions()).toBe(true);
+      if (refused) delayed.reject(new Error("NATIVE_REGIONS_STALE")); else delayed.resolve(obsolete);
+      expect(await changing).toBe(false);
+      expect(document.documentElement.style.getPropertyValue("--native-overlay-top")).toBe("80px");
+      // Supersession is not permission to swallow a current native failure.
+      height = 120;
+      bridge.setPresentationRegions.mockRejectedValueOnce(new Error("NATIVE_REGIONS_STALE"));
+      await expect(syncNativePresentationRegions()).rejects.toThrow("NATIVE_REGIONS_STALE");
+    } finally { seat.remove(); }
+  });
+  it("retains preparation after superseded admission without authorizing or replaying a choice", async () => {
+    const lease = new NativeChromeLease(projection, "owner-a");
+    await lease.prepare();
+    const retireCount = bridge.retire.mock.calls.length;
+    bridge.activate.mockResolvedValueOnce({ ...lease.projection, phase: "active", presentationApplied: false });
+    await lease.activate();
+    expect(lease.admissionReady).toBe(false);
+    expect(lease.ownsInstallation).toBe(true);
+    const action = vi.fn();
+    await lease.choose(choice(lease), () => true, action);
+    expect(action).not.toHaveBeenCalled();
+    expect(bridge.retire).toHaveBeenCalledTimes(retireCount);
+    await lease.activate();
+    expect(lease.admissionReady).toBe(true);
+    expect(action).not.toHaveBeenCalled();
+  });
+  it.each([false, true])("reconciles superseded shell preparation without reviving a cancelled lease (%s)", async cancelled => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true, reservedPresentationRegions: true });
+    await getNativeChromeCapabilities();
+    const receipt = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReturnValueOnce(receipt.promise);
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    let height = 120;
+    vi.spyOn(seat, "getBoundingClientRect").mockImplementation(() => ({ bottom: height } as DOMRect));
+    try {
+      const lease = new NativeChromeLease(projection, "owner-a");
+      const preparing = lease.prepare();
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledOnce());
+      const obsolete = bridge.setPresentationRegions.mock.calls[0][0];
+      height = 140;
+      expect(await syncNativePresentationRegions()).toBe(true);
+      if (cancelled) lease.invalidate();
+      receipt.resolve(obsolete);
+      expect(await preparing).toBe(!cancelled);
+      expect(bridge.prepare).toHaveBeenCalledTimes(cancelled ? 0 : 1);
+    } finally { seat.remove(); }
+  });
+
   it("requires acknowledged suspension and identical ownership/schema/geometry before resuming a host with fresh authority", async () => {
     const epoch = chromeOwnerEpoch("account-a", "top-shell-back");
     expect(chromeOwnerEpoch("account-a", "top-shell-back")).toBe(epoch);
@@ -353,6 +759,31 @@ describe("native chrome presentation lease", () => {
     expect(action).toHaveBeenCalledOnce();
     await lease.choose(choice(lease), () => true, action);
     expect(action).toHaveBeenCalledOnce();
+  });
+  it("projects committed foreground traits with the canvas and never cuts an aperture for page-backed glass", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,
+      contentBackedPresentation: true, canvasAppearance: true, panelPresentation: true });
+    const shell = document.createElement("main");
+    shell.dataset.appShellRoot = "true";
+    document.body.appendChild(shell);
+    document.documentElement.style.setProperty("--background", "#f2f2f7");
+    document.documentElement.classList.remove("dark");
+    const lease = new NativeChromeLease(projection, "owner-a");
+    try {
+      expect(await syncNativeCanvasAppearance()).toBe(true);
+      expect(bridge.setCanvasAppearance.mock.calls.at(-1)![0]).toMatchObject({ appearance: "light", backgroundHex: "#f2f2f7" });
+      document.documentElement.classList.add("dark");
+      document.documentElement.style.setProperty("--background", "#0e0e10");
+      expect(await syncNativeCanvasAppearance()).toBe(true);
+      expect(bridge.setCanvasAppearance.mock.calls.at(-1)![0]).toMatchObject({ appearance: "dark", backgroundHex: "#0e0e10" });
+      await lease.prepare(); await lease.activate();
+      expect(shell.style.clipPath).toBe("");
+      expect(document.documentElement.classList.contains("native-compositor-apertures")).toBe(false);
+    } finally {
+      lease.invalidate(); await retireOwnedNativeChrome(lease.projection); shell.remove();
+      document.documentElement.classList.remove("dark");
+      document.documentElement.style.removeProperty("--background");
+    }
   });
   it("fences choices across reordered in-place snapshots without replacing the lease", async () => {
     const lease = new NativeChromeLease(projection, "owner-a", "context", true);
@@ -737,22 +1168,24 @@ describe("native chrome presentation lease", () => {
       else Reflect.deleteProperty(globalThis, "KeyframeEffect");
     }
   });
-  it("exposes only allowlisted public rehearsal status with explicit Debug capability", async () => {
-    const capability = { contractVersion: 2, families: ["agent-surface"], independentControls: true };
+  it.each(["agent-surface", "history"] as const)("exposes only allowlisted public %s rehearsal status with explicit Debug capability", async (kind) => {
+    const capability = { contractVersion: 2, families: [kind], independentControls: true };
+    const statusId = kind === "agent-surface" ? "native-selector-rehearsal-status" : "native-control-status-chat-history-toggle";
+    const width = kind === "agent-surface" ? 116 : 44;
     bridge.getCapabilities.mockResolvedValue(capability);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-      x: 2, y: 60, width: 116, height: 44, top: 60, left: 2, right: 118, bottom: 104, toJSON: () => ({}),
+      x: 2, y: 60, width, height: 44, top: 60, left: 2, right: 2 + width, bottom: 104, toJSON: () => ({}),
     });
     bridge.prepare.mockRejectedValue(new Error("synthetic-private-response-must-not-appear"));
-    const ordinary = render(<ChatHarness kind="agent-surface" />);
+    const ordinary = render(<ChatHarness kind={kind} />);
     await waitFor(() => expect(bridge.prepare).toHaveBeenCalled());
-    expect(ordinary.queryByTestId("native-selector-rehearsal-status")).toBeNull();
+    expect(ordinary.queryByTestId(statusId)).toBeNull();
     ordinary.unmount();
     bridge.documentId = crypto.randomUUID();
     bridge.getCapabilities.mockResolvedValue({ ...capability, rehearsalDiagnostics: true });
-    const rehearsal = render(<ChatHarness kind="agent-surface" />);
-    await waitFor(() => expect(rehearsal.getByTestId("native-selector-rehearsal-status")).toHaveTextContent('"outcome":"rejected"'));
-    const status = rehearsal.getByTestId("native-selector-rehearsal-status").textContent!;
+    const rehearsal = render(<ChatHarness kind={kind} />);
+    await waitFor(() => expect(rehearsal.getByTestId(statusId)).toHaveTextContent('"outcome":"rejected"'));
+    const status = rehearsal.getByTestId(statusId).textContent!;
     expect(status).toContain('"code":"other"');
     expect(status).not.toContain("synthetic-private-response");
     expect(status).not.toContain("synthetic-owner");
@@ -832,8 +1265,10 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(view.getByRole("button", { name: "Authored history" })).toBeVisible());
     expect(hasOutstandingNativeChrome("chat-history-toggle")).toBe(false);
   });
-  it("isolates simultaneous authored controls and retires native history when attention appears", async () => {
-    admitChat();
+  it.each([false, true])("isolates simultaneous controls and retires history attention with retained hosts %s", async (retainedControls) => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history", "agent-surface"],
+      independentControls: true, inPlaceUpdates: true, retainedControls });
+    await getNativeChromeCapabilities();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const selector = this.textContent?.includes("agent-surface");
       return { x: selector ? 100 : 2, y: 60, width: selector ? 100 : 44, height: 44,
@@ -940,6 +1375,53 @@ describe("native chrome presentation lease", () => {
     expect(action).not.toHaveBeenCalled();
     expect(view.getByText("Authored history")).not.toHaveFocus();
     await waitFor(() => expect(view.getByText("Authored history").parentElement).toHaveAttribute("inert"));
+  });
+
+  it("waits for current History admission instead of retiring it for focus, and rejects covered focus", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      inPlaceUpdates: true, focusReturn: true, retainedControls: true });
+    const preparation = deferred<ChromeAcknowledgement>();
+    bridge.prepare.mockReturnValueOnce(preparation.promise);
+    const handle = createRef<NativeChatChromeHandle>();
+    function Blocker({ open }: { open: boolean }) { useNativeNavigationBlocked(open); return null; }
+    const view = render(<><ChatHarness handle={handle} /><Blocker open={false} /></>);
+    await waitFor(() => expect(bridge.prepare).toHaveBeenCalledOnce());
+    const projection = bridge.prepare.mock.calls[0][0];
+    const retirements = bridge.retire.mock.calls.length;
+    let focus!: Promise<boolean>;
+    act(() => { focus = handle.current!.restoreFocus(true); });
+    expect(bridge.retire).toHaveBeenCalledTimes(retirements);
+    expect(bridge.restoreFocus).not.toHaveBeenCalled();
+    await act(async () => { preparation.resolve({ ...projection, phase: "prepared", frame: projection.frame }); });
+    await waitFor(() => expect(bridge.restoreFocus).toHaveBeenCalledOnce());
+    expect(await focus).toBe(true);
+    expect(bridge.prepare).toHaveBeenCalledOnce();
+    expect(view.getByText("Authored history")).not.toBeVisible();
+    view.rerender(<><ChatHarness handle={handle} /><Blocker open /></>);
+    await waitFor(() => expect(bridge.suspend).toHaveBeenCalled());
+    const coveredRetirements = bridge.retire.mock.calls.length;
+    await act(async () => { expect(await handle.current!.restoreFocus(true)).toBe(false); });
+    expect(bridge.retire).toHaveBeenCalledTimes(coveredRetirements);
+    view.rerender(<><ChatHarness handle={handle} /><Blocker open={false} /></>);
+    await waitFor(() => expect(bridge.activate.mock.calls.length).toBeGreaterThan(1));
+    expect(view.getByText("Authored history")).not.toBeVisible();
+  });
+
+  it("keeps native History installed after confirmed keyboard cancellation of focus", async () => {
+    admitChat(); measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      inPlaceUpdates: true, focusReturn: true });
+    const handle = createRef<NativeChatChromeHandle>();
+    const view = render(<ChatHarness handle={handle} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const lifecycle = [bridge.retire.mock.calls.length, bridge.prepare.mock.calls.length, bridge.activate.mock.calls.length];
+    bridge.restoreFocus.mockImplementationOnce(async event => ({ ...event, restored: false, cancellation: "keyboard" }));
+    await act(async () => { expect(await handle.current!.restoreFocus(true)).toBe(false); });
+    expect([bridge.retire.mock.calls.length, bridge.prepare.mock.calls.length, bridge.activate.mock.calls.length]).toEqual(lifecycle);
+    expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
+    await act(async () => { expect(await handle.current!.restoreFocus(true)).toBe(true); });
+    expect([bridge.retire.mock.calls.length, bridge.prepare.mock.calls.length, bridge.activate.mock.calls.length]).toEqual(lifecycle);
   });
 
   it("returns native History focus without latching DOM fallback and rejects stale owner focus", async () => {
@@ -1485,97 +1967,44 @@ describe("native chrome presentation lease", () => {
     act(() => bridge.callbacks.get("choiceRequested")?.({ ...current, sequence: 1, privacyGeneration: 0 }));
     await waitFor(() => expect(back).toHaveBeenCalledOnce());
   });
-  it("keeps stationary Profile Close native across inner-stack changes, never across owner replacement", async () => {
+  it("keeps moving Profile controls React across inner routes and ownership changes", async () => {
     measureSlot();
-    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true, inPlaceUpdates: true, profileBackReplacement: true });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["profile-back", "close"], independentControls: true, inPlaceUpdates: true });
     const close = vi.fn();
     const view = render(<ProfilePane open owner="owner-a" onOpenChange={close} />);
-    const preparedCloses = () => bridge.prepare.mock.calls.filter(([p]) => p.kind === "close");
-    await waitFor(() => expect(preparedCloses()).toHaveLength(1));
-    await waitFor(() => expect(bridge.activate.mock.calls.some(([p]) => p.controlId === "profile-close")).toBe(true));
-    await act(async () => { await Promise.resolve(); });
-    const original = preparedCloses()[0]![0];
-    profile.query = "profile_pane=1&profile_panel=security";
-    view.rerender(<ProfilePane open owner="owner-a" onOpenChange={(next) => close(next)} />);
-    await act(async () => { await Promise.resolve(); });
-    expect(view.getByLabelText("Close Profile", { selector: "button" }).closest('[inert]')).not.toBeNull();
-    expect(bridge.retire.mock.calls.some(([p]) => p.controlId === "profile-close" && p.targetRevision === original.revision)).toBe(false);
-    await waitFor(() => expect(bridge.prepare.mock.calls.some(([p]) => p.kind === "profile-back")).toBe(true));
-    expect(preparedCloses()).toHaveLength(1);
-    await waitFor(() => expect(bridge.activate.mock.calls.some(([p]) => p.controlId === "profile-back")).toBe(true));
-    const previousBack = bridge.prepare.mock.calls.find(([p]) => p.kind === "profile-back")![0];
-    const handoff = deferred<ChromeAcknowledgement>();
-    bridge.prepareBackReplacement.mockReturnValueOnce(handoff.promise);
-    const removals = bridge.retire.mock.calls.length;
-    profile.query = "profile_pane=1&profile_panel=security&profile_detail=vault";
-    view.rerender(<ProfilePane open owner="owner-a" onOpenChange={close} />);
-    await act(async () => { await Promise.resolve(); });
-    // The outer header does not slide with the content stack. Its Back stays
-    // native but gets fresh action authority; no 300ms web fallback interval.
-    expect(bridge.retire).toHaveBeenCalledTimes(removals);
-    expect(view.getByLabelText("Back in Profile", { selector: "button" }).closest('[inert]')).not.toBeNull();
-    await waitFor(() => expect(bridge.prepareBackReplacement).toHaveBeenCalledOnce());
-    const nextBack = bridge.prepareBackReplacement.mock.calls[0][0];
-    expect(nextBack).toMatchObject({ controlId: "profile-back", previousRevision: previousBack.revision, frame: previousBack.frame });
-    await act(async () => handoff.resolve({ ...nextBack, phase: "prepared" }));
-    await waitFor(() => expect(bridge.activate.mock.calls.some(([p]) => p.revision === nextBack.revision)).toBe(true));
-    expect(preparedCloses()).toHaveLength(1);
-    const updateSequence = bridge.update.mock.calls.find(([p]) => p.controlId === "profile-close")?.[0].updateSequence ?? 0;
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...original, sequence: 1, updateSequence, privacyGeneration: 0 }));
-    await waitFor(() => expect(close).toHaveBeenCalledExactlyOnceWith(false));
-    const pending = deferred<{ valid: boolean }>();
-    bridge.confirmChoice.mockReturnValueOnce(pending.promise);
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...original, sequence: 2, updateSequence, privacyGeneration: 0 }));
-    await waitFor(() => expect(bridge.confirmChoice).toHaveBeenCalledTimes(2));
+    const original = view.getByRole("button", { name: "Close Profile" });
+    for (const query of ["profile_pane=1&profile_panel=security", "profile_pane=1&profile_panel=security&profile_detail=vault"]) {
+      profile.query = query;
+      // The real Next context publishes query changes. Our lightweight mock
+      // is not a context provider, so a new callback makes memo observe it.
+      view.rerender(<ProfilePane open owner="owner-a" onOpenChange={(next) => close(next)} />);
+      expect(view.getByRole("button", { name: "Close Profile" })).toBe(original);
+      await waitFor(() => expect(view.getByRole("button", { name: "Back in Profile" })).toBeVisible());
+    }
     view.rerender(<ProfilePane open owner="owner-b" onOpenChange={close} />);
-    await act(async () => { pending.resolve({ valid: true }); });
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...original, sequence: 3, updateSequence, privacyGeneration: 0 }));
-    await waitFor(() => expect(preparedCloses()).toHaveLength(2));
-    expect(preparedCloses()[1]![0].ownerEpoch).not.toBe(original.ownerEpoch);
-    expect(close).toHaveBeenCalledOnce();
+    fireEvent.click(view.getByRole("button", { name: "Close Profile" }));
+    expect(close).toHaveBeenCalledExactlyOnceWith(false);
+    expect(bridge.prepare.mock.calls.filter(([p]) => ["profile-back", "close"].includes(p.kind))).toHaveLength(0);
   });
 
-  it("admits History Close only after settlement and never bypasses a newer overlay", async () => {
-    measureSlot();
-    document.documentElement.style.setProperty("--motion-sheet-enter-duration", "300ms");
+  it("keeps History Close React through drawer settlement and reopening", async () => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true, inPlaceUpdates: true });
     const close = vi.fn();
-    function CloseHarness({ blocked = false }: { blocked?: boolean }) {
-      useNativeNavigationBlocked(true, "chat-history");
-      useNativeNavigationBlocked(blocked);
-      return <NativeHistoryClose owner="owner-a" context="chat-a" onClose={close} />;
-    }
-    const view = render(<CloseHarness />);
+    const view = render(<NativeHistoryClose owner="owner-a" context="chat-a" onClose={close} />);
+    const button = view.getByRole("button", { name: "Close chat history" });
+    await act(async () => { await Promise.resolve(); });
+    view.rerender(<NativeHistoryClose owner="owner-a" context="chat-b" stationary onClose={close} />);
+    expect(view.getByRole("button", { name: "Close chat history" })).toBe(button);
+    fireEvent.click(button);
+    expect(close).toHaveBeenCalledOnce();
     expect(bridge.prepare).not.toHaveBeenCalled();
-    expect(view.getByRole("button", { name: "Close chat history" })).toBeVisible();
-    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(1));
-    expect(view.queryByRole("button", { name: "Close chat history" })).toBeNull();
-    const installed = bridge.activate.mock.calls.at(-1)![0];
-    await act(async () => { await Promise.resolve(); });
-    expect(bridge.update).not.toHaveBeenCalled();
-    const approval = deferred<{ valid: boolean }>();
-    bridge.confirmChoice.mockReturnValueOnce(approval.promise);
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...installed, sequence: 1, privacyGeneration: 0, updateSequence: 0 }));
-    expect(bridge.confirmChoice).toHaveBeenCalledTimes(1);
-    view.rerender(<CloseHarness blocked />);
-    await act(async () => { approval.resolve({ valid: true }); });
-    expect(close).not.toHaveBeenCalled();
-    await waitFor(() => expect(view.getByRole("button", { name: "Close chat history" })).toBeVisible());
-    view.rerender(<CloseHarness />);
-    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
-    const current = bridge.activate.mock.calls.at(-1)![0];
-    await act(async () => { await Promise.resolve(); });
-    expect(bridge.update).not.toHaveBeenCalled();
-    act(() => bridge.callbacks.get("choiceRequested")?.({ ...current, sequence: 1, privacyGeneration: 0, updateSequence: 0 }));
-    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
-    view.unmount();
-    document.documentElement.style.removeProperty("--motion-sheet-enter-duration");
+    expect(bridge.activate).not.toHaveBeenCalled();
   });
   it("commits DOM isolation before activation and waits for retirement during session checks", async () => {
     measureSlot();
     const onBack = vi.fn();
     const view = render(<Harness onBack={onBack} />);
-    const button = view.getByRole("button", { name: "Go back" });
+    const button = view.getByLabelText("Go back", { selector: "button" });
     bridge.activate.mockImplementation(async (value) => {
       expect(button).toBeDisabled();
       expect(button).toHaveStyle({ visibility: "hidden" });

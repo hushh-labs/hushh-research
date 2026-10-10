@@ -12,6 +12,24 @@ struct NativePanelPose: Equatable {
     let offset: CGFloat
     let opacity: CGFloat
     let settled: Bool
+
+    var hasValidGeometry: Bool {
+        frame.width > 0 && frame.height > 0 &&
+            [frame.minX, frame.minY, frame.width, frame.height, offset, opacity].allSatisfy { $0.isFinite } &&
+            (0...1).contains(opacity) && abs(offset) <= frame.width
+    }
+
+    func isContained(in bounds: CGRect) -> Bool {
+        guard hasValidGeometry, bounds.width > 0, bounds.height > 0,
+              [bounds.minX, bounds.minY, bounds.width, bounds.height].allSatisfy({ $0.isFinite }) else { return false }
+        // WK's transformed client rect uses Float32 precision: a full-width
+        // 390px panel was observed as 390.000030517578px. Permit only two
+        // representable steps at this viewport scale, not a CSS-pixel margin.
+        let scale = Float(max(1, max(bounds.width, bounds.height)))
+        guard scale.isFinite else { return false }
+        let roundoff = CGFloat(scale.ulp) * 2
+        return bounds.insetBy(dx: -roundoff, dy: -roundoff).contains(frame)
+    }
 }
 
 struct NativePanelPoseFence {
@@ -21,10 +39,7 @@ struct NativePanelPoseFence {
     mutating func apply(_ next: NativePanelPose, privacy: Int) -> Bool {
         guard next.generation > retiredGeneration, next.sequence > 0,
               next.privacyGeneration == privacy,
-              next.frame.width > 0, next.frame.height > 0,
-              [next.frame.minX, next.frame.minY, next.frame.width, next.frame.height,
-               next.offset, next.opacity].allSatisfy({ $0.isFinite }),
-              (0...1).contains(next.opacity), abs(next.offset) <= next.frame.width else { return false }
+              next.hasValidGeometry else { return false }
         if let previous = pose {
             guard next.document == previous.document,
                   next.generation >= previous.generation,
@@ -44,23 +59,135 @@ struct NativePanelPoseFence {
     }
 }
 
-/// One WebView, retained native underlay, bounded overlay groups. The outer
+private enum NativeRegionRefusal: Int {
+    case viewport = 1, revision, geometry, coverage, initialGeometry, poseOrder
+    case initialContext
+}
+
+/// One WebView, retained native base plane, bounded overlay groups. The outer
 /// container routes only explicitly admitted hits; Maps keeps its WK hit path.
 final class NativePresentationContainer: UIView {
+    enum BasePresentation { case underlay, contentBacked }
     let webView: WKWebView
+    let basePresentation: BasePresentation
+    var contentBackedPresentation: Bool { basePresentation == .contentBacked }
+    let drawerClipping: Bool
+    private let baseViewport = UIView()
+    // Retain the legacy name for the independently reversible underlay pilot.
     let underlay = UIView()
     private var groups: [String: UIView] = [:]
     private var fences: [String: NativePanelPoseFence] = [:]
     private var controls: [String: (view: UIView, group: String?, admitted: Bool)] = [:]
+    private var regionDocument: String?
+    private var regionRevision = -1
+    private var regionPrivacyGeneration: Int?
+    private var regionDrawer: String?
+    private var coverageRevision: Int?
+    private(set) var overlayTop: CGFloat = 0
+    private(set) var overlayBottom: CGFloat = 0
+    private(set) var overlayIsolated = false
+    private(set) var fullWindowCovered = false
+    private var privacyConcealed = false
+    #if DEBUG
+    private(set) var lastRegionRefusal = 0
+    private(set) var lastRejectedInitialFrame: CGRect?
+    var baseEditorFocused: Bool {
+        func focused(_ view: UIView) -> Bool {
+            if view.accessibilityIdentifier == "native-dock-editor" { return view.isFirstResponder }
+            return view.subviews.contains(where: focused)
+        }
+        return focused(underlay)
+    }
+    #endif
+
+    private func rejectRegion(_ reason: NativeRegionRefusal) -> Bool {
+        #if DEBUG
+        lastRegionRefusal = reason.rawValue
+        #endif
+        return false
+    }
+
+    func setRegions(document: String, revision: Int, viewport: CGSize, top: CGFloat, bottom: CGFloat, isolated: Bool, covered: Bool = false, privacyGeneration: Int? = nil, drawer: String? = nil, initialPose: NativePanelPose? = nil) -> Bool {
+        guard contentBackedPresentation, viewport == bounds.size else { return rejectRegion(.viewport) }
+        guard revision >= 0, regionDocument != document || revision > regionRevision else { return rejectRegion(.revision) }
+        guard top.isFinite, bottom.isFinite, top >= 0, bottom >= 0,
+              top + bottom < viewport.height else { return rejectRegion(.geometry) }
+        guard !covered || isolated && privacyGeneration != nil,
+              regionDocument != document || regionPrivacyGeneration == nil || privacyGeneration != nil,
+              drawer == nil || drawerClipping && covered && ["profile", "history"].contains(drawer!) else { return rejectRegion(.coverage) }
+        // Stage both fences before changing the visible plane. Invalid initial
+        // geometry must not partially commit coverage or a newer revision.
+        var stagedFence: NativePanelPoseFence?
+        if let initialPose {
+            guard let drawer, let privacyGeneration, covered, isolated, !privacyConcealed,
+                  initialPose.document == document,
+                  privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation else { return rejectRegion(.initialContext) }
+            guard initialPose.isContained(in: bounds),
+                  abs(initialPose.frame.minY) <= 1, abs(initialPose.frame.maxY - bounds.height) <= 1,
+                  initialPose.hasValidGeometry,
+                  initialPose.opacity == 0 || initialPose.opacity == 1 else {
+                #if DEBUG
+                lastRejectedInitialFrame = initialPose.frame
+                #endif
+                return rejectRegion(.initialGeometry)
+            }
+            var fence = fences[drawer] ?? NativePanelPoseFence()
+            if !fence.apply(initialPose, privacy: privacyGeneration) {
+                // An ordinary pose can overtake initial sampling while this
+                // newer, compatible region waits in the bridge. Keep its
+                // already admitted geometry; never rewind or inherit another
+                // drawer owner, generation or privacy state.
+                guard coverageRevision == regionRevision,
+                      drawerCoverageIsSuperseded(initialPose, group: drawer,
+                        privacy: privacyGeneration, revision: regionRevision) else { return rejectRegion(.poseOrder) }
+            }
+            stagedFence = fence
+        }
+        // Compatible layout/admission updates do not change the last displayed
+        // rectangle. Retain those pixels while rejecting choices/poses bound to
+        // the old revision; unrelated ownership or privacy never inherits them.
+        if drawerClipping, regionDocument == document, regionDrawer == drawer,
+           fullWindowCovered == covered, regionPrivacyGeneration == privacyGeneration,
+           coverageRevision == regionRevision {
+            coverageRevision = revision
+        }
+        regionDocument = document; regionRevision = revision
+        regionPrivacyGeneration = privacyGeneration
+        regionDrawer = drawer
+        overlayTop = top; overlayBottom = bottom; overlayIsolated = isolated
+        fullWindowCovered = covered
+        if let drawer, let stagedFence {
+            fences[drawer] = stagedFence
+            coverageRevision = revision
+        }
+        reconcileBaseVisibility()
+        if isolated {
+            for id in Array(controls.keys) { setAdmission(id, admitted: false) }
+        }
+        return true
+    }
+
+    func containsStationaryControl(_ frame: CGRect, document: String) -> Bool {
+        guard contentBackedPresentation, regionDocument == document, bounds.contains(frame) else { return false }
+        return frame.maxY <= overlayTop || frame.minY >= bounds.height - overlayBottom
+    }
+    func acceptsPresentationRevision(_ revision: Int?, privacyGeneration: Int?) -> Bool {
+        regionPrivacyGeneration == nil ||
+            (revision == regionRevision && privacyGeneration == regionPrivacyGeneration &&
+                privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation)
+    }
     #if DEBUG
     private var continuity: NativePanelContinuityProbe?
     #endif
 
-    init(webView: WKWebView) {
+    init(webView: WKWebView, basePresentation: BasePresentation = .underlay, drawerClipping: Bool = false) {
         self.webView = webView
+        self.basePresentation = basePresentation
+        self.drawerClipping = drawerClipping && basePresentation == .contentBacked
         super.init(frame: webView.frame)
         backgroundColor = .systemBackground
         underlay.frame = bounds
+        underlay.isOpaque = false
         underlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         webView.removeFromSuperview()
         webView.frame = bounds
@@ -70,8 +197,16 @@ final class NativePresentationContainer: UIView {
         // DOM paint apertures are not UIKit accessibility apertures. Separate
         // sibling traversal from paint order instead of forcing focus or
         // bypassing the owning control's admission fence.
-        addSubview(underlay)
-        underlay.layer.zPosition = -1
+        if self.drawerClipping {
+            // Rectangular viewport only: no ancestor mask, material opacity,
+            // resized editor coordinates, snapshots or additional WebView.
+            baseViewport.frame = bounds
+            baseViewport.backgroundColor = .clear
+            baseViewport.clipsToBounds = true
+            addSubview(baseViewport)
+            baseViewport.addSubview(underlay)
+        } else { addSubview(underlay) }
+        underlay.layer.zPosition = contentBackedPresentation ? 0 : -1
         // DOM aperture ownership is explicit; this does not clear page CSS.
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -84,7 +219,13 @@ final class NativePresentationContainer: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
-    func setCanvas(_ color: UIColor) { backgroundColor = color; underlay.backgroundColor = color }
+    func setCanvas(_ color: UIColor, appearance: UIUserInterfaceStyle? = nil) {
+        backgroundColor = color
+        // Foreground glass must sample the actual WK page, not an opaque
+        // native canvas painted between the page and its material.
+        underlay.backgroundColor = contentBackedPresentation ? .clear : color
+        if let appearance { overrideUserInterfaceStyle = appearance }
+    }
 
     func install(_ view: UIView, id: String, group: String?) {
         if let group {
@@ -94,8 +235,10 @@ final class NativePresentationContainer: UIView {
         controls[id] = (view, group, false)
     }
 
-    func setAdmission(_ id: String, admitted: Bool) {
+    func setAdmission(_ id: String, admitted: Bool, presentationRegionRevision: Int? = nil, privacyGeneration: Int? = nil) {
         guard var control = controls[id] else { return }
+        let currentRegion = acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration)
+        let admitted = admitted && currentRegion && !privacyConcealed && !(contentBackedPresentation && overlayIsolated)
         control.admitted = admitted
         controls[id] = control
         control.view.isUserInteractionEnabled = admitted
@@ -106,8 +249,53 @@ final class NativePresentationContainer: UIView {
 
     func groupPose(_ id: String) -> NativePanelPose? { fences[id]?.pose }
 
+    /// Mirror the authored drawer's rectangular coverage, not its decisions or
+    /// its scrim. A missing/currently unconfirmed pose exposes no base pixels.
+    func drawerCoverageIsSuperseded(_ pose: NativePanelPose, group: String, privacy: Int, revision: Int) -> Bool {
+        guard drawerClipping, fullWindowCovered, overlayIsolated, !privacyConcealed,
+              regionDrawer == group, regionDocument == pose.document,
+              regionRevision == revision, regionPrivacyGeneration == privacy,
+              let current = fences[group]?.pose,
+              current.document == pose.document, current.ownerEpoch == pose.ownerEpoch,
+              current.generation == pose.generation, current.privacyGeneration == pose.privacyGeneration,
+              pose.privacyGeneration == privacy, pose.sequence > 0, pose.hasValidGeometry,
+              pose.opacity == 0 || pose.opacity == 1 else { return false }
+        // Atomic admission may overtake a pose already in flight. This is a
+        // no-op acknowledgement, never permission to apply its older geometry.
+        return pose.sequence <= current.sequence
+    }
+
+    func applyDrawerCoverage(_ pose: NativePanelPose, group: String, privacy: Int, revision: Int) -> Bool {
+        guard drawerClipping, fullWindowCovered, overlayIsolated, regionDrawer == group,
+              regionDocument == pose.document, revision == regionRevision,
+              regionPrivacyGeneration == privacy, !privacyConcealed,
+              abs(pose.frame.minY) <= 1, abs(pose.frame.maxY - bounds.height) <= 1,
+              pose.opacity == 0 || pose.opacity == 1 else { return false }
+        var fence = fences[group] ?? NativePanelPoseFence()
+        guard fence.apply(pose, privacy: privacy) else { return false }
+        fences[group] = fence
+        coverageRevision = revision
+        reconcileBaseVisibility()
+        return true
+    }
+
+    var baseVisibleFrame: CGRect {
+        guard !privacyConcealed else { return .zero }
+        guard drawerClipping else { return fullWindowCovered ? .zero : bounds }
+        guard fullWindowCovered else { return bounds }
+        guard coverageRevision == regionRevision, let group = regionDrawer,
+              let pose = fences[group]?.pose, pose.document == regionDocument,
+              pose.privacyGeneration == regionPrivacyGeneration,
+              abs(pose.frame.minY) <= 1, abs(pose.frame.maxY - bounds.height) <= 1 else { return .zero }
+        guard pose.opacity > 0 else { return bounds }
+        let edge = min(bounds.width, max(0, group == "profile"
+            ? pose.frame.minX + pose.offset : pose.frame.maxX + pose.offset))
+        return group == "profile" ? CGRect(x: 0, y: 0, width: edge, height: bounds.height)
+            : CGRect(x: edge, y: 0, width: bounds.width - edge, height: bounds.height)
+    }
+
     func apply(_ pose: NativePanelPose, group: String, privacy: Int) -> Bool {
-        guard ["profile", "history"].contains(group) else { return false }
+        guard !contentBackedPresentation, ["profile", "history"].contains(group) else { return false }
         var fence = fences[group] ?? NativePanelPoseFence()
         guard fence.apply(pose, privacy: privacy) else { return false }
         fences[group] = fence
@@ -128,6 +316,7 @@ final class NativePresentationContainer: UIView {
     func retire(group: String, document: String, ownerEpoch: String, generation: Int) -> Bool {
         guard var fence = fences[group], fence.retire(document: document, ownerEpoch: ownerEpoch, generation: generation) else { return false }
         fences[group] = fence
+        if drawerClipping { reconcileBaseVisibility() }
         groups[group]?.isHidden = true
         #if DEBUG
         continuity?.discard(group: group)
@@ -139,13 +328,38 @@ final class NativePresentationContainer: UIView {
     func conceal() {
         #if DEBUG
         continuity?.discard()
+        lastRegionRefusal = 0
+        lastRejectedInitialFrame = nil
         #endif
-        underlay.isHidden = true
+        privacyConcealed = true
+        reconcileBaseVisibility()
         groups.values.forEach { $0.isHidden = true }
         for id in Array(controls.keys) { setAdmission(id, admitted: false) }
     }
 
-    func revealUnderlay() { underlay.isHidden = false }
+    func revealUnderlay(presentationRegionRevision: Int? = nil, privacyGeneration: Int? = nil) {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        guard privacy.appIsActive, !privacy.shielded,
+              acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration) else { return }
+        privacyConcealed = false
+        reconcileBaseVisibility()
+    }
+
+    private func reconcileBaseVisibility() {
+        // Retain hosts, models and the editor; coverage never means retirement.
+        underlay.isHidden = privacyConcealed || fullWindowCovered && !drawerClipping
+        if drawerClipping {
+            let exposed = baseVisibleFrame
+            baseViewport.frame = exposed
+            // Keep every existing child/layout guide in full-window coordinates.
+            underlay.frame = CGRect(origin: CGPoint(x: -exposed.minX, y: -exposed.minY), size: bounds.size)
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if drawerClipping { reconcileBaseVisibility() }
+    }
 
     func resetGroups() {
         #if DEBUG
@@ -170,12 +384,14 @@ final class NativePresentationContainer: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, alpha > 0.01, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         // Privacy/launch covers and standard UIKit presentations always win.
-        for child in subviews.reversed() where child !== webView && child !== underlay && !groups.values.contains(where: { $0 === child }) {
+        for child in subviews.reversed() where child !== webView && child !== underlay && child !== baseViewport && !groups.values.contains(where: { $0 === child }) {
             if let hit = child.hitTest(child.convert(point, from: self), with: event) { return hit }
         }
         // Follow actual UIKit stacking, not dictionary enumeration. The host
         // hit test enforces clipping, ancestor visibility and disabled state.
-        for host in subviews.reversed() where host === underlay || groups.values.contains(where: { $0 === host }) {
+        let presentationHosts = subviews.map { $0 === baseViewport ? underlay : $0 }
+        for host in presentationHosts.reversed() where host === underlay || groups.values.contains(where: { $0 === host }) {
+            if host === underlay && drawerClipping && !baseVisibleFrame.contains(point) { continue }
             if let group = groups.first(where: { $0.value === host })?.key,
                fences[group]?.pose?.settled != true { continue }
             let local = host.convert(point, from: self)
@@ -184,6 +400,10 @@ final class NativePresentationContainer: UIView {
                 control.admitted && (hit === control.view || hit.isDescendant(of: control.view))
             }) { return hit }
         }
+        // An isolated reserved strip must not pass a tap to underlying DOM
+        // controls. The central region still reaches its React modal owner.
+        if contentBackedPresentation && overlayIsolated && !fullWindowCovered &&
+            (point.y < overlayTop || point.y >= bounds.height - overlayBottom) { return self }
         return webView.hitTest(webView.convert(point, from: self), with: event)
     }
 

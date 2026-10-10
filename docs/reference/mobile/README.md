@@ -36,8 +36,16 @@ each tap is confirmed against native privacy generation and current visibility.
 Presentation-only revisions (selection, theme or badge changes) do not discard
 the final tap. Failed provisional loads do not retire the surviving document.
 
-Native controls are hidden and accessibility-isolated under mounted shared
-overlays, session/vault gates, the keyboard and the native privacy shield.
+The recovery wrapper hides native bottom navigation under mounted shared
+overlays and the keyboard. Profile and History remain full-height React
+drawers; custom dock, shell controls and selectors select React before first
+paint. Experimental reserved-region and asynchronous native-clipping paths
+are disabled together, not accepted presentation-continuity mechanisms.
+See the [adoption inventory](../../../hushh-webapp/docs/ios-native-surface-adoption.md)
+for the current renderer scope, qualification-only native composition study
+and separate physical evidence. Session/vault
+gates, keyboard navigation hiding and the full-window privacy shield retain
+their concealment contracts.
 The native bar and web voice slot stay pinned together without per-frame
 bridge traffic. The DOM reservation excludes the native home-indicator inset;
 the existing shared bottom shell reserves the reported native inset once, not

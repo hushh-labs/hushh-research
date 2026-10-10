@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-09.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-10.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -13,11 +13,603 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Recovery default — 2026-10-09
+
+Recovery baseline: `09d51746465e552c622b51cf3f7ec467d976f4f9`.
+This section supersedes the experimental adoption claims below. Those sections
+are historical evidence and rollback context, not current renderer acceptance.
+
+`native-presentation-policy.ts` selects shared React custom controls before
+discovery/first paint. `HushhNativePresentationPolicy` independently rejects old
+Debug admission flags in the wrapper. Both boundaries are deliberately closed:
+an older wrapper cannot turn the recovery web bundle into the experimental UI,
+and an older web bundle cannot activate custom controls in the recovery wrapper.
+Reservations, apertures, panel observers and bridge pose streaming are disabled
+together. Existing contracts and owner/privacy/stale-choice safeguards remain
+available for bounded qualification; NativeChrome stays version 2 and NativeDock
+stays a separate version-1 private-editor contract.
+
+| Shared family / reachable states | Recovery renderer and operation owner | Overlap / fallback / rollback |
+| --- | --- | --- |
+| Five bottom destinations and Search | Standard UITabBar; existing React navigation | Existing modal/keyboard/privacy isolation; web on unsupported wrappers; independent of custom policy |
+| Shell Back, History opener, More and utility triggers | Shared React; authored action/Back owners | Profile, History, Search and dialogs; no temporary native replacement |
+| Agent Bar, Chat editor, voice/text, expanded editing and attachments | Shared React; existing dock, draft, guarded submission and voice owners | Keyboard and all modal layers; one composer, no native replica |
+| Profile, its nested panels, Preferences and photo preview | Full-height React; existing pane/gesture and feature owners | Entire panel including moving header; no stationary portal or native clipping |
+| History, search, row menus and confirmations | Full-height React; existing history/gesture and operation owners | Entire moving presentation and scrim; no bridge round-trip in drag path |
+| Cloud/Puppy, Appearance and Accent | Shared React; existing controlled value owners | No per-click renderer changes; native selection presentations require independent qualification |
+| Independent bounded menus, dates and durations | Existing React unless separately qualified owned system presentation | Dismissal completion, choice/privacy fences and full overlap parity required |
+| Connect/Memory/Mail/Finance pagers, rich cards, protected forms and complex multiselects | Shared React; existing feature owners | Inactive panes inert; no native primitive substitution |
+
+Coverage uses `native-route-inventory.json` and the route-layout contract, not a
+second route registry: 126 route entries, 102 native-required at this baseline.
+Query tabs, Profile panel/detail queries, overlays and legacy/callback boundaries
+must be accounted for by the families above. Source coverage is not device proof.
+iPad, Android, web and older iOS retain their established fallbacks.
+
+**Qualification boundary:** first install and review the recovery candidate.
+Only then prototype a synthetic complete native History body/scrim/gesture plus
+dock/header in one hierarchy, retaining React routing and operations. A successful
+History prototype does not qualify Profile or rich product screens. No visible
+motion may depend on per-frame React/native clipping. Custom native families stay
+disabled until visual, interaction, accessibility and performance evidence pass
+independently. Re-enable only an admitted whole family, not the historical flags.
+
+Focused recovery verification: 185 cases across lifecycle, navigation, plugin
+contracts, Profile navigation and owner-scoped draft continuity pass, as does
+typecheck. Restoring the old pre-discovery concealment makes the recovery test
+fail; the guard was restored. Design, static performance and native-contract
+checks, 51 host-native support cases and the canonical core at `b912ddcf0f`
+pass. Later harness/documentation changes require their own final-head core;
+these results are not exact-head CI or release acceptance.
+
+### Installed recovery checkpoint — 2026-10-10
+
+The physical iPhone 16e runs the recovery implementation `b5e8e9783f`,
+`com.hushh.app` 1.4.0 (69), Debug configuration, iOS 27.2, UAT backend.
+Product installation and runner-only preparation were separate. Subsequent
+runner builds relinked a local application product; they did **not** reinstall
+that product or change the installed-candidate identity below.
+
+| Installed artifact | SHA-256 |
+| --- | --- |
+| Application executable | `1a8da7d7b521bdf35b531b87cfa57046584defc334e4c99298259c544571fb22` |
+| Packaged index | `0d87c623955d1d41a553944ed344e4e2889bf1469c803cf6075121313f94bf43` |
+| Runtime contract | `aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69` |
+
+Attach-only functional results on the unlocked session:
+
+| Shared family | Observed result / qualification limit |
+| --- | --- |
+| Bottom destinations and Search | Chat/One/Connect/Feed/Chat, Search and History isolation passed; standard native navigation positively required |
+| Profile nested panels | Existing seven-family settings journey passed, including view-only Vault methods and unsent support-type selection; no method or report submission |
+| History and Profile | Initial batch: three passed, one failed at Profile admission after closing History. Targeted rerun passed ten cycles each after requiring actual React modal retirement, not only native navigation readiness |
+| Drawer gesture and keyboard | Bidirectional History opening/closing, stationary WebView frame, composer restoration, one composer and navigation restoration passed |
+| Status/header canvas | In-memory pixel comparison matched; no private screenshot or hierarchy retained |
+| Appearance and Accent | Light/Dark × Blue/Molten Gold × Chat/One/Connect/Feed passed all 16 route combinations; actual Accent options acknowledged, navigation present, original preferences and unlocked Chat restored |
+| Recovery admission | Final runner asserted native editor, History opener/Close and Profile Close absent; React composer present, privacy cover retired and normal unlocked Chat retained |
+
+The appearance runner executable SHA-256 is
+`cb8652e8731137c754b7b6d9d6b35eaac5e39523e7a69c599f8196473643351b`.
+The native Back/material audit remains a separate opted-in native-candidate
+branch of the existing test; the recovery appearance path does not certify it.
+
+The first failed batch remains part of the result, not replaced with a blanket
+green batch claim. These receipts verify functional interactions and sampled
+geometry, not exact document/editor object identity, uninterrupted material
+pixels or three physical Release performance runs. iPad remains unqualified.
+No transition-frame, accessibility or Release performance acceptance is inferred
+from functional receipts. The black-material cause remains unverified; recovery
+avoids the failing custom composition rather than declaring it fixed. The native
+History rebuild and broader adoption remain qualification-only work after the
+recovery visual gate, not enabled product behavior.
+
+Older experimental wrappers requiring regions/apertures select their existing web
+navigation fallback, rather than reserving an unready native bar. The recovery
+wrapper retains standard native navigation and its safe modal/keyboard hiding;
+that behavior is not represented as glass continuity beneath a React drawer.
+
+### Bounded native History composition study — 2026-10-10
+
+The owner confirmed the installed recovery controls look stable. Recovery remains
+the default; this checkpoint does not qualify new native controls.
+
+`NativeHistoryQualification.swift` provides an iOS 26+ iPhone **Debug-only**
+public fixture under the explicit `--hushh-native-history-qualification` argument.
+It does not imply `-UITestMode`, reviewer login, reset or a cold route. Ordinary
+Debug and Release launches retain recovery. The historical custom-native flags
+remain disabled and NativeChrome v2 / NativeDock v1 are unchanged.
+
+One owned UIKit presentation retains native base and History hosting controllers,
+the local pan and scrim. Public content continues behind one regular-glass dock
+preview. History moves as a full-height native panel; no React pose/clipping bridge
+is involved. Theme/accent fixture choices retain those hosts; interrupted settles,
+cancellation and retirement are generation-fenced. UIKit modal isolation, not a
+captured restoration of WK eligibility, owns the temporary input boundary. Privacy
+retirement waits for presentation completion and actual owned-child detachment;
+the fixture never releases the product privacy cover.
+
+The dock is deliberately a **nonoperational preview**, not the private editor.
+Rows and backdrop are fixed public content. There are no real history identifiers,
+Send/Mic actions, routing decisions, credential replicas or persistence. The two
+fixture appearance/accents exercise material only, not product theme authority.
+This native-on-native composition cannot certify a native overlay on React content,
+real draft/IME/attachment/voice continuity, Profile parity or Release performance.
+
+Physical transition, touch/accessibility isolation and performance acceptance of
+this fixture remain outstanding. Do not enable a product family from support-test
+counts, a build or the recovery's separate device receipts.
+
+Focused source verification: the three new admission/cancellation/retirement cases
+and all 54 `NativeSupportTests` pass on the simulator. Removing the settlement
+generation guard makes the interrupted-close negative control fail; the guard is
+restored. Signed iPhone Debug build-for-testing, typecheck, plugin parity and
+design-system/static-performance checks pass. This is not a Release device result.
+
+Wireless transport was separately re-established using the existing paired UDID;
+CoreDevice reports a connected `localNetwork` TCP tunnel. Credential-free attach-only
+XCTest admission passed on the **installed recovery**, with Chat still unlocked.
+No service restart, unpairing, product reinstall or vault reset was performed.
+That receipt is not a device test of this new qualification fixture.
+
+## Historical experiments (not current renderer qualification)
+
+### Drawer admission regression repair — 2026-10-09
+
+Source baseline: `a4a7610a6751`. The attach-only iPhone material journey
+reproduced dock retirement at layout admission, before native dock application.
+The rejected initial Profile frame started 116 CSS pixels below the viewport
+and ended 149 pixels above its bottom. The shared reserved-region selector had
+higher specificity than the full-height override. The override now matches its
+specificity; owner/privacy validation remains unchanged. A computed-layout
+regression covers Profile, its opening preview and History before coverage
+acknowledgment, plus old-wrapper/web fallbacks. Restoring the broken selector
+reproduces the 116-pixel displacement. Chromium and WebKit both exercise it.
+
+Region and pose freshness are independent. Superseded layout failures cannot
+retire a current dock. When an ordinary pose overtakes a compatible region's
+initial pose, native retains newer geometry only for the same document, drawer,
+owner, generation and privacy. Its receipt distinguishes retained geometry from
+application of the requested initial pose. Malformed geometry and current
+failures remain rejected; no choice, navigation or submission is replayed.
+Nearest web/native tests include wrong-owner/malformed-offset rejection and
+negative controls for the actual ordering regressions.
+
+The software-keyboard journey exposed a second real admission failure:
+WebKit's transformed full-width rectangle measured 390.000030517578 CSS pixels.
+Native containment now admits at most two Float32 representable steps at the
+viewport scale, not a CSS-pixel margin. The nearest native regression rejects
+even a 0.01-pixel out-of-bounds rectangle and retains all owner/privacy fences.
+The keyboard harness also previously skipped the Profile interruption using a
+stale hidden-keyboard sample. It now always exercises that interruption after
+typing and requires fresh post-close CSS/UIKit geometry. The speculative extra
+focus cancellation was removed; existing focus and draft owners are retained.
+
+| Family | Renderer / operation owner | Qualification boundary |
+| --- | --- | --- |
+| Stationary History opener and Cloud/Puppy | Retained NativeChrome / existing React actions | Debug iPhone candidate; transition evidence required |
+| Agent Dock / chat input | One retained native editor / existing React draft, submission and voice owners | Keyboard, IME, attachments and privacy acceptance remain separate |
+| Profile / History panels, moving Close and Preferences | Full-height React / existing gesture and feature owners | No stationary header portal or second drawer engine |
+| Bottom navigation | Retained standard UITabBar / existing React navigation owner | Native label fallback in XCUI stays scoped to that bar |
+| Other routes, older wrappers, Android and iPad | Existing qualified renderer / existing owner | No broader adoption or iPad enablement from this repair |
+
+The material pilot still clips native chrome using asynchronous React poses.
+This repair is not proof of first-touch pixel continuity, uniformly dimmed
+scrims or the one-display-interval pose target. Release performance, accessibility
+and exact-candidate physical qualification remain required before promotion.
+Debug diagnostics contain only fixed refusal/stage codes and bounded public
+geometry; they conceal on privacy transitions and never include editor contents,
+account/lease identities or provider error bodies.
+
+Physical Debug functional proof on the installed 1.4.0 (69) UAT-backed candidate:
+the held partial Profile drag had four observed samples and zero missing native
+plane samples; ten Profile, ten History and ten Cloud/Puppy cycles completed.
+Profile and History measured top 0/bottom 844 CSS pixels, retained their native
+base and returned to the native dock without an interactive web duplicate. This
+is geometry/interaction admission evidence, not first-frame or hitch acceptance.
+The same attach-only batch passed ten Chat ↔ One cycles with the Unicode/multiline
+draft preserved, software-keyboard clearance and one WebView/editor. Both cases
+completed with zero failures or skips; the synthetic draft was cleared through
+its existing editor owner. The same-source executable SHA-256 is
+`ba0bf116fcd647e482437caf3013c803bbb846630c323ebfc57e865a8066862d`;
+packaged index SHA-256 is
+`5e128f8bc0bc6e6ff57fe984c4f11b992720501da79ed76d861b0d70c1f91bcb`.
+
+### Keyboard retention and atomic first coverage — 2026-10-09
+
+Baseline: `9f8705948f36`. This bounded correction retains the existing Debug
+iPhone qualification flags; it is not release or device visual acceptance.
+
+Keyboard notifications no longer destroy NativeChrome hosts or emit destructive
+invalidation. Presentation preparation/appearance updates remain privacy-fenced;
+actions, accessibility focus and popup choices remain keyboard-fenced. Explicit
+keyboard focus cancellation retains the installation; uncertain focus still uses
+retirement recovery. Ordered admission-only echoes refresh region receipts without
+replacing an unchanged SwiftUI root. Navigation waits for current DidHide rather
+than reappearing during WillHide.
+
+NativeDock now separates visible presentation from interaction eligibility. A
+temporary disabled echo retains editor focus; actual modal, privacy and ownership
+transitions retain their explicit focus/concealment policies. Native-owned DOM
+seats no longer apply a second CSS keyboard translation. Delayed layout/apply
+receipts and failures cannot admit or retire a superseded editor update. Normal
+web forms retain keyboard avoidance, with deferred scrolling cancelled on hide,
+focus loss, detached/inert targets and teardown.
+
+`atomicDrawerCoverage` negotiates an optional authored `initialDrawerPose` on the
+existing version-2 region operation. The container stages region/pose validation,
+then commits both with one visibility reconciliation. Dormant source registration
+does not grant interaction or change drawer decisions. Missing sources retain the
+old fail-closed path; wrong owner/generation/privacy cannot partially advance the
+region. Initial admission and normal pose sampling share one ordered sequence.
+
+This removes a specific first-coverage gap, **not** the structural asynchronous
+WK/UIKit motion boundary. Native controls are still outside the internal React
+scrim. Neither bridge acknowledgements nor host counters prove pixel continuity.
+The fluidity standard is one presentation owner for surfaces moving together and
+no bridge round-trip in the finger/keyboard animation path. If measured drawer
+composition fails that standard, qualify a bounded native History presentation
+before expanding; do not wrap DOM content and call it a native layering fix.
+
+The current renderer/owner/fallback table below remains authoritative. Broad
+native adoption, iPad qualification and release performance acceptance remain
+blocked until their exact-candidate transition evidence passes.
+
+Checkpoint verification: 160 focused web cases, 51 simulator native support
+cases, typecheck/lint, plugin parity, design/geometry/accent/static-native gates
+and skill lint/smokes pass. The stale-apply-failure negative control retires the
+newer editor when its generation guard is removed; the guard was restored.
+Simulator results do not qualify physical fluidity or material rendering.
+
+### Partial-drawer exposure prototype — 2026-10-09
+
+At `0806bb293652`, the held partial Profile drag hides the entire native base
+plane because `fullWindowCovered` conceals its ancestor. Host retention does not
+meet visible continuity. The owner explicitly rejected that behavior; the
+retained-coverage candidate below is historical, not acceptance of partial drags.
+
+The bounded replacement is Debug-iPhone-only, negotiated with `drawerClipping`
+and the explicit `--hushh-native-drawer-clip` qualification flag. One clear,
+alpha-1 rectangular UIKit viewport clips the retained full-size native base to
+the exposed part of Chat. Its compensated origin preserves existing child and
+keyboard coordinates. No ancestor mask, material alpha, snapshot, additional
+WebView, composer, route owner or gesture engine is introduced. Apple documents
+[rectangular clipping](https://developer.apple.com/documentation/uikit/uiview/clipstobounds)
+separately from the unsupported ancestor-mask/alpha patterns in
+[effect views](https://developer.apple.com/documentation/uikit/uivisualeffectview).
+Neither document establishes this hybrid candidate's visual acceptance.
+
+The existing overlay registry names the authored drawer; ambiguous simultaneous
+drawers expose no base pixels. The existing latest-wins pose transport covers the
+opening Profile preview as well as the actual Profile and History panels. Poses
+must match document, owner, generation, ordered sequence, privacy and current
+region revision. Unsupported geometry or unconfirmed initial coverage remains
+clipped; old region receipts do not re-admit actions. Exposed base controls stay
+touch-inactive and accessibility-hidden. Privacy concealment remains independent.
+
+The shared `NativeChatChrome`/NativeChrome family map remains the renderer gate,
+not a global DOM-button substitution. Profile Back/Close use `ShellActionSurface`
+for coherent React fallback geometry, material tokens and ripple. They are not
+native glass in this candidate. A Profile-owned moving native Close requires a
+separate qualified presentation group, current-pose action fencing and one
+renderer before reveal; never enable every Close as an overlay-blocking exception.
+
+Qualification must include a real partial opening held before release, not only
+settled open/close cycles. The existing privacy-fenced public geometry probe records
+bounded numeric held-pose/absent-plane counts without text, editor contents or
+account identity. Missing initial acknowledgments, asynchronous pose age and
+native glass sitting above the internal web scrim remain explicit limitations.
+A passing held-pose check alone does not establish uninterrupted transition
+pixels, uniformly dimmed scrims, frame pacing or native Close acceptance.
+
+Older wrappers and Release retain their existing paths. Do not expand native
+adoption or deploy from this prototype until the architecture/material gate passes.
+
+### Full-height retained-coverage candidate — 2026-10-09
+
+The owner selected full-height Profile/History drawers rather than the shorter
+reserved central area. This replaces that geometry on negotiated iPhone wrappers;
+older wrappers keep their existing contract. Source baseline: `cc93c35bea`.
+
+The existing overlay registry owns coverage across preview, modal and exit.
+NativeChrome's ordered region receipt adds optional `covered` and
+`privacyGeneration`; its existing revision is also the admission fence for
+Chrome, Navigation and Dock. No second cover-generation counter is introduced.
+Full-height modal paint/focus waits for acknowledged coverage. History holds its
+token through actual exit animations; cancelled/reopened exits cannot release it.
+Moving headers, Close, Back and Preferences remain React, including safe areas.
+
+The retained native plane is concealed while these drawers cover it, and the
+old strip interceptor releases edge touches to WK. Hosts/editor remain mounted;
+ordinary coverage release neither restores old actions nor clears privacy.
+Queued Navigation work rechecks its owner at execution. Superseded native
+presentation requests return `presentationApplied=false` without mutating a
+newer presentation or triggering an operation retry or renderer fallback.
+
+The stationary One/Puppy selector now shares one capability/preparation policy
+with the other stationary Chat controls. Its prior flat rendering was an explicit
+content-backed capability exclusion, not a missing React value or missing flag.
+
+The focused web contracts pass 146 cases. Two negative controls demonstrate
+failures when ordered cover fencing or History's exit retention is removed;
+both fixes were restored. Three targeted WebKit cases pass whole-panel motion,
+shared gutters/full-height geometry and repeated Accent reopen behavior.
+Typecheck, changed-file lint, design, native/plugin, documentation and governance
+checks pass. Native build and exact-candidate physical evidence remain separate.
+
+The newer root Back/Search generator instructions are not implemented as npm
+scripts on this branch. Existing action reachability remains unchanged and the
+owning surface/Siri/plugin checks pass; that is not a substitute for the missing
+generator gates. Resolve branch/tooling freshness before any release transition.
+
+This is **retained concealment/recovery**, not proof that partially exposed glass
+remains visible beneath a moving React drawer. Transition pixels and physical
+performance remain release gates. Do not promote this capability beyond Debug
+iPhone rehearsal solely because ordering, layout or installed-app checks pass.
+
+The obsolete `com.hushh.app.scopecommerce.sandbox` and its matching XCUI runner
+were removed from the iPhone after explicit confirmation. `com.hushh.app` and its
+session were kept; backend/Firebase accounts were not erased.
+
+### Historical reserved-region candidate — 2026-10-09
+
+This supersedes the foreground overlay-concealment pilot below. Baseline:
+`2f0ce572d6` on `feat/adk-orchestration-runtime`; implementation commit
+`d1504db62f`, followed by ordered-receipt reconciliation, shared selectors and
+owner-fenced draft continuity and shared-family admission through candidate
+`cc93c35bea1a940ef953ac989daa28d8f94c7e11`. New families remain
+opt-in Debug/iPhone, not Release or iPad.
+
+One content-backed native plane sits above the existing WKWebView. The shared
+top/bottom shell owners reserve stationary regions; the central region contains
+React drawers, their scrims and shared web dialogs/sheets. Popover collision
+padding uses the same acknowledged geometry. Moving Profile/History headers,
+Close, Back and Preferences stay React for their full lifetime. No native view
+is interleaved between internal WK page/scrim/drawer layers.
+
+`reservedPresentationRegions` is negotiated without changing NativeChrome or
+NativeNavigation version 2, or NativeDock version 1. Public region receipts bind
+document, ordered revision, viewport and bounded insets. They carry no private
+editor payload. Stale receipts cannot restore layout or action authority.
+Covered native seats remain mounted and visible, but become touch/AX-ineligible;
+reserved strips intercept touches rather than falling through to covered DOM.
+Region dismissal alone does not readmit an obsolete action. Privacy still covers
+the complete application window and conceals the editor immediately.
+
+| Family | Renderer / operation owner | Candidate evidence | Fallback / rollback |
+|---|---|---|---|
+| Stationary shell Back | Native / authored React Back | Ordered lease/update contracts; physical unqualified | Unsupported wrapper uses React; remove Debug qualification flag |
+| History opener | Native / existing History owner | Ten exact-candidate warm drawer cycles; transition pixels unqualified | Existing React opener on unsupported wrappers |
+| Profile/History moving controls | React / existing drawer and Back owners | No native Close relocation; drag visibility regression test | Existing web renderer retained |
+| Bottom navigation | Standard UITabBar / React navigation | Reserved wrappers retain visible material and revoke actions; older pilot still hides safely | Older iOS/web/Android keep established path |
+| Agent Dock | One native host/editor / existing One session draft, Send and voice owners | Ten exact-candidate warm routes retain Unicode/multiline draft; ordered private contract | Confirm retirement before restoring web composer |
+| Stationary More/bounded picker | Native eligible / authored React operation | Capability and region admission only; physical unqualified | Retain React unless slot is eligible |
+| Appearance/Accent in Profile | React trigger / Settings owner | Moving triggers deliberately retained | Existing menus; no delayed renderer swap |
+| Rich/scrolling controls, protected forms, complex multiselects | React / feature owner | Deliberately retained, not native adoption | Unchanged |
+
+History's closed invisible panel becomes visible only during its owned opening
+drag; cancellation, settlement and teardown remove the temporary visibility.
+Motion, selection and routing authority remain with the existing gesture owners.
+Native pose mirroring is not used for these moving React controls. The historical
+underlay experiment remains reversible and is not qualification evidence here.
+
+The qualified region removes duplicate safe-area padding on moving panels;
+leading/trailing edge placement and whole-panel motion remain authored React.
+The native-owned voice seat retains its geometry but has no web pill material,
+touch or accessibility admission. A newer acknowledged shell layout reconciles
+the retained dock/navigation instead of stranding a superseded preparation.
+
+### App-wide coverage ledger — 2026-10-09
+
+Inventory coverage is not runtime acceptance. The authored layout contract has
+145 route keys (75 standard, 47 redirect, 17 hidden, six flow); the native audit
+inventory has 126 entries (102 required, 24 excluded). Redirects, aliases and
+guarded flows are not 145 independent interactive screens. Reuse those inventories
+rather than maintaining another route catalog here.
+
+| Surface family | Source/control review | Latest warm iPhone evidence | Remaining qualification |
+|---|---|---|---|
+| Chat / One / Agent Dock | One editor, guarded React submission, listener admission, retained History attention badge | Ten Chat/One cycles, Unicode/multiline draft, software keyboard and one WebView passed | IME, attachments/refusal, voice completion, transition pixels and Release timing |
+| Profile / nested settings | Account, Preferences, Security/Vault, Connectors, Support, referrals and Legal; moving controls remain React | Account/Preferences/Security/Vault/Support passed; remaining-only Trusted devices/Connectors/Invite friends/Support passed, including all three Support choices with the original restored and no submission | Fixture-specific rich details, nested overlays and full accessibility |
+| Appearance / Accent | Shared finite-radio semantics, authored icons, 44px admission, complete Blue/Molten Gold React menu | Light and Dark Chat/One/Connect/Feed canvas matching and Wallet Back passed; the audit fails in both themes on an unidentified hit-region element | Attribute/fix the accessibility failure; System, both accents and system accessibility settings on device |
+| Mail / Calendar / Email | Authored route/connector and pager owners inspected | Mail Overview/KYC/Receipts taps/swipes, keyboard and draft continuity passed | Calendar/Email provider fixture journeys, loading/late-response states |
+| Memory / Marketplace | Existing pager, scope and protected-information owners retained | Saved → Add → Sharing and return passed | Actual save/review, rich dialogs and conditional Marketplace fixture |
+| Connect / people / circles / messages | Existing route tabs, person boundaries and gesture owners retained | Connections/Circles and return to Chat passed | Person/Circle detail and invitation fixtures; background notification journeys |
+| Finance / Wallet / Consent / Feed | Existing query tabs, bounded choices, rich tables/cards and owner guards | Finance Portfolio/Analysis/Market, Wallet Cards/Add/Sharing, Consent Active/History/Connections/Requests passed; draft retained | Rich details, secure forms, consent decisions and conditional holdings fixtures |
+| Location / Connected Systems / Puppy / Career | Source inventory and existing contracts; bounded controls distinguished from route pagers | Not physically accepted in this batch | Fixture-specific native capability, selector and consent journeys |
+| Public / authentication / setup / RIA / callbacks | Route/redirect/flow inventory reviewed; canonical Profile deep-link projection tested | Not counted as warm signed-in passes | Separate anonymous/cold/recovery and qualified identity fixtures; no reset to inflate warm coverage |
+
+Candidate: Debug iPhone 1.4.0 (69), UAT runtime, source `cc93c35bea1a940ef953ac989daa28d8f94c7e11`.
+Executable SHA-256 `88a0ef7a56194152ca8d8eec857c9968e38bf5fc3c2e7e7eab3ced9336c6e1d1`;
+packaged index `8320446f93933e0a5f63be9eee895776d373d1813471cd164c95d87a8df0a2ed`.
+Install/unlock were preparation, not warm-navigation proof. Runner-only harness
+updates retain this product executable identity.
+
+- 175 focused web tests, typecheck, lint and design/brand/performance contracts
+  passed. Admission/badge negative controls failed on the deliberately broken
+  implementation and passed after restoration. Six existing synthetic WebKit
+  Wallet layout cases passed; they do not qualify all Wallet interactions.
+- Canonical core passed at the exact implementation SHA in 238 seconds. No
+  exact-head GitHub CI, push, merge or deployment is inferred from that receipt.
+- The six-family attach-only physical batch finished four passed, two failed,
+  zero skipped. A remaining-only Profile rerun subsequently passed. Its original
+  missing-Back failure was a harness tap near a covered native strip: WebKit AX
+  hittability alone did not prove compositor touch admission, and a whole-WebView
+  swipe could start outside the pane. The corrected in-region gesture moved
+  Support from y=665 to y=315, admitted its Back and retained the warm session.
+  Do not describe that harness correction as a product Back implementation fix.
+- The remaining-only theme run completed both Light and Dark canvas/Back journeys
+  but still failed accessibility in each. An unidentified `Other` element with a
+  390×10pt frame at the top does not overlap Back and is not an attributed status
+  probe. Coordinates alone do not authorize a waiver. The test collects both
+  themes without converting an audit failure into a passing receipt.
+- The Profile layout harness still described the superseded stationary header
+  and Preferences portal. It now uses the real whole-panel owner and checks
+  header/control/body translation, cancelled settlement and no entrance replay.
+  All 17 functional WebKit Profile cases passed. The gutter case also passed
+  with synthetic acknowledged top/bottom reservations and internally scrolling
+  nested content. Four optional screenshot-export cases were not enabled.
+- Source gaps remain separately owned: disabled duration variants, route-absence
+  retirement versus temporary suspension, unbounded navigation capability/state
+  acknowledgements, and special Profile compatibility routes outside the canonical
+  pane resolver. They are not physical passes or permission to bypass auth flows.
+- More/date/bounded-selection bridge capabilities do not establish production
+  adoption without an authored caller and its evidence. Moving/scrolling controls
+  and complex multiselects deliberately remain React.
+
+### Earlier reserved-region receipts and remaining gates
+
+- Candidate: iPhone Debug 1.4.0 (69), UAT runtime, source `020c50ddac`.
+  Executable SHA-256 `dd818bd3d8b008fe945b5f6e38a08d9b788f7d501bf4c08a7d5f441b557a0f5d`;
+  packaged index `4e4b21edd6f21ea6af0554f10f1b6912ac8dae0a37fe09d2391870f90c8ae711`.
+  Installation and normal passphrase unlock succeeded separately from warm proof.
+- 141 focused web tests, typecheck, native/plugin contracts, static export,
+  device build and strict signature verification passed. The foundation's earlier
+  simulator run passed 49 native support tests; not a latest-candidate visual pass.
+- The exact installed candidate passed ten Profile plus ten History cycles:
+  navigation remained visible and covered native interaction/AX was revoked.
+  Ten warm Chat/One route cycles retained the synthetic Unicode/multiline draft
+  with one WebView and no interactive DOM composer. These interaction/metadata
+  receipts do not prove transition pixels or qualify the material for release.
+- Dock keyboard/draft proof previously failed at keyboard dismissal. Direct
+  selector unit coverage did not prove physical key delivery. The current editor
+  explicitly prioritizes Command-Return and idle Escape over UIKit text/focus;
+  marked text retains its guard. Physical delivery remains an acceptance gate.
+- The software-keyboard journey subsequently passed dismissal through Profile,
+  then failed `NATIVE_DOCK_ROUTE_RETURN_LOST_DRAFT`. Chat's local draft and editor
+  context were recreated on route remount. The candidate now retains the draft,
+  attachment and expansion in the existing memory-only One session authority;
+  owner/context guards reject late edits, and vault lock clears the draft even
+  while Chat is unmounted. Exact-candidate route proof now passes; pre-vault intro
+  editing remains local and never admits a protected native editor.
+- The subsequent drawer run entered with a visible software keyboard, explaining
+  why its combined initial admission assertion was not material acceptance.
+  The harness now checks that prerequisite through the normal Profile owner;
+  all twenty drawer cycles pass without weakening visibility or isolation checks.
+- A prior core run passed; an overlapping export caused the subsequent core run
+  to fail on Next's build lock. A later run caught a missing draft-setter callback
+  dependency, corrected in `835d06ae47`. Serialize every frozen-head rerun after
+  export and require the canonical core gate; do not relax it.
+- Outstanding: exact-candidate transition/alignment, IME/attachments/refusal,
+  full accessibility/material settings, three physical Release performance runs,
+  iPad qualification and exact-head CI. No push or release promotion is implied.
+- Root Back/Search generator instructions reference scripts absent from this
+  branch's package. No new actions/routes were authored here. Reconcile that
+  instruction drift through existing frontend contract governance before landing.
+  The separately invoked native route-matcher test also retains obsolete Finance
+  literal expectations while the runner now uses generated actions; not waived.
+
+### Shared-family mapping
+
+Consolidate anatomy and semantics at existing primitive boundaries, not by
+replacing every tab-looking control with one new routing component.
+
+| Interaction family | Shared implementation | Authority and adoption boundary |
+|---|---|---|
+| Bounded radio choice: One/Puppy, Appearance, Support type, portfolio source, Wallet contact and Nearby filters | Morphy `SegmentedControl`; one SwiftUI `NativeFiniteSegmentedPicker` for eligible stationary hosts | React owns value and validation; shared roving focus, authored icons, disabled admission and no-op repeated choices. Appearance's sliding web thumb preserves its track geometry with 44px hit regions; Wallet retains its two-column phone layout. |
+| Route/query tabs: Connect, Memory, Mail, Finance | `TopShellTabs` and existing tab registry / `SwipeViews` | Existing route/pager owns taps, swipes and URL. Continuous moving indicators remain React. |
+| Local content tabs | Existing `SegmentedTabs` / feature pager | Feature owns panel selection, accessibility associations and swipe reconciliation. |
+| Bottom navigation | Standard native `UITabBar`; existing web navigation | React navigation authority remains; no new router or selector draft. |
+| Rich/searchable multiselect and protected fields | Existing React controls | Deliberately retained. Native bounded presentations require authored metadata and explicit owner validation, not DOM inference. |
+
+The finite native renderer shares layout, tint and choice validation without
+adding a selection store or changing public bridge version 2. Consolidation does
+not qualify moving controls for native replacement or establish visual acceptance.
+
+Apple documents the [keyboard-command delivery order](https://developer.apple.com/documentation/uikit/uikeycommand/wantspriorityoversystembehavior).
+XCUI command-key injection and real event delivery must be distinguished from
+calling a handler directly; neither is a reason to record an unobserved pass.
+
+### Presentation qualification rules
+
+1. Establish feasible layer composition before implementation. One WKWebView
+   cannot place UIKit controls between its internal DOM layers. Never substitute
+   hidden controls, snapshots or a second WebView for continuity.
+2. Choose one renderer per eligible control lifetime before reveal. Reserve
+   geometry during capability/layout preparation; unsupported wrappers choose
+   their fallback, and uncertain retirement never admits a duplicate.
+3. Test visual presentation, touch admission, accessibility isolation and privacy
+   separately. A retained host or acknowledged layout is not visible-pixel proof.
+4. Cover shared families across authored routes, rapid reopen, edge presses and
+   interrupted drags. Inspect transition frames on synthetic/public surfaces;
+   private journeys produce only sanitized metadata.
+5. Diagnose device transport, XCTest authorization and vault unlock separately.
+   Install the exact candidate in preparation, then use attach-only warm tests;
+   no repeated reset/sign-out or injected route stands in for continuity.
+6. Physical qualification requires the same WebView/editor/session, one interactive
+   composer, one-CSS-pixel alignment, both themes/accents, accessibility and three
+   Release performance runs. Simulator/Debug receipts cannot close those gates.
+
+Material inspection follows Apple's [effect-view restrictions](https://developer.apple.com/documentation/uikit/uivisualeffectview)
+and [Liquid Glass guidance](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views):
+inspect backdrop, traits and ancestors independently; use one regular dock glass
+surface, semantic colors and plain child actions. Do not force white/black fills.
+
+## Historical experiments and evidence
+
+The following sections describe earlier candidates. Their receipts do not qualify
+the current reserved-region composition.
+
+### Material foundation pilot — 2026-10-09
+
+The source baseline is `44eff92efd` on `feat/adk-orchestration-runtime`.
+The requested visual baseline preserves Hussh's web geometry and icons while
+native glass samples actual page content. The underlay experiment below cannot
+provide that backdrop: its canvas is beneath the WebView. Interaction receipts
+from that experiment are not material or visual acceptance.
+
+The additional Debug/iPhone flag `--hushh-native-content-backed`, together with
+`--hushh-native-compositor`, selects the bounded foreground base plane. The
+same WebView, bridge and Maps hit path remain. Chrome/navigation stay version 2;
+NativeDock stays version 1. All negotiate `contentBackedPresentation`; this mode
+denies underlay apertures and keeps existing DOM geometry reservations. Canvas
+appearance and the committed light/dark trait travel in one ordered receipt.
+The dock has one regular glass surface, with plain child actions, not nested
+glass. Standard UITabBar and the existing navigation artwork remain.
+
+This pilot admits the dock, bottom navigation and stationary History opener
+only. Other Chrome families and native panel-pose presentations are denied in
+this mode. React Profile and History remain unchanged. Covered foreground
+controls are concealed, noninteractive and accessibility-hidden; retained hosts
+receive fresh owner-fenced admission after dismissal. **This is temporary
+containment, not successful drawer continuity.** UIKit siblings cannot sit
+between page, scrim and drawer content inside one WebView. No second scrim,
+snapshot, WebView or native drawer content bridge is introduced.
+
+The iPhone baseline admission reached unlocked Chat on 1.4.0 (69), iOS 27.2
+(24B5089g), before candidate preparation. The signed candidate builds locally,
+but the device subsequently became unavailable before tests entered; its native
+test attempt exits with a destination failure, not a vault rejection. Installation,
+physical visual/accessibility/performance acceptance and warm candidate journeys
+remain unverified. The observed earlier drawer timing failure remains a release
+blocker. Broader adoption, Release, iPad and deployment are not enabled.
+
+Focused frontend contracts cover ordered canvas/trait updates, no foreground
+aperture and stale/covered navigation actions. Native support adds foreground
+paint/hit isolation and extends the isolated synthetic-window capture to all
+three materials, light/dark, Blue/Molten Gold and text/voice. Only public synthetic
+window images may be retained; reviewer journey results are discarded. The
+dedicated warm material test checks twenty React-overlay containment cycles;
+it intentionally does not replace or weaken the existing drawer-continuity gate.
+Rollback removes the content-backed Debug argument and retains the legacy path.
+
+Verification for this source change: canonical local core passed; typecheck,
+104 focused bridge tests, 42 native contract checks, 49 simulator native support
+tests, device/simulator build-for-testing and Android unit build passed. The
+synthetic capture test passed separately and produced eight public images on an
+iPhone 16e simulator running iOS 26.5. All eight were inspected: page color is
+visible through the dock and navigation, the hamburger follows the committed
+appearance, and both accents are reflected. The deliberately overlapping page
+text also shows interference beneath the editor; these images prove backdrop
+composition, **not legibility or full-app geometry acceptance**. They do not
+replace the web/native same-viewport comparison, System/accessibility material
+settings, physical transition frames, editor identity journeys or performance
+measurements. No candidate installation, push or deployment is claimed.
+
 ### Current candidate: retained controls and private dock
 
 This candidate extends NativeChrome **version 2** with capability-negotiated
 `retainedControls`. In the legacy host, a suspended control is hidden. In the
-opt-in compositor it remains visible but noninteractive and unavailable to
+legacy underlay compositor it remains visible but noninteractive and unavailable to
 accessibility; its owned popup must complete dismissal before suspension is
 acknowledged. Reopening can reuse its hosting controller only with the same
 document, opaque owner epoch, family, immutable configuration and exact frame/
@@ -105,6 +697,98 @@ historic receipts do not qualify this candidate. iPad is unqualified. Complex
 multiselects, protected forms, scrolling controls and rich approval cards remain
 React deliberately. Rollback is capability denial/removal of the Debug arguments;
 fallback and strict retirement must still be verified before any family promotion.
+
+### Bottom navigation overlay admission repair — 2026-10-09
+
+At source baseline `64c2739df3`, Profile/History isolation projected
+`visible: false` into NativeNavigation, and UIKit used the same predicate for
+paint, touch and accessibility. Closing showed the retained bar again. The
+repair keeps contract version 2 and negotiates `interactionIsolation` separately:
+an overlay retains presentation while disabling touch and accessibility.
+Interaction epochs fence delayed confirmations across closing/reopening. Older
+wrappers retain their safe hide behavior; lock, privacy, keyboard and genuinely
+hidden route chrome still conceal navigation. The owning React shell remains
+the routing authority.
+
+The local signed iPhone candidate is UAT-targeted, derived from that baseline
+plus this repair. Its installed executable fingerprint is
+`dd38fcc471b9e5d3bb4f55baa092754e2ff2808ababc6cb3322f6ad2eb24ba20`.
+Native assets/export/sync, typecheck, static/plugin/design checks, 26 focused
+frontend contracts and 48 native-support tests pass. Canonical reviewer
+admission and one normal passphrase unlock pass. An attach-only physical iPhone
+batch passes ten Profile and ten History open/close cycles on the ordinary
+wrapper path, checking retained visible navigation, revoked covered interaction
+and accessibility, frame differences at most one logical point, and restored
+admission after Close. No account reset or relaunch occurs within that batch.
+Private runner results are discarded; only sanitized receipts are retained.
+
+These are native state/frame assertions, not a rendered transition-film or
+pixel-perfect visual acceptance. The bar remains a direct native host child;
+drawer scrim/material stacking still needs rendered qualification. The opt-in
+whole-panel compositor and its previously failed motion/focus-return gates
+below are not qualified by this ordinary-wrapper navigation pass. Release
+performance/accessibility acceptance, a fresh combined core run and exact-head
+CI remain outstanding. The repository-root Search contract instructions also
+reference `build:search-contracts`/`verify:search-contracts`, absent from this
+branch's package scripts; reconcile that owning workflow before promotion.
+This is a local candidate installation, not a UAT service deployment or native
+distribution receipt.
+
+### Retained underlay and admission-bound focus repair — 2026-10-09
+
+The next local Debug candidate is built from `df90c69dee` plus the bounded
+navigation/focus/pose repair in this change. Its installed executable fingerprint
+is `e917fb52c1290f55e85f097da7ac234b2215c2a3b2f212e46243855144384e9e`.
+It targets UAT; installation is not a service deployment or distribution receipt.
+The ordinary wrapper remains unchanged. In the explicitly enabled compositor,
+navigation now belongs to the retained native underlay beneath WK paint, rather
+than a direct host child above drawer scrims. Current document/revision layout
+receipts reserve its base aperture; stale receipts cannot move the aperture or
+overwrite its height. Rotation publishes changed frames even at equal height.
+Covered navigation remains mounted, noninteractive and accessibility-hidden.
+
+History focus return can wait for its exact current reserved admission rather
+than retiring a lease still being prepared/activated. A covered return cannot
+retire anything. Waiting does not grant focus or action authority: confirmed
+layout, activation, update and current-owner checks still apply. Delayed pose
+delivery resamples geometry and its timestamp together through the existing RAF
+owner, not by retimestamping an old pending transform.
+
+Typecheck/export/sync, signed product assets, static/plugin/design checks,
+102 focused frontend contracts and 48 native-support tests pass. One normal
+canonical-reviewer passphrase unlock admits protected Chat. A physical iPhone
+attach-only batch passes ten Profile and ten History cycles, retaining the
+navigation frame within one logical point, confirming underlay paint ownership,
+rejecting covered interaction/accessibility and restoring admission after Close.
+The first compositor batch stopped after four completed Profile cycles with
+`NATIVE_PANEL_CLOSE_NOT_ADMITTED`. The harness previously waited for existence
+before reading hittability; a retained control can exist during noninteractive
+movement. Readiness now waits on exists/hittable/enabled within the same
+ten-second action bound. This does not prove the original failure's cause,
+change the separate pose-age gate or qualify rendered motion.
+
+Credential-free Debug lifecycle probes now cover authored History and Profile
+Close slots as well as the selector. They expose allowlisted stages/codes,
+booleans and bounded geometry only; no identity, content or provider errors.
+Private runner results are discarded. No resets, sign-outs or route injection
+occur within the warm batches. Whole-panel timing, rendered alignment,
+accessibility and Release performance remain unqualified until their separate
+acceptance receipts pass. No new family or Release host is enabled here.
+
+The separate compositor batch completes ten Profile and ten History edge-tap
+cycles, retaining a single WebView/editor, rejecting interactive DOM Close
+duplicates and returning to current native controls. Its final architecture
+assertion **fails**: 564 observed motion samples, 564 stale samples, zero invalid
+samples, maximum target-frame pose age 46.6174 ms / 2.7957 display intervals.
+Completed interactions are not a passing compositor test. Resampling has not
+qualified timing. The estimate's next-callback phase and uncalibrated wall-clock
+pair do not establish rendered-pixel lag; neither permits subtracting a frame,
+changing the threshold or declaring this environmental. Next evidence must
+correlate bounded native acceptance/presentation timing and actual alignment
+through `mobile-parity-check` before expanding or promoting the compositor.
+The iPhone remains on the installed, unlocked Debug candidate at Chat; iPad,
+Release performance, full accessibility, combined core and exact-head CI remain
+outstanding. No merge, push, UAT deployment or native distribution is performed.
 
 ### Whole-panel compositor qualification — 2026-10-09
 

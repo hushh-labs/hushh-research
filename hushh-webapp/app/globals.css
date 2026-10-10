@@ -6131,7 +6131,10 @@ html.kb-open [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
 html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
-html:not(.kb-resizes) [data-agent-dock-chat] [data-bottom-shell-agent-slot] {
+/* NativeDockPlacement follows UIKit's keyboard guide. Its DOM reservation
+ * stays at the authored resting position; translating it would feed a second
+ * keyboard offset back into the next native projection. */
+html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
   translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-height, 0px) + 0.5rem) * -1);
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }
@@ -7385,6 +7388,70 @@ html[data-accent="gold"].dark {
       0
     );
   }
+}
+
+/* Acknowledged native seats bound web overlays; panel motion stays React. */
+html.native-reserved-chrome:not([data-session-check-active]) :is(
+  [data-slot="sheet-overlay"], [data-slot="dialog-overlay"],
+  [data-slot="alert-dialog-overlay"], [data-slot="popover-scrim"],
+  [data-agent-history-scrim], [data-profile-preview-scrim]
+) {
+  top: var(--native-overlay-top, 0px);
+  bottom: var(--native-overlay-bottom, 0px);
+}
+html.native-reserved-chrome:not([data-session-check-active]) :is(
+  [data-agent-history-drawer], [data-profile-preview],
+  [data-slot="sheet-content"][data-sheet-side="left"],
+  [data-slot="sheet-content"][data-sheet-side="right"]
+) {
+  top: var(--native-overlay-top, 0px);
+  bottom: var(--native-overlay-bottom, 0px);
+  height: auto;
+}
+html.native-reserved-chrome:not([data-session-check-active]) :is(
+  [data-slot="dialog-content"], [data-slot="alert-dialog-content"]
+) {
+  top: calc(var(--native-overlay-top, 0px) + (100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) / 2);
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px) - 2rem);
+  overflow-y: auto;
+}
+html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="bottom"] {
+  bottom: var(--native-overlay-bottom, 0px);
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
+}
+html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="top"] {
+  top: var(--native-overlay-top, 0px);
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
+}
+html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
+  padding-top: 1rem;
+}
+html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-native-chrome-slot="profile-close"] {
+  top: 1rem;
+}
+/* The reserved chrome already owns the safe areas. Do not inset the moving
+   panel again, which left a second gap and misaligned Profile and History. */
+html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) :is(
+  [data-testid="profile-pane"], [data-agent-history-sidebar="drawer"]
+) {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* New wrappers acknowledge retained native coverage before admitting the
+ * full-height React modal. Older wrappers keep the reserved-region contract. */
+html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is(
+  [data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]
+) {
+  top: 0;
+  bottom: 0;
+  height: auto;
+}
+html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
+  [data-profile-preview], [data-profile-preview-scrim],
+  [data-agent-history-drawer][aria-hidden="true"], [data-agent-history-scrim]
+) {
+  visibility: hidden !important;
 }
 
 /* Opt-in stationary chrome: Radix still observes the semantic frame's

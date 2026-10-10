@@ -59,4 +59,22 @@ describe("Next proxy root-entry contract", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
   });
+
+  it.each([
+    ["preferences/kai", "preferences", "kai-preferences"],
+    ["preferences/voice/changelog", "preferences", "voice"],
+    ["preferences/voice/examples", "preferences", "voice"],
+    ["support/routing", "support", "support-routing"],
+    ["support/compose?kind=bug_report", "support", "support-compose:bug_report"],
+    ["security/vault", "security", "vault"],
+    ["gmail/actions", "gmail", "gmail-actions"],
+  ])("keeps authored nested Profile destination %s", (subpath, panel, detail) => {
+    for (const prefix of ["/profile", "/one/profile"]) {
+      const target = new URL(proxy(request(`${prefix}/${subpath}`)).headers.get("location")!);
+      expect(target.pathname).toBe("/one");
+      expect(target.searchParams.get("profile_pane")).toBe("1");
+      expect(target.searchParams.get("profile_panel")).toBe(panel);
+      expect(target.searchParams.get("profile_detail")).toBe(detail);
+    }
+  });
 });

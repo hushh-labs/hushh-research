@@ -5,12 +5,12 @@ import { cn } from "@/lib/utils";
 
 /** One visual slot. The existing Navbar owns navigation and native admission. */
 export function BottomNavigationSurface({ native, value, options, onValueChange }: {
-  native: { ready: boolean; height: number };
+  native: { ready: boolean; reserved?: boolean; height: number };
   value: string;
   options: SegmentedPillOption[];
   onValueChange: (value: string) => void;
 }) {
-  if (native.ready) return <div aria-hidden="true" data-native-navigation-reservation
+  if (native.reserved ?? native.ready) return <div aria-hidden="true" data-native-navigation-reservation
     className="w-full pointer-events-none" style={{ height: native.height }} />;
   return <div className="w-full min-w-0 pointer-events-auto">
     <SegmentedPill size="default" layout="stacked" hitArea="segment" ripple={false}

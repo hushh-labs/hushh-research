@@ -6,6 +6,7 @@ import { Select as SelectPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
+import { useNativeOverlayCollisionPadding } from "@/lib/capacitor/native-presentation-regions"
 
 function Select({
   ...props
@@ -57,9 +58,11 @@ function SelectContent({
   children,
   position = "popper",
   align = "center",
+  collisionPadding,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   const overlayRef = useNativeNavigationOverlayRef<HTMLDivElement>(ref)
+  const nativePadding = useNativeOverlayCollisionPadding(collisionPadding)
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -73,6 +76,7 @@ function SelectContent({
         )}
         position={position}
         align={align}
+        collisionPadding={nativePadding}
         {...props}
       >
         <SelectScrollUpButton />

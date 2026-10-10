@@ -27,13 +27,11 @@ Non-owned surfaces:
 3. `docs-governance`
 
 ## Do Use
-
 1. Shared component, shell chrome, Morphy UX, and app-ui work.
 2. Design-system rules that require docs or verification updates.
 3. Reusable visual, layout, interaction, form, and copy primitives.
 
 ## Do Not Use
-
 1. Broad frontend intake where the correct spoke is unclear.
 2. Native plugin or mobile parity work.
 3. Route-contract and package-convention work without a design-system rule change.
@@ -45,12 +43,14 @@ Non-owned surfaces:
 5. `docs/reference/quality/frontend-pattern-catalog.md`
 6. `.codex/skills/frontend-design-system/references/design-review-kernel.md`
 7. `docs/reference/mobile/render-performance-charter.md`
+8. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
+Hybrid iOS renderer, overlap and first-paint gates: `hushh-webapp/docs/ios-native-surface-adoption.md`.
 1. Read design-system and frontend architecture docs before touching shared UI.
 2. Decide the owning layer first: stock UI, Morphy UX, or app-ui.
 3. Keep route-container ownership with shared shells.
-4. Update docs or verification commands when the design rule itself changes.
+4. Update docs or verification commands when the design rule itself changes. For native chrome, prove feasible layer composition and one renderer per control lifetime through the adoption reference; audit shared-family route coverage, computed CSS under negotiated capability states and transition frames. Bounded radio selectors share a primitive; route/swipe tabs retain their pager and routing owner, not a second selector authority.
 5. Keep persona-facing labels plain-language and route action ids aligned to One/Kai/Nav ownership. For One consent/vault copy, frame user-held knowledge/information as safewords and avoid generic `your information` onboarding language. Onboarding is One-first with downstream sub-onboardings (Kai/RIA/KYC): model every flow via the registry in `hushh-webapp/lib/navigation/onboarding-registry.ts` (One is the only account-scoped gate, reappearing only on reset/delete; subs are surface-scoped, independently re-enterable), gate on the authoritative store not the deprecated `kai_onboarding_required` cookie, and await server completion sync before navigating. See `docs/reference/quality/one-onboarding-architecture.md`. Follow *Shell and navigation ownership* in `docs/reference/quality/app-surface-design-system.md`: a `standard` route declares a breadcrumb, which is what mints its back control.
 6. Keep consumer notifications, Email Helper rows, and background-task rows free of implementation diagnostics. Do not show `PKM`, manifests, schemas, tokens, thread ids, workflow ids, consent ids, hashes, timings, correlation ids, route names, raw errors, or dummy-save language outside developer-only surfaces.
 7. For signed-in route shell, header, search/filter, or hover changes, verify shared `AppPageShell`, `PageHeader`, `KaiCommandBarGlobal`, and app-ui interaction contracts before adding route-local chrome.

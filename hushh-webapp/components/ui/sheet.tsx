@@ -227,6 +227,7 @@ function SheetContent(
       <SheetPrimitive.Content
         ref={nativeContentRef}
         data-slot="sheet-content"
+        data-sheet-side={side}
         data-stationary-side-frame={stationaryChrome && (side === "left" || side === "right") ? side : undefined}
         className={cn(
           "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-(--z-sheet) flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",

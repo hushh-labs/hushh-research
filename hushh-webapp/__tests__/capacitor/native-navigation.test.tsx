@@ -1,14 +1,25 @@
 import { act, render, renderHook, waitFor } from "@testing-library/react";
+import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigationBottomInset, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigationBottomInset, useNativeNavigationBlocked, useNativeNavigationBlockedUntilSettled } from "@/lib/capacitor/native-navigation";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { measureNativeNavigationColumn } from "@/lib/capacitor/native-navigation-column";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: vi.fn(() => true) }));
 
 const bridge = vi.hoisted(() => ({
   platform: "web", supported: true,
   callbacks: new Map<string, (event: unknown) => void>(),
   setState: vi.fn(), getCapabilities: vi.fn(),
   confirmSelection: vi.fn(), sequence: 0,
+  regions: vi.fn(),
+}));
+vi.mock("@/lib/capacitor/native-presentation-regions", () => ({
+  syncNativePresentationRegions: bridge.regions,
+  setNativePresentationRegionIsolation: vi.fn(),
+  useNativeOverlayCollisionPadding: (padding: unknown) => padding,
+  useNativePresentationRegionRevision: () => 0,
+  nativePresentationAdmission: () => ({}),
 }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
@@ -34,12 +45,14 @@ function select(state: ReturnType<typeof lastState>, tab = "dashboard") {
 
 describe("native navigation presentation boundary", () => {
   beforeEach(() => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     bridge.platform = "ios";
     bridge.callbacks.clear();
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, columnLayout: true, supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.setState.mockReset().mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.confirmSelection.mockReset().mockResolvedValue({ valid: true });
     bridge.sequence = 0;
+    bridge.regions.mockReset().mockResolvedValue(true);
   });
   afterEach(async () => { await act(async () => { await Promise.resolve(); }); });
 
@@ -53,6 +66,38 @@ describe("native navigation presentation boundary", () => {
       expect(measureNativeNavigationColumn(element)).toBeNull();
     }
     expect(measureNativeNavigationColumn(null)).toBeNull();
+  });
+  it.each(["underlayPresentation", "contentBackedPresentation", "reservedPresentationRegions"])(
+    "uses web fallback for an old experimental %s wrapper instead of reserving a stranded native bar", async (capability) => {
+      vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+      bridge.regions.mockResolvedValue(false);
+      bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true, [capability]: true });
+      const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
+      await waitFor(() => expect(view.result.current.reserved).toBe(false));
+      expect(view.result.current.ready).toBe(false);
+      expect(bridge.setState).not.toHaveBeenCalled();
+      expect(bridge.regions).not.toHaveBeenCalled();
+      view.unmount();
+    });
+  it("retains standard native navigation in recovery and isolates full-height React overlays", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true,
+      columnLayout: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
+    bridge.regions.mockResolvedValue(false);
+    const action = vi.fn();
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: action }));
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    expect(view.result.current.height).toBe(49);
+    const before = lastState();
+    const overlay = render(<Overlay />);
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: false, interactionEnabled: false }));
+    select(before);
+    expect(action).not.toHaveBeenCalled();
+    overlay.unmount();
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: true }));
+    select(before); expect(action).not.toHaveBeenCalled();
+    expect(bridge.regions).not.toHaveBeenCalled();
+    view.unmount();
   });
 
   it.each(["web", "android"])("does not replace or call the native bar on %s", async (platform) => {
@@ -93,6 +138,27 @@ describe("native navigation presentation boundary", () => {
     view.rerender({ column: null });
     await waitFor(() => expect(lastState().visible).toBe(false));
     expect(lastState().column.width).toBe(768);
+    view.unmount();
+  });
+
+  it("holds History coverage through actual exit and ignores a cancelled close after reopen", async () => {
+    const ref = createRef<HTMLDivElement>(); ref.current = document.createElement("div");
+    let finish: () => void = () => undefined;
+    const finished = new Promise<void>(resolve => { finish = resolve; });
+    ref.current.getAnimations = () => [{ effect: { target: ref.current, getComputedTiming: () => ({ iterations: 1 }) }, finished } as unknown as Animation];
+    const view = renderHook(({ open }) => {
+      useNativeNavigationBlockedUntilSettled(open, "chat-history", ref);
+      return useNativeNavigation({ ...options, onSelect: vi.fn() });
+    }, { initialProps: { open: true } });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    view.rerender({ open: false });
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(lastState().interactionEnabled).toBe(false);
+    view.rerender({ open: true });
+    await act(async () => { finish(); });
+    expect(lastState().interactionEnabled).toBe(false);
+    view.rerender({ open: false });
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(true));
     view.unmount();
   });
   it("retains the web bar when a wrapper cannot acknowledge the themed contract", async () => {
@@ -183,5 +249,97 @@ describe("native navigation presentation boundary", () => {
     select(lastState());
     await waitFor(() => expect(onSelect).toHaveBeenCalledExactlyOnceWith("dashboard"));
     view.unmount();
+  });
+
+  it("retains negotiated navigation through repeated drawer cycles without admitting covered or stale choices", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, columnLayout: true, interactionIsolation: true, supported: true, contentHeight: 49, bottomInset: 34 });
+    const onSelect = vi.fn();
+    const view = renderHook(({ interactive, visible }) => useNativeNavigation({ ...options, visible, interactionEnabled: interactive, onSelect }), {
+      initialProps: { interactive: true, visible: true },
+    });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    const history = render(<PersistentHistory open={false} />);
+    let confirm: (result: { valid: boolean }) => void = () => undefined;
+    bridge.confirmSelection.mockReturnValueOnce(new Promise((resolve) => { confirm = resolve; }));
+    select(lastState());
+    await waitFor(() => expect(bridge.confirmSelection).toHaveBeenCalled());
+    for (let cycle = 0; cycle < 10; cycle += 1) {
+      const before = lastState();
+      history.rerender(<PersistentHistory open />);
+      select(before); // Fence immediately, before the bridge acknowledges.
+      await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: false }));
+      expect(view.result.current.height).toBe(49);
+      history.rerender(<PersistentHistory open={false} />);
+      await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: true }));
+      select(before); // Cannot replay an old choice after reopening.
+    }
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(bridge.setState.mock.calls.every(([state]) => state.visible)).toBe(true);
+    await act(async () => { confirm({ valid: true }); });
+    expect(onSelect).not.toHaveBeenCalled(); // A delayed approval cannot cross a covered epoch.
+    view.rerender({ interactive: false, visible: true });
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: false }));
+    select(lastState());
+    expect(onSelect).not.toHaveBeenCalled();
+    view.rerender({ interactive: true, visible: false }); // Lock/route hiding must still conceal.
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: false, interactionEnabled: false }));
+    history.unmount();
+    view.unmount();
+  });
+
+  it.each([false, true])("keeps page paint intact; reserved regions=%s negotiate overlay visibility", async (reserved) => {
+    const shell = document.createElement("main");
+    shell.dataset.appShellRoot = "true";
+    document.body.appendChild(shell);
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, columnLayout: true, interactionIsolation: true,
+      contentBackedPresentation: true, reservedPresentationRegions: reserved, underlayPresentation: false, supported: true, contentHeight: 49, bottomInset: 34 });
+    const onSelect = vi.fn();
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect }));
+    let overlay: ReturnType<typeof render> | undefined;
+    try {
+      await waitFor(() => expect(view.result.current.ready).toBe(true));
+      expect(lastState().visible).toBe(true);
+      expect(shell.style.clipPath).toBe("");
+      expect(document.documentElement.classList.contains("native-compositor-apertures")).toBe(false);
+      const before = lastState();
+      overlay = render(<Overlay />);
+      select(before);
+      expect(onSelect).not.toHaveBeenCalled();
+      await waitFor(() => expect(lastState()).toMatchObject({ visible: reserved, interactionEnabled: false }));
+      overlay.unmount(); overlay = undefined;
+      await waitFor(() => expect(lastState().visible).toBe(true));
+      select(before);
+      expect(onSelect).not.toHaveBeenCalled();
+      select(lastState());
+      await waitFor(() => expect(onSelect).toHaveBeenCalledOnce());
+      expect(shell.style.clipPath).toBe("");
+    } finally { overlay?.unmount(); view.unmount(); shell.remove(); }
+  });
+
+  it("exposes only acknowledged underlay geometry and rejects stale layout after hiding", async () => {
+    const shell = document.createElement("main");
+    shell.dataset.appShellRoot = "true";
+    document.body.appendChild(shell);
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, columnLayout: true, interactionIsolation: true, underlayPresentation: true,
+      supported: true, contentHeight: 49, bottomInset: 34 });
+    bridge.setState.mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34,
+      frame: { x: 0, y: 400, width: 300, height: 83 } });
+    const view = renderHook(({ visible }) => useNativeNavigation({ ...options, visible, onSelect: vi.fn() }), {
+      initialProps: { visible: true },
+    });
+    try {
+      await waitFor(() => expect(view.result.current.ready).toBe(true));
+      expect(shell.style.clipPath).toContain("M0 400h300v83");
+      const original = lastState();
+      act(() => bridge.callbacks.get("geometryChanged")?.({ ...original,
+        frame: { x: 0, y: 380, width: 310, height: 83 }, contentHeight: 49, bottomInset: 34 }));
+      expect(shell.style.clipPath).toContain("M0 380h310v83");
+      view.rerender({ visible: false });
+      await waitFor(() => expect(shell.style.clipPath).toBe(""));
+      act(() => bridge.callbacks.get("geometryChanged")?.({ ...original,
+        frame: { x: 0, y: 400, width: 300, height: 83 }, contentHeight: 2, bottomInset: 0 }));
+      expect(shell.style.clipPath).toBe("");
+      expect(view.result.current.height).toBe(49);
+    } finally { view.unmount(); shell.remove(); }
   });
 });

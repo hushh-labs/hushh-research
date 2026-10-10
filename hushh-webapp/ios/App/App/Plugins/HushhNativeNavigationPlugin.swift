@@ -7,6 +7,7 @@ struct HushhNativeNavigationState {
     private(set) var documentId: String?
     private(set) var revision = -1
     private(set) var visible = false
+    private(set) var interactionEnabled = false
     private(set) var selected = "chat"
     private(set) var interactionEpoch = -1
     private var retiredDocuments = Set<String>()
@@ -16,9 +17,10 @@ struct HushhNativeNavigationState {
         documentId = nil
         revision = -1
         visible = false
+        interactionEnabled = false
     }
 
-    mutating func apply(document: String, revision: Int, visible: Bool, selected: String, interactionEpoch: Int = 0) -> Bool {
+    mutating func apply(document: String, revision: Int, visible: Bool, selected: String, interactionEpoch: Int = 0, interactionEnabled: Bool = true) -> Bool {
         guard !document.isEmpty, document.count <= 128, !retiredDocuments.contains(document),
               revision >= 0, interactionEpoch >= 0,
               Self.tabs.contains(selected) else { return false }
@@ -27,13 +29,19 @@ struct HushhNativeNavigationState {
         documentId = document
         self.revision = revision
         self.visible = visible
+        self.interactionEnabled = interactionEnabled
         self.selected = selected
         self.interactionEpoch = interactionEpoch
         return true
     }
 
+    func isPresented(appIsActive: Bool, shielded: Bool, keyboardVisible: Bool) -> Bool {
+        visible && appIsActive && !shielded && !keyboardVisible
+    }
+
     func acceptsTap(_ tab: String, appIsActive: Bool, shielded: Bool, keyboardVisible: Bool) -> Bool {
-        visible && appIsActive && !shielded && !keyboardVisible && Self.tabs.contains(tab)
+        isPresented(appIsActive: appIsActive, shielded: shielded, keyboardVisible: keyboardVisible) &&
+            interactionEnabled && Self.tabs.contains(tab)
     }
 }
 
@@ -95,9 +103,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         CAPPluginMethod(name: "confirmSelection", returnType: CAPPluginReturnPromise),
     ]
     private var state = HushhNativeNavigationState()
+    private var admissionRegionRevision: Int?
+    private var admissionPrivacyGeneration: Int?
     private var tabBar: UITabBar?
     private var observers = [NSObjectProtocol]()
-    private var keyboardVisible = false
+    private(set) var keyboardVisible = false
+    private var keyboardHidePending = false
     private var contentHeight: CGFloat = 0
     private var bottomInset: CGFloat = 0
     private var column: HushhNativeNavigationColumn?
@@ -105,18 +116,31 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var confirmedSequence = 0
     private var retiredRestartGeneration = -1
     private lazy var navigationItems = HushhNativeNavigationArtwork.items()
+    private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
+    #if DEBUG
+    private var presentationProbe: NativeTestStatusLabel?
+    #endif
 
     override func load() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let center = NotificationCenter.default
             for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification,
+                         UIResponder.keyboardDidHideNotification,
                          UIApplication.willResignActiveNotification, UIApplication.didBecomeActiveNotification,
                          HushhSessionPrivacyShield.presentationDidChange] {
                 self.observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                     guard let self else { return }
-                    if note.name == UIResponder.keyboardWillShowNotification { self.keyboardVisible = true }
-                    if note.name == UIResponder.keyboardWillHideNotification { self.keyboardVisible = false }
+                    if note.name == UIResponder.keyboardWillShowNotification {
+                        self.keyboardVisible = true; self.keyboardHidePending = false
+                    }
+                    if note.name == UIResponder.keyboardWillHideNotification {
+                        self.keyboardVisible = true; self.keyboardHidePending = true
+                    }
+                    if note.name == UIResponder.keyboardDidHideNotification {
+                        guard self.keyboardHidePending else { return }
+                        self.keyboardVisible = false; self.keyboardHidePending = false
+                    }
                     self.updatePresentation()
                 })
             }
@@ -131,7 +155,13 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "columnLayout": true, "supported": self.navigationItems != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "columnLayout": true, "interactionIsolation": true,
+                              "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
+                              "contentBackedPresentation": self.compositor?.contentBackedPresentation == true,
+                              "reservedPresentationRegions": self.compositor?.contentBackedPresentation == true,
+                              "fullWindowOverlays": self.compositor?.contentBackedPresentation == true,
+                              "supported": self.navigationItems != nil,
+                              "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
             }
@@ -155,10 +185,21 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             let shield = HushhSessionPrivacyShield.shared
             self.updatePresentation() // Consume pending restart retirement before observing the replacement.
             shield.observeDocument(document)
-            guard shield.acceptsDocument(document), self.state.apply(document: document, revision: revision,
-                      visible: visible, selected: selected, interactionEpoch: epoch) else {
+            guard shield.acceptsDocument(document) else {
                 call.reject("NATIVE_NAVIGATION_STALE_STATE"); return
             }
+            guard self.compositor?.acceptsPresentationRevision(call.getInt("presentationRegionRevision"),
+                privacyGeneration: call.getInt("privacyGeneration")) != false else {
+                call.resolve(["supported": true, "contentHeight": self.contentHeight,
+                    "bottomInset": self.bottomInset, "presentationApplied": false]); return
+            }
+            guard self.state.apply(document: document, revision: revision,
+                      visible: visible, selected: selected, interactionEpoch: epoch,
+                      interactionEnabled: call.getBool("interactionEnabled") ?? visible) else {
+                call.reject("NATIVE_NAVIGATION_STALE_STATE"); return
+            }
+            self.admissionRegionRevision = call.getInt("presentationRegionRevision")
+            self.admissionPrivacyGeneration = call.getInt("privacyGeneration")
             self.column = column
             self.installIfNeeded()
             if let feed = self.tabBar?.items?.first(where: { $0.tag == 3 }) {
@@ -172,7 +213,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             self.tabBar?.tintColor = theme.accent
             self.updatePresentation()
             self.layoutTabBar()
-            call.resolve(["supported": self.tabBar != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+            call.resolve(self.geometryReceipt())
         }
     }
 
@@ -182,7 +223,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let sequence = call.getInt("sequence") ?? -1
             let tab = call.getString("tab") ?? ""
-            let valid = call.getString("documentId") == self.state.documentId &&
+            let valid = self.compositor?.overlayIsolated != true && call.getString("documentId") == self.state.documentId &&
                 call.getInt("interactionEpoch") == self.state.interactionEpoch &&
                 call.getInt("privacyGeneration") == privacy.generation &&
                 sequence == self.tapSequence && sequence > self.confirmedSequence &&
@@ -205,12 +246,22 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         bar.unselectedItemTintColor = .label
         bar.items = items
         // A shield installed before the bridge call must remain above native controls.
-        if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
+        if let compositor {
+            compositor.install(bar, id: "bottom-navigation", group: nil)
+        } else if let shield = host.subviews.first(where: { $0.accessibilityIdentifier == HushhSessionPrivacyShield.accessibilityIdentifier }) {
             host.insertSubview(bar, belowSubview: shield)
         } else {
             host.addSubview(bar)
         }
         tabBar = bar
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") {
+            let probe = NativeTestStatusLabel(frame: CGRect(x: 0, y: host.safeAreaInsets.top, width: 1, height: 1), showOverlay: false)
+            probe.accessibilityIdentifier = "native-navigation-presentation"
+            host.addSubview(probe)
+            presentationProbe = probe
+        }
+        #endif
     }
 
     private var currentColumnFrame: CGRect? {
@@ -222,14 +273,16 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         guard let bar = tabBar, let column, let frame = currentColumnFrame else {
             tabBar?.isHidden = true; tabBar?.isUserInteractionEnabled = false; return
         }
+        let previousFrame = bar.frame
         bar.frame = frame
         let next = column.contentHeight
         let inset = frame.height - next
-        if abs(next - contentHeight) > 0.5 || abs(inset - bottomInset) > 0.5 {
+        if abs(next - contentHeight) > 0.5 || abs(inset - bottomInset) > 0.5 || previousFrame != bar.frame {
             contentHeight = next
             bottomInset = inset
-            notifyListeners("geometryChanged", data: ["contentHeight": contentHeight, "bottomInset": bottomInset])
+            notifyListeners("geometryChanged", data: geometryReceipt())
         }
+        publishPresentationProbe()
     }
 
     private func updatePresentation() {
@@ -238,14 +291,49 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             state.retireDocument()
             retiredRestartGeneration = privacy.generation
         }
-        let show = currentColumnFrame != nil && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
-                                   shielded: privacy.shielded, keyboardVisible: keyboardVisible)
+        let show = currentColumnFrame != nil && state.isPresented(appIsActive: privacy.appIsActive,
+                                     shielded: privacy.shielded, keyboardVisible: keyboardVisible)
+        let interactive = currentColumnFrame != nil && state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
+                                          shielded: privacy.shielded, keyboardVisible: keyboardVisible)
         tabBar?.isHidden = !show
-        tabBar?.isUserInteractionEnabled = show
-        tabBar?.accessibilityElementsHidden = !show
+        tabBar?.isUserInteractionEnabled = interactive
+        tabBar?.accessibilityElementsHidden = !interactive
+        if show { compositor?.revealUnderlay(presentationRegionRevision: admissionRegionRevision, privacyGeneration: admissionPrivacyGeneration) }
+        compositor?.setAdmission("bottom-navigation", admitted: interactive,
+            presentationRegionRevision: admissionRegionRevision, privacyGeneration: admissionPrivacyGeneration)
         tabBar?.selectedItem = tabBar?.items?.first(where: {
             HushhNativeNavigationState.tabs[$0.tag] == state.selected
         })
+        publishPresentationProbe()
+    }
+
+    private func geometryReceipt() -> [String: Any] {
+        var receipt: [String: Any] = ["supported": tabBar != nil, "contentHeight": contentHeight, "bottomInset": bottomInset,
+                                      "documentId": state.documentId ?? "", "revision": state.revision]
+        if let bar = tabBar, compositor != nil {
+            receipt["frame"] = ["x": bar.frame.minX, "y": bar.frame.minY, "width": bar.frame.width, "height": bar.frame.height]
+        }
+        return receipt
+    }
+
+    private func publishPresentationProbe() {
+        #if DEBUG
+        guard let bar = tabBar, let probe = presentationProbe else { return }
+        // Public presentation only; never routes, owners, drafts or credentials.
+        var fields: [String: Any] = ["visible": !bar.isHidden, "interactive": bar.isUserInteractionEnabled,
+                                    "accessibilityHidden": bar.accessibilityElementsHidden,
+                                    "underlay": compositor.map { bar.superview === $0.underlay && $0.underlay.layer.zPosition < $0.webView.layer.zPosition } ?? false,
+                                    "x": bar.frame.minX, "y": bar.frame.minY,
+                                    "width": bar.frame.width, "height": bar.frame.height]
+        if let compositor, compositor.contentBackedPresentation {
+            fields["contentBacked"] = true
+            fields["covered"] = compositor.fullWindowCovered
+            fields["planeVisible"] = !compositor.underlay.isHidden && compositor.baseVisibleFrame.width > 0
+            fields["retained"] = bar.superview === compositor.underlay
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]),
+           let status = String(data: data, encoding: .utf8) { probe.update(status: status) }
+        #endif
     }
 
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {

@@ -20,11 +20,11 @@ export function AgentBarSurface({ className, children, embedded = false, ...prop
       data-agent-dock-surface={dock ? (composerVisible ? "text" : "voice") : undefined}
       data-agent-dock-embedded={embedded || undefined}
       hidden={suppressed || props.hidden}
-      inert={suppressed || props.inert || (embedded && nativeOwned)}
-      aria-hidden={embedded && nativeOwned ? true : props["aria-hidden"]}
+      inert={suppressed || props.inert || nativeOwned}
+      aria-hidden={nativeOwned ? true : props["aria-hidden"]}
       style={embedded && nativeOwned ? { ...props.style, visibility: "hidden", height: native?.height } : props.style}
       className={cn(
-        !embedded && "bottom-chrome-surface",
+        !embedded && !nativeOwned && "bottom-chrome-surface",
         "pointer-events-auto relative flex min-h-11 items-center overflow-hidden rounded-full",
         dock && "min-h-[3.25rem] rounded-[1.5rem]",
         BOTTOM_CHROME_COLUMN_CLASSNAME,

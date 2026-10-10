@@ -86,6 +86,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var nativeTestPollInFlight = false
     #if DEBUG
     private var vaultLayoutProbe: NativeVaultLayoutProbe?
+    private var historyQualification: UIViewController?
+    private var historyQualificationAttempted = false
+    private var historyQualificationObserver: NSObjectProtocol?
     #endif
     private var launchCover: UIView?
     private var launchCoverObservation: NSKeyValueObservation?
@@ -104,6 +107,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     }
 
     deinit {
+        #if DEBUG
+        if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
+        #endif
         nativeTestPollTimer?.invalidate()
         nativeTestPollInFlight = false
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "hushhNativeTest")
@@ -148,6 +154,11 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--hushh-vault-layout-diagnostics") {
                 vaultLayoutProbe = NativeVaultLayoutProbe(host: view, webView: webView)
+            }
+            if ProcessInfo.processInfo.arguments.contains(NativeHistoryQualification.argument) {
+                historyQualificationObserver = NotificationCenter.default.addObserver(
+                    forName: HushhSessionPrivacyShield.presentationDidChange, object: nil, queue: .main
+                ) { [weak self] _ in self?.presentHistoryQualificationIfAdmitted() }
             }
             #endif
         }
@@ -195,9 +206,44 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             delay: 0,
             options: [.beginFromCurrentState, .curveEaseOut],
             animations: { cover.alpha = 0 },
-            completion: { _ in cover.removeFromSuperview() }
+            completion: { [weak self] _ in
+                cover.removeFromSuperview()
+                #if DEBUG
+                self?.presentHistoryQualificationIfAdmitted()
+                #endif
+            }
         )
     }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        #if DEBUG
+        presentHistoryQualificationIfAdmitted()
+        #endif
+    }
+
+    #if DEBUG
+    private func presentHistoryQualificationIfAdmitted() {
+        guard #available(iOS 26.0, *), !historyQualificationAttempted,
+              NativeHistoryQualification.admits(arguments: ProcessInfo.processInfo.arguments,
+                phone: UIDevice.current.userInterfaceIdiom == .phone, supported: true),
+              view.window != nil, launchCover == nil, webView?.isLoading == false,
+              presentedViewController == nil, UIApplication.shared.applicationState == .active,
+              !HushhSessionPrivacyShield.shared.snapshot().shielded else { return }
+        historyQualificationAttempted = true
+        if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
+        historyQualificationObserver = nil
+        let fixture = NativeHistoryQualificationController()
+        fixture.onRetired = { [weak self] in self?.historyQualification = nil }
+        historyQualification = fixture
+        view.endEditing(true)
+        present(fixture, animated: false) {
+            let shield = HushhSessionPrivacyShield.shared
+            shield.reassertCover()
+            if shield.snapshot().shielded { fixture.retire() }
+        }
+    }
+    #endif
 
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
@@ -205,9 +251,13 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // Qualification-only; older wrappers and Release retain their current
         // host until composition, touch and physical frame pacing pass.
         if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
+           HushhNativePresentationPolicy.customControlsEnabled,
            ProcessInfo.processInfo.arguments.contains("--hushh-native-compositor"),
            let existing = webView, view === existing {
-            view = NativePresentationContainer(webView: existing)
+            let contentBacked = ProcessInfo.processInfo.arguments.contains("--hushh-native-content-backed")
+            view = NativePresentationContainer(webView: existing,
+                basePresentation: contentBacked ? .contentBacked : .underlay,
+                drawerClipping: ProcessInfo.processInfo.arguments.contains("--hushh-native-drawer-clip"))
         }
         #endif
         

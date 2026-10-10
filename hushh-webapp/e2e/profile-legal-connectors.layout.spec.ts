@@ -112,9 +112,9 @@ test.beforeAll(async () => {
 
 async function mount(
   page: Page,
-  options: { width?: number; theme?: "light" | "dark"; at?: string } = {},
+  options: { width?: number; theme?: "light" | "dark"; at?: string; regions?: { top: number; bottom: number; fullWindow?: boolean } } = {},
 ) {
-  const { width = 393, theme = "light", at = "/" } = options;
+  const { width = 393, theme = "light", at = "/", regions } = options;
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
@@ -130,7 +130,7 @@ async function mount(
   await page.route(/^http:\/\/localhost\/(?!api\/|icons\/)/, (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><title>Profile Legal and Connectors</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""} ${regions ? "native-reserved-chrome" : ""} ${regions?.fullWindow ? "native-full-window-overlays" : ""}" ${regions ? `style="--native-overlay-top:${regions.fullWindow ? 0 : regions.top}px;--native-overlay-bottom:${regions.fullWindow ? 0 : regions.bottom}px"` : ""} ${regions?.fullWindow ? "data-native-full-window-covered" : ""}><head><title>Profile Legal and Connectors</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: theme });
@@ -169,6 +169,7 @@ test("Profile chrome and Preferences keep their grid while the panel follows a p
     };
     dispatch("touchstart", 120, 100); dispatch("touchmove", 170, 220);
     const after = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    const frameTransform = frame.style.transform;
     dispatch("touchcancel", 170, 240);
     return { before, after, settledRight, hasDuplicatedAppearance: frame.querySelectorAll('[data-profile-appearance-preferences]').length };
   });
@@ -234,6 +235,11 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
       const frame = await pane(page).boundingBox();
       return frame ? Math.abs(frame.x + frame.width - (width - rightInset)) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(0.5);
+    if (regions) {
+      const box = (await pane(page).boundingBox())!;
+      expect(box.y).toBeCloseTo(regions.fullWindow ? 0 : regions.top, 0);
+      expect(box.y + box.height).toBeCloseTo(regions.fullWindow ? 852 : 852 - regions.bottom, 0);
+    }
     const cardEdges = () => pane(page).locator("[data-profile-stack-active='true'] [data-slot='settings-group-shell']").first().evaluate(node => {
       const box = node.getBoundingClientRect();
       return { left: box.left, right: box.right };

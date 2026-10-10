@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Capacitor } from "@capacitor/core";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useAuth } from "@/hooks/use-auth";
 import { boundedDock, DockEventFence, getNativeDockCapabilities, nativeDock, nextDockIdentity, sameDock, validDockEvent, type DockIdentity, type DockProjection } from "@/lib/capacitor/native-dock";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -13,12 +14,14 @@ import { useAgentDockState } from "./agent-dock";
 import { useNativeDockPorts } from "./native-dock-port";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
+import { nativePresentationAdmission, syncNativePresentationRegions, setNativeDockPresentationFrame, useNativePresentationRegionRevision } from "@/lib/capacitor/native-presentation-regions";
 
 let presentationOwner: symbol | null = null;
 async function retireDock(identity: DockIdentity & { preserveDraft?: boolean }) {
   const ack = await boundedDock(nativeDock.retire(identity));
   if (!sameDock(identity, ack) || ack.phase !== "retired") throw new Error("NATIVE_DOCK_RETIRE_UNCONFIRMED");
   removeNativeBaseAperture("agent-dock", identity.revision);
+  setNativeDockPresentationFrame(identity.documentId, identity.revision, null);
   return ack;
 }
 // Private text is deliberately excluded: Send consumes the committed native
@@ -36,8 +39,10 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const theme = useNativeControlAppearance("secondary");
   const suppressed = useSessionChromeSuppressed();
   const overlay = useNativeShellOverlayBlocked();
+  const regionRevision = useNativePresentationRegionRevision();
   const [supported, setSupported] = useState(false);
   const [discovered, setDiscovered] = useState(false);
+  const [listenersReady, setListenersReady] = useState(false);
   const [measurement, measure] = useState(0);
   const family: "text" | "voice" = dock?.composerVisible ? "text" : "voice";
   const port = ports?.get(family);
@@ -45,8 +50,10 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   current.current = { enabled, user: user?.uid, dock, ports, theme, suppressed, overlay, family, port };
   const identity = useRef<DockIdentity | null>(null);
   const underlay = useRef(false);
+  const reservedRegions = useRef(false);
   const fence = useRef<DockEventFence | null>(null);
   const generation = useRef(0);
+  const previousOverlay = useRef(overlay);
   const update = useRef(0);
   const settledConsumption = useRef(0);
   const pending = useRef<Promise<void>>(Promise.resolve());
@@ -55,6 +62,13 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const applied = useRef<{ sequence: number; configuration: string; privacyGeneration: number } | null>(null);
   const [active, setActive] = useState(false);
   const owner = useRef(user?.uid);
+  useLayoutEffect(() => {
+    if (previousOverlay.current === overlay) return;
+    previousOverlay.current = overlay;
+    // Presentation survives coverage; a pending action must not survive an
+    // open/close cycle just because the same editor is retained.
+    generation.current++;
+  }, [overlay]);
   useLayoutEffect(() => {
     if (owner.current === user?.uid) return;
     owner.current = user?.uid; generation.current++; failed.current = false;
@@ -73,7 +87,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   }, [user?.uid]);
 
   useLayoutEffect(() => {
-    if (discovered || !enabled || !ports || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
+    if (!customNativePresentationEnabled() || discovered || !enabled || !ports || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
     // Cold capability discovery is read-only. Reserve presentation before the
     // first paint rather than briefly exposing the DOM composer underneath it.
     presentationOwner = presentation.current;
@@ -83,6 +97,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     if (!live) return;
     const admitted = value?.supported === true && value.contractVersion === 1;
     underlay.current = admitted && value?.underlayPresentation === true;
+    reservedRegions.current = admitted && value?.reservedPresentationRegions === true;
     setDiscovered(true);
     setSupported(admitted);
     if (!admitted && !identity.current && presentationOwner === presentation.current) {
@@ -92,6 +107,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
 
   useEffect(() => {
     if (!supported) return;
+    let live = true;
     const subscriptions = [nativeDock.addListener("input", event => {
       const capturedGeneration = generation.current;
       let dispatched = false;
@@ -190,18 +206,33 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       }); // Never log a private bridge error/payload or replay.
     }), nativeDock.addListener("layout", event => {
       const snapshot = applied.current;
-      if (snapshot && current.current.enabled && !current.current.overlay && !current.current.suppressed &&
-          !isSessionChromeSuppressed() && !nativeShellOverlayBlocked() &&
+      if (snapshot && current.current.enabled && !current.current.suppressed &&
+          !isSessionChromeSuppressed() && (reservedRegions.current || !nativeShellOverlayBlocked()) &&
           snapshot.sequence === update.current && fence.current?.acceptLayout(event, snapshot.sequence, snapshot.privacyGeneration,
             { width: window.innerWidth, height: window.innerHeight })) {
         current.current.ports?.setLayout(event);
+        if (reservedRegions.current) setNativeDockPresentationFrame(event.documentId, event.revision, event.frame.y);
         if (underlay.current) setNativeBaseAperture("agent-dock", event.revision, event.frame);
       }
     }), nativeDock.addListener("readmissionRequested", () => { generation.current++; measure(value => value + 1); })];
     const removePrivacy = subscribeNativeSessionPrivacy(() => {
       generation.current++; current.current.ports?.setLayout(null); measure(value => value + 1);
     });
-    return () => { subscriptions.forEach(subscription => void subscription.then(handle => handle.remove())); void removePrivacy.then(handle => handle.remove()); };
+    const handles = [...subscriptions, removePrivacy];
+    const remove = () => handles.forEach(handle => { void handle.then(value => value.remove()).catch(() => undefined); });
+    void Promise.all(handles.map(handle => boundedDock(handle))).then(() => {
+      if (live) setListenersReady(true);
+    }).catch(() => {
+      if (!live) return;
+      live = false; generation.current++; failed.current = true;
+      remove();
+      // No editor can have been admitted before all operation/privacy listeners
+      // are ready. Restore only this presentation's untouched web fallback.
+      if (!identity.current && presentationOwner === presentation.current) {
+        current.current.ports?.present(false); setActive(false);
+      }
+    });
+    return () => { live = false; remove(); };
   }, [supported]);
 
   useEffect(() => {
@@ -215,7 +246,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   }, [supported, dock?.host]);
 
   useLayoutEffect(() => {
-    if (!supported || !ports) return;
+    if (!supported || !listenersReady || !ports) return;
     if (!user?.uid || suppressed || dock?.suppressed) {
       generation.current++;
       const previous = identity.current;
@@ -227,7 +258,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       })().catch(() => { ports.present(true); });
       return;
     }
-    if (!enabled || overlay || !port) {
+    if (!enabled || overlay && !reservedRegions.current || !port) {
       generation.current++;
       ports.setLayout(null);
       const lease = identity.current;
@@ -253,27 +284,52 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       ...lease, ...theme, ...port.projection, updateSequence: sequence,
       acknowledgedEdit: fence.current?.editRevision ?? 0,
       settledConsumption: settledConsumption.current,
-      visible: enabled && !overlay,
+      visible: enabled && (!overlay || reservedRegions.current),
+      interactionEnabled: !overlay,
       frame: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
       viewport: { width: window.innerWidth, height: window.innerHeight },
     };
     // Conceal the fallback before preparation. It is never an active second editor.
     presentationOwner = presentation.current; ports.present(true); setActive(true);
+    let admissionStage = 0;
     pending.current = pending.current.then(async () => {
-      if (identity.current !== lease || failed.current || sequence !== update.current || applyGeneration !== generation.current) return;
+      const isCurrent = () => identity.current === lease && !failed.current &&
+        sequence === update.current && applyGeneration === generation.current;
+      if (!isCurrent()) return;
+      admissionStage = 1;
       const privacy = await boundedDock(getNativeSessionPrivacyState());
-      if (privacy.shielded || !privacy.appIsActive || identity.current !== lease || failed.current ||
-          sequence !== update.current || applyGeneration !== generation.current) return;
-      const ack = await boundedDock(nativeDock.apply({ ...snapshot, privacyGeneration: privacy.generation }));
+      if (privacy.shielded || !privacy.appIsActive || !isCurrent()) return;
+      admissionStage = 2;
+      if (reservedRegions.current && !await syncNativePresentationRegions()) return;
+      // Layout admission is asynchronous too. It cannot authorize a snapshot
+      // invalidated by an overlay, owner change or newer draft while waiting.
+      if (!isCurrent()) return;
+      admissionStage = 3;
+      const ack = await boundedDock(nativeDock.apply({ ...snapshot, ...nativePresentationAdmission(), privacyGeneration: privacy.generation }));
+      if (!isCurrent()) return;
+      admissionStage = 4;
       if (!sameDock(lease, ack) || ack.updateSequence !== sequence || ack.phase !== "active") throw new Error("NATIVE_DOCK_ACK_UNCONFIRMED");
+      if (ack.presentationApplied === false) return;
       if (underlay.current && ack.layout && sequence === update.current && applyGeneration === generation.current) {
         setNativeBaseAperture("agent-dock", lease.revision, ack.layout.frame);
       }
       applied.current = { sequence, configuration, privacyGeneration: privacy.generation };
+      if (reservedRegions.current && ack.layout && sequence === update.current && applyGeneration === generation.current) {
+        setNativeDockPresentationFrame(lease.documentId, lease.revision, ack.layout.frame.y);
+      }
       if (ack.layout && sequence === update.current && applyGeneration === generation.current &&
           fence.current?.acceptLayout(ack.layout, sequence, privacy.generation, snapshot.viewport)) ports.setLayout(ack.layout);
-    }).catch(async () => {
-      if (identity.current !== lease) return;
+    }).catch(async error => {
+      if (identity.current !== lease || sequence !== update.current || applyGeneration !== generation.current) return;
+      if (window.__HUSHH_NATIVE_TEST__?.enabled === true && shell) {
+        // Opt-in public stage codes only; no error object, editor projection,
+        // account/lease identity or provider response enters diagnostics.
+        const codes = ["NATIVE_DOCK_ACK_UNCERTAIN", "NATIVE_DOCK_REFUSED", "NATIVE_DOCK_ACK_UNCONFIRMED",
+          "NATIVE_REGIONS_GEOMETRY_INVALID", "NATIVE_REGIONS_ACK_UNCERTAIN", "NATIVE_REGIONS_ACK_UNCONFIRMED",
+          "NATIVE_REGIONS_INVALID", "NATIVE_REGIONS_STALE", "NATIVE_REGIONS_PRIVACY_STALE", "NATIVE_REGIONS_INITIAL_POSE_INVALID"];
+        shell.dataset.nativeDockFailureStage = String(admissionStage);
+        shell.dataset.nativeDockFailureCode = String(error instanceof Error ? codes.indexOf(error.message) + 1 : 0);
+      }
       failed.current = true;
       try {
         const ack = await retireDock(lease);
@@ -281,7 +337,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
         identity.current = null; fence.current = null; ports.present(false); setActive(false);
       } catch { /* uncertain ownership remains concealed and noninteractive */ }
     });
-  }, [supported, user?.uid, suppressed, dock?.suppressed, dock?.host, enabled, overlay, theme, port, measurement, ports, family]);
+  }, [supported, listenersReady, user?.uid, suppressed, dock?.suppressed, dock?.host, enabled, overlay, theme, port, measurement, ports, family, regionRevision]);
 
   useEffect(() => {
     const generationCounter = generation;

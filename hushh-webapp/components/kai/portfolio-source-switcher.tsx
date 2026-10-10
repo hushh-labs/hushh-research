@@ -10,8 +10,8 @@ import {
 import {
   SettingsGroup,
   SettingsRow,
-  SegmentedTabs,
 } from "@/components/app-ui/settings-ui";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import type {
   PortfolioFreshness,
   PortfolioSource,
@@ -151,12 +151,13 @@ export function PortfolioSourceSwitcher({
           stackTrailingOnMobile
           trailing={
             sourceOptions.length > 1 ? (
-              <SegmentedTabs
+              <SegmentedControl
+                ariaLabel="Portfolio source"
                 value={activeSource}
                 onValueChange={requestSourceChange}
                 options={sourceOptions}
                 disabled={interactionBusy || !canChangePortfolioSource}
-                className="w-full sm:w-[18rem]"
+                className="min-h-11 w-full sm:w-[18rem]"
               />
             ) : undefined
           }

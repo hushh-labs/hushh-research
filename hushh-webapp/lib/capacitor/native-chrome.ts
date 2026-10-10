@@ -2,9 +2,11 @@
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { nativePanelGeometry, type NativePanelPose, type NativePanelReceipt, type NativePanelIdentity } from "./native-panel-presentation";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
+import { nativePresentationAdmission, syncNativePresentationRegions, type NativePresentationRegions } from "./native-presentation-regions";
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
@@ -37,14 +39,16 @@ export type ChromeControlProjection = NativeControlAppearance & ChromeControl & 
 };
 export type ChromeProjection = ChromeIdentity & ChromeControlProjection;
 export type ChromeAcknowledgement = ChromeIdentity & {
+  presentationApplied?: boolean;
   phase: "prepared" | "active" | "suspended" | "retired";
   frame?: ChromeFrame;
 };
 export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string; presentationGeneration?: number; presentationSequence?: number };
 export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
-export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number };
+export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number; presentationApplied?: boolean };
 type ChromeGeometry = Pick<ChromeControlProjection, "frame" | "viewport" | "presentationGroup" | "presentationOwnerEpoch" | "presentationGeneration">;
-export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean };
+export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean; cancellation?: "keyboard" };
+export class NativeChromeFocusCancelled extends Error {}
 export type NativeChromeCapabilities = {
   contractVersion: number; families: readonly ChromeFamily[]; canvasAppearance?: boolean;
   independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean;
@@ -57,21 +61,28 @@ export type NativeChromeCapabilities = {
   fullAccentTrigger?: boolean;
   retainedControls?: boolean;
   panelPresentation?: boolean;
+  contentBackedPresentation?: boolean;
+  reservedPresentationRegions?: boolean;
+  fullWindowOverlays?: boolean;
+  /** Debug qualification: rectangular exposure of retained stationary chrome. */
+  drawerClipping?: boolean;
+  atomicDrawerCoverage?: boolean;
   interactionFeedback?: boolean;
 };
 
 export interface HushhNativeChromePlugin {
+  setPresentationRegions(options: NativePresentationRegions): Promise<NativePresentationRegions>;
   interactionFeedback(options: { documentId: string; privacyGeneration: number; intentId: string; kind: "light" | "selection"; issuedAtMs: number }): Promise<{ played: boolean }>;
   applyPanelPose(options: NativePanelPose): Promise<NativePanelReceipt>;
   retirePanel(options: NativePanelIdentity): Promise<NativePanelIdentity>;
   getCapabilities(): Promise<NativeChromeCapabilities>;
   restoreFocus(options: ChromeIdentity & { updateSequence: number; focusSequence: number }): Promise<ChromeFocusAcknowledgement>;
-  update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number }): Promise<ChromeUpdateAcknowledgement>;
-  setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
+  update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number; presentationRegionRevision?: number; privacyGeneration?: number }): Promise<ChromeUpdateAcknowledgement>;
+  setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string; appearance?: "light" | "dark" }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;
   prepareBackReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
   prepareHistoryReplacement(options: ChromeProjection & { previousRevision: number }): Promise<ChromeAcknowledgement>;
-  activate(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
+  activate(options: ChromeIdentity & { presentationRegionRevision?: number; privacyGeneration?: number }): Promise<ChromeAcknowledgement>;
   suspend(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
   retire(options: ChromeIdentity & { targetRevision?: number }): Promise<ChromeAcknowledgement>;
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
@@ -105,6 +116,7 @@ export function getNativeChromeCapabilities(): Promise<NativeChromeCapabilities 
   return pending.promise;
 }
 export function supportsNativeChrome(family: ChromeFamily): boolean {
+  if (!customNativePresentationEnabled()) return false;
   const capability = peekNativeChromeCapabilities();
   return capability?.contractVersion === 2 && capability.independentControls === true && capability.families.includes(family);
 }
@@ -144,6 +156,7 @@ export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamil
 /** The existing CSS canvas is authoritative even when no native control is visible. */
 export async function syncNativeCanvasAppearance(): Promise<boolean> {
   const backgroundHex = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+  const appearance = document.documentElement.classList.contains("dark") ? "dark" as const : "light" as const;
   if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(backgroundHex)) return false;
   // Reserve ordering before discovery: a delayed older request must never
   // repaint a theme that React has already replaced.
@@ -151,8 +164,10 @@ export async function syncNativeCanvasAppearance(): Promise<boolean> {
   const capability = await getNativeChromeCapabilities();
   if (capability?.canvasAppearance !== true) return false; // Older wrappers retain their existing canvas.
   if (projection.revision !== canvasRevision ||
-      getComputedStyle(document.documentElement).getPropertyValue("--background").trim() !== backgroundHex) return false;
-  const ack = await bounded(nativeChrome.setCanvasAppearance(projection));
+      getComputedStyle(document.documentElement).getPropertyValue("--background").trim() !== backgroundHex ||
+      document.documentElement.classList.contains("dark") !== (appearance === "dark")) return false;
+  const ack = await bounded(nativeChrome.setCanvasAppearance({ ...projection,
+    ...(capability.contentBackedPresentation ? { appearance } : {}) }));
   if (ack.documentId !== projection.documentId || ack.revision !== projection.revision) {
     throw new Error("NATIVE_CANVAS_ACK_UNCONFIRMED");
   }
@@ -293,6 +308,7 @@ export class NativeChromeLease {
   private requestedUpdate = 0;
   private appliedUpdate = 0;
   private activation: Promise<void> | undefined;
+  private appliedAdmission: ReturnType<typeof nativePresentationAdmission> = {};
   private focusSequence = 0;
   constructor(projection: ChromeControlProjection, ownerEpoch: string, readonly context = "", readonly inPlaceUpdates = false) {
     this.projection = { ...projection, ...nextChromeIdentity(ownerEpoch, chromeControlId(projection.kind)) };
@@ -308,6 +324,7 @@ export class NativeChromeLease {
     return nativeDocumentId() === this.projection.documentId &&
       !!installed && matches({ ...installed, phase: "active" }, this.projection, "active");
   }
+  get admissionReady(): boolean { return this.current && this.active; }
   /** Focus may reuse only the acknowledged installation still owning this slot. */
   get focusReady(): boolean {
     return this.replacementReady && this.projection.enabled && this.ownsInstallation;
@@ -337,6 +354,11 @@ export class NativeChromeLease {
   matchesGeometry(geometry: ChromeGeometry): boolean {
     return this.current && this.layoutConfirmed && this.sameGeometry(geometry);
   }
+  /** A return request may wait on this reserved admission, never enable it.
+   * Actual focus still requires confirmed layout, activation and update receipt. */
+  canAwaitFocusAt(geometry: ChromeGeometry): boolean {
+    return this.current && !this.focusReady && this.ownsInstallation && this.sameGeometry(geometry);
+  }
   private sameGeometry(geometry: ChromeGeometry): boolean {
     return geometry.presentationGroup === this.projection.presentationGroup &&
       geometry.presentationOwnerEpoch === this.projection.presentationOwnerEpoch &&
@@ -352,12 +374,14 @@ export class NativeChromeLease {
       throw new Error("NATIVE_CHROME_LAYOUT_UNCONFIRMED");
     }
     this.layoutConfirmed = true;
-    if (peekNativeChromeCapabilities()?.panelPresentation && !this.projection.presentationGroup) {
+    const capability = peekNativeChromeCapabilities();
+    if (capability?.panelPresentation && !capability.contentBackedPresentation && !this.projection.presentationGroup) {
       setNativeBaseAperture(this.projection.controlId, this.projection.revision, this.projection.frame);
     }
     return this.current;
   }
   async prepare(): Promise<boolean> {
+    if (!await this.acknowledgeRegions()) return false;
     suspended.delete(this.projection.controlId);
     outstanding.set(this.projection.controlId, this.projection);
     const ack = await bounded(nativeChrome.prepare(this.projection));
@@ -376,6 +400,7 @@ export class NativeChromeLease {
   }
   private async prepareReplacement(previous: NativeChromeLease,
     prepare: (projection: ChromeProjection & { previousRevision: number }) => Promise<ChromeAcknowledgement>): Promise<boolean> {
+    if (!await this.acknowledgeRegions()) return false;
     previous.invalidate();
     outstanding.set(this.projection.controlId, this.projection);
     const ack = await bounded(prepare({
@@ -383,12 +408,24 @@ export class NativeChromeLease {
     }));
     return this.acceptPreparation(ack);
   }
+  private async acknowledgeRegions(): Promise<boolean> {
+    if (!peekNativeChromeCapabilities()?.reservedPresentationRegions) return this.current;
+    // A sibling shell can supersede a pending receipt. Reconcile once, without
+    // reinstalling the host or retrying any choice/operation. Cancellation wins.
+    for (let attempt = 0; attempt < 2 && this.current; attempt++) {
+      if (await syncNativePresentationRegions()) return this.current;
+    }
+    return false;
+  }
   async activate(): Promise<void> {
     if (!this.current) return;
     this.activation ??= (async () => {
-      const ack = await bounded(nativeChrome.activate(this.projection));
+      const admission = nativePresentationAdmission();
+      const ack = await bounded(nativeChrome.activate({ ...this.projection, ...admission }));
       if (!matches(ack, this.projection, "active")) throw new Error("NATIVE_CHROME_ACTIVATE_UNCONFIRMED");
+      if (ack.presentationApplied === false) { this.activation = undefined; return; }
       this.active = this.current;
+      this.appliedAdmission = admission;
     })();
     await this.activation;
   }
@@ -399,9 +436,11 @@ export class NativeChromeLease {
     const focusSequence = ++this.focusSequence;
     const ack = await bounded(nativeChrome.restoreFocus({ ...this.projection, updateSequence, focusSequence }));
     if (!matches({ ...ack, phase: "active" }, this.projection, "active") ||
-        ack.updateSequence !== updateSequence || ack.focusSequence !== focusSequence || ack.restored !== true) {
+        ack.updateSequence !== updateSequence || ack.focusSequence !== focusSequence) {
       throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
     }
+    if (ack.cancellation === "keyboard" && ack.restored === false) throw new NativeChromeFocusCancelled();
+    if (ack.restored !== true) throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
     return this.focusReady && allowed() && this.focusSequence === focusSequence &&
       this.requestedUpdate === updateSequence && this.appliedUpdate === updateSequence;
   }
@@ -419,7 +458,8 @@ export class NativeChromeLease {
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }
-    if (this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation)) {
+    if (this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation) &&
+        JSON.stringify(this.appliedAdmission) === JSON.stringify(nativePresentationAdmission())) {
       // Admission already contains this snapshot. Waiting for activation must
       // not manufacture an update or recreate the native control afterward.
       await this.activate();
@@ -428,15 +468,18 @@ export class NativeChromeLease {
     }
     const updateSequence = ++this.requestedUpdate;
     await this.activate();
-    if (!this.current || updateSequence !== this.requestedUpdate) return false;
+    if (!this.current || !this.active || updateSequence !== this.requestedUpdate) return false;
     try {
-      const ack = await bounded(nativeChrome.update({ ...this.projection, ...presentation, updateSequence }));
+      const admission = nativePresentationAdmission();
+      const ack = await bounded(nativeChrome.update({ ...this.projection, ...presentation, updateSequence, ...admission }));
       if (!this.current || updateSequence !== this.requestedUpdate) return false;
       if (!matches({ ...ack, phase: "active" }, this.projection, "active") || ack.updateSequence !== updateSequence) {
         throw new Error("NATIVE_CHROME_UPDATE_UNCONFIRMED");
       }
+      if (ack.presentationApplied === false) return false;
       Object.assign(this.projection, presentation);
       this.appliedUpdate = updateSequence;
+      this.appliedAdmission = admission;
       return true;
     } catch (error) {
       if (!this.current || updateSequence !== this.requestedUpdate) return false;

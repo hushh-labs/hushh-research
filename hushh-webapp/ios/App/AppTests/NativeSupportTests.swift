@@ -44,6 +44,295 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
     }
 
+    #if DEBUG
+    func testNativeHistoryQualificationNeverReactivatesExperimentalProductControls() {
+        XCTAssertTrue(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: true))
+        for arguments in [[], ["-UITestMode"], ["--hushh-native-compositor", "--hushh-native-drawer-clip"]] {
+            XCTAssertFalse(NativeHistoryQualification.admits(arguments: arguments, phone: true, supported: true))
+        }
+        XCTAssertFalse(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: false, supported: true))
+        XCTAssertFalse(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: false))
+        XCTAssertFalse(HushhNativePresentationPolicy.customControlsEnabled)
+    }
+
+    func testNativeHistoryQualificationCancellationAndRegrabRejectOldSettlement() {
+        var state = NativeHistoryQualificationMotion()
+        let opening = state.begin(at: 0)
+        state.move(to: 0.7)
+        XCTAssertFalse(state.destination(velocity: 1000, cancelled: true), "Cancellation must not commit an opening drag")
+        XCTAssertTrue(state.commit(open: true, generation: opening))
+        let closing = state.begin(at: 0.6)
+        state.move(to: 0.2)
+        XCTAssertTrue(state.destination(velocity: -1000, cancelled: true), "Cancellation preserves the last committed open state")
+        let regrab = state.begin(at: 0.3)
+        XCTAssertFalse(state.commit(open: false, generation: closing), "An interrupted close cannot finish a new drag")
+        state.move(to: 0.8)
+        XCTAssertTrue(state.commit(open: true, generation: regrab))
+        state.retire()
+        XCTAssertFalse(state.commit(open: false, generation: regrab))
+        state.move(to: 0)
+        XCTAssertEqual(state.progress, 1, "Retired callbacks cannot mutate or re-admit the fixture")
+    }
+
+    @MainActor
+    func testNativeHistoryQualificationRetainsHostsAndActuallyDetachesOnRetirement() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Glass composition requires iOS 26") }
+        let fixture = NativeHistoryQualificationController()
+        fixture.loadViewIfNeeded()
+        fixture.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        fixture.view.layoutIfNeeded()
+        let base = try XCTUnwrap(fixture.baseHost)
+        let drawer = try XCTUnwrap(fixture.drawerHost)
+        XCTAssertEqual(fixture.children.count, 2)
+        XCTAssertTrue(fixture.view.accessibilityViewIsModal)
+        fixture.appearance.dark = true
+        fixture.appearance.gold = true
+        fixture.beginDrag()
+        XCTAssertTrue(fixture.baseHost === base)
+        XCTAssertTrue(fixture.drawerHost === drawer)
+        XCTAssertEqual(fixture.overrideUserInterfaceStyle, .dark)
+        let shield = HushhSessionPrivacyShield.shared.snapshot()
+        var detached = false
+        fixture.onRetired = {
+            detached = fixture.children.isEmpty && base.view.superview == nil && drawer.view.superview == nil
+        }
+        fixture.retire()
+        XCTAssertTrue(detached, "A retirement receipt must follow actual owned-view removal")
+        XCTAssertTrue(fixture.view.accessibilityElementsHidden)
+        XCTAssertFalse(fixture.view.isUserInteractionEnabled)
+        XCTAssertNil(fixture.appearance.changed)
+        fixture.beginDrag()
+        fixture.settle(open: true)
+        XCTAssertTrue(fixture.children.isEmpty)
+        XCTAssertEqual(HushhSessionPrivacyShield.shared.snapshot().generation, shield.generation)
+        XCTAssertEqual(HushhSessionPrivacyShield.shared.snapshot().shielded, shield.shielded,
+            "Fixture retirement must not release or invalidate the product's privacy authority")
+    }
+    #endif
+
+    @MainActor
+    func testContentBackedBaseHasNoCanvasBetweenGlassAndPageAndPreservesHitIsolation() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .contentBacked)
+        let control = UIButton(frame: CGRect(x: 10, y: 10, width: 44, height: 44))
+        container.setCanvas(.black, appearance: .light)
+        container.install(control, id: "chat-history-toggle", group: nil)
+        XCTAssertTrue(web.superview === container)
+        XCTAssertTrue(container.contentBackedPresentation)
+        XCTAssertGreaterThan(container.subviews.firstIndex(of: container.underlay)!, container.subviews.firstIndex(of: web)!)
+        XCTAssertGreaterThanOrEqual(container.underlay.layer.zPosition, web.layer.zPosition)
+        XCTAssertEqual(container.underlay.backgroundColor, .clear, "An opaque native plane would destroy the page-backed material")
+        XCTAssertEqual(container.overrideUserInterfaceStyle, .light)
+        let unsupportedPose = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 1, privacyGeneration: 0, frame: container.bounds, offset: 0, opacity: 0.5, settled: true)
+        XCTAssertFalse(container.apply(unsupportedPose, group: "profile", privacy: 0),
+            "The material-only pilot must not accidentally adopt an alpha-composited native drawer")
+        container.setAdmission("chat-history-toggle", admitted: true)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 100, y: 100), with: nil)?.isDescendant(of: control) == true)
+        container.setAdmission("chat-history-toggle", admitted: false)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 1,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true))
+        XCTAssertEqual(HushhNativeChromePlugin.stationaryChatControlIds["agent-surface"], "chat-agent-surface",
+            "The stationary Chat selector must not disappear from the content-backed capability contract")
+        XCTAssertNil(HushhNativeChromePlugin.stationaryChatControlIds["profile-back"],
+            "Admitting the stationary selector must not adopt moving Profile controls")
+        XCTAssertFalse(container.containsStationaryControl(CGRect(x: 280, y: 60, width: 88, height: 44), document: "synthetic"),
+            "A selector crossing the reserved header boundary cannot be admitted")
+        XCTAssertTrue(container.containsStationaryControl(CGRect(x: 280, y: 50, width: 88, height: 44), document: "synthetic"))
+        XCTAssertFalse(control.isHidden, "Overlay isolation must retain the visible material")
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === container,
+            "A disabled native region must not forward touches to covered DOM controls")
+        XCTAssertFalse(container.hitTest(CGPoint(x: 100, y: 200), with: nil) === container,
+            "The React drawer keeps its central interaction region")
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 0,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertTrue(container.overlayIsolated, "A reordered acknowledgment cannot restore actions")
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 2,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertFalse(control.isUserInteractionEnabled, "Fresh bindings, not region dismissal, restore interaction")
+        container.setAdmission("chat-history-toggle", admitted: true)
+        XCTAssertTrue(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+        let retained = control.superview
+        let privacy = HushhSessionPrivacyShield.shared.snapshot().generation
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 3,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true, covered: true, privacyGeneration: privacy))
+        container.revealUnderlay() // A delayed normal control update cannot uncover the drawer.
+        XCTAssertTrue(container.underlay.isHidden)
+        XCTAssertTrue(control.superview === retained)
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === container,
+            "Full-height drawer edge controls must reach WK, not the old reserved-strip interceptor")
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 2,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertTrue(container.fullWindowCovered)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 4,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false, privacyGeneration: privacy))
+        container.setAdmission("chat-history-toggle", admitted: true, presentationRegionRevision: 2, privacyGeneration: privacy)
+        XCTAssertFalse(control.isUserInteractionEnabled, "A pre-cover admission must not revive after dismissal")
+        container.setAdmission("chat-history-toggle", admitted: true, presentationRegionRevision: 4, privacyGeneration: privacy)
+        XCTAssertTrue(control.isUserInteractionEnabled)
+        container.conceal()
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 5,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false, privacyGeneration: privacy))
+        XCTAssertTrue(container.underlay.isHidden, "Ordinary coverage release is not privacy validation")
+        XCTAssertTrue(control.superview === retained)
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+    }
+
+    @MainActor
+    func testContentBackedDrawerClippingPreservesWindowCoordinatesWithoutGrantingActions() {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .contentBacked, drawerClipping: true)
+        let control = UIButton(frame: CGRect(x: 10, y: 10, width: 44, height: 44))
+        container.install(control, id: "chat-history-toggle", group: nil)
+        let retained = control.superview
+        let original = control.convert(control.bounds, to: container)
+        let privacy = HushhSessionPrivacyShield.shared.snapshot().generation
+        func regions(_ revision: Int, drawer: String?) {
+            XCTAssertTrue(container.setRegions(document: "synthetic", revision: revision,
+                viewport: container.bounds.size, top: 100, bottom: 150, isolated: drawer != nil,
+                covered: drawer != nil, privacyGeneration: privacy, drawer: drawer))
+        }
+        regions(1, drawer: "profile")
+        XCTAssertEqual(container.baseVisibleFrame, .zero, "No native paint before the first current coverage receipt")
+        let pose = NativePanelPose(document: "synthetic", ownerEpoch: "epoch", generation: 1,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 150, opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(pose, group: "profile", privacy: privacy, revision: 1))
+        XCTAssertEqual(container.baseVisibleFrame, CGRect(x: 0, y: 0, width: 150, height: 844))
+        XCTAssertFalse(container.underlay.isHidden, "Held partial drag must not hide the entire retained native plane")
+        XCTAssertEqual(control.convert(control.bounds, to: container), original)
+        XCTAssertTrue(control.superview === retained)
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 350, y: 20), with: nil) === container,
+            "Drawer edge touches must reach the single WebView")
+        // Same displayed drawer, new admission revision: no blank interval.
+        regions(2, drawer: "profile")
+        XCTAssertEqual(container.baseVisibleFrame.width, 150)
+        XCTAssertFalse(container.applyDrawerCoverage(pose, group: "profile", privacy: privacy, revision: 1))
+        regions(3, drawer: nil)
+        XCTAssertEqual(container.baseVisibleFrame, container.bounds)
+        XCTAssertFalse(container.applyDrawerCoverage(pose, group: "profile", privacy: privacy, revision: 1),
+            "A delayed covered pose cannot cover the dismissed drawer")
+        regions(4, drawer: "history")
+        let history = NativePanelPose(document: "synthetic", ownerEpoch: "history-epoch", generation: 2,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: -150, opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(history, group: "history", privacy: privacy, revision: 4))
+        XCTAssertEqual(container.baseVisibleFrame, CGRect(x: 240, y: 0, width: 150, height: 844))
+        XCTAssertEqual(control.convert(control.bounds, to: container), original,
+            "Right-hand exposure must compensate the viewport origin, not move child controls")
+        XCTAssertEqual(container.underlay.bounds.size, container.bounds.size)
+        XCTAssertEqual(container.underlay.superview?.alpha, 1)
+        XCTAssertNil(container.underlay.superview?.layer.mask)
+        XCTAssertTrue(container.underlay.superview?.clipsToBounds == true)
+        XCTAssertFalse(container.applyDrawerCoverage(history, group: "profile", privacy: privacy, revision: 4))
+        XCTAssertFalse(container.applyDrawerCoverage(history, group: "history", privacy: privacy + 1, revision: 4))
+        XCTAssertTrue(container.retire(group: "history", document: "synthetic", ownerEpoch: "history-epoch", generation: 2))
+        XCTAssertEqual(container.baseVisibleFrame, .zero, "Uncertain/retired coverage must not paint over the drawer")
+        regions(5, drawer: "profile")
+        let terminal = NativePanelPose(document: "synthetic", ownerEpoch: "exit-epoch", generation: 3,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: container.bounds.width,
+            opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(terminal, group: "profile", privacy: privacy, revision: 5))
+        XCTAssertEqual(container.baseVisibleFrame, container.bounds)
+        regions(6, drawer: nil) // Apply release before clearing the captured pose.
+        XCTAssertTrue(container.retire(group: "profile", document: "synthetic", ownerEpoch: "exit-epoch", generation: 3))
+        XCTAssertEqual(container.baseVisibleFrame, container.bounds, "Normal release-then-retire must never blank exposed glass")
+        let entering = NativePanelPose(document: "synthetic", ownerEpoch: "atomic-entry", generation: 4,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 200, opacity: 1, settled: false)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 7,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: entering))
+        XCTAssertEqual(container.baseVisibleFrame.width, 200,
+            "Atomic first coverage must expose the retained plane without a zero-frame intermediate state")
+        XCTAssertFalse(control.isUserInteractionEnabled)
+        XCTAssertTrue(container.drawerCoverageIsSuperseded(entering, group: "profile", privacy: privacy, revision: 7),
+            "An already committed atomic pose is a no-op, not a failed drawer lifetime")
+        XCTAssertFalse(container.drawerCoverageIsSuperseded(entering, group: "profile", privacy: privacy + 1, revision: 7))
+        XCTAssertFalse(container.drawerCoverageIsSuperseded(entering, group: "history", privacy: privacy, revision: 7))
+        let foreignDuplicate = NativePanelPose(document: "synthetic", ownerEpoch: "different-owner", generation: 4,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 200, opacity: 1, settled: false)
+        XCTAssertFalse(container.drawerCoverageIsSuperseded(foreignDuplicate, group: "profile", privacy: privacy, revision: 7),
+            "Sequence coincidence must never admit another owner as a superseded delivery")
+        let stale = NativePanelPose(document: "synthetic", ownerEpoch: "stale-entry", generation: 4,
+            sequence: 2, privacyGeneration: privacy, frame: container.bounds, offset: 300, opacity: 1, settled: false)
+        XCTAssertFalse(container.drawerCoverageIsSuperseded(stale, group: "profile", privacy: privacy, revision: 7),
+            "A changed owner cannot be treated as an overtaken presentation")
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 8,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: stale))
+        XCTAssertEqual(container.baseVisibleFrame.width, 200, "Rejected admission cannot partially commit a newer region")
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 8,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy + 1, drawer: "profile", initialPose: entering))
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 8,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false,
+            privacyGeneration: privacy))
+        regions(9, drawer: "profile")
+        let reopened = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 5,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 80, opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(reopened, group: "profile", privacy: privacy, revision: 9))
+        XCTAssertFalse(container.retire(group: "profile", document: "synthetic", ownerEpoch: "exit-epoch", generation: 3))
+        XCTAssertEqual(container.baseVisibleFrame.width, 80, "Late cleanup cannot clear a reopened presentation")
+        // Initial sampling and the ordinary pose writer have independent
+        // bridge deliveries. A newest region must not fail or rewind pixels
+        // when its same-owner initial pose loses that ordering race.
+        let sampled = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 5,
+            sequence: 2, privacyGeneration: privacy, frame: container.bounds, offset: 100, opacity: 1, settled: false)
+        let advanced = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 5,
+            sequence: 3, privacyGeneration: privacy, frame: container.bounds, offset: 120, opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(advanced, group: "profile", privacy: privacy, revision: 9))
+        let foreignSample = NativePanelPose(document: "synthetic", ownerEpoch: "foreign-owner", generation: 5,
+            sequence: 2, privacyGeneration: privacy, frame: container.bounds, offset: 100, opacity: 1, settled: false)
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 10,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: foreignSample))
+        let malformedSample = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 5,
+            sequence: 2, privacyGeneration: privacy, frame: container.bounds,
+            offset: container.bounds.width + 1, opacity: 1, settled: false)
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 10,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: malformedSample))
+        XCTAssertTrue(container.acceptsPresentationRevision(9, privacyGeneration: privacy))
+        XCTAssertEqual(container.groupPose("profile"), advanced)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 10,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: sampled))
+        XCTAssertEqual(container.groupPose("profile"), advanced)
+        XCTAssertEqual(container.baseVisibleFrame.width, 120, "Region admission must preserve newer geometry")
+        XCTAssertTrue(container.acceptsPresentationRevision(10, privacyGeneration: privacy))
+        XCTAssertFalse(container.acceptsPresentationRevision(9, privacyGeneration: privacy))
+        XCTAssertFalse(control.isUserInteractionEnabled, "Layout admission never grants covered actions")
+        let ulp = CGFloat(Float(container.bounds.width).ulp)
+        let noisy = NativePanelPose(document: "synthetic", ownerEpoch: "pixel-epoch", generation: 6,
+            sequence: 1, privacyGeneration: privacy,
+            frame: CGRect(x: -ulp, y: 0, width: container.bounds.width + ulp, height: container.bounds.height),
+            offset: 150, opacity: 1, settled: false)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 11,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: noisy),
+            "Observed WebKit transform round-off cannot retire a full-height drawer/dock")
+        let outside = NativePanelPose(document: "synthetic", ownerEpoch: "pixel-epoch", generation: 6,
+            sequence: 2, privacyGeneration: privacy,
+            frame: CGRect(x: -0.01, y: 0, width: container.bounds.width + 0.01, height: container.bounds.height),
+            offset: 150, opacity: 1, settled: false)
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 12,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: outside),
+            "Machine precision must not become a permissive CSS-pixel containment margin")
+        XCTAssertEqual(container.groupPose("profile"), noisy)
+        XCTAssertTrue(container.acceptsPresentationRevision(11, privacyGeneration: privacy))
+        container.conceal()
+        regions(12, drawer: nil)
+        XCTAssertEqual(container.baseVisibleFrame, .zero)
+        XCTAssertTrue(container.underlay.isHidden, "Region release must never clear privacy")
+        XCTAssertTrue(web.superview === container)
+    }
+
     @MainActor
     func testNativePanelPoseAndClippingDoNotGrantStaleOrOutsideHits() {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
@@ -60,6 +349,16 @@ final class NativeSupportTests: XCTestCase {
             "WK's rectangle must not sit in front of native controls in UIKit traversal")
         XCTAssertLessThan(container.underlay.layer.zPosition, web.layer.zPosition,
             "Native accessibility ordering must not move glass above product paint")
+        let navigation = UITabBar(frame: CGRect(x: 0, y: 761, width: 390, height: 83))
+        container.install(navigation, id: "bottom-navigation", group: nil)
+        container.setAdmission("bottom-navigation", admitted: true)
+        XCTAssertTrue(navigation.superview === container.underlay,
+            "The retained bar must paint beneath the WebView's drawer scrim, not over product rows")
+        container.setAdmission("bottom-navigation", admitted: false)
+        XCTAssertFalse(navigation.isHidden)
+        XCTAssertFalse(navigation.isUserInteractionEnabled)
+        XCTAssertTrue(navigation.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 120, y: 800), with: nil)?.isDescendant(of: navigation) == true)
         XCTAssertTrue(container.hitTest(CGPoint(x: 120, y: 20), with: nil) === control)
         control.frame.origin.x = -30 // Its bounds extend outside the clipped group.
         XCTAssertFalse(container.hitTest(CGPoint(x: 85, y: 20), with: nil) === control)
@@ -152,15 +451,20 @@ final class NativeSupportTests: XCTestCase {
     func testDockRetainsEditorAndSelectionAcrossVoiceAndThemeUpdates() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Native dock requires iOS 26") }
         let model = NativeDockModel()
-        model.mode = "text"; model.visible = true; model.editable = true
+        model.mode = "text"; model.visible = true; model.interactionEnabled = true; model.editable = true
         model.micEnabled = true; model.sendEnabled = true
         model.placeholder = "Message One"
         let host = UIHostingController(rootView: NativeAgentDockView(model: model))
         host.safeAreaRegions = []
+        host.view.backgroundColor = .clear
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        let parent = UIViewController(); parent.view.backgroundColor = .systemBackground
+        let parent = UIViewController()
+        let container = NativePresentationContainer(
+            webView: WKWebView(frame: window.bounds), basePresentation: .contentBacked)
+        parent.view = container
+        parent.view.backgroundColor = .systemBackground
         window.rootViewController = parent; window.isHidden = false
-        parent.addChild(host); parent.view.addSubview(host.view); host.didMove(toParent: parent)
+        parent.addChild(host); container.install(host.view, id: "agent-dock", group: nil); host.didMove(toParent: parent)
         host.view.frame = CGRect(x: 16, y: 700, width: 358, height: 100)
         defer { model.clear(); host.view.removeFromSuperview(); host.removeFromParent(); window.isHidden = true }
         host.view.layoutIfNeeded()
@@ -178,26 +482,66 @@ final class NativeSupportTests: XCTestCase {
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
             let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
             window.windowScene = scene
+            let web = WKWebView(frame: window.bounds)
+            let composition = NativePresentationContainer(webView: web, basePresentation: .contentBacked)
+            parent.view = composition
+            composition.install(host.view, id: "agent-dock", group: nil)
+            let bar = UITabBar(frame: CGRect(x: 0, y: 761, width: 390, height: 83))
+            bar.items = try XCTUnwrap(HushhNativeNavigationArtwork.items())
+            bar.selectedItem = bar.items?.first
+            composition.install(bar, id: "bottom-navigation", group: nil)
+            let button = UIHostingController(rootView: NativeChromeButton(label: "Open chat history",
+                controlId: "chat-history-toggle", symbol: "line.3.horizontal",
+                theme: HushhNativeControlAppearance(appearance: "light", accentHex: "#007aff", foregroundHex: "#222222")!,
+                action: {}, layout: { _ in }, focus: ChromeFocusRequest()))
+            button.safeAreaRegions = []; button.view.backgroundColor = .clear
+            parent.addChild(button)
+            composition.install(button.view, id: "chat-history-toggle", group: nil)
+            button.didMove(toParent: parent)
+            button.view.frame = CGRect(x: 16, y: 64, width: 44, height: 44)
             window.makeKeyAndVisible()
-            defer { window.isHidden = true; previousKeyWindow?.makeKeyAndVisible() }
+            defer {
+                button.willMove(toParent: nil); button.view.removeFromSuperview(); button.removeFromParent()
+                window.isHidden = true; previousKeyWindow?.makeKeyAndVisible()
+            }
             host.view.frame.size.height = 52
             for style in [UIUserInterfaceStyle.light, .dark] {
                 parent.overrideUserInterfaceStyle = style
                 host.overrideUserInterfaceStyle = style
-                for mode in ["text", "voice"] {
-                    model.mode = mode
-                    model.placeholder = mode == "text" ? "Message One" : "Talk to One"
-                    RunLoop.main.run(until: Date().addingTimeInterval(0.15))
-                    host.view.layoutIfNeeded()
-                    var rendered = false
-                    let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
-                        rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                button.overrideUserInterfaceStyle = style; bar.overrideUserInterfaceStyle = style
+                let dark = style == .dark
+                composition.setCanvas(dark ? UIColor(red: 0.055, green: 0.055, blue: 0.063, alpha: 1) : .systemGroupedBackground, appearance: style)
+                // Opaque, synthetic page content only. Capturing the entire
+                // attached test window includes the effect's real backdrop.
+                web.loadHTMLString("""
+                    <meta name="viewport" content="width=device-width,initial-scale=1"><style>
+                    body{margin:0;background:\(dark ? "#0e0e10" : "#f2f2f7");color:\(dark ? "#f5f5f7" : "#222");font:16px -apple-system}
+                    main{padding:128px 16px 0}h1{font-size:28px}section{height:160px;border-radius:20px;padding:16px;background:linear-gradient(135deg,#64c7f0,#8f7aef);margin:16px 0}
+                    </style><main><h1>Native material study</h1><p>Synthetic public content</p><section>Page-backed glass</section><section>Shared Hussh geometry</section><section>Content continues beneath the dock</section></main>
+                    """, baseURL: nil)
+                let loaded = expectation(for: NSPredicate { _, _ in !web.isLoading }, evaluatedWith: web)
+                wait(for: [loaded], timeout: 5)
+                for accent in ["#007aff", "#d4a574"] {
+                    let theme = HushhNativeControlAppearance(appearance: dark ? "dark" : "light",
+                        accentHex: accent, foregroundHex: dark ? "#f5f5f7" : "#222222")!
+                    model.accent = theme.accent; bar.tintColor = theme.accent; bar.unselectedItemTintColor = .label
+                    button.rootView = NativeChromeButton(label: "Open chat history", controlId: "chat-history-toggle",
+                        symbol: "line.3.horizontal", theme: theme, action: {}, layout: { _ in }, focus: ChromeFocusRequest())
+                    for mode in ["text", "voice"] {
+                        model.mode = mode
+                        model.placeholder = mode == "text" ? "Message One" : "Talk to One"
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+                        host.view.layoutIfNeeded()
+                        var rendered = false
+                        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                            rendered = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                        }
+                        XCTAssertTrue(rendered, "Synthetic visual capture must reach an attached native presentation")
+                        let attachment = XCTAttachment(image: image)
+                        attachment.name = "synthetic-material-\(dark ? "dark" : "light")-\(accent == "#007aff" ? "blue" : "gold")-\(mode)"
+                        attachment.lifetime = .keepAlways
+                        add(attachment)
                     }
-                    XCTAssertTrue(rendered, "Synthetic visual capture must reach an attached native presentation")
-                    let attachment = XCTAttachment(image: image)
-                    attachment.name = "synthetic-dock-\(style == .dark ? "dark" : "light")-\(mode)"
-                    attachment.lifetime = .keepAlways
-                    add(attachment)
                 }
             }
             model.mode = "text"; model.placeholder = "Message One"
@@ -222,13 +566,46 @@ final class NativeSupportTests: XCTestCase {
         var sends = 0
         editor.submit = { sends += 1 }
         XCTAssertTrue(editor.becomeFirstResponder())
+        model.interactionEnabled = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertTrue(editor.isFirstResponder, "Temporary admission revocation must not dismiss the system keyboard")
+        XCTAssertTrue(model.editor === editor)
+        XCTAssertFalse(editor.delegate?.textView?(editor, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: "x") == true)
+        var blockedEvents = 0
+        model.emit = { _, _, _, _, _ in blockedEvents += 1 }
+        XCTAssertFalse(editor.delegate?.textView?(editor, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: String(repeating: "x", count: 1200)) == true)
+        model.action("send")
+        XCTAssertEqual(blockedEvents, 0)
+        model.interactionEnabled = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         let selected = editor.selectedRange
         let escape = try XCTUnwrap(editor.keyCommands?.first { $0.input == UIKeyCommand.inputEscape })
+        XCTAssertTrue(escape.wantsPriorityOverSystemBehavior, "Escape must reach the idle editor before UIKit focus consumes it")
         editor.perform(escape.action, with: escape)
         XCTAssertFalse(editor.isFirstResponder)
         XCTAssertEqual(editor.text, "Hello 👋")
         XCTAssertEqual(editor.selectedRange, selected)
         XCTAssertEqual(sends, 0)
+        // Actual overlay admission must release native focus independently of
+        // a queued React/plugin apply, without destroying the retained draft.
+        XCTAssertTrue(editor.becomeFirstResponder())
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 1,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertTrue(editor.isFirstResponder, "Compatible geometry must retain editing")
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 2,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true))
+        XCTAssertFalse(editor.isFirstResponder, "Confirmed modal admission must release native editor focus")
+        XCTAssertTrue(model.editor === editor)
+        XCTAssertEqual(editor.text, "Hello 👋")
+        XCTAssertEqual(editor.selectedRange, selected)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 3,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertTrue(editor.becomeFirstResponder())
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 2,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true))
+        XCTAssertTrue(editor.isFirstResponder, "Rejected stale coverage cannot interrupt resumed editing")
+        editor.resignFirstResponder()
         model.awaitingConsumption = true
         model.consumeText()
         XCTAssertFalse(editor.placeholderLabel.isHidden,
@@ -346,6 +723,9 @@ final class NativeSupportTests: XCTestCase {
         // load() registers on the main queue. Yield the actor so registration
         // can complete before asserting the synchronous keyboard fence.
         await fulfillment(of: [ready], timeout: 1)
+        #if DEBUG
+        let invalidations = plugin.presentationInvalidations
+        #endif
         let notifications = NotificationCenter.default
         notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
         XCTAssertTrue(plugin.keyboardVisible)
@@ -362,6 +742,32 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(plugin.keyboardVisible)
         notifications.post(name: UIResponder.keyboardWillHideNotification, object: nil)
         notifications.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertFalse(plugin.keyboardVisible)
+        #if DEBUG
+        XCTAssertEqual(plugin.presentationInvalidations, invalidations,
+            "A keyboard cycle must not retire presentation or notify React to replace its native controls")
+        notifications.post(name: UIApplication.willResignActiveNotification, object: nil)
+        XCTAssertGreaterThan(plugin.presentationInvalidations, invalidations,
+            "Privacy still retires the protected presentation immediately")
+        #endif
+    }
+
+    @MainActor
+    func testNativeNavigationDoesNotReadmitDuringAnInterruptedKeyboardDismissal() {
+        let plugin = HushhNativeNavigationPlugin()
+        plugin.load()
+        let ready = expectation(description: "Navigation lifecycle registered")
+        DispatchQueue.main.async { ready.fulfill() }
+        wait(for: [ready], timeout: 1)
+        let center = NotificationCenter.default
+        center.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        center.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible)
+        center.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        center.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible)
+        center.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        center.post(name: UIResponder.keyboardDidHideNotification, object: nil)
         XCTAssertFalse(plugin.keyboardVisible)
     }
 
@@ -577,6 +983,14 @@ final class NativeSupportTests: XCTestCase {
         var state = HushhNativeNavigationState()
         XCTAssertTrue(state.apply(document: "first", revision: 1, visible: true, selected: "chat"))
         XCTAssertTrue(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: false))
+        // Covered presentation is retained; neither direct taps nor VoiceOver
+        // admission may navigate underneath the authored interaction layer.
+        XCTAssertTrue(state.apply(document: "first", revision: 2, visible: true, selected: "chat", interactionEpoch: 1, interactionEnabled: false))
+        XCTAssertTrue(state.isPresented(appIsActive: true, shielded: false, keyboardVisible: false))
+        XCTAssertFalse(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: false))
+        XCTAssertFalse(state.isPresented(appIsActive: true, shielded: true, keyboardVisible: false))
+        XCTAssertFalse(state.isPresented(appIsActive: false, shielded: false, keyboardVisible: false))
+        XCTAssertFalse(state.isPresented(appIsActive: true, shielded: false, keyboardVisible: true))
         XCTAssertTrue(state.apply(document: "first", revision: 3, visible: false, selected: "feed"))
         XCTAssertFalse(state.apply(document: "first", revision: 2, visible: true, selected: "chat"))
         XCTAssertFalse(state.apply(document: "first", revision: 4, visible: true, selected: "arbitrary-route"))
