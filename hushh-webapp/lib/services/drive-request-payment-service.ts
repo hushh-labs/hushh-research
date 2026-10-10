@@ -8,9 +8,12 @@ export type DriveRequestPaymentStatus =
 
 export interface DriveRequestPayment {
   status: DriveRequestPaymentStatus;
-  /** 0 when no payment is required; otherwise the request's whole-dollar price. */
-  amountCents: number;
+  /** Null while the owner must set a price; 0 only when payment is not required. */
+  amountCents: number | null;
   currency: "usd";
+  ownerPriceRequired?: boolean;
+  ownerPayoutAccountReady?: boolean;
+  paymentsReady?: boolean;
   reconciliationRequired?: boolean;
   paymentLinkExpired?: boolean;
   checkoutExpiresAt?: string | null;
@@ -18,7 +21,10 @@ export interface DriveRequestPayment {
 
 const CHECKOUT_HOSTS = new Set(["checkout.stripe.com", "checkout.stripe.dev"]);
 
-function validPaymentAmount(status: unknown, amountCents: unknown): boolean {
+function validPaymentAmount(status: unknown, amountCents: unknown, ownerPriceRequired: unknown): boolean {
+  if (amountCents === null) {
+    return (status === "preparing" || status === "expired") && ownerPriceRequired === true;
+  }
   return status === "not_required" ? amountCents === 0 : isValidDocumentRequestPriceCents(amountCents);
 }
 
@@ -54,8 +60,11 @@ export class DriveRequestPaymentService {
     const value = await paymentRequest(firebaseIdToken, requestId, false);
     if (
       !["not_required", "preparing", "awaiting_payment", "checkout_open", "paid", "refunded", "expired"].includes(String(value.status)) ||
-      !validPaymentAmount(value.status, value.amountCents) ||
+      !validPaymentAmount(value.status, value.amountCents, value.ownerPriceRequired) ||
       value.currency !== "usd"
+      || (value.ownerPriceRequired !== undefined && typeof value.ownerPriceRequired !== "boolean")
+      || (value.ownerPayoutAccountReady !== undefined && typeof value.ownerPayoutAccountReady !== "boolean")
+      || (value.paymentsReady !== undefined && typeof value.paymentsReady !== "boolean")
       || (value.reconciliationRequired !== undefined && typeof value.reconciliationRequired !== "boolean")
       || (value.paymentLinkExpired !== undefined && typeof value.paymentLinkExpired !== "boolean")
       || (value.checkoutExpiresAt !== undefined

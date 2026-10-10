@@ -1042,6 +1042,8 @@ function FeedPageSession({
         detailsPending={documentPricePrompt.detailsPending}
         paymentRequired={documentPricePrompt.paymentRequired}
         lockedAmountCents={documentPricePrompt.lockedAmountCents}
+        initialAmountCents={documentPricePrompt.initialAmountCents}
+        priceOnly={documentPricePrompt.priceOnly}
         busy={documentPricePrompt.busy}
         error={documentPricePrompt.error}
         onSubmit={documentPricePrompt.submit}

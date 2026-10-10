@@ -1,12 +1,17 @@
 """Financial boundaries for newly enrolled Drive request owner earnings."""
 
+# ruff: noqa: F811 -- imported isolated PostgreSQL fixture
+
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 import hushh_mcp.services.drive_request_owner_payout_service as payout_module
 from hushh_mcp.services.drive_request_owner_payout_service import (
@@ -16,8 +21,216 @@ from hushh_mcp.services.drive_request_owner_payout_service import (
     delivery_amounts,
     fee_amounts,
 )
+from tests.services.test_external_connector_lifecycle_postgres import (
+    connector_postgres_url,  # noqa: F401
+)
 
 REQUEST = "bd309adf-d639-4be5-ac20-9dfcb29f05df"
+
+
+@pytest.mark.asyncio
+async def test_earnings_history_paginates_and_never_crosses_owner_boundary(
+    connector_postgres_url, monkeypatch
+):
+    from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
+
+    engine = create_engine(connector_postgres_url)
+    monkeypatch.setattr(
+        DriveSharingCipher,
+        "open",
+        lambda self, envelope, **kw: {"purpose": {"purpose": "October statements"}},
+    )
+    owner_ids = [str(uuid4()) for _ in range(21)]
+    other_id = str(uuid4())
+    with engine.begin() as c:
+        c.execute(
+            text(
+                "CREATE TABLE drive_share_requests(request_id UUID PRIMARY KEY,user_id TEXT,request_envelope JSONB)"
+            )
+        )
+        c.execute(
+            text(
+                "CREATE TABLE drive_request_payment_orders(request_id UUID PRIMARY KEY,stripe_payment_intent_id TEXT)"
+            )
+        )
+        c.execute(
+            text("""CREATE TABLE drive_request_owner_payouts(
+          request_id UUID PRIMARY KEY,status TEXT,gross_amount_cents INT,
+          refund_amount_cents INT,platform_fee_cents INT,allocated_processing_fee_cents INT,
+          owner_earning_cents INT,reversal_amount_cents INT,created_at TIMESTAMPTZ,
+          transferred_at TIMESTAMPTZ,expected_files INT,confirmed_files INT,erased_at TIMESTAMPTZ)""")
+        )
+        for i, request_id in enumerate([*owner_ids, other_id]):
+            c.execute(
+                text("INSERT INTO drive_share_requests VALUES (:id,:owner,'{}')"),
+                {"id": request_id, "owner": "other" if request_id == other_id else "owner"},
+            )
+            c.execute(
+                text("INSERT INTO drive_request_payment_orders VALUES (:id,'pi_test')"),
+                {"id": request_id},
+            )
+            c.execute(
+                text("""INSERT INTO drive_request_owner_payouts VALUES
+              (:id,'transferred',1000,0,30,59,911,NULL,:created,:created,1,1,NULL)"""),
+                {
+                    "id": request_id,
+                    "created": datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=i),
+                },
+            )
+    service = DriveRequestOwnerPayoutService(db=SimpleNamespace(engine=engine), stripe_api=Mock())
+    first = await service.owner_history(user_id="owner")
+    assert len(first["transactions"]) == 20 and first["nextCursor"] is not None
+    assert other_id not in {x["requestId"] for x in first["transactions"]}
+    assert first["transactions"][0]["description"] == "October statements"
+    assert first["transactions"][0]["netAmountCents"] == 911
+    assert not {"stripe_account_id", "stripe_transfer_id", "request_envelope"}.intersection(
+        first["transactions"][0]
+    )
+    second = await service.owner_history(user_id="owner", cursor=first["nextCursor"])
+    assert len(second["transactions"]) == 1 and second["nextCursor"] is None
+    assert {x["requestId"] for x in first["transactions"] + second["transactions"]} == set(
+        owner_ids
+    )
+    assert (await service.owner_history(user_id="owner", cursor=other_id))["transactions"] == []
+    assert (await service.owner_history(user_id="unknown"))["transactions"] == []
+    engine.dispose()
+
+
+def test_readiness_migration_replay_notifications_and_rollback(connector_postgres_url):
+    """Execute both directions without touching another test's public schema."""
+    migrations = Path(__file__).resolve().parents[1] / "db/migrations"
+    forward = (migrations / "297_document_commerce_readiness.sql").read_text()
+    rollback = (migrations / "rollback/297_document_commerce_readiness.rollback.sql").read_text()
+    database = "payout_readiness_" + uuid4().hex
+    admin = create_engine(connector_postgres_url, isolation_level="AUTOCOMMIT")
+    engine = None
+    listener = None
+    try:
+        with admin.connect() as connection:
+            connection.exec_driver_sql(f'CREATE DATABASE "{database}"')
+        engine = create_engine(make_url(connector_postgres_url).set(database=database))
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE TABLE pkm_owner_payout_accounts(user_id TEXT PRIMARY KEY,payouts_enabled BOOLEAN)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE drive_share_requests(request_id UUID PRIMARY KEY,user_id TEXT)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE drive_request_owner_payouts(request_id UUID PRIMARY KEY,status TEXT,owner_earning_cents INT)"
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO pkm_owner_payout_accounts VALUES ('owner',TRUE)"
+            )
+            connection.execute(
+                text("INSERT INTO drive_share_requests VALUES (:id,'owner')"), {"id": REQUEST}
+            )
+            connection.execute(
+                text("INSERT INTO drive_request_owner_payouts VALUES (:id,'due',911)"),
+                {"id": REQUEST},
+            )
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            connection.exec_driver_sql(forward, execution_options={"no_parameters": True})
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT account_ready FROM pkm_owner_payout_accounts WHERE user_id='owner'"
+                ).scalar_one()
+                is False
+            )
+            connection.exec_driver_sql("UPDATE pkm_owner_payout_accounts SET account_ready=TRUE")
+            connection.exec_driver_sql(forward, execution_options={"no_parameters": True})
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT account_ready FROM pkm_owner_payout_accounts WHERE user_id='owner'"
+                ).scalar_one()
+                is True
+            )
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT count(*) FROM pg_trigger WHERE tgname='drive_owner_earning_feed_wake'"
+                ).scalar_one()
+                == 1
+            )
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT prosecdef FROM pg_proc WHERE oid='public.notify_document_owner_earning_changed()'::regprocedure"
+                ).scalar_one()
+                is True
+            )
+            assert (
+                connection.exec_driver_sql(
+                    """SELECT count(*) FROM pg_proc,
+                  LATERAL aclexplode(coalesce(proacl,acldefault('f',proowner))) acl
+                  WHERE oid='public.notify_document_owner_earning_changed()'::regprocedure
+                    AND acl.grantee=0 AND acl.privilege_type='EXECUTE'"""
+                ).scalar_one()
+                == 0
+            )
+
+        listener = engine.raw_connection()
+        driver = listener.driver_connection
+        driver.autocommit = True
+        cursor = driver.cursor()
+        cursor.execute("LISTEN one_user_state_changed")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_request_owner_payouts SET status='transferred' WHERE request_id=:id"
+                ),
+                {"id": REQUEST},
+            )
+        # A round trip drains notifications without timing-dependent sleeps.
+        cursor.execute("SELECT 1")
+        assert len(driver.notifies) == 1
+        assert json.loads(driver.notifies.pop().payload) == {
+            "type": "bank_payout_changed",
+            "user_id": "owner",
+        }
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_request_owner_payouts SET status='transferred',owner_earning_cents=911 WHERE request_id=:id"
+                ),
+                {"id": REQUEST},
+            )
+        cursor.execute("SELECT 1")
+        assert driver.notifies == []
+        listener.close()
+        listener = None
+
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            connection.exec_driver_sql(rollback)
+            connection.exec_driver_sql(rollback)
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='pkm_owner_payout_accounts' AND column_name='account_ready'"
+                ).scalar_one()
+                == 0
+            )
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT to_regprocedure('public.notify_document_owner_earning_changed()')"
+                ).scalar_one()
+                is None
+            )
+            assert connection.exec_driver_sql(
+                "SELECT status,owner_earning_cents FROM drive_request_owner_payouts"
+            ).one() == ("transferred", 911)
+            connection.exec_driver_sql(forward, execution_options={"no_parameters": True})
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT account_ready FROM pkm_owner_payout_accounts WHERE user_id='owner'"
+                ).scalar_one()
+                is False
+            )
+    finally:
+        if listener is not None:
+            listener.close()
+        if engine is not None:
+            engine.dispose()
+        with admin.connect() as connection:
+            connection.exec_driver_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        admin.dispose()
 
 
 def test_owner_payout_schema_and_rollback_are_in_release_lanes():
@@ -27,9 +240,14 @@ def test_owner_payout_schema_and_rollback_are_in_release_lanes():
     assert name in manifest["ordered_migrations"]
     assert (root / "db/migrations" / name).is_file()
     assert (root / "db/migrations" / manifest["rollback_migrations"][name]).is_file()
+    readiness = "297_document_commerce_readiness.sql"
+    assert readiness in manifest["ordered_migrations"]
+    assert (root / "db/migrations" / manifest["rollback_migrations"][readiness]).is_file()
     for lane in ("dev_minimum_schema", "uat_integrated_schema", "prod_core_schema"):
         contract = json.loads((root / f"db/contracts/{lane}.json").read_text())
         assert "eligible_at_erasure" in contract["required_tables"]["drive_request_owner_payouts"]
+        assert "account_ready" in contract["required_tables"]["pkm_owner_payout_accounts"]
+        assert "notify_document_owner_earning_changed" in contract["required_functions"]
 
 
 @pytest.mark.parametrize(
@@ -697,3 +915,67 @@ def test_external_reversal_queues_reconciliation_without_double_create():
     reversal, error = service._provider_reversal(claim, "sk_test_example")
     assert error is None and reversal["id"] == "trr_123"
     api.Transfer.create_reversal.assert_not_called()
+
+
+@pytest.mark.parametrize("first_attempt,expected_reset", [(True, True), (False, False)])
+def test_bank_setup_only_resets_provably_unused_transfer_attempt(first_attempt, expected_reset):
+    service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+    paid = {
+        "status": "paid",
+        "reconciliation_required": False,
+        "stripe_payment_intent_id": "pi_123",
+    }
+    payout = {
+        "status": "dispatching",
+        "transfer_attempt_id": "attempt",
+        "refund_amount_cents": 0,
+        "erased_at": None,
+        "stripe_payment_intent_id": "pi_123",
+        "reversal_amount_cents": None,
+        "first_dispatch_at": datetime.now(UTC),
+    }
+    service._row = Mock(side_effect=[{"status": "completed"}, paid, paid, None, payout])
+    connection = Mock()
+    result = service._finish_transfer(
+        connection,
+        {
+            "request_id": REQUEST,
+            "transfer_attempt_id": "attempt",
+            "create_allowed": True,
+            "first_transfer_attempt": first_attempt,
+        },
+        None,
+        "account_unavailable",
+    )
+    assert result == "awaiting_account"
+    assert connection.execute.call_args.args[1]["clear_attempt"] is expected_reset
+
+
+def test_active_transfer_lease_cannot_be_claimed_by_second_worker():
+    service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+    payout, obligation = _erased_earning(lease_active=True)
+    service._row = Mock(side_effect=[None, None, obligation, None, payout])
+    connection = Mock()
+    assert service._claim_transfer(connection, REQUEST) is None
+    connection.execute.assert_not_called()
+
+
+def test_old_transfer_completion_cannot_reset_newer_claim():
+    service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+    service._row = Mock(side_effect=[None, None, None, None, {"transfer_attempt_id": "new-lease"}])
+    connection = Mock()
+    assert (
+        service._finish_transfer(
+            connection,
+            {
+                "request_id": REQUEST,
+                "transfer_attempt_id": "old-lease",
+                "create_allowed": True,
+                "first_transfer_attempt": True,
+            },
+            None,
+            "account_unavailable",
+        )
+        == "manual_review"
+    )
+    connection.execute.assert_not_called()

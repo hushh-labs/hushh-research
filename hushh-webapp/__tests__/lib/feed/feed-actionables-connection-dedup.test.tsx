@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   pendingCount: 0,
   vaultToken: "vault-token" as string | null,
   allow: vi.fn(),
+  setRequestPrice: vi.fn(),
   decide: vi.fn(),
   review: vi.fn(),
   account: vi.fn(),
@@ -56,6 +57,7 @@ vi.mock("@/lib/services/drive-sharing-service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/services/drive-sharing-service")>()),
   DriveSharingService: {
     allow: mocks.allow,
+    setRequestPrice: mocks.setRequestPrice,
     decide: mocks.decide,
     review: mocks.review,
     // Payment rows read private request text; these rows stay metadata-only.
@@ -165,7 +167,7 @@ vi.mock("@/lib/consent/consent-display", () => ({
 
 vi.mock("@/lib/navigation/routes", () => ({
   buildKaiMarketRoute: () => "/one/kai",
-  ROUTES: { PROFILE_MY_DATA: "/one/profile/my-data" },
+  ROUTES: { PROFILE_PAYOUTS: "/one/profile/payouts", PROFILE_REQUEST_PRICING: "/one/profile/request-pricing" },
 }));
 
 import {
@@ -817,36 +819,77 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
       (row) => row.id === `drive-payment:${paymentId}`,
     );
     expect(payment).toMatchObject({
-      title: "Waiting for owner payout setup",
+      title: "Waiting for owner setup",
       actions: [],
       chevron: true,
       href: expect.stringContaining("requestId="),
     });
   });
 
-  it("shows one owner payout setup action when remote Stripe readiness is false, even if the DB hint is true", async () => {
-    mocks.account.mockResolvedValue({ account: { ready: false, status: "restricted" } });
-    const entries = [
-      documentEntry(DOC_ID, { ownerPayoutAccountReady: true,
-        owner_attention_required: false, owner_decision_available: false }),
-      documentEntry("33333333-3333-4333-8333-333333333333", {
-        ownerPayoutAccountReady: false, owner_attention_required: false, owner_decision_available: false,
-      }),
-    ];
-    const { result } = renderWith(...entries);
-    await waitFor(() => expect(result.current.actionables.find((row) => row.id === "drive-payout-setup"))
-      .toMatchObject({ title: "Set up US payouts" }));
-    expect(result.current.actionables.filter((row) => row.id === "drive-payout-setup")).toHaveLength(1);
-    expect(mocks.account).toHaveBeenCalledExactlyOnceWith("vault-token");
-    await act(async () => result.current.actionables.find((row) => row.id === "drive-payout-setup")!.actions[0].run());
-    expect(mocks.push).toHaveBeenCalledWith("/one/profile/my-data");
+  it("shows payout setup first on each affected request and routes to Profile", async () => {
+    const otherId = "33333333-3333-4333-8333-333333333333";
+    const { result } = renderWith(
+      documentEntry(DOC_ID, { ownerPayoutAccountReady: false, ownerPriceRequired: true }),
+      documentEntry(otherId, { ownerPayoutAccountReady: false, owner_decision_available: false }),
+    );
+    for (const id of [DOC_ID, otherId]) {
+      const row = documentRow(result, id)!;
+      expect(row.description).toBe("Link payouts");
+      expect(row.actions.map(({ label }) => label)).toEqual(["Link payouts"]);
+      expect(result.current.actionables.filter((item) => item.id === row.id)).toHaveLength(1);
+    }
+    await act(async () => actionOf(documentRow(result), "setup-payouts").run());
+    expect(mocks.push).toHaveBeenCalledWith("/one/profile/payouts?from=%2Fone%2Ffeed");
+    expect(mocks.account).not.toHaveBeenCalled();
   });
 
-  it("hides a stale setup hint when Stripe says the account is ready", async () => {
-    mocks.account.mockResolvedValue({ account: { ready: true, status: "ready" } });
-    const { result } = renderWith(documentEntry(DOC_ID, { ownerPayoutAccountReady: false }));
-    await waitFor(() => expect(mocks.account).toHaveBeenCalledExactlyOnceWith("vault-token"));
-    expect(result.current.actionables.find((row) => row.id === "drive-payout-setup")).toBeUndefined();
+  it("replaces payout setup with price setup as the streamed projection changes", async () => {
+    const { result, rerender } = renderWith(documentEntry(DOC_ID, {
+      ownerPayoutAccountReady: false, ownerPriceRequired: true, owner_decision_available: false,
+    }));
+    expect(documentRow(result)?.description).toBe("Link payouts");
+    mocks.consentItems = [documentEntry(DOC_ID, {
+      ownerPayoutAccountReady: true, ownerPriceRequired: true, owner_decision_available: false,
+    })];
+    rerender();
+    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual(["Set price"]);
+    await act(async () => actionOf(documentRow(result), "setup-price").run());
+    expect(mocks.push).toHaveBeenCalledWith("/one/profile/request-pricing?from=%2Fone%2Ffeed");
+    mocks.consentItems = [documentEntry(DOC_ID, {
+      ownerPayoutAccountReady: true, ownerPriceRequired: false, owner_decision_available: false,
+    })];
+    rerender();
+    expect(documentRow(result)?.actions).toEqual([]);
+    expect(mocks.account).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 1200])("uses a price-only command for a trusted request with draft price %s", async (draftPrice) => {
+    mocks.review.mockResolvedValue(ownerReview({
+      allowAvailable: false, priceOnlyAvailable: true, ownerPriceRequired: draftPrice === null,
+      ownerPayoutAccountReady: true, trustedAuto: true, priceCents: draftPrice,
+    }));
+    mocks.setRequestPrice.mockResolvedValue({ requestId: DOC_ID, revision: 4, status: "pending" });
+    const { result } = renderWith(documentEntry(DOC_ID, {
+      ownerPayoutAccountReady: true, ownerPriceRequired: draftPrice === null,
+      owner_decision_available: false, owner_price_available: true,
+    }));
+    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual(["Set price"]);
+    await act(async () => actionOf(documentRow(result), "allow").run());
+    await waitFor(() => expect(result.current.documentPricePrompt.detailsPending).toBe(false));
+    expect(result.current.documentPricePrompt.priceOnly).toBe(true);
+    expect(result.current.documentPricePrompt.initialAmountCents).toBe(draftPrice);
+    await act(async () => result.current.documentPricePrompt.submit(500));
+    await waitFor(() => expect(mocks.setRequestPrice).toHaveBeenCalledExactlyOnceWith(
+      "vault-token", DOC_ID, { revision: 3, amountCents: 500 }, expect.any(Function),
+    ));
+    expect(mocks.allow).not.toHaveBeenCalled();
+  });
+
+  it("keeps non-trusted price choice inside Allow once payouts are ready", () => {
+    const { result } = renderWith(documentEntry(DOC_ID, {
+      ownerPayoutAccountReady: true, ownerPriceRequired: true,
+    }));
+    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual(["Deny", "Allow"]);
   });
 
   it("keeps legacy requests out of Connect setup discovery", () => {

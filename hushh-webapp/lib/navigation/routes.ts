@@ -138,6 +138,8 @@ export const ROUTES = {
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
   PROFILE_MY_DATA: "/one/profile/my-data",
+  PROFILE_PAYOUTS: "/one/profile/payouts",
+  PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
   PROFILE_ACCESS: "/one/profile/access",
   PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",

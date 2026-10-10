@@ -15,7 +15,11 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
-from hushh_mcp.services.drive_owner_allowed import DEFAULT_PRICE_CENTS, owner_allowed_price_cents
+from hushh_mcp.services.drive_owner_allowed import (
+    DEFAULT_PRICE_CENTS,
+    owner_allowed_price_cents,
+    valid_owner_price_cents,
+)
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 
@@ -33,6 +37,10 @@ def _payer_ref(request_id: str, requester_user_id: str) -> str:
 
 def _order_amount_cents(request: Mapping[str, Any], private: Mapping[str, Any]) -> int:
     """An immutable request quote wins over the legacy Allow/default price."""
+    if private.get("owner_settlement_required") is True and not valid_owner_price_cents(
+        request.get("quoted_amount_cents")
+    ):
+        raise DriveSharingError("owner_price_required")
     if request.get("quoted_amount_cents") is not None:
         return int(request["quoted_amount_cents"])
     return owner_allowed_price_cents(private) or DEFAULT_PRICE_CENTS
@@ -66,6 +74,21 @@ def _record_new_owner_payout(
     )
 
     if quoted_request or payout_enabled():
+        if quoted_request:
+            if not payout_enabled():
+                raise DriveSharingError("payout_unavailable")
+            account = (
+                connection.execute(
+                    text(
+                        "SELECT account_ready FROM pkm_owner_payout_accounts WHERE user_id=:owner"
+                    ),
+                    {"owner": owner_user_id},
+                )
+                .mappings()
+                .first()
+            )
+            if account is None or account["account_ready"] is not True:
+                raise DriveSharingError("owner_payout_required")
         DriveRequestOwnerPayoutService.record_order(
             connection,
             request_id=request_id,
@@ -490,9 +513,24 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 status = "preparing"
             else:
                 status = order["status"]
+            setup = {}
+            if private is not None and (
+                order is None or order["status"] not in {"paid", "refunded"}
+            ):
+                setup = DriveSharingStore(db=self.db)._request_setup(connection, request, private)
+            elif (
+                order is None
+                and request.get("quoted_amount_cents") is None
+                and request.get("preparation_error_code")
+                in {"owner_price_required", "owner_payout_required", "payout_unavailable"}
+            ):
+                # Expiry does not invent a charge for a request that never had a price.
+                setup = {"ownerPriceRequired": True}
             return {
                 "status": status,
-                "amountCents": _quoted_amount_cents(request, order, private),
+                "amountCents": None
+                if setup.get("ownerPriceRequired")
+                else _quoted_amount_cents(request, order, private),
                 "currency": order["currency"] if order is not None else "usd",
                 "paymentLinkExpired": checkout_expired and not request_expired,
                 "checkoutExpiresAt": (
@@ -515,6 +553,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 # the requester API response. The owner is not disclosed.
                 "_payout_enrolled": payout_enrolled,
                 "_payout_owner_user_id": request["user_id"] if payout_enrolled else None,
+                **setup,
             }
 
         return await self._transaction(operation)

@@ -69,6 +69,18 @@ describe("SwipeViews", () => {
     expect(clampSwipePosition(2.31, 3)).toBe(2);
   });
 
+  it("lets form controls own pointer presses while keeping body swipes enabled", () => {
+    render(<SwipeViews options={OPTIONS} tabSetId="controls" activeValue="first">
+      <div><button><span>Show PIN</span></button><input aria-label="Card number" /><div>Swipe body</div></div>
+      <div>Sharing</div>
+    </SwipeViews>);
+    const watchDrag = embla.options!.watchDrag as (api: unknown, event: { target: Element }) => boolean;
+    const api = { rootNode: () => screen.getByText("Swipe body").closest<HTMLElement>("[data-swipe-views-root='true']")! };
+    expect(watchDrag(api, { target: screen.getByText("Show PIN") })).toBe(false);
+    expect(watchDrag(api, { target: screen.getByRole("textbox") })).toBe(false);
+    expect(watchDrag(api, { target: screen.getByText("Swipe body") })).toBe(true);
+  });
+
   beforeEach(() => {
     embla.selectedIndex = 0;
     embla.scrollProgress = 0;
@@ -103,6 +115,28 @@ describe("SwipeViews", () => {
     embla.engine.limit.min = -800;
     view.rerender(<SwipeViews options={options} tabSetId="memory-test" activeValue="second">{panels}</SwipeViews>);
     expect(toggleActive).toHaveBeenLastCalledWith(true);
+  });
+
+  it("tracks the rendered pane despite stale total bounds and stays fractional during a drag", () => {
+    let rendered = -400;
+    embla.selectedIndex = 1;
+    embla.scrollProgress = 0.6;
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800],
+      limit: { min: -667, max: 0 },
+      target: { get: () => rendered, set: vi.fn() },
+      offsetLocation: { get: () => rendered },
+      scrollBounds: { toggleActive: vi.fn() },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    render(<SwipeViews options={[...OPTIONS, { value: "third", label: "Third" }]} tabSetId="actual" activeValue="second">
+      <div>Cards</div><div>Add</div><div>Sharing</div>
+    </SwipeViews>);
+    embla.listeners.get("pointerDown")?.();
+    expect(document.documentElement.style.getPropertyValue("--top-shell-tab-swipe-actual-position")).toBe("1");
+    rendered = -480;
+    embla.listeners.get("scroll")?.();
+    expect(document.documentElement.style.getPropertyValue("--top-shell-tab-swipe-actual-position")).toBe("1.2");
   });
 
   it("keeps pane identity mounted while route selection changes", () => {
@@ -355,7 +389,7 @@ describe("SwipeViews", () => {
     outerRoot.dataset.swipeViewsRoot = "true";
     const nestedRoot = document.createElement("div");
     nestedRoot.dataset.swipeViewsRoot = "true";
-    const nestedTarget = document.createElement("button");
+    const nestedTarget = document.createElement("div");
     nestedRoot.append(nestedTarget);
     outerRoot.append(nestedRoot);
 

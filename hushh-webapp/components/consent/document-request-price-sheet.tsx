@@ -16,6 +16,7 @@ import {
   DOCUMENT_REQUEST_PRICE_PRESETS_CENTS,
   formatDocumentRequestPrice,
   parseWholeDollarPrice,
+  isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,10 @@ export interface DocumentRequestPriceSheetProps {
   paymentRequired: boolean;
   /** New requests hold the quote shown to the requester; legacy requests remain editable. */
   lockedAmountCents?: number | null;
+  /** Editable draft price, supplied after the request terms load. */
+  initialAmountCents?: number | null;
+  /** Trusted requests set price without an additional consent grant. */
+  priceOnly?: boolean;
   busy: boolean;
   error: string | null;
   onSubmit: (amountCents: number | null) => void;
@@ -93,8 +98,8 @@ function RequestTerm({ label, value }: { label: string; value: string }) {
  * sets what the requester pays; nothing is searched or shared before that.
  */
 export function DocumentRequestPriceSheet(props: DocumentRequestPriceSheetProps) {
-  // Every opening starts at the default price, never at the last choice. The
-  // sheet stays mounted while it closes, so its exit animation still plays.
+  // Each opening starts at this request's draft (or the default), never the
+  // previous request's choice. A newly loaded draft resets the pending sheet.
   const [opening, setOpening] = useState({ open: props.open, count: 0 });
   if (opening.open !== props.open) {
     setOpening({
@@ -102,7 +107,7 @@ export function DocumentRequestPriceSheet(props: DocumentRequestPriceSheetProps)
       count: opening.count + (props.open ? 1 : 0),
     });
   }
-  return <PriceSheet key={opening.count} {...props} />;
+  return <PriceSheet key={`${opening.count}:${props.initialAmountCents ?? "default"}`} {...props} />;
 }
 
 function PriceSheet({
@@ -115,15 +120,18 @@ function PriceSheet({
   detailsPending = false,
   paymentRequired,
   lockedAmountCents = null,
+  initialAmountCents = null,
+  priceOnly = false,
   busy,
   error,
   onSubmit,
   onCancel,
 }: DocumentRequestPriceSheetProps) {
-  const [choice, setChoice] = useState<PriceChoice>(
-    DEFAULT_DOCUMENT_REQUEST_PRICE_CENTS,
-  );
-  const [customText, setCustomText] = useState("");
+  const startingAmount = isValidDocumentRequestPriceCents(initialAmountCents)
+    ? initialAmountCents : DEFAULT_DOCUMENT_REQUEST_PRICE_CENTS;
+  const startingPreset = DOCUMENT_REQUEST_PRICE_PRESETS_CENTS.some((amount) => amount === startingAmount);
+  const [choice, setChoice] = useState<PriceChoice>(startingPreset ? startingAmount : "custom");
+  const [customText, setCustomText] = useState(startingPreset ? "" : String(startingAmount / 100));
   const priceLabelId = useId();
   const customInputId = useId();
   const customRuleId = useId();
@@ -157,7 +165,7 @@ function PriceSheet({
         // A decision in flight finishes first; Back and Escape wait for it.
         if (!next && !busy) onCancel();
       }}
-      title="Allow request"
+      title={priceOnly ? "Set price" : "Allow request"}
       description={
         paymentRequired
           ? `${payerLabel(requesterLabel)} pays this once matching files are found. Nothing is shared before payment.`
@@ -177,8 +185,8 @@ function PriceSheet({
               onClick={submit}
             >
               {amountCents === null
-                ? "Allow"
-                : `Allow · ${formatDocumentRequestPrice(amountCents)}`}
+                ? priceOnly ? "Save" : "Allow"
+                : `${priceOnly ? "Save" : "Allow"} · ${formatDocumentRequestPrice(amountCents)}`}
             </Button>
           }
           secondary={

@@ -429,10 +429,10 @@ class FeedService:
                              AND
                              (p.request_id IS NOT NULL OR
                               (:payout_rollout AND o.request_id IS NULL)) THEN
-                             COALESCE(a.details_submitted AND a.payouts_enabled,FALSE)
+                             COALESCE(a.account_ready,FALSE)
                            END AS owner_payout_account_ready,
                            CASE WHEN p.request_id IS NOT NULL THEN
-                             COALESCE(a.details_submitted AND a.payouts_enabled,FALSE)
+                             COALESCE(a.account_ready,FALSE)
                            END AS current_owner_payout_account_ready,
                            CASE WHEN f.status='succeeded'
                              THEN COALESCE(f.amount_cents,o.amount_cents) END
