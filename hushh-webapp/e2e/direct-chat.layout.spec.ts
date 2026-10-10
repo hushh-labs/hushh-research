@@ -302,7 +302,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   await expect(bubble).toHaveAttribute("data-actions-visible", "true");
   await page.getByRole("button", { name: "Search messages", exact: true }).focus();
   await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
-  const title = page.getByRole("heading", { name: "Chat", exact: true });
+  const title = page.getByRole("heading", { name: "Messages", exact: true });
   const contact = page.getByRole("heading", { name: "Maya Rao", exact: true });
   const typography = (node: HTMLElement | SVGElement) => {
     const style = getComputedStyle(node);
