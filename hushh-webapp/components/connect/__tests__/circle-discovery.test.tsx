@@ -156,7 +156,7 @@ describe("circle discovery actions", () => {
       { notificationType: "location_circle_created", circleId: "finance-id" },
     );
     expect(mocks.push).toHaveBeenCalledWith(
-      "/one/connect?tab=circles&action=circle-detail&circleId=finance-id",
+      "/one/connect?tab=circles&action=circle-detail&circleId=finance-id&circleSetup=1",
       { scroll: false },
     );
     expect(create).toBeDisabled();
@@ -171,6 +171,7 @@ describe("circle discovery actions", () => {
       }),
     );
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(String(mocks.push.mock.calls[0][0])).not.toContain("circleSetup");
     expect(mocks.push).toHaveBeenCalledWith(
       expect.stringContaining("circleId=sms-id"),
       { scroll: false },
@@ -188,6 +189,7 @@ describe("circle discovery actions", () => {
       expect.stringContaining("circleId=finance-id"),
       { scroll: false },
     );
+    expect(String(mocks.push.mock.calls[0][0])).not.toContain("circleSetup");
     view.rerender(ui());
     expect(
       screen.getByRole("button", { name: "Setup Finance circle" }),

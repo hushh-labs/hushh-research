@@ -525,7 +525,6 @@ export class DirectMessagesService {
     if (!conversationId) throw new Error("A conversation is required.");
     const { activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
     const keyId = activeNotificationKeyId(input.ownerUserId);
-    const requestedAt = Date.now();
     const response = await ApiService.apiFetch(
       `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/read${input.throughMessageId ? `?throughMessageId=${encodeURIComponent(input.throughMessageId)}` : ""}`,
       {
@@ -533,19 +532,20 @@ export class DirectMessagesService {
         headers: authHeaders(input.idToken),
       },
     );
-    const payload = await jsonOrThrow<{ readCount?: unknown; readAt?: unknown; readThroughCreatedAt?: unknown }>(
+    const payload = await jsonOrThrow<{ readCount?: unknown; readAt?: unknown; readThroughCreatedAt?: unknown; readThroughMessageId?: string; chatBadgeCount?: number; chatBadgeVersion?: number }>(
       response,
     );
     if (keyId) {
       const { ChatSystemNotifications } = await import("@/lib/notifications/chat-system-notifications");
-      const cutoff = payload.readThroughCreatedAt ?? input.throughCreatedAt ?? payload.readAt;
-      const before = cutoff ? Date.parse(String(cutoff)) : requestedAt;
+      const cutoff = payload.readThroughCreatedAt ?? input.throughCreatedAt;
+      const before = cutoff ? Date.parse(String(cutoff)) : NaN;
+      const messageId = payload.readThroughMessageId ?? input.throughMessageId;
       // FCM timestamps have millisecond precision. A later unread message can
       // share the boundary's millisecond; clear the exact boundary event and
       // only strictly earlier milliseconds in the system tray.
       if (Number.isFinite(before)) await ChatSystemNotifications.clearRead({ threadId: conversationId, keyId,
-        before: input.throughMessageId ? before - 1 : before,
-        ...(input.throughMessageId ? { messageId: `direct-message:${input.throughMessageId}` } : {}) });
+        before: before - 1, badgeCount: payload.chatBadgeCount, badgeVersion: payload.chatBadgeVersion,
+        ...(messageId ? { messageId: `direct-message:${messageId}` } : {}) });
     }
     return {
       readCount: asNonNegativeInt(payload.readCount),

@@ -393,6 +393,11 @@ export function ConnectCirclesTab({
     next.delete("circleChat");
     router.replace(`${ROUTES.CONNECT}?${next.toString()}`, { scroll: false });
   }, [router, searchParams]);
+  const finishMemberSetup = useCallback(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("circleSetup");
+    router.replace(`${ROUTES.CONNECT}?${next.toString()}`, { scroll: false });
+  }, [router, searchParams]);
   const joinCode =
     String(searchParams.get(CIRCLE_JOIN_CODE_PARAM) || "").trim() || undefined;
   const trackedSurfaceRef = useRef<string | null>(null);
@@ -507,12 +512,15 @@ export function ConnectCirclesTab({
         action?: ConnectCircleAction | null;
         circleId?: string | null;
         code?: string | null;
+        memberSetup?: boolean;
       },
       mode: "push" | "replace" = "push",
     ) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set(CONNECT_SURFACE_PARAM, "circles");
       params.delete("circleChat");
+      params.delete("circleSetup");
+      if (next.memberSetup) params.set("circleSetup", "1");
       for (const [key, value] of [
         [CONNECT_CIRCLE_ACTION_PARAM, next.action],
         [CONNECT_CIRCLE_ID_PARAM, next.circleId],
@@ -674,7 +682,7 @@ export function ConnectCirclesTab({
           // Modal creation pushes details so Back returns to its launch page.
           // The full-page flow replaces the form that just succeeded.
           go(
-            { action: "circle-detail", circleId: circle.id },
+            { action: "circle-detail", circleId: circle.id, memberSetup: true },
             createDialogOpen ? "push" : "replace",
           );
           onCreateDialogOpenChange?.(false);
@@ -696,7 +704,7 @@ export function ConnectCirclesTab({
       >
         <DialogContent
           showCloseButton={!busy}
-          srDescription="Name your Circle and choose its type. You can add people next."
+          srDescription="Name your Circle and choose its type. Next, add your first member."
           onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
           onInteractOutside={(event) => { if (busy) event.preventDefault(); }}
         >
@@ -743,6 +751,8 @@ export function ConnectCirclesTab({
     return (
       <CircleDetailFlow
         livingCircleExperience
+        memberSetup={searchParams.get("circleSetup") === "1"}
+        onMemberSetupComplete={finishMemberSetup}
         chatIntent={searchParams.get("circleChat") === "1"}
         renderChat={chatSession ? (circle, { active, readingBlocked }) => <CircleChat
           key={`${chatSession.userId}:${chatSession.circleId}:${chatSession.vaultOwnerToken}`}

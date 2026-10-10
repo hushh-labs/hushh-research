@@ -165,8 +165,8 @@ describe("SaveLocationModal", () => {
       render(<SaveLocationModal {...baseProps} {...mapProps} />);
 
       const className = overlay()?.className ?? "";
-      expect(className).toMatch(/bg-black\//u);
-      expect(className).toContain("backdrop-blur-[10px]");
+      expect(className).toContain("bg-[color:var(--app-scrim-color)]");
+      expect(className).toContain("[backdrop-filter:var(--app-scrim-filter)]");
     });
 
     it("restores the scrim on native once the map step is left", () => {
@@ -181,9 +181,54 @@ describe("SaveLocationModal", () => {
 
       // No map on screen, so the sheet gets its normal separation back.
       const className = overlay()?.className ?? "";
-      expect(className).toMatch(/bg-black\//u);
+      expect(className).toContain("bg-[color:var(--app-scrim-color)]");
     });
   });
+
+  it("isolates every saving step from app chrome and restores it on close", () => {
+    platformMockState.native = true;
+    try {
+      const props = {
+        ...baseProps,
+        address: "Kartavya Path, New Delhi, Delhi 110001, India",
+        mapInitial: { latitude: 28.6139, longitude: 77.209 },
+        onPickExactLocation: vi.fn(),
+        startWithMapPicker: true,
+        collectAddressDetails: true,
+      };
+      const view = render(<SaveLocationModal {...props} />);
+      expect(document.documentElement).toHaveAttribute("data-session-check-active");
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      expect(document.documentElement).toHaveAttribute("data-session-check-active");
+      view.rerender(<SaveLocationModal {...props} open={false} />);
+      expect(document.documentElement).not.toHaveAttribute("data-session-check-active");
+      view.rerender(<SaveLocationModal {...props} />);
+      expect(document.documentElement).toHaveAttribute("data-session-check-active");
+      view.unmount();
+      expect(document.documentElement).not.toHaveAttribute("data-session-check-active");
+    } finally {
+      platformMockState.native = false;
+    }
+  });
+
+  it.each([false, true])(
+    "keeps Save location before Skip for now (address details: %s)",
+    (collectAddressDetails) => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          collectAddressDetails={collectAddressDetails}
+        />,
+      );
+      const save = screen.getByRole("button", { name: "Save location" });
+      const skip = screen.getByRole("button", { name: "Skip for now" });
+      expect(save.nextElementSibling).toBe(skip);
+      fireEvent.click(skip);
+      expect(baseProps.onSkip).toHaveBeenCalledOnce();
+      expect(baseProps.onSave).not.toHaveBeenCalled();
+    },
+  );
 
   it("opens on Home so the primary button is live without a tap", () => {
     render(
@@ -1124,7 +1169,7 @@ describe("SaveLocationModal", () => {
       );
       expect(footer.className).not.toContain("bg-background");
       expect(footer.className).toContain(
-        "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
+        "pb-[calc(env(safe-area-inset-bottom,0px)+12px)]",
       );
       expect(footer.className).not.toContain("/95");
       expect(footer.className).not.toContain("sticky");
@@ -1133,25 +1178,16 @@ describe("SaveLocationModal", () => {
   });
 
   describe("the sheet reads as a layer, not a patch", () => {
-    it("puts its scrim above the full-screen onboarding takeover", () => {
-      // Location onboarding is an OPAQUE fixed layer at z-560. The scrim used
-      // to sit at z-559, underneath it, so the dim and the blur were painted
-      // where nothing could see them and the sheet landed on a fully lit
-      // screen with no separation at all.
+    it("uses the shared dialog layer and backdrop", () => {
       render(
         <SaveLocationModal {...baseProps} address="Bengaluru, India" />,
       );
 
       const overlay = document.querySelector('[data-slot="dialog-overlay"]');
       const sheet = screen.getByTestId("save-location-modal");
-      const layerOf = (element: Element | null) =>
-        Number(
-          /z-\[(\d+)\]/.exec(element?.className?.toString() ?? "")?.[1] ?? "0",
-        );
-
-      expect(layerOf(overlay)).toBeGreaterThan(560);
-      expect(layerOf(sheet)).toBeGreaterThan(layerOf(overlay));
-      expect(overlay?.className).toContain("backdrop-blur");
+      expect(overlay?.className).toContain("z-(--z-dialog-overlay)");
+      expect(sheet.className).toContain("z-(--z-dialog)");
+      expect(overlay?.className).toContain("[backdrop-filter:var(--app-scrim-filter)]");
     });
   });
 
@@ -1486,7 +1522,7 @@ describe("SaveLocationModal", () => {
       }
     });
 
-    it("stays a bottom sheet, under the app's own layers, by default", () => {
+    it("uses the shared sheet layer in Settings", () => {
       // Saving a place from Settings is a sheet over a screen you are coming
       // back to, and that screen is SUPPOSED to stay visible behind it. The
       // takeover geometry must not leak into this lane.
@@ -1495,7 +1531,7 @@ describe("SaveLocationModal", () => {
         render(<SaveLocationModal {...phoneProps} />);
         const surface = screen.getByTestId("save-location-modal");
 
-        expect(surface.className).toContain("z-[601]");
+        expect(surface.className).toContain("z-(--z-sheet)");
         expect(surface.className).not.toContain("z-[9101]");
         expect(surface.className).not.toContain("top-0");
         expect(surface.className).not.toContain("max-h-none");

@@ -8,7 +8,7 @@ import sharp from "sharp";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(SCRIPT_DIR, "../..");
 const REPO_ROOT = resolve(WEB_ROOT, "..");
-const SOURCE_PATH = resolve(WEB_ROOT, "assets/brand/hushh-mark-source.png");
+const SOURCE_PATH = resolve(WEB_ROOT, "assets/brand/hushh-mark-source.svg");
 const CHECK_ONLY = process.argv.includes("--check");
 const APP_ICON_BACKGROUND = "#1d1d1f";
 // Android launcher and Google Play surfaces retain the existing premium dark
@@ -196,6 +196,11 @@ async function emitRepo(path, buffer) {
 }
 
 const source = await readFile(SOURCE_PATH);
+// Keep the historical raster source path as a generated compatibility asset.
+await emit(
+  "assets/brand/hushh-mark-source.png",
+  await sharp(source).png().toBuffer(),
+);
 const { data: trimmedMark, info: trimmedMarkInfo } = await sharp(source)
   .trim({ background: TRANSPARENT })
   .png()

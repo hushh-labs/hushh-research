@@ -655,7 +655,34 @@ def test_chat_transport_supports_legacy_android_and_mutable_ios(monkeypatch):
         assert ios["payload"]["aps"]["mutable-content"] == 1
         assert ios["payload"]["aps"]["thread-id"] == "fixture-thread"
         assert "badge" not in ios["payload"]["aps"]
+        assert (
+            wire("ios", {**data, "chat_badge_count": "7"})["apns"]["payload"]["aps"]["badge"] == 7
+        )
         assert ios["headers"]["apns-collapse-id"] == hashlib.sha256(b"fixture-event").hexdigest()
+
+
+def test_chat_read_badge_sync_has_no_alert_or_sound():
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "synthetic-device-id"
+    encoded = _MessagingService.encode_message(
+        build_push_message(
+            messaging,
+            token=delivery_target,
+            platform="ios",
+            data={"type": "direct_message_read", "chat_badge_count": "0"},
+            title="",
+            body="",
+            request_url="/one/messages",
+            notification_tag="fixture-thread",
+            show_alert=False,
+        )
+    )
+    assert encoded["apns"]["headers"]["apns-push-type"] == "alert"
+    aps = encoded["apns"]["payload"]["aps"]
+    assert aps["badge"] == 0 and aps["content-available"] == 1
+    assert "alert" not in aps and "sound" not in aps and "notification" not in encoded
 
 
 def test_chat_avatar_raster_budget_and_untrusted_url_rejection(monkeypatch):

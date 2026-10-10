@@ -32,6 +32,41 @@ KYC, Connected Systems, and Connections. It replaced the top-bar
 `ActivityInbox` bell (which only ever surfaced Consent + background-task
 activity) with a real bottom-nav tab and a dedicated route, `/one/feed`.
 
+## Chat conversation presentation
+
+Circle messages share one Feed entry per Circle; received Direct Messages share
+one entry per authenticated conversation. The API groups before applying the
+cursor and page limit, using the newest immutable source event as the entry id.
+Other event types remain independent. `chat_thread_key`, `chat_message_count`
+and `chat_unread_count` are computed response metadata, never trusted from
+stored payloads. Feed unread counts count visible groups; the new-message count
+means unseen Feed events. Opening Feed marks that presentation seen without
+marking chat messages read. Clearing Feed keeps its existing source-id watermark.
+
+Client refresh/load-more deduplicates chat entries by thread key. Cursor
+continuity still requires overlapping source ids, since a moved conversation
+cannot prove there are no intervening events.
+
+Chat delivery extends the existing migration 290 pipeline: modern installations
+have their own encrypted preview key and durable provider acceptance receipt.
+Circle and direct workers reuse the same registry, ownership fences and retry
+contract. Committed Circle events wake the existing worker; its adaptive polling
+repairs missed events and full batches drain immediately.
+
+System presentation groups by conversation: web replaces an owner-key-scoped
+card and requests renotification; Android retains MessagingStyle children and a
+silent conversation summary; iOS uses the existing conversation thread.
+Authoritative unread counts enrich alert and read payloads for supported badges.
+Only a focused, readable matching conversation suppresses foreground sound.
+
+Read cleanup preserves Circle sequence and direct source-time/exact-message
+boundaries. Local web cleanup and native silent read synchronization persist a
+key-scoped presentation frontier against delayed alerts. Silent read pushes are
+limited to native platforms: Safari requires every Web Push to be user-visible.
+The iOS extension can silence a stale accepted alert but cannot discard it
+without Apple's restricted filtering entitlement. Physical delivery acceptance
+is documented in the [release checklist](../quality/circle-chat-notification-release-checklist.md).
+
 ## The `feed_events` table
 
 Migration `consent-protocol/db/migrations/117_feed_events.sql` adds a single,

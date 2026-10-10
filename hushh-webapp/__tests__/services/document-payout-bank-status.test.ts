@@ -48,15 +48,24 @@ describe("payout account and earnings boundary", () => {
     const account = { detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready" };
     apiJson.mockResolvedValueOnce({ account: { ...account, stripeAccountId: "acct_private" } });
     expect(await DocumentPayoutService.account("vault")).toEqual({ account });
-    for (const url of ["https://evil.invalid", "http://connect.stripe.com", "https://private@connect.stripe.com", "https://connect.stripe.com:1234"]) {
+    for (const url of ["https://evil.invalid", "http://connect.stripe.com", "https://private@connect.stripe.com", "https://connect.stripe.com:1234",
+      "https://stripe.com.evil.invalid/express/acct_owner", "https://stripe.com/payments", "http://stripe.com/express/acct_owner",
+      "https://private@stripe.com/express/acct_owner", "https://stripe.com:1234/express/acct_owner",
+      "https://connect.stripe.com/setup/safe_link", "https://stripe.com/express/", "https://connect.stripe.com/express/", "not-a-url"]) {
       apiJson.mockResolvedValueOnce({ url });
       await expect(DocumentPayoutService.manage("vault")).rejects.toThrow("Invalid payout link");
     }
-    apiJson.mockResolvedValueOnce({ url: "https://connect.stripe.com/express/test", accountId: "acct_private" });
-    expect(await DocumentPayoutService.manage("vault")).toEqual({ url: "https://connect.stripe.com/express/test" });
+    for (const url of ["https://connect.stripe.com/express/test", "https://stripe.com/express/acct_owner/login_token"]) {
+      apiJson.mockResolvedValueOnce({ url, accountId: "acct_private" });
+      expect(await DocumentPayoutService.manage("vault")).toEqual({ url });
+    }
     expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/account/manage", {
       method: "POST", headers: { Authorization: "Bearer vault" }, cache: "no-store",
     });
+    apiJson.mockResolvedValueOnce({ url: "https://connect.stripe.com/setup/safe_link" });
+    expect(await DocumentPayoutService.onboard("vault")).toEqual({ url: "https://connect.stripe.com/setup/safe_link" });
+    apiJson.mockResolvedValueOnce({ url: "https://stripe.com/express/acct_owner/login_token" });
+    await expect(DocumentPayoutService.onboard("vault")).rejects.toThrow("Invalid payout link");
   });
 
   it("keeps only masked bank details and rejects false readiness or full account numbers", async () => {

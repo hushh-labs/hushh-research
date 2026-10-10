@@ -346,6 +346,73 @@ async function routeNotificationClick(url, reason, data) {
 
 importScripts("/chat-notification-preview.js");
 
+// Per-key presentation frontier only; the authenticated message store owns reads.
+let chatPresentation = Promise.resolve();
+function serializeChat(action) {
+  const next = chatPresentation.catch(() => {}).then(action);
+  chatPresentation = next.catch(() => {});
+  return next;
+}
+async function chatFrontier(keyId, threadId, update) {
+  let db;
+  try {
+    db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("hussh-chat-presentation-v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("threads");
+      request.onsuccess = () => resolve(request.result); request.onerror = reject;
+    });
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction("threads", update ? "readwrite" : "readonly");
+      const store = transaction.objectStore("threads");
+      const request = store.get(`${keyId}:${threadId}`);
+      let value;
+      request.onsuccess = () => {
+        value = request.result || { sequence: 0, before: 0, delivered: 0, messages: [] };
+        if (update) { value = update(value); store.put(value, `${keyId}:${threadId}`); }
+      };
+      transaction.oncomplete = () => resolve(value); transaction.onerror = reject; transaction.onabort = reject;
+    });
+  } catch (_) { return null; }
+  finally { db?.close(); }
+}
+async function applyChatRead(boundary) {
+  if (!boundary.keyId || boundary.keyId !== await self.currentChatNotificationKey()) return;
+  await chatFrontier(boundary.keyId, boundary.threadId, old => ({ ...old,
+    sequence: Math.max(old.sequence, Number(boundary.sequence) || 0), before: Math.max(old.before, Number(boundary.before) || 0),
+    messages: [...new Set([...old.messages, ...(boundary.messageId ? [boundary.messageId] : [])])].slice(-200),
+  }));
+  await applyChatBadge({ recipient_key_id: boundary.keyId, chat_badge_count: boundary.badgeCount, chat_badge_version: boundary.badgeVersion });
+  for (const notification of await self.registration.getNotifications()) {
+    const data = notification.data || {};
+    if (boundary.keyId !== await self.currentChatNotificationKey() || data.recipient_key_id !== boundary.keyId || (data.circle_id || data.conversation_id) !== boundary.threadId) continue;
+    const value = Number(boundary.sequence === undefined ? data.chat_sent_at : data.chat_sequence);
+    const limit = boundary.sequence ?? boundary.before;
+    if (boundary.messageId && data.message_id === boundary.messageId || value > 0 && limit !== undefined && value <= limit) notification.close();
+  }
+}
+async function chatCanPresent(data, record = false) {
+  const key = data.recipient_key_id;
+  if (!key) return true; // Historical tokens keep their existing owner checks.
+  if (key !== await self.currentChatNotificationKey()) return false;
+  const thread = data.circle_id || data.conversation_id;
+  const value = Number(data.chat_sequence || data.chat_sent_at);
+  const old = await chatFrontier(key, thread);
+  if (old && (old.messages.includes(data.message_id) || value > 0 && (value <= (data.chat_sequence ? old.sequence : old.before) || value < old.delivered))) return false;
+  if (record) await chatFrontier(key, thread, state => ({ ...state, delivered: Math.max(state.delivered, value || 0), messages: [...new Set([...state.messages, data.message_id])].slice(-200) }));
+  return key === await self.currentChatNotificationKey();
+}
+async function applyChatBadge(data) {
+  if (!data.recipient_key_id || data.recipient_key_id !== await self.currentChatNotificationKey()) return;
+  const count = Number(data.chat_badge_count);
+  if (!Number.isFinite(count) || count < 0) return;
+  const version = Number(data.chat_badge_version) || 0;
+  const old = await chatFrontier(data.recipient_key_id, "__badge__");
+  if (old && version < old.delivered) return;
+  await chatFrontier(data.recipient_key_id, "__badge__", state => ({ ...state, delivered: Math.max(state.delivered, version) }));
+  if (data.recipient_key_id !== await self.currentChatNotificationKey()) return;
+  try { if (count > 0) await self.navigator?.setAppBadge?.(Math.min(9999, count)); else await self.navigator?.clearAppBadge?.(); } catch (_) {}
+}
+
 self.addEventListener("push", function (event) {
   if (!event.data) return;
   try {
@@ -398,6 +465,7 @@ self.addEventListener("push", function (event) {
       : data.notification?.requireInteraction ?? true;
     const isEmergencySms = isEmergencySmsAlert(notificationData);
     const isSilent = isSilentNotification(notificationData);
+    const isChat = ["direct_message", "location_circle_message"].includes(notificationData?.type);
     const notificationOptions = {
       body,
       data: {
@@ -405,18 +473,19 @@ self.addEventListener("push", function (event) {
         source_url: safeDocumentData ? url : sourceUrl,
         url,
       },
-      tag,
+      tag: isChat ? `hussh:chat:${notificationData.recipient_key_id || notificationData.user_id || "legacy"}:${notificationData.circle_id || notificationData.conversation_id}` : tag,
       requireInteraction,
       icon: "/hushh_icon.png",
-      renotify: isEmergencySms,
+      renotify: isEmergencySms || isChat,
       silent: false,
       vibrate: isEmergencySms ? [240, 120, 240, 120, 520] : undefined,
     };
     event.waitUntil(
-      (async () => {
-        const isChat = ["direct_message", "location_circle_message"].includes(notificationData?.type);
+      serializeChat(async () => {
         if (isChat && notificationData.recipient_key_id && notificationData.recipient_key_id !== await self.currentChatNotificationKey()) return;
         if (isChat && Number(notificationData.chat_expires_at) < Date.now() / 1000) return;
+        if (isChat && !await chatCanPresent(notificationData)) return;
+        if (isChat) await applyChatBadge(notificationData);
         const deliveryId = nextDeliveryId();
         if (isSilent) {
           await closeDeliveredNotificationTag(tag);
@@ -455,10 +524,14 @@ self.addEventListener("push", function (event) {
           const text = Array.from(String(preview?.text || (isChat ? "You have a new message" : body))).slice(0, 160).join("");
           const avatar = trusted?.avatar;
           const icon = typeof avatar === "string" && avatar.startsWith("data:image/jpeg;base64,") && avatar.length <= 1023 ? avatar : notificationOptions.icon;
+          if (isChat && !await chatCanPresent(notificationData)) return;
           await self.registration.showNotification(isChat ? group || sender : title, { ...notificationOptions,
             ...(isChat ? { body: group ? `${sender}: ${text}` : text, icon, requireInteraction: false } : {}) });
+          if (isChat) await chatCanPresent(notificationData, true);
+        } else if (isChat) {
+          await chatCanPresent(notificationData, true);
         }
-      })(),
+      }),
     );
   } catch (_) {
     event.waitUntil(
@@ -501,6 +574,10 @@ self.addEventListener("notificationclick", function (event) {
 
 self.addEventListener("message", function (event) {
   const data = event.data || {};
+  if (data.type === "hushh:chat_read") {
+    event.waitUntil(serializeChat(() => applyChatRead(data)));
+    return;
+  }
   if (data.type === "hushh:fcm_push_ack") {
     const acknowledge = pendingForegroundDeliveryAcks.get(data.delivery_id);
     if (acknowledge) acknowledge();
