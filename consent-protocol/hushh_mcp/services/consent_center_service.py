@@ -2255,28 +2255,44 @@ class ConsentCenterService:
             }
 
         if normalized_actor == "investor":
-            if normalized_surface == "pending":
-                entries = await self._load_investor_pending_entries(user_id)
-            elif normalized_surface == "active":
-                entries = await self._load_investor_active_entries(user_id)
-            else:
-                entries = await self._load_investor_previous_entries(user_id)
-            entries = self._filter_mode_entries(
+
+            async def surface_entries() -> list[dict[str, Any]]:
+                if normalized_surface == "pending":
+                    entries = await self._load_investor_pending_entries(user_id)
+                elif normalized_surface == "active":
+                    entries = await self._load_investor_active_entries(user_id)
+                else:
+                    entries = await self._load_investor_previous_entries(user_id)
+                entries = self._filter_mode_entries(
+                    entries,
+                    actor=normalized_actor,
+                    mode=normalized_mode,
+                )
+                return (
+                    self._group_history_identifier_trails(entries)
+                    if normalized_surface == "previous"
+                    else await self._present_pending_bundles(user_id, entries)
+                    if normalized_surface == "pending"
+                    else self._collapse_consent_chains(entries)
+                )
+
+            async def pending_connection_entries() -> list[dict]:
+                if normalized_surface != "pending":
+                    return []
+                return await self._incoming_connection_request_entries(user_id)
+
+            # Connections mode returned above. As in get_center_summary, these
+            # independent reads each check out their own pooled connection.
+            (
                 entries,
-                actor=normalized_actor,
-                mode=normalized_mode,
-            )
-            entries = (
-                self._group_history_identifier_trails(entries)
-                if normalized_surface == "previous"
-                else await self._present_pending_bundles(user_id, entries)
-                if normalized_surface == "pending"
-                else self._collapse_consent_chains(entries)
-            )
-            location_buckets = (
-                await self._location_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
+                location_buckets,
+                marketplace_buckets,
+                connection_entries,
+            ) = await asyncio.gather(
+                surface_entries(),
+                self._location_buckets_async(user_id),
+                self._marketplace_buckets_async(user_id),
+                pending_connection_entries(),
             )
             if location_buckets:
                 if normalized_surface == "pending":
@@ -2285,11 +2301,6 @@ class ConsentCenterService:
                     entries = [*entries, *location_buckets["active_grants"]]
                 else:
                     entries = [*entries, *location_buckets["history"]]
-            marketplace_buckets = (
-                await self._marketplace_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
-            )
             if marketplace_buckets:
                 if normalized_surface == "pending":
                     entries = [*entries, *marketplace_buckets["incoming_requests"]]
@@ -2297,9 +2308,7 @@ class ConsentCenterService:
                     entries = [*entries, *marketplace_buckets["active_grants"]]
                 else:
                     entries = [*entries, *marketplace_buckets["history"]]
-            if normalized_mode == "consents" and normalized_surface == "pending":
-                connection_entries = await self._incoming_connection_request_entries(user_id)
-                entries = [*entries, *connection_entries]
+            entries = [*entries, *connection_entries]
             paged = await self._paginate_with_drive(
                 entries,
                 user_id=user_id,

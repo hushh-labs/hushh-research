@@ -205,11 +205,10 @@ async def resume_document_owner_setup(db: Any, user_id: str) -> None:
     """A committed readiness change wakes durable requests; the worker also retries."""
     try:
         from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-        from hushh_mcp.services.drive_work_wake import wake_drive_work
+        from hushh_mcp.services.drive_work_wake import wake_drive_work_stages
 
         await DriveSharingStore(db=db).resume_owner_setup(user_id=user_id)
-        await wake_drive_work("suggestions")
-        await wake_drive_work("sharing")
+        await wake_drive_work_stages("suggestions", "sharing")
     except Exception as exc:
         logger.warning("document_payout.resume_deferred type=%s", type(exc).__name__)
 

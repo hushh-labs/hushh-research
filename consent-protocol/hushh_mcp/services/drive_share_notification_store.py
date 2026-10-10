@@ -14,7 +14,12 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_sharing_center_contributor import (
+    _OWNER_DRIVE_READY,
+    _TRUSTED_RECIPIENT,
+)
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 MAX_NOTIFICATION_ATTEMPTS = 3
@@ -22,6 +27,33 @@ NOTIFICATION_LEASE_SECONDS = 90
 MAX_NOTIFICATION_RETRY_SECONDS = 300
 # Every outbox with the 232 + 235 column shape; nothing else may be leased.
 OUTBOX_TABLES = frozenset({"drive_share_events", "drive_query_events"})
+
+# The owner's first unmet setup step on their own open request, in the order a
+# request needs them: a live Drive, then payouts, then a price. Outside the
+# Trusted circle the owner prices the request on Allow in its review, so that
+# request keeps the review. Metadata only, with the Consent Center's own
+# predicates; no request envelope is opened.
+_OWNER_SETUP_STEP = (
+    """SELECT CASE
+  WHEN NOT """
+    + _OWNER_DRIVE_READY
+    + """ THEN 'drive'
+  WHEN drive_share_requests.preparation_error_code='owner_payout_required' THEN 'payouts'
+  WHEN drive_share_requests.preparation_error_code='owner_price_required' AND """
+    + _TRUSTED_RECIPIENT
+    + """ THEN 'price'
+END
+FROM drive_share_requests
+WHERE drive_share_requests.request_id=:request AND drive_share_requests.user_id=:user
+  AND drive_share_requests.status='pending'
+  AND drive_share_requests.expires_at>clock_timestamp()
+  AND drive_share_requests.access_stop_requested_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM drive_request_payment_orders pay
+    WHERE pay.request_id=drive_share_requests.request_id
+      AND pay.status IN ('paid','refunded')
+  )"""
+)
 
 
 class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
@@ -71,6 +103,24 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
             )
 
         return cast(bool, await self._transaction(operation))
+
+    async def owner_setup_step(self, *, request_id: str, user_id: str) -> str | None:
+        """Name the one setup step a request push should open, else ``None``.
+
+        A closed, settled, stopped or someone else's request never has one.
+        """
+        request_id = self._event_id(request_id)
+
+        def operation(connection: Any) -> str | None:
+            return cast(
+                str | None,
+                connection.execute(
+                    text(_OWNER_SETUP_STEP),
+                    {"request": request_id, "user": user_id, "live_policy_hash": LIVE_POLICY_HASH},
+                ).scalar_one_or_none(),
+            )
+
+        return cast(str | None, await self._transaction(operation))
 
     async def due(self, limit: int = 8) -> list[dict[str, Any]]:
         """Inspect a fair, bounded set without handing provider authority to it."""

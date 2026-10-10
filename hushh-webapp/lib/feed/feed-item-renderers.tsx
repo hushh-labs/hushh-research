@@ -19,6 +19,7 @@ import {
   reasonMidSentence,
 } from "@/lib/consent/consent-owner-copy";
 import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
+import { documentRequestSetupHref } from "@/lib/consent/document-request-setup";
 import {
   documentPayoutNetEarnings,
   isOwnerDocumentPayoutStatus,
@@ -251,9 +252,17 @@ function documentRefundLine(metadata: Record<string, unknown>): string {
     : `Refunded ${amount} for undelivered files`;
 }
 
+/** The owner's payout line asks them to set up payouts; the row then opens Payouts. */
+function ownerDocumentPayoutSetupNeeded(metadata: Record<string, unknown>): boolean {
+  const status = metadata.owner_payout_status;
+  const accountMissing = metadata.owner_payout_account_ready === false;
+  if (!isOwnerDocumentPayoutStatus(status)) return accountMissing;
+  return status === "awaiting_account" || (accountMissing && status === "awaiting_delivery");
+}
+
 function ownerDocumentPayoutFeedLine(metadata: Record<string, unknown>): string | null {
   const status = metadata.owner_payout_status;
-  const setupNeeded = metadata.owner_payout_account_ready === false;
+  const setupNeeded = ownerDocumentPayoutSetupNeeded(metadata);
   if (!isOwnerDocumentPayoutStatus(status)) return setupNeeded ? "Set up US payouts" : null;
   const label = status === "transferred"
     ? "Sent to Stripe"
@@ -263,7 +272,7 @@ function ownerDocumentPayoutFeedLine(metadata: Record<string, unknown>): string 
         ? "Transfer reversed"
         : status === "void"
           ? "No payout due"
-          : status === "awaiting_account" || (setupNeeded && status === "awaiting_delivery")
+          : setupNeeded
             ? "Payout pending setup"
             : "Payout pending";
   const cents = metadata.owner_earning_cents;
@@ -1296,14 +1305,16 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           ),
           ownerDocumentPayoutFeedLine(item.metadata),
         ].filter(Boolean).join(" · "),
-        href: item.event_type === "document_share_payment_ready" ||
-          item.event_type === "document_share_payment_confirmed" ||
-          item.event_type === "document_share_payment_refunded"
-          ? ROUTES.ONE_FEED
-          : buildConsentCenterHref(
-              "pending",
-              selection ? { requestId: selection } : undefined,
-            ),
+        href: ownerDocumentPayoutSetupNeeded(item.metadata)
+          ? documentRequestSetupHref("payouts")
+          : item.event_type === "document_share_payment_ready" ||
+            item.event_type === "document_share_payment_confirmed" ||
+            item.event_type === "document_share_payment_refunded"
+            ? ROUTES.ONE_FEED
+            : buildConsentCenterHref(
+                "pending",
+                selection ? { requestId: selection } : undefined,
+              ),
       };
     }
     default:

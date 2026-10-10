@@ -433,14 +433,16 @@ class FeedService:
                            (r.user_id=:user_id) AS viewer_is_owner,
                            p.status AS owner_payout_status,
                            p.owner_earning_cents,
-                           CASE WHEN r.payment_required AND r.status IN
+                           CASE WHEN r.payment_required AND r.settlement_method<>'hashcoins'
+                             AND r.status IN
                              ('pending','preparing','review_ready','approved','partial','completed')
                              AND
                              (p.request_id IS NOT NULL OR
                               (:payout_rollout AND o.request_id IS NULL)) THEN
                              COALESCE(a.account_ready,FALSE)
                            END AS owner_payout_account_ready,
-                           CASE WHEN p.request_id IS NOT NULL THEN
+                           CASE WHEN p.request_id IS NOT NULL
+                             AND r.settlement_method<>'hashcoins' THEN
                              COALESCE(a.account_ready,FALSE)
                            END AS current_owner_payout_account_ready,
                            CASE WHEN f.status='succeeded'
