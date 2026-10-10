@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 import uuid
@@ -10,10 +11,13 @@ from pathlib import Path
 from threading import Barrier
 from types import SimpleNamespace
 
+import asyncpg
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
+
+from db.migration_authority import MigrationMode, apply_manifest_entries, build_manifest_entries
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,24 +66,36 @@ def projection_db():
                     """
                 )
             )
-        raw = engine.raw_connection()
-        raw.autocommit = True
-        with raw.cursor() as cursor:
-            for migration in [
-                "012_user_push_tokens.sql",
-                "201_account_deletion_tombstones.sql",
-                "264_direct_messages.sql",
-                "268_direct_message_feed_projection.sql",
-                "282_direct_message_actions.sql",
-                "284_direct_message_multiple_reactions.sql",
-                "290_chat_push_delivery.sql",
-                "295_direct_message_attachments.sql",
-            ]:
-                sql = (ROOT / "db/migrations" / migration).read_text(encoding="utf-8")
-                # Replay the actual production guards and projection wiring.
-                cursor.execute(sql)
-                cursor.execute(sql)
-        raw.close()
+
+        def apply_migrations(filenames):
+            async def run():
+                connection = await asyncpg.connect(
+                    engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+                )
+                try:
+                    return await apply_manifest_entries(
+                        connection,
+                        build_manifest_entries(ROOT / "db/migrations", filenames),
+                        mode=MigrationMode.REPLAY,
+                    )
+                finally:
+                    await connection.close()
+
+            return asyncio.run(run())
+
+        for _ in range(2):
+            apply_migrations(
+                [
+                    "012_user_push_tokens.sql",
+                    "201_account_deletion_tombstones.sql",
+                    "264_direct_messages.sql",
+                    "268_direct_message_feed_projection.sql",
+                    "282_direct_message_actions.sql",
+                    "284_direct_message_multiple_reactions.sql",
+                    "290_chat_push_delivery.sql",
+                    "295_direct_message_attachments.sql",
+                ]
+            )
 
         def execute_raw(sql, params):
             with engine.begin() as connection:
@@ -88,7 +104,9 @@ def projection_db():
                     data=[dict(row) for row in result.mappings()] if result.returns_rows else []
                 )
 
-        yield SimpleNamespace(engine=engine, execute_raw=execute_raw)
+        yield SimpleNamespace(
+            engine=engine, execute_raw=execute_raw, apply_migrations=apply_migrations
+        )
     finally:
         engine.dispose()
         with admin.connect() as connection:
@@ -203,18 +221,8 @@ def _seed_people(db):
 def test_attachment_migration_replay_preserves_encrypted_rows_and_authorization(
     projection_db, monkeypatch
 ):
-    migration = (ROOT / "db/migrations/295_direct_message_attachments.sql").read_text(
-        encoding="utf-8"
-    )
-
     def apply_migration():
-        raw = projection_db.engine.raw_connection()
-        try:
-            raw.autocommit = True
-            with raw.cursor() as cursor:
-                cursor.execute(migration)
-        finally:
-            raw.close()
+        projection_db.apply_migrations(("295_direct_message_attachments.sql",))
 
     apply_migration()
     _seed_people(projection_db)

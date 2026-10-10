@@ -46,7 +46,6 @@ CREATE TRIGGER trg_direct_message_attachment_guard
   FOR EACH ROW EXECUTE FUNCTION public.guard_direct_message_attachment_write();
 
 ALTER TABLE public.direct_message_attachments ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS direct_message_attachments_deny_all ON public.direct_message_attachments;
 CREATE POLICY direct_message_attachments_deny_all ON public.direct_message_attachments
   USING (false) WITH CHECK (false);
 REVOKE ALL PRIVILEGES ON TABLE public.direct_message_attachments FROM PUBLIC;
