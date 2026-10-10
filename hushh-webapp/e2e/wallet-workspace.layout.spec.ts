@@ -644,10 +644,6 @@ for (const width of [320, 390, 1440]) {
 
 for (const width of [390, 1440]) {
   test(`Wallet card actions: tab highlight stays centered during form presses and tab switches at ${width}px`, async ({ page }) => {
-    // Six animated tab changes and twelve press checks share this budget.
-    // Concurrent WebKit runs need room for the whole sequence; each assertion
-    // keeps its default timeout and the same geometry tolerance.
-    test.setTimeout(60_000);
     const errors = await open(page, width, "light", { cards: 3 }, { height: 844, shell: true });
     await mount(page);
     const alignment = () => page.evaluate(() => {
@@ -655,30 +651,54 @@ for (const width of [390, 1440]) {
       const indicator = document.querySelector('[data-testid="top-shell-tab-indicator"]')!.getBoundingClientRect();
       return Math.abs(selected.x + selected.width / 2 - indicator.x - indicator.width / 2);
     });
-    for (const [index, name] of ["Add", "Sharing", "Cards", "Add", "Sharing", "Add"].entries()) {
-      await test.step(`Tab transition ${index + 1}: ${name}`, async () => {
-        await page.getByRole("tab", { name, exact: true }).click();
-        await expect(page.getByRole("tab", { name, exact: true })).toHaveAttribute("aria-selected", "true");
+    const expectAligned = async () => {
+      try {
         await expect.poll(alignment).toBeLessThan(2);
-        if (name === "Add") {
-          for (const label of ["Show", "Hide", "Show", "Hide"]) {
-            const button = page.getByRole("button", { name: `${label} CVV and PIN`, exact: true });
-            await button.evaluate(el => {
-              const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
-              root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;
-            });
-            const box = await button.boundingBox();
-            if (!box) throw new Error("PIN visibility control missing");
-            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            await page.mouse.down();
-            expect(await alignment()).toBeLessThan(2);
-            await page.mouse.up();
-            await expect(page.getByRole("button", { name: `${label === "Show" ? "Hide" : "Show"} CVV and PIN`, exact: true })).toBeVisible();
-            await expect.poll(alignment).toBeLessThan(2);
-            expect(await page.locator('[data-swipe-views-root="true"]').evaluate(el => el.scrollLeft)).toBe(0);
-          }
+      } catch (error) {
+        // Only synthetic fixture geometry is logged; assertions stay strict.
+        console.error("Wallet tab alignment geometry", await page.evaluate(() => {
+          const geometry = (selector: string) => [...document.querySelectorAll<HTMLElement>(selector)].map(el => {
+            const bounds = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            return { id: el.id, selected: el.getAttribute("aria-selected"),
+              x: bounds.x, width: bounds.width, scrollLeft: el.scrollLeft,
+              transform: style.transform, transition: style.transition };
+          });
+          const strip = document.querySelector<HTMLElement>('[data-top-shell-tab-set="wallet"]');
+          return {
+            position: strip?.style.getPropertyValue("--top-shell-tab-swipe-wallet-position"),
+            tabs: geometry('[role="tab"]'),
+            indicator: geometry('[data-testid="top-shell-tab-indicator"]'),
+            pager: geometry('[data-swipe-views-root="true"]'),
+            panels: geometry('[role="tabpanel"]'),
+            visibility: document.visibilityState,
+          };
+        }));
+        throw error;
+      }
+    };
+    for (const name of ["Add", "Sharing", "Cards", "Add", "Sharing", "Add"]) {
+      await page.getByRole("tab", { name, exact: true }).click();
+      await expect(page.getByRole("tab", { name, exact: true })).toHaveAttribute("aria-selected", "true");
+      await expectAligned();
+      if (name === "Add") {
+        for (const label of ["Show", "Hide", "Show", "Hide"]) {
+          const button = page.getByRole("button", { name: `${label} CVV and PIN`, exact: true });
+          await button.evaluate(el => {
+            const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
+            root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;
+          });
+          const box = await button.boundingBox();
+          if (!box) throw new Error("PIN visibility control missing");
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+          await page.mouse.down();
+          expect(await alignment()).toBeLessThan(2);
+          await page.mouse.up();
+          await expect(page.getByRole("button", { name: `${label === "Show" ? "Hide" : "Show"} CVV and PIN`, exact: true })).toBeVisible();
+          await expectAligned();
+          expect(await page.locator('[data-swipe-views-root="true"]').evaluate(el => el.scrollLeft)).toBe(0);
         }
-      });
+      }
     }
     await page.screenshot({ path: test.info().outputPath("wallet-add-stable-tabs.png") });
     expect(errors).toEqual([]);

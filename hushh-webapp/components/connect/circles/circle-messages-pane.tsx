@@ -65,7 +65,11 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
     const refresh = async () => {
       setLoading(true);
       try {
-        const circles = await OneLocationService.listCircles(token);
+        // The directory also contains Trusted/SMS circles. Their private
+        // roster contracts exclude group chat, even with active membership.
+        const circles = (await OneLocationService.listCircles(token)).filter(
+          (circle) => !circle.isSystem && !circle.systemKind,
+        );
         if (!active) return;
         setLoaded({ token, ownerId, circles });
         setError(false);
